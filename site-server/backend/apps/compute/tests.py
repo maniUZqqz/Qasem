@@ -322,3 +322,75 @@ class ComputeEnrollTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotEqual(r.data["enroll_key"], before)
         self.assertEqual(r.data["image_video_node"], "", "چرخاندنِ کلید مسیر را عوض نمی‌کند")
+
+
+@override_settings(NM_DATA_DIR=Path(TMP), IS_TEST=True)
+class ComputeDesiredServicesTests(TestCase):
+    def setUp(self):
+        self.node = ComputeNode.objects.create(name="gpu-1", capabilities={"comfyui": True}, last_seen=timezone.now())
+        self.c = APIClient()
+        self.c.credentials(HTTP_AUTHORIZATION="Node " + self.node.token)
+        self.staff = APIClient()
+        self.staff.force_authenticate(get_user_model().objects.create_user("boss4", "b4@x.io", "pw", is_staff=True))
+
+    def test_desired_services_reach_the_node_in_heartbeat_and_claim(self):
+        r = self.staff.post(f"/api/v1/compute/nodes/{self.node.pk}/desired/",
+                            {"services": {"ollama": False, "comfyui": True}, "auto_switch": False}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["desired"], {"ollama": False, "comfyui": True})
+        self.assertFalse(r.data["auto_switch"])
+        hb = self.c.post("/api/v1/compute/heartbeat/", {}, format="json").data
+        self.assertEqual(hb["desired"], {"ollama": False, "comfyui": True})
+        self.assertFalse(hb["auto_switch"])
+        cl = self.c.post("/api/v1/compute/claim/", {}, format="json").data
+        self.assertIsNone(cl["job"])
+        self.assertEqual(cl["desired"], {"ollama": False, "comfyui": True})
+        # None = «دست نزن» کلید را حذف می‌کند
+        r = self.staff.post(f"/api/v1/compute/nodes/{self.node.pk}/desired/", {"services": {"ollama": None}}, format="json")
+        self.assertEqual(r.data["desired"], {"comfyui": True})
+
+    def test_desired_rejects_unknown_service(self):
+        r = self.staff.post(f"/api/v1/compute/nodes/{self.node.pk}/desired/", {"services": {"tor": True}}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_node_json_exposes_resources_and_managed(self):
+        self.c.post("/api/v1/compute/heartbeat/", {"comfyui": True, "ram_total_mb": 32000, "ram_free_mb": 9000,
+                                                   "vram_used_mb": 7000, "vram_total_mb": 12288,
+                                                   "managed": {"comfyui": "agent", "ollama": "external"}}, format="json")
+        n = self.staff.get("/api/v1/compute/nodes/").data[0]
+        self.assertEqual(n["resources"]["vram_total_mb"], 12288)
+        self.assertEqual(n["managed"]["ollama"], "external")
+
+
+@override_settings(NM_DATA_DIR=Path(TMP), IS_TEST=True)
+class ComputeStartableRoutingTests(TestCase):
+    """سرویس خاموش است ولی عامل می‌تواند روشنش کند ⇒ با سوئیچِ خودکار، کار پذیرفته می‌شود (گره خودش سوئیچ می‌کند)."""
+
+    def setUp(self):
+        self.node = ComputeNode.objects.create(
+            name="gpu-s", last_seen=timezone.now(), auto_switch=True,
+            capabilities={"comfyui": False, "ollama": True, "startable": {"comfyui": True, "ollama": True}})
+
+    def test_startable_counts_as_capable_when_auto_switch_is_on(self):
+        self.assertTrue(self.node.has("comfyui"))
+        self.assertEqual([n.name for n in SV.online_nodes("comfyui")], ["gpu-s"])
+        job = SV.enqueue("comfy.graph", {"graph": {"1": {}}})
+        self.assertIsNotNone(job.pk)
+
+    def test_claim_gives_the_job_to_a_node_that_can_start_the_service(self):
+        job = SV.enqueue("comfy.graph", {"graph": {"2": {}}})
+        self.assertEqual(SV.claim(self.node).pk, job.pk)
+
+    def test_claim_skips_it_when_auto_switch_is_off(self):
+        SV.enqueue("comfy.graph", {"graph": {"3": {}}}, require_online=False)
+        self.node.auto_switch = False
+        self.node.save()
+        self.assertIsNone(SV.claim(self.node))
+
+    def test_startable_is_ignored_when_auto_switch_is_off(self):
+        self.node.auto_switch = False
+        self.node.save()
+        self.assertFalse(self.node.has("comfyui"))
+        self.assertTrue(self.node.has("ollama"))
+        with self.assertRaises(SV.ComputeUnavailable):
+            SV.enqueue("comfy.graph", {"graph": {"1": {}}})

@@ -39,11 +39,8 @@ if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" (
   start "ComfyUI" /min cmd /c "%NM_COMFY_BAT%"
 )
 
-rem ---- 3D render worker (Blender) in its own window when the up3d folder is present
-if exist "%~dp0up3d\__init__.py" (
-  start "UpMarket 3D worker" /min cmd /c "%~dp0worker-3d.bat"
-)
-
+rem ---- services (ComfyUI, Ollama, voice/photo/video editors, 3D worker) are started and stopped by the
+rem ---- agent according to the panel (Processing servers > services of this node); see services.json
 echo.
 echo Processing node is running. Keep this window open. (Ctrl+C to stop)
 echo.

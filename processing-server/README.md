@@ -36,6 +36,20 @@ one node and never processes an identical request twice.
 Second machine: copy the same folder (without `node.json`) and run `START.bat` again — it registers under
 its own name.
 
+## Services and auto-switch (controlled from the panel)
+
+`services.json` (created on first run) tells the agent how to start each local service:
+`ollama` (`ollama serve`), `comfyui` (`${NM_COMFY_BAT}` → set the env var or write the path of
+`run_nvidia_gpu.bat`), `voice` / `photo` / `video` (PersianAiKit `Run-Server.bat`), `worker3d` (`worker-3d.bat`).
+
+In the panel (Processing servers → the node's services) you choose which services should be **on** or
+**off** on each machine; the agent applies it within seconds (services it started can be stopped; a service
+you started yourself is reported as *external* — Ollama models can still be unloaded and ComfyUI memory
+freed). With **auto-switch** on, a job that needs an engine which is not running is handled automatically:
+before an image/video job Ollama's models are unloaded from VRAM and ComfyUI is started; before an Ollama
+job ComfyUI's models are freed and Ollama is started; voice/photo/video editors are started on demand.
+RAM and VRAM usage are reported to the panel on every heartbeat.
+
 ## Diagnostic
 
     python agent.py --check

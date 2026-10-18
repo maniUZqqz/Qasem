@@ -13,12 +13,14 @@ class ComputeNodeAdmin(admin.ModelAdmin):
         "کامپیوترهای گرافیکی (بی‌IP ثابت) که با توکنِ خودشان به سایت وصل می‌شوند و کارِ تصویر/ویدیو/صدا "
         "می‌گیرند. توکن را از پنل («سرورهای پردازش» ⇐ فایلِ راه‌اندازی) به سرور می‌دهید."
     )
-    list_display = ("name", "online_badge", "enabled", "capability_list", "jobs_done", "last_seen")
+    list_display = ("name", "online_badge", "enabled", "auto_switch", "capability_list", "jobs_done", "last_seen")
     list_filter = ("enabled",)
     search_fields = ("name", "notes")
     readonly_fields = ("token", "capabilities", "stats", "last_seen", "jobs_done", "created_at", "updated_at")
     fieldsets = (
         (None, {"fields": ("name", "enabled", "notes", "token")}),
+        ("سرویس‌ها", {"fields": ("desired", "auto_switch"),
+                      "description": "desired: {\"ollama\": true, \"comfyui\": true, \"voice\": false, \"photo\": false, \"video\": false, \"worker3d\": true} — از پنل راحت‌تر است."}),
         ("گزارشِ خودِ سرور", {"fields": ("capabilities", "stats", "last_seen", "jobs_done"), "classes": ("collapse",)}),
         ("زمان‌ها", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )

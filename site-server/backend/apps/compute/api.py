@@ -20,6 +20,9 @@ from rest_framework.response import Response
 from . import services as SV
 from .models import ComputeJob, ComputeNode, ComputeNodeLog, ComputeSettings, new_token
 
+#: سرویس‌هایی که گره بلد است روشن/خاموش کند (services.json روی خودِ گره دستورِ اجرایشان را دارد)
+SERVICE_KEYS = ("ollama", "comfyui", "voice", "photo", "video", "worker3d")
+
 
 class NodeAuth(authentication.BaseAuthentication):
     keyword = "Node"
@@ -73,7 +76,10 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
          "agent": caps.get("agent"), "hostname": caps.get("hostname"), "gpu": caps.get("gpu"),
          "services": {k: bool(caps.get(k)) for k in ("comfyui", "comfy_bridge", "photo", "video", "voice", "ollama", "blender")},
          "last_error": (ComputeNodeLog.objects.filter(node=n, level__in=["ERROR", "CRITICAL"]).values_list("message", flat=True).first()
-                        or "")}
+                        or ""),
+         "desired": n.desired or {}, "auto_switch": n.auto_switch,
+         "managed": caps.get("managed") or {},
+         "resources": {k: caps.get(k) for k in ("ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb") if caps.get(k) is not None}}
     if with_token:
         d["token"] = n.token
     return d
@@ -87,7 +93,8 @@ def heartbeat(request):
     if isinstance(request.data, dict) and request.data:
         node.capabilities = dict(request.data)
         node.save(update_fields=["capabilities"])
-    return Response({"ok": True, "name": node.name, "server_time": timezone.now()})
+    return Response({"ok": True, "name": node.name, "server_time": timezone.now(),
+                     "desired": node.desired or {}, "auto_switch": node.auto_switch})
 
 
 @node_api("POST")
@@ -97,11 +104,12 @@ def claim(request):
         node.capabilities = dict(request.data["capabilities"])
         node.save(update_fields=["capabilities"])
     job = SV.claim(node)
+    control = {"desired": node.desired or {}, "auto_switch": node.auto_switch}
     if not job:
-        return Response({"job": None})
+        return Response({"job": None, **control})
     return Response({"job": {"uid": str(job.uid), "kind": job.kind, "payload": job.payload,
                              "inputs": list((job.inputs or {}).keys()), "timeout_s": job.timeout_s,
-                             "attempt": job.attempts}})
+                             "attempt": job.attempts}, **control})
 
 
 def _job_of(request, uid) -> tuple[ComputeNode, ComputeJob]:
@@ -349,3 +357,30 @@ def compute_settings(request):
     return Response({"image_video_node": cfg.image_video_node, "updated_at": cfg.updated_at,
                      "enroll_key": cfg.enroll_key, "site": request.build_absolute_uri("/").rstrip("/"),
                      "nodes": list(ComputeNode.objects.filter(enabled=True).values_list("name", flat=True))})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
+def node_desired(request, pk):
+    """پنل می‌گوید روی این گره چه سرویس‌هایی روشن باشد و سوئیچِ خودکار روشن است یا نه.
+    بدنه: {"services": {"ollama": true, "comfyui": false, ...}, "auto_switch": true} — هر دو اختیاری."""
+    node = get_object_or_404(ComputeNode, pk=pk)
+    data = request.data if isinstance(request.data, dict) else {}
+    if "services" in data:
+        services = data.get("services") or {}
+        if not isinstance(services, dict):
+            raise exceptions.ValidationError({"services": "باید شیء باشد"})
+        bad = [k for k in services if k not in SERVICE_KEYS]
+        if bad:
+            raise exceptions.ValidationError({"services": "سرویسِ ناشناخته: " + ", ".join(bad)})
+        desired = dict(node.desired or {})
+        for k, v in services.items():
+            if v is None:
+                desired.pop(k, None)   # None = دست نزن (پیش‌فرضِ گره)
+            else:
+                desired[k] = bool(v)
+        node.desired = desired
+    if "auto_switch" in data:
+        node.auto_switch = bool(data.get("auto_switch"))
+    node.save(update_fields=["desired", "auto_switch"])
+    return Response(node_json(node))

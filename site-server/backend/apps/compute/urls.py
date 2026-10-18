@@ -22,5 +22,6 @@ urlpatterns = [
     path("jobs/<uuid:uid>/", api.job_detail),
     path("submit/", api.submit),
     path("nodes/<int:pk>/logs/", api.node_logs),
+    path("nodes/<int:pk>/desired/", api.node_desired),
     path("settings/", api.compute_settings),
 ]

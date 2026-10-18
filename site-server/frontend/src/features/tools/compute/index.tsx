@@ -11,6 +11,7 @@ import {
   ErrorBox,
   Field,
   Input,
+  Meter,
   PageHeader,
   SectionTitle,
   Select,
@@ -45,6 +46,29 @@ const SERVICE_LABELS: Record<ServiceKey, string> = {
   blender: "Blender",
 };
 
+/**
+ * سرویس‌هایی که عاملِ روی سرور بلد است روشن/خاموش کند (SERVICE_KEYS در apps/compute/api.py).
+ * کلیدِ «خواسته» با کلیدِ گزارشِ واقعی یکی نیست: رندرِ سه‌بعدی را عامل با worker3d می‌گیرد
+ * ولی حضورش را با blender گزارش می‌کند.
+ */
+const MANAGED_KEYS = ["ollama", "comfyui", "voice", "photo", "video", "worker3d"] as const;
+type ManagedKey = (typeof MANAGED_KEYS)[number];
+/** آن‌چه خودِ سرور دربارهٔ هر سرویس می‌گوید: عامل روشنش کرده / کسی بیرون از عامل روشنش کرده / خاموش است */
+type ManagedState = "agent" | "external" | "off";
+const MANAGED_SERVICES: { key: ManagedKey; actual: ServiceKey; label: string; sub: string }[] = [
+  { key: "ollama", actual: "ollama", label: "Ollama", sub: "مدل‌های متن/بینایی" },
+  { key: "comfyui", actual: "comfyui", label: "ComfyUI", sub: "تصویر FLUX و ویدیو Wan" },
+  { key: "voice", actual: "voice", label: "صدا", sub: "PersianAiKit Voice" },
+  { key: "photo", actual: "photo", label: "ویرایشگرِ عکس", sub: "PersianAiKit Photo" },
+  { key: "video", actual: "video", label: "ویرایشگرِ ویدیو", sub: "PersianAiKit Video" },
+  { key: "worker3d", actual: "blender", label: "رندرِ سه‌بعدی", sub: "Blender" },
+];
+
+/** خواستهٔ پنل برای هر سرویس؛ کلیدِ غایب = «دست نزن» (پیش‌فرضِ خودِ سرور) */
+type Desired = Partial<Record<ManagedKey, boolean>>;
+/** از آخرین heartbeat: حافظهٔ دستگاه و کارتِ گرافیک (مگابایت)؛ هر کدام نباشد، گزارش نشده */
+type Resources = { ram_total_mb?: number; ram_free_mb?: number; vram_used_mb?: number; vram_total_mb?: number };
+
 type Node = {
   id: number;
   name: string;
@@ -63,7 +87,17 @@ type Node = {
   services: Partial<Record<ServiceKey, boolean>>;
   /** آخرین خطِ ERROR/CRITICAL که خودِ سرور فرستاده؛ خالی = خطایی نیست */
   last_error: string;
+  /** چه سرویس‌هایی روشن/خاموش باشد (POST /compute/nodes/<id>/desired/)؛ عامل در heartbeat بعدی می‌گیرد */
+  desired: Desired;
+  /** وقتی کاری بیاید که سرویسش روشن نیست، عامل خودش موتورِ دیگر را خالی و سرویسِ لازم را روشن کند */
+  auto_switch: boolean;
+  /** گزارشِ خودِ سرور: هر سرویس را عامل روشن کرده، چیزی بیرونی، یا خاموش است (کلیدها همان MANAGED_KEYS) */
+  managed: Partial<Record<string, ManagedState>>;
+  resources: Resources;
 };
+
+/** پاسخِ POST …/desired/ همان ردیفِ سرور است ولی بی‌توکن؛ روی ردیفِ موجود merge می‌شود */
+type NodeView = Omit<Node, "token">;
 
 type LogLine = { level: string; message: string; ts: string | null };
 
@@ -122,7 +156,10 @@ type Tone = "ok" | "bad" | "warn" | "info" | "neutral";
 /** کلیدهایی که جای دیگری نشان داده می‌شوند (زیرِ نام یا در ستونِ سرویس‌ها) و نباید دوباره Badge شوند */
 const HIDDEN_CAPS = new Set<string>([
   "hostname", "version", "agent", "platform", "comfy_nodes", "gpu", "slots", "ollama_models", "comfy_profiles",
+  // این‌ها در کشوی «سرویس‌ها» و نوارهای حافظه نشان داده می‌شوند
+  "managed", "ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb",
   ...SERVICE_KEYS,
+  ...MANAGED_KEYS,
 ]);
 
 const KINDS: { value: string; label: string; example: string }[] = [
@@ -183,6 +220,27 @@ function fmtTime(iso: string | null): string {
   return d.toLocaleString("fa-IR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+/** مگابایت ⇐ «۷٫۰» گیگابایت با رقم و ممیزِ فارسی (برای «VRAM ۷٫۰ از ۱۲٫۳ GB») */
+function gb(mb: number): string {
+  return fa((mb / 1024).toFixed(1)).replace(".", "٫");
+}
+
+/**
+ * وضعیتِ واقعیِ یک سرویس روی سرور: اول گزارشِ «managed» (عامل روشنش کرده / بیرونی / خاموش)،
+ * وگرنه همان پرچمِ ساده‌ی حضور در services.
+ */
+function actualState(n: Node, s: (typeof MANAGED_SERVICES)[number]): { on: boolean; text: string; tone: Tone; title: string } {
+  const m = n.managed?.[s.key] ?? n.managed?.[s.actual];
+  if (m === "agent") return { on: true, text: "روشن (عامل)", tone: "ok", title: "عاملِ پردازش خودش این سرویس را روشن کرده و خاموشش هم می‌تواند بکند" };
+  if (m === "external")
+    return { on: true, text: "روشن (بیرونی)", tone: "info", title: "بیرون از عامل روشن شده (مثلاً دستی)؛ عامل خاموشش نمی‌کند" };
+  if (m === "off") return { on: false, text: "خاموش", tone: "neutral", title: "عامل گزارش کرده که خاموش است" };
+  const on = Boolean(n.services?.[s.actual]);
+  return on
+    ? { on: true, text: "روشن", tone: "ok", title: "سرور حضورِ این سرویس را گزارش کرده" }
+    : { on: false, text: "خاموش", tone: "neutral", title: "خاموش یا گزارش‌نشده" };
+}
+
 /** نشانی‌های خروجی از سرور کامل می‌آیند (/api/v1/…)؛ کلاینت خودش /api/v1 را جلویش می‌گذارد. */
 function apiPath(url: string): string {
   return url.replace(/^\/api\/v1/, "");
@@ -210,6 +268,8 @@ export default function ComputePage() {
   const [shownToken, setShownToken] = useState<number | null>(null);
   /** شناسهٔ سروری که کشوی لاگش باز است (فقط یکی) */
   const [openLog, setOpenLog] = useState<number | null>(null);
+  /** شناسهٔ سروری که کشوی «سرویس‌ها»یش باز است (فقط یکی؛ مستقل از لاگ) */
+  const [openServices, setOpenServices] = useState<number | null>(null);
   /** یک نسخه از تنظیمات برای هر دو کارت (ثبتِ سرورِ تازه + مسیرِ پردازش)؛ هر ۳۰ ثانیه تازه می‌شود */
   const [settings, setSettings] = useState<RouteSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -263,11 +323,17 @@ export default function ComputePage() {
     }
   };
 
+  /** پاسخِ POST …/desired/ بی‌توکن است؛ روی همان ردیف می‌نشیند تا کنترل‌ها بی‌درنگ (پیش از poll بعدی) تازه شوند */
+  const patchNode = useCallback((data: NodeView) => {
+    setNodes((prev) => (prev ? prev.map((x) => (x.id === data.id ? { ...x, ...data } : x)) : prev));
+  }, []);
+
   const nodeAction = async (node: Node, action: "toggle" | "rotate" | "delete") => {
     if (action === "delete" && !window.confirm(`سرورِ «${node.name}» حذف شود؟`)) return;
     try {
       await api.post(`/compute/nodes/${node.id}/`, { action });
       if (action === "delete" && openLog === node.id) setOpenLog(null);
+      if (action === "delete" && openServices === node.id) setOpenServices(null);
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -367,6 +433,8 @@ export default function ComputePage() {
               const introduced = Boolean(n.agent || n.hostname || n.gpu);
               const logOpen = openLog === n.id;
               const toggleLog = () => setOpenLog(logOpen ? null : n.id);
+              const servicesOpen = openServices === n.id;
+              const toggleServices = () => setOpenServices(servicesOpen ? null : n.id);
               return (
                 <Fragment key={n.id}>
                   <tr>
@@ -400,6 +468,7 @@ export default function ComputePage() {
                         </Badge>
                       )}
                       <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>{lastSeenText(n)}</div>
+                      <ResourceMeters resources={n.resources} stale={!n.online} />
                       {n.last_error && (
                         <div className="mt-1 flex items-center gap-1 text-xs" style={{ color: "var(--bad)" }}>
                           <Icon name="warn" size={12} />
@@ -429,6 +498,16 @@ export default function ComputePage() {
                       {!n.online && introduced && (
                         <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>طبق آخرین گزارشِ خودِ سرور</div>
                       )}
+                      <div className="mt-1">
+                        <Button
+                          size="sm"
+                          variant={servicesOpen ? "secondary" : "ghost"}
+                          onClick={toggleServices}
+                          title="کدام سرویس روشن یا خاموش باشد — عامل روی همان کامپیوتر اعمال می‌کند"
+                        >
+                          <Icon name={servicesOpen ? "up" : "down"} size={12} /> {servicesOpen ? "بستنِ تنظیمِ سرویس‌ها" : "روشن/خاموش کردن"}
+                        </Button>
+                      </div>
                     </td>
                     <td className="u-num">{fa(n.jobs_done)}</td>
                     <td className="text-xs" style={{ color: "var(--text-2)" }}>
@@ -442,6 +521,9 @@ export default function ComputePage() {
                     </td>
                     <td>
                       <div className="flex flex-wrap items-center gap-1.5">
+                        <Button size="sm" variant={servicesOpen ? "secondary" : "ghost"} onClick={toggleServices}>
+                          سرویس‌ها
+                        </Button>
                         <Button size="sm" variant={logOpen ? "secondary" : "ghost"} onClick={toggleLog}>
                           لاگ
                         </Button>
@@ -469,6 +551,13 @@ export default function ComputePage() {
                       )}
                     </td>
                   </tr>
+                  {servicesOpen && (
+                    <tr>
+                      <td colSpan={6} style={{ background: "var(--surface-2)" }}>
+                        <NodeServices node={n} onClose={() => setOpenServices(null)} onPatched={patchNode} onError={setError} />
+                      </td>
+                    </tr>
+                  )}
                   {logOpen && (
                     <tr>
                       <td colSpan={6} style={{ background: "var(--surface-2)" }}>
@@ -607,6 +696,246 @@ function NodeLogs({ node, onClose, onCleared }: { node: Node; onClose: () => voi
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * کشوی «سرویس‌ها»ی یک سرور: برای هر سرویس، «الان» (گزارشِ خودِ سرور) و «بشود» (خواستهٔ پنل).
+ * هر تغییر بی‌درنگ POST می‌شود (/compute/nodes/<id>/desired/)؛ عامل روی همان کامپیوتر با heartbeat
+ * بعدی می‌گیرد و اعمال می‌کند — پس این‌جا فقط «فرستاده شد» می‌گوییم، نه «اعمال شد».
+ * خطاها به ErrorBox ِ بالای صفحه می‌روند (onError) تا جایی که همهٔ خطاها هست دیده شوند.
+ */
+function NodeServices({
+  node,
+  onClose,
+  onPatched,
+  onError,
+}: {
+  node: Node;
+  onClose: () => void;
+  onPatched: (n: NodeView) => void;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  /** زمانِ آخرین ارسالِ موفق؛ شمارنده است نه boolean، تا ارسالِ پشتِ‌سرِهم تایمرِ «فرستاده شد» را از نو بیندازد */
+  const [sentAt, setSentAt] = useState<number | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // «فرستاده شد» چند ثانیه می‌ماند؛ با بسته‌شدنِ کشو تایمر پاک می‌شود
+  useEffect(() => {
+    if (sentAt === null) return;
+    const t = window.setTimeout(() => setSentAt(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [sentAt]);
+
+  const send = async (body: { services?: Partial<Record<ManagedKey, boolean | null>>; auto_switch?: boolean }) => {
+    setBusy(true);
+    try {
+      const { data } = await api.post<NodeView>(`/compute/nodes/${node.id}/desired/`, body);
+      onPatched(data); // ردیفِ پدر حتی اگر کشو بسته شده باشد تازه شود
+      if (alive.current) setSentAt(Date.now());
+    } catch (e) {
+      onError(errorMessage(e));
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 py-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-bold" style={{ color: "var(--text)" }}>سرویس‌های «{node.name}»</span>
+        <span className="text-xs" style={{ color: "var(--text-3)" }}>
+          «الان» گزارشِ خودِ سرور است؛ «بشود» خواستهٔ شما که عامل روی همان کامپیوتر اجرا می‌کند.
+        </span>
+        <span className="flex-1" />
+        {busy && (
+          <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-3)" }}>
+            <Spinner size={12} /> در حال فرستادن…
+          </span>
+        )}
+        {!busy && sentAt !== null && (
+          <span className="flex items-center gap-1 text-xs" style={{ color: "var(--ok)" }}>
+            <Icon name="ok" size={12} /> فرستاده شد — سرور در چند ثانیه اعمال می‌کند
+          </span>
+        )}
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          <Icon name="x" size={13} /> بستن
+        </Button>
+      </div>
+
+      {!node.enabled ? (
+        <div className="flex items-center gap-1 text-xs" style={{ color: "var(--warn)" }}>
+          <Icon name="warn" size={12} /> این سرور غیرفعال است؛ تا فعال نشود به سایت وصل نمی‌شود و این انتخاب‌ها اعمال نمی‌شود.
+        </div>
+      ) : !node.online ? (
+        <div className="flex items-center gap-1 text-xs" style={{ color: "var(--warn)" }}>
+          <Icon name="warn" size={12} /> سرور الان خاموش است — انتخاب‌ها ذخیره می‌شود و با اولین تماسش اعمال می‌شود؛ ستونِ «الان» آخرین گزارشِ خودش است.
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 md:grid-cols-2">
+        {MANAGED_SERVICES.map((s) => {
+          const actual = actualState(node, s);
+          const wanted: boolean | null = node.desired?.[s.key] ?? null;
+          return (
+            <div
+              key={s.key}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg px-3 py-2"
+              style={{ background: "var(--surface)", border: "1px solid var(--line)" }}
+            >
+              <div className="min-w-[140px] flex-1">
+                <div className="text-sm font-bold" style={{ color: "var(--text)" }}>{s.label}</div>
+                <div className="text-xs" dir="auto" style={{ color: "var(--text-3)" }}>{s.sub}</div>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-3)" }} title={actual.title}>
+                <span>الان:</span>
+                <Badge tone={actual.tone}>
+                  <Icon name={actual.on ? "ok" : "ban"} size={11} /> {actual.text}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-3)" }}>
+                <span>بشود:</span>
+                <TriState
+                  value={wanted}
+                  disabled={busy}
+                  label={s.label}
+                  onChange={(v) => void send({ services: { [s.key]: v } })}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-start gap-1 text-xs" style={{ color: "var(--text-3)" }}>
+        <Icon name="info" size={12} />
+        <span>
+          ComfyUI هم تصویر (FLUX) و هم ویدیو (Wan) را می‌سازد؛ سرور برای بارکردنِ یکی، مدلِ دیگری را از حافظهٔ گرافیک خالی می‌کند —
+          پس برای هر دو همین یک سرویس کافی است. «پیش‌فرض» یعنی به این سرویس دست نزن و همان رفتارِ خودِ سرور بماند.
+        </span>
+      </div>
+
+      <label className="flex items-start gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={Boolean(node.auto_switch)}
+          disabled={busy}
+          onChange={(e) => void send({ auto_switch: e.target.checked })}
+        />
+        <span>
+          <span className="font-bold" style={{ color: "var(--text)" }}>سوئیچِ خودکار</span>{" "}
+          <Badge tone={node.auto_switch ? "ok" : "neutral"}>{node.auto_switch ? "روشن" : "خاموش"}</Badge>
+          <span className="block text-xs" style={{ color: "var(--text-3)" }}>
+            وقتی کاری بیاید که سرویسش روشن نیست (مثلاً Ollama بالاست و ویدیو خواسته شده)، سرور خودش حافظهٔ موتورِ دیگر را آزاد و
+            سرویسِ لازم را روشن می‌کند.
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/** کنترلِ سه‌حالتهٔ «بشود»: روشن / خاموش / پیش‌فرض (null = کلید از desired برداشته می‌شود) */
+function TriState({
+  value,
+  disabled,
+  label,
+  onChange,
+}: {
+  value: boolean | null;
+  disabled: boolean;
+  label: string;
+  onChange: (v: boolean | null) => void;
+}) {
+  const opts: { v: boolean | null; text: string; tone: "ok" | "bad" | "brand"; title: string }[] = [
+    { v: true, text: "روشن", tone: "ok", title: "عامل این سرویس را روشن می‌کند و روشن نگه می‌دارد" },
+    { v: false, text: "خاموش", tone: "bad", title: "عامل این سرویس را خاموش می‌کند تا حافظه‌اش آزاد شود" },
+    { v: null, text: "پیش‌فرض", tone: "brand", title: "دست نزن — همان رفتارِ پیش‌فرضِ خودِ سرور" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`وضعیتِ خواسته‌شدهٔ ${label}`}
+      className="inline-flex overflow-hidden rounded-lg"
+      style={{ border: "1px solid var(--line)", background: "var(--surface-2)" }}
+    >
+      {opts.map((o, i) => {
+        const sel = value === o.v;
+        const color = o.tone === "brand" ? "var(--brand-strong)" : `var(--${o.tone})`;
+        return (
+          <button
+            key={o.text}
+            type="button"
+            role="radio"
+            aria-checked={sel}
+            disabled={disabled}
+            title={o.title}
+            onClick={() => {
+              if (!sel) onChange(o.v); // همان حالت دوباره فرستاده نشود
+            }}
+            className="px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              background: sel ? `var(--${o.tone}-soft)` : "transparent",
+              color: sel ? color : "var(--text-3)",
+              borderInlineStart: i ? "1px solid var(--line)" : "none",
+              cursor: disabled ? "not-allowed" : "pointer",
+            }}
+          >
+            {o.text}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * نوارهای حافظهٔ یک سرور از آخرین heartbeat: RAM (مصرف = کل − آزاد) و VRAM (مصرف/کل).
+ * هر کدام گزارش نشده باشد، نشان داده نمی‌شود؛ هیچ‌کدام نباشد، هیچ.
+ */
+function ResourceMeters({ resources, stale }: { resources: Resources | undefined; stale: boolean }) {
+  const r = resources ?? {};
+  const rows: { label: string; used: number; total: number; hint: string }[] = [];
+  if (r.ram_total_mb && r.ram_free_mb !== undefined) {
+    rows.push({
+      label: "RAM",
+      used: Math.max(0, r.ram_total_mb - r.ram_free_mb),
+      total: r.ram_total_mb,
+      hint: "حافظهٔ اصلیِ دستگاه (مصرف = کل − آزاد)",
+    });
+  }
+  if (r.vram_total_mb && r.vram_used_mb !== undefined) {
+    rows.push({
+      label: "VRAM",
+      used: Math.max(0, r.vram_used_mb),
+      total: r.vram_total_mb,
+      hint: "حافظهٔ کارتِ گرافیک — هر موتور (Ollama، ComfyUI، …) تکه‌ای از آن را می‌گیرد",
+    });
+  }
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-1.5 w-[200px] max-w-full space-y-1" style={{ opacity: stale ? 0.55 : 1 }}>
+      {rows.map((x) => (
+        <div key={x.label} title={stale ? `${x.hint} — طبق آخرین گزارشِ خودِ سرور` : x.hint}>
+          <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-3)" }}>
+            <span dir="ltr">{x.label}</span>
+            <span className="u-num">
+              {gb(x.used)} از {gb(x.total)} GB
+            </span>
+          </div>
+          <Meter used={x.used} total={x.total} />
+        </div>
+      ))}
     </div>
   );
 }

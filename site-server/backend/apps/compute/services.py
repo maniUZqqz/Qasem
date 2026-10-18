@@ -161,10 +161,10 @@ def run(kind: str, payload: dict | None = None, files: dict | None = None, **kw)
 # ───────────────────────────── سمتِ گره
 
 def _kinds_q(node: ComputeNode) -> Q:
-    caps = node.capabilities or {}
+    """کدام نوعِ کار به این گره برسد: سرویسش بالاست، یا با سوئیچِ خودکار عاملش می‌تواند روشنش کند (ComputeNode.has)."""
     q = Q(kind__startswith="echo")
     for prefix, capability in CAPABILITY_PREFIXES.items():
-        if caps.get(capability):
+        if node.has(capability):
             q |= Q(kind__startswith=prefix)
     return q
 

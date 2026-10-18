@@ -54,7 +54,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.1"
+VERSION = "1.2"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -68,6 +68,37 @@ SERVICES = {
     "voice": ("NM_VOICE_URL", "http://127.0.0.1:5600"),
     "ollama": ("NM_OLLAMA_URL", "http://127.0.0.1:11434"),
 }
+
+#: how to start each service on THIS machine (services.json next to agent.py; created with these defaults).
+#: "${NM_COMFY_BAT}" expands from the environment; relative paths are relative to this folder.
+DEFAULT_SERVICES = {
+    "ollama": {"start": "ollama serve", "url": "ollama", "ready_timeout": 60, "note": "Ollama server (models load on demand)"},
+    "comfyui": {"start": "${NM_COMFY_BAT}", "url": "comfyui", "ready_timeout": 240, "note": "set NM_COMFY_BAT or put the path of run_nvidia_gpu.bat here"},
+    "voice": {"start": "tools\\PersianAiKit\\Voice\\Run-Server.bat", "url": "voice", "ready_timeout": 120, "note": "PersianAiKit voice server (.NET 8)"},
+    "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat", "url": "photo", "ready_timeout": 120, "note": "PersianAiKit photo editor (.NET 8)"},
+    "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat", "url": "video", "ready_timeout": 120, "note": "PersianAiKit video editor (.NET 8)"},
+    "worker3d": {"start": "worker-3d.bat", "url": None, "ready_timeout": 10, "note": "Blender render worker for the 3D section"},
+}
+SERVICE_KEYS = tuple(DEFAULT_SERVICES)
+
+
+def load_services_cfg():
+    path = os.path.join(HERE, "services.json")
+    cfg = {k: dict(v) for k, v in DEFAULT_SERVICES.items()}
+    if os.path.isfile(path):
+        try:
+            user = json.load(open(path, encoding="utf-8"))
+            for k, v in (user or {}).items():
+                if k in cfg and isinstance(v, dict):
+                    cfg[k].update(v)
+        except (OSError, ValueError) as e:
+            print("services.json could not be read (%s); using defaults" % e, flush=True)
+    else:
+        try:
+            json.dump(cfg, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+    return cfg
 
 
 # ───────────────────────────────────────────── logging (console + file + site)
@@ -324,6 +355,235 @@ def load_profiles():
         return []
 
 
+def memory_mb():
+    """(total_mb, free_mb) of system RAM — Windows via GlobalMemoryStatusEx, Linux via /proc/meminfo."""
+    try:
+        if sys.platform.startswith("win"):
+            import ctypes
+
+            class MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong), ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong), ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong), ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong), ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            m = MS()
+            m.dwLength = ctypes.sizeof(MS)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.ullTotalPhys // 2 ** 20, m.ullAvailPhys // 2 ** 20
+        info = {}
+        for line in open("/proc/meminfo"):
+            k, v = line.split(":", 1)
+            info[k] = int(v.strip().split()[0])
+        return info["MemTotal"] // 1024, info.get("MemAvailable", info.get("MemFree", 0)) // 1024
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+def vram_mb():
+    """(used_mb, total_mb) of the first NVIDIA GPU, via nvidia-smi."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None, None
+    try:
+        out = subprocess.run([exe, "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
+        used, total = [int(float(x)) for x in out[0].split(",")[:2]]
+        return used, total
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+class ServiceManager:
+    """Starts/stops local services on the panel's request and frees GPU memory when switching engines.
+
+    Services the agent started itself can be stopped; a service someone else started is "external":
+    for Ollama we can still unload its models, for ComfyUI we can free its VRAM, others are left alone."""
+
+    def __init__(self):
+        self.cfg = load_services_cfg()
+        self.procs = {}          # key -> Popen we started
+        self.warned = set()
+        self.applied = None
+        self.lock = threading.Lock()
+
+    # ---- state
+    def running(self, key):
+        url_key = self.cfg.get(key, {}).get("url")
+        if url_key:
+            return listening(service_url(url_key), 0.8)
+        p = self.procs.get(key)
+        return bool(p and p.poll() is None)
+
+    def startable(self, key):
+        cmd = (self.cfg.get(key, {}).get("start") or "").strip()
+        if not cmd:
+            return False
+        if "${NM_COMFY_BAT}" in cmd and not os.environ.get("NM_COMFY_BAT"):
+            return False
+        return True
+
+    def startable_map(self):
+        return {key: self.startable(key) for key in SERVICE_KEYS}
+
+    def managed_map(self):
+        out = {}
+        for key in SERVICE_KEYS:
+            p = self.procs.get(key)
+            if p and p.poll() is None:
+                out[key] = "agent"
+            elif self.running(key):
+                out[key] = "external"
+            else:
+                out[key] = "off"
+        return out
+
+    # ---- commands
+    def _command(self, key):
+        cmd = (self.cfg.get(key, {}).get("start") or "").strip()
+        for var in ("NM_COMFY_BAT",):
+            cmd = cmd.replace("${%s}" % var, os.environ.get(var, ""))
+        cmd = cmd.strip()
+        if not cmd:
+            return None
+        first = cmd.split('"')[1] if cmd.startswith('"') else cmd.split(" ")[0]
+        if first.lower().endswith((".bat", ".cmd", ".exe")) and not os.path.isabs(first):
+            cand = os.path.join(HERE, first)
+            if os.path.isfile(cand):
+                cmd = cmd.replace(first, '"%s"' % cand, 1)
+        return cmd
+
+    def start(self, key, wait=True):
+        if self.running(key):
+            return True
+        cmd = self._command(key)
+        if not cmd or (key == "comfyui" and "${" in (self.cfg["comfyui"].get("start") or "") and not os.environ.get("NM_COMFY_BAT")):
+            if key not in self.warned:
+                self.warned.add(key)
+                warn("cannot start %s: no start command (edit services.json%s)" % (key, " or set NM_COMFY_BAT" if key == "comfyui" else ""))
+            return False
+        log("starting %s: %s" % (key, cmd))
+        try:
+            kwargs = {"cwd": HERE, "shell": True}
+            if sys.platform.startswith("win"):
+                kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+            else:
+                kwargs["start_new_session"] = True
+            self.procs[key] = subprocess.Popen(cmd, **kwargs)
+        except OSError as e:
+            error("could not start %s: %s" % (key, e))
+            return False
+        if not wait:
+            return True
+        deadline = time.time() + int(self.cfg.get(key, {}).get("ready_timeout") or 60)
+        while time.time() < deadline:
+            if self.running(key):
+                log("%s is up" % key)
+                return True
+            p = self.procs.get(key)
+            if p and p.poll() is not None and self.cfg.get(key, {}).get("url"):
+                error("%s exited right after start (code %s) — check its own window/log" % (key, p.returncode))
+                return False
+            time.sleep(2)
+        warn("%s did not come up within the timeout" % key)
+        return False
+
+    def stop(self, key):
+        p = self.procs.get(key)
+        if p and p.poll() is None:
+            log("stopping %s (pid %s)" % (key, p.pid))
+            try:
+                if sys.platform.startswith("win"):
+                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, timeout=30)
+                else:
+                    import signal
+                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except Exception as e:  # noqa: BLE001
+                warn("stop %s failed: %s" % (key, e))
+            self.procs.pop(key, None)
+            return True
+        if self.running(key):
+            if key == "ollama":
+                return self.unload_ollama()
+            if key == "comfyui":
+                return self.free_comfy()
+            if key not in self.warned:
+                self.warned.add(key)
+                warn("%s was started outside the agent; it cannot be stopped from the panel (only services the agent started can)" % key)
+            return False
+        return True
+
+    def unload_ollama(self):
+        """Free VRAM held by Ollama models (keeps the server running)."""
+        if not self.running("ollama"):
+            return True
+        base = service_url("ollama")
+        try:
+            ps = http("GET", base + "/api/ps", timeout=10)
+            names = [m.get("name") for m in (ps.get("models") or []) if m.get("name")] if isinstance(ps, dict) else []
+            for name in names:
+                http("POST", base + "/api/generate", {"model": name, "keep_alive": 0}, timeout=60)
+            if names:
+                log("ollama: unloaded %s" % ", ".join(names))
+            return True
+        except Exception as e:  # noqa: BLE001
+            warn("ollama unload failed: %s" % e)
+            return False
+
+    def free_comfy(self):
+        """Ask ComfyUI to drop its models and cached memory (server keeps running)."""
+        if not self.running("comfyui"):
+            return True
+        try:
+            http("POST", service_url("comfyui") + "/free", {"unload_models": True, "free_memory": True}, timeout=60, raw=True)
+            log("comfyui: models unloaded / memory freed")
+            return True
+        except Exception as e:  # noqa: BLE001
+            warn("comfyui free failed: %s" % e)
+            return False
+
+    # ---- panel desired state
+    def apply(self, desired):
+        """Bring services to the panel's desired state; missing key = leave as is (node default)."""
+        if not isinstance(desired, dict):
+            return
+        with self.lock:
+            prev = self.applied or {}
+            for key, want in desired.items():
+                if key not in SERVICE_KEYS:
+                    continue
+                if want and not self.running(key):
+                    self.start(key)                       # "on": keep it alive
+                elif want is False and prev.get(key) != want and self.running(key):
+                    self.stop(key)                        # "off": stop it when the panel switches it off
+            self.applied = dict(desired)
+
+    def default_boot(self, desired):
+        """Node default when the panel has not decided: the 3D worker starts if Blender and the up3d folder exist."""
+        if "worker3d" not in (desired or {}) and blender_path() and os.path.isdir(os.path.join(HERE, "up3d")):
+            self.start("worker3d", wait=False)
+
+    def prepare_for(self, kind, auto_switch):
+        """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
+        family = kind.split(".", 1)[0]
+        need = {"comfy": "comfyui", "ollama": "ollama", "voice": "voice", "photo": "photo", "video": "video"}.get(family)
+        if not need:
+            return
+        if auto_switch:
+            if need == "comfyui":
+                self.unload_ollama()
+            elif need == "ollama":
+                self.free_comfy()
+            if not self.running(need):
+                log("auto-switch: %s job needs %s — starting it" % (kind, need))
+                self.start(need)
+        elif not self.running(need):
+            raise RuntimeError("%s is not running on this node and auto-switch is off (turn it on in the panel or start the service)" % need)
+
+
+MANAGER = None
+STATE = {"auto_switch": True, "desired": {}}
+
+
 class Capabilities:
     def __init__(self, name, slots):
         self.name = name
@@ -346,6 +606,17 @@ class Capabilities:
         if gpus:
             caps["gpu"] = ", ".join(gpus)
         caps["blender"] = bool(blender_path()) and os.path.isdir(os.path.join(HERE, "up3d"))
+        total, free = memory_mb()
+        if total:
+            caps["ram_total_mb"], caps["ram_free_mb"] = total, free
+        used, vtotal = vram_mb()
+        if vtotal:
+            caps["vram_used_mb"], caps["vram_total_mb"] = used, vtotal
+        if MANAGER is not None:
+            caps["managed"] = MANAGER.managed_map()
+            caps["startable"] = MANAGER.startable_map()   # the site may route jobs here when auto-switch can start the engine
+            caps["worker3d"] = MANAGER.running("worker3d")
+        caps["auto_switch"] = STATE["auto_switch"]
         if caps["comfyui"]:
             if self.comfy_nodes is None or time.time() - self.comfy_nodes_at > 600:
                 try:
@@ -424,6 +695,17 @@ def check(cfg):
         row(os.path.isfile(wf), "  workflow " + p.get("id", "?"), p.get("file", ""))
     gpus = gpu_names()
     row(True if gpus else None, "GPU (nvidia-smi)", ", ".join(gpus) if gpus else "nvidia-smi not found")
+    used, vtotal = vram_mb()
+    if vtotal:
+        row(True, "VRAM", "%d / %d MB used" % (used, vtotal))
+    total, free = memory_mb()
+    if total:
+        row(True, "RAM", "%d MB free of %d MB" % (free, total))
+    svc = load_services_cfg()
+    for key in SERVICE_KEYS:
+        cmd = (svc.get(key, {}).get("start") or "")
+        has = bool(cmd.strip()) and not ("${NM_COMFY_BAT}" in cmd and not os.environ.get("NM_COMFY_BAT"))
+        row(True if has else None, "start cmd: " + key, cmd if has else "none — the panel cannot start it (services.json)")
     bl = blender_path()
     row(True if bl else None, "Blender (3D worker)", bl or "not found: install Blender 4.5 or let worker-3d.bat download it")
     for d in ("up3d", "engine", "assets"):
@@ -880,6 +1162,9 @@ def run_job(site, data):
         handler = HANDLERS.get(job.kind) or (h_relay if job.kind.endswith(".http") else None)
         if handler is None:
             raise RuntimeError("this node does not know job kind '%s'" % job.kind)
+        if MANAGER is not None:
+            job.progress(0.02, "preparing services")
+            MANAGER.prepare_for(job.kind, STATE["auto_switch"])
         meta = handler(job) or {}
         names = job.upload_outputs()
         meta.update({"node": CONFIG["name"], "seconds": round(time.time() - t0, 1), "files": names})
@@ -926,12 +1211,29 @@ def main():
     site = Site(CONFIG["site"], CONFIG["token"])
     SITE_LOG.site = site
     caps = Capabilities(CONFIG["name"], CONFIG["slots"])
+    global MANAGER
+    MANAGER = ServiceManager()
     log("processing node '%s' v%s -> %s" % (CONFIG["name"], VERSION, CONFIG["site"]))
+
+    def take_control(r):
+        """desired services / auto-switch come back with every heartbeat and claim."""
+        if not isinstance(r, dict):
+            return
+        if "auto_switch" in r:
+            STATE["auto_switch"] = bool(r["auto_switch"])
+        if isinstance(r.get("desired"), dict):
+            if r["desired"] != STATE["desired"]:
+                log("panel wants: %s (auto-switch %s)" % (json.dumps(r["desired"]), "on" if STATE["auto_switch"] else "off"))
+            STATE["desired"] = r["desired"]
+            MANAGER.apply(r["desired"])
+
+    booted = False
     running = []
     last_hb = 0
     last_full = 0
     backoff = 5
     announced = False
+    comfy_state = None
     while True:
         running = [t for t in running if t.is_alive()]
         try:
@@ -940,13 +1242,30 @@ def main():
                 c = caps.probe()
                 full = caps.changed() or now - last_full > 300
                 r = site.post("/api/v1/compute/heartbeat/", c if full else {})
+                take_control(r)
+                if not booted:
+                    booted = True
+                    MANAGER.default_boot(STATE["desired"])
                 if full:
                     last_full = now
                     on = [k for k in SERVICES if c.get(k)]
                     log("heartbeat ok (%s) - services up: %s - GPU: %s" % (
                         r.get("name", "?"), ", ".join(on) or "none", c.get("gpu", "-")))
                     if not c.get("comfyui"):
-                        warn("ComfyUI is not running at %s - image/video jobs cannot be processed on this node" % service_url("comfyui"))
+                        if not MANAGER.startable("comfyui"):
+                            state, text = "down", ("ComfyUI is not running at %s and the agent cannot start it (no start command in "
+                                                   "services.json / NM_COMFY_BAT) - image/video jobs cannot be processed on this node"
+                                                   % service_url("comfyui"))
+                        elif not STATE["auto_switch"]:
+                            state, text = "manual", ("ComfyUI is off and auto-switch is off - switch it on from the panel "
+                                                     "(services of this node) or enable auto-switch; image/video jobs wait until then")
+                        else:
+                            state, text = "ondemand", "ComfyUI is off; it will be started on demand (auto-switch) or from the panel"
+                        if comfy_state != state:
+                            (log if state == "ondemand" else warn)(text)
+                            comfy_state = state
+                    else:
+                        comfy_state = "up"
                     if not announced:
                         SITE_LOG.add("INFO", "agent v%s started on %s (%s); services: %s; GPU: %s" % (
                             VERSION, socket.gethostname(), platform.platform(), ", ".join(on) or "none", c.get("gpu", "-")))
@@ -955,6 +1274,7 @@ def main():
                 SITE_LOG.flush()
             if len(running) < CONFIG["slots"]:
                 r = site.post("/api/v1/compute/claim/", {})
+                take_control(r)
                 job = r.get("job") if isinstance(r, dict) else None
                 if job:
                     t = threading.Thread(target=run_job, args=(site, job), daemon=True)

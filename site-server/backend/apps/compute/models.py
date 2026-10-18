@@ -49,6 +49,12 @@ class ComputeNode(TimeStampedModel):
     last_seen = models.DateTimeField(null=True, blank=True)
     jobs_done = models.PositiveIntegerField(default=0)
     notes = models.CharField(max_length=300, blank=True)
+    #: خواستهٔ پنل: کدام سرویس‌ها روی این گره روشن باشند — {"ollama": true, "comfyui": true, "voice": false, ...}
+    #: کلیدِ غایب = «دست نزن» (پیش‌فرضِ خودِ گره). گره در هر heartbeat این را می‌گیرد و اجرا می‌کند.
+    desired = models.JSONField("سرویس‌های خواسته‌شده", default=dict, blank=True)
+    #: اگر کاری بیاید که سرویسش روشن نیست (مثلاً Ollama بالاست و ویدیو خواسته شده)، گره خودش حافظهٔ موتورِ
+    #: دیگر را آزاد می‌کند و سرویسِ لازم را روشن می‌کند؛ خاموش = کار منتظرِ تنظیمِ دستی می‌ماند.
+    auto_switch = models.BooleanField("سوئیچِ خودکارِ سرویس‌ها", default=True)
 
     class Meta:
         verbose_name = "سرور پردازش"
@@ -63,9 +69,17 @@ class ComputeNode(TimeStampedModel):
         return bool(self.last_seen and (timezone.now() - self.last_seen).total_seconds() < 90)
 
     def has(self, capability: str) -> bool:
+        """این گره این توانایی را دارد: یا سرویسش الان بالاست، یا (با سوئیچِ خودکار) عاملِ گره می‌تواند
+        خودش آن را روشن کند (caps["startable"][capability] از services.json ِ گره)."""
         if capability == "any":
             return True
-        return bool((self.capabilities or {}).get(capability))
+        caps = self.capabilities or {}
+        if caps.get(capability):
+            return True
+        return bool(self.auto_switch and (caps.get("startable") or {}).get(capability))
+
+    def can_start(self, capability: str) -> bool:
+        return bool(((self.capabilities or {}).get("startable") or {}).get(capability))
 
     def can_run(self, kind: str) -> bool:
         return self.enabled and self.has(capability_for(kind))

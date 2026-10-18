@@ -20,7 +20,7 @@ EXCL=(--exclude='.git' --exclude='venv/' --exclude='node_modules/' --exclude='__
       --exclude='frontend/dist/' --exclude='website/.next/' --exclude='backend/staticfiles/' --exclude='backend/media/'
       --exclude='backend/.env' --exclude='backend/.env.local' --exclude='deploy/nm/ai.env' --exclude='website/.env.production.local'
       --exclude='website/.env.local' --exclude='data/' --exclude='logs/' --exclude='*.sqlite3' --exclude='up3d-engine/vendor/'
-      --exclude='up3d-engine/data/' --exclude='processing/' --exclude='server-state/')
+      --exclude='up3d-engine/data/' --exclude='processing/' --exclude='server-state/' --exclude='models/')
 rsync -a --delete "${EXCL[@]}" "$SRC/" "$REPO/site-server/"
 rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='vendor/' --exclude='__pycache__/' \
       "$SRC/processing/" "$REPO/processing-server/"

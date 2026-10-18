@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ویرایشگرِ ویدیو</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">ویرایشگرِ ویدیو</div>
+  <label class="btn file" title="یا فایل را روی صفحه بکشید">باز کردنِ ویدیو<input type="file" id="open" accept="video/*,audio/*" multiple></label>
+  <span class="sep"></span>
+  <button id="undo" class="icon" title="برگرداندن (Ctrl+Z)" disabled>↶</button>
+  <button id="redo" class="icon" title="دوباره (Ctrl+Y)" disabled>↷</button>
+  <button id="before" title="نگه دارید: فریمِ اصل (یا کلیدِ \)" disabled>قبل / بعد</button>
+  <button id="reset" title="همهٔ تنظیم‌ها به حالتِ اول" disabled>از نو</button>
+  <span class="grow"></span>
+  <span id="chips" class="chips"></span>
+  <button id="export" class="primary" disabled>خروجی ⬇</button>
+</header>
+
+<div class="app">
+  <aside class="library">
+    <div class="lib-head">ویدیوها <span id="libCount" class="muted"></span></div>
+    <div id="lib" class="lib-list"></div>
+    <div class="lib-hint muted">ویدیو یا صدا را روی صفحه بکشید. فایلِ اصلی دست نمی‌خورد؛ همهٔ تغییرها «نسخهٔ ویرایش» است.</div>
+  </aside>
+
+  <main class="center">
+    <div class="viewer" id="viewer">
+      <img id="frame" alt="" draggable="false" hidden>
+      <video id="player" playsinline hidden></video>
+      <div class="audio-only" id="audioOnly" hidden>🎵 این فایل فقط صدا دارد — ابزارهای زبانهٔ «صدا» و «زمان» کار می‌کنند.</div>
+      <div class="empty" id="empty">
+        <div class="empty-box">
+          <b>یک ویدیو باز کنید</b>
+          <p class="muted">رنگ و نور مثلِ لومتری، تثبیتِ لرزش، قابِ عمودیِ ریلز، بُرش و حذفِ مکث‌ها، پاک‌سازی و هم‌سطح‌سازیِ صدا، خروجی برای هر جا — یا بگذارید هوشِ مصنوعی ویرایش کند.</p>
+          <label class="btn primary file">انتخابِ ویدیو<input type="file" id="open2" accept="video/*,audio/*" multiple></label>
+        </div>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">…</span></div>
+    </div>
+
+    <div class="transport" id="transport">
+      <button id="toStart" class="icon" title="ابتدای بُرش">⏮</button>
+      <button id="stepBack" class="icon" title="یک فریم عقب (←)">◀</button>
+      <button id="play" class="primary" title="پخشِ پیش‌نمایشِ ویرایش‌شده از همین‌جا (فاصله)">▶ پخش</button>
+      <button id="stepFwd" class="icon" title="یک فریم جلو (→)">▶</button>
+      <button id="toEnd" class="icon" title="انتهای بُرش">⏭</button>
+      <span class="time" id="time">۰:۰۰٫۰</span>
+      <span class="grow"></span>
+      <button id="setIn" title="شروعِ بُرش همین‌جا (I)">[ ورود</button>
+      <button id="setOut" title="پایانِ بُرش همین‌جا (O)">خروج ]</button>
+      <button id="cutSel" title="حذفِ بازهٔ انتخاب‌شده (Shift + کشیدن روی خطِ زمان)" disabled>✂ حذفِ انتخاب</button>
+      <button id="delCut" title="برگرداندنِ بازهٔ حذف‌شدهٔ انتخاب‌شده (Delete)" disabled>↩ برگرداندنِ بازه</button>
+    </div>
+    <div class="timeline" id="tl">
+      <div class="tl-strip" id="strip"></div>
+      <div class="tl-wave"><img id="wave" alt="" hidden></div>
+      <canvas id="tlc"></canvas>
+    </div>
+    <div class="tl-help muted" id="tlHelp">کلیک یا کشیدن: جابه‌جا شدن · کشیدنِ دستگیره‌های زرد: بُرشِ سر و ته · Shift + کشیدن: انتخابِ بازه برای حذف · کلیک روی بازهٔ قرمز: انتخابش</div>
+  </main>
+
+  <aside class="panel">
+    <nav class="tabs" id="tabs">
+      <button data-tab="color" class="on">رنگ</button>
+      <button data-tab="looks">پریست</button>
+      <button data-tab="frame">قاب</button>
+      <button data-tab="time">زمان</button>
+      <button data-tab="audio">صدا</button>
+      <button data-tab="out">خروجی</button>
+      <button data-tab="ai">هوشِ مصنوعی</button>
+    </nav>
+
+    <section class="tab" id="tab-color">
+      <div class="seg scopes-seg" id="scopeKind">
+        <button data-s="hist" class="on">هیستوگرام</button><button data-s="wave">موج‌نما</button><button data-s="vector">برداری‌نما</button>
+      </div>
+      <canvas id="scope" class="scope" width="512" height="200"></canvas>
+      <div class="row">
+        <button id="auto" class="primary" title="سنجشِ تصویر و صدا و تنظیمِ خودکار — رایگان و بی اینترنت">✦ خودکار</button>
+        <span id="autoNotes" class="muted small"></span>
+      </div>
+      <div id="groups"></div>
+      <details class="grp" id="lutBox">
+        <summary><span class="dot"></span><span>LUT (فایلِ .cube)</span></summary>
+        <p class="muted small">input ⇐ پیش از همه (فیلمِ لاگِ دوربین به رنگِ عادی). look ⇐ آخرِ رنگ با شدتِ دلخواه.</p>
+        <div class="row">
+          <select id="lutFile"><option value="">— بی LUT —</option></select>
+          <label class="btn file">بارگذاری<input type="file" id="lutUpload" accept=".cube"></label>
+        </div>
+        <div class="seg" id="lutMode"><button data-m="look" class="on">لوک</button><button data-m="input">ورودی (لاگ)</button></div>
+        <div class="sl"><label>شدت</label><input type="number" id="lutAmountNum" min="0" max="100"><input type="range" id="lutAmount" min="0" max="100" value="100"></div>
+      </details>
+    </section>
+
+    <section class="tab" id="tab-looks" hidden>
+      <p class="muted small">پریست روی تنظیم‌های فعلی می‌نشیند؛ پریستِ رنگِ بعدی جای قبلی را می‌گیرد.</p>
+      <h4>رنگ</h4>
+      <div id="looks" class="looks"></div>
+      <h4>صدا</h4>
+      <div id="audioPresets" class="cards"></div>
+      <h4>قاب و خروجی</h4>
+      <div id="outPresets" class="cards"></div>
+    </section>
+
+    <section class="tab" id="tab-frame" hidden>
+      <div class="field"><span>نسبتِ تصویرِ خروجی</span>
+        <div class="seg" id="aspect">
+          <button data-a="original" class="on">اصلی</button><button data-a="9:16">۹:۱۶ ریلز</button><button data-a="1:1">۱:۱</button>
+          <button data-a="4:5">۴:۵</button><button data-a="16:9">۱۶:۹</button>
+        </div>
+      </div>
+      <div class="field" id="fitRow"><span>جا دادن</span>
+        <div class="seg" id="fit"><button data-f="crop" class="on">بریدن</button><button data-f="blur">زمینهٔ محو</button><button data-f="black">نوارِ سیاه</button></div>
+      </div>
+      <div id="focusRows">
+        <p class="muted small">مرکزِ قاب: روی تصویر کلیک کنید یا لغزنده‌ها را بکشید.</p>
+        <div class="sl"><label>مرکزِ افقی</label><input type="number" id="focusXNum" min="0" max="100"><input type="range" id="focusX" min="0" max="100" value="50"></div>
+        <div class="sl"><label>مرکزِ عمودی</label><input type="number" id="focusYNum" min="0" max="100"><input type="range" id="focusY" min="0" max="100" value="50"></div>
+      </div>
+      <details class="grp" open>
+        <summary><span>برش، صاف کردن، قرینه</span></summary>
+        <div class="sl"><label>برش از چپ (٪)</label><input type="number" id="cropLNum" min="0" max="45"><input type="range" id="cropL" min="0" max="45" step="0.5" value="0"></div>
+        <div class="sl"><label>برش از راست (٪)</label><input type="number" id="cropRNum" min="0" max="45"><input type="range" id="cropR" min="0" max="45" step="0.5" value="0"></div>
+        <div class="sl"><label>برش از بالا (٪)</label><input type="number" id="cropTNum" min="0" max="45"><input type="range" id="cropT" min="0" max="45" step="0.5" value="0"></div>
+        <div class="sl"><label>برش از پایین (٪)</label><input type="number" id="cropBNum" min="0" max="45"><input type="range" id="cropB" min="0" max="45" step="0.5" value="0"></div>
+        <div class="sl"><label title="صاف کردنِ افق: مثبت = پادساعتگرد">چرخش (درجه)</label><input type="number" id="angleNum" step="0.1" min="-45" max="45"><input type="range" id="angle" min="-45" max="45" step="0.1" value="0"></div>
+        <div class="row"><button id="flipH">⇋ قرینهٔ افقی</button><button id="flipV">⇵ قرینهٔ عمودی</button></div>
+      </details>
+      <details class="grp" open>
+        <summary><span>تثبیتِ لرزش (Warp Stabilizer)</span></summary>
+        <label class="check"><input type="checkbox" id="stabOn"> تثبیتِ تصویرِ دستی و لرزان</label>
+        <div class="sl" id="stabRow"><label title="بیشتر ⇒ حرکتِ دوربین نرم‌تر، ولی بزرگ‌نماییِ بیشتر">نرمی</label><input type="number" id="stabNum" min="1" max="100"><input type="range" id="stab" min="1" max="100" value="50"></div>
+        <p class="muted small">تثبیت به فریم‌های پشتِ سرِ هم نیاز دارد ⇒ در «▶ پخش» و خروجی دیده می‌شود، نه در فریمِ ثابت. دو پاس: اول لرزش سنجیده می‌شود.</p>
+      </details>
+    </section>
+
+    <section class="tab" id="tab-time" hidden>
+      <div class="report small" id="durInfo"></div>
+      <details class="grp" open>
+        <summary><span>بُرشِ سر و ته</span></summary>
+        <div class="row"><span class="lbl">شروع</span><input type="text" id="trimStart" class="tnum"><button id="trimStartHere">از همین‌جا</button></div>
+        <div class="row"><span class="lbl">پایان</span><input type="text" id="trimEnd" class="tnum"><button id="trimEndHere">تا همین‌جا</button></div>
+        <button id="trimClear">بی بُرش</button>
+      </details>
+      <details class="grp" open>
+        <summary><span>سرعت و محو</span></summary>
+        <div class="seg" id="speedChips"><button data-v="0.5">۰٫۵×</button><button data-v="1" class="on">۱×</button><button data-v="1.25">۱٫۲۵×</button><button data-v="1.5">۱٫۵×</button><button data-v="2">۲×</button></div>
+        <div class="sl"><label>سرعت</label><input type="number" id="speedNum" min="0.25" max="4" step="0.05"><input type="range" id="speed" min="0.25" max="4" step="0.05" value="1"></div>
+        <label class="check"><input type="checkbox" id="smooth"> آهسته‌نمایشِ نرم (ساختنِ فریمِ میانی — سنگین)</label>
+        <div class="sl"><label>محوِ ابتدا (ثانیه)</label><input type="number" id="fadeInNum" min="0" max="5" step="0.1"><input type="range" id="fadeIn" min="0" max="5" step="0.1" value="0"></div>
+        <div class="sl"><label>محوِ انتها (ثانیه)</label><input type="number" id="fadeOutNum" min="0" max="5" step="0.1"><input type="range" id="fadeOut" min="0" max="5" step="0.1" value="0"></div>
+      </details>
+      <details class="grp" open>
+        <summary><span>حذفِ مکث‌ها (برای ویدیوی حرف‌زدن)</span></summary>
+        <div class="sl"><label title="هر چه آرام‌تر از این باشد سکوت حساب می‌شود؛ دست نزنید ⇒ خودکار از کفِ نویزِ همین فایل">آستانهٔ سکوت (dB، خودکار)</label><input type="number" id="pauseDbNum" min="-60" max="-20"><input type="range" id="pauseDb" min="-60" max="-20" value="-38"></div>
+        <div class="sl"><label>کوتاه‌ترین مکث (ثانیه)</label><input type="number" id="pauseMinNum" min="0.3" max="3" step="0.1"><input type="range" id="pauseMin" min="0.3" max="3" step="0.1" value="0.6"></div>
+        <div class="row"><button id="findPauses" class="primary">یافتنِ مکث‌ها</button><button id="applyPauses" disabled>حذفِ همه</button></div>
+        <div class="report small" id="pauseInfo" hidden></div>
+      </details>
+      <details class="grp" open>
+        <summary><span>بازه‌های حذف‌شده</span> <button class="reset" id="cutsClear">برگرداندنِ همه</button></summary>
+        <div id="cutList" class="cut-list"></div>
+      </details>
+    </section>
+
+    <section class="tab" id="tab-audio" hidden>
+      <div class="report small" id="audioInfo">«سنجشِ صدا» بلندی (LUFS)، کفِ نویز، وزوزِ برق و مکث‌ها را اندازه می‌گیرد.</div>
+      <div class="row"><button id="measure">سنجشِ صدا و تصویر</button><button id="autoAudio" class="primary">✦ خودکارِ صدا</button></div>
+      <div class="field"><span>هم‌سطح‌سازیِ بلندی</span>
+        <div class="seg" id="norm"><button data-n="0" class="on">خاموش</button><button data-n="-14">‎−۱۴ وب</button><button data-n="-16">‎−۱۶ پادکست</button><button data-n="-23">‎−۲۳ تلویزیون</button></div>
+      </div>
+      <div class="field"><span>حذفِ وزوزِ برق</span>
+        <div class="seg" id="hum"><button data-h="0" class="on">خاموش</button><button data-h="50">۵۰ هرتز (ایران)</button><button data-h="60">۶۰ هرتز</button></div>
+      </div>
+      <label class="check"><input type="checkbox" id="mute"> بی‌صدا</label>
+      <div id="audioGroup"></div>
+      <p class="muted small">صدای ویرایش‌شده را با «▶ پخش» بشنوید.</p>
+    </section>
+
+    <section class="tab" id="tab-out" hidden>
+      <div id="outPresets2" class="cards"></div>
+      <div class="field"><span>قالب</span>
+        <div class="seg" id="fmt"><button data-f="mp4" class="on">MP4</button><button data-f="webm">WebM</button><button data-f="gif">GIF</button><button data-f="mp3">MP3</button><button data-f="wav">WAV</button></div>
+      </div>
+      <div class="field" id="codecRow"><span>کدک</span>
+        <div class="seg" id="codec"><button data-c="h264" class="on">H.264 (همه‌جا)</button><button data-c="h265">H.265 (نصفِ حجم)</button></div>
+      </div>
+      <div class="field" id="sizeRow"><span>اندازه (ضلعِ کوچک‌تر)</span>
+        <div class="seg" id="size"><button data-s="0" class="on">اصلی</button><button data-s="2160">۴K</button><button data-s="1080">۱۰۸۰</button><button data-s="720">۷۲۰</button><button data-s="480">۴۸۰</button></div>
+      </div>
+      <div class="field" id="fpsRow"><span>فریم در ثانیه</span>
+        <div class="seg" id="fps"><button data-f="0" class="on">اصلی</button><button data-f="24">۲۴</button><button data-f="30">۳۰</button><button data-f="60">۶۰</button></div>
+      </div>
+      <div class="field" id="qualRow"><span>کیفیت</span>
+        <div class="seg" id="qual"><button data-q="high">بالا</button><button data-q="standard" class="on">معمول</button><button data-q="small">حجمِ کم</button></div>
+      </div>
+      <label class="check" id="safeRow"><input type="checkbox" id="safe"> محدودهٔ مجازِ پخشِ تلویزیونی (Video Limiter)</label>
+      <p class="muted small" id="outInfo"></p>
+      <button id="export2" class="primary wide">ساختنِ خروجی</button>
+      <div class="job" id="jobBox" hidden>
+        <div class="bar"><div id="jobBar"></div></div>
+        <div class="row"><span id="jobText" class="small"></span><span class="grow"></span><button id="jobCancel">لغو</button></div>
+      </div>
+      <h4>خروجی‌های این ویدیو</h4>
+      <div id="jobList" class="job-list"></div>
+    </section>
+
+    <section class="tab" id="tab-ai" hidden>
+      <p class="muted small">هوشِ مصنوعیِ بینا فیلم را نمی‌بیند: یک تصویرِ ۲×۲ از چهار لحظه (~۲۰KB) و اندازه‌گیری‌های تصویر و صدا را می‌بیند و فقط «نسخهٔ ویرایش» را می‌نویسد؛ ویرایش را موتورِ خودمان انجام می‌دهد ⇒ ارزان.</p>
+      <div id="aiState" class="note small"></div>
+      <textarea id="goal" rows="3" placeholder="چه می‌خواهید؟ مثلاً: ریلزِ اینستاگرام، صدای واضح / رنگِ گرم و سینمایی / یوتیوب، طبیعی"></textarea>
+      <div class="chips" id="goalChips">
+        <button>ریلزِ اینستاگرام با صدای واضح</button>
+        <button>طبیعی، روشن و تمیز</button>
+        <button>سینمایی و گرم</button>
+        <button>ویدیوی آموزشی: صدای تمیز، بلندیِ استاندارد</button>
+        <button>فیلمِ شب: نویز کمتر</button>
+      </div>
+      <button id="aiRun" class="primary wide">✦ ویرایش با هوشِ مصنوعی</button>
+      <div id="aiOut" class="report small" hidden></div>
+    </section>
+  </aside>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

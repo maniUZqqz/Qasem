@@ -1,0 +1,14 @@
+{% extends "admin/change_form.html" %}
+{% block form_top %}
+<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin:0 0 14px;line-height:1.9">
+  همهٔ درخواست‌های هوشِ مصنوعیِ سایت‌ساز با کتابخانهٔ <b>openai</b> فرستاده می‌شوند. هر سرویسِ سازگار کار می‌کند — فقط این سه را عوض کن:
+  <b>نشانیِ پایه</b>، <b>کلید (توکن)</b> و <b>نامِ مدل</b>.<br>
+  <span dir="ltr" style="font-family:monospace">OpenAI: https://api.openai.com/v1 · Metis: https://api.metisai.ir/openai/v1 · OpenRouter: https://openrouter.ai/api/v1</span>
+</div>
+{% endblock %}
+{% block submit_buttons_bottom %}
+{{ block.super }}
+<div class="submit-row" style="margin-top:8px">
+  <input type="submit" name="_test" value="ذخیره و آزمونِ اتصال" style="background:#7c3aed;color:#fff">
+</div>
+{% endblock %}

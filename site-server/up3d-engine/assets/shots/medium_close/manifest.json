@@ -1,0 +1,34 @@
+{
+  "id": "medium_close",
+  "version": 1,
+  "name": {
+    "fa": "نمای نزدیکِ متوسط",
+    "en": "Medium close"
+  },
+  "description": {
+    "fa": "از سینه به بالا",
+    "en": "Chest-up; for talking and presenting."
+  },
+  "framing": {
+    "height": 0.62,
+    "anchor": "eyes",
+    "anchor_pos": 0.3,
+    "lens": 70,
+    "fstop": 2.2,
+    "elevation": 2
+  },
+  "subject": "actor",
+  "moves": [
+    "static",
+    "push_in",
+    "pull_out",
+    "orbit_left",
+    "orbit_right",
+    "crane_up",
+    "handheld",
+    "slide_left",
+    "slide_right"
+  ],
+  "order": 3,
+  "license": "UpMarket 3D (procedural, own)"
+}

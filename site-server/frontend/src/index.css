@@ -1,0 +1,633 @@
+@import "tailwindcss";
+@import "@fontsource/vazirmatn/arabic-300.css";
+@import "@fontsource/vazirmatn/arabic-400.css";
+@import "@fontsource/vazirmatn/arabic-500.css";
+@import "@fontsource/vazirmatn/arabic-600.css";
+@import "@fontsource/vazirmatn/arabic-700.css";
+
+/* ============================================================
+   آپ‌مارکت — سیستم طراحی پنل: شیشه‌ای روی نور
+
+   سه لایه روی هم:
+     ۱. زمینه‌ی تیره‌ی عمیق          — var(--void)
+     ۲. هاله‌های رنگی ثابت (aurora)  — body::before / ::after
+     ۳. سطوح شیشه‌ای نیمه‌شفاف       — .u-card و همنوعانش
+
+   یک نکته‌ی مهندسی که ظاهر را عوض نمی‌کند ولی اسکرول را نجات می‌دهد:
+   `backdrop-filter` واقعی فقط روی «قاب» برنامه است — سایدبار، هدر،
+   مودال. کارت‌ها شیشه‌ی *لایه‌ای* دارند (گرادیان نیمه‌شفاف + خط مویی +
+   های‌لایت داخلی) نه blur واقعی. روی این پس‌زمینه تفاوتش دیده نمی‌شود،
+   ولی تفاوتِ سی کارت با blur و بدون blur، تفاوت ۲۰ فریم و ۶۰ فریم است.
+   ============================================================ */
+
+@theme {
+  --font-sans: Vazirmatn, "Segoe UI", Tahoma, sans-serif;
+}
+
+/* ------------------------------------------------------------ تم تیره */
+/* تیره پیش‌فرض است و روی بارهٔ اول هم همین رندر می‌شود، چون
+   ThemeToggle تا وقتی کاربر انتخابی نکرده باشد dark می‌گذارد. */
+
+:root,
+:root[data-theme="dark"] {
+  --void: #05070f;
+  --void-2: #080c18;
+
+  /* هاله‌ها — همین سه رنگ‌اند که کل هویت بصری را می‌سازند */
+  --aurora-1: #7c5cff;
+  --aurora-2: #22d3ee;
+  --aurora-3: #f471b5;
+  --aurora-alpha: .55;
+  --aurora-blur: 120px;
+
+  --bg: var(--void);
+  /* سطح شیشه‌ای: رنگ نیست، *لایه* است */
+  --glass: rgb(255 255 255 / .045);
+  --glass-2: rgb(255 255 255 / .07);
+  --glass-hi: rgb(255 255 255 / .10);   /* های‌لایت لبه‌ی بالا */
+  --surface: var(--glass);
+  --surface-2: rgb(255 255 255 / .06);
+  --sidebar: rgb(8 12 24 / .72);
+  --sidebar-fg: #93a4c8;
+  --sidebar-active: var(--brand);
+
+  --line: rgb(255 255 255 / .09);
+  --line-strong: rgb(255 255 255 / .16);
+
+  --text: #f2f5ff;
+  --text-2: #b9c4e0;
+  --text-3: #7c88a8;
+
+  --brand: #8b7bff;
+  --brand-strong: #a99bff;
+  --brand-soft: rgb(124 92 255 / .18);
+  --ok: #34d399;
+  --ok-soft: rgb(52 211 153 / .14);
+  --warn: #fbbf24;
+  --warn-soft: rgb(251 191 36 / .14);
+  --bad: #fb7185;
+  --bad-soft: rgb(251 113 133 / .14);
+  --info: #38bdf8;
+  --info-soft: rgb(56 189 248 / .14);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow: 0 2px 6px rgb(0 0 0 / .45), 0 18px 44px -20px rgb(0 0 0 / .8);
+  --glow: 0 0 0 1px rgb(255 255 255 / .06), 0 8px 32px -12px rgb(124 92 255 / .55);
+
+
+  /* نردبان خاکستری، وارونه — توضیحش پایین فایل کنار @theme inline */
+  --s-50:  #0d1322;
+  --s-100: #131b2e;
+  --s-200: #1c2540;
+  --s-300: #2a3554;
+  --s-400: #7c88a8;
+  --s-500: #97a3c0;
+  --s-600: #b9c4e0;
+  --s-700: #d7ddee;
+  --s-800: #eef2fb;
+  --s-900: #ffffff;
+
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------ تم روشن */
+/* روشن هم شیشه است، نه کاغذ سفید: زمینه‌ی یاسی روشن با همان سه هاله،
+   و کارت‌های سفیدِ نیمه‌شفاف رویش. اگر اینجا سفیدِ تخت می‌گذاشتیم،
+   کلید تم عملاً دو محصول مختلف نشان می‌داد. */
+
+:root[data-theme="light"] {
+  --void: #eef0fa;
+  --void-2: #f7f8fd;
+  --aurora-alpha: .45;
+  --aurora-blur: 130px;
+
+  --bg: var(--void);
+  --glass: rgb(255 255 255 / .70);
+  --glass-2: rgb(255 255 255 / .86);
+  --glass-hi: rgb(255 255 255 / .95);
+  --surface: var(--glass);
+  --surface-2: rgb(255 255 255 / .55);
+  --sidebar: rgb(12 16 34 / .88);
+  --sidebar-fg: #c3cce4;
+
+  --line: rgb(15 23 42 / .10);
+  --line-strong: rgb(15 23 42 / .18);
+
+  --text: #0d1226;
+  --text-2: #414c69;
+  --text-3: #7b869f;
+
+  --brand: #6d4aff;
+  --brand-strong: #5a34f5;
+  --brand-soft: rgb(109 74 255 / .12);
+  --ok: #059669;
+  --ok-soft: rgb(5 150 105 / .10);
+  --warn: #c2740a;
+  --warn-soft: rgb(194 116 10 / .10);
+  --bad: #dc2626;
+  --bad-soft: rgb(220 38 38 / .09);
+  --info: #0284c7;
+  --info-soft: rgb(2 132 199 / .10);
+
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / .06);
+  --shadow: 0 2px 6px rgb(15 23 42 / .07), 0 18px 40px -20px rgb(15 23 42 / .28);
+  --glow: 0 0 0 1px rgb(255 255 255 / .8), 0 10px 32px -14px rgb(109 74 255 / .45);
+
+
+  /* نردبان خاکستری، به ترتیب عادی */
+  --s-50:  #f8fafc;
+  --s-100: #f1f5f9;
+  --s-200: #e2e8f0;
+  --s-300: #cbd5e1;
+  --s-400: #94a3b8;
+  --s-500: #64748b;
+  --s-600: #475569;
+  --s-700: #334155;
+  --s-800: #1e293b;
+  --s-900: #0f172a;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   رنگ‌های Tailwind، وصل‌شده به توکن‌ها
+
+   صفحه‌های پنل حدود ۲۸۰ جا رنگ را مستقیم نوشته‌اند: `text-slate-800`،
+   `border-slate-200`، `bg-violet-600`. روی تم سفیدِ قبلی به چشم نمی‌آمد
+   چون تصادفاً درست بود. روی تم تیره یعنی متنِ تیره روی زمینه‌ی تیره.
+
+   راه درستش این نبود که بیست‌وهشت فایل را با regex عوض کنیم — راهش این
+   است که خودِ نردبان رنگ، تم را بشناسد. اینجا `slate` و `violet` به
+   توکن‌ها وصل می‌شوند و در تم تیره **وارونه** می‌شوند: `slate-800` که
+   در روشن تیره‌ترین متن است، در تیره روشن‌ترین می‌شود.
+
+   نتیجه: همه‌ی آن ۲۸۰ کلاس، بدون یک خط تغییر در صفحه‌ها، در هر دو تم
+   درست‌اند — و کدِ جدیدی هم که با عادت `text-slate-500` نوشته شود، خراب
+   نمی‌کند.
+   ============================================================ */
+
+@theme inline {
+  --color-slate-50:  var(--s-50);
+  --color-slate-100: var(--s-100);
+  --color-slate-200: var(--s-200);
+  --color-slate-300: var(--s-300);
+  --color-slate-400: var(--s-400);
+  --color-slate-500: var(--s-500);
+  --color-slate-600: var(--s-600);
+  --color-slate-700: var(--s-700);
+  --color-slate-800: var(--s-800);
+  --color-slate-900: var(--s-900);
+
+  --color-violet-50:  var(--brand-soft);
+  --color-violet-100: var(--brand-soft);
+  --color-violet-200: color-mix(in srgb, var(--brand) 35%, transparent);
+  --color-violet-300: color-mix(in srgb, var(--brand) 55%, transparent);
+  --color-violet-500: var(--brand);
+  --color-violet-600: var(--brand);
+  --color-violet-700: var(--brand-strong);
+  --color-violet-800: var(--brand-strong);
+
+  --color-red-50:  var(--bad-soft);
+  --color-red-100: var(--bad-soft);
+  --color-red-600: var(--bad);
+  --color-red-700: var(--bad);
+  --color-amber-50:  var(--warn-soft);
+  --color-amber-100: var(--warn-soft);
+  --color-amber-700: var(--warn);
+  --color-emerald-50:  var(--ok-soft);
+  --color-emerald-100: var(--ok-soft);
+  --color-emerald-600: var(--ok);
+  --color-emerald-700: var(--ok);
+}
+
+* { box-sizing: border-box; }
+
+/* زمینه‌ی پایه روی <html> می‌نشیند و <body> شفاف می‌ماند.
+
+   این جابه‌جایی ظاهراً بی‌اهمیت است ولی نیست: یک شبه‌المان با
+   `z-index: -1` پشتِ پس‌زمینه‌ی *والد خودش* می‌رود. تا وقتی گرادیان روی
+   body بود، هاله‌ها زیرش دفن می‌شدند و کل افکت نامرئی بود — صفحه فقط
+   مشکی تخت دیده می‌شد. حالا پس‌زمینه روی html است، هاله‌ها رویش، و
+   محتوا روی هر دو. */
+html {
+  background:
+    radial-gradient(1200px 700px at 100% -10%, color-mix(in srgb, var(--aurora-1) 14%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--void) 0%, var(--void-2) 100%);
+  background-attachment: fixed;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text);
+  margin: 0;
+  min-height: 100dvh;
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --------------------------------------------------- هاله‌ها (aurora)
+
+   دو لایه‌ی ثابت پشت کل برنامه. `fixed` است تا با اسکرول جابه‌جا نشود —
+   هاله‌ای که با محتوا بالا و پایین برود، به‌جای عمق، حواس‌پرتی می‌سازد.
+   `pointer-events: none` چون هیچ‌کدام قابل کلیک نیستند. */
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(var(--aurora-blur));
+  opacity: var(--aurora-alpha);
+  will-change: transform;
+}
+
+body::before {
+  inset-block-start: -22vh;
+  inset-inline-end: -14vw;
+  width: 62vw;
+  height: 62vh;
+  background:
+    radial-gradient(closest-side, var(--aurora-1), transparent 70%),
+    radial-gradient(closest-side at 70% 60%, var(--aurora-3), transparent 70%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+
+body::after {
+  inset-block-end: -26vh;
+  inset-inline-start: -16vw;
+  width: 58vw;
+  height: 58vh;
+  background:
+    radial-gradient(closest-side, var(--aurora-2), transparent 70%),
+    radial-gradient(closest-side at 30% 30%, var(--aurora-1), transparent 70%);
+  animation: aurora-b 32s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(-6vw, 5vh, 0) scale(1.15); }
+}
+@keyframes aurora-b {
+  from { transform: translate3d(0, 0, 0) scale(1.1); }
+  to   { transform: translate3d(5vw, -4vh, 0) scale(1); }
+}
+
+/* ------------------------------------------------------------ اجزای پایه */
+
+/* شیشه‌ی لایه‌ای: گرادیان نیمه‌شفاف + خط مویی + های‌لایت لبه‌ی بالا.
+   خط `::before` همان باریکه‌ی روشنِ بالای کارت است که به چشم می‌گوید
+   این یک سطح است نه یک مستطیل رنگی. */
+.u-card {
+  position: relative;
+  /* کارت اغلب عضو grid یا flex است، و آن‌ها به‌صورت پیش‌فرض زیر عرضِ
+     محتوایشان کوچک نمی‌شوند. وقتی جدولِ داخل کارت کف عرض ۵۶۰ پیکسل گرفت،
+     کارت هم ۵۶۰ ماند و صفحه‌ی «گزارش بازاریابی» روی گوشی ۲۵۸ پیکسل اسکرول
+     افقی پیدا کرد — جدول قرار بود داخل کارت اسکرول شود، نه کل صفحه. */
+  min-width: 0;
+  background:
+    linear-gradient(180deg, var(--glass-2), var(--glass));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  overflow: clip;
+}
+.u-card::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-hi), transparent);
+  pointer-events: none;
+}
+
+/* کارتی که واکنش نشان می‌دهد — برای کارت‌های کلیک‌شدنی */
+.u-card-hover {
+  transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.u-card-hover:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--glow);
+  transform: translateY(-2px);
+}
+
+/* شیشه‌ی واقعی — فقط قابِ برنامه. اینجا blur ارزشش را دارد چون
+   تعدادشان از انگشتان یک دست بیشتر نمی‌شود. */
+.u-glass {
+  background: var(--sidebar);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.u-input {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px 13px;
+  font-size: .875rem;
+  font-family: inherit;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.u-input:hover:not(:disabled):not(:focus) { border-color: var(--line-strong); }
+.u-input:focus {
+  outline: none;
+  background: var(--glass-2);
+  border-color: color-mix(in srgb, var(--brand) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+.u-input::placeholder { color: var(--text-3); }
+.u-input:disabled { opacity: .5; cursor: not-allowed; }
+
+select.u-input option { background: var(--void-2); color: var(--text); }
+
+/* `position` عمداً اینجا نیست.
+
+   قبلاً `position: relative` داشت، و چون این قاعده بیرون از لایه‌های
+   تیلویند است، بر کلاس `absolute` تیلویند می‌چربید. نتیجه: هر دکمه‌ای که
+   `u-btn absolute` بود سر جایش نمی‌نشست — دکمه‌ی بستنِ کشوی موبایل وسط
+   صفحه معلق می‌ماند و دکمه‌ی حذفِ روی عکس محصول، زیر عکس می‌افتاد نه
+   روی گوشه‌اش. هیچ‌چیز دیگری به این `relative` تکیه نداشت. */
+.u-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: 11px; padding: 9px 17px;
+  font-size: .875rem; font-weight: 600; font-family: inherit;
+  border: 1px solid transparent; cursor: pointer;
+  transition: background .18s, border-color .18s, color .18s, box-shadow .18s, transform .1s;
+  white-space: nowrap;
+}
+.u-btn:active:not(:disabled) { transform: translateY(1px); }
+.u-btn:disabled { opacity: .45; cursor: not-allowed; }
+.u-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+/* دکمه‌ی اصلی: گرادیانِ همان دو رنگِ هاله، با درخششی که در hover باز می‌شود */
+.u-btn-primary {
+  background: linear-gradient(135deg, var(--aurora-1), color-mix(in srgb, var(--aurora-1) 55%, var(--aurora-3)));
+  color: #fff;
+  box-shadow: 0 6px 20px -8px color-mix(in srgb, var(--aurora-1) 90%, transparent);
+}
+.u-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 10px 28px -8px color-mix(in srgb, var(--aurora-1) 100%, transparent);
+  filter: brightness(1.08);
+}
+
+.u-btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+.u-btn-secondary:hover:not(:disabled) {
+  background: var(--glass-2);
+  border-color: var(--line-strong);
+}
+
+.u-btn-ghost { background: transparent; color: var(--text-2); }
+.u-btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+.u-btn-danger {
+  background: linear-gradient(135deg, var(--bad), color-mix(in srgb, var(--bad) 70%, #7f1d1d));
+  color: #fff;
+  box-shadow: 0 6px 20px -8px color-mix(in srgb, var(--bad) 85%, transparent);
+}
+.u-btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+.u-btn-sm { padding: 6px 12px; font-size: .8rem; border-radius: 9px; }
+
+/* برچسب وضعیت */
+.u-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.u-badge-neutral { background: var(--surface-2); color: var(--text-2); border-color: var(--line); }
+.u-badge-brand   { background: var(--brand-soft); color: var(--brand-strong); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+.u-badge-ok      { background: var(--ok-soft);    color: var(--ok);    border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.u-badge-warn    { background: var(--warn-soft);  color: var(--warn);  border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.u-badge-bad     { background: var(--bad-soft);   color: var(--bad);   border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
+.u-badge-info    { background: var(--info-soft);  color: var(--info);  border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+
+/* نوار مصرف */
+.u-meter {
+  height: 7px; border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.u-meter > span {
+  display: block; height: 100%; border-radius: 999px;
+  transition: width .5s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: 0 0 12px -2px currentColor;
+}
+
+/* اسکلت بارگذاری — موجِ عبوری، نه فقط پلک‌زدن */
+.u-skeleton {
+  position: relative;
+  background: var(--surface-2);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.u-skeleton::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--glass-hi), transparent);
+  animation: u-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes u-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* سایدبار */
+.u-nav-item {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 10px;
+  color: var(--sidebar-fg); text-decoration: none;
+  font-size: .85rem; font-weight: 500;
+  transition: background .15s, color .15s;
+}
+.u-nav-item:hover { background: rgb(255 255 255 / .06); color: #fff; }
+
+/* حالت فعال: به‌جای پرکردن کل ردیف با رنگ، یک میله‌ی درخشان کنارش.
+   وقتی هجده آیتم در منو هست، هجده مستطیل بنفش دیده نمی‌شود — یک
+   میله دیده می‌شود، و همان کارِ «من اینجایم» را می‌کند. */
+.u-nav-item.active {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand) 20%, transparent));
+  color: #fff;
+}
+.u-nav-item.active::before {
+  content: "";
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block: 6px;
+  width: 2.5px;
+  border-radius: 999px;
+  background: var(--brand-strong);
+  box-shadow: 0 0 10px 1px var(--brand);
+}
+
+.u-nav-group {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; background: none; border: 0; cursor: pointer; font-family: inherit;
+  padding-block: 6px; border-radius: 8px;
+  margin-block: 14px 4px;
+  padding-inline: 12px;
+  /* ۰.۶۸rem می‌شد ۱۰.۸۸ پیکسل — زیر مرزی که متن فارسیِ ریز هنوز خوانده
+     شود، مخصوصاً با حروف کوچکِ «ی» و «ـ». حروف بزرگ‌نما و فاصله‌ی حروف
+     همان نقشِ «این یک عنوان گروه است» را می‌زنند، بی‌آنکه لازم باشد
+     اندازه را تا حد ناخوانایی پایین بیاوریم. */
+  font-size: .78rem; font-weight: 700; letter-spacing: .04em;
+  color: color-mix(in srgb, var(--sidebar-fg) 65%, transparent);
+  text-transform: uppercase;
+}
+.u-nav-group:hover { color: var(--sidebar-fg); background: rgb(255 255 255 / .04); }
+
+/* شمارنده‌ی کنار آیتم منو (پیام نخوانده، تیکت باز…) */
+.u-nav-count {
+  margin-inline-start: auto;
+  min-width: 19px; padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bad) 85%, transparent);
+  color: #fff;
+  font-size: .68rem; font-weight: 700; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* جدول */
+.u-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.u-table th {
+  text-align: right; padding: 10px 14px; font-weight: 600; font-size: .74rem;
+  color: var(--text-3); border-bottom: 1px solid var(--line);
+  white-space: nowrap; letter-spacing: .02em;
+}
+.u-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); color: var(--text-2); }
+.u-table tbody tr:last-child td { border-bottom: none; }
+.u-table tbody tr { transition: background .12s; }
+.u-table tbody tr:hover { background: var(--surface-2); }
+.u-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* لینک «بازگشت به …» بالای هر صفحه.
+
+   ارتفاعش ۲۰ پیکسل بود — روی لمس یعنی هدفی که باید دقیق زده شود. با
+   padding عمودی به ۳۲ می‌رسد بدون اینکه در چیدمان جابه‌جا شود، چون
+   margin منفیِ افقی، padding را از لبه پس می‌گیرد. */
+.u-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  margin-inline-start: -8px;
+  border-radius: 9px;
+  font-size: .875rem;
+  color: var(--text-3);
+  text-decoration: none;
+  transition: color .15s, background .15s;
+}
+.u-back:hover { color: var(--text-2); background: var(--surface-2); }
+
+/* تب‌ها — زیرصفحه‌های یک صفحه
+
+   می‌شکنند، اسکرول افقی نمی‌شوند. قبلاً `overflow-x: auto` بودند با
+   اسکرول‌بارِ پنهان، و نتیجه این بود که نوار تبی که ادامه داشت، دقیقاً
+   شبیه نوار تبی بود که تمام شده — هیچ نشانه‌ای برای کشیدن نبود.
+
+   اندازه‌گیری‌شده: روی ۳۶۰ پیکسل از هفت تبِ فروشگاه چهار تا کاملاً بیرون
+   از صفحه بودند، و در دو صفحه حتی تبِ *فعال* بیرون بود. ولی این فقط
+   مشکل گوشی نبود — تب‌های صفحه‌ی محصول حتی روی ۱۰۲۴ پیکسل هم بریده
+   می‌شدند. برای همین شکستن به یک بریک‌پوینت بسته نیست: هر جا جا نشوند
+   می‌شکنند، و هر جا جا بشوند یک ردیف می‌مانند و هیچ فرقی نمی‌کند. */
+.u-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.u-tab {
+  position: relative;
+  padding: 10px 15px;
+  font-size: .86rem; font-weight: 600;
+  color: var(--text-3); text-decoration: none;
+  white-space: nowrap;
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  transition: color .15s;
+}
+.u-tab:hover { color: var(--text-2); }
+.u-tab.active { color: var(--text); }
+.u-tab.active::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10px;
+  inset-block-end: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand);
+  box-shadow: 0 0 10px 0 var(--brand);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--brand) 55%, var(--line-strong)); background-clip: padding-box; }
+
+/* ============================================================
+   موبایل
+   ============================================================ */
+
+@media (max-width: 639px) {
+  /* کاشی آمار در دو ستون: padding و عدد کوچک‌تر تا عدد شش‌رقمیِ تومانی
+     هم در نیمِ عرض گوشی جا شود. */
+  .u-stat-row > .u-card { padding: 12px 13px; }
+  .u-stat-row .text-2xl { font-size: 1.2rem; line-height: 1.6rem; }
+
+  /* جدول در عرض کم له نمی‌شود — داخل کارتش افقی اسکرول می‌شود.
+     بدون کف عرض، مرورگر ستون‌ها را تا جایی فشرده می‌کرد که متن هر
+     سلول به دو سه حرف و «…» می‌رسید؛ اسکرول افقیِ یک جدول قابل خواندن
+     بهتر از یک جدولِ جاشده‌ی ناخواناست. */
+  .u-table { min-width: 560px; }
+  .u-table th, .u-table td { padding: 10px 12px; }
+
+  /* ۴۴ پیکسل ارتفاع — کفِ اندازه‌ای که انگشت بدون دقت کردن می‌زند.
+     (شکستنِ خودِ نوار تب دیگر اینجا نیست؛ به تعریف پایه منتقل شد چون
+     فقط مشکل گوشی نبود.) */
+  .u-tab { padding: 12px 14px; }
+}
+
+/* کشوی منو روی موبایل مات است، نه شیشه‌ای.
+
+   روی دسکتاپ شیشه پشتش هاله است و زیبا می‌نشیند. روی موبایل کشو **روی
+   خود محتوا** باز می‌شود، و شیشه‌ی نیمه‌شفاف یعنی دکمه‌ها و متن صفحه از
+   لای آیتم‌های منو پیدا بودند — دو لایه متن روی هم. */
+.u-drawer {
+  background: color-mix(in srgb, var(--void-2) 96%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 0 60px rgb(0 0 0 / .6);
+}
+
+/* ورود نرمِ محتوا. فقط یک بار موقع mount، نه روی هر رندر. */
+@keyframes u-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.u-rise { animation: u-rise .35s cubic-bezier(.22, 1, .36, 1) both; }
+
+/* حرکت کمتر: هاله‌ها می‌ایستند ولی محو نمی‌شوند — کسی که
+   prefers-reduced-motion گذاشته، نور کمتر نمی‌خواهد، حرکتِ کمتر می‌خواهد. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ردیفِ اعلان در منوی زنگ — هاور از توکن، نه رنگِ ثابتِ روشن */
+.u-notif-item:hover { background: var(--surface-2); }

@@ -1,0 +1,15 @@
+{
+  "workflow": "latentsync",
+  "version": "v1",
+  "description": "Lip-sync: redraws the mouth of the person in a rendered segment to match the narration. ByteDance LatentSync 1.6 via the ComfyUI-LatentSyncWrapper custom node (github.com/ShmuelRonen/ComfyUI-LatentSyncWrapper, node LatentSyncNode: images, audio, seed, lips_expression, inference_steps -> images, audio). The node treats its frames as 25 fps, so the segment is converted to 25 fps before upload and back to the segment's own rate after. Core nodes: LoadVideo, GetVideoComponents, LoadAudio, CreateVideo, SaveVideo. Not yet run on the real GPU system: verify with `manage.py lipsync_setup --check` there.",
+  "requires_nodes": ["LatentSyncNode", "LoadVideo", "GetVideoComponents", "LoadAudio", "CreateVideo", "SaveVideo"],
+  "inputs": {
+    "video": ["1", "file"],
+    "audio": ["3", "audio"],
+    "seed": ["4", "seed"],
+    "lips_expression": ["4", "lips_expression"],
+    "inference_steps": ["4", "inference_steps"],
+    "fps": ["5", "fps"],
+    "filename_prefix": ["6", "filename_prefix"]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "id": "ultra",
+  "version": 1,
+  "name": {
+    "fa": "فوق‌العاده (4K)",
+    "en": "Ultra 4K"
+  },
+  "description": {
+    "fa": "بیشترین کیفیت؛ فقط GPU ِ قوی",
+    "en": "Cycles 512 spp, 2160×3840, subdiv 2. Strong GPU only."
+  },
+  "order": 5,
+  "engine": "CYCLES",
+  "device": "AUTO",
+  "samples": 512,
+  "adaptive_threshold": 0.01,
+  "denoise": true,
+  "resolution": {
+    "long": 3840
+  },
+  "frame_step": 1,
+  "bounces": {
+    "total": 12,
+    "diffuse": 4,
+    "glossy": 6,
+    "transmission": 12
+  },
+  "motion_blur": true,
+  "shutter": 0.45,
+  "quality": {
+    "subdiv": 2,
+    "face": true,
+    "dof": true,
+    "skin_detail": 1.2,
+    "lip_strength": 0.9
+  },
+  "glare": true,
+  "vignette": 0.2,
+  "recommended": "gpu",
+  "est_sec_per_frame_cpu": 4000,
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "fa_male_onyx",
+  "version": 1,
+  "name": {
+    "fa": "آقا — بم (onyx)",
+    "en": "Male deep (onyx)"
+  },
+  "description": {
+    "fa": "آقا — بم (onyx)",
+    "en": "Male deep (onyx)"
+  },
+  "gender": "male",
+  "provider": "openai",
+  "language": "fa",
+  "order": 3,
+  "voice": "onyx",
+  "license": "UpMarket 3D (procedural, own)"
+}

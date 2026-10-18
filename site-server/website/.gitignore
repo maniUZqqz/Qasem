@@ -1,0 +1,5 @@
+# فقط وابستگی و خروجی بیلد. سیاست .gitignore ریشه را ببین.
+node_modules/
+.next/
+out/
+*.tsbuildinfo

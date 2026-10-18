@@ -1,0 +1,49 @@
+{
+  "id": "rotate_show",
+  "version": 1,
+  "name": {
+    "fa": "چرخاندنِ محصول",
+    "en": "Rotate & show"
+  },
+  "description": {
+    "fa": "محصول را می‌چرخاند تا از دو طرف دیده شود",
+    "en": "Turn the product to show its sides."
+  },
+  "category": "interaction",
+  "duration": {
+    "min": 1.5,
+    "default": 2.5,
+    "max": 5.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "rotate_show"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "holding"
+  },
+  "product": {
+    "requires": "in_hand",
+    "param": "product"
+  },
+  "params": {
+    "product": {
+      "type": "product_ref",
+      "default": "p1",
+      "label": "محصول"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.1,
+      "to": 0.85,
+      "target": "product"
+    }
+  ],
+  "order": 7,
+  "license": "UpMarket 3D (procedural, own)"
+}

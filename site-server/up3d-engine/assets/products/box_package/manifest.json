@@ -1,0 +1,73 @@
+{
+  "id": "box_package",
+  "version": 1,
+  "name": {
+    "fa": "جعبهٔ محصول",
+    "en": "Product box"
+  },
+  "description": {
+    "fa": "جعبهٔ مقوایی با طرحِ کاملِ جلو (عکسِ محصول/لوگو)",
+    "en": "Retail box; the front face shows your product image/branding."
+  },
+  "builder": "box_package",
+  "order": 3,
+  "dimensions": [
+    0.09,
+    0.05,
+    0.16
+  ],
+  "grasp": {
+    "height": 0.4,
+    "radius": 0.046,
+    "curl": 0.45,
+    "preset": "pinch",
+    "azimuth": 40,
+    "tilt": 4
+  },
+  "label": {
+    "px": [
+      720,
+      1280
+    ],
+    "style": "box"
+  },
+  "params": {
+    "box_color": {
+      "type": "color",
+      "default": "#f1e6d6"
+    },
+    "brand": {
+      "type": "text",
+      "default": "",
+      "label": "برند"
+    },
+    "tagline": {
+      "type": "text",
+      "default": "",
+      "label": "شعار"
+    },
+    "label_color": {
+      "type": "color",
+      "default": "#f4efe6",
+      "label": "رنگِ برچسب"
+    },
+    "text_color": {
+      "type": "color",
+      "default": "#2b2118",
+      "label": "رنگِ نوشته"
+    },
+    "accent_color": {
+      "type": "color",
+      "default": "#b08d57",
+      "label": "رنگِ تزئین"
+    },
+    "label_image": {
+      "type": "file",
+      "label": "عکس/لوگوی برچسب"
+    }
+  },
+  "tags": [
+    "package"
+  ],
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,7 @@
+# PersianAiKit voice service - light tier (CPU). Python 3.10-3.13 (ai-edge-litert on Windows: x64 only).
+# Keep this file ASCII: older pip on Windows reads it with the system code page.
+numpy>=1.24
+onnxruntime>=1.18        # Pocket-TTS (natural speech + voice cloning)
+sentencepiece>=0.2
+ai-edge-litert>=2.2.0    # Stable Audio 3 (sound of anything)
+ctranslate2>=4.0         # M2M100 translation of sound descriptions (optional; without it: glossary only)

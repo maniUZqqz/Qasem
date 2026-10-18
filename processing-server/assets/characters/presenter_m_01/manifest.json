@@ -1,0 +1,74 @@
+{
+  "id": "presenter_m_01",
+  "version": 1,
+  "name": {
+    "fa": "علی — مجریِ آقا",
+    "en": "Ali — male presenter"
+  },
+  "description": {
+    "fa": "آقای ۳۲ ساله، موی کوتاهِ تیره، لباسِ نیمه‌رسمی",
+    "en": "Male ~32, short dark hair, smart-casual. Confident presenter."
+  },
+  "gender": "male",
+  "order": 2,
+  "provider": "mpfb",
+  "rig": "default",
+  "rigmap": "mpfb_default",
+  "macro": {
+    "gender": 1.0,
+    "age": 0.5,
+    "muscle": 0.55,
+    "weight": 0.5,
+    "height": 0.62,
+    "proportions": 0.65,
+    "race": {
+      "african": 0.03,
+      "asian": 0.05,
+      "caucasian": 0.92
+    }
+  },
+  "skin": "skins/young_caucasian_male2/young_caucasian_male2.mhmat",
+  "skin_type": "ENHANCED_SSS",
+  "skin_detail": 1.0,
+  "eyebrows": "eyebrows/eyebrow009/eyebrow009.mhclo",
+  "eyelashes": "eyelashes/eyelashes02/eyelashes02.mhclo",
+  "hair": "hair/short02/short02.mhclo",
+  "hair_color": "#1c120d",
+  "eye_color": "#3d2616",
+  "clothes": [
+    "clothes/male_casualsuit02/male_casualsuit02.mhclo",
+    "clothes/shoes01/shoes01.mhclo"
+  ],
+  "outfits": {
+    "casual": [
+      "clothes/male_casualsuit02/male_casualsuit02.mhclo",
+      "clothes/shoes01/shoes01.mhclo"
+    ],
+    "elegant": [
+      "clothes/male_elegantsuit01/male_elegantsuit01.mhclo",
+      "clothes/shoes01/shoes01.mhclo"
+    ],
+    "work": [
+      "clothes/male_worksuit01/male_worksuit01.mhclo",
+      "clothes/shoes03/shoes03.mhclo"
+    ]
+  },
+  "params": {
+    "outfit": {
+      "type": "enum",
+      "values": [
+        "casual",
+        "elegant",
+        "work"
+      ],
+      "default": "casual",
+      "label": "لباس"
+    },
+    "hair_color": {
+      "type": "color",
+      "default": "#1c120d",
+      "label": "رنگِ مو"
+    }
+  },
+  "license": "CC0 (MakeHuman/MPFB2 system assets)"
+}

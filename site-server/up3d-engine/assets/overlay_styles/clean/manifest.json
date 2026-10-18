@@ -1,0 +1,24 @@
+{
+  "id": "clean",
+  "version": 1,
+  "name": {
+    "fa": "ساده و سفید",
+    "en": "Clean"
+  },
+  "default": true,
+  "order": 1,
+  "title": {
+    "size": 0.05,
+    "color": "#ffffff",
+    "shadow": true
+  },
+  "cta": {
+    "bg": "#f2c14e",
+    "color": "#1b1408"
+  },
+  "price": {
+    "bg": "#c0392b",
+    "color": "#ffffff"
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

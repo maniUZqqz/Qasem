@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- آزمونِ نصبِ ویرایشگرِ ویدیو (سبک: کلیپ‌های ساختگیِ چندثانیه‌ای). اجرا: Run-SelfTest.bat -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PersianAiKit.Video.SelfTest</RootNamespace>
+    <AssemblyName>PersianAiKit.Video.SelfTest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PersianAiKit.Video\PersianAiKit.Video.csproj" />
+  </ItemGroup>
+
+</Project>

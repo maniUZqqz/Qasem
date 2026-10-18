@@ -1,0 +1,59 @@
+{
+  "id": "present",
+  "version": 1,
+  "name": {
+    "fa": "نشان دادنِ محصول به دوربین",
+    "en": "Present product"
+  },
+  "description": {
+    "fa": "محصول کنارِ صورت رو به دوربین، دستِ دیگر اشاره",
+    "en": "Hold product up near the face, label to camera; free hand presents it."
+  },
+  "category": "interaction",
+  "duration": {
+    "min": 1.2,
+    "default": 2.5,
+    "max": 6.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "present"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "holding"
+  },
+  "product": {
+    "requires": "in_hand",
+    "param": "product"
+  },
+  "params": {
+    "product": {
+      "type": "product_ref",
+      "default": "p1",
+      "label": "محصول"
+    },
+    "free_hand": {
+      "type": "bool",
+      "default": true
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.25,
+      "to": 0.45,
+      "target": "product"
+    }
+  ],
+  "expression": {
+    "name": "smile",
+    "from": 0.2,
+    "to": 1.0,
+    "intensity": 0.7
+  },
+  "order": 6,
+  "license": "UpMarket 3D (procedural, own)"
+}

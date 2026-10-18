@@ -1,0 +1,32 @@
+{
+  "id": "animatic",
+  "version": 1,
+  "name": {
+    "fa": "انیمیک (خیلی سریع)",
+    "en": "Animatic"
+  },
+  "description": {
+    "fa": "برای وارسیِ حرکت و زمان‌بندی؛ بی‌نورِ واقعی",
+    "en": "Workbench; checks motion/timing in minutes."
+  },
+  "order": 1,
+  "engine": "WORKBENCH",
+  "resolution": {
+    "long": 640
+  },
+  "frame_step": 2,
+  "aa": "FXAA",
+  "cavity": false,
+  "workbench_dof": false,
+  "quality": {
+    "subdiv": 0,
+    "face": true,
+    "dof": false,
+    "skin_detail": 0,
+    "procedural_eyes": false
+  },
+  "compositor": false,
+  "recommended": "cpu",
+  "est_sec_per_frame_cpu": 1.0,
+  "license": "UpMarket 3D (procedural, own)"
+}

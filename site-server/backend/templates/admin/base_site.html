@@ -1,0 +1,40 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{# عنوان تب مرورگر — نام جدول اول، چون وقتی ده تب باز است همان دیده می‌شود. #}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"آپ‌مارکت" }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/upmarket.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:"آپ‌مارکت — پنل مدیریت" }}</a></div>
+  {% if user.is_anonymous %}
+    {% include "admin/color_theme_toggle.html" %}
+  {% endif %}
+{% endblock %}
+
+{% comment %}
+  توضیحِ جدولی که باز است، بالای خودش.
+
+  این‌جا نشسته و نه در change_list.html، چون change_list خودش بلوک
+  content_subtitle را تعریف نمی‌کند — پس آنچه این‌جا بنویسیم به همه‌ی
+  صفحه‌های فهرست می‌رسد بدون اینکه لازم باشد قالب بزرگِ جنگو را کپی
+  کنیم و با هر ارتقای جنگو عقب بماند.
+
+  `table_description` را config/admin_site.py فقط برای صفحه‌های فهرست
+  پر می‌کند، پس در فرم ویرایش چیزی اضافه نمی‌شود.
+{% endcomment %}
+{% block content_subtitle %}
+  {% if subtitle %}<h2>{{ subtitle }}</h2>{% endif %}
+  {% if table_description %}
+    <div class="um-note">
+      {% if table_name_en %}<div class="um-note-en">{{ table_name_en }}</div>{% endif %}
+      <p class="um-note-text">{{ table_description }}</p>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

@@ -1,0 +1,42 @@
+{
+  "id": "standard",
+  "version": 1,
+  "name": {
+    "fa": "استاندارد (720p)",
+    "en": "Standard 720p"
+  },
+  "description": {
+    "fa": "کیفیتِ خوب؛ روی GPU سریع، روی CPU کند",
+    "en": "Cycles 64 spp, 720×1280, motion blur. GPU recommended."
+  },
+  "order": 3,
+  "engine": "CYCLES",
+  "device": "AUTO",
+  "samples": 64,
+  "adaptive_threshold": 0.03,
+  "denoise": true,
+  "resolution": {
+    "long": 1280
+  },
+  "frame_step": 1,
+  "bounces": {
+    "total": 8,
+    "diffuse": 3,
+    "glossy": 4,
+    "transmission": 8
+  },
+  "motion_blur": true,
+  "shutter": 0.4,
+  "quality": {
+    "subdiv": 1,
+    "face": true,
+    "dof": true,
+    "skin_detail": 1.0,
+    "lip_strength": 0.9
+  },
+  "glare": true,
+  "vignette": 0.22,
+  "recommended": "gpu",
+  "est_sec_per_frame_cpu": 150,
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.log
+*.sqlite3
+node_modules/
+.env
+.env.local
+.env.production.local
+ai.env
+node.json

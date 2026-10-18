@@ -1,0 +1,33 @@
+{
+  "id": "product_macro",
+  "version": 1,
+  "name": {
+    "fa": "نمای ماکروی محصول",
+    "en": "Product macro"
+  },
+  "description": {
+    "fa": "خیلی نزدیک، محصول دنبال می‌شود",
+    "en": "Tight product close-up that follows the product (in hand or on table)."
+  },
+  "framing": {
+    "height": 0.3,
+    "anchor": "product",
+    "anchor_pos": 0.5,
+    "lens": 100,
+    "fstop": 2.8,
+    "elevation": 6
+  },
+  "subject": "product",
+  "moves": [
+    "static",
+    "push_in",
+    "orbit_left",
+    "orbit_right",
+    "crane_down",
+    "handheld",
+    "rack_focus"
+  ],
+  "order": 6,
+  "default_for": "product",
+  "license": "UpMarket 3D (procedural, own)"
+}

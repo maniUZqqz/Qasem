@@ -1,0 +1,37 @@
+{
+  "id": "open_arms",
+  "version": 1,
+  "name": {
+    "fa": "باز کردنِ دست‌ها (خوش‌آمد)",
+    "en": "Open arms"
+  },
+  "description": {
+    "fa": "دست‌ها باز به نشانهٔ استقبال",
+    "en": "Open both free arms in welcome / big reveal."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 1.0,
+    "default": 1.6,
+    "max": 3.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "open_arms"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "none"
+  },
+  "expression": {
+    "name": "big_smile",
+    "from": 0.1,
+    "to": 1.0,
+    "intensity": 0.8
+  },
+  "order": 13,
+  "license": "UpMarket 3D (procedural, own)"
+}

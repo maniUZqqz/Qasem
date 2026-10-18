@@ -1,0 +1,19 @@
+{
+  "_": "برای تغییر، این فایل را config.json بنامید (کنارِ gateway.py). هر چه ننویسید پیش‌فرض می‌ماند. کیت Port، DataDir و ModelsDir را خودش می‌دهد.",
+  "Port": 5620,
+  "Engines": {
+    "pocket": {
+      "enabled": true,
+      "threads": 2,
+      "workers": 2,
+      "warm": true
+    },
+    "sa3-small-sfx": {
+      "enabled": true,
+      "threads": 4,
+      "keepLoaded": false,
+      "isolate": true
+    }
+  },
+  "_server": "روی سرورِ پرحافظه (۱۶GB به بالا): pocket.threads=4، pocket.workers=4 و sa3-small-sfx.keepLoaded=true ⇒ صدای هر چیز ~۱۴ ثانیه به‌جای ~۵۰."
+}

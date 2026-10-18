@@ -1,0 +1,11 @@
+[
+  {"id": "mana", "name": "مانا", "gender": "زن", "file": "mana-cc0.wav", "note": "صدای واقعی، خوانشِ رسمی", "source": "مجموعه‌دادهٔ Mana-TTS (huggingface.co/datasets/MahtaFetrat/Mana-TTS)", "license": "CC0"},
+  {"id": "arash", "name": "آرش", "gender": "مرد", "file": "piper-ganji.wav", "note": "بم", "source": "مرجع ساخته‌شده با صدای ganjiِ Piper", "license": "MIT"},
+  {"id": "bahram", "name": "بهرام", "gender": "مرد", "file": "piper-ganji_adabi.wav", "note": "بم، ادبی", "source": "مرجع ساخته‌شده با صدای ganji_adabiِ Piper", "license": "MIT"},
+  {"id": "sara", "name": "سارا", "gender": "زن", "file": "pocket-prompt_short_sentence.wav", "note": "زیر", "source": "نمونهٔ مدلِ pocket-tts-farsi-v2 (samples/prompt_short_sentence.wav)", "license": "CC-BY-NC-4.0"},
+  {"id": "kaveh", "name": "کاوه", "gender": "مرد", "file": "piper-gyro.wav", "note": "بم", "source": "مرجع ساخته‌شده با صدای gyroِ Piper", "license": "MIT"},
+  {"id": "reza", "name": "رضا", "gender": "مرد", "file": "piper-reza_ibrahim.wav", "note": "", "source": "مرجع ساخته‌شده با صدای reza_ibrahimِ Piper", "license": "MIT"},
+  {"id": "amir", "name": "امیر", "gender": "مرد", "file": "piper-amir.wav", "note": "جوان", "source": "مرجع ساخته‌شده با صدای amirِ Piper", "license": "MIT"},
+  {"id": "dariush", "name": "داریوش", "gender": "مرد", "file": "pocket-prompt_news_paragraph.wav", "note": "خبری", "source": "نمونهٔ مدلِ pocket-tts-farsi-v2 (samples/prompt_news_paragraph.wav)", "license": "CC-BY-NC-4.0"},
+  {"id": "negar", "name": "نگار", "gender": "زن", "file": "pocket-prompt_hello.wav", "note": "مرجعِ کوتاه (۱٫۳ ثانیه)", "source": "نمونهٔ مدلِ pocket-tts-farsi-v2 (samples/prompt_hello.wav)", "license": "CC-BY-NC-4.0"}
+]

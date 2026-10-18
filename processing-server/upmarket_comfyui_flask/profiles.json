@@ -1,0 +1,734 @@
+[
+  {
+    "id": "flux-product-balanced",
+    "kind": "image",
+    "label": "FLUX · تبلیغاتی متعادل",
+    "description": "پیش‌فرض پیشنهادی برای RTX 3060 12GB؛ 1024px و 24 گام.",
+    "file": "image_api.json",
+    "defaults": {
+      "width": 1024,
+      "height": 1024,
+      "steps": 24,
+      "guidance": 3.5,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض تصویر",
+        "type": "select",
+        "options": [
+          768,
+          896,
+          1024
+        ],
+        "default": 1024,
+        "targets": [
+          [
+            "5",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع تصویر",
+        "type": "select",
+        "options": [
+          768,
+          896,
+          1024
+        ],
+        "default": 1024,
+        "targets": [
+          [
+            "5",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          20,
+          24,
+          28
+        ],
+        "default": 24,
+        "targets": [
+          [
+            "2",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "guidance",
+        "label": "قدرت پیروی از پرامپت",
+        "type": "select",
+        "options": [
+          2.5,
+          3.0,
+          3.5,
+          4.0
+        ],
+        "default": 3.5,
+        "targets": [
+          [
+            "8",
+            "guidance"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "2",
+            "seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "flux-product-portrait",
+    "kind": "image",
+    "label": "FLUX · تبلیغاتی عمودی",
+    "description": "برای پست و استوری؛ خروجی 768×1024 با جزئیات خوب و فشار کمتر از 1024 مربع.",
+    "file": "image_api.json",
+    "defaults": {
+      "width": 768,
+      "height": 1024,
+      "steps": 24,
+      "guidance": 3.5,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض تصویر",
+        "type": "select",
+        "options": [
+          640,
+          768,
+          896
+        ],
+        "default": 768,
+        "targets": [
+          [
+            "5",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع تصویر",
+        "type": "select",
+        "options": [
+          896,
+          1024,
+          1152
+        ],
+        "default": 1024,
+        "targets": [
+          [
+            "5",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          20,
+          24,
+          28
+        ],
+        "default": 24,
+        "targets": [
+          [
+            "2",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "guidance",
+        "label": "قدرت پیروی از پرامپت",
+        "type": "select",
+        "options": [
+          2.5,
+          3.0,
+          3.5,
+          4.0
+        ],
+        "default": 3.5,
+        "targets": [
+          [
+            "8",
+            "guidance"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "2",
+            "seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "flux-product-fast",
+    "kind": "image",
+    "label": "FLUX · سریع‌تر",
+    "description": "برای تست ایده و پرامپت؛ 768px و 20 گام، سریع‌تر اما معمولاً با جزئیات کمتر.",
+    "file": "image_api.json",
+    "defaults": {
+      "width": 768,
+      "height": 768,
+      "steps": 20,
+      "guidance": 3.5,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض تصویر",
+        "type": "select",
+        "options": [
+          640,
+          768,
+          896
+        ],
+        "default": 768,
+        "targets": [
+          [
+            "5",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع تصویر",
+        "type": "select",
+        "options": [
+          640,
+          768,
+          896
+        ],
+        "default": 768,
+        "targets": [
+          [
+            "5",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          16,
+          20,
+          24
+        ],
+        "default": 20,
+        "targets": [
+          [
+            "2",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "guidance",
+        "label": "قدرت پیروی از پرامپت",
+        "type": "select",
+        "options": [
+          2.5,
+          3.0,
+          3.5,
+          4.0
+        ],
+        "default": 3.5,
+        "targets": [
+          [
+            "8",
+            "guidance"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "2",
+            "seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "flux-edit-balanced",
+    "kind": "edit",
+    "label": "FLUX · ویرایش متعادل",
+    "description": "تغییر کنترل‌شده با حفظ ترکیب تصویر؛ denoise پایین‌تر یعنی حفظ بیشتر عکس اصلی.",
+    "file": "image_edit_api.json",
+    "defaults": {
+      "width": 1024,
+      "height": 576,
+      "steps": 24,
+      "denoise": 0.58,
+      "guidance": 3.5,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض پردازش",
+        "type": "select",
+        "options": [
+          768,
+          896,
+          1024
+        ],
+        "default": 1024,
+        "targets": [
+          [
+            "17",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع پردازش",
+        "type": "select",
+        "options": [
+          512,
+          576,
+          640
+        ],
+        "default": 576,
+        "targets": [
+          [
+            "17",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          20,
+          24,
+          28
+        ],
+        "default": 24,
+        "targets": [
+          [
+            "2",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "denoise",
+        "label": "میزان تغییر تصویر",
+        "type": "select",
+        "options": [
+          0.35,
+          0.5,
+          0.58,
+          0.7,
+          0.85
+        ],
+        "default": 0.58,
+        "targets": [
+          [
+            "2",
+            "denoise"
+          ]
+        ]
+      },
+      {
+        "name": "guidance",
+        "label": "قدرت پیروی از پرامپت",
+        "type": "select",
+        "options": [
+          2.5,
+          3.0,
+          3.5,
+          4.0
+        ],
+        "default": 3.5,
+        "targets": [
+          [
+            "19",
+            "guidance"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "2",
+            "seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "flux-edit-preserve",
+    "kind": "edit",
+    "label": "FLUX · حفظ بیشتر عکس اصلی",
+    "description": "برای تغییرات کوچک‌تر؛ denoise پایین‌تر کمک می‌کند ترکیب اصلی بیشتر حفظ شود.",
+    "file": "image_edit_api.json",
+    "defaults": {
+      "width": 1024,
+      "height": 576,
+      "steps": 24,
+      "denoise": 0.4,
+      "guidance": 3.0,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض پردازش",
+        "type": "select",
+        "options": [
+          768,
+          896,
+          1024
+        ],
+        "default": 1024,
+        "targets": [
+          [
+            "17",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع پردازش",
+        "type": "select",
+        "options": [
+          512,
+          576,
+          640
+        ],
+        "default": 576,
+        "targets": [
+          [
+            "17",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          20,
+          24,
+          28
+        ],
+        "default": 24,
+        "targets": [
+          [
+            "2",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "denoise",
+        "label": "میزان تغییر تصویر",
+        "type": "select",
+        "options": [
+          0.25,
+          0.35,
+          0.4,
+          0.5
+        ],
+        "default": 0.4,
+        "targets": [
+          [
+            "2",
+            "denoise"
+          ]
+        ]
+      },
+      {
+        "name": "guidance",
+        "label": "قدرت پیروی از پرامپت",
+        "type": "select",
+        "options": [
+          2.5,
+          3.0,
+          3.5
+        ],
+        "default": 3.0,
+        "targets": [
+          [
+            "19",
+            "guidance"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "2",
+            "seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wan22-480p-short",
+    "kind": "video",
+    "label": "Wan 2.2 · 480p کوتاه",
+    "description": "پیش‌فرض محافظه‌کارانه برای 12GB VRAM؛ 17 فریم، 832×480، حدود یک ثانیه در 16fps.",
+    "file": "video_api.json",
+    "defaults": {
+      "width": 832,
+      "height": 480,
+      "length": 17,
+      "steps": 8,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض ویدئو",
+        "type": "select",
+        "options": [
+          640,
+          768,
+          832
+        ],
+        "default": 832,
+        "targets": [
+          [
+            "12",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع ویدئو",
+        "type": "select",
+        "options": [
+          352,
+          432,
+          480
+        ],
+        "default": 480,
+        "targets": [
+          [
+            "12",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "length",
+        "label": "تعداد فریم (بیشتر = سنگین‌تر)",
+        "type": "select",
+        "options": [
+          9,
+          17,
+          25,
+          33
+        ],
+        "default": 17,
+        "targets": [
+          [
+            "12",
+            "length"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          6,
+          8,
+          10
+        ],
+        "default": 8,
+        "targets": [
+          [
+            "13",
+            "steps"
+          ],
+          [
+            "14",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "13",
+            "noise_seed"
+          ],
+          [
+            "14",
+            "noise_seed"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wan22-480p-long",
+    "kind": "video",
+    "label": "Wan 2.2 · 480p طولانی‌تر",
+    "description": "33 فریم برای حرکت طولانی‌تر؛ VRAM و RAM و زمان بیشتری می‌خواهد. اگر OOM شد به پروفایل کوتاه برگرد.",
+    "file": "video_api.json",
+    "defaults": {
+      "width": 832,
+      "height": 480,
+      "length": 33,
+      "steps": 8,
+      "seed": -1
+    },
+    "controls": [
+      {
+        "name": "width",
+        "label": "عرض ویدئو",
+        "type": "select",
+        "options": [
+          640,
+          768,
+          832
+        ],
+        "default": 832,
+        "targets": [
+          [
+            "12",
+            "width"
+          ]
+        ]
+      },
+      {
+        "name": "height",
+        "label": "ارتفاع ویدئو",
+        "type": "select",
+        "options": [
+          352,
+          432,
+          480
+        ],
+        "default": 480,
+        "targets": [
+          [
+            "12",
+            "height"
+          ]
+        ]
+      },
+      {
+        "name": "length",
+        "label": "تعداد فریم",
+        "type": "select",
+        "options": [
+          17,
+          25,
+          33
+        ],
+        "default": 33,
+        "targets": [
+          [
+            "12",
+            "length"
+          ]
+        ]
+      },
+      {
+        "name": "steps",
+        "label": "مراحل تولید",
+        "type": "select",
+        "options": [
+          6,
+          8,
+          10
+        ],
+        "default": 8,
+        "targets": [
+          [
+            "13",
+            "steps"
+          ],
+          [
+            "14",
+            "steps"
+          ]
+        ]
+      },
+      {
+        "name": "seed",
+        "label": "Seed (-1 تصادفی)",
+        "type": "number",
+        "default": -1,
+        "targets": [
+          [
+            "13",
+            "noise_seed"
+          ],
+          [
+            "14",
+            "noise_seed"
+          ]
+        ]
+      }
+    ]
+  }
+]

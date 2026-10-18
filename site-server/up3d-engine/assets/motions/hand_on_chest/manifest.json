@@ -1,0 +1,49 @@
+{
+  "id": "hand_on_chest",
+  "version": 1,
+  "name": {
+    "fa": "دست روی سینه",
+    "en": "Hand on chest"
+  },
+  "description": {
+    "fa": "دست روی قلب، صمیمی",
+    "en": "Hand on heart — sincere, testimonial feeling."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 1.0,
+    "default": 1.8,
+    "max": 4.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "hand_on_chest"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "free",
+    "param": "hand",
+    "requires_free": true
+  },
+  "params": {
+    "hand": {
+      "type": "enum",
+      "values": [
+        "R",
+        "L"
+      ],
+      "label": "دست (خالی = دستِ آزاد/هم‌سمتِ محصول)"
+    }
+  },
+  "expression": {
+    "name": "warm",
+    "from": 0.1,
+    "to": 1.0,
+    "intensity": 0.9
+  },
+  "order": 12,
+  "license": "UpMarket 3D (procedural, own)"
+}

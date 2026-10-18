@@ -1,0 +1,8 @@
+# generated data and local tools are not source: tools\Install-FFmpeg.ps1 restores FFmpeg
+data/
+app/
+bin/
+obj/
+tools/ffmpeg/
+*.user
+.vs/

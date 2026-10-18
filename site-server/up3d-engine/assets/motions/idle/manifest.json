@@ -1,0 +1,32 @@
+{
+  "id": "idle",
+  "version": 1,
+  "name": {
+    "fa": "ایستادنِ آرام",
+    "en": "Idle stand"
+  },
+  "description": {
+    "fa": "ایستادن با نفس و جابه‌جاییِ وزن",
+    "en": "Relaxed standing with breathing and weight shift; use to fill pauses."
+  },
+  "category": "base",
+  "duration": {
+    "min": 0.6,
+    "default": 2.0,
+    "max": 20.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "idle"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "none"
+  },
+  "loopable": true,
+  "order": 1,
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,265 @@
+import { Field, Select } from "../../../../components/ui";
+import { label } from "../api";
+import type { Catalog, SceneDoc, UploadResult } from "../types";
+import { DraftInput, DraftNumber, DraftRange, Details, H3, Hr, SubCard } from "./fields";
+import ParamInputs from "./ParamInputs";
+import { byId } from "./model";
+
+/**
+ * تنظیماتِ صحنه (وقتی قطعه‌ای انتخاب نشده): مدت/قاب/fps، عنوان، محیط و نور با پارامترها،
+ * بازیگرها (کاراکتر، جایگاه، ظاهر)، محصول‌ها (نام، شکل، سطح، برچسب/رنگ/جنس) و صدا (زیرنویس، موسیقی).
+ */
+export default function SceneSettings({
+  cat,
+  doc,
+  change,
+  upload,
+}: {
+  cat: Catalog;
+  doc: SceneDoc;
+  change: (fn: (d: SceneDoc) => void) => void;
+  upload: (file: File) => Promise<UploadResult | null>;
+}) {
+  const env = byId(cat, "environment", doc.environment.id);
+  const light = byId(cat, "lighting", doc.lighting.id);
+  const marks = Object.keys(env?.marks || {});
+  const surfaces = Object.keys(env?.surfaces || {});
+
+  return (
+    <div className="space-y-2">
+      <H3>تنظیماتِ صحنه</H3>
+      <p className="text-xs" style={{ color: "var(--text-3)" }}>
+        روی هر قطعهٔ خطِ زمان بزنید تا این‌جا ویرایش شود.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="مدت (ث)">
+          <DraftNumber value={doc.output.duration} step={0.1} min={3} max={60} onCommit={(v) => change((d) => void (d.output.duration = v ?? 10))} />
+        </Field>
+        <Field label="قاب">
+          <Select value={doc.output.aspect} onChange={(e) => change((d) => void (d.output.aspect = e.target.value))}>
+            <option value="9:16">۹:۱۶</option>
+            <option value="16:9">۱۶:۹</option>
+            <option value="1:1">۱:۱</option>
+            <option value="4:5">۴:۵</option>
+          </Select>
+        </Field>
+        <Field label="fps">
+          <Select value={String(doc.output.fps)} onChange={(e) => change((d) => void (d.output.fps = Number(e.target.value)))}>
+            <option value="24">24</option>
+            <option value="25">25</option>
+            <option value="30">30</option>
+          </Select>
+        </Field>
+      </div>
+      <Field label="عنوان">
+        <DraftInput
+          value={doc.meta?.title || ""}
+          onCommit={(v) =>
+            change((d) => {
+              d.meta = d.meta || {};
+              d.meta.title = v;
+            })
+          }
+        />
+      </Field>
+
+      <Hr />
+      <H3>محیط و نور</H3>
+      <Field label="محیط">
+        <Select
+          value={doc.environment.id}
+          onChange={(e) =>
+            change((d) => {
+              d.environment = { id: e.target.value, params: {} };
+              const en = byId(cat, "environment", e.target.value);
+              if (en) {
+                const mk = Object.keys(en.marks);
+                const sf = Object.keys(en.surfaces);
+                d.actors.forEach((a, i) => void (a.mark = mk[i] || mk[0]));
+                d.products.forEach((p, i) => void (p.surface = sf[i] || sf[0]));
+                if (en.default_lighting) d.lighting = { id: en.default_lighting, params: {} };
+              }
+            })
+          }
+        >
+          {cat.environment.map((x) => (
+            <option key={x.id} value={x.id}>
+              {label(x)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Details summary="تنظیمِ محیط">
+        <ParamInputs
+          spec={env?.params}
+          values={doc.environment.params || {}}
+          onChange={(k, v) =>
+            change((d) => {
+              d.environment.params = d.environment.params || {};
+              d.environment.params[k] = v;
+            })
+          }
+        />
+      </Details>
+      <Field label="نورپردازی">
+        <Select value={doc.lighting.id} onChange={(e) => change((d) => void (d.lighting = { id: e.target.value, params: {} }))}>
+          {cat.lighting.map((x) => (
+            <option key={x.id} value={x.id}>
+              {label(x)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Details summary="شدت و گرمیِ نور">
+        <ParamInputs
+          spec={light?.params}
+          values={doc.lighting.params || {}}
+          onChange={(k, v) =>
+            change((d) => {
+              d.lighting.params = d.lighting.params || {};
+              d.lighting.params[k] = typeof v === "string" ? Number(v) : v;
+            })
+          }
+        />
+      </Details>
+
+      <Hr />
+      <H3>بازیگرها</H3>
+      {doc.actors.length === 0 && (
+        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+          بازیگری نیست (فقط محصول با صدای راوی).
+        </p>
+      )}
+      {doc.actors.map((a, i) => {
+        const ch = byId(cat, "character", a.character);
+        return (
+          <SubCard key={a.id} title={a.id}>
+            <Field label="کاراکتر">
+              <Select
+                value={a.character}
+                onChange={(e) =>
+                  change((d) => {
+                    d.actors[i].character = e.target.value;
+                    d.actors[i].params = {};
+                  })
+                }
+              >
+                {cat.character.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {label(x)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="جایگاه">
+              <Select value={a.mark} onChange={(e) => change((d) => void (d.actors[i].mark = e.target.value))}>
+                {marks.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Details summary="ظاهر">
+              <ParamInputs
+                spec={ch?.params}
+                values={a.params || {}}
+                onChange={(k, v) =>
+                  change((d) => {
+                    d.actors[i].params = d.actors[i].params || {};
+                    d.actors[i].params![k] = v;
+                  })
+                }
+              />
+            </Details>
+          </SubCard>
+        );
+      })}
+
+      <Hr />
+      <H3>محصول‌ها</H3>
+      {doc.products.map((p, i) => {
+        const pa = byId(cat, "product", p.asset);
+        return (
+          <SubCard key={p.id} title={p.id}>
+            <Field label="نام">
+              <DraftInput value={p.name || ""} onCommit={(v) => change((d) => void (d.products[i].name = v))} />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="شکل">
+                <Select value={p.asset} onChange={(e) => change((d) => void (d.products[i].asset = e.target.value))}>
+                  {cat.product.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {label(x)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="جا روی میز">
+                <Select value={p.surface || ""} onChange={(e) => change((d) => void (d.products[i].surface = e.target.value))}>
+                  {surfaces.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <Details summary="برچسب، رنگ و جنس">
+              <ParamInputs
+                spec={pa?.params}
+                values={p.params || {}}
+                onChange={(k, v) =>
+                  change((d) => {
+                    d.products[i].params = d.products[i].params || {};
+                    d.products[i].params![k] = v;
+                  })
+                }
+                onFile={(k, f) =>
+                  void upload(f).then((r) => {
+                    if (!r) return;
+                    change((d) => {
+                      d.products[i].params = d.products[i].params || {};
+                      d.products[i].params![k] = r.path;
+                    });
+                  })
+                }
+              />
+            </Details>
+          </SubCard>
+        );
+      })}
+
+      <Hr />
+      <H3>صدا</H3>
+      <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+        <input
+          type="checkbox"
+          checked={doc.audio.subtitles !== false}
+          onChange={(e) => change((d) => void (d.audio.subtitles = e.target.checked))}
+        />
+        زیرنویسِ خودکار از گفتار
+      </label>
+      <Field
+        label="موسیقیِ پس‌زمینه (اختیاری)"
+        hint={doc.audio.music ? `فعلی: ${String(doc.audio.music).split(/[\\/]/).pop()}` : undefined}
+      >
+        <input
+          type="file"
+          accept="audio/*"
+          className="u-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            void upload(f).then((r) => {
+              if (r) change((d) => void (d.audio.music = r.path));
+            });
+          }}
+        />
+      </Field>
+      <Field label={`بلندیِ موسیقی: ${doc.audio.music_volume ?? 0.14}`}>
+        <DraftRange value={doc.audio.music_volume ?? 0.14} min={0} max={0.5} step={0.01} onCommit={(v) => change((d) => void (d.audio.music_volume = v))} />
+      </Field>
+    </div>
+  );
+}

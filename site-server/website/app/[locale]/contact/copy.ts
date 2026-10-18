@@ -1,0 +1,26 @@
+export const COPY = {
+  fa: {
+    metaTitle: "تماس با ما",
+    metaDesc: "سؤال، درخواست دمو یا همکاری — پیام بدهید و به‌زودی جواب می‌گیرید.",
+    eyebrow: "تماس",
+    title: "با ما حرف بزنید",
+    lead: "سؤال، پیشنهاد، یا می‌خواهید محصولتان را قبل از ثبت‌نام ببینیم؟",
+    email: "ایمیل",
+    instagram: "اینستاگرام",
+    instagramNote: "نمونه‌کارهای روزانه",
+    fastest: "سریع‌ترین راه",
+    fastestNote: "حساب رایگان بسازید — بدون کارت بانکی و بدون تماس فروش.",
+  },
+  en: {
+    metaTitle: "Contact",
+    metaDesc: "A question, a demo request, or a partnership — write to us and we will reply.",
+    eyebrow: "Contact",
+    title: "Talk to us",
+    lead: "A question, a suggestion, or would you like us to look at your product before you sign up?",
+    email: "Email",
+    instagram: "Instagram",
+    instagramNote: "Daily samples",
+    fastest: "The fastest route",
+    fastestNote: "Create a free account — no card, and no sales call.",
+  },
+} as const;

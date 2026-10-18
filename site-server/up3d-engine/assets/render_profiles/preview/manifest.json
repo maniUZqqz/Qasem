@@ -1,0 +1,43 @@
+{
+  "id": "preview",
+  "version": 1,
+  "name": {
+    "fa": "پیش‌نمایش",
+    "en": "Preview"
+  },
+  "description": {
+    "fa": "نورِ واقعی با کیفیتِ کم؛ مناسبِ سرور",
+    "en": "Cycles, low samples, 12 fps rendered then smoothed; runs on the server."
+  },
+  "order": 2,
+  "engine": "CYCLES",
+  "device": "AUTO",
+  "samples": 14,
+  "adaptive_threshold": 0.06,
+  "denoise": true,
+  "resolution": {
+    "long": 640
+  },
+  "frame_step": 2,
+  "bounces": {
+    "total": 6,
+    "diffuse": 2,
+    "glossy": 2,
+    "transmission": 6
+  },
+  "clamp_indirect": 6.0,
+  "motion_blur": false,
+  "quality": {
+    "subdiv": 0,
+    "face": true,
+    "dof": true,
+    "skin_detail": 0.6,
+    "lip_strength": 0.85
+  },
+  "glare": true,
+  "vignette": 0.22,
+  "recommended": "cpu",
+  "default": true,
+  "est_sec_per_frame_cpu": 12,
+  "license": "UpMarket 3D (procedural, own)"
+}

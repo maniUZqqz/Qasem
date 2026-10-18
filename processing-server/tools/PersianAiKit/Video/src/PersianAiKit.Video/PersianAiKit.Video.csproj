@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    موتورِ ویرایشِ ویدیو — یک موتور برای دو چهره: «پریمیرِ وب» و ابزارهای هوشِ مصنوعی.
+      · VideoRecipe + ToolCatalog   «نسخهٔ ویرایش» (غیرمخرب) و فهرستِ همهٔ ابزارها (منبعِ صفحه، API و سند)
+      · Engine/*                    FFmpeg (پیدا کردن و اجرا)، شناختِ فایل، LUTِ رنگ (همان ریاضیِ ویرایشگرِ عکس)، زنجیرهٔ فیلترها، سنجش
+      · Ai/*                        ویرایشگرِ خودکار با هوشِ مصنوعیِ بینا
+    بی بستهٔ بیرونی: همهٔ کارِ سنگین را ffmpeg.exe (برنامهٔ جدا) انجام می‌دهد.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PersianAiKit.Video</RootNamespace>
+    <AssemblyName>PersianAiKit.Video</AssemblyName>
+    <Version>1.0.0</Version>
+    <Description>Video enhancement engine on FFmpeg (color LUT, stabilization, reframe, audio cleanup, loudness) with a vision-AI auto editor.</Description>
+  </PropertyGroup>
+
+</Project>

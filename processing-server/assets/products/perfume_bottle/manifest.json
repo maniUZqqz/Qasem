@@ -1,0 +1,112 @@
+{
+  "id": "perfume_bottle",
+  "version": 1,
+  "name": {
+    "fa": "شیشهٔ عطر",
+    "en": "Perfume bottle"
+  },
+  "description": {
+    "fa": "شیشهٔ عطرِ چهارگوش یا گرد با مایع، درِ فلزی و برچسب",
+    "en": "Glass perfume bottle (rect/round) with liquid, metal cap and front label."
+  },
+  "builder": "perfume_bottle",
+  "order": 1,
+  "default": true,
+  "dimensions": [
+    0.065,
+    0.035,
+    0.13
+  ],
+  "grasp": {
+    "height": 0.36,
+    "radius": 0.032,
+    "curl": 0.95,
+    "preset": "grip",
+    "azimuth": 35,
+    "tilt": 8,
+    "gap": 0.006
+  },
+  "label": {
+    "px": [
+      900,
+      640
+    ],
+    "style": "perfume"
+  },
+  "params": {
+    "shape": {
+      "type": "enum",
+      "values": [
+        "rect",
+        "round"
+      ],
+      "default": "rect",
+      "label": "شکل"
+    },
+    "liquid_color": {
+      "type": "color",
+      "default": "#e8b04a",
+      "label": "رنگِ عطر"
+    },
+    "glass_color": {
+      "type": "color",
+      "default": "#ffffff",
+      "label": "رنگِ شیشه"
+    },
+    "cap_color": {
+      "type": "color",
+      "default": "#c9a45c",
+      "label": "رنگِ در"
+    },
+    "cap_style": {
+      "type": "enum",
+      "values": [
+        "metal",
+        "plastic"
+      ],
+      "default": "metal"
+    },
+    "cap_shape": {
+      "type": "enum",
+      "values": [
+        "cube",
+        "round"
+      ],
+      "default": "cube"
+    },
+    "brand": {
+      "type": "text",
+      "default": "",
+      "label": "برند"
+    },
+    "tagline": {
+      "type": "text",
+      "default": "",
+      "label": "شعار"
+    },
+    "label_color": {
+      "type": "color",
+      "default": "#f4efe6",
+      "label": "رنگِ برچسب"
+    },
+    "text_color": {
+      "type": "color",
+      "default": "#2b2118",
+      "label": "رنگِ نوشته"
+    },
+    "accent_color": {
+      "type": "color",
+      "default": "#b08d57",
+      "label": "رنگِ تزئین"
+    },
+    "label_image": {
+      "type": "file",
+      "label": "عکس/لوگوی برچسب"
+    }
+  },
+  "tags": [
+    "perfume",
+    "cosmetics"
+  ],
+  "license": "UpMarket 3D (procedural, own)"
+}

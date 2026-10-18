@@ -1,0 +1,27 @@
+Django>=5.2,<6.0
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.4
+drf-spectacular>=0.27
+celery>=5.4
+redis>=5.0
+python-dotenv>=1.0
+requests>=2.32
+Pillow>=10.0
+gTTS>=2.5
+edge-tts>=6.1
+arabic-reshaper>=3.0
+python-bidi>=0.4
+# Speech to text, for subtitling video the shop filmed themselves. Runs locally,
+# so a `Local Only` store can use it even though narration (edge-tts) is
+# external. Also gives word-level timing for our own videos.
+faster-whisper>=1.0
+# Face detection: smart zoom, and keeping the subtitle off people's faces.
+opencv-python-headless>=4.9
+# Offline Persian narration (Piper voices on CPU, no internet). The voice files
+# themselves are downloaded by `python manage.py audio_setup`.
+piper-tts>=1.3
+# Noise removal, the spectral engine (the neural ones are RNNoise inside ffmpeg
+# and the DeepFilterNet binary that audio_setup downloads).
+noisereduce>=3.0
+soundfile>=0.12

@@ -1,0 +1,59 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "FLUX.1 [dev] FP8.safetensors" }
+  },
+  "2": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["19", 0],
+      "negative": ["3", 0],
+      "latent_image": ["18", 0],
+      "seed": 0,
+      "steps": 20,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 0.65
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["1", 1], "text": "blurry, low quality, distorted" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["1", 1], "text": "professional product photography, studio lighting" }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["2", 0], "vae": ["1", 2] }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["6", 0], "filename_prefix": "upmarket/image" }
+  },
+  "16": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "example.png" }
+  },
+  "17": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": ["16", 0],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "center"
+    }
+  },
+  "18": {
+    "class_type": "VAEEncode",
+    "inputs": { "pixels": ["17", 0], "vae": ["1", 2] }
+  },
+  "19": {
+    "class_type": "FluxGuidance",
+    "inputs": { "conditioning": ["4", 0], "guidance": 3.5 }
+  }
+}

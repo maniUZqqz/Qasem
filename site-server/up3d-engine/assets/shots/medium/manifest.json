@@ -1,0 +1,35 @@
+{
+  "id": "medium",
+  "version": 1,
+  "name": {
+    "fa": "نمای متوسط",
+    "en": "Medium"
+  },
+  "description": {
+    "fa": "از کمر به بالا با میز",
+    "en": "Waist-up with the table; the main presenter shot."
+  },
+  "framing": {
+    "height": 1.08,
+    "anchor": "eyes",
+    "anchor_pos": 0.2,
+    "lens": 50,
+    "fstop": 2.8,
+    "elevation": 4
+  },
+  "subject": "actor",
+  "moves": [
+    "static",
+    "push_in",
+    "pull_out",
+    "orbit_left",
+    "orbit_right",
+    "crane_up",
+    "handheld",
+    "slide_left",
+    "slide_right"
+  ],
+  "order": 2,
+  "default_for": "actor",
+  "license": "UpMarket 3D (procedural, own)"
+}

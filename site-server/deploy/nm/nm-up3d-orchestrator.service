@@ -1,0 +1,15 @@
+[Unit]
+Description=NMarketing 3D orchestrator (planning, prep, QC, assembly)
+After=network.target nm-web.service
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/backend
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/var/www/NM/upmarket/venv/bin/python manage.py up3d_orchestrator
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

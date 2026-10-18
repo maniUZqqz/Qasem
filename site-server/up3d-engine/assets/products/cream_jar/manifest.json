@@ -1,0 +1,82 @@
+{
+  "id": "cream_jar",
+  "version": 1,
+  "name": {
+    "fa": "ظرفِ کرم",
+    "en": "Cream jar"
+  },
+  "description": {
+    "fa": "ظرفِ کرمِ گرد با درِ طلایی",
+    "en": "Round cosmetic cream jar with golden lid and label."
+  },
+  "builder": "cream_jar",
+  "order": 2,
+  "dimensions": [
+    0.08,
+    0.08,
+    0.065
+  ],
+  "grasp": {
+    "height": 0.42,
+    "radius": 0.042,
+    "curl": 0.68,
+    "preset": "grip",
+    "azimuth": 30,
+    "tilt": 6
+  },
+  "label": {
+    "px": [
+      1200,
+      420
+    ],
+    "style": "jar"
+  },
+  "params": {
+    "body_color": {
+      "type": "color",
+      "default": "#f6eee6"
+    },
+    "lid_color": {
+      "type": "color",
+      "default": "#d8b26a"
+    },
+    "frosted": {
+      "type": "bool",
+      "default": true
+    },
+    "brand": {
+      "type": "text",
+      "default": "",
+      "label": "برند"
+    },
+    "tagline": {
+      "type": "text",
+      "default": "",
+      "label": "شعار"
+    },
+    "label_color": {
+      "type": "color",
+      "default": "#f4efe6",
+      "label": "رنگِ برچسب"
+    },
+    "text_color": {
+      "type": "color",
+      "default": "#2b2118",
+      "label": "رنگِ نوشته"
+    },
+    "accent_color": {
+      "type": "color",
+      "default": "#b08d57",
+      "label": "رنگِ تزئین"
+    },
+    "label_image": {
+      "type": "file",
+      "label": "عکس/لوگوی برچسب"
+    }
+  },
+  "tags": [
+    "cosmetics",
+    "skincare"
+  ],
+  "license": "UpMarket 3D (procedural, own)"
+}

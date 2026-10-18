@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- آزمونِ نصبِ ویرایشگرِ عکس: همهٔ ابزارها روی عکس‌های ساختگی (جوابِ درست معلوم) و عکس‌های نمونه. اجرا: Run-SelfTest.bat -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>PersianAiKit.Photo.SelfTest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PersianAiKit.Photo\PersianAiKit.Photo.csproj" />
+  </ItemGroup>
+
+</Project>

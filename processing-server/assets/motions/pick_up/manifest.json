@@ -1,0 +1,60 @@
+{
+  "id": "pick_up",
+  "version": 1,
+  "name": {
+    "fa": "برداشتنِ محصول از میز",
+    "en": "Pick up product"
+  },
+  "description": {
+    "fa": "دست دراز می‌شود، محصول را می‌گیرد و بالا می‌آورد",
+    "en": "Reach, grasp and lift the product from the table (IK + contact)."
+  },
+  "category": "interaction",
+  "duration": {
+    "min": 1.0,
+    "default": 1.5,
+    "max": 2.5
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "pick_up"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "free",
+    "param": "hand",
+    "requires_free": true
+  },
+  "product": {
+    "requires": "on_surface",
+    "effect": "in_hand",
+    "param": "product"
+  },
+  "params": {
+    "product": {
+      "type": "product_ref",
+      "default": "p1",
+      "label": "محصول"
+    },
+    "hand": {
+      "type": "enum",
+      "values": [
+        "R",
+        "L"
+      ],
+      "label": "دست (خالی = دستِ آزاد/هم‌سمتِ محصول)"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.05,
+      "to": 0.72,
+      "target": "product"
+    }
+  ],
+  "order": 5,
+  "license": "UpMarket 3D (procedural, own)"
+}

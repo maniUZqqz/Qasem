@@ -1,0 +1,98 @@
+{
+  "id": "home_living",
+  "version": 1,
+  "name": {
+    "fa": "خانهٔ مدرن (نشیمن)",
+    "en": "Modern home"
+  },
+  "description": {
+    "fa": "نشیمنِ روشن با پنجرهٔ بزرگ، کاناپه، گیاه و جزیرهٔ چوبی",
+    "en": "Bright living room: big window daylight, sofa, plant, wooden island counter."
+  },
+  "builder": "home",
+  "order": 3,
+  "default_lighting": "daylight_window",
+  "marks": {
+    "center": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "facing": 0
+    },
+    "left": {
+      "pos": [
+        0.65,
+        0.05,
+        0
+      ],
+      "facing": -8
+    },
+    "right": {
+      "pos": [
+        -0.65,
+        0.05,
+        0
+      ],
+      "facing": 8
+    }
+  },
+  "surfaces": {
+    "island_right": {
+      "pos": [
+        -0.18,
+        -0.36,
+        0.9
+      ],
+      "yaw": 0
+    },
+    "island_center": {
+      "pos": [
+        0.0,
+        -0.4,
+        0.9
+      ],
+      "yaw": 0
+    },
+    "island_left": {
+      "pos": [
+        0.18,
+        -0.36,
+        0.9
+      ],
+      "yaw": 0
+    }
+  },
+  "furniture": {
+    "counter": {
+      "center": [
+        0,
+        -0.5,
+        0
+      ],
+      "size": [
+        1.6,
+        0.52
+      ],
+      "height": 0.9
+    }
+  },
+  "params": {
+    "wall_color": {
+      "type": "color",
+      "default": "#efe9e1"
+    },
+    "sofa_color": {
+      "type": "color",
+      "default": "#8f8475"
+    },
+    "window_brightness": {
+      "type": "number",
+      "default": 6.0,
+      "min": 1,
+      "max": 20
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

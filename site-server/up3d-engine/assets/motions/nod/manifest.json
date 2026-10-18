@@ -1,0 +1,32 @@
+{
+  "id": "nod",
+  "version": 1,
+  "name": {
+    "fa": "سر تکان دادن",
+    "en": "Nod"
+  },
+  "description": {
+    "fa": "تأیید با سر",
+    "en": "Head nod (layer: can overlap body motions)."
+  },
+  "category": "face",
+  "duration": {
+    "min": 0.6,
+    "default": 1.0,
+    "max": 2.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "nod"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "layer": true,
+  "hands": {
+    "uses": "none"
+  },
+  "order": 20,
+  "license": "UpMarket 3D (procedural, own)"
+}

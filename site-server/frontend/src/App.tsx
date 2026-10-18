@@ -1,0 +1,149 @@
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+
+import Layout from "./components/Layout";
+import { AuthProvider } from "./features/auth/AuthContext";
+import ForgotPasswordPage from "./features/auth/ForgotPasswordPage";
+import LoginPage from "./features/auth/LoginPage";
+import ResetPasswordPage from "./features/auth/ResetPasswordPage";
+import RegisterPage from "./features/auth/RegisterPage";
+import AdminLayout from "./features/admin/AdminLayout";
+import CrmPage from "./features/admin/CrmPage";
+import MarketingReportPage from "./features/admin/MarketingReportPage";
+import ProvidersPage from "./features/admin/ProvidersPage";
+import RewardsPage from "./features/admin/RewardsPage";
+import AnalyticsPage from "./features/analytics/AnalyticsPage";
+import PlanPage from "./features/billing/PlanPage";
+import CalendarPage from "./features/campaigns/CalendarPage";
+import CampaignListPage from "./features/campaigns/CampaignListPage";
+import CampaignsLayout from "./features/campaigns/CampaignsLayout";
+import PerformancePage from "./features/campaigns/PerformancePage";
+import PublishQueuePage from "./features/campaigns/PublishQueuePage";
+import ContentStudioPage from "./features/content/ContentStudioPage";
+import ProductionQueuePage from "./features/content/ProductionQueuePage";
+import VideoEditorPage from "./features/content/VideoEditorPage";
+import ChatPage from "./features/customers/ChatPage";
+import OrdersPage from "./features/customers/OrdersPage";
+import OutreachPage from "./features/customers/OutreachPage";
+import ReceiptsPage from "./features/customers/ReceiptsPage";
+import SalesLayout from "./features/customers/SalesLayout";
+import SalesOverviewPage from "./features/customers/SalesOverviewPage";
+import TicketsPage from "./features/customers/TicketsPage";
+import { FlagsProvider, PageGate } from "./features/panel/FlagsContext";
+import ProductDetailsPage from "./features/products/ProductDetailsPage";
+import ProductLayout from "./features/products/ProductLayout";
+import {
+  AdvancedTab,
+  CaptionsTab,
+  ImagesTab,
+  IntelligenceTab,
+  MarketTab,
+  VideoTab,
+} from "./features/products/tabs";
+import DashboardPage from "./features/stores/DashboardPage";
+import ApiKeysPage from "./features/stores/ApiKeysPage";
+import CompetitorsPage from "./features/stores/CompetitorsPage";
+import ConnectionsPage from "./features/stores/ConnectionsPage";
+import InboxPage from "./features/stores/InboxPage";
+import OpportunitiesPage from "./features/stores/OpportunitiesPage";
+import TrendsPage from "./features/stores/TrendsPage";
+import StoreAgentPage from "./features/stores/StoreAgentPage";
+import StoreBrandPage from "./features/stores/StoreBrandPage";
+import StoreDataPage from "./features/stores/StoreDataPage";
+import StoreVoicePage from "./features/stores/StoreVoicePage";
+import StoreLayout from "./features/stores/StoreLayout";
+import StoreProductsPage from "./features/stores/StoreProductsPage";
+import StoreTeamPage from "./features/stores/StoreTeamPage";
+import ComputePage from "./features/tools/compute";
+import StudioRoutes from "./features/tools/studio";
+import Up3dRoutes from "./features/tools/up3d";
+
+/**
+ * هر صفحه پشت `PageGate` با کلیدِ خودش از `features/panel/registry.ts` است:
+ * صفحه‌ای که ادمین خاموش کرده، به جای محتوا یک کارتِ «غیرفعال است» می‌بیند.
+ * قاب‌هایی که زبانه دارند (فروشگاه، فروش، کمپین‌ها، محصول، ادمین) خودشان
+ * گِیت نمی‌شوند — بچه‌هایشان می‌شوند — تا زبانه‌های روشن همچنان در دسترس
+ * بمانند.
+ */
+export default function App() {
+  return (
+    <BrowserRouter basename="/panel" future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
+        <FlagsProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route element={<Layout />}>
+              <Route path="/" element={<PageGate k="dashboard"><DashboardPage /></PageGate>} />
+
+              {/* ابزارهای ادمین — سه اندپوینت فاز ۲۶ که تا حالا هیچ صفحه‌ای
+                  نداشتند. `AdminLayout` غیرادمین را به داشبورد برمی‌گرداند. */}
+              {/* ابزارهای یکپارچه (کارکنان): سایت‌ساز، ویدیوی سه‌بعدی، سرورهای پردازش */}
+              <Route path="/tools/studio/*" element={<PageGate k="studio_builder"><StudioRoutes /></PageGate>} />
+              <Route path="/tools/3d/*" element={<PageGate k="video3d"><Up3dRoutes /></PageGate>} />
+              <Route path="/tools/compute" element={<PageGate k="compute"><ComputePage /></PageGate>} />
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<PageGate k="crm"><CrmPage /></PageGate>} />
+                <Route path="marketing" element={<PageGate k="marketing_report"><MarketingReportPage /></PageGate>} />
+                <Route path="rewards" element={<PageGate k="rewards"><RewardsPage /></PageGate>} />
+                <Route path="providers" element={<PageGate k="providers"><ProvidersPage /></PageGate>} />
+              </Route>
+              <Route path="/stores/:id" element={<StoreLayout />}>
+                <Route index element={<PageGate k="products"><StoreProductsPage /></PageGate>} />
+                <Route path="brand" element={<PageGate k="brand"><StoreBrandPage /></PageGate>} />
+                <Route path="agent" element={<PageGate k="agent"><StoreAgentPage /></PageGate>} />
+                {/* صفحه ۳، بند ۱ — اتصال سوشال مدیاها. بک‌اندش بود، صفحه‌اش نه. */}
+                <Route path="connections" element={<PageGate k="connections"><ConnectionsPage /></PageGate>} />
+                <Route path="team" element={<PageGate k="team"><StoreTeamPage /></PageGate>} />
+                {/* صدا و گوینده — پروفایل صدا و تلفظ‌ها بک‌اند داشتند و صفحه نداشتند */}
+                <Route path="voice" element={<PageGate k="voice"><StoreVoicePage /></PageGate>} />
+                <Route path="data" element={<PageGate k="data"><StoreDataPage /></PageGate>} />
+              </Route>
+              <Route path="/stores/:id/chat" element={<PageGate k="chat"><ChatPage /></PageGate>} />
+              <Route path="/stores/:id/sales" element={<SalesLayout />}>
+                <Route index element={<PageGate k="sales"><SalesOverviewPage /></PageGate>} />
+                <Route path="orders" element={<PageGate k="orders"><OrdersPage /></PageGate>} />
+                <Route path="receipts" element={<PageGate k="receipts"><ReceiptsPage /></PageGate>} />
+                <Route path="tickets" element={<PageGate k="tickets"><TicketsPage /></PageGate>} />
+              </Route>
+              <Route path="/stores/:id/campaigns" element={<CampaignsLayout />}>
+                <Route index element={<PageGate k="campaigns"><CampaignListPage /></PageGate>} />
+                <Route path="calendar" element={<PageGate k="calendar"><CalendarPage /></PageGate>} />
+                <Route path="queue" element={<PageGate k="publish_queue"><PublishQueuePage /></PageGate>} />
+                <Route path="performance" element={<PageGate k="performance"><PerformancePage /></PageGate>} />
+              </Route>
+              <Route path="/stores/:id/analytics" element={<PageGate k="analytics"><AnalyticsPage /></PageGate>} />
+              <Route path="/stores/:id/plan" element={<PageGate k="plan"><PlanPage /></PageGate>} />
+              <Route path="/stores/:id/competitors" element={<PageGate k="competitors"><CompetitorsPage /></PageGate>} />
+              <Route path="/stores/:id/opportunities" element={<PageGate k="opportunities"><OpportunitiesPage /></PageGate>} />
+              <Route path="/stores/:id/inbox" element={<PageGate k="inbox"><InboxPage /></PageGate>} />
+              {/* صفحه ۷ — بازاریابی تلفنی. خودِ فهرست ساخته شد؛ جست‌وجوی
+                  شماره و ضبط تماس عمداً نه — صفحه خودش می‌گوید چرا. */}
+              <Route path="/stores/:id/outreach" element={<PageGate k="outreach"><OutreachPage /></PageGate>} />
+              <Route path="/stores/:id/api" element={<PageGate k="api_keys"><ApiKeysPage /></PageGate>} />
+              <Route path="/stores/:id/editor" element={<PageGate k="editor"><VideoEditorPage /></PageGate>} />
+              <Route path="/stores/:id/queue" element={<PageGate k="production_queue"><ProductionQueuePage /></PageGate>} />
+              {/* صفحه ۴ — تولید محتوا. پنل‌های استودیو زیر محصول پخش بودند؛
+                  اینجا یک‌جا جمع‌اند و زمان‌بندی هم کنارشان است. */}
+              <Route path="/stores/:id/studio" element={<PageGate k="studio"><ContentStudioPage /></PageGate>} />
+              <Route path="/stores/:id/trends" element={<PageGate k="trends"><TrendsPage /></PageGate>} />
+              {/* یک محصول، هفت زیرصفحه. هرکدام آدرس خودش را دارد، پس
+                  لینک‌شدنی است و دکمه‌ی بازگشت مرورگر کار می‌کند — چیزی که
+                  در نسخه‌ی تک‌صفحه‌ای ممکن نبود. */}
+              <Route path="/products/:id" element={<ProductLayout />}>
+                <Route index element={<PageGate k="product"><ProductDetailsPage /></PageGate>} />
+                <Route path="intelligence" element={<PageGate k="product_intelligence"><IntelligenceTab /></PageGate>} />
+                <Route path="market" element={<PageGate k="product_market"><MarketTab /></PageGate>} />
+                <Route path="images" element={<PageGate k="product_images"><ImagesTab /></PageGate>} />
+                <Route path="captions" element={<PageGate k="product_captions"><CaptionsTab /></PageGate>} />
+                <Route path="video" element={<PageGate k="product_video"><VideoTab /></PageGate>} />
+                <Route path="advanced" element={<PageGate k="product_advanced"><AdvancedTab /></PageGate>} />
+              </Route>
+            </Route>
+          </Routes>
+        </FlagsProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}

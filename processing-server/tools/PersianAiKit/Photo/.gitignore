@@ -1,0 +1,8 @@
+# models and generated data are not source: tools\Download-Models.ps1 restores the models
+models/
+data/
+app/
+bin/
+obj/
+*.user
+.vs/

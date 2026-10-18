@@ -1,0 +1,8 @@
+[Unit]
+Description=NMarketing - commit and push the site code to GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash /var/www/NM/upmarket/deploy/nm/git-autopush.sh

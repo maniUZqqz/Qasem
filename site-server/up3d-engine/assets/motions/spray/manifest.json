@@ -1,0 +1,58 @@
+{
+  "id": "spray",
+  "version": 1,
+  "name": {
+    "fa": "زدنِ عطر",
+    "en": "Spray perfume"
+  },
+  "description": {
+    "fa": "بطری کنارِ گردن، دو بار فشار",
+    "en": "Spray perfume on the neck (for perfume bottles)."
+  },
+  "category": "interaction",
+  "duration": {
+    "min": 1.6,
+    "default": 2.2,
+    "max": 3.5
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "spray"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "holding"
+  },
+  "product": {
+    "requires": "in_hand",
+    "param": "product"
+  },
+  "params": {
+    "product": {
+      "type": "product_ref",
+      "default": "p1",
+      "label": "محصول"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.2,
+      "to": 0.85,
+      "target": "forward"
+    }
+  ],
+  "expression": {
+    "name": "smile",
+    "from": 0.3,
+    "to": 1.0,
+    "intensity": 0.6
+  },
+  "tags": [
+    "perfume"
+  ],
+  "order": 8,
+  "license": "UpMarket 3D (procedural, own)"
+}

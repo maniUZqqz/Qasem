@@ -1,0 +1,14 @@
+[Unit]
+Description=NMarketing (UpMarket) celery worker (celery, ai, gpu queues)
+After=network.target redis-server.service
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/backend
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/var/www/NM/upmarket/venv/bin/celery -A config worker -Q celery,ai,gpu --pool=threads --concurrency=4 --loglevel=INFO --logfile=/var/www/NM/upmarket/logs/celery.log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

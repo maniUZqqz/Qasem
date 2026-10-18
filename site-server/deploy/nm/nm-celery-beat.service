@@ -1,0 +1,14 @@
+[Unit]
+Description=NMarketing (UpMarket) celery beat
+After=network.target redis-server.service
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/backend
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/var/www/NM/upmarket/venv/bin/celery -A config beat --loglevel=INFO --logfile=/var/www/NM/upmarket/logs/beat.log --schedule=/var/www/NM/upmarket/data/celerybeat-schedule
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+# models and generated data are not source: tools\Download-Models.ps1 and Setup-Voice.bat restore the models
+models/
+data/
+app/
+bin/
+obj/
+voice/.venv/
+__pycache__/
+*.user
+.vs/

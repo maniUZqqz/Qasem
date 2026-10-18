@@ -1,0 +1,102 @@
+{
+  "id": "studio_warm",
+  "version": 1,
+  "name": {
+    "fa": "استودیوی تبلیغاتیِ گرم",
+    "en": "Warm studio"
+  },
+  "description": {
+    "fa": "پس‌زمینهٔ منحنیِ بی‌درز، میزِ گردِ مرمر با پایهٔ برنجی، گلدان",
+    "en": "Seamless curved studio backdrop, round marble bar table with brass base; clean product-ad look."
+  },
+  "builder": "studio",
+  "order": 1,
+  "default": true,
+  "default_lighting": "soft_beauty",
+  "marks": {
+    "center": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "facing": 0
+    },
+    "left": {
+      "pos": [
+        0.6,
+        0.05,
+        0
+      ],
+      "facing": -8
+    },
+    "right": {
+      "pos": [
+        -0.6,
+        0.05,
+        0
+      ],
+      "facing": 8
+    }
+  },
+  "surfaces": {
+    "table_right": {
+      "pos": [
+        -0.15,
+        -0.3,
+        0.86
+      ],
+      "yaw": 0
+    },
+    "table_center": {
+      "pos": [
+        0.0,
+        -0.36,
+        0.86
+      ],
+      "yaw": 0
+    },
+    "table_left": {
+      "pos": [
+        0.15,
+        -0.3,
+        0.86
+      ],
+      "yaw": 0
+    }
+  },
+  "furniture": {
+    "table": {
+      "center": [
+        0,
+        -0.5,
+        0
+      ],
+      "radius": 0.34,
+      "height": 0.86
+    }
+  },
+  "params": {
+    "backdrop_color": {
+      "type": "color",
+      "default": "#d8cbbd",
+      "label": "رنگِ پس‌زمینه"
+    },
+    "table": {
+      "type": "enum",
+      "values": [
+        "round_marble",
+        "wood",
+        "plinth"
+      ],
+      "default": "round_marble",
+      "label": "میز"
+    },
+    "decor": {
+      "type": "bool",
+      "default": true,
+      "label": "تزئین"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

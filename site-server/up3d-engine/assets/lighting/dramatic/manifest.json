@@ -1,0 +1,76 @@
+{
+  "id": "dramatic",
+  "version": 1,
+  "name": {
+    "fa": "دراماتیک",
+    "en": "Dramatic"
+  },
+  "description": {
+    "fa": "نورِ کناریِ قوی، سایهٔ عمیق، پس‌زمینهٔ تیره",
+    "en": "Strong side key, deep shadows, bright rim; luxury/night mood."
+  },
+  "rig": [
+    {
+      "name": "key",
+      "azimuth": -75,
+      "elevation": 22,
+      "distance": 1.6,
+      "size": 0.8,
+      "power": 230,
+      "kelvin": 4300,
+      "target": "face"
+    },
+    {
+      "name": "fill",
+      "azimuth": 60,
+      "elevation": 0,
+      "distance": 2.5,
+      "size": 2.0,
+      "power": 8,
+      "kelvin": 7000,
+      "target": "chest"
+    },
+    {
+      "name": "rim",
+      "azimuth": 140,
+      "elevation": 35,
+      "distance": 1.5,
+      "size": 0.4,
+      "power": 260,
+      "kelvin": 6500,
+      "target": "face"
+    },
+    {
+      "name": "product",
+      "azimuth": 10,
+      "elevation": 45,
+      "distance": 1.0,
+      "size": 0.3,
+      "power": 30,
+      "kelvin": 4500,
+      "target": "product"
+    }
+  ],
+  "world": {
+    "hdri": "night",
+    "hdri_strength": 0.08
+  },
+  "order": 2,
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

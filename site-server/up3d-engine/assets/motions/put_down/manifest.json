@@ -1,0 +1,54 @@
+{
+  "id": "put_down",
+  "version": 1,
+  "name": {
+    "fa": "گذاشتنِ محصول روی میز",
+    "en": "Put down product"
+  },
+  "description": {
+    "fa": "محصول دقیق روی میز گذاشته و رها می‌شود",
+    "en": "Place the product back on the table and release it."
+  },
+  "category": "interaction",
+  "duration": {
+    "min": 1.0,
+    "default": 1.5,
+    "max": 2.5
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "put_down"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "holding"
+  },
+  "product": {
+    "requires": "in_hand",
+    "effect": "on_surface",
+    "param": "product"
+  },
+  "params": {
+    "product": {
+      "type": "product_ref",
+      "default": "p1",
+      "label": "محصول"
+    },
+    "surface": {
+      "type": "surface_ref",
+      "label": "روی کدام نقطه"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.1,
+      "to": 0.75,
+      "target": "product"
+    }
+  ],
+  "order": 9,
+  "license": "UpMarket 3D (procedural, own)"
+}

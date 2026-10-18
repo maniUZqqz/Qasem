@@ -1,0 +1,32 @@
+{
+  "id": "product_hero",
+  "version": 1,
+  "name": {
+    "fa": "نمای قهرمانِ محصول",
+    "en": "Product hero"
+  },
+  "description": {
+    "fa": "محصول از زاویهٔ پایین، باشکوه",
+    "en": "Low-angle hero shot of the product on the table."
+  },
+  "framing": {
+    "height": 0.42,
+    "anchor": "product",
+    "anchor_pos": 0.55,
+    "lens": 65,
+    "fstop": 3.2,
+    "elevation": -6
+  },
+  "subject": "product",
+  "moves": [
+    "static",
+    "push_in",
+    "orbit_left",
+    "orbit_right",
+    "crane_down",
+    "handheld",
+    "rack_focus"
+  ],
+  "order": 7,
+  "license": "UpMarket 3D (procedural, own)"
+}

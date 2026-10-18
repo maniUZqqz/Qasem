@@ -1,0 +1,49 @@
+{
+  "id": "presenter_f_02",
+  "version": 1,
+  "name": {
+    "fa": "مینا — مجریِ خانم، غیررسمی",
+    "en": "Mina — female presenter, casual"
+  },
+  "description": {
+    "fa": "خانمِ جوان، موی کوتاهِ قهوه‌ای، لباسِ راحت",
+    "en": "Young female ~24, brown bob hair, casual outfit. Friendly, energetic."
+  },
+  "gender": "female",
+  "order": 3,
+  "provider": "mpfb",
+  "rig": "default",
+  "rigmap": "mpfb_default",
+  "macro": {
+    "gender": 0.0,
+    "age": 0.38,
+    "muscle": 0.5,
+    "weight": 0.42,
+    "height": 0.5,
+    "proportions": 0.7,
+    "race": {
+      "african": 0.02,
+      "asian": 0.12,
+      "caucasian": 0.86
+    }
+  },
+  "skin": "skins/onlytheghosts_young_eurasian_female/onlytheghosts_young_eurasian_female.mhmat",
+  "skin_type": "ENHANCED_SSS",
+  "eyebrows": "eyebrows/eyebrow002/eyebrow002.mhclo",
+  "eyelashes": "eyelashes/eyelashes03/eyelashes03.mhclo",
+  "hair": "hair/bob02/bob02.mhclo",
+  "hair_color": "#4a2e1c",
+  "eye_color": "#5a3a22",
+  "clothes": [
+    "clothes/female_casualsuit02/female_casualsuit02.mhclo",
+    "clothes/shoes02/shoes02.mhclo"
+  ],
+  "params": {
+    "hair_color": {
+      "type": "color",
+      "default": "#4a2e1c",
+      "label": "رنگِ مو"
+    }
+  },
+  "license": "CC0 (MakeHuman/MPFB2 system assets)"
+}

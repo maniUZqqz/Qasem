@@ -1,0 +1,96 @@
+{
+  "id": "boutique",
+  "version": 1,
+  "name": {
+    "fa": "فروشگاهِ بوتیک",
+    "en": "Boutique store"
+  },
+  "description": {
+    "fa": "قفسه‌های چوبی با محصول، نورِ گرمِ LED، پیشخوانِ مرمر، گیاه",
+    "en": "Boutique shop: wooden shelves with products, warm LED strips, marble counter, plants."
+  },
+  "builder": "boutique",
+  "order": 2,
+  "default_lighting": "warm_store",
+  "marks": {
+    "center": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "facing": 0
+    },
+    "left": {
+      "pos": [
+        0.65,
+        0.05,
+        0
+      ],
+      "facing": -8
+    },
+    "right": {
+      "pos": [
+        -0.65,
+        0.05,
+        0
+      ],
+      "facing": 8
+    }
+  },
+  "surfaces": {
+    "counter_right": {
+      "pos": [
+        -0.18,
+        -0.36,
+        0.92
+      ],
+      "yaw": 0
+    },
+    "counter_center": {
+      "pos": [
+        0.0,
+        -0.4,
+        0.92
+      ],
+      "yaw": 0
+    },
+    "counter_left": {
+      "pos": [
+        0.18,
+        -0.36,
+        0.92
+      ],
+      "yaw": 0
+    }
+  },
+  "furniture": {
+    "counter": {
+      "center": [
+        0,
+        -0.5,
+        0
+      ],
+      "size": [
+        1.5,
+        0.5
+      ],
+      "height": 0.92
+    }
+  },
+  "params": {
+    "wall_color": {
+      "type": "color",
+      "default": "#e9dfd2"
+    },
+    "floor_color": {
+      "type": "color",
+      "default": "#8a6a4e"
+    },
+    "shelf_color": {
+      "type": "color",
+      "default": "#6e4a2f"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

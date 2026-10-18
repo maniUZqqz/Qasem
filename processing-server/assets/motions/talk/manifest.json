@@ -1,0 +1,31 @@
+{
+  "id": "talk",
+  "version": 1,
+  "name": {
+    "fa": "حرف زدن با دست",
+    "en": "Talk gestures"
+  },
+  "description": {
+    "fa": "ژستِ دست هنگامِ صحبت، هم‌زمان با تکیه‌های صدا",
+    "en": "Conversational hand gestures synced to speech emphasis; put under speech lines."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 1.0,
+    "default": 3.0,
+    "max": 15.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "talk"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "none"
+  },
+  "order": 2,
+  "license": "UpMarket 3D (procedural, own)"
+}

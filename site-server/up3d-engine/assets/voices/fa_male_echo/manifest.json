@@ -1,0 +1,18 @@
+{
+  "id": "fa_male_echo",
+  "version": 1,
+  "name": {
+    "fa": "آقا — آرام (echo)",
+    "en": "Male calm (echo)"
+  },
+  "description": {
+    "fa": "آقا — آرام (echo)",
+    "en": "Male calm (echo)"
+  },
+  "gender": "male",
+  "provider": "openai",
+  "language": "fa",
+  "order": 4,
+  "voice": "echo",
+  "license": "UpMarket 3D (procedural, own)"
+}

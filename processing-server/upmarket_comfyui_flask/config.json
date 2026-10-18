@@ -1,0 +1,57 @@
+{
+  "comfyui_url": "http://127.0.0.1:8188",
+  "client_id": "upmarket-flask-local",
+  "enabled": {
+    "image": true,
+    "edit": true,
+    "video": true
+  },
+  "workflows": {
+    "image": {
+      "file": "image_api.json",
+      "prompt_node_id": "4",
+      "prompt_input": "text",
+      "negative_prompt_node_id": "3",
+      "negative_prompt_input": "text",
+      "image_node_id": "",
+      "image_input": "image",
+      "width_node_id": "5",
+      "width_input": "width",
+      "height_node_id": "5",
+      "height_input": "height",
+      "seed_node_id": "2",
+      "seed_input": "seed"
+    },
+    "edit": {
+      "file": "image_edit_api.json",
+      "prompt_node_id": "4",
+      "prompt_input": "text",
+      "negative_prompt_node_id": "3",
+      "negative_prompt_input": "text",
+      "image_node_id": "16",
+      "image_input": "image",
+      "width_node_id": "17",
+      "width_input": "width",
+      "height_node_id": "17",
+      "height_input": "height",
+      "seed_node_id": "2",
+      "seed_input": "seed"
+    },
+    "video": {
+      "file": "video_api.json",
+      "prompt_node_id": "10",
+      "prompt_input": "text",
+      "negative_prompt_node_id": "11",
+      "negative_prompt_input": "text",
+      "image_node_id": "1",
+      "image_input": "image",
+      "width_node_id": "",
+      "width_input": "width",
+      "height_node_id": "",
+      "height_input": "height",
+      "seed_node_id": "13",
+      "seed_input": "noise_seed"
+    }
+  },
+  "api_key": "e1fe41e781a846bbbe5bba09819f23340a5a7aa11042439c934cbe08bbb42b63"
+}

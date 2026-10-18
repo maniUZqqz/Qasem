@@ -1,0 +1,16 @@
+[Unit]
+Description=NMarketing 3D CPU render worker (server-cpu: animatic/preview only)
+After=network.target nm-web.service
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/up3d-engine
+Environment=PYTHONIOENCODING=utf-8 UP3D_ROOT=/var/www/NM/upmarket/up3d-engine UP3D_DATA=/var/www/NM/upmarket/data/up3d
+EnvironmentFile=/var/www/NM/upmarket/data/up3d-worker.env
+ExecStart=/var/www/NM/upmarket/venv/bin/python -m up3d worker --server http://127.0.0.1:8041/3d --token ${UP3D_WORKER_TOKEN} --name server-cpu --nice 15
+Restart=always
+RestartSec=10
+Nice=15
+
+[Install]
+WantedBy=multi-user.target

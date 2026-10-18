@@ -1,0 +1,35 @@
+{
+  "id": "three_quarter",
+  "version": 1,
+  "name": {
+    "fa": "سه‌رخ",
+    "en": "Three-quarter"
+  },
+  "description": {
+    "fa": "نمای متوسط از زاویهٔ ۳۰ درجه",
+    "en": "Medium shot from 30° side angle; adds depth."
+  },
+  "framing": {
+    "height": 0.9,
+    "anchor": "eyes",
+    "anchor_pos": 0.27,
+    "lens": 55,
+    "fstop": 2.8,
+    "elevation": 3,
+    "azimuth": -30
+  },
+  "subject": "actor",
+  "moves": [
+    "static",
+    "push_in",
+    "pull_out",
+    "orbit_left",
+    "orbit_right",
+    "crane_up",
+    "handheld",
+    "slide_left",
+    "slide_right"
+  ],
+  "order": 5,
+  "license": "UpMarket 3D (procedural, own)"
+}

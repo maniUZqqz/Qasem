@@ -1,0 +1,156 @@
+/* ویدیوی سه‌بعدی — فقط چیزهایی که با کلاس‌های عمومیِ index.css ساخته نمی‌شوند:
+   خطِ زمان، انتخابگرِ تصویری، مراحلِ کار، فهرستِ ایرادها، پیامِ کوتاه. همه از توکن‌های تم می‌خوانند. */
+
+:root {
+  --u3d-t-actions: #6aa9ff;
+  --u3d-t-speech: #3ecf8e;
+  --u3d-t-shots: #f0b54a;
+  --u3d-t-expressions: #e879b9;
+  --u3d-t-gaze: #a78bfa;
+  --u3d-t-overlays: #f97362;
+}
+
+/* ── چیدمانِ استودیو: پیش‌نمایش | خطِ زمان | بازرس */
+.u3d-studio {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+}
+.u3d-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 1400px) {
+  .u3d-studio { grid-template-columns: minmax(0, 1fr) 330px; }
+  .u3d-col.u3d-left { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+}
+@media (max-width: 900px) {
+  .u3d-studio, .u3d-col.u3d-left { grid-template-columns: 1fr; }
+}
+
+/* ── خطِ زمان */
+.u3d-tl { user-select: none; }
+.u3d-tl-body { position: relative; overflow-x: auto; overflow-y: hidden; direction: ltr; }
+.u3d-tl-inner { position: relative; min-width: 100%; }
+.u3d-ruler {
+  position: relative; height: 24px; margin-inline-start: 104px; direction: ltr; cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.u3d-ruler i {
+  position: absolute; top: 0; bottom: 0; padding-left: 3px;
+  border-left: 1px solid var(--line-strong);
+  font-style: normal; font-size: .7rem; color: var(--text-3);
+}
+.u3d-track { display: flex; align-items: stretch; height: 40px; border-bottom: 1px dashed var(--line); }
+.u3d-track-lab {
+  width: 104px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px;
+  font-size: .78rem; color: var(--text-2); direction: rtl;
+}
+.u3d-track-lab button { margin-inline-start: auto; }
+.u3d-lane { position: relative; flex: 1; direction: ltr; }
+.u3d-blk {
+  position: absolute; top: 5px; bottom: 5px; min-width: 6px;
+  border-radius: 7px; padding: 0 8px;
+  font-size: .74rem; font-weight: 700; color: #0d0f13;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  cursor: grab; display: flex; align-items: center; direction: rtl;
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / .18);
+  touch-action: none;
+}
+.u3d-blk.sel { outline: 2px solid var(--text); outline-offset: 1px; z-index: 3; }
+.u3d-blk.err { box-shadow: inset 0 0 0 2px var(--bad); }
+.u3d-blk.layer { top: 22px; opacity: .85; }
+.u3d-blk .rs { position: absolute; right: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; background: rgb(0 0 0 / .18); }
+.u3d-t-actions .u3d-blk { background: var(--u3d-t-actions); }
+.u3d-t-speech .u3d-blk { background: var(--u3d-t-speech); }
+.u3d-t-shots .u3d-blk { background: var(--u3d-t-shots); }
+.u3d-t-expressions .u3d-blk { background: var(--u3d-t-expressions); }
+.u3d-t-gaze .u3d-blk { background: var(--u3d-t-gaze); }
+.u3d-t-overlays .u3d-blk { background: var(--u3d-t-overlays); }
+.u3d-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .55; pointer-events: none; z-index: 4; }
+
+/* ── فهرستِ ایرادها */
+.u3d-issues { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
+.u3d-issues li {
+  padding: 6px 10px; margin-bottom: 4px; border-radius: 8px; font-size: .84rem;
+  background: var(--surface-2); border-inline-start: 3px solid var(--line-strong); color: var(--text-2);
+}
+.u3d-issues li.clickable { cursor: pointer; }
+.u3d-issues li.clickable:hover { background: var(--glass-2); }
+.u3d-issues li.error { border-inline-start-color: var(--bad); }
+.u3d-issues li.warning { border-inline-start-color: var(--warn); }
+.u3d-issues li.ok { border-inline-start-color: var(--ok); }
+
+@keyframes u3d-pulse { 50% { opacity: .25; } }
+
+/* ── مراحلِ کار */
+.u3d-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.u3d-steps span {
+  padding: 3px 11px; border-radius: 999px; font-size: .76rem;
+  background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line);
+}
+.u3d-steps span.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.u3d-steps span.now { color: #fff; background: var(--brand); border-color: var(--brand); font-weight: 700; }
+.u3d-steps span.fail { color: #fff; background: var(--bad); border-color: var(--bad); }
+
+/* ── انتخابگرِ تصویری (پروژهٔ تازه) */
+.u3d-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.u3d-opt {
+  border: 2px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer;
+  background: var(--surface-2); transition: border-color .15s, box-shadow .15s; text-align: start;
+  padding: 0; font: inherit; color: inherit; width: 100%; display: block;
+}
+.u3d-opt:hover { border-color: var(--line-strong); }
+.u3d-opt.on { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent); }
+.u3d-opt .im {
+  aspect-ratio: 1; display: grid; place-items: center; color: var(--text-3);
+  background: var(--void-2) center/cover no-repeat;
+}
+.u3d-opt .tx { padding: 7px 9px; font-size: .82rem; font-weight: 600; color: var(--text); }
+.u3d-opt .tx small { display: block; color: var(--text-3); font-weight: 400; font-size: .72rem; line-height: 1.5; }
+
+/* ── کارت‌های تصویری (پروژه‌ها، دارایی‌ها) */
+.u3d-poster {
+  background: var(--void-2) center/cover no-repeat; display: grid; place-items: center; color: var(--text-3);
+}
+.u3d-thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.u3d-thumbs img { width: 100%; border-radius: 6px; display: block; }
+.u3d-video { width: 100%; background: #000; border-radius: 10px; display: block; max-height: 62vh; }
+
+/* ── کد و گزارش */
+.u3d-pre {
+  background: var(--void-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.55;
+  direction: ltr; text-align: left; color: var(--text-2); white-space: pre-wrap; word-break: break-word; margin: 0;
+}
+.u3d-pre.rtl { direction: rtl; text-align: right; }
+.u3d-code-ed { min-height: 360px; font-family: Consolas, monospace; font-size: 12.5px; direction: ltr; text-align: left; line-height: 1.5; }
+.u3d-mono { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: embed; }
+.u3d-kbd { display: inline-block; padding: 0 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 6px; font-size: .76rem; }
+
+/* ── نوارِ پیشرفت */
+.u3d-bar { height: 7px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.u3d-bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--info), var(--brand)); transition: width .6s; }
+
+/* ── پیامِ کوتاه */
+.u3d-toasts { position: fixed; bottom: 18px; inset-inline-start: 18px; z-index: 99; display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+.u3d-toast {
+  padding: 10px 16px; border-radius: 12px; font-size: .875rem;
+  background: color-mix(in srgb, var(--void-2) 96%, transparent); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow); color: var(--text);
+}
+.u3d-toast.bad { border-color: color-mix(in srgb, var(--bad) 50%, transparent); background: color-mix(in srgb, var(--bad) 18%, var(--void-2)); }
+
+/* ── جدولِ ساده */
+.u3d-kv td { padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: .84rem; color: var(--text-2); vertical-align: top; }
+.u3d-kv tr:last-child td { border-bottom: 0; }
+.u3d-kv td:first-child { color: var(--text-3); white-space: nowrap; }
+
+/* ── راهنما */
+.u3d-docs { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.u3d-docs nav { position: sticky; top: 70px; }
+.u3d-docs nav a { display: block; padding: 4px 0; color: var(--text-2); text-decoration: none; font-size: .85rem; }
+.u3d-docs nav a:hover { color: var(--text); }
+.u3d-docs section { scroll-margin-top: 70px; }
+.u3d-docs ol, .u3d-docs ul { padding-inline-start: 1.3em; }
+.u3d-docs li { margin: 4px 0; }
+.u3d-docs code { font-family: Consolas, monospace; direction: ltr; unicode-bidi: embed; background: var(--surface-2); padding: 0 4px; border-radius: 4px; font-size: .85em; }
+@media (max-width: 900px) { .u3d-docs { grid-template-columns: 1fr; } .u3d-docs nav { position: static; } }

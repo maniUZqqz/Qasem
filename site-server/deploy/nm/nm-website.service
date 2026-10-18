@@ -1,0 +1,15 @@
+[Unit]
+Description=NMarketing (UpMarket) public website — Next.js :3001
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/website
+Environment=NODE_ENV=production PORT=3001 HOSTNAME=0.0.0.0
+EnvironmentFile=/var/www/NM/upmarket/website/.env.production.local
+ExecStart=/usr/local/bin/node /var/www/NM/upmarket/website/.next/standalone/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

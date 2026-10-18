@@ -1,0 +1,49 @@
+{
+  "id": "wave_hello",
+  "version": 1,
+  "name": {
+    "fa": "دست تکان دادن (سلام)",
+    "en": "Wave hello"
+  },
+  "description": {
+    "fa": "سلام با دست",
+    "en": "Friendly wave with free hand; good for the opening."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 1.2,
+    "default": 1.8,
+    "max": 3.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "wave_hello"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "free",
+    "param": "hand",
+    "requires_free": true
+  },
+  "params": {
+    "hand": {
+      "type": "enum",
+      "values": [
+        "R",
+        "L"
+      ],
+      "label": "دست (خالی = دستِ آزاد/هم‌سمتِ محصول)"
+    }
+  },
+  "expression": {
+    "name": "big_smile",
+    "from": 0.1,
+    "to": 0.95,
+    "intensity": 0.8
+  },
+  "order": 3,
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,284 @@
+/* ============================================================
+   پنل ادمین آپ‌مارکت — لایه‌ی ظاهری روی ادمین خود جنگو.
+
+   عمداً چیزی را بازنویسی نمی‌کند که جنگو خودش درست انجام می‌دهد:
+   راست‌به‌چپ شدن، تم روشن/تیره، و چیدمان موبایل همه از rtl.css و
+   base.css خود جنگو می‌آیند و اینجا فقط روی متغیرهای همان‌ها سوار
+   می‌شویم. برای همین این فایل کوتاه است و با ارتقای جنگو نمی‌شکند.
+   ============================================================ */
+
+/* ---- فونت -------------------------------------------------
+   وزیرمتن، زیرمجموعه‌ی عربی، ۲۱ کیلوبایت و از روی همین سرور.
+   عمداً از Google Fonts نمی‌آید: مخاطب این سیستم در ایران است و
+   fonts.googleapis.com آنجا باز نمی‌شود — نتیجه‌اش چند ثانیه انتظار
+   و بعد فونت پیش‌فرض می‌شد.
+
+   font-display: swap یعنی متن بلافاصله با فونت سیستم دیده می‌شود و
+   وقتی وزیرمتن رسید جایش را می‌گیرد؛ هیچ‌وقت صفحه‌ی خالی نداریم. */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/vazirmatn-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/vazirmatn-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+html, body,
+input, select, textarea, button,
+.module, .form-row, #content, #header, #nav-sidebar {
+  font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+}
+
+/* فارسی با نقطه و اعرابش به فضای عمودی بیشتری از لاتین نیاز دارد؛
+   با line-height پیش‌فرض جنگو سطرها به هم می‌چسبند. */
+body { line-height: 1.75; }
+
+/* ---- رنگ و جنس --------------------------------------------
+   فقط متغیرهای خود جنگو عوض می‌شوند، پس تم روشن و تیره هر دو
+   خودبه‌خود درست می‌مانند و جایی از ادمین جا نمی‌ماند. */
+:root {
+  --primary: #5b4bd6;
+  --secondary: #4f46e5;
+  --header-bg: #1e1b4b;
+  --header-color: #ffffff;
+  --header-branding-color: #c7d2fe;
+  --header-link-color: #e0e7ff;
+  --link-fg: #4f46e5;
+  --link-hover-color: #3730a3;
+  --default-button-bg: #5b4bd6;
+  --default-button-hover-bg: #4738b8;
+}
+
+/* ---- ماژول‌ها (جعبه‌ی هر اپ) ------------------------------- */
+.module {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--hairline-color);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
+}
+.module > table { border-collapse: collapse; }
+.module caption,
+.module h2 {
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 12px 16px;
+}
+.module caption a.section { text-transform: none; }
+
+/* ---- فهرست اصلی: هر ردیف یک جدول با توضیحش ----------------
+   نام فارسی درشت، و زیرش نام انگلیسی و یک جمله که این جدول چیست.
+   دلیلش در config/admin_site.py نوشته شده: این ادمین دست کسی
+   می‌افتد که نمی‌داند «کار انتشار» با «کمپین» چه فرقی دارد. */
+.um-model-cell { padding: 14px 16px !important; }
+
+.um-model-name {
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.um-model-en {
+  font-size: .78rem;
+  font-weight: 600;
+  opacity: .62;
+  letter-spacing: .02em;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.um-model-desc {
+  margin-top: 2px;
+  font-size: .82rem;
+  line-height: 1.7;
+  opacity: .72;
+  max-width: 62ch;
+  font-weight: 400;
+}
+
+/* ستون‌های «افزودن» و «تغییر» نباید کشیده شوند وقتی توضیح بلند است. */
+#content-main .module td { white-space: nowrap; vertical-align: middle; }
+
+/* در نوار کناری فقط نام می‌ماند.
+
+   همان قالب، هم فهرست اصلی را می‌سازد و هم نوار کناری را. در فهرست
+   اصلی توضیح جا دارد و لازم است؛ در نواری به عرض یک ستون، همان متن
+   به شش سطر می‌شکند و فهرستِ پیمایش را به دیوار متن تبدیل می‌کند —
+   دقیقاً جایی که آدم دنبال یک نام می‌گردد نه یک توضیح. */
+#nav-sidebar .um-model-desc,
+#nav-sidebar .um-model-en { display: none; }
+#nav-sidebar .um-model-cell { padding: 8px 12px !important; }
+#nav-sidebar .um-model-name { font-size: .92rem; font-weight: 600; }
+
+/* ---- یادداشت بالای هر جدول -------------------------------- */
+.um-note {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--hairline-color);
+  border-inline-start: 3px solid var(--primary);
+  background: var(--darkened-bg);
+  max-width: 78ch;
+}
+.um-note-en {
+  font-size: .78rem;
+  font-weight: 700;
+  opacity: .6;
+  direction: ltr;
+  unicode-bidi: isolate;
+  margin-bottom: 2px;
+}
+.um-note-text { font-size: .9rem; line-height: 1.8; margin: 0; }
+
+/* ---- جدول‌های داده ----------------------------------------
+
+   گوشه‌ی گرد روی *قاب* می‌نشیند، نه روی خود جدول.
+
+   اول `overflow: hidden` را روی `#result_list` گذاشته بودم تا گوشه‌ها
+   گرد شوند؛ نتیجه این بود که جدولِ پهن‌تر از صفحه بریده می‌شد و
+   ستون‌هایش نه دیده می‌شدند نه با اسکرول در دسترس بودند. اندازه‌گیری:
+   جدول کارها ۹۷۱ پیکسل در پنجره‌ی ۳۶۰ پیکسلی.
+
+   `.results` قابِ خود جنگوست و از قبل `overflow-x: auto` دارد، پس
+   گرد کردنِ همان، هم ظاهر را می‌دهد و هم اسکرول را نگه می‌دارد. */
+.results { border-radius: 12px; overflow-x: auto; }
+#result_list { border-radius: 0; }
+#result_list thead th {
+  font-size: .82rem;
+  font-weight: 700;
+  padding: 12px 10px;
+}
+#result_list tbody td, #result_list tbody th { padding: 11px 10px; }
+
+/* اعداد و شناسه‌ها و تاریخ‌ها لاتین‌اند و در متن راست‌به‌چپ جابه‌جا
+   دیده می‌شوند؛ isolate هر سلول را از همسایه‌اش جدا می‌کند. */
+#result_list td, #result_list th { unicode-bidi: isolate; }
+
+/* ---- دکمه‌ها ---------------------------------------------- */
+.button, input[type=submit], input[type=button], .submit-row input, a.button {
+  border-radius: 9px;
+  padding: 9px 16px;
+  font-weight: 600;
+}
+.object-tools a { border-radius: 999px; }
+
+/* ---- فرم‌ها ----------------------------------------------- */
+.form-row { padding: 12px 0; }
+input[type=text], input[type=password], input[type=email], input[type=url],
+input[type=number], textarea, select, .vTextField {
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.help, .form-row .help { font-size: .82rem; line-height: 1.7; opacity: .75; }
+
+/* ---- اندازه‌ی متن -----------------------------------------
+
+   ادمین جنگو در چند جا ۱۱ پیکسل می‌گذارد: نوار کاربر بالای صفحه،
+   لینک‌های «اضافه کردن»، سرستون‌ها. برای لاتین قابل خواندن است، برای
+   فارسی نه — نقطه‌های «پ» و «ژ» و اعراب در این اندازه به هم می‌چسبند.
+   ۱۲.۵ پیکسل کفی است که زیرش نمی‌رویم. */
+#user-tools, #user-tools a, #user-tools strong, #user-tools button,
+.module td a.addlink, .module td a.changelink,
+.module td a.viewlink, #changelist-filter li a, .help, p.help,
+#result_list thead th a,
+#content-main ul.object-tools li a,
+.changelist-form-container .actions label {
+  font-size: .78rem;
+}
+
+/* جنگو این‌ها را با انتخابگرِ id-دار می‌نویسد، *و* فایلش (changelists.css)
+   بعد از این یکی بارگذاری می‌شود — چون قالب change_list جنگو آن را داخل
+   بلوک extrastyle و بعد از block.super اضافه می‌کند. پس هم‌وزن بودن کافی
+   نیست و یک پله بالاتر می‌رویم، نه با important که بعداً کسی نفهمد چرا. */
+body #changelist .actions span.action-counter,
+body #changelist .actions span.all,
+body #changelist .actions span.clear,
+body #changelist .actions span.question {
+  font-size: .78rem;
+}
+
+/* سرستون‌های جدول‌های تودرتو (inline) در فرم ویرایش */
+.inline-group table thead th { font-size: .78rem; }
+
+/* ---- هدف‌های لمسی ------------------------------------------
+   لینک‌های نوار بالا ۱۶ پیکسل ارتفاع داشتند — روی صفحه‌ی لمسی یعنی
+   هدفی که باید دقیق زده شود. همان منطقِ سایت عمومی: پرسش درست
+   «انگشت یا ماوس؟» است، نه «عرض صفحه چقدر است؟». */
+@media (pointer: coarse) {
+  /* نوار بالا */
+  #user-tools a, #user-tools button {
+    display: inline-block;
+    min-width: 44px;
+    padding-block: 13px;
+    text-align: center;
+  }
+  #branding #site-name a { display: inline-block; padding-block: 8px; }
+
+  /* سرستون‌های قابل‌مرتب‌سازی: تنها راه عوض کردن ترتیب جدول، و ۳۶
+     پیکسل ارتفاع داشتند. */
+  #result_list thead th.sortable div.text a { display: block; padding-block: 12px; }
+  #header button[class*="theme"] { min-width: 44px; min-height: 44px; }
+
+  /* مسیر راهنما — «شروع › فروش و مشتریان › سفارش‌ها» */
+  .breadcrumbs a { display: inline-block; padding-block: 11px; }
+
+  /* فهرست اصلی: هم نام جدول، هم «اضافه کردن»/«تغییر»/«مشاهده» */
+  .module caption a.section { display: inline-block; padding-block: 10px; }
+  .um-model-name a { display: inline-block; padding-block: 10px; }
+  .module td a.addlink, .module td a.changelink, .module td a.viewlink {
+    display: inline-block;
+    padding-block: 14px;
+  }
+
+  /* نوار ابزار بالای هر جدول و دکمه‌ی اجرای اقدام گروهی */
+  #content-main ul.object-tools li a { display: inline-block; padding-block: 14px; }
+  .changelist-form-container .actions button.button { min-height: 44px; padding-inline: 18px; }
+
+  /* چک‌باکس‌های انتخاب ردیف ۱۳ پیکسل بودند — کوچک‌ترین هدف کل ادمین،
+     و همانی که برای هر اقدام گروهی باید زده شود. */
+  #result_list input[type="checkbox"],
+  th.action-checkbox-column input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+    margin: 10px 6px;
+  }
+
+  /* لینکِ ستون اول هر ردیف — تنها راه باز کردن آن ردیف برای ویرایش،
+     و ۲۲ پیکسل ارتفاع داشت. روی شناسه‌های کوتاه مثل «۱۱» می‌شد یک
+     هدف ۱۱ در ۲۲. */
+  #result_list tbody th a { display: inline-block; padding-block: 11px; }
+
+  /* فلش‌های صعودی/نزولی کنار سرستون‌ها */
+  #result_list thead th .sortoptions a { padding: 10px; }
+
+  /* آیکن‌های ➕ ✎ 👁 🗑 کنار هر فهرست کشویی در فرم‌ها */
+  .related-widget-wrapper-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* ---- روی گوشی --------------------------------------------- */
+@media (max-width: 767px) {
+  .um-model-desc { max-width: none; }
+  .um-note { margin-inline: 0; }
+
+  /* روی عرض کم، جدول از صفحه پهن‌تر است و داخل قابش افقی اسکرول
+     می‌شود. بدون این سایه، لبه دقیقاً شبیه پایانِ جدول به نظر
+     می‌رسد — همان اشتباهی که نوار تب پنل داشت. */
+  .results {
+    background:
+      linear-gradient(to left, var(--body-bg) 0, transparent 24px) left center / 24px 100% no-repeat,
+      linear-gradient(to right, var(--body-bg) 0, transparent 24px) right center / 24px 100% no-repeat;
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "luxury",
+  "version": 1,
+  "name": {
+    "fa": "لوکس (طلایی)",
+    "en": "Luxury gold"
+  },
+  "order": 2,
+  "title": {
+    "size": 0.05,
+    "color": "#f5e6c8",
+    "shadow": true
+  },
+  "cta": {
+    "bg": "#1c1a17e6",
+    "color": "#e9c97a"
+  },
+  "price": {
+    "bg": "#e9c97a",
+    "color": "#1c1a17"
+  },
+  "subtitle": {
+    "box": "#1c1a17b0",
+    "color": "#f5e6c8"
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

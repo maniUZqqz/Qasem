@@ -1,0 +1,50 @@
+{
+  "id": "look_at",
+  "version": 1,
+  "name": {
+    "fa": "نگاه کردن",
+    "en": "Look at"
+  },
+  "description": {
+    "fa": "نگاه به محصول یا دوربین",
+    "en": "Look at the product/camera (layer)."
+  },
+  "category": "face",
+  "duration": {
+    "min": 0.5,
+    "default": 1.5,
+    "max": 6.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "look_at"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "layer": true,
+  "hands": {
+    "uses": "none"
+  },
+  "params": {
+    "target": {
+      "type": "enum",
+      "values": [
+        "product",
+        "camera",
+        "forward"
+      ],
+      "default": "product"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.0,
+      "to": 1.0,
+      "target": "$target"
+    }
+  ],
+  "order": 21,
+  "license": "UpMarket 3D (procedural, own)"
+}

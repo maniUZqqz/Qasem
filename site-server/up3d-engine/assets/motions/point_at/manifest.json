@@ -1,0 +1,58 @@
+{
+  "id": "point_at",
+  "version": 1,
+  "name": {
+    "fa": "اشاره کردن",
+    "en": "Point at"
+  },
+  "description": {
+    "fa": "اشاره با انگشت به محصول یا دوربین",
+    "en": "Point with the index finger at the product (or camera)."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 0.8,
+    "default": 1.4,
+    "max": 3.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "point_at"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "free",
+    "param": "hand",
+    "requires_free": true
+  },
+  "params": {
+    "target": {
+      "type": "enum",
+      "values": [
+        "product",
+        "camera"
+      ],
+      "default": "product"
+    },
+    "hand": {
+      "type": "enum",
+      "values": [
+        "R",
+        "L"
+      ],
+      "label": "دست (خالی = دستِ آزاد/هم‌سمتِ محصول)"
+    }
+  },
+  "auto_gaze": [
+    {
+      "from": 0.15,
+      "to": 0.5,
+      "target": "product"
+    }
+  ],
+  "order": 10,
+  "license": "UpMarket 3D (procedural, own)"
+}

@@ -1,0 +1,37 @@
+{
+  "1": {
+    "class_type": "LoadVideo",
+    "inputs": {"file": "segment.mp4"}
+  },
+  "2": {
+    "class_type": "GetVideoComponents",
+    "inputs": {"video": ["1", 0]}
+  },
+  "3": {
+    "class_type": "LoadAudio",
+    "inputs": {"audio": "narration.wav"}
+  },
+  "4": {
+    "class_type": "LatentSyncNode",
+    "inputs": {
+      "images": ["2", 0],
+      "audio": ["3", 0],
+      "seed": 1247,
+      "lips_expression": 1.5,
+      "inference_steps": 20
+    }
+  },
+  "5": {
+    "class_type": "CreateVideo",
+    "inputs": {"images": ["4", 0], "fps": 25}
+  },
+  "6": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": ["5", 0],
+      "filename_prefix": "upmarket/lipsync",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}

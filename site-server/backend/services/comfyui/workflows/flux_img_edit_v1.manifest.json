@@ -1,0 +1,17 @@
+{
+  "workflow": "flux_img_edit",
+  "version": "v1",
+  "description": "FLUX.1-dev FP8 image-to-image edit (LoadImage -> ImageScale -> VAEEncode -> KSampler with FluxGuidance 3.5, cfg 1.0). Converted from 'flux_img_edit.ui.json'. denoise: 0.3-0.5 subtle edit, 0.6-0.8 bigger change.",
+  "inputs": {
+    "image": ["16", "image"],
+    "positive": ["4", "text"],
+    "negative": ["3", "text"],
+    "seed": ["2", "seed"],
+    "steps": ["2", "steps"],
+    "denoise": ["2", "denoise"],
+    "guidance": ["19", "guidance"],
+    "width": ["17", "width"],
+    "height": ["17", "height"],
+    "filename_prefix": ["7", "filename_prefix"]
+  }
+}

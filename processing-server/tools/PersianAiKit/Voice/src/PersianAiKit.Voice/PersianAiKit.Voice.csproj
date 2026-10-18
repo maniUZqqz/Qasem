@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    کتابخانهٔ صدا (آفلاین، روی CPU):
+      · Tts/PiperTts       متن ⇒ گفتارِ فارسی (Piper)
+      · Asr/VoskAsr        گفتار ⇒ متنِ فارسی (Vosk)
+      · Text/PersianText   عدد، ساعت، تاریخ ⇒ واژه؛ حروف ⇒ رقم؛ فرمانِ صوتی؛ خطای واژه
+    مدل‌ها در پوشهٔ models کنارِ همین پروژه‌اند (VoiceModels.Find خودش پیدایشان می‌کند).
+    گفتارِ طبیعی، کلون و صدای هر چیز سرویسِ پایتونیِ جداست (voice\) که سرورِ کیت به آن وصل می‌شود.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PersianAiKit</RootNamespace>
+    <AssemblyName>PersianAiKit.Voice</AssemblyName>
+    <Version>1.1.0</Version>
+    <Description>Offline Persian text-to-speech (Piper), speech-to-text (Vosk) and Persian text tools.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vosk" Version="0.3.38" />
+  </ItemGroup>
+
+</Project>

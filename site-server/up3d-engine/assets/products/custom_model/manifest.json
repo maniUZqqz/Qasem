@@ -1,0 +1,39 @@
+{
+  "id": "custom_model",
+  "version": 1,
+  "name": {
+    "fa": "مدلِ سه‌بعدیِ خودِ شما",
+    "en": "Your 3D model"
+  },
+  "description": {
+    "fa": "فایلِ GLB/OBJ/FBX ِ محصول؛ به اندازهٔ واقعی درمی‌آید",
+    "en": "Upload a GLB/OBJ/FBX of the product; it is scaled to real size."
+  },
+  "builder": "file",
+  "order": 9,
+  "dimensions": [
+    0.08,
+    0.08,
+    0.15
+  ],
+  "grasp": {
+    "height": 0.4,
+    "radius": 0.04,
+    "curl": 0.8,
+    "preset": "grip",
+    "azimuth": 35
+  },
+  "params": {
+    "model_path": {
+      "type": "file",
+      "label": "فایلِ مدل"
+    },
+    "height_m": {
+      "type": "number",
+      "default": 0.15,
+      "min": 0.03,
+      "max": 0.6
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

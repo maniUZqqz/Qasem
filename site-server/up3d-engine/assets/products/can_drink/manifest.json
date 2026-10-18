@@ -1,0 +1,72 @@
+{
+  "id": "can_drink",
+  "version": 1,
+  "name": {
+    "fa": "قوطیِ نوشیدنی",
+    "en": "Drink can"
+  },
+  "description": {
+    "fa": "قوطیِ آلومینیومی با برچسبِ دورپیچ",
+    "en": "Aluminium drink can with wrap-around label."
+  },
+  "builder": "can_drink",
+  "order": 4,
+  "dimensions": [
+    0.066,
+    0.066,
+    0.122
+  ],
+  "grasp": {
+    "height": 0.4,
+    "radius": 0.035,
+    "curl": 0.85,
+    "preset": "grip",
+    "azimuth": 35
+  },
+  "label": {
+    "px": [
+      1400,
+      620
+    ],
+    "style": "classic"
+  },
+  "params": {
+    "can_color": {
+      "type": "color",
+      "default": "#b3202a"
+    },
+    "brand": {
+      "type": "text",
+      "default": "",
+      "label": "برند"
+    },
+    "tagline": {
+      "type": "text",
+      "default": "",
+      "label": "شعار"
+    },
+    "label_color": {
+      "type": "color",
+      "default": "#f4efe6",
+      "label": "رنگِ برچسب"
+    },
+    "text_color": {
+      "type": "color",
+      "default": "#2b2118",
+      "label": "رنگِ نوشته"
+    },
+    "accent_color": {
+      "type": "color",
+      "default": "#b08d57",
+      "label": "رنگِ تزئین"
+    },
+    "label_image": {
+      "type": "file",
+      "label": "عکس/لوگوی برچسب"
+    }
+  },
+  "tags": [
+    "drink"
+  ],
+  "license": "UpMarket 3D (procedural, own)"
+}

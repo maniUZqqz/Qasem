@@ -1,0 +1,15 @@
+{
+  "workflow": "flux_txt2img",
+  "version": "v1",
+  "description": "FLUX.1-dev FP8 text-to-image. FLUX-dev is guidance-distilled: KSampler cfg is fixed at 1.0 and guidance comes from the FluxGuidance node (default 3.5), matching flux_img_edit_v1. If ComfyUI rejects this graph, re-export it from the ComfyUI UI with 'Save (API Format)' — see ui_reference/README.md.",
+  "inputs": {
+    "positive": ["4", "text"],
+    "negative": ["3", "text"],
+    "seed": ["2", "seed"],
+    "steps": ["2", "steps"],
+    "guidance": ["8", "guidance"],
+    "width": ["5", "width"],
+    "height": ["5", "height"],
+    "filename_prefix": ["7", "filename_prefix"]
+  }
+}

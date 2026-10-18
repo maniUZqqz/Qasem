@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    موتورِ ویرایشِ عکس (آفلاین، روی CPU) — یک موتور برای دو چهره: ویرایشگرِ وب و ابزارهای هوشِ مصنوعی.
+      · Recipe + ToolCatalog   «نسخهٔ ویرایش» (غیرمخرب) و فهرستِ همهٔ ابزارها با بازه و توضیح (منبعِ صفحه، API و سند)
+      · Engine/*               نور، رنگ، منحنی، وضوح، مه‌زدایی، شارپ، نویزگیری، هندسه، روتوش، افکت، خروجی
+      · Ai/*                   حذفِ پس‌زمینه (BiRefNet)، بزرگ‌نمایی (Real-ESRGAN)، ویرایشگرِ خودکار با هوشِ مصنوعیِ بینا
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>PersianAiKit.Photo</RootNamespace>
+    <AssemblyName>PersianAiKit.Photo</AssemblyName>
+    <Version>1.0.0</Version>
+    <Description>Offline photo enhancement engine (tone, color, detail, geometry, retouch, background removal, upscaling) with a vision-AI auto editor.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="OpenCvSharp4" Version="4.10.0.20241108" />
+    <!-- فایل‌های بومیِ OpenCV برای ویندوز. روی لینوکس به جایش OpenCvSharp4.official.runtime.linux-x64 -->
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
+  </ItemGroup>
+
+</Project>

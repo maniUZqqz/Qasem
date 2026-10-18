@@ -1,0 +1,83 @@
+{
+  "id": "daylight_window",
+  "version": 1,
+  "name": {
+    "fa": "نورِ روزِ پنجره",
+    "en": "Window daylight"
+  },
+  "description": {
+    "fa": "آفتابِ نرم از پنجرهٔ کناری + نورِ برگشتی",
+    "en": "Soft daylight from a side window + bounce; natural home look."
+  },
+  "rig": [
+    {
+      "name": "sun",
+      "type": "SUN",
+      "position": [
+        -3,
+        0.5,
+        3
+      ],
+      "direction": [
+        2.6,
+        -0.45,
+        -1.4
+      ],
+      "power": 3.2,
+      "angle": 4,
+      "kelvin": 5600
+    },
+    {
+      "name": "window",
+      "azimuth": -88,
+      "elevation": 12,
+      "distance": 2.3,
+      "size": 1.8,
+      "power": 260,
+      "kelvin": 6500,
+      "target": "face"
+    },
+    {
+      "name": "bounce",
+      "azimuth": 60,
+      "elevation": 5,
+      "distance": 2.0,
+      "size": 2.0,
+      "power": 45,
+      "kelvin": 4800,
+      "target": "chest"
+    },
+    {
+      "name": "rim",
+      "azimuth": 160,
+      "elevation": 35,
+      "distance": 1.8,
+      "size": 0.6,
+      "power": 70,
+      "kelvin": 5200,
+      "target": "face"
+    }
+  ],
+  "world": {
+    "hdri": "courtyard",
+    "hdri_strength": 0.35
+  },
+  "order": 4,
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)"
+}

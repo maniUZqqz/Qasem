@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ویرایشگرِ عکس</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">ویرایشگرِ عکس</div>
+  <label class="btn file" title="یا عکس را روی صفحه بکشید">باز کردنِ عکس<input type="file" id="open" accept="image/*" multiple></label>
+  <span class="sep"></span>
+  <button id="undo" class="icon" title="برگرداندن (Ctrl+Z)" disabled>↶</button>
+  <button id="redo" class="icon" title="دوباره (Ctrl+Y)" disabled>↷</button>
+  <button id="before" title="نگه دارید: عکسِ اصل (یا کلیدِ \)" disabled>قبل / بعد</button>
+  <button id="zoom" title="اندازهٔ واقعی ⇄ جا شدن در صفحه" disabled>۱:۱</button>
+  <button id="reset" title="همهٔ تنظیم‌ها به حالتِ اول" disabled>از نو</button>
+  <span class="grow"></span>
+  <span id="chips" class="chips"></span>
+  <button id="export" class="primary" disabled>خروجی ⬇</button>
+</header>
+
+<div class="app">
+  <aside class="library">
+    <div class="lib-head">عکس‌ها <span id="libCount" class="muted"></span></div>
+    <div id="lib" class="lib-list"></div>
+    <div class="lib-hint muted">عکس را روی صفحه بکشید یا «باز کردنِ عکس». عکسِ اصلی دست نمی‌خورد؛ همهٔ تغییرها «نسخهٔ ویرایش» است.</div>
+  </aside>
+
+  <main class="stage-box">
+   <div class="stage" id="stage">
+    <div class="wrap" id="wrap" hidden>
+      <img id="view" alt="" draggable="false">
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="empty" id="empty">
+      <div class="empty-box">
+        <b>یک عکس باز کنید</b>
+        <p class="muted">نور، رنگ، منحنی، برش و صاف کردن، روتوشِ لکه، حذفِ پس‌زمینه، فیلترها و خروجیِ فروشگاهی — یا بگذارید هوشِ مصنوعی ویرایش کند.</p>
+        <label class="btn primary file">انتخابِ عکس<input type="file" id="open2" accept="image/*" multiple></label>
+      </div>
+    </div>
+   </div>
+    <div class="status" id="status"></div>
+    <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">…</span></div>
+  </main>
+
+  <aside class="panel">
+    <nav class="tabs" id="tabs">
+      <button data-tab="adjust" class="on">تنظیم</button>
+      <button data-tab="looks">فیلتر</button>
+      <button data-tab="crop">برش</button>
+      <button data-tab="heal">روتوش</button>
+      <button data-tab="bg">پس‌زمینه</button>
+      <button data-tab="out">خروجی</button>
+      <button data-tab="ai">هوشِ مصنوعی</button>
+    </nav>
+
+    <section class="tab" id="tab-adjust">
+      <canvas id="hist" class="hist" width="512" height="150" title="هیستوگرام: پخشِ روشنایی و رنگ‌ها"></canvas>
+      <div class="row">
+        <button id="auto" class="primary" title="اندازه‌گیری و تنظیمِ خودکار — رایگان و بی اینترنت">✦ خودکار</button>
+        <span id="autoNotes" class="muted small"></span>
+      </div>
+      <div id="groups"></div>
+    </section>
+
+    <section class="tab" id="tab-looks" hidden>
+      <p class="muted small">فیلترِ آماده روی تنظیم‌های فعلی می‌نشیند؛ فیلترِ بعدی جای قبلی را می‌گیرد. بعد با لغزنده‌ها ریزش کنید.</p>
+      <div id="looks" class="looks"></div>
+    </section>
+
+    <section class="tab" id="tab-crop" hidden>
+      <p class="muted small">روی عکس کادر بکشید؛ گوشه‌ها و لبه‌ها را جابه‌جا کنید. چرخش خودش کمی بزرگ می‌کند تا گوشهٔ خالی نماند.</p>
+      <div class="field"><span>نسبت</span>
+        <div class="seg" id="aspects">
+          <button data-a="free" class="on">آزاد</button><button data-a="orig">اصلی</button><button data-a="1">۱:۱</button>
+          <button data-a="0.8">۴:۵</button><button data-a="0.75">۳:۴</button><button data-a="1.3333">۴:۳</button>
+          <button data-a="1.7778">۱۶:۹</button><button data-a="0.5625">۹:۱۶</button>
+        </div>
+      </div>
+      <div class="sl" id="angleRow">
+        <label title="صاف کردنِ افق: مثبت = پادساعتگرد">چرخش (درجه)</label>
+        <input type="number" id="angleNum" step="0.1" min="-45" max="45">
+        <input type="range" id="angle" min="-45" max="45" step="0.1" value="0">
+      </div>
+      <div class="row">
+        <button id="flipH" title="قرینهٔ افقی">⇋ قرینهٔ افقی</button>
+        <button id="flipV" title="قرینهٔ عمودی">⇵ قرینهٔ عمودی</button>
+        <button id="rot90" title="۹۰ درجه با برش">↻ کادرِ عمودی/افقی</button>
+        <button id="cropReset">بی برش</button>
+      </div>
+    </section>
+
+    <section class="tab" id="tab-heal" hidden>
+      <p class="muted small">روی لکه، جوش، خش یا گردوغبار کلیک کنید تا از روی اطرافش پر شود. کلیکِ راست روی دایره ⇒ حذفِ همان.</p>
+      <div class="sl">
+        <label>اندازهٔ قلم</label>
+        <input type="number" id="healSizeNum" step="0.1" min="0.3" max="8">
+        <input type="range" id="healSize" min="0.3" max="8" step="0.1" value="1.5">
+      </div>
+      <div class="row">
+        <span id="spotCount" class="muted"></span>
+        <button id="spotUndo">حذفِ آخرین</button>
+        <button id="spotClear">پاک کردنِ همه</button>
+      </div>
+    </section>
+
+    <section class="tab" id="tab-bg" hidden>
+      <label class="check"><input type="checkbox" id="bgOn"> حذفِ پس‌زمینه</label>
+      <div class="field"><span>روش</span>
+        <select id="bgMethod">
+          <option value="auto">خودکار — زمینهٔ ساده ⇒ سبک، وگرنه هوشِ مصنوعی</option>
+          <option value="quick">سبک، بی مدل (زمینهٔ ساده/استودیویی — زیرِ یک ثانیه)</option>
+          <option value="ai">هوشِ مصنوعی BiRefNet (هر زمینه‌ای — سنگین، برای سرور)</option>
+        </select>
+      </div>
+      <div id="bgAiNote" class="note small" hidden></div>
+      <div class="row">
+        <button id="bgMake" class="primary">ساختنِ ماسک</button>
+        <button id="bgRedo" title="ماسک را دور بریز و دوباره بساز">از نو</button>
+      </div>
+      <div id="bgReport" class="report small" hidden></div>
+      <div class="field"><span>رنگِ پس‌زمینهٔ تازه</span>
+        <div class="swatches" id="bgColors">
+          <button data-c="#ffffff" style="--c:#ffffff" title="سفید"></button>
+          <button data-c="#f3f3f3" style="--c:#f3f3f3" title="خاکستریِ خیلی روشن"></button>
+          <button data-c="#000000" style="--c:#000000" title="سیاه"></button>
+          <button data-c="transparent" class="checker" title="شفاف (PNG/WebP)"></button>
+          <input type="color" id="bgCustom" value="#e8f0ff" title="رنگِ دلخواه">
+        </div>
+      </div>
+      <div class="field"><span>بررسیِ لبه روی رنگِ مخالف</span>
+        <div class="seg" id="bgView">
+          <button data-v="" class="on">همان رنگ</button><button data-v="#000000">روی سیاه</button>
+          <button data-v="#ffffff">روی سفید</button><button data-v="checker">شطرنجی</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="bgCleanAuto" checked> تمیزکاریِ خودکارِ لبه (کمترین مقداری که هاله نماند)</label>
+      <div class="sl" id="bgCleanRow">
+        <label title="پاک کردنِ رنگِ پس‌زمینهٔ قبلی از لبه و کمی تنگ‌تر کردنِ ماسک">تمیزکاریِ لبه</label>
+        <input type="number" id="bgCleanNum" min="0" max="100" step="1">
+        <input type="range" id="bgClean" min="0" max="100" step="1" value="50">
+      </div>
+      <div class="sl">
+        <label title="سایهٔ نرم زیرِ کالا — طبیعی‌تر روی زمینهٔ تازه">سایه</label>
+        <input type="number" id="bgShadowNum" min="0" max="100" step="1">
+        <input type="range" id="bgShadow" min="0" max="100" step="1" value="0">
+      </div>
+      <details class="grp">
+        <summary>اصلاحِ ماسک با قلم</summary>
+        <p class="muted small">قرمز = پاک‌شده. «نگه‌دار» جایی را برمی‌گرداند، «پاک‌کن» برمی‌دارد. آخر «ذخیرهٔ ماسک».</p>
+        <div class="row">
+          <div class="seg" id="brushMode"><button data-m="add" class="on">نگه‌دار</button><button data-m="erase">پاک‌کن</button></div>
+        </div>
+        <div class="sl">
+          <label>اندازهٔ قلم</label>
+          <input type="number" id="brushNum" min="0.3" max="10" step="0.1">
+          <input type="range" id="brush" min="0.3" max="10" step="0.1" value="2">
+        </div>
+        <div class="row">
+          <button id="maskEdit">شروعِ اصلاح</button>
+          <button id="maskSave" class="primary" disabled>ذخیرهٔ ماسک</button>
+          <button id="maskCancel" disabled>لغو</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="tab" id="tab-out" hidden>
+      <button id="storePreset" class="wide">🛍 عکسِ فروشگاهی: زمینهٔ سفید، مربعِ ۲۰۰۰، حاشیهٔ ۶٪</button>
+      <div class="field"><span>قالب</span>
+        <div class="seg" id="fmt"><button data-f="jpeg" class="on">JPEG</button><button data-f="png">PNG</button><button data-f="webp">WebP</button></div>
+      </div>
+      <div class="sl" id="qualRow">
+        <label>کیفیت</label>
+        <input type="number" id="qualNum" min="30" max="100" step="1">
+        <input type="range" id="qual" min="30" max="100" step="1" value="90">
+      </div>
+      <div class="field"><span>اندازه (ضلعِ بلندتر)</span>
+        <div class="seg" id="longEdge">
+          <button data-l="0" class="on">اصلی</button><button data-l="1080">۱۰۸۰</button><button data-l="1200">۱۲۰۰</button>
+          <button data-l="1600">۱۶۰۰</button><button data-l="2000">۲۰۰۰</button><button data-l="3000">۳۰۰۰</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="square"> قابِ مربع — کالا وسط، با حاشیه (بهتر با حذفِ پس‌زمینه)</label>
+      <div class="sl" id="padRow">
+        <label>حاشیه (٪)</label>
+        <input type="number" id="padNum" min="0" max="40" step="1">
+        <input type="range" id="pad" min="0" max="40" step="1" value="6">
+      </div>
+      <div class="field"><span>بزرگ‌نماییِ هوشمند (Real-ESRGAN)</span>
+        <div class="seg" id="upscale"><button data-u="1" class="on">خاموش</button><button data-u="2">۲×</button><button data-u="4">۴×</button></div>
+      </div>
+      <div class="note small" id="upNote" hidden>بزرگ‌نمایی فقط در خروجی اجرا می‌شود و چند ثانیه تا چند ده ثانیه پردازنده را کامل می‌گیرد (خروجی تا ۴۰۹۶ پیکسل).</div>
+      <div class="sl">
+        <label title="شارپِ نهایی بعد از تغییرِ اندازه">شارپِ خروجی</label>
+        <input type="number" id="osharpNum" min="0" max="100" step="1">
+        <input type="range" id="osharp" min="0" max="100" step="1" value="0">
+      </div>
+      <button id="export2" class="primary wide">ساختن و دانلودِ خروجی</button>
+      <p class="muted small" id="outInfo"></p>
+    </section>
+
+    <section class="tab" id="tab-ai" hidden>
+      <p class="muted small">هوشِ مصنوعیِ بینا عکسِ کوچک (۵۱۲ پیکسل) و اندازه‌گیری‌ها را می‌بیند و فقط «نسخهٔ ویرایش» را پیشنهاد می‌دهد؛ ویرایش را موتورِ خودمان انجام می‌دهد ⇒ ارزان. بعد نتیجه را یک بار می‌بیند و اصلاح می‌کند.</p>
+      <div id="aiState" class="note small"></div>
+      <textarea id="goal" rows="3" placeholder="چه می‌خواهید؟ مثلاً: عکسِ کالا برای فروشگاه، زمینهٔ سفید / طبیعی و روشن / گرم و دلنشین"></textarea>
+      <div class="chips" id="goalChips">
+        <button>عکسِ کالا برای فروشگاه با زمینهٔ سفید</button>
+        <button>طبیعی، روشن و تمیز</button>
+        <button>گرم و دلنشین</button>
+        <button>سیاه‌وسفیدِ هنری</button>
+        <button>پرتره: پوستِ نرم و طبیعی</button>
+        <button>منظره: آسمان و رنگِ بیشتر</button>
+      </div>
+      <button id="aiRun" class="primary wide">✦ ویرایش با هوشِ مصنوعی</button>
+      <div id="aiOut" class="report small" hidden></div>
+    </section>
+  </aside>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

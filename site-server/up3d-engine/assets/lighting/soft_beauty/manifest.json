@@ -1,0 +1,90 @@
+{
+  "id": "soft_beauty",
+  "version": 1,
+  "name": {
+    "fa": "نرم و زیبا (بیوتی)",
+    "en": "Soft beauty"
+  },
+  "description": {
+    "fa": "سه‌نقطه‌ایِ نرم: کلید ۴۵ درجه، پرکننده، نورِ مو",
+    "en": "Soft 3-point beauty lighting: big key 45°, gentle fill, hair rim, backdrop wash."
+  },
+  "rig": [
+    {
+      "name": "key",
+      "azimuth": -50,
+      "elevation": 28,
+      "distance": 1.9,
+      "size": 1.3,
+      "power": 140,
+      "kelvin": 5000,
+      "target": "face"
+    },
+    {
+      "name": "fill",
+      "azimuth": 55,
+      "elevation": 8,
+      "distance": 2.2,
+      "size": 2.0,
+      "power": 28,
+      "kelvin": 6200,
+      "target": "chest"
+    },
+    {
+      "name": "rim",
+      "azimuth": 150,
+      "elevation": 40,
+      "distance": 1.6,
+      "size": 0.5,
+      "power": 130,
+      "kelvin": 5600,
+      "target": "face"
+    },
+    {
+      "name": "product",
+      "azimuth": -20,
+      "elevation": 35,
+      "distance": 1.2,
+      "size": 0.4,
+      "power": 25,
+      "kelvin": 5200,
+      "target": "product"
+    },
+    {
+      "name": "backdrop",
+      "type": "AREA",
+      "position": [
+        0,
+        1.0,
+        0.25
+      ],
+      "size": 3.0,
+      "power": 55,
+      "kelvin": 4200,
+      "target": "backdrop"
+    }
+  ],
+  "world": {
+    "hdri": "interior",
+    "hdri_strength": 0.25
+  },
+  "order": 1,
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    }
+  },
+  "default": true,
+  "license": "UpMarket 3D (procedural, own)"
+}

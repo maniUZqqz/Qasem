@@ -1,0 +1,31 @@
+# NMarketing (UpMarket) — what must never go to GitHub
+# secrets
+backend/.env
+backend/.env.local
+deploy/nm/ai.env
+website/.env.production.local
+website/.env.local
+data/
+logs/
+server-state/
+# build output / dependencies (rebuilt by deploy/nm/install.sh)
+venv/
+node_modules/
+frontend/dist/
+website/.next/
+backend/staticfiles/
+backend/media/
+__pycache__/
+*.pyc
+*.sqlite3
+*.log
+# 3D engine binaries (Blender, 1.6 GB) — the code (up3d/engine/assets) is committed
+up3d-engine/vendor/
+up3d-engine/data/
+# processing package work folders
+processing/work/
+processing/logs/
+processing/node.json
+processing/vendor/
+.DS_Store
+Thumbs.db

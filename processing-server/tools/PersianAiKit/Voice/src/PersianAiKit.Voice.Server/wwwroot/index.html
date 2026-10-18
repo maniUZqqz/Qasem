@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>صدای فارسی</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --ink: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2563eb; --accent-ink: #fff; --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --soft: #eef3ff; --obj: #7c3aed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --card: #1a2029; --ink: #e6e9ef; --muted: #9aa4b2; --line: #2a323e;
+            --accent: #5b8cff; --accent-ink: #0b1020; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --soft: #1f2a3d; --obj: #8b5cf6; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.7 Vazirmatn, "Segoe UI", Tahoma, sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1100px; margin: auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 13px; padding: 2px 10px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); }
+  .chip.ok::before { content: "● "; color: var(--ok); } .chip.bad::before { content: "● "; color: var(--bad); }
+  main { max-width: 1100px; margin: auto; padding: 8px 16px 40px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  textarea, input[type=text], input[type=password], select { width: 100%; font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { min-height: 90px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .row > * { flex: 1 1 auto; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; background: var(--soft); color: var(--ink); flex: 0 0 auto; }
+  button.primary { background: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .5; cursor: default; }
+  label.file { font-size: 14px; border-radius: 8px; padding: 8px 14px; cursor: pointer; background: var(--soft); flex: 0 0 auto; }
+  label.file input { display: none; }
+  .mic { width: 100%; font-size: 18px; padding: 14px; }
+  .mic.on { background: var(--bad); color: #fff; }
+  .meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .1s; }
+  .out { background: var(--bg); border-radius: 8px; padding: 10px; min-height: 44px; white-space: pre-wrap; word-break: break-word; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .words span { display: inline-block; margin: 2px; padding: 0 6px; border-radius: 6px; background: var(--soft); font-size: 13px; }
+  .chip a { color: inherit; }
+  .people { display: flex; flex-wrap: wrap; gap: 6px; }
+  .people span { background: var(--soft); border-radius: 99px; padding: 2px 4px 2px 10px; font-size: 13px; }
+  .people button { padding: 0 8px; background: transparent; color: var(--bad); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  #keybox { display: none; }
+  #sfxExamples button { color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>صدای فارسی</h1>
+  <div class="chips" id="chips"><span class="chip">در حالِ وارسی…</span></div>
+  <div class="row" id="keybox">
+    <input type="password" id="key" placeholder="کلیدِ API (در appsettings.json ← Kit:ApiKey)">
+    <button id="keysave">ذخیره</button>
+  </div>
+</header>
+
+<main>
+  <!-- ═══ ۱. متن ⇒ گفتار ═══ -->
+  <section>
+    <h2>۱. متن ⇒ گفتار</h2>
+    <textarea id="ttsText">سلام. امروز ساعت 10:30 روی دستگاه INJ8 مقدار 250 عدد قطعه تولید کنید. تاریخ 1405/07/05، پیشرفت 20٪.</textarea>
+    <div class="row">
+      <select id="voice"></select>
+      <label class="muted" style="flex:0 0 auto">سرعت <b id="speedv">۱</b></label>
+      <input type="range" id="speed" min="0.7" max="1.5" step="0.05" value="1">
+    </div>
+    <div class="row">
+      <button class="primary" id="say">▶ بخوان</button>
+      <button id="hush">■ بس</button>
+      <button id="dl">⬇ فایلِ WAV</button>
+    </div>
+    <div class="muted">آنچه موتور می‌خواند:</div>
+    <div class="out" id="ttsSpeakable"></div>
+  </section>
+
+  <!-- ═══ ۲. گفتار ⇒ متن ═══ -->
+  <section>
+    <h2>۲. گفتار ⇒ متن</h2>
+    <button class="mic primary" id="mic">🎤 بزن و حرف بزن</button>
+    <div class="meter"><i id="level"></i></div>
+    <div class="row">
+      <input type="text" id="phrases" placeholder="اختیاری — فرمان‌ها (با | جدا): روشن کن|خاموش کن|بله|نه">
+    </div>
+    <div class="row">
+      <label class="muted" style="flex:0 0 auto"><input type="checkbox" id="readback"> بلند بخوان</label>
+      <label class="file">📁 یا فایلِ WAV<input type="file" id="wavfile" accept=".wav,audio/wav"></label>
+    </div>
+    <div class="out" id="asrText"></div>
+    <div class="muted" id="asrMeta"></div>
+    <div class="words" id="asrWords"></div>
+  </section>
+
+  <!-- ═══ ۳. گفتارِ طبیعی ═══ -->
+  <section>
+    <h2>۳. گفتارِ طبیعی (چند صدا)</h2>
+    <textarea id="nvText">سلام، صبح بخیر. لطفاً پیش از روشن کردنِ اکسترودر، دمای همهٔ زون‌ها را بررسی کنید. خط تولید شمارهٔ ۲ تا ظهر برای تعمیر متوقف است.</textarea>
+    <div class="row">
+      <select id="nvVoice"></select>
+      <button id="nvRef" title="صدای مرجعی که این صدا از روی آن ساخته شده">🔈 مرجع</button>
+    </div>
+    <div class="row">
+      <button class="primary" id="nvSay">▶ بخوان</button>
+      <button id="nvAgain" title="همان متن و صدا، یک اجرای دیگر">🎲 یک نسخهٔ دیگر</button>
+      <button id="nvDl">⬇ WAV</button>
+    </div>
+    <audio id="nvAudio" controls style="width:100%"></audio>
+    <div class="muted" id="nvMeta"></div>
+    <div class="muted">صداهای «طبیعی» با مدلِ Pocket ساخته می‌شوند (فقط استفادهٔ غیرتجاری)؛ روی این کامپیوتر برای هر ثانیه صدا حدودِ یک ثانیه وقت می‌گیرد. Piper سریع‌تر و ماشینی‌تر است.</div>
+  </section>
+
+  <!-- ═══ ۴. کلونِ صدا ═══ -->
+  <section>
+    <h2>۴. کلونِ صدای شما</h2>
+    <div id="cvSetup">
+      <div class="row"><input type="text" id="cvName" placeholder="نامِ این صدا (مثلاً: صدای علی)"></div>
+      <div class="row"><input type="text" id="cvPerson" placeholder="صاحبِ صدا (نام و نام خانوادگی)"></div>
+      <div class="row"><input type="text" id="cvPurpose" placeholder="برای چه کاری (مثلاً: اعلانِ سالنِ تولید)"></div>
+      <label class="muted"><input type="checkbox" id="cvConsent"> صاحبِ این صدا خودم هستم یا کتباً رضایت داده است؛ صدای ساخته‌شده فقط برای همین کار است و هر وقت خواست پاک می‌شود.</label>
+      <div class="row"><button class="primary" id="cvStart">🎙 شروعِ ضبط</button></div>
+      <div class="muted">با هدفون یا میکروفونِ خوب، در اتاقِ ساکت و بی‌پژواک، همیشه با یک فاصله. <b>۱ جمله</b> کافی است تا صدا کار کند؛ <b>۵۰ جمله به بالا</b> برای انتخابِ بهترین نمونه و <b>۳۰ تا ۶۰ دقیقه</b> برای آموزشِ صدای اختصاصی روی سرور (VOICE-SETUP.md بخشِ ۶).</div>
+    </div>
+    <div id="cvRec" hidden>
+      <div class="muted" id="cvIdx"></div>
+      <div class="out" id="cvSentence" style="font-size:19px"></div>
+      <button class="mic primary" id="cvMic">🎤 بزن و همین جمله را بخوان</button>
+      <div class="meter"><i id="cvLevel"></i></div>
+      <div class="out" id="cvResult"></div>
+      <div class="row">
+        <button id="cvSkip">⏭ جملهٔ بعد</button>
+        <button id="cvDone">✔ پایان</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px">صداهای کلون‌شده</div>
+    <div class="people" id="cvList"></div>
+  </section>
+
+  <!-- ═══ ۵. صدای هر چیز ═══ -->
+  <section>
+    <h2>۵. صدای هر چیز</h2>
+    <textarea id="sfxPrompt" style="min-height:60px" placeholder="چه صدایی؟ مثلاً: باران شدید روی سقف حلبی">باران شدید روی سقف حلبی</textarea>
+    <div class="people" id="sfxExamples"></div>
+    <div class="row">
+      <input type="text" id="sfxEn" dir="ltr" placeholder="English prompt (خالی ⇒ خودش ترجمه می‌کند)">
+      <button id="sfxTr">ترجمه</button>
+    </div>
+    <div class="row">
+      <label class="muted" style="flex:0 0 auto">مدت <b id="sfxSecV">۸</b> ثانیه</label>
+      <input type="range" id="sfxSec" min="2" max="30" step="1" value="8">
+    </div>
+    <div class="row">
+      <button class="primary" id="sfxGo">▶ بساز</button>
+      <button id="sfxAgain">🎲 یک نسخهٔ دیگر</button>
+      <button id="sfxDl">⬇ WAV</button>
+    </div>
+    <audio id="sfxAudio" controls style="width:100%"></audio>
+    <div class="muted" id="sfxMeta"></div>
+    <div class="muted">مدل فقط انگلیسی می‌فهمد: توصیف اول از واژه‌نامهٔ صداها و بعد ترجمهٔ ماشینی می‌گذرد — متنِ انگلیسی را ببینید و اگر لازم بود درست کنید. گفتار و آواز نمی‌سازد. روی این کامپیوتر حدودِ یک دقیقه، روی سرور چند ثانیه.</div>
+  </section>
+</main>
+
+<script src="persian-voice.js"></script>
+<script>
+(function () {
+  var PA = window.PersianVoice, $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var fa = function (s) { return String(s).replace(/[0-9]/g, function (c) { return '۰۱۲۳۴۵۶۷۸۹'[+c]; }).replace('.', '٫'); };
+  try { var k = localStorage.getItem('pa-key'); if (k) PA.configure({ apiKey: k }); } catch (e) { }
+  $('keysave').onclick = function () { var v = $('key').value.trim(); PA.configure({ apiKey: v }); try { localStorage.setItem('pa-key', v); } catch (e) { } load(); };
+
+  function fail(el, e) {
+    if (e && e.status === 401) $('keybox').style.display = 'flex';
+    el.innerHTML = '<span class="bad">' + esc((e && e.message) || e) + '</span>';
+  }
+
+  // ── وضعیت ──
+  function load() {
+    PA.health().then(function (h) {
+      $('chips').innerHTML =
+        '<span class="chip ' + (h.tts.available ? 'ok' : 'bad') + '">متن ⇒ گفتار (' + fa(h.tts.voices.length) + ' صدا)</span>' +
+        '<span class="chip ' + (h.asr.available ? 'ok' : 'bad') + '">گفتار ⇒ متن</span>' +
+        (h.voice ? '<span class="chip ' + (h.voice.available ? 'ok' : 'bad') + '" title="' + esc(h.voice.error || h.voice.url) + '">صدای طبیعی، کلون، صدای هر چیز' +
+          (h.voice.available ? '' : ' — ' + esc(h.voice.error || 'خاموش')) + '</span>' : '') +
+        (window.isSecureContext ? '' : '<span class="chip bad">میکروفون فقط روی https یا localhost' +
+          (h.httpsPort ? ' — <a href="https://' + location.hostname + ':' + h.httpsPort + '/">باز کردن با https</a>' : '') + '</span>');
+      $('keybox').style.display = h.needsKey ? 'flex' : 'none';
+      var names = { 'fa_IR-gyro-medium': 'جایرو (فهمیدنی‌ترین)', 'fa_IR-amir-medium': 'امیر', 'fa_IR-ganji-medium': 'گنجی',
+                    'fa_IR-ganji_adabi-medium': 'گنجی (ادبی)', 'fa_IR-reza_ibrahim-medium': 'رضا ابراهیم' };
+      $('voice').innerHTML = h.tts.voices.map(function (v) {
+        return '<option value="' + v + '"' + (v === h.tts.defaultVoice ? ' selected' : '') + '>' + (names[v] || v) + '</option>';
+      }).join('');
+      voices();
+    }).catch(function (e) { $('chips').innerHTML = '<span class="chip bad">سرور جواب نداد: ' + esc(e.message) + '</span>'; });
+  }
+
+  // ═══ ۱. متن ⇒ گفتار ═══
+  var speed = function () { return parseFloat($('speed').value); };
+  $('speed').oninput = function () { $('speedv').textContent = fa($('speed').value); };
+  function speakable() {
+    return fetch('api/text', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': localKey() }, body: JSON.stringify({ text: $('ttsText').value }) })
+      .then(function (r) { return r.json(); }).then(function (j) { $('ttsSpeakable').textContent = j.speakable || ''; }).catch(function () { });
+  }
+  function localKey() { try { return localStorage.getItem('pa-key') || ''; } catch (e) { return ''; } }
+  $('say').onclick = function () {
+    PA.unlockAudio();
+    speakable();
+    $('say').disabled = true;
+    PA.speak($('ttsText').value, { voice: $('voice').value, speed: speed() })
+      .catch(function (e) { fail($('ttsSpeakable'), e); })
+      .then(function () { $('say').disabled = false; });
+  };
+  $('hush').onclick = function () { PA.stopSpeaking(); $('say').disabled = false; };
+  $('dl').onclick = function () {
+    PA.tts($('ttsText').value, { voice: $('voice').value, speed: speed() }).then(function (b) {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'speech.wav'; a.click();
+    }).catch(function (e) { fail($('ttsSpeakable'), e); });
+  };
+
+  // ═══ ۲. گفتار ⇒ متن ═══
+  function phrases() { return $('phrases').value.split('|').map(function (s) { return s.trim(); }).filter(Boolean); }
+  function showAsr(r) {
+    $('asrText').textContent = r.empty ? '(صدایی نیامد)' : (r.text || '(چیزی فهمیده نشد)');
+    $('asrMeta').innerHTML = '';
+    if (!r.empty && phrases().length)
+      $('asrMeta').innerHTML = r.phrase ? '<b class="ok">فرمان: «' + esc(r.phrase) + '»</b><br>' : '<span class="warn">هیچ فرمانی گفته نشد</span><br>';
+    $('asrMeta').insertAdjacentText('beforeend', r.empty ? '' : ('با رقم: ' + r.digits + (r.numbers && r.numbers.length ? '   ·   عددها: ' + r.numbers.join('، ') : '') + '   ·   ' + fa(r.seconds) + ' ثانیه'));
+    $('asrWords').innerHTML = (r.words || []).map(function (w) {
+      return '<span title="' + w.start.toFixed(2) + '–' + w.end.toFixed(2) + 's">' + esc(w.word) + ' <small class="muted">' + Math.round(w.confidence * 100) + '٪</small></span>';
+    }).join('');
+    if ($('readback').checked && r.text) PA.speak('شنیدم: ' + r.text);
+  }
+  $('mic').onclick = function () {
+    if (PA.recording()) { PA.stopRecording(true); return; }
+    PA.unlockAudio();
+    $('mic').classList.add('on'); $('mic').textContent = '⏺ گوش می‌دهم… (بزن تا تمام شود)';
+    $('asrText').textContent = ''; $('asrMeta').textContent = ''; $('asrWords').innerHTML = '';
+    PA.record({ onLevel: function (v) { $('level').style.width = Math.round(v * 100) + '%'; } })
+      .then(function (wav) {
+        $('mic').classList.remove('on'); $('mic').textContent = '🎤 بزن و حرف بزن'; $('level').style.width = '0';
+        if (!wav) return { text: '', empty: true };
+        $('asrText').textContent = 'در حالِ فهمیدن…';
+        return PA.recognize(wav, { phrases: phrases() });
+      })
+      .then(showAsr)
+      .catch(function (e) { $('mic').classList.remove('on'); $('mic').textContent = '🎤 بزن و حرف بزن'; fail($('asrText'), e); });
+  };
+  $('wavfile').onchange = function () {
+    var f = this.files[0]; if (!f) return;
+    $('asrText').textContent = 'در حالِ فهمیدن…';
+    PA.recognize(f, { phrases: phrases() }).then(showAsr).catch(function (e) { fail($('asrText'), e); });
+    this.value = '';
+  };
+
+  // ═══ ۳. گفتارِ طبیعی ═══
+  var nvUrl = null, sfxUrl = null, voiceList = [];
+  var secs = function (ms) { return fa((ms / 1000).toFixed(1)); };
+  function download(u, name) { if (!u) return; var a = document.createElement('a'); a.href = u; a.download = name; a.click(); }
+  function voices() {
+    return PA.voice.voices().then(function (list) {
+      voiceList = list;
+      var g = { builtin: [], cloned: [], piper: [] };
+      list.forEach(function (v) { (g[v.kind] || g.builtin).push(v); });
+      var opt = function (v) {
+        return '<option value="' + esc(v.id) + '"' + (v.kind === 'cloned' && !v.ready ? ' disabled' : '') + '>' + esc(v.name) +
+          (v.gender ? ' — ' + esc(v.gender) : '') + (v.note ? ' (' + esc(v.note) + ')' : '') +
+          (v.kind === 'cloned' ? (v.ready ? ' — ' + fa(v.clips) + ' جمله' : ' — هنوز ضبط نشده') : '') + '</option>';
+      };
+      var keep = $('nvVoice').value;
+      $('nvVoice').innerHTML =
+        (g.builtin.length ? '<optgroup label="طبیعی">' + g.builtin.map(opt).join('') + '</optgroup>' : '') +
+        (g.cloned.length ? '<optgroup label="کلون‌شده">' + g.cloned.map(opt).join('') + '</optgroup>' : '') +
+        (g.piper.length ? '<optgroup label="Piper (سریع، ماشینی‌تر)">' + g.piper.map(opt).join('') + '</optgroup>' : '');
+      if (keep && list.some(function (v) { return v.id === keep; })) $('nvVoice').value = keep;
+      if (!g.builtin.length && !g.cloned.length)
+        $('nvMeta').innerHTML = '<span class="warn">سرویسِ صدای طبیعی در دسترس نیست — فقط Piper. (VOICE-SETUP.md)</span>';
+      $('cvList').innerHTML = g.cloned.length ? g.cloned.map(function (v) {
+        return '<span>' + esc(v.name) + ' <small class="muted">(' + fa(v.clips) + ' جمله، ' + fa(v.minutes) + ' دقیقه)</small>' +
+          '<button data-cv-more="' + esc(v.id) + '" title="ضبطِ جمله‌های بیشتر" style="color:var(--accent)">＋</button>' +
+          '<button data-cv-del="' + esc(v.id) + '" title="پاک کردنِ همه‌چیز (ضبط‌ها و صدا)">✕</button></span>';
+      }).join('') : '<span class="muted" style="background:none">هنوز صدایی کلون نشده.</span>';
+    }).catch(function (e) { fail($('nvMeta'), e); });
+  }
+  function nvMake(seed) {
+    PA.unlockAudio();
+    $('nvSay').disabled = $('nvAgain').disabled = true;
+    $('nvMeta').textContent = 'در حالِ ساختن…';
+    var t0 = Date.now();
+    PA.voice.synth($('nvText').value, { voice: $('nvVoice').value, seed: seed }).then(function (r) {
+      if (nvUrl) URL.revokeObjectURL(nvUrl);
+      nvUrl = URL.createObjectURL(r.blob);
+      $('nvAudio').src = nvUrl; $('nvAudio').play().catch(function () { });
+      $('nvMeta').textContent = (r.cached ? 'از کش' : 'ساخته شد در ' + secs(Date.now() - t0) + ' ثانیه') +
+        (r.seconds ? ' برای ' + fa(r.seconds.toFixed(1)) + ' ثانیه صدا' : '') + ' · موتور: ' + (r.engine || '؟') +
+        (r.check == null ? '' : ' · وارسی با گفتار‌به‌متن: ' + (r.check <= 0.2 ? 'درست ✓' : r.check <= 0.45 ? 'تقریباً درست' : 'مشکوک — «یک نسخهٔ دیگر» را بزنید'));
+    }).catch(function (e) { fail($('nvMeta'), e); }).then(function () { $('nvSay').disabled = $('nvAgain').disabled = false; });
+  }
+  $('nvSay').onclick = function () { nvMake(null); };
+  $('nvAgain').onclick = function () { nvMake(Math.floor(Math.random() * 1e9)); };
+  $('nvDl').onclick = function () { download(nvUrl, 'speech.wav'); };
+  $('nvVoice').onchange = function () { $('nvRef').disabled = $('nvVoice').value.indexOf('piper:') === 0; };
+  $('nvRef').onclick = function () {
+    var v = $('nvVoice').value; if (!v || v.indexOf('piper:') === 0) return;
+    $('nvAudio').src = PA.voice.sampleUrl(v); $('nvAudio').play().catch(function () { });
+    var info = voiceList.filter(function (x) { return x.id === v; })[0];
+    $('nvMeta').textContent = 'صدای مرجع' + (info && info.source ? ' — ' + info.source + (info.license ? ' (' + info.license + ')' : '') : '');
+  };
+
+  // ═══ ۴. کلونِ صدا ═══
+  var cv = { id: null, script: [], i: 0 };
+  function cvShow() {
+    if (cv.i >= cv.script.length) { $('cvSentence').textContent = 'همهٔ جمله‌ها خوانده شد 👏'; $('cvMic').disabled = true; return; }
+    $('cvMic').disabled = false;
+    $('cvIdx').textContent = 'جملهٔ ' + fa(cv.i + 1) + ' از ' + fa(cv.script.length);
+    $('cvSentence').textContent = cv.script[cv.i];
+  }
+  function cvBegin(id, from) {
+    (cv.script.length ? Promise.resolve(cv.script) : PA.voice.clone.script()).then(function (s) {
+      cv.script = s; cv.id = id; cv.i = Math.min(from || 0, s.length);
+      $('cvSetup').hidden = true; $('cvRec').hidden = false; $('cvResult').textContent = '';
+      cvShow();
+    }).catch(function (e) { fail($('cvResult'), e); });
+  }
+  $('cvStart').onclick = function () {
+    var name = $('cvName').value.trim();
+    $('cvRec').hidden = true;
+    if (!name) { $('cvResult').textContent = ''; alert('نامِ صدا را بنویسید.'); return; }
+    if (!$('cvConsent').checked) { alert('بدونِ رضایتِ صاحبِ صدا نمی‌شود — تیکِ رضایت را بزنید.'); return; }
+    PA.voice.clone.create({ name: name, person: $('cvPerson').value.trim(), purpose: $('cvPurpose').value.trim() })
+      .then(function (v) { voices(); cvBegin(v.id, 0); })
+      .catch(function (e) { alert(e.message); });
+  };
+  $('cvMic').onclick = function () {
+    if (PA.recording()) { PA.stopRecording(true); return; }
+    var mic = $('cvMic');
+    mic.classList.add('on'); mic.textContent = '⏺ می‌شنوم… (بعد از پایانِ جمله کمی صبر کنید یا بزنید)';
+    $('cvResult').textContent = '';
+    PA.record({ rate: 24000, raw: true, silenceMs: 1500, noSpeechMs: 8000, maxMs: 30000,
+                onLevel: function (v) { $('cvLevel').style.width = Math.round(v * 100) + '%'; } })
+      .then(function (wav) {
+        mic.classList.remove('on'); mic.textContent = '🎤 بزن و همین جمله را بخوان'; $('cvLevel').style.width = '0';
+        if (!wav) { $('cvResult').innerHTML = '<span class="warn">صدایی نیامد — دوباره بزنید و بخوانید.</span>'; return; }
+        $('cvResult').textContent = 'در حالِ وارسی…';
+        return PA.voice.clone.clip(cv.id, cv.i + 1, cv.script[cv.i], wav).then(function (r) {
+          if (r.ok) {
+            $('cvResult').innerHTML = '<b class="ok">' + esc(r.message) + '</b> — ' + fa(r.clips) + ' جملهٔ پذیرفته، ' + fa(r.minutes) + ' دقیقه' +
+              (r.clips === 1 ? '<br>صدا آماده است: در بخشِ ۳ انتخابش کنید. هر چه بیشتر بخوانید، نمونهٔ بهتری انتخاب می‌شود.' : '');
+            cv.i++; cvShow(); voices();
+          } else {
+            $('cvResult').innerHTML = '<span class="bad">' + esc(r.message) + '</span>' + (r.heard ? '<br><small class="muted">شنیدم: «' + esc(r.heard) + '»</small>' : '');
+          }
+        });
+      })
+      .catch(function (e) { mic.classList.remove('on'); mic.textContent = '🎤 بزن و همین جمله را بخوان'; fail($('cvResult'), e); });
+  };
+  $('cvSkip').onclick = function () { PA.stopRecording(false); cv.i++; cvShow(); $('cvResult').textContent = ''; };
+  $('cvDone').onclick = function () {
+    PA.stopRecording(false);
+    $('cvRec').hidden = true; $('cvSetup').hidden = false;
+    voices().then(function () {
+      if (voiceList.some(function (v) { return v.id === cv.id && v.ready; })) { $('nvVoice').value = cv.id; $('nvMeta').textContent = 'صدای کلون‌شده انتخاب شد — «بخوان» را بزنید.'; }
+    });
+  };
+  $('cvList').onclick = function (e) {
+    var more = e.target.closest('[data-cv-more]'), del = e.target.closest('[data-cv-del]');
+    if (more) { var v = voiceList.filter(function (x) { return x.id === more.dataset.cvMore; })[0]; cvBegin(more.dataset.cvMore, v ? v.clips : 0); }
+    if (del && confirm('صدای «' + del.dataset.cvDel + '» و همهٔ ضبط‌هایش برای همیشه پاک شود؟')) PA.voice.remove(del.dataset.cvDel).then(voices);
+  };
+
+  // ═══ ۵. صدای هر چیز ═══
+  ['باران شدید روی سقف حلبی', 'کمپرسور هوا داخل سالن', 'آژیر خطر', 'نوار نقاله', 'پرنده در جنگل', 'در زدن', 'پارس سگ از دور در شب', 'امواج دریا']
+    .forEach(function (s) { var b = document.createElement('button'); b.textContent = s; b.style.padding = '0 10px';
+      b.onclick = function () { $('sfxPrompt').value = s; $('sfxEn').value = ''; }; var w = document.createElement('span'); w.appendChild(b); $('sfxExamples').appendChild(w); });
+  $('sfxPrompt').oninput = function () { $('sfxEn').value = ''; };
+  $('sfxSec').oninput = function () { $('sfxSecV').textContent = fa($('sfxSec').value); };
+  var how = { glossary: 'از واژه‌نامه', mt: 'ترجمهٔ ماشینی — ببینید درست است', mixed: 'واژه‌نامه + ترجمهٔ ماشینی — ببینید درست است', en: 'انگلیسی', given: 'همان که نوشتید' };
+  $('sfxTr').onclick = function () {
+    PA.voice.translate($('sfxPrompt').value).then(function (r) {
+      $('sfxEn').value = r.en; $('sfxMeta').textContent = how[r.method] || (r.method === 'none' ? 'ترجمه نشد — انگلیسی بنویسید' : '');
+    }).catch(function (e) { fail($('sfxMeta'), e); });
+  };
+  function sfxMake(seed) {
+    PA.unlockAudio();
+    $('sfxGo').disabled = $('sfxAgain').disabled = true;
+    $('sfxMeta').textContent = 'در حالِ ساختن… (روی کامپیوترِ ضعیف تا یک دقیقه)';
+    var t0 = Date.now();
+    PA.voice.sfx($('sfxPrompt').value, { seconds: +$('sfxSec').value, seed: seed, promptEn: $('sfxEn').value.trim() || null }).then(function (r) {
+      if (sfxUrl) URL.revokeObjectURL(sfxUrl);
+      sfxUrl = URL.createObjectURL(r.blob);
+      $('sfxAudio').src = sfxUrl; $('sfxAudio').play().catch(function () { });
+      if (r.promptEn) $('sfxEn').value = r.promptEn;
+      $('sfxMeta').textContent = 'ساخته شد در ' + secs(Date.now() - t0) + ' ثانیه' + (r.promptMethod && how[r.promptMethod] ? ' · ' + how[r.promptMethod] : '');
+    }).catch(function (e) { fail($('sfxMeta'), e); }).then(function () { $('sfxGo').disabled = $('sfxAgain').disabled = false; });
+  }
+  $('sfxGo').onclick = function () { sfxMake(null); };
+  $('sfxAgain').onclick = function () { sfxMake(Math.floor(Math.random() * 1e9)); };
+  $('sfxDl').onclick = function () { download(sfxUrl, 'sound.wav'); };
+
+  load();
+  speakable();
+})();
+</script>
+</body>
+</html>

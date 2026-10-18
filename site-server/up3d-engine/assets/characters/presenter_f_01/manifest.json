@@ -1,0 +1,88 @@
+{
+  "id": "presenter_f_01",
+  "version": 1,
+  "name": {
+    "fa": "سارا — مجریِ خانم، رسمی",
+    "en": "Sara — female presenter, elegant"
+  },
+  "description": {
+    "fa": "خانمِ ۲۸ ساله، پوستِ گندمی، موی بلندِ قهوه‌ایِ تیره، کت‌وشلوارِ رسمی",
+    "en": "Female ~28, olive skin, long dark-brown hair, elegant suit. Warm, trustworthy presenter."
+  },
+  "gender": "female",
+  "order": 1,
+  "default": true,
+  "provider": "mpfb",
+  "rig": "default",
+  "rigmap": "mpfb_default",
+  "macro": {
+    "gender": 0.0,
+    "age": 0.45,
+    "muscle": 0.48,
+    "weight": 0.45,
+    "height": 0.55,
+    "proportions": 0.7,
+    "cupsize": 0.5,
+    "firmness": 0.55,
+    "race": {
+      "african": 0.03,
+      "asian": 0.07,
+      "caucasian": 0.9
+    }
+  },
+  "skin": "skins/callharvey3d_midtoned_female/callharvey3d_midtoned_female.mhmat",
+  "skin_type": "ENHANCED_SSS",
+  "skin_detail": 1.0,
+  "eyebrows": "eyebrows/eyebrow001/eyebrow001.mhclo",
+  "eyelashes": "eyelashes/eyelashes01/eyelashes01.mhclo",
+  "hair": "hair/long01/long01.mhclo",
+  "hair_color": "#2b1a12",
+  "eye_color": "#4a2c18",
+  "clothes": [
+    "clothes/female_elegantsuit01/female_elegantsuit01.mhclo",
+    "clothes/shoes02/shoes02.mhclo"
+  ],
+  "outfits": {
+    "elegant": [
+      "clothes/female_elegantsuit01/female_elegantsuit01.mhclo",
+      "clothes/shoes02/shoes02.mhclo"
+    ],
+    "casual": [
+      "clothes/female_casualsuit01/female_casualsuit01.mhclo",
+      "clothes/shoes02/shoes02.mhclo"
+    ],
+    "sport": [
+      "clothes/female_sportsuit01/female_sportsuit01.mhclo",
+      "clothes/shoes05/shoes05.mhclo"
+    ]
+  },
+  "params": {
+    "outfit": {
+      "type": "enum",
+      "values": [
+        "elegant",
+        "casual",
+        "sport"
+      ],
+      "default": "elegant",
+      "label": "لباس"
+    },
+    "hair_color": {
+      "type": "color",
+      "default": "#2b1a12",
+      "label": "رنگِ مو"
+    },
+    "hair": {
+      "type": "enum",
+      "values": [
+        "hair/long01/long01.mhclo",
+        "hair/bob02/bob02.mhclo",
+        "hair/ponytail01/ponytail01.mhclo",
+        "hair/braid01/braid01.mhclo"
+      ],
+      "default": "hair/long01/long01.mhclo",
+      "label": "مدلِ مو"
+    }
+  },
+  "license": "CC0 (MakeHuman/MPFB2 system assets)"
+}

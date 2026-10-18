@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- آزمونِ نصب: متن، متن ⇒ گفتار و گفتار ⇒ متن را روی همین ماشین امتحان می‌کند. اجرا: Run-SelfTest.bat -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- روی ماشینی که فقط .NET 9 یا 10 دارد هم اجرا شود -->
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>PersianAiKit.Voice.SelfTest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PersianAiKit.Voice\PersianAiKit.Voice.csproj" />
+  </ItemGroup>
+
+</Project>

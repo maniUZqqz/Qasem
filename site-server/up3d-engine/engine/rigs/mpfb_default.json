@@ -1,0 +1,52 @@
+{
+  "id": "mpfb_default",
+  "description": "اسکلتِ پیش‌فرضِ MakeHuman/MPFB (۱۶۳ استخوان). نقش‌ها نامِ معنایی را به نامِ واقعیِ استخوان وصل می‌کنند؛ برای اسکلتِ دیگر (Mixamo، کاراکترِ ممتاز) فقط یک فایلِ همین‌شکلی لازم است.",
+  "forward": [0, -1, 0],
+  "roles": {
+    "hips": "root",
+    "spine": ["spine04", "spine03", "spine02", "spine01"],
+    "spine_weights": [0.15, 0.25, 0.3, 0.3],
+    "neck": ["neck01", "neck02", "neck03"],
+    "head": "head",
+    "head_forward_axis": "TRACK_Z",
+    "eyes": ["eye.L", "eye.R"],
+    "eye_forward_axis": "TRACK_Y",
+    "jaw": "jaw",
+    "arm.R": {"clavicle": "clavicle.R", "upper": "upperarm01.R", "upper_twist": "upperarm02.R",
+              "fore": "lowerarm01.R", "fore_twist": "lowerarm02.R", "hand": "wrist.R"},
+    "arm.L": {"clavicle": "clavicle.L", "upper": "upperarm01.L", "upper_twist": "upperarm02.L",
+              "fore": "lowerarm01.L", "fore_twist": "lowerarm02.L", "hand": "wrist.L"},
+    "leg.R": {"upper": "upperleg01.R", "upper_twist": "upperleg02.R", "lower": "lowerleg01.R",
+              "lower_twist": "lowerleg02.R", "foot": "foot.R"},
+    "leg.L": {"upper": "upperleg01.L", "upper_twist": "upperleg02.L", "lower": "lowerleg01.L",
+              "lower_twist": "lowerleg02.L", "foot": "foot.L"},
+    "fingers.R": {"thumb": ["finger1-1.R", "finger1-2.R", "finger1-3.R"],
+                  "index": ["finger2-1.R", "finger2-2.R", "finger2-3.R"],
+                  "middle": ["finger3-1.R", "finger3-2.R", "finger3-3.R"],
+                  "ring": ["finger4-1.R", "finger4-2.R", "finger4-3.R"],
+                  "pinky": ["finger5-1.R", "finger5-2.R", "finger5-3.R"]},
+    "fingers.L": {"thumb": ["finger1-1.L", "finger1-2.L", "finger1-3.L"],
+                  "index": ["finger2-1.L", "finger2-2.L", "finger2-3.L"],
+                  "middle": ["finger3-1.L", "finger3-2.L", "finger3-3.L"],
+                  "ring": ["finger4-1.L", "finger4-2.L", "finger4-3.L"],
+                  "pinky": ["finger5-1.L", "finger5-2.L", "finger5-3.L"]}
+  },
+  "face": {
+    "kind": "shape_keys",
+    "visemes": {"sil": "viseme_sil", "PP": "viseme_PP", "FF": "viseme_FF", "TH": "viseme_TH", "DD": "viseme_DD",
+                "kk": "viseme_kk", "CH": "viseme_CH", "SS": "viseme_SS", "nn": "viseme_nn", "RR": "viseme_RR",
+                "aa": "viseme_aa", "E": "viseme_E", "I": "viseme_I", "O": "viseme_O", "U": "viseme_U"},
+    "blink": ["eyeBlinkLeft", "eyeBlinkRight"],
+    "jaw_open": "jawOpen",
+    "expressions": {
+      "neutral": {},
+      "smile": {"mouthSmileLeft": 0.45, "mouthSmileRight": 0.45, "cheekSquintLeft": 0.15, "cheekSquintRight": 0.15},
+      "big_smile": {"mouthSmileLeft": 0.8, "mouthSmileRight": 0.8, "cheekSquintLeft": 0.35, "cheekSquintRight": 0.35, "eyeSquintLeft": 0.2, "eyeSquintRight": 0.2, "browInnerUp": 0.1},
+      "warm": {"mouthSmileLeft": 0.28, "mouthSmileRight": 0.28, "browInnerUp": 0.12, "cheekSquintLeft": 0.08, "cheekSquintRight": 0.08},
+      "surprised": {"browInnerUp": 0.6, "browOuterUpLeft": 0.5, "browOuterUpRight": 0.5, "eyeWideLeft": 0.4, "eyeWideRight": 0.4, "jawOpen": 0.15},
+      "thinking": {"browDownLeft": 0.25, "mouthPressLeft": 0.3, "mouthPressRight": 0.3, "eyeSquintLeft": 0.15, "mouthRollLower": 0.15},
+      "confident": {"mouthSmileLeft": 0.35, "mouthSmileRight": 0.2, "browDownLeft": 0.08, "browDownRight": 0.08, "eyeSquintLeft": 0.1, "eyeSquintRight": 0.1},
+      "wink": {"eyeBlinkLeft": 1.0, "mouthSmileLeft": 0.55, "mouthSmileRight": 0.35, "cheekSquintLeft": 0.4}
+    }
+  }
+}

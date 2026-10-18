@@ -1,0 +1,19 @@
+{
+  "id": "fa_female_nova",
+  "version": 1,
+  "name": {
+    "fa": "خانم — گرم (nova)",
+    "en": "Female warm (nova)"
+  },
+  "description": {
+    "fa": "خانم — گرم (nova)",
+    "en": "Female warm (nova)"
+  },
+  "gender": "female",
+  "provider": "openai",
+  "language": "fa",
+  "order": 1,
+  "voice": "nova",
+  "default": true,
+  "license": "UpMarket 3D (procedural, own)"
+}

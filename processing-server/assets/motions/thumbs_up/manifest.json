@@ -1,0 +1,49 @@
+{
+  "id": "thumbs_up",
+  "version": 1,
+  "name": {
+    "fa": "لایک (شست بالا)",
+    "en": "Thumbs up"
+  },
+  "description": {
+    "fa": "شستِ بالا با لبخند",
+    "en": "Thumbs up with a smile; good for endings."
+  },
+  "category": "gesture",
+  "duration": {
+    "min": 0.8,
+    "default": 1.4,
+    "max": 3.0
+  },
+  "source": {
+    "type": "procedural",
+    "fn": "thumbs_up"
+  },
+  "pose": {
+    "start": "stand",
+    "end": "stand"
+  },
+  "hands": {
+    "uses": "free",
+    "param": "hand",
+    "requires_free": true
+  },
+  "params": {
+    "hand": {
+      "type": "enum",
+      "values": [
+        "R",
+        "L"
+      ],
+      "label": "دست (خالی = دستِ آزاد/هم‌سمتِ محصول)"
+    }
+  },
+  "expression": {
+    "name": "big_smile",
+    "from": 0.15,
+    "to": 1.0,
+    "intensity": 0.85
+  },
+  "order": 11,
+  "license": "UpMarket 3D (procedural, own)"
+}

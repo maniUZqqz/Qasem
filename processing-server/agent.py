@@ -54,7 +54,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.3"
+VERSION = "1.4"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -368,14 +368,53 @@ class Site:
     def get_json(self, path, timeout=30):
         return self._req("GET", path, timeout=timeout)
 
-    def download(self, path, dest, timeout=600):
-        payload, _ = self._req("GET", path, timeout=timeout, raw=True)
-        with open(dest, "wb") as fh:
-            fh.write(payload)
+    def download(self, path, dest, timeout=600, attempts=5):
+        """Streamed download with a short read timeout and a size check, retried: on a flaky line a body can stop
+        half-way (seen 1405/07/27: 45 KB of 873 KB, then silence) and a single long read would hang the job."""
+        last = None
+        for attempt in range(1, attempts + 1):
+            tmp = dest + ".part"
+            try:
+                req = urllib.request.Request(self.base + path, headers={"Authorization": "Node " + self.token})
+                with urllib.request.urlopen(req, timeout=45) as r:
+                    expected = int(r.headers.get("Content-Length") or 0)
+                    got = 0
+                    with open(tmp, "wb") as fh:
+                        while True:
+                            chunk = r.read(256 * 1024)
+                            if not chunk:
+                                break
+                            fh.write(chunk)
+                            got += len(chunk)
+                if expected and got != expected:
+                    raise OSError("truncated download: %d of %d bytes" % (got, expected))
+                os.replace(tmp, dest)
+                if attempt > 1:
+                    log("download ok on attempt %d (%d bytes)" % (attempt, got))
+                return
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403, 404):
+                    raise SiteError("GET %s -> HTTP %s" % (path, e.code)) from e
+                last = e
+            except (urllib.error.URLError, socket.timeout, OSError) as e:
+                last = e
+            warn("download %s failed (attempt %d/%d): %s" % (path, attempt, attempts, last))
+            time.sleep(min(30, 3 * attempt))
+        raise SiteError("download failed after %d attempts: %s" % (attempts, last))
 
-    def upload(self, path, files, timeout=1800):
+    def upload(self, path, files, timeout=1800, attempts=4):
         body, ctype = multipart({}, files)
-        return self._req("POST", path, body, {"Content-Type": ctype}, timeout=timeout)
+        last = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._req("POST", path, body, {"Content-Type": ctype}, timeout=timeout)
+            except SiteError as e:
+                if "HTTP 4" in str(e):
+                    raise
+                last = e
+                warn("upload %s failed (attempt %d/%d): %s" % (path, attempt, attempts, e))
+                time.sleep(min(30, 5 * attempt))
+        raise last
 
 
 # ───────────────────────────────────────────── capabilities
@@ -1010,6 +1049,7 @@ class Job:
         os.makedirs(self.inputs, exist_ok=True)
         os.makedirs(self.outputs, exist_ok=True)
         pkg = os.path.join(self.dir, "package.zip")
+        self.progress(0.01, "downloading inputs")
         self.site.download("/api/v1/compute/jobs/%s/package/" % self.uid, pkg)
         with zipfile.ZipFile(pkg) as z:
             for member in z.namelist():

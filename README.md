@@ -20,3 +20,5 @@ every 6 hours (`deploy/nm/git-autopush.sh`).
 Copy `processing-server/` to the GPU machine (Python 3.10+, ComfyUI running), run `START.bat`, paste the
 enrollment key from the panel (Tools → Processing servers → "Register a new server"). The machine registers
 itself under its own name. Details: `processing-server/README.md`.
+
+`prompts/` holds the owner's request/answer files and sample outputs (added by hand; the auto-push never touches it).

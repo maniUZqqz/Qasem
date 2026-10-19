@@ -54,7 +54,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.2"
+VERSION = "1.3"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -74,18 +74,50 @@ SERVICES = {
 DEFAULT_SERVICES = {
     "ollama": {"start": "ollama serve", "url": "ollama", "ready_timeout": 60, "note": "Ollama server (models load on demand)"},
     "comfyui": {"start": "${NM_COMFY_BAT}", "url": "comfyui", "ready_timeout": 240, "note": "set NM_COMFY_BAT or put the path of run_nvidia_gpu.bat here"},
-    "voice": {"start": "tools\\PersianAiKit\\Voice\\Run-Server.bat", "url": "voice", "ready_timeout": 120, "note": "PersianAiKit voice server (.NET 8)"},
-    "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat", "url": "photo", "ready_timeout": 120, "note": "PersianAiKit photo editor (.NET 8)"},
-    "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat", "url": "video", "ready_timeout": 120, "note": "PersianAiKit video editor (.NET 8)"},
+    "voice": {"start": "tools\\PersianAiKit\\Voice\\Run-Server.bat", "url": "voice", "ready_timeout": 900, "note": "PersianAiKit voice server (.NET 8; run Setup-Services.bat once)"},
+    "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat", "url": "photo", "ready_timeout": 900, "note": "PersianAiKit photo editor (.NET 8; run Setup-Services.bat once)"},
+    "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat", "url": "video", "ready_timeout": 900, "note": "PersianAiKit video editor (.NET 8 + ffmpeg; run Setup-Services.bat once)"},
     "worker3d": {"start": "worker-3d.bat", "url": None, "ready_timeout": 10, "note": "Blender render worker for the 3D section"},
 }
 SERVICE_KEYS = tuple(DEFAULT_SERVICES)
 
 
+COMFY_PLACEHOLDER = "${NM_COMFY_BAT}"
+_COMFY_FOUND = {}
+
+
+def find_comfy_start():
+    """Where ComfyUI lives on this machine: NM_COMFY_BAT, else run_nvidia_gpu.bat / the desktop app in the usual folders."""
+    if "cmd" in _COMFY_FOUND:
+        return _COMFY_FOUND["cmd"]
+    env = os.environ.get("NM_COMFY_BAT", "").strip().strip('"')
+    found = env if env and os.path.isfile(env) else None
+    if not found and sys.platform.startswith("win"):
+        home = os.path.expanduser("~")
+        deep = [home, os.path.join(home, "Desktop"), os.path.join(home, "Downloads"), os.path.join(home, "Documents"),
+                os.path.dirname(HERE), os.path.dirname(os.path.dirname(HERE))]
+        shallow = ["C:\\", "D:\\", "E:\\", "F:\\", "C:\\AI", "D:\\AI"]
+        hits = []
+        for root in deep:
+            for depth in ("*", "*/*", "*/*/*"):
+                hits += glob.glob(os.path.join(root, depth, "run_nvidia_gpu.bat"))
+        for root in shallow:
+            for depth in ("*", "*/*"):
+                hits += glob.glob(os.path.join(root, depth, "run_nvidia_gpu.bat"))
+        app = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "@comfyorgcomfyui-electron", "ComfyUI.exe")
+        if os.path.isfile(app):
+            hits.append(app)
+        hits = sorted(set(os.path.normpath(h) for h in hits), key=lambda h: (0 if "comfy" in h.lower() else 1, len(h)))
+        found = hits[0] if hits else None
+    _COMFY_FOUND["cmd"] = ('"%s"' % found) if found else None
+    return _COMFY_FOUND["cmd"]
+
+
 def load_services_cfg():
     path = os.path.join(HERE, "services.json")
     cfg = {k: dict(v) for k, v in DEFAULT_SERVICES.items()}
-    if os.path.isfile(path):
+    existed = os.path.isfile(path)
+    if existed:
         try:
             user = json.load(open(path, encoding="utf-8"))
             for k, v in (user or {}).items():
@@ -93,12 +125,39 @@ def load_services_cfg():
                     cfg[k].update(v)
         except (OSError, ValueError) as e:
             print("services.json could not be read (%s); using defaults" % e, flush=True)
-    else:
+    changed = not existed
+    if (cfg["comfyui"].get("start") or "").strip() in ("", COMFY_PLACEHOLDER):
+        found = find_comfy_start()
+        if found:
+            cfg["comfyui"]["start"] = found
+            cfg["comfyui"]["note"] = "found automatically; change it here if ComfyUI lives elsewhere"
+            changed = True
+            print("ComfyUI found: %s (saved in services.json)" % found, flush=True)
+    if changed:
         try:
             json.dump(cfg, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
         except OSError:
             pass
     return cfg
+
+
+def editor_published(key):
+    """The PersianAiKit editor has a published build (starts in seconds); otherwise the first start builds from source."""
+    kit = {"voice": "Voice", "photo": "Photo", "video": "Video"}.get(key)
+    return bool(kit) and os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", kit, "app", "PersianAiKit.%s.Server.exe" % kit))
+
+
+def tail_lines(path, n=15):
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 16000))
+            text = fh.read().decode("utf-8", "replace")
+        lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+        return lines[-n:]
+    except OSError:
+        return []
 
 
 # ───────────────────────────────────────────── logging (console + file + site)
@@ -452,39 +511,65 @@ class ServiceManager:
                 cmd = cmd.replace(first, '"%s"' % cand, 1)
         return cmd
 
+    def log_path(self, key):
+        return os.path.join(LOGS, "service-%s.log" % key)
+
+    @staticmethod
+    def _ps_command(cmd):
+        """'"C:\\x\\Run-Server.bat" args' / 'ollama serve' -> PowerShell call operator form."""
+        if cmd.startswith('"'):
+            first, rest = cmd[1:].split('"', 1)
+        else:
+            parts = cmd.split(" ", 1)
+            first, rest = parts[0], (parts[1] if len(parts) > 1 else "")
+        return "& '%s' %s" % (first.replace("'", "''"), rest.strip())
+
     def start(self, key, wait=True):
         if self.running(key):
             return True
         cmd = self._command(key)
-        if not cmd or (key == "comfyui" and "${" in (self.cfg["comfyui"].get("start") or "") and not os.environ.get("NM_COMFY_BAT")):
+        if not cmd or (key == "comfyui" and COMFY_PLACEHOLDER in (self.cfg["comfyui"].get("start") or "")):
             if key not in self.warned:
                 self.warned.add(key)
-                warn("cannot start %s: no start command (edit services.json%s)" % (key, " or set NM_COMFY_BAT" if key == "comfyui" else ""))
+                warn("cannot start %s: no start command (edit services.json%s)" % (
+                    key, ' -> "comfyui" -> "start" = path of run_nvidia_gpu.bat, or set NM_COMFY_BAT' if key == "comfyui" else ""))
             return False
-        log("starting %s: %s" % (key, cmd))
+        if key in ("voice", "photo", "video") and not editor_published(key):
+            log("%s: no published build yet - the first start compiles the editor (several minutes; needs the .NET 8 SDK)."
+                " Run Setup-Services.bat once to make it start in seconds." % key)
+        os.makedirs(LOGS, exist_ok=True)
+        logf = self.log_path(key)
+        log("starting %s: %s  (output: logs\\%s)" % (key, cmd, os.path.basename(logf)))
         try:
-            kwargs = {"cwd": HERE, "shell": True}
             if sys.platform.startswith("win"):
-                kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+                ps = "%s 2>&1 | Tee-Object -FilePath '%s'" % (self._ps_command(cmd), logf.replace("'", "''"))
+                self.procs[key] = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                                                   cwd=HERE, creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
-                kwargs["start_new_session"] = True
-            self.procs[key] = subprocess.Popen(cmd, **kwargs)
+                self.procs[key] = subprocess.Popen("%s >> '%s' 2>&1" % (cmd, logf), cwd=HERE, shell=True, start_new_session=True)
         except OSError as e:
             error("could not start %s: %s" % (key, e))
             return False
         if not wait:
             return True
         deadline = time.time() + int(self.cfg.get(key, {}).get("ready_timeout") or 60)
+        next_note = time.time() + 60
         while time.time() < deadline:
             if self.running(key):
                 log("%s is up" % key)
                 return True
             p = self.procs.get(key)
             if p and p.poll() is not None and self.cfg.get(key, {}).get("url"):
-                error("%s exited right after start (code %s) — check its own window/log" % (key, p.returncode))
+                error("%s exited right after start (code %s). Last lines of logs\\%s:\n%s" % (
+                    key, p.returncode, os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
                 return False
+            if time.time() > next_note:
+                next_note = time.time() + 60
+                last = tail_lines(logf, 1)
+                log("still waiting for %s ... %s" % (key, (last[0][:120] if last else "")))
             time.sleep(2)
-        warn("%s did not come up within the timeout" % key)
+        warn("%s did not come up within %ss. Last lines of logs\\%s:\n%s" % (
+            key, int(self.cfg.get(key, {}).get("ready_timeout") or 60), os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
         return False
 
     def stop(self, key):
@@ -681,7 +766,10 @@ def check(cfg):
             row(False, "site / token", str(e)[:200])
     for key in SERVICES:
         up = listening(service_url(key), 1.0)
-        row(up if key == "comfyui" else (True if up else None), key, service_url(key) + (" (listening)" if up else " (not running)"))
+        if key == "comfy_bridge" and not up:
+            row(None, key, "not needed (the agent applies the profiles to ComfyUI itself)")
+            continue
+        row(up if key == "comfyui" else (True if up else None), key, service_url(key) + (" (listening)" if up else " (not running; the panel can start it)"))
     if listening(service_url("comfyui"), 1.0):
         try:
             info = http("GET", service_url("comfyui") + "/object_info", timeout=60)
@@ -704,8 +792,32 @@ def check(cfg):
     svc = load_services_cfg()
     for key in SERVICE_KEYS:
         cmd = (svc.get(key, {}).get("start") or "")
-        has = bool(cmd.strip()) and not ("${NM_COMFY_BAT}" in cmd and not os.environ.get("NM_COMFY_BAT"))
-        row(True if has else None, "start cmd: " + key, cmd if has else "none — the panel cannot start it (services.json)")
+        has = bool(cmd.strip()) and COMFY_PLACEHOLDER not in cmd
+        hint = "none - the panel cannot start it (services.json)"
+        if key == "comfyui" and not has:
+            hint = "ComfyUI not found: write the path of run_nvidia_gpu.bat in services.json -> comfyui -> start"
+        row(True if has else None, "start cmd: " + key, cmd if has else hint)
+    # ---- the PersianAiKit editors: .NET, published builds, ffmpeg, models (Setup-Services.bat does all of it)
+    sdk = None
+    try:
+        out = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=20).stdout
+        vers = [ln.split()[0] for ln in out.splitlines() if ln.strip() and ln[0].isdigit()]
+        sdk = max((v for v in vers if int(v.split(".")[0]) >= 8), default=None)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    row(True if sdk else None, ".NET SDK (editors)", sdk or "not found - run Setup-Services.bat (installs .NET 8, builds the editors)")
+    for key, kit in (("photo", "Photo"), ("video", "Video"), ("voice", "Voice")):
+        pub = editor_published(key)
+        row(True if pub else None, "  %s editor build" % key,
+            "published (starts in seconds)" if pub else "source only - first start builds (minutes); Setup-Services.bat publishes it")
+    ff = shutil.which("ffmpeg") or (os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")
+                                    if os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")) else None)
+    row(True if ff else None, "  ffmpeg (video editor)", ff or "not found - Setup-Services.bat installs it")
+    vm = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
+    have_voice = os.path.isfile(os.path.join(vm, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(vm, "vosk"))
+    row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat downloads them (text-to-speech needs them)")
+    pm = os.path.join(HERE, "tools", "PersianAiKit", "Photo", "models", "upscale", "realesr-general-x4v3.onnx")
+    row(True if os.path.isfile(pm) else None, "  photo models", pm if os.path.isfile(pm) else "upscaler missing (optional) - Setup-Services.bat downloads it")
     bl = blender_path()
     row(True if bl else None, "Blender (3D worker)", bl or "not found: install Blender 4.5 or let worker-3d.bat download it")
     for d in ("up3d", "engine", "assets"):

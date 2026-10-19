@@ -82,6 +82,21 @@ class ProductAPITests(APITestCase):
         self.assertEqual(resp.status_code, 204)
         self.assertEqual(product.images.count(), 0)
 
+    def test_image_is_served_as_a_path(self):
+        """List/detail answer the image as "/media/…" (a path), not a URL built from the
+        Host header: behind nginx that header arrives without the port, so the absolute
+        form pointed at port 80 (404) and the panel showed a broken image."""
+        product = Product.objects.create(store=self.alice_store, name="A1")
+        resp = self.client.post(
+            f"/api/v1/products/{product.id}/images/", {"image": make_test_image()}, format="multipart"
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        for url in (resp.data["image"], self.client.get(f"/api/v1/products/{product.id}/").data["images"][0]["image"]):
+            self.assertTrue(url.startswith("/media/"), url)
+            self.assertFalse(url.startswith("http"), url)
+        listed = self.client.get(f"/api/v1/products/?store={self.alice_store.id}").data["results"][0]
+        self.assertEqual(listed["images"][0]["image"], resp.data["image"])
+
     def test_attributes_and_variants(self):
         product = Product.objects.create(store=self.alice_store, name="A1")
         resp = self.client.post(

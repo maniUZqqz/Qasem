@@ -39,6 +39,10 @@ if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" (
   start "ComfyUI" /min cmd /c "%NM_COMFY_BAT%"
 )
 
+rem ---- editors not prepared yet? (optional) one-time Setup-Services.bat builds them and downloads their models
+if not exist "%~dp0tools\PersianAiKit\Photopp\PersianAiKit.Photo.Server.exe" (
+  echo Note: the photo/video/voice editors are not prepared yet. Run Setup-Services.bat once ^(optional^).
+)
 rem ---- services (ComfyUI, Ollama, voice/photo/video editors, 3D worker) are started and stopped by the
 rem ---- agent according to the panel (Processing servers > services of this node); see services.json
 echo.

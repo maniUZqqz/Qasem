@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams } from 
 
 import Icon, { type IconName } from "../../../components/Icon";
 import { Alert, Badge, Button } from "../../../components/ui";
-import { api, BASE, pUrl, studioError } from "./api";
+import { api, BASE, downloadZip, pUrl, studioError } from "./api";
 import { Loading, Pre, statusTone, type Tone } from "./common";
 import type { BuildResp, ProjectDetail, ProjectDetailResp } from "./types";
 
@@ -104,6 +104,7 @@ export function ProjectShell() {
   const [building, setBuilding] = useState(false);
   const [buildCount, setBuildCount] = useState(0);
   const [buildDetail, setBuildDetail] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -151,6 +152,18 @@ export function ProjectShell() {
     }
   }, [slug, notify]);
 
+  // همان ZIPِ «نمای کلی» (GET …/export/) — این‌جا کنارِ «تولیدِ کد» تا در هر صفحهٔ پروژه دمِ دست باشد
+  const download = useCallback(async () => {
+    setDownloading(true);
+    try {
+      await downloadZip(slug, false);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : studioError(err), "bad");
+    } finally {
+      setDownloading(false);
+    }
+  }, [slug, notify]);
+
   if (!project) return <Loading error={error} />;
 
   const rest = location.pathname.slice(pUrl(slug).length).replace(/^\//, "").split("/")[0] ?? "";
@@ -186,6 +199,23 @@ export function ProjectShell() {
         >
           <Icon name="play" size={15} />
           {building ? "در حالِ تولید…" : "تولیدِ کد"}
+        </Button>
+        <Button
+          onClick={() => void download()}
+          disabled={downloading || !project.exists_on_disk}
+          title={
+            project.exists_on_disk
+              ? "دانلودِ ZIPِ کاملِ پروژه — با run.bat (ویندوز) و run.sh (لینوکس/مک) که خودشان همه‌چیز را راه می‌اندازند"
+              : "اول «تولیدِ کد» را بزن"
+          }
+          style={{
+            background: "linear-gradient(135deg, var(--ok), color-mix(in srgb, var(--ok) 70%, #065f46))",
+            color: "#fff",
+            boxShadow: "0 6px 20px -8px color-mix(in srgb, var(--ok) 85%, transparent)",
+          }}
+        >
+          <Icon name="download" size={15} />
+          {downloading ? "در حالِ آماده‌سازی…" : "دانلود"}
         </Button>
       </div>
 

@@ -54,9 +54,23 @@ class ProductAttributeSerializer(serializers.ModelSerializer):
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    # A path ("/media/products/images/…"), never an absolute URL. DRF builds
+    # the absolute form from the request's Host header, and behind the
+    # port-8040 nginx that header arrives without the port
+    # (proxy_set_header Host $host), so the list/detail API answered
+    # "http://87.107.160.17/media/…" — port 80, where nothing serves /media/
+    # (404) — and the panel showed a broken image for every product photo.
+    # The panel is served from the same origin as the API, so a path resolves
+    # to the right host and port on its own; the upload response
+    # (views.images) already returned a path, so the two now agree.
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = ProductImage
         fields = ["id", "image", "is_main", "alt_text", "order", "created_at"]
+
+    def get_image(self, obj):
+        return obj.image.url if obj.image else ""
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):

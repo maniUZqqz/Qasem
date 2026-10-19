@@ -24,12 +24,13 @@ from django.utils import timezone
 
 from .tpl import (APP_CONFIG_TPL, BASE_CSS, BASE_TPL, CART_CP, CART_FORMS, CART_PY,
                   CART_URLS, CART_VIEWS, CONTEXT_TPL, DEFAULT_BODIES, DEFAULT_BODY,
-                  DEFAULT_FOOTER, DEFAULT_HEADER, MANAGE_TPL, ORDER_DONE_TPL, PAGE_TPL,
-                  PRODUCT_CARD_TPL, PRODUCT_EXTRAS, README_TPL, WSGI_TPL)
+                  DEFAULT_FOOTER, DEFAULT_HEADER, ENSURE_ADMIN_TPL, MANAGE_TPL, ORDER_DONE_TPL,
+                  PAGE_TPL, PRODUCT_CARD_TPL, PRODUCT_EXTRAS, README_TPL, RUN_BAT_TPL,
+                  RUN_README_TPL, RUN_SH_TPL, WSGI_TPL)
 
 __all__ = ['GenerationError', 'ProjectGenerator', 'field_code', 'model_code', 'app_files',
            'models_module', 'sha', 'SETTINGS_TPL',
-           'default_template_body', 'effective_routes', 'url_names', 'CUSTOM_MARK',
+           'default_template_body', 'effective_routes', 'url_names', 'CUSTOM_MARK', 'runner_files',
            'BASE_CSS', 'DEFAULT_HEADER', 'DEFAULT_FOOTER', 'DEFAULT_BODIES']
 
 FIELD_DEFAULT_ARGS = {
@@ -40,6 +41,30 @@ FIELD_DEFAULT_ARGS = {
 }
 
 CUSTOM_MARK = '# ── studio:custom ── زیرِ این خط را استودیو دست نمی‌زند؛ کدِ دستی‌ات را این‌جا بنویس ──'
+
+
+def _script_safe_name(name):
+    """نامِ پروژه داخلِ echo ِ bat/sh — نویسه‌های خاصِ cmd و bash حذف می‌شوند."""
+    bad = '&|<>^%!"$`\\\r\n'
+    return ''.join(' ' if ch in bad else ch for ch in (name or 'project')).strip() or 'project'
+
+
+def runner_files(name, settings_module='config.settings'):
+    """run.bat / run.sh / scripts/ensure_admin.py — اجرای یک‌کلیکه (venv + نصب + مهاجرت + ادمین + runserver).
+
+    ⇒ {مسیرِ نسبی: (متن, مجوز)} — هم در «تولیدِ کد» نوشته می‌شود هم (اگر در پوشه نبود) در خروجیِ ZIP.
+    run.bat با CRLF و بدونِ BOM؛ run.sh اجرایی (755).
+    """
+    safe = _script_safe_name(name)
+    return {
+        'run.bat': (RUN_BAT_TPL.replace('__NAME__', safe).replace('\n', '\r\n'), 0),
+        'run.sh': (RUN_SH_TPL.replace('__NAME__', safe), 0o755),
+        'scripts/ensure_admin.py': (ENSURE_ADMIN_TPL.replace('__SETTINGS__', settings_module or 'config.settings'), 0),
+    }
+
+
+def run_readme(name):
+    return RUN_README_TPL.replace('__NAME__', _script_safe_name(name))
 
 
 class GenerationError(Exception):
@@ -764,7 +789,16 @@ class ProjectGenerator:
         self._safe_write('.env.example',
                          '# نمونهٔ تنظیماتِ محیط\nDJANGO_SECRET_KEY=change-me\n'
                          'DJANGO_DEBUG=True\nDJANGO_ALLOWED_HOSTS=127.0.0.1,localhost\n')
-        self._safe_write('.gitignore', 'venv/\n__pycache__/\n*.pyc\ndb.sqlite3\nmedia/\nstaticfiles/\n.env\n.preview.*\n')
+        self._safe_write('.gitignore', 'venv/\n.venv/\n__pycache__/\n*.pyc\ndb.sqlite3\nmedia/\nstaticfiles/\n.env\n'
+                         '.preview.*\n.admin-password.txt\n')
+        # اجرای یک‌کلیکه: run.bat (ویندوز) / run.sh (لینوکس و مک) + ساختِ ادمین بدونِ پرسش
+        for rel, (body, mode) in runner_files(self.p.name, 'config.settings').items():
+            self._safe_write(rel, body)
+            if mode:
+                try:
+                    os.chmod(self._target(rel), mode)
+                except OSError:
+                    pass
         self._safe_write('README.md', README_TPL % {
             'name': self.p.name, 'desc': self.p.description or '—',
             'when': timezone.now().strftime('%Y-%m-%d %H:%M'),
@@ -962,6 +996,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 LOGIN_URL = '/admin/login/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+# پیش‌نمایشِ زندهٔ استودیو داخلِ iframe ِ پنل باز می‌شود که مبدأ/پورتِ دیگری دارد؛ در آن حالت
+# (STUDIO_PREVIEW=1 را اجراکنندهٔ پیش‌نمایش می‌گذارد) قابِ هم‌مبدأ (X-Frame-Options) برداشته می‌شود.
+# در اجرای عادی و نسخهٔ دانلودی سرِ جایش است.
+if os.environ.get('STUDIO_PREVIEW') == '1':
+    MIDDLEWARE = [m for m in MIDDLEWARE if m != 'django.middleware.clickjacking.XFrameOptionsMiddleware']
 '''
 
 URLS_TPL = '''# -*- coding: utf-8 -*-

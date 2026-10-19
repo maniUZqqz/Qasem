@@ -605,24 +605,36 @@ README_TPL = '''# %(name)s
 > ساختهٔ **Django Commerce Studio** — %(when)s
 > این یک پروژهٔ کاملاً استانداردِ جنگوست و برای اجرا به استودیو نیازی ندارد.
 
-## اجرا
+## اجرا — ساده‌ترین راه
+
+- **ویندوز:** روی `run.bat` دوبار کلیک کن.
+- **لینوکس / مک:** در ترمینال `bash run.sh`
+
+این اسکریپت خودش همه‌چیز را انجام می‌دهد و اجرای دوباره‌اش بی‌خطر است:
+محیطِ مجازی `.venv` می‌سازد، `requirements.txt` را نصب می‌کند، مهاجرت‌ها (جدول‌های دیتابیس) را
+اجرا می‌کند، اگر ادمینی نباشد کاربرِ `admin` با رمزِ تصادفی می‌سازد (رمز در کنسول چاپ و در
+`.admin-password.txt` ذخیره می‌شود)، دادهٔ نمونه را (اگر `fixtures/sample_data.json` باشد) بارگذاری
+می‌کند و سرور را روی <http://127.0.0.1:8000/> روشن می‌کند (ادمین: `/admin/`).
+پورتِ دیگر: `run.bat 8080` یا `bash run.sh 8080`.
+
+## اجرای دستی
 
 ```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-venv/bin/python manage.py migrate
-venv/bin/python manage.py createsuperuser
-venv/bin/python manage.py runserver
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate
+.venv/bin/python scripts/ensure_admin.py
+.venv/bin/python manage.py runserver
 ```
 
 ویندوز:
 
 ```bat
-py -3 -m venv venv
-venv\\Scripts\\python -m pip install -r requirements.txt
-venv\\Scripts\\python manage.py migrate
-venv\\Scripts\\python manage.py createsuperuser
-venv\\Scripts\\python manage.py runserver
+py -3 -m venv .venv
+.venv\\Scripts\\python -m pip install -r requirements.txt
+.venv\\Scripts\\python manage.py migrate
+.venv\\Scripts\\python scripts\\ensure_admin.py
+.venv\\Scripts\\python manage.py runserver
 ```
 
 ## ساختار
@@ -638,4 +650,226 @@ static/css/  base.css + pages/<page>.css
 جداگانه ویرایش می‌شود.
 
 سبدِ خرید: %(cart)s
+'''
+
+
+# ══════════════════════════════════════════════ اسکریپت‌های اجرای یک‌کلیکه
+# run.bat (ویندوز) و run.sh (لینوکس/مک): venv + نصب + مهاجرت + ادمین + دادهٔ نمونه + runserver.
+# ایدمپوتنت‌اند (اجرای دوباره بی‌خطر). __NAME__ با نامِ پروژه جایگزین می‌شود (نه %-format).
+# ⚠ run.bat باید بدونِ BOM و با CRLF نوشته شود؛ chcp 65001 پیش از هر متنِ فارسی می‌آید.
+
+RUN_BAT_TPL = r"""@echo off
+setlocal
+chcp 65001 >nul
+cd /d "%~dp0"
+set "PORT=%~1"
+if "%PORT%"=="" set "PORT=8000"
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
+
+echo ============================================================
+echo  __NAME__  --  run.bat
+echo  venv + requirements + migrate + admin user + runserver
+echo  محیطِ مجازی، نصبِ وابستگی‌ها، مهاجرت، کاربرِ ادمین و اجرای سرور
+echo  (safe to run again / اجرای دوباره بی‌خطر است)
+echo ============================================================
+
+set "PY="
+py -3 --version >nul 2>&1 && set "PY=py -3"
+if not defined PY python --version >nul 2>&1 && set "PY=python"
+if not defined PY (
+  echo [ERROR] Python 3 was not found. Install it from https://www.python.org/downloads/ and tick "Add python.exe to PATH".
+  echo [خطا] پایتون ۳ پیدا نشد. از python.org نصب کن و گزینهٔ Add python.exe to PATH را بزن.
+  pause
+  exit /b 1
+)
+
+if not exist ".venv\Scripts\python.exe" (
+  echo [1/5] Creating virtualenv .venv ...  /  ساختِ محیطِ مجازی
+  %PY% -m venv .venv
+  if errorlevel 1 (
+    echo [ERROR] Could not create the virtualenv.  /  ساختِ محیطِ مجازی شکست خورد.
+    pause
+    exit /b 1
+  )
+) else (
+  echo [1/5] .venv already exists, reusing it.  /  محیطِ مجازی از قبل هست.
+)
+set "VPY=.venv\Scripts\python.exe"
+
+echo [2/5] Installing requirements (internet needed the first time) ...  /  نصبِ وابستگی‌ها
+"%VPY%" -m pip install --disable-pip-version-check -r requirements.txt
+if errorlevel 1 (
+  echo [ERROR] pip install failed. Check the internet connection and run again.  /  نصب شکست خورد؛ اینترنت را چک کن و دوباره اجرا کن.
+  pause
+  exit /b 1
+)
+
+echo [3/5] Migrating the database ...  /  ساختِ جدول‌های دیتابیس
+"%VPY%" manage.py migrate --noinput
+if errorlevel 1 (
+  echo [ERROR] migrate failed.  /  مهاجرت شکست خورد.
+  pause
+  exit /b 1
+)
+
+echo [4/5] Admin user ...  /  کاربرِ ادمین
+"%VPY%" scripts\ensure_admin.py
+if errorlevel 1 echo [WARN] Admin user was not created.  /  کاربرِ ادمین ساخته نشد.
+
+if exist "fixtures\sample_data.json" if exist "apps\catalog\management\commands\load_sample_data.py" (
+  echo [4b] Loading sample data ...  /  بارگذاریِ دادهٔ نمونه
+  "%VPY%" manage.py load_sample_data
+  if errorlevel 1 echo [WARN] Sample data was skipped.  /  دادهٔ نمونه بارگذاری نشد.
+)
+
+echo [5/5] Starting the server ...  /  روشن‌کردنِ سرور
+echo   Site:   http://127.0.0.1:%PORT%/
+echo   Admin:  http://127.0.0.1:%PORT%/admin/
+echo   Stop with Ctrl+C.  /  برای خاموش‌کردن Ctrl+C
+"%VPY%" manage.py runserver 0.0.0.0:%PORT%
+if errorlevel 1 (
+  echo [ERROR] The server stopped with an error (is port %PORT% busy? try: run.bat 8080).  /  سرور با خطا متوقف شد (پورت مشغول است؟ run.bat 8080 را امتحان کن).
+  pause
+  exit /b 1
+)
+pause
+"""
+
+RUN_SH_TPL = r"""#!/usr/bin/env bash
+# __NAME__ -- run.sh : venv + requirements + migrate + admin user + runserver (safe to run again)
+# محیطِ مجازی، نصبِ وابستگی‌ها، مهاجرت، کاربرِ ادمین و اجرای سرور (اجرای دوباره بی‌خطر است)
+set -u
+cd "$(dirname "$0")"
+PORT="${1:-${PORT:-8000}}"
+export PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
+
+echo "============================================================"
+echo " __NAME__  --  run.sh"
+echo " venv + requirements + migrate + admin user + runserver"
+echo " محیطِ مجازی، نصبِ وابستگی‌ها، مهاجرت، کاربرِ ادمین و اجرای سرور"
+echo "============================================================"
+
+PY="${PYTHON:-}"
+if [ -z "$PY" ]; then
+  for c in python3 python; do
+    if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+  done
+fi
+if [ -z "$PY" ]; then
+  echo "[ERROR] Python 3 was not found (Ubuntu: sudo apt install python3 python3-venv).  /  پایتون ۳ پیدا نشد."
+  exit 1
+fi
+
+if [ ! -x ".venv/bin/python" ]; then
+  echo "[1/5] Creating virtualenv .venv ...  /  ساختِ محیطِ مجازی"
+  "$PY" -m venv .venv || { echo "[ERROR] Could not create the virtualenv (is python3-venv installed?).  /  ساختِ محیطِ مجازی شکست خورد."; exit 1; }
+else
+  echo "[1/5] .venv already exists, reusing it.  /  محیطِ مجازی از قبل هست."
+fi
+VPY=".venv/bin/python"
+
+echo "[2/5] Installing requirements (internet needed the first time) ...  /  نصبِ وابستگی‌ها"
+"$VPY" -m pip install --disable-pip-version-check -r requirements.txt || { echo "[ERROR] pip install failed; check the internet connection and run again.  /  نصب شکست خورد."; exit 1; }
+
+echo "[3/5] Migrating the database ...  /  ساختِ جدول‌های دیتابیس"
+"$VPY" manage.py migrate --noinput || { echo "[ERROR] migrate failed.  /  مهاجرت شکست خورد."; exit 1; }
+
+echo "[4/5] Admin user ...  /  کاربرِ ادمین"
+"$VPY" scripts/ensure_admin.py || echo "[WARN] Admin user was not created.  /  کاربرِ ادمین ساخته نشد."
+
+if [ -f fixtures/sample_data.json ] && [ -f apps/catalog/management/commands/load_sample_data.py ]; then
+  echo "[4b] Loading sample data ...  /  بارگذاریِ دادهٔ نمونه"
+  "$VPY" manage.py load_sample_data || echo "[WARN] Sample data was skipped.  /  دادهٔ نمونه بارگذاری نشد."
+fi
+
+echo "[5/5] Starting the server ...  /  روشن‌کردنِ سرور"
+echo "  Site:   http://127.0.0.1:$PORT/"
+echo "  Admin:  http://127.0.0.1:$PORT/admin/"
+echo "  Stop with Ctrl+C.  /  برای خاموش‌کردن Ctrl+C"
+exec "$VPY" manage.py runserver "0.0.0.0:$PORT"
+"""
+
+ENSURE_ADMIN_TPL = '''# -*- coding: utf-8 -*-
+"""scripts/ensure_admin.py — ساختِ کاربرِ ادمین بدونِ پرسش (run.bat / run.sh آن را صدا می‌زنند).
+
+اگر هیچ ابرکاربری نباشد، «admin» با رمزِ تصادفی ساخته می‌شود؛ رمز در کنسول چاپ و در
+.admin-password.txt (کنارِ manage.py) ذخیره می‌شود. اجرای دوباره چیزی را عوض نمی‌کند.
+ADMIN_USER / ADMIN_PASSWORD در محیط ⇒ همان‌ها به کار می‌رود.
+"""
+import os
+import secrets
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', '__SETTINGS__')
+
+import django  # noqa: E402
+
+django.setup()
+
+from django.contrib.auth import get_user_model  # noqa: E402
+
+User = get_user_model()
+FIELD = User.USERNAME_FIELD
+PW_FILE = os.path.join(ROOT, '.admin-password.txt')
+
+
+def guess(key):
+    k = key.lower()
+    if 'mail' in k:
+        return 'admin@example.com'
+    if 'phone' in k or 'mobile' in k:
+        return '09000000000'
+    return 'admin'
+
+
+def say(line):
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        print(line.encode('ascii', 'replace').decode('ascii'))
+
+
+existing = None
+try:
+    existing = User.objects.filter(is_superuser=True).order_by('pk').first()
+except Exception:  # noqa — مدلِ کاربرِ بدونِ is_superuser
+    existing = User.objects.order_by('pk').first()
+
+if existing is not None:
+    saved = ''
+    try:
+        with open(PW_FILE, encoding='utf-8') as fh:
+            saved = fh.read().strip()
+    except OSError:
+        pass
+    say('  Admin user already exists  /  کاربرِ ادمین از قبل هست')
+    say('  USERNAME: %s' % getattr(existing, FIELD))
+    say('  PASSWORD: %s' % (saved or '(the one you set before; change it with: manage.py changepassword %s)'
+                            % getattr(existing, FIELD)))
+    sys.exit(0)
+
+username = os.environ.get('ADMIN_USER') or guess(FIELD)
+password = os.environ.get('ADMIN_PASSWORD') or secrets.token_urlsafe(9)
+extra = {k: guess(k) for k in getattr(User, 'REQUIRED_FIELDS', [])}
+extra[FIELD] = username
+User.objects.create_superuser(password=password, **extra)
+with open(PW_FILE, 'w', encoding='utf-8') as fh:
+    fh.write(password + '\\n')
+say('  Admin user created  /  کاربرِ ادمین ساخته شد (رمز در .admin-password.txt هم هست)')
+say('  USERNAME: %s' % username)
+say('  PASSWORD: %s' % password)
+'''
+
+RUN_README_TPL = '''# اجرای __NAME__
+
+- **ویندوز:** روی `run.bat` دوبار کلیک کن.
+- **لینوکس / مک:** در ترمینال `bash run.sh`
+
+اسکریپت خودش محیطِ مجازی `.venv` می‌سازد، `requirements.txt` را نصب می‌کند، مهاجرت‌ها را اجرا
+می‌کند، اگر ادمینی نباشد کاربرِ `admin` با رمزِ تصادفی می‌سازد (رمز در کنسول و در `.admin-password.txt`)،
+دادهٔ نمونه را (اگر باشد) بارگذاری می‌کند و سرور را روی <http://127.0.0.1:8000/> روشن می‌کند
+(ادمین: `/admin/`). اجرای دوباره بی‌خطر است. پورتِ دیگر: `run.bat 8080` یا `bash run.sh 8080`.
 '''

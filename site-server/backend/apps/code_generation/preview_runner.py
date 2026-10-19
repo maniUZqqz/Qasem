@@ -134,7 +134,10 @@ def env_for(project):
     return dict(os.environ, PYTHONPATH=root, DJANGO_SETTINGS_MODULE=project.settings_module_name,
                 DJANGO_ALLOWED_HOSTS='*', DJANGO_DEBUG='True', PYTHONUNBUFFERED='1',
                 # پروژهٔ اصلیِ واردشده خودش استودیو را سوار می‌کند؛ این‌جا نباید
-                STUDIO_MOUNTED='False')
+                STUDIO_MOUNTED='False',
+                # تنظیماتِ تولیدشده با این پرچم X-Frame-Options را برمی‌دارد تا پیش‌نمایش داخلِ
+                # iframe ِ پنل (پورتِ دیگر) باز شود
+                STUDIO_PREVIEW='1')
 
 
 def start(project):

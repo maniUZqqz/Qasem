@@ -16,7 +16,7 @@ one node and never processes an identical request twice.
 | `worker-3d.bat` | Blender render worker for the 3D video section (same registration); started automatically by `START.bat` when the `up3d` folder exists |
 | `upmarket_comfyui_flask\` | ComfyUI profiles (FLUX / Wan) and workflow graphs. `agent.py` reads `profiles.json` + `workflows\*.json` directly; running the Flask bridge itself is optional |
 | `up3d\`, `engine\`, `assets\` | 3D engine + assets (shipped; nothing else to download except Blender) |
-| `tools\PersianAiKit\Photo`, `Video`, `Voice` | photo / video / voice editors (.NET 8); each has its own `Run-Server.bat` |
+| `tools\PersianAiKit\Photo`, `Video`, `Voice` | photo / video / voice editors (.NET 8); `Setup-Services.bat` prepares them once |
 
 ## Setup (about 5 minutes per machine)
 
@@ -35,6 +35,21 @@ one node and never processes an identical request twice.
 
 Second machine: copy the same folder (without `node.json`) and run `START.bat` again — it registers under
 its own name.
+
+## One-time setup of the editors: `Setup-Services.bat`
+
+The photo / video / voice editors (PersianAiKit, .NET 8) ship as source. Run **`Setup-Services.bat`** once: it installs the
+.NET 8 SDK (winget) if missing, publishes the three editors into `tools\PersianAiKit\<Kit>pp` (so they start in
+seconds instead of building for minutes), installs ffmpeg for the video editor, downloads the models (Piper voices +
+Vosk for the voice editor, the upscaler for the photo editor — from the site first, the internet as fallback) and ends with
+the diagnostic. Safe to run again. Without it the first start of each editor compiles it (several minutes) and the
+voice editor has no voices.
+
+Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
+the last lines are sent to the site log (panel → Processing servers → log of this node).
+
+**ComfyUI path:** the agent looks for `run_nvidia_gpu.bat` (portable ComfyUI) in the usual folders and writes it into
+`services.json` → `comfyui` → `start`. If it is not found (`agent.py --check` says so), write the path there yourself.
 
 ## Services and auto-switch (controlled from the panel)
 

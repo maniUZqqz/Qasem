@@ -4,13 +4,15 @@ import io
 import os
 import shutil
 import subprocess
+import time
 import zipfile
 
 from django.utils import timezone
 
 from apps.projects.models import App, BuildLog, Field, Model, Page, Project, Route, View
 from . import envs, vcs
-from .generator import DEFAULT_BODIES, GenerationError, ProjectGenerator, default_template_body
+from .generator import (DEFAULT_BODIES, GenerationError, ProjectGenerator, default_template_body,
+                        run_readme, runner_files)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -224,20 +226,42 @@ def migrate(project):
 
 
 EXPORT_SKIP_DIRS = {'venv', '.venv', '__pycache__', 'staticfiles', 'node_modules'}
+EXPORT_SKIP_FILES = {'.admin-password.txt'}
+DEFAULT_REQUIREMENTS = 'Django>=4.2,<5.1\nPillow>=10.0\n'
 
 
 def export_zip(project, with_git=False):
+    """ZIPِ کاملِ پروژه. اگر run.bat / run.sh / scripts/ensure_admin.py / requirements.txt در پوشه
+    نبود (پروژهٔ قدیمی یا واردشده) همان‌جا به ZIP اضافه می‌شود تا خروجی همیشه یک‌کلیکه اجرا شود."""
     root = str(project.path)
     buf = io.BytesIO()
     skip = set(EXPORT_SKIP_DIRS) | (set() if with_git else {'.git'})
+    present = set()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for dp, dn, fn in os.walk(root):
             dn[:] = [d for d in dn if d not in skip]
             for name in fn:
-                if name.endswith(('.pyc', '.sqlite3')) or name.startswith(('.preview', '.studio-')):
+                if name.endswith(('.pyc', '.sqlite3')) or name.startswith(('.preview', '.studio-')) \
+                        or name in EXPORT_SKIP_FILES:
                     continue
                 full = os.path.join(dp, name)
-                z.write(full, os.path.join(project.slug, os.path.relpath(full, root)))
+                rel = os.path.relpath(full, root).replace(os.sep, '/')
+                present.add(rel)
+                z.write(full, project.slug + '/' + rel)
+
+        extras = runner_files(project.name, project.settings_module_name)
+        if 'run.bat' not in present:
+            extras['README-RUN.md'] = (run_readme(project.name), 0)
+        if 'requirements.txt' not in present:
+            extras['requirements.txt'] = (DEFAULT_REQUIREMENTS, 0)
+        stamp = time.localtime()[:6]
+        for rel, (body, mode) in extras.items():
+            if rel in present:
+                continue
+            info = zipfile.ZipInfo(project.slug + '/' + rel, date_time=stamp)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = ((mode or 0o644) & 0xFFFF) << 16
+            z.writestr(info, body.encode('utf-8'))
     buf.seek(0)
     return buf
 

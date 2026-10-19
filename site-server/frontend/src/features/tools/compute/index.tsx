@@ -162,18 +162,198 @@ const HIDDEN_CAPS = new Set<string>([
   ...MANAGED_KEYS,
 ]);
 
-const KINDS: { value: string; label: string; example: string }[] = [
-  { value: "echo", label: "echo — فقط آزمونِ اتصال", example: '{"sleep": 2}' },
+/** فیلدِ فایلی که یک پیش‌تنظیم می‌خواهد. نامِ فیلد همان کلیدی است که بک‌اند (compute/submit) در payload.files می‌گذارد و عامل می‌خواند. */
+type PresetFile = { field: "image" | "video" | "audio"; label: string; accept: string; hint: string };
+
+/** پروفایلِ ComfyUI (upmarket_comfyui_flask/profiles.json روی سرورِ پردازش) با کنترل‌های پیش‌فرضش */
+type PresetProfile = { id: string; label: string; controls: Record<string, number> };
+
+/**
+ * یک «پیش‌تنظیم» از فرمِ آزمایش: نوعِ کار + سرویسی که روی سرور باید روشن باشد + نمونهٔ معتبرِ payload + فایلی که
+ * لازم دارد. کلیدهای payload همان‌هایی است که عاملِ سرورِ پردازش (processing-server/agent.py، تابع‌های h_*) می‌خواند؛
+ * نامِ فایلِ آپلودشده را خودِ بک‌اند در payload.files.<field> می‌گذارد و عامل از همان‌جا برمی‌دارد.
+ */
+type Preset = {
+  id: string;
+  label: string;
+  kind: string;
+  /** کلیدِ سرویس در services/startable ِ سرور (CAPABILITY_PREFIXES در apps/compute/services.py)؛ null = هر سرورِ آنلاینی */
+  service: ServiceKey | null;
+  description: string;
+  /** نمونهٔ معتبر — با انتخابِ پیش‌تنظیم در textarea می‌نشیند و قابلِ ویرایش است */
+  example: Record<string, unknown>;
+  file?: PresetFile;
+  /** comfy.profile: انتخابِ پروفایل، کلیدهای profile و controls ِ payload را عوض می‌کند */
+  profiles?: PresetProfile[];
+  /** ollama: مدل از payload.model خوانده و با ollama_models ِ گزارش‌شدهٔ سرور سنجیده می‌شود */
+  ollama?: boolean;
+  /** مهلتِ کار به ثانیه (پیش‌فرضِ بک‌اند ۱۸۰۰)؛ ویدیو بیشتر می‌خواهد */
+  timeout?: number;
+  /** یادداشتِ مهم زیرِ توضیح (زمان، حافظه…) */
+  note?: string;
+};
+
+const FLUX_IMAGE_PROFILES: PresetProfile[] = [
+  { id: "flux-product-balanced", label: "متعادل — ۱۰۲۴×۱۰۲۴، ۲۴ گام (پیش‌فرض)", controls: { width: 1024, height: 1024, steps: 24, guidance: 3.5, seed: -1 } },
+  { id: "flux-product-portrait", label: "عمودی — ۷۶۸×۱۰۲۴ برای پست و استوری", controls: { width: 768, height: 1024, steps: 24, guidance: 3.5, seed: -1 } },
+  { id: "flux-product-fast", label: "سریع — ۷۶۸×۷۶۸، ۲۰ گام برای آزمایشِ پرامپت", controls: { width: 768, height: 768, steps: 20, guidance: 3.5, seed: -1 } },
+];
+const FLUX_EDIT_PROFILES: PresetProfile[] = [
+  { id: "flux-edit-balanced", label: "ویرایشِ متعادل — denoise ۰٫۵۸", controls: { width: 1024, height: 576, steps: 24, denoise: 0.58, guidance: 3.5, seed: -1 } },
+  { id: "flux-edit-preserve", label: "حفظِ بیشترِ عکسِ اصلی — denoise ۰٫۴", controls: { width: 1024, height: 576, steps: 24, denoise: 0.4, guidance: 3.0, seed: -1 } },
+];
+const WAN_PROFILES: PresetProfile[] = [
+  { id: "wan22-480p-short", label: "کوتاه — ۱۷ فریم (حدود ۱ ثانیه)، ۸۳۲×۴۸۰", controls: { width: 832, height: 480, length: 17, steps: 8, seed: -1 } },
+  { id: "wan22-480p-long", label: "طولانی‌تر — ۳۳ فریم (حدود ۲ ثانیه)، حافظه و زمانِ بیشتر", controls: { width: 832, height: 480, length: 33, steps: 8, seed: -1 } },
+];
+
+const IMAGE_FILE = (hint: string): PresetFile => ({ field: "image", label: "عکسِ ورودی (الزامی)", accept: "image/*", hint });
+
+const PRESETS: Preset[] = [
   {
-    value: "comfy.profile",
-    label: "comfy.profile — تصویر/ویدیو با پروفایلِ آماده (FLUX / Wan)",
-    example: '{"profile": "flux-product-balanced", "prompt": "a red ceramic mug on a wooden table, studio light"}',
+    id: "flux-image",
+    label: "تصویر با FLUX",
+    kind: "comfy.profile",
+    service: "comfyui",
+    description:
+      "از روی متن (prompt) یک تصویرِ تازه با FLUX روی ComfyUI می‌سازد؛ فایلی لازم نیست. prompt را انگلیسی بنویسید (مدل فارسی را خوب نمی‌فهمد)؛ negative_prompt چیزهایی است که نباشد. خروجی یک PNG است که در جدولِ «کارها» دیده می‌شود.",
+    example: {
+      profile: "flux-product-balanced",
+      prompt: "a red ceramic coffee mug on a wooden table, soft studio light, clean product photo",
+      negative_prompt: "blurry, text, watermark",
+      controls: { ...FLUX_IMAGE_PROFILES[0].controls },
+    },
+    profiles: FLUX_IMAGE_PROFILES,
+    note: "روی RTX 3060 معمولاً کمتر از یک دقیقه. seed = -1 یعنی هر بار تصادفی.",
   },
-  { value: "comfy.graph", label: "comfy.graph — گرافِ خامِ ComfyUI", example: '{"graph": {}}' },
-  { value: "photo.edit", label: "photo.edit — ویرایشِ عکس با نسخه (PersianAiKit.Photo)", example: '{"auto": true}' },
-  { value: "video.edit", label: "video.edit — ویرایش/خروجیِ ویدیو (PersianAiKit.Video)", example: '{"auto": true}' },
-  { value: "voice.tts", label: "voice.tts — متن به گفتار (PersianAiKit.Voice)", example: '{"text": "سلام، این یک آزمایش است."}' },
-  { value: "ollama.chat", label: "ollama.chat — متن با Ollama روی GPU", example: '{"model": "qwen2.5:7b", "messages": [{"role": "user", "content": "سلام"}]}' },
+  {
+    id: "wan-video",
+    label: "ویدیو با Wan 2.2",
+    kind: "comfy.profile",
+    service: "comfyui",
+    description:
+      "از یک عکسِ مرجع یک ویدیوی کوتاهِ 480p با Wan 2.2 می‌سازد (عکس ⇐ ویدیو). عکس الزامی است؛ prompt حرکتی را توصیف می‌کند که باید اتفاق بیفتد (انگلیسی). length تعدادِ فریم است (۱۶ فریم بر ثانیه).",
+    example: {
+      profile: "wan22-480p-short",
+      prompt: "the mug slowly rotates on the table, gentle camera push-in, soft studio light",
+      negative_prompt: "blurry, distorted, text, watermark",
+      controls: { ...WAN_PROFILES[0].controls },
+    },
+    profiles: WAN_PROFILES,
+    file: IMAGE_FILE("اولین فریمِ ویدیو همین عکس است. نامش خودکار در payload.files.image می‌رود."),
+    timeout: 3600,
+    note: "روی RTX 3060 چند دقیقه طول می‌کشد (پروفایلِ طولانی بیشتر). اول «کوتاه» را امتحان کنید؛ اگر حافظهٔ گرافیک کم آمد به همان برگردید. مهلتِ این کار یک ساعت است.",
+  },
+  {
+    id: "flux-edit",
+    label: "ویرایشِ تصویر با FLUX",
+    kind: "comfy.profile",
+    service: "comfyui",
+    description:
+      "عکسِ مرجع را با FLUX بازسازی می‌کند و تغییرِ خواسته‌شده در prompt را اعمال می‌کند (img2img). عکس الزامی است. denoise کمتر = وفاداریِ بیشتر به عکسِ اصلی، بیشتر = تغییرِ بیشتر.",
+    example: {
+      profile: "flux-edit-balanced",
+      prompt: "the same mug, now matte black, on a marble table, soft studio light",
+      negative_prompt: "blurry, text, watermark",
+      controls: { ...FLUX_EDIT_PROFILES[0].controls },
+    },
+    profiles: FLUX_EDIT_PROFILES,
+    file: IMAGE_FILE("عکسی که باید ویرایش شود. نامش خودکار در payload.files.image می‌رود."),
+  },
+  {
+    id: "photo-edit",
+    label: "ویرایشگرِ عکس (PersianAiKit)",
+    kind: "photo.edit",
+    service: "photo",
+    description:
+      "عکس را به ویرایشگرِ عکسِ PersianAiKit (سرویسِ «عکس» روی سرور) می‌دهد. با auto: true نسخهٔ خودکار (نور، رنگ، برش) اعمال می‌شود؛ به‌جایش می‌توانید recipe بدهید. خروجی عکسِ ویرایش‌شده است.",
+    example: { auto: true },
+    file: IMAGE_FILE("عکسی که باید ویرایش شود. نامش خودکار در payload.files.image می‌رود."),
+  },
+  {
+    id: "photo-analyze",
+    label: "تحلیلِ عکس (PersianAiKit)",
+    kind: "photo.analyze",
+    service: "photo",
+    description:
+      "عکس را تحلیل می‌کند (سرویسِ «عکس») و نتیجه را به‌صورت JSON برمی‌گرداند (analyze.json). پارامتری ندارد؛ ورودی فقط فایل است.",
+    example: {},
+    file: IMAGE_FILE("نامش خودکار در payload.files.image می‌رود."),
+  },
+  {
+    id: "video-edit",
+    label: "ویرایشگرِ ویدیو (PersianAiKit)",
+    kind: "video.edit",
+    service: "video",
+    description:
+      "ویدیو را به ویرایشگرِ ویدیوی PersianAiKit (سرویسِ «ویدیو») می‌دهد؛ با auto: true نسخهٔ خودکار ساخته و خروجیِ MP4 گرفته می‌شود. به‌جای auto می‌توانید recipe بدهید.",
+    example: { auto: true },
+    file: { field: "video", label: "ویدیوی ورودی (الزامی)", accept: "video/*", hint: "نامش خودکار در payload.files.video می‌رود." },
+    timeout: 3600,
+    note: "خروجی‌گرفتن طول می‌کشد؛ مهلتِ این کار یک ساعت است.",
+  },
+  {
+    id: "tts",
+    label: "متن به گفتار",
+    kind: "voice.tts",
+    service: "voice",
+    description:
+      "متنِ فارسی را با سرویسِ «صدا»ی PersianAiKit می‌خواند؛ خروجی speech.wav. فقط text لازم است؛ voice، engine، speed و seed اختیاری‌اند (اگر ننویسید پیش‌فرضِ سرویس).",
+    example: { text: "سلام، این یک آزمایش است." },
+  },
+  {
+    id: "asr",
+    label: "گفتار به متن",
+    kind: "voice.asr",
+    service: "voice",
+    description:
+      "فایلِ صدا را به متن تبدیل می‌کند (asr.json). phrases واژه‌های مورد انتظار است (اختیاری، برای دقتِ بیشتر؛ خالی یعنی هیچ).",
+    example: { phrases: [] },
+    file: { field: "audio", label: "فایلِ صدا (الزامی)", accept: "audio/*", hint: "wav یا mp3. نامش خودکار در payload.files.audio می‌رود." },
+  },
+  {
+    id: "ollama-chat",
+    label: "گفتگو با Ollama",
+    kind: "ollama.chat",
+    service: "ollama",
+    description:
+      "یک پرسشِ متنی به مدلِ Ollama روی GPU. بدنه همان /api/chat ِ Ollama است: model و messages. خروجی ollama.json (پاسخ در message.content).",
+    example: { model: "qwq:32b", messages: [{ role: "user", content: "سلام! در یک جمله بگو چه کاری از دستت برمی‌آید." }], stream: false },
+    ollama: true,
+  },
+  {
+    id: "ollama-vision",
+    label: "بیناییِ Ollama (عکس + پرسش)",
+    kind: "ollama.chat",
+    service: "ollama",
+    description:
+      "یک عکس را به مدلِ بیناییِ Ollama نشان می‌دهد و درباره‌اش می‌پرسد. در images باید نامِ فایلِ آپلودشده باشد — با انتخابِ فایل خودکار پر می‌شود؛ عامل همان فایل را base64 می‌کند و به Ollama می‌دهد.",
+    example: { model: "qwen3-vl:30b", messages: [{ role: "user", content: "این عکس چیست؟ کوتاه و به فارسی.", images: [] }], stream: false },
+    file: IMAGE_FILE("با انتخابِ فایل، نامش در messages[…].images می‌نشیند. نامِ فایل بهتر است لاتین باشد."),
+    ollama: true,
+  },
+  {
+    id: "comfy-graph",
+    label: "گرافِ خامِ ComfyUI",
+    kind: "comfy.graph",
+    service: "comfyui",
+    description:
+      "یک گرافِ خامِ ComfyUI (قالبِ API: شناسه ⇐ class_type + inputs) بی‌هیچ پروفایلی. گراف باید یک گرهٔ خروجی مثل SaveImage داشته باشد وگرنه ComfyUI «Prompt has no outputs» می‌دهد. نمونهٔ زیر یک تصویرِ خالیِ ۵۱۲×۵۱۲ می‌سازد و ذخیره می‌کند — برای آزمونِ مسیر کافی است. فایل‌های ورودی (اختیاری) با uploads: [نام‌ها] به ComfyUI داده می‌شوند.",
+    example: {
+      graph: {
+        "1": { class_type: "EmptyImage", inputs: { width: 512, height: 512, batch_size: 1, color: 0 } },
+        "2": { class_type: "SaveImage", inputs: { filename_prefix: "nm_test", images: ["1", 0] } },
+      },
+    },
+  },
+  {
+    id: "echo",
+    label: "echo — فقط آزمونِ اتصال",
+    kind: "echo",
+    service: null,
+    description: "هیچ موتوری درگیر نمی‌شود: سرور payload را همان‌طور در echo.json برمی‌گرداند. sleep ثانیه‌های مکث است. برای این‌که ببینید صف و اتصال کار می‌کند.",
+    example: { sleep: 2 },
+  },
 ];
 
 /** ردیف‌های کارتِ «مسیرِ پردازش» — همان چهار قابلیتِ Provider.Capability در بک‌اند */
@@ -590,7 +770,7 @@ export default function ComputePage() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <JobsTable jobs={jobs} onCancel={cancelJob} />
-        <SubmitCard onDone={load} />
+        <SubmitCard nodes={nodes} onDone={load} />
       </div>
     </div>
   );
@@ -1355,75 +1535,291 @@ function OutputLink({ output }: { output: Output }) {
   );
 }
 
-function SubmitCard({ onDone }: { onDone: () => Promise<void> }) {
-  const [kind, setKind] = useState(KINDS[0].value);
-  const [payload, setPayload] = useState(KINDS[0].example);
+function pretty(o: unknown): string {
+  return JSON.stringify(o, null, 2);
+}
+
+/** payload ِ متنی را به‌عنوان شیء می‌خواند؛ JSON نامعتبر یا غیرِ شیء ⇐ null */
+function parsePayload(text: string): Record<string, unknown> | null {
+  try {
+    const v: unknown = JSON.parse(text);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** یک تغییر روی payload ِ متنی؛ اگر متن خراب بود از نمونهٔ پیش‌تنظیم شروع می‌کند */
+function patchPayload(
+  text: string,
+  fallback: Record<string, unknown>,
+  fn: (o: Record<string, unknown>) => Record<string, unknown>,
+): string {
+  return pretty(fn(parsePayload(text) ?? { ...fallback }));
+}
+
+/** ollama با عکس: نامِ فایلِ آپلودشده باید در images ِ آخرین پیام باشد (عامل همان نام را base64 می‌کند) */
+function withOllamaImage(o: Record<string, unknown>, name: string): Record<string, unknown> {
+  const msgs = Array.isArray(o.messages) ? [...(o.messages as unknown[])] : [];
+  const last = msgs.length ? msgs[msgs.length - 1] : null;
+  if (last && typeof last === "object" && !Array.isArray(last)) {
+    msgs[msgs.length - 1] = { ...(last as Record<string, unknown>), images: [name] };
+  } else {
+    msgs.push({ role: "user", content: "این عکس چیست؟ کوتاه و به فارسی.", images: [name] });
+  }
+  return { ...o, messages: msgs };
+}
+
+/** caps.startable[key] از آخرین heartbeat: عاملِ گره می‌تواند خودش این سرویس را روشن کند */
+function startable(n: Node, key: string): boolean {
+  const s = n.capabilities?.startable;
+  return Boolean(s && typeof s === "object" && (s as Record<string, unknown>)[key]);
+}
+
+/** فهرستِ رشته‌ای از capabilities (ollama_models، comfy_profiles)؛ گزارش‌نشده ⇐ خالی */
+function listOf(n: Node, key: string): string[] {
+  const v = n.capabilities?.[key];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+/**
+ * این پیش‌تنظیم الان قابلِ اجراست؟ همان قاعدهٔ بک‌اند (services.enqueue/online_nodes + ComputeNode.has):
+ * سرورِ آنلاینی که سرویس را روشن دارد، یا با سوئیچِ خودکار می‌تواند روشنش کند؛ وگرنه ثبت با ۵۰۳ رد می‌شود.
+ */
+function availability(preset: Preset, nodes: Node[]): { tone: Tone; text: string } {
+  const enabled = nodes.filter((n) => n.enabled);
+  const online = enabled.filter((n) => n.online);
+  const names = (xs: Node[]) => xs.map((n) => n.name).join("، ");
+  if (!preset.service) {
+    return online.length
+      ? { tone: "ok", text: `هر سرورِ آنلاینی انجامش می‌دهد (${names(online)})` }
+      : { tone: "bad", text: "هیچ سروری آنلاین نیست — ثبت پذیرفته نمی‌شود تا یکی وصل شود" };
+  }
+  const key = preset.service;
+  const label = SERVICE_LABELS[key];
+  const ready = online.filter((n) => n.services?.[key]);
+  if (ready.length) return { tone: "ok", text: `${label} روی ${names(ready)} روشن است — آماده` };
+  const can = online.filter((n) => startable(n, key));
+  const auto = can.filter((n) => n.auto_switch);
+  if (auto.length) return { tone: "warn", text: `${label} الان خاموش است؛ ${names(auto)} با سوئیچِ خودکار پیش از کار روشنش می‌کند` };
+  if (can.length)
+    return { tone: "bad", text: `${label} خاموش است و سوئیچِ خودکارِ ${names(can)} هم خاموش — در کشوی «سرویس‌ها» روشنش کنید` };
+  if (online.length) return { tone: "bad", text: `هیچ سرورِ آنلاینی ${label} ندارد — ثبت پذیرفته نمی‌شود` };
+  const last = enabled.filter((n) => n.services?.[key] || startable(n, key));
+  return last.length
+    ? { tone: "bad", text: `هیچ سروری آنلاین نیست — ${names(last)} طبق آخرین گزارشش ${label} را دارد؛ تا وصل نشود ثبت پذیرفته نمی‌شود` }
+    : { tone: "bad", text: `هیچ سروری آنلاین نیست و هیچ‌کدام ${label} را گزارش نکرده‌اند` };
+}
+
+/**
+ * «آزمایش»: فرمِ پیش‌تنظیم‌ها. هر پیش‌تنظیم توضیحِ خودش، payload ِ معتبر و فایلِ لازمش را می‌آورد و می‌گوید
+ * کدام سرویس را می‌خواهد و آیا سروری آن را دارد. ثبت همان POST /compute/submit/ (multipart) است:
+ * kind + payload (JSON) + timeout + فایل با نامِ فیلدِ خودش (image/video/audio).
+ */
+function SubmitCard({ nodes, onDone }: { nodes: Node[]; onDone: () => Promise<void> }) {
+  const [presetId, setPresetId] = useState(PRESETS[0].id);
+  const preset = PRESETS.find((p) => p.id === presetId) ?? PRESETS[0];
+  const [payload, setPayload] = useState(() => pretty(PRESETS[0].example));
   const [node, setNode] = useState("");
   const [dedupe, setDedupe] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ tone: Tone; text: string } | null>(null);
+
+  const choosePreset = (id: string) => {
+    const p = PRESETS.find((x) => x.id === id) ?? PRESETS[0];
+    setPresetId(p.id);
+    setPayload(pretty(p.example));
+    setFile(null); // ورودیِ فایل با key={preset.id} از نو ساخته می‌شود
+    setMsg(null);
+  };
+
+  const chooseProfile = (id: string) => {
+    const prof = preset.profiles?.find((x) => x.id === id);
+    if (!prof) return;
+    setPayload((t) => patchPayload(t, preset.example, (o) => ({ ...o, profile: prof.id, controls: { ...prof.controls } })));
+  };
+
+  const chooseFile = (f: File | null) => {
+    setFile(f);
+    if (f && preset.ollama && preset.file?.field === "image") {
+      setPayload((t) => patchPayload(t, preset.example, (o) => withOllamaImage(o, f.name)));
+    }
+  };
+
+  const parsed = parsePayload(payload);
+  const currentProfile = typeof parsed?.profile === "string" ? parsed.profile : "";
+  const currentModel = typeof parsed?.model === "string" ? parsed.model : "";
+  const avail = availability(preset, nodes);
+  const enabledNodes = nodes.filter((n) => n.enabled);
+  // ollama: مدل‌هایی که سرورها گزارش کرده‌اند (اتحادِ همه)؛ خالی = گزارش نشده، پس چیزی نمی‌گوییم
+  const models = preset.ollama ? Array.from(new Set(enabledNodes.flatMap((n) => listOf(n, "ollama_models")))) : [];
+  const modelMissing = Boolean(preset.ollama && currentModel && models.length && !models.includes(currentModel));
+  const knownProfiles = preset.profiles ? Array.from(new Set(enabledNodes.flatMap((n) => listOf(n, "comfy_profiles")))) : [];
+  const profileMissing = Boolean(preset.profiles && currentProfile && knownProfiles.length && !knownProfiles.includes(currentProfile));
+  const profileInList = Boolean(preset.profiles?.some((p) => p.id === currentProfile));
+  const rows = Math.min(18, Math.max(5, payload.split("\n").length + 1));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
     setMsg(null);
+    if (!parsed) {
+      setMsg({ tone: "bad", text: "پارامترها JSON معتبر نیست — باید یک شیء {…} باشد." });
+      return;
+    }
+    if (preset.file && !file) {
+      setMsg({ tone: "bad", text: `این پیش‌تنظیم «${preset.file.label}» لازم دارد.` });
+      return;
+    }
+    setBusy(true);
     try {
       const form = new FormData();
-      form.append("kind", kind);
+      form.append("kind", preset.kind);
       form.append("payload", payload);
       form.append("node", node);
       form.append("dedupe", dedupe ? "1" : "0");
-      if (file) {
-        const field = kind.startsWith("video") ? "video" : kind.startsWith("voice") ? "audio" : "image";
-        form.append(field, file);
-      }
+      if (preset.timeout) form.append("timeout", String(preset.timeout));
+      if (preset.file && file) form.append(preset.file.field, file);
       const { data } = await api.post<Job>("/compute/submit/", form);
-      setMsg(data.state === "COMPLETED" ? `قبلاً انجام شده بود؛ همان خروجی برگشت (${data.uid.slice(0, 8)})` : `ثبت شد: ${data.uid.slice(0, 8)}`);
+      setMsg(
+        data.state === "COMPLETED"
+          ? { tone: "ok", text: `قبلاً انجام شده بود؛ همان خروجی برگشت (${data.uid.slice(0, 8)})` }
+          : { tone: "ok", text: `ثبت شد: ${data.uid.slice(0, 8)} — در جدولِ «کارها» دنبالش کنید` },
+      );
       await onDone();
     } catch (err) {
-      setMsg(errorMessage(err));
+      setMsg({ tone: "bad", text: errorMessage(err) });
     } finally {
       setBusy(false);
     }
   };
 
+  const availColor = avail.tone === "neutral" ? "var(--text-3)" : `var(--${avail.tone})`;
+  const availIcon: IconName = avail.tone === "ok" ? "ok" : avail.tone === "warn" ? "warn" : "ban";
+
   return (
     <Card>
       <SectionTitle>آزمایش</SectionTitle>
+      <p className="-mt-1 mb-3 text-xs" style={{ color: "var(--text-3)" }}>
+        یک پیش‌تنظیم انتخاب کنید؛ توضیح، پارامترهای قابلِ ویرایش و فایلِ لازمش همین‌جا می‌آید. نتیجه در جدولِ «کارها» می‌نشیند.
+      </p>
       <form onSubmit={submit} className="space-y-3">
-        <Field label="نوعِ کار">
-          <Select
-            value={kind}
-            onChange={(e) => {
-              const k = KINDS.find((x) => x.value === e.target.value) || KINDS[0];
-              setKind(k.value);
-              setPayload(k.example);
-            }}
-          >
-            {KINDS.map((k) => (
-              <option key={k.value} value={k.value}>{k.label}</option>
+        <Field label="چه کاری؟">
+          <Select value={preset.id} onChange={(e) => choosePreset(e.target.value)}>
+            {PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </Select>
         </Field>
-        <Field label="پارامترها (JSON)">
-          <TextArea rows={5} dir="ltr" value={payload} onChange={(e) => setPayload(e.target.value)} />
+
+        <div
+          className="rounded-lg px-3 py-2 text-sm leading-6"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--text-2)" }}
+        >
+          <div>{preset.description}</div>
+          {preset.note && (
+            <div className="mt-1 flex items-start gap-1 text-xs" style={{ color: "var(--warn)" }}>
+              <Icon name="clock" size={12} /> <span>{preset.note}</span>
+            </div>
+          )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--text-3)" }}>
+            <span>
+              نوعِ کار: <code dir="ltr">{preset.kind}</code>
+            </span>
+            <span>·</span>
+            <span className="inline-flex items-center gap-1">
+              سرویسِ لازم: {preset.service ? <Badge tone="brand">{SERVICE_LABELS[preset.service]}</Badge> : <Badge>هیچ</Badge>}
+            </span>
+            {preset.file && (
+              <>
+                <span>·</span>
+                <span>
+                  فایل: <code dir="ltr">{preset.file.field}</code>
+                </span>
+              </>
+            )}
+          </div>
+          <div className="mt-1 flex items-start gap-1 text-xs" style={{ color: availColor }}>
+            <span className="mt-0.5 shrink-0"><Icon name={availIcon} size={12} /></span>
+            <span>{avail.text}</span>
+          </div>
+        </div>
+
+        {preset.profiles && (
+          <Field
+            label="پروفایل"
+            hint={
+              profileMissing
+                ? `سرور پروفایلِ «${currentProfile}» را گزارش نکرده؛ پروفایل‌های سرور: ${knownProfiles.join("، ")}`
+                : "انتخاب، کلیدهای profile و controls را در پارامترها عوض می‌کند؛ بعدش هم می‌توانید دستی تغییر دهید."
+            }
+          >
+            <Select value={profileInList ? currentProfile : ""} onChange={(e) => chooseProfile(e.target.value)}>
+              {!profileInList && <option value="">— (در پارامترها دستی نوشته شده)</option>}
+              {preset.profiles.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        <Field
+          label="پارامترها (JSON) — قابلِ ویرایش"
+          hint={
+            !parsed
+              ? "JSON نامعتبر است — باید یک شیء {…} باشد"
+              : modelMissing
+                ? `مدلِ «${currentModel}» روی سرور نیست؛ مدل‌های گزارش‌شده: ${models.slice(0, 12).join("، ")}${models.length > 12 ? "، …" : ""}`
+                : preset.ollama && models.length
+                  ? `مدل‌های روی سرور (${fa(models.length)}): ${models.slice(0, 8).join("، ")}${models.length > 8 ? "، …" : ""}`
+                  : undefined
+          }
+        >
+          <TextArea
+            rows={rows}
+            dir="ltr"
+            className="font-mono text-xs"
+            value={payload}
+            onChange={(e) => setPayload(e.target.value)}
+            style={{ borderColor: parsed ? undefined : "var(--bad)" }}
+          />
         </Field>
-        <Field label="فایلِ ورودی (اختیاری: عکس، ویدیو یا صدا)">
-          <Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        </Field>
+
+        {preset.file && (
+          <Field label={preset.file.label} hint={preset.file.hint}>
+            <Input
+              key={preset.id}
+              type="file"
+              accept={preset.file.accept}
+              onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
+            />
+          </Field>
+        )}
+
         <Field label="فقط این سرور (اختیاری)">
-          <Input value={node} onChange={(e) => setNode(e.target.value)} placeholder="خالی = هر سرورِ توانا" />
+          <Select value={node} onChange={(e) => setNode(e.target.value)}>
+            <option value="">هر سرورِ توانا</option>
+            {enabledNodes.map((n) => (
+              <option key={n.id} value={n.name}>
+                {n.name}
+                {n.online ? "" : " (خاموش)"}
+              </option>
+            ))}
+          </Select>
         </Field>
         <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
           <input type="checkbox" checked={dedupe} onChange={(e) => setDedupe(e.target.checked)} />
           اگر عینِ همین کار قبلاً انجام شده، همان خروجی برگردد
         </label>
-        <div className="flex items-center gap-3">
-          <Button type="submit" disabled={busy}>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" disabled={busy || !parsed}>
             {busy ? <Spinner size={16} /> : <Icon name="play" size={14} />} ثبتِ کار
           </Button>
-          {msg && <span className="text-xs" style={{ color: "var(--text-2)" }}>{msg}</span>}
+          {msg && (
+            <span className="text-xs" style={{ color: msg.tone === "bad" ? "var(--bad)" : "var(--ok)" }}>
+              {msg.text}
+            </span>
+          )}
         </div>
       </form>
     </Card>

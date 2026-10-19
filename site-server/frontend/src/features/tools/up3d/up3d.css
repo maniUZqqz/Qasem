@@ -1,5 +1,6 @@
 /* ویدیوی سه‌بعدی — فقط چیزهایی که با کلاس‌های عمومیِ index.css ساخته نمی‌شوند:
-   خطِ زمان، انتخابگرِ تصویری، مراحلِ کار، فهرستِ ایرادها، پیامِ کوتاه. همه از توکن‌های تم می‌خوانند. */
+   جریانِ راهنما (بخش‌های شماره‌دار + ستونِ چسبانِ خلاصه)، خطِ زمان، انتخابگرِ تصویری، مراحلِ کار،
+   فهرستِ ایرادها، پیامِ کوتاه. همه از توکن‌های تم می‌خوانند. */
 
 :root {
   --u3d-t-actions: #6aa9ff;
@@ -10,21 +11,87 @@
   --u3d-t-overlays: #f97362;
 }
 
-/* ── چیدمانِ استودیو: پیش‌نمایش | خطِ زمان | بازرس */
-.u3d-studio {
-  display: grid;
-  grid-template-columns: 330px minmax(0, 1fr) 340px;
-  gap: 14px;
-  align-items: start;
+/* ── جریانِ راهنما: ستونِ اصلی (بخش‌های ۱…۵) + ستونِ چسبانِ «خلاصه و وضعیت» */
+.u3d-flow { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+.u3d-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.u3d-aside { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 1000px) {
+  .u3d-flow { grid-template-columns: 1fr; }
+  .u3d-aside { position: static; order: -1; }
 }
-.u3d-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-@media (max-width: 1400px) {
-  .u3d-studio { grid-template-columns: minmax(0, 1fr) 330px; }
-  .u3d-col.u3d-left { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+
+.u3d-section-h { display: flex; align-items: flex-start; gap: 12px; }
+.u3d-num {
+  flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
+  font-weight: 800; font-size: .9rem; color: #fff; background: var(--brand);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 18%, transparent);
 }
-@media (max-width: 900px) {
-  .u3d-studio, .u3d-col.u3d-left { grid-template-columns: 1fr; }
+
+/* دو ستون داخلِ یک بخش؛ روی گوشی یک ستون */
+.u3d-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; min-width: 0; }
+.u3d-two > * { min-width: 0; }
+@media (max-width: 800px) { .u3d-two { grid-template-columns: 1fr; } }
+
+/* تنظیماتِ پیشرفتهٔ تاشو */
+.u3d-adv {
+  border: 1px dashed var(--line-strong); border-radius: 12px; padding: 0 12px;
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
 }
+.u3d-adv > summary {
+  cursor: pointer; padding: 10px 0; font-size: .85rem; font-weight: 600; color: var(--text-2);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; list-style: none;
+}
+.u3d-adv > summary::-webkit-details-marker { display: none; }
+.u3d-adv > summary::before { content: "◂"; color: var(--text-3); transition: transform .15s; display: inline-block; }
+.u3d-adv[open] > summary::before { transform: rotate(-90deg); }
+.u3d-adv-body { padding: 0 0 12px; display: flex; flex-direction: column; gap: 10px; }
+.u3d-adv-hint { font-weight: 400; color: var(--text-3); font-size: .75rem; }
+
+/* سه گامِ «از این‌جا شروع کنید» (داشبورد) و «بعد چه می‌شود» (پروژهٔ تازه) */
+.u3d-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.u3d-strip > * {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); text-decoration: none; color: inherit; min-width: 0;
+}
+.u3d-strip > a:hover { border-color: var(--brand); }
+.u3d-strip b { display: block; font-size: .86rem; color: var(--text); }
+.u3d-strip small { display: block; font-size: .74rem; color: var(--text-3); line-height: 1.5; }
+@media (max-width: 700px) { .u3d-strip { grid-template-columns: 1fr; } }
+
+/* فهرستِ آماده‌باش در کارتِ خلاصه */
+.u3d-check { display: flex; flex-direction: column; gap: 6px; font-size: .82rem; }
+.u3d-check > div { display: flex; gap: 8px; align-items: flex-start; color: var(--text-2); }
+.u3d-check i { font-style: normal; flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: .7rem; margin-top: 1px; }
+.u3d-check .ok i { background: var(--ok-soft); color: var(--ok); }
+.u3d-check .warn i { background: var(--warn-soft); color: var(--warn); }
+.u3d-check .bad i { background: var(--bad-soft); color: var(--bad); }
+.u3d-check .neutral i { background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line); }
+
+/* ردیف‌های کوتاه (گفتارها، نوشته‌ها، خلاصه) */
+.u3d-rows { display: flex; flex-direction: column; gap: 6px; }
+.u3d-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--line); font-size: .84rem; color: var(--text-2);
+}
+.u3d-row.sel { border-color: var(--brand); }
+.u3d-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.u3d-row .when { font-size: .72rem; color: var(--text-3); white-space: nowrap; }
+
+/* کارت‌های کیفیتِ رندر (بخشِ ۴) */
+.u3d-profiles { display: grid; gap: 8px; }
+.u3d-profile {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; width: 100%;
+  border: 2px solid var(--line); border-radius: 12px; background: var(--surface-2);
+  cursor: pointer; text-align: start; font: inherit; color: inherit; transition: border-color .15s, box-shadow .15s;
+}
+.u3d-profile:hover { border-color: var(--line-strong); }
+.u3d-profile.on { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.u3d-profile .meta { font-size: .74rem; color: var(--text-3); line-height: 1.6; }
+.u3d-profile .est { font-size: .76rem; color: var(--text-2); }
+.u3d-radio {
+  flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-strong); margin-top: 3px;
+}
+.u3d-profile.on .u3d-radio { border-color: var(--brand); background: radial-gradient(circle, var(--brand) 45%, transparent 50%); }
 
 /* ── خطِ زمان */
 .u3d-tl { user-select: none; }
@@ -92,7 +159,7 @@
 .u3d-steps span.fail { color: #fff; background: var(--bad); border-color: var(--bad); }
 
 /* ── انتخابگرِ تصویری (پروژهٔ تازه) */
-.u3d-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.u3d-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 .u3d-opt {
   border: 2px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer;
   background: var(--surface-2); transition: border-color .15s, box-shadow .15s; text-align: start;

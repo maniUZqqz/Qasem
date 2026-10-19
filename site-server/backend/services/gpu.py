@@ -29,10 +29,18 @@ def _enabled() -> bool:
     return bool(settings.UPMARKET_AI.get("GPU_AUTO_UNLOAD", True))
 
 
+def _on_processing_node(base_url: str) -> bool:
+    """`agent://…` — the engine runs on a processing node that manages its own
+    VRAM (the node agent unloads Ollama before ComfyUI work and back); there is
+    nothing on this machine to coordinate, and `requests` cannot even open the
+    scheme."""
+    return (base_url or "").startswith("agent://")
+
+
 def loaded_ollama_models() -> list[str]:
     """Names of the models Ollama currently holds in memory ([] on error)."""
     base_url = settings.UPMARKET_AI["OLLAMA_BASE_URL"].rstrip("/")
-    if not is_listening(base_url):
+    if _on_processing_node(base_url) or not is_listening(base_url):
         return []
     try:
         response = requests.get(f"{base_url}/api/ps", timeout=COORDINATION_TIMEOUT)
@@ -53,7 +61,7 @@ def unload_ollama_models(except_model: str | None = None) -> None:
     if not _enabled():
         return
     base_url = settings.UPMARKET_AI["OLLAMA_BASE_URL"].rstrip("/")
-    if not is_listening(base_url):
+    if _on_processing_node(base_url) or not is_listening(base_url):
         return
     keep = (except_model or "").strip().lower()
     for name in loaded_ollama_models():
@@ -75,8 +83,8 @@ def free_comfyui_memory() -> None:
     if not _enabled():
         return
     base_url = settings.UPMARKET_AI["COMFYUI_BASE_URL"].rstrip("/")
-    if not is_listening(base_url):
-        return  # ComfyUI is not running; nothing to free
+    if _on_processing_node(base_url) or not is_listening(base_url):
+        return  # ComfyUI is not running here; nothing to free
     try:
         response = requests.post(
             f"{base_url}/free",

@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Button, Card, SectionTitle } from "../../../../components/ui";
-import { P, desc, dur, fa, label, up3d } from "../api";
-import { ButtonTabs, JobLine, Muted } from "../shared";
-import type { Catalog, Estimate, Job, Project } from "../types";
+import Icon from "../../../../components/Icon";
+import { Button } from "../../../../components/ui";
+import { P, fa } from "../api";
+import { ButtonTabs, JobLine, Muted, WaitingAlert } from "../shared";
+import type { Job, Project } from "../types";
 
-/** ستونِ کنارِ ویرایشگر: پیش‌نمایش (ویدئو/فریم‌ها/سه‌بعدی)، رندر و خروجی‌ها، کارهای این پروژه. */
+/** بخشِ ۵ «خروجی‌ها»: پیش‌نمایش (ویدئو/فریم‌ها/سه‌بعدی)، خروجی‌های دیگر (GLB، بستهٔ بازی، FBX، BLEND، فریمِ نمونه)، کارهای این پروژه. */
 
 type PvTab = "video" | "samples" | "three";
 
@@ -22,10 +23,10 @@ export function PreviewPanel({ proj }: { proj: Project }) {
   const exps = proj.jobs.filter((j) => j.kind === "export" && j.state === "COMPLETED").slice(0, 5);
 
   return (
-    <Card>
+    <div>
       <ButtonTabs<PvTab>
         tabs={[
-          { id: "video", label: "ویدئو" },
+          { id: "video", label: `ویدئو${vids.length ? ` (${fa(vids.length)})` : ""}` },
           { id: "samples", label: "فریم‌های نمونه" },
           { id: "three", label: "سه‌بعدی (وب/بازی)" },
         ]}
@@ -38,12 +39,13 @@ export function PreviewPanel({ proj }: { proj: Project }) {
             <video className="u3d-video" controls playsInline preload="metadata" poster={vids[0].files["poster.jpg"] || undefined} src={vids[0].files["final.mp4"]} />
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
               {vids.slice(0, 6).map((j) => (
-                <a key={j.id} href={j.files["final.mp4"]} target="_blank" rel="noreferrer" style={{ color: "var(--brand-strong)" }}>
+                <Link key={j.id} to={P.job(j.id)} style={{ color: "var(--brand-strong)" }}>
                   {j.profile} #{fa(j.id)}
-                </a>
+                </Link>
               ))}
-              <a className="ms-auto" href={vids[0].files["final.mp4"]} download style={{ color: "var(--brand-strong)" }}>
-                دانلود
+              <a className="ms-auto u-btn u-btn-secondary u-btn-sm" href={vids[0].files["final.mp4"]} download>
+                <Icon name="download" size={13} />
+                دانلودِ آخرین ویدئو
               </a>
             </div>
           </>
@@ -51,7 +53,7 @@ export function PreviewPanel({ proj }: { proj: Project }) {
           <Muted className="py-6 text-center">
             هنوز ویدئویی نیست.
             <br />
-            «انیمیک» را بزنید (چند دقیقه).
+            در بخشِ ۴ «انیمیک» را شروع کنید (چند دقیقه)؛ نتیجه همین‌جا می‌آید.
           </Muted>
         ))}
       {tab === "samples" &&
@@ -64,7 +66,7 @@ export function PreviewPanel({ proj }: { proj: Project }) {
             ))}
           </div>
         ) : (
-          <Muted className="py-6 text-center">«۶ فریمِ نمونه» را بزنید: چند لحظه از ویدئو با کیفیتِ پیش‌نمایش.</Muted>
+          <Muted className="py-6 text-center">«۶ فریمِ نمونه» را بزنید: چند لحظه از ویدئو با کیفیتِ پیش‌نمایش، بی‌آن‌که کلِ ویدئو رندر شود.</Muted>
         ))}
       {tab === "three" &&
         (exps.length ? (
@@ -93,143 +95,57 @@ export function PreviewPanel({ proj }: { proj: Project }) {
         ) : (
           <Muted className="py-6 text-center">«خروجیِ GLB» را بزنید: کلِ صحنه با انیمیشن برای وب، Unity، Godot، Unreal یا Blender.</Muted>
         ))}
-    </Card>
+    </div>
   );
 }
 
-export function RenderPanel({
-  cat,
-  pid,
-  version,
-  onRender,
-  onExport,
-  onContact,
-}: {
-  cat: Catalog;
-  pid: number;
-  version: number | null;
-  onRender: (profile: string, allowCpu: boolean) => void;
-  onExport: (format: string) => void;
-  onContact: () => void;
-}) {
-  const [est, setEst] = useState<Record<string, Estimate>>({});
-
-  // تخمین از آمارِ واقعیِ کارگرها؛ با هر نسخهٔ تازه (مدتِ تازه) دوباره
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      for (const p of cat.render_profile) {
-        try {
-          const e = await up3d.estimate(p.id, pid);
-          if (alive) setEst((prev) => ({ ...prev, [p.id]: e }));
-        } catch {
-          /* بی‌تخمین */
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [cat, pid, version]);
-
-  const click = (profile: string) => {
-    const e = est[profile];
-    if (e && !e.available && e.cpu_seconds) {
-      if (!window.confirm(`کارگرِ GPU آنلاین نیست. روی CPU ِ سرور اجرا شود؟\nتخمین: حدودِ ${dur(e.cpu_seconds)} (سایت‌های دیگر کند نمی‌شوند؛ اولویتِ پایین)`)) return;
-      onRender(profile, true);
-      return;
-    }
-    onRender(profile, false);
-  };
-
+/** خروجی‌های غیرِ ویدئو — همان اکشن‌های export/contact ِ API. */
+export function ExportActions({ onExport, onContact }: { onExport: (format: string) => void; onContact: () => void }) {
   return (
-    <Card>
-      <SectionTitle>رندر</SectionTitle>
-      <Muted className="text-xs">
-        اول «انیمیک» برای وارسیِ حرکت و زمان (سریع)، بعد «پیش‌نمایش» با نورِ واقعی. کیفیت‌های بالاتر روی کارگرِ GPU اجرا می‌شوند.
-      </Muted>
-      <div className="mt-2 space-y-1.5">
-        {cat.render_profile.map((p) => {
-          const e = est[p.id];
-          const quick = p.id === "animatic" || p.id === "preview";
-          return (
-            <div key={p.id} className="rounded-xl px-3 py-2" style={{ background: "var(--surface-2)", border: "1px solid var(--line)" }}>
-              <div className="flex items-center justify-between gap-2">
-                <b className="text-sm" style={{ color: "var(--text)" }}>
-                  {label(p)}
-                </b>
-                <Button size="sm" variant={quick ? "primary" : "secondary"} onClick={() => click(p.id)}>
-                  رندر
-                </Button>
-              </div>
-              <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>
-                {desc(p)}
-                {e && (
-                  <>
-                    {" · "}
-                    {fa(e.frames)} فریم ·{" "}
-                    {e.available ? (
-                      <>
-                        ~{dur(e.seconds)} روی <b>{e.worker}</b>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ color: "var(--warn)" }}>کارگرِ GPU آنلاین نیست</span>
-                        {e.cpu_seconds ? ` · روی CPU ِ سرور ~${dur(e.cpu_seconds)}` : ""}
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Button size="sm" variant="secondary" onClick={() => onExport("glb")}>
-          خروجیِ GLB (وب/بازی)
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => onExport("game_pack")} title="کاراکتر + هر حرکت یک کلیپِ جدا برای Unity/Unreal/Godot">
-          بستهٔ بازیِ کاراکتر
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => onExport("fbx")}>
-          FBX
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => onExport("blend")}>
-          BLEND
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onContact}>
-          ۶ فریمِ نمونه
-        </Button>
-      </div>
-    </Card>
+    <div className="flex flex-wrap gap-1.5">
+      <Button size="sm" variant="secondary" onClick={() => onExport("glb")} title="کلِ صحنه با انیمیشنِ پخته برای وب/بازی">
+        خروجیِ GLB (وب/بازی)
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => onExport("game_pack")} title="کاراکتر + هر حرکت یک کلیپِ جدا برای Unity/Unreal/Godot">
+        بستهٔ بازیِ کاراکتر
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => onExport("fbx")}>
+        FBX
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => onExport("blend")}>
+        BLEND
+      </Button>
+      <Button size="sm" variant="secondary" onClick={onContact} title="۶ لحظه از ویدئو با کیفیتِ پیش‌نمایش">
+        ۶ فریمِ نمونه
+      </Button>
+    </div>
   );
 }
 
-export function ProjectJobs({ jobs, onCancel }: { jobs: Job[]; onCancel: (id: number) => void }) {
+export function ProjectJobs({ jobs, onCancel, onAllowCpu }: { jobs: Job[]; onCancel: (id: number) => void; onAllowCpu: (id: number) => void }) {
   const list = jobs.slice(0, 8);
+  if (list.length === 0) return <Muted>هنوز کاری نیست.</Muted>;
   return (
-    <Card>
-      <SectionTitle>کارهای این پروژه</SectionTitle>
-      {list.length === 0 ? (
-        <Muted>هنوز کاری نیست.</Muted>
-      ) : (
-        <div className="space-y-1.5">
-          {list.map((j) => (
-            <JobLine
-              key={j.id}
-              job={j}
-              action={
-                !j.final ? (
-                  <Button size="sm" variant="danger" onClick={() => onCancel(j.id)}>
-                    لغو
-                  </Button>
-                ) : undefined
-              }
-            />
-          ))}
+    <div className="space-y-1.5">
+      {list.map((j) => (
+        <div key={j.id}>
+          <JobLine
+            job={j}
+            action={
+              !j.final ? (
+                <Button size="sm" variant="danger" onClick={() => onCancel(j.id)}>
+                  لغو
+                </Button>
+              ) : undefined
+            }
+          />
+          {j.waiting && j.waiting.eligible.length === 0 && (
+            <div className="mt-1.5">
+              <WaitingAlert job={j} onAllowCpu={onAllowCpu} onCancel={onCancel} />
+            </div>
+          )}
         </div>
-      )}
-    </Card>
+      ))}
+    </div>
   );
 }

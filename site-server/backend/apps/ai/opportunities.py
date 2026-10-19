@@ -150,12 +150,15 @@ def _cheapest_competitor_price(product) -> tuple[int | None, str]:
     return row.price_toman, row.competitor.name
 
 
-def suggest(store, days: int = 30) -> list[dict]:
+def suggest(store, days: int = 30, channel_data: dict | None = None) -> list[dict]:
     """Candidate opportunities, newest analysis wins. Nothing is saved here.
 
     Returned as plain dicts so the caller decides what to persist — a
     suggestion the owner already dismissed must not come back, and that check
     belongs with the stored rows.
+
+    ``channel_data`` is ``services.research.channels.check_products`` output;
+    when given, «کجا بفروشم» (CHANNEL) suggestions are added from it.
     """
     from apps.products.models import Product
 
@@ -259,10 +262,291 @@ def suggest(store, days: int = 30) -> list[dict]:
             "priority": 90,
         })
 
+    if channel_data:
+        products = {p.pk: p for p in Product.objects.filter(store=store, pk__in=list(channel_data))}
+        for pk, per_channel in channel_data.items():
+            product = products.get(int(pk))
+            if product is not None:
+                found += channel_suggestions(product, per_channel)
+
     return found
 
 
-def refresh(store, days: int = 30) -> dict:
+# ------------------------------------------------------------ «کجا بفروشم»
+
+#: Our price this far above the marketplace median is "not competitive there".
+CHANNEL_PRICE_SLACK = 5.0
+
+
+def channel_suggestions(product, per_channel: dict) -> list[dict]:
+    """CHANNEL opportunities for one product from marketplace evidence.
+
+    Only marketplaces that answered and where at least one listing is the same
+    or a substitute product count — "this sells there" needs listings, and
+    "your price is competitive there" needs their prices. No listing found is
+    not turned into a suggestion: no evidence of demand is not evidence of
+    opportunity.
+    """
+    from services.research.channels import HOME
+
+    from .competitor_models import Opportunity
+
+    out = []
+    our_price = int(product.price) if product.price else None
+    for channel, row in per_channel.items():
+        if not row.get("ok") or not row.get("relevant"):
+            continue
+        label = row["label"]
+        median_price = row.get("median_price")
+        demand = row.get("demand") or {}
+        demand_line = ""
+        if demand.get("kind") == "sales" and demand.get("total"):
+            demand_line = (
+                f" این فروشنده‌ها روی هم {demand['total']:,} فروشِ ثبت‌شده در {label} دارند"
+                + (f" ({demand['week']:,} در هفته‌ی اخیر)" if demand.get("week") else "")
+                + "."
+            )
+        elif demand.get("kind") == "ratings" and demand.get("total"):
+            demand_line = f" روی هم {demand['total']:,} امتیازِ خریدار دارند (نشانه‌ی خرید، نه تعدادِ فروش)."
+        listing_line = (
+            f"در {label} {row['relevant']} آگهیِ هم‌کالا/جایگزین از {row.get('sellers') or 'چند'} فروشنده پیدا شد"
+        )
+        price_line = ""
+        if median_price:
+            price_line = (
+                f"؛ ارزان‌ترین {row['min_price']:,} و میانه‌ی قیمت {median_price:,} تومان است"
+            )
+        evidence = {
+            "channel": channel, "channel_label": label, "query": row.get("query"),
+            "listings": row.get("relevant"), "same_product": row.get("same"),
+            "sellers": row.get("sellers"), "min_price": row.get("min_price"),
+            "median_price": median_price, "our_price": our_price,
+            "our_vs_median_percent": row.get("our_vs_median_percent"),
+            "demand": demand, "links": row.get("links", []), "signup": HOME.get(channel, ""),
+        }
+        gap = row.get("our_vs_median_percent")
+        if our_price and median_price and gap is not None and gap <= CHANNEL_PRICE_SLACK:
+            where = "زیرِ" if gap < 0 else "هم‌سطحِ"
+            # Far below the median usually means a different pack size, not a
+            # bargain — say so instead of telling the shop it is the cheapest.
+            suspicious = gap < -40
+            out.append({
+                "kind": Opportunity.Kind.CHANNEL,
+                "product": product,
+                "title": f"«{product.name}» را در {label} هم بفروشید",
+                "reason": (
+                    f"{listing_line}{price_line}. قیمتِ شما {our_price:,} تومان است — "
+                    f"{where} میانه ({abs(gap):.0f}٪ {'کمتر' if gap < 0 else 'بیشتر'})."
+                    + demand_line
+                    + (
+                        " اختلاف آن‌قدر زیاد است که شاید اندازه/وزنِ بسته‌ها یکی نباشد."
+                        if suspicious else ""
+                    )
+                ),
+                "action": (
+                    f"اول وزن/اندازه‌ی بسته را با آگهی‌های {label} (پیوندهای زیر) مقایسه کنید؛ "
+                    "اگر یکی است، با همین قیمت غرفه باز کنید — ارزان‌تر از بیشترِ فروشنده‌ها هستید."
+                    if suspicious else
+                    f"در {label} غرفه باز کنید و همین کالا را با همین قیمت ثبت کنید."
+                ),
+                "evidence": evidence,
+                "priority": 75,
+            })
+        elif our_price and median_price and gap is not None:
+            out.append({
+                "kind": Opportunity.Kind.CHANNEL,
+                "product": product,
+                "title": f"«{product.name}» در {label} خریدار دارد، ولی قیمتِ شما بالاتر است",
+                "reason": (
+                    f"{listing_line}{price_line}. قیمتِ شما {our_price:,} تومان است — "
+                    f"{gap:.0f}٪ بالاتر از میانه." + demand_line
+                ),
+                "action": (
+                    f"اگر می‌خواهید در {label} بفروشید، قیمت را به میانه نزدیک کنید "
+                    "یا در عنوان بگویید چرا گران‌تر است (اصالت، ارسالِ سریع، هدیه)."
+                ),
+                "evidence": evidence,
+                "priority": 50,
+            })
+        else:
+            out.append({
+                "kind": Opportunity.Kind.CHANNEL,
+                "product": product,
+                "title": f"«{product.name}» در {label} فروشنده دارد",
+                "reason": listing_line + price_line + "." + demand_line,
+                "action": (
+                    f"قیمتِ «{product.name}» را وارد کنید تا معلوم شود در {label} رقابتی است یا نه."
+                    if not our_price else f"آگهی‌های {label} را باز کنید و با کالای خودتان مقایسه کنید."
+                ),
+                "evidence": evidence,
+                "priority": 45,
+            })
+    return out
+
+
+#: How many products one channel check covers (each costs 3 HTTP searches).
+CHANNEL_CHECK_PRODUCTS = 8
+CHANNEL_JOB_KIND = "channel_check"
+
+
+def check_channels(store) -> dict:
+    """Search the marketplaces for the shop's products and keep the report.
+
+    The report is stored as a completed ``Job`` so the checklist can say when
+    it last ran, from any worker, without a new table.
+    """
+    from apps.jobs.models import Job
+    from apps.products.models import Product
+    from services.research import channels
+
+    products = list(
+        Product.objects.filter(store=store, is_available=True).order_by("-updated_at")[:CHANNEL_CHECK_PRODUCTS]
+    )
+    data = channels.check_products(products) if products else {}
+    problems = sorted({
+        f"{row['label']}: {row.get('error')}"
+        for per in data.values() for row in per.values() if not row.get("ok")
+    })
+    summary = {
+        "kind": CHANNEL_JOB_KIND,
+        "checked_at": timezone.now().isoformat(),
+        "products": [{"id": p.pk, "name": p.name} for p in products],
+        "channels": {
+            str(pk): {
+                ch: {k: v for k, v in row.items() if k != "links"} | {"links": row.get("links", [])[:3]}
+                for ch, row in per.items()
+            }
+            for pk, per in data.items()
+        },
+        "problems": problems,
+    }
+    job = Job.objects.create(
+        store=store, type=Job.Type.MARKET_ANALYSIS,
+        context={"kind": CHANNEL_JOB_KIND},
+    )
+    job.mark_completed(summary)
+    return {"data": data, "summary": summary}
+
+
+def last_channel_check(store) -> dict | None:
+    from apps.jobs.models import Job
+
+    job = (
+        Job.objects.filter(store=store, type=Job.Type.MARKET_ANALYSIS, context__kind=CHANNEL_JOB_KIND)
+        .order_by("-created_at").first()
+    )
+    return job.result if job is not None else None
+
+
+# ------------------------------------------------------------ what is missing
+
+
+def readiness(store, days: int = 30) -> dict:
+    """«چه چیزی لازم است» — which data is missing, how to add it, what it unlocks.
+
+    Counts are of *possible* suggestions ("تا N"): adding a cost price makes
+    the margin check possible for that product, it does not promise a warning.
+    """
+    from apps.customers.models import Order
+    from apps.products.models import Product
+
+    from .competitor_models import Competitor, CompetitorProduct
+
+    sid = store.pk
+    products = list(Product.objects.filter(store=store))
+    n = len(products)
+    since = timezone.now() - timedelta(days=max(1, min(365, days)))
+    items = []
+
+    items.append({
+        "key": "products", "title": "محصولات", "done": n > 0,
+        "detail": f"{n} محصول ثبت شده." if n else "هنوز محصولی ثبت نشده.",
+        "unlocks": "همه‌ی پیشنهادهای این صفحه از روی محصولاتِ شما ساخته می‌شوند.",
+        "unlocks_count": None,
+        "fix": {"label": "افزودنِ محصول", "to": f"/stores/{sid}"},
+    })
+
+    missing_cost = [p for p in products if p.cost_price is None]
+    items.append({
+        "key": "cost_price", "title": "قیمتِ خرید (قیمتِ تمام‌شده)",
+        "done": n > 0 and not missing_cost,
+        "detail": (
+            f"برای {len(missing_cost)} از {n} محصول وارد نشده: "
+            + "، ".join(p.name for p in missing_cost[:3])
+            + ("…" if len(missing_cost) > 3 else "")
+        ) if missing_cost else ("برای همه وارد شده." if n else "—"),
+        "unlocks": "سودِ واقعی و هشدارِ «سودِ این کالا کم است».",
+        "unlocks_count": len(missing_cost),
+        "fix": {"label": "واردکردنِ قیمتِ خرید", "to": f"/products/{missing_cost[0].pk}"} if missing_cost else None,
+    })
+
+    competitors = Competitor.objects.filter(store=store, is_active=True).count()
+    priced = set(
+        CompetitorProduct.objects.filter(
+            competitor__store=store, competitor__is_active=True,
+            matches__isnull=False, price_toman__isnull=False,
+        ).values_list("matches_id", flat=True)
+    )
+    without_rival = [p for p in products if p.pk not in priced]
+    items.append({
+        "key": "competitors", "title": "رقیبِ هم‌کالا با قیمت",
+        "done": n > 0 and not without_rival,
+        "detail": (
+            f"{competitors} رقیب ثبت شده؛ برای {len(priced)} از {n} محصول قیمتِ همان کالا نزدِ رقیب را داریم."
+        ),
+        "unlocks": "مقایسه‌ی قیمت: «از رقیب گران‌ترید» با هر دو عدد.",
+        "unlocks_count": len(without_rival),
+        "fix": {"label": "یافتنِ رقیب / کرالِ سایتِ رقیب", "to": f"/stores/{sid}/competitors"} if without_rival else None,
+    })
+
+    orders = Order.objects.filter(
+        store=store, status=Order.Status.CONFIRMED, confirmed_at__gte=since,
+    ).count()
+    items.append({
+        "key": "sales", "title": f"فروشِ {days} روزِ اخیر",
+        "done": orders > 0,
+        "detail": f"{orders} سفارشِ تأییدشده." if orders else "هیچ سفارشِ تأییدشده‌ای ثبت نشده.",
+        "unlocks": "تشخیصِ کالای کم‌فروش و پرفروش، و پیشنهادِ فروشِ مکمل.",
+        "unlocks_count": n if not orders else 0,
+        "fix": {"label": "ثبتِ سفارش‌ها", "to": f"/stores/{sid}/sales/orders"} if not orders else None,
+    })
+
+    no_stock = [p for p in products if not p.stock_quantity]
+    items.append({
+        "key": "stock", "title": "موجودیِ انبار",
+        "done": n > 0 and not no_stock,
+        "detail": (
+            f"موجودیِ {len(no_stock)} محصول صفر یا واردنشده است: "
+            + "، ".join(p.name for p in no_stock[:3])
+        ) if no_stock else ("وارد شده." if n else "—"),
+        "unlocks": "هشدارِ «موجود است ولی نمی‌فروشد» (پیشنهادِ محتوا برای آب کردنِ موجودی).",
+        "unlocks_count": len(no_stock),
+        "fix": {"label": "واردکردنِ موجودی", "to": f"/products/{no_stock[0].pk}"} if no_stock else None,
+    })
+
+    last = last_channel_check(store)
+    items.append({
+        "key": "channels", "title": "بررسیِ بازارها (دیجی‌کالا، باسلام، ترب)",
+        "done": bool(last),
+        "detail": (
+            f"آخرین بررسی: {last.get('checked_at', '')[:16].replace('T', ' ')} — "
+            f"{len(last.get('products') or [])} محصول."
+            + (" مشکل: " + "؛ ".join(last.get("problems") or []) if last.get("problems") else "")
+        ) if last else "هنوز بررسی نشده.",
+        "unlocks": "پیشنهادِ «کجا بفروشم»: بازاری که کالای شما در آن خریدار دارد و قیمتتان رقابتی است.",
+        "unlocks_count": min(n, CHANNEL_CHECK_PRODUCTS),
+        "fix": {"label": "بررسیِ بازارها", "action": "check_channels"},
+    })
+
+    return {
+        "items": items,
+        "done": sum(1 for i in items if i["done"]),
+        "total": len(items),
+        "channels": last,
+    }
+
+
+def refresh(store, days: int = 30, check_channels_now: bool = False) -> dict:
     """Recompute suggestions and store the new ones.
 
     Rules that make this safe to run repeatedly:
@@ -276,7 +560,18 @@ def refresh(store, days: int = 30) -> dict:
     """
     from .competitor_models import Opportunity
 
-    candidates = suggest(store, days)
+    channel_report = None
+    checked_channels: set[tuple[int, str]] = set()
+    channel_data = None
+    if check_channels_now:
+        result = check_channels(store)
+        channel_data = result["data"]
+        channel_report = result["summary"]
+        checked_channels = {
+            (int(pk), ch) for pk, per in channel_data.items()
+            for ch, row in per.items() if row.get("ok")
+        }
+    candidates = suggest(store, days, channel_data=channel_data)
     seen_keys = set()
     created = 0
     updated = 0
@@ -309,18 +604,28 @@ def refresh(store, days: int = 30) -> dict:
             continue  # the owner said no; asking again is nagging
 
         existing.reason = candidate["reason"]
+        existing.action = candidate["action"]
         existing.evidence = candidate["evidence"]
         existing.priority = candidate["priority"]
         existing.state = Opportunity.State.OPEN
-        existing.save(update_fields=["reason", "evidence", "priority", "state", "updated_at"])
+        existing.save(update_fields=["reason", "action", "evidence", "priority", "state", "updated_at"])
         updated += 1
 
     stale = 0
     for row in Opportunity.objects.filter(store=store, state=Opportunity.State.OPEN):
         key = (row.kind, row.product_id, row.title)
+        if row.kind == Opportunity.Kind.CHANNEL and (
+            row.product_id, (row.evidence or {}).get("channel")
+        ) not in checked_channels:
+            # Not re-checked this time (no channel check, or the marketplace
+            # did not answer): absence of evidence must not close it.
+            continue
         if key not in seen_keys:
             row.state = Opportunity.State.DONE
             row.save(update_fields=["state", "updated_at"])
             stale += 1
 
-    return {"created": created, "updated": updated, "resolved": stale}
+    return {
+        "created": created, "updated": updated, "resolved": stale,
+        "channels": channel_report,
+    }

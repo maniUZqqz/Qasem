@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from up3d import director, pipeline, templates
+from up3d import compiler, director, pipeline, templates
 from up3d import scene as S
 from up3d.assets import registry
 from up3d.validate import repair, validate
@@ -106,29 +106,50 @@ def ai_edit(project, instruction, user=None):
 
 # ───────────────────────── کارها
 
-def frames_of(doc, profile_id):
-    from up3d import compiler
-    p = reg().get('render_profile', profile_id)
+clean_quality = compiler.clean_quality      # تنظیمِ دستیِ کیفیت: {resolution, samples, frame_step, denoise, motion_blur}
+
+
+def frames_of(doc, profile_id, quality=None):
+    p = compiler.with_overrides(reg().get('render_profile', profile_id), quality)
     fps = doc['output']['fps']
     n = int(round(doc['output']['duration'] * fps))
     return max(1, n // max(1, int((p or {}).get('frame_step', 1))))
 
 
-def estimate(profile_id, frames, allow_cpu=False):
-    """تخمینِ زمان: از آمارِ واقعیِ کارگرها، وگرنه از پروفایل."""
+def estimate(profile_id, frames, allow_cpu=False, quality=None):
+    """تخمینِ زمان: از آمارِ واقعیِ کارگرها، وگرنه از پروفایل. تنظیمِ دستی با ضریبِ پیکسل×نمونه."""
     p = reg().get('render_profile', profile_id)
+    scale = compiler.quality_scale(p, quality)
     best = None
     for w in Worker.objects.filter(enabled=True):
         if not w.online or not (w.accepts(p) or allow_cpu):
             continue
         st = (w.stats or {}).get(profile_id)
-        spf = st['sec_per_frame'] if st else ((p or {}).get('est_sec_per_frame_cpu', 10) / (8.0 if w.has_gpu else 1.0))
+        spf = (st['sec_per_frame'] if st else ((p or {}).get('est_sec_per_frame_cpu', 10) / (8.0 if w.has_gpu else 1.0))) * scale
         if best is None or spf < best[0]:
             best = (spf, w)
     if best is None:
-        spf = (p or {}).get('est_sec_per_frame_cpu', 10)
-        return {'seconds': spf * frames + 60, 'worker': None, 'sec_per_frame': spf, 'available': False}
-    return {'seconds': best[0] * frames + 60, 'worker': best[1].name, 'sec_per_frame': best[0], 'available': True}
+        spf = (p or {}).get('est_sec_per_frame_cpu', 10) * scale
+        return {'seconds': spf * frames + 60, 'worker': None, 'sec_per_frame': round(spf, 2), 'available': False,
+                'needs_gpu': (p or {}).get('recommended') == 'gpu'}
+    return {'seconds': best[0] * frames + 60, 'worker': best[1].name, 'sec_per_frame': round(best[0], 2), 'available': True,
+            'needs_gpu': (p or {}).get('recommended') == 'gpu'}
+
+
+def eligible_workers(job):
+    """کارگرهای آنلاینی که همین حالا می‌توانند این کار را بگیرند — همان شرطِ claim()."""
+    prof = reg().get('render_profile', job.profile)
+    allow = bool((job.params or {}).get('allow_cpu'))
+    return [w.name for w in Worker.objects.filter(enabled=True)
+            if w.online and (job.kind != 'render' or allow or (prof is not None and w.accepts(prof)))]
+
+
+def waiting_info(job):
+    """چرا این کار هنوز کارگر ندارد (برای پنل): به GPU نیاز دارد؟ اجازهٔ CPU؟ کدام کارگرها آنلاین/مناسب‌اند."""
+    prof = reg().get('render_profile', job.profile) or {}
+    online = [w.name for w in Worker.objects.filter(enabled=True) if w.online]
+    return {'needs_gpu': job.kind == 'render' and prof.get('recommended') == 'gpu',
+            'allow_cpu': bool((job.params or {}).get('allow_cpu')), 'online': online, 'eligible': eligible_workers(job)}
 
 
 def game_pack_doc(character_id):
@@ -171,13 +192,20 @@ def request_job(project, kind='render', profile='preview', params=None, version=
         profile = 'animatic' if kind == 'export' else 'preview'
     if not reg().get('render_profile', profile):
         raise ValueError('پروفایلِ «%s» نیست' % profile)
-    fr = frames_of(v.document, profile) if kind == 'render' else (params.get('count', 6) if kind == 'contact' else 0)
-    est = estimate(profile, fr, bool((params or {}).get('allow_cpu')))
+    q = clean_quality(params.get('quality')) if params.get('quality') else {}
+    if q:
+        params['quality'] = q
+    else:
+        params.pop('quality', None)
+    fr = frames_of(v.document, profile, q) if kind == 'render' else (params.get('count', 6) if kind == 'contact' else 0)
+    est = estimate(profile, fr, bool(params.get('allow_cpu')), q)
     job = Job.objects.create(project=project, version=v, kind=kind, profile=profile, params=params or {},
                              state='PLANNED', frames_total=fr, estimate_seconds=est['seconds'])
-    job.add_log('درخواست: %s با پروفایلِ %s (تخمین ~%d دقیقه، %s)' % (
-        job.get_kind_display(), profile, max(1, est['seconds'] // 60),
-        'کارگر: ' + est['worker'] if est['available'] else 'فعلاً کارگرِ مناسب آنلاین نیست'))
+    job.add_log('درخواست: %s با پروفایلِ %s%s (تخمین ~%d دقیقه، %s)' % (
+        job.get_kind_display(), profile, (' + تنظیمِ دستی ' + '، '.join('%s=%s' % kv for kv in q.items())) if q else '',
+        max(1, est['seconds'] // 60),
+        'کارگر: ' + est['worker'] if est['available'] else
+        ('فعلاً کارگرِ مناسب آنلاین نیست' + (' — این کیفیت کارگرِ GPU می‌خواهد' if est.get('needs_gpu') else ''))))
     return job
 
 
@@ -196,12 +224,22 @@ def process_prepare(job):
     job.set_state('SCENE_BUILDING', 'آماده‌سازی: برچسب، صدا، هماهنگیِ لب')
     ai = AiSettings.get()
     doc = job.params.get('document') or job.version.document
-    info = pipeline.prepare(doc, job_dir(job), job.profile, ai.tts(), log=job.add_log, reg=reg())
+    info = pipeline.prepare(doc, job_dir(job), job.profile, ai.tts(), log=job.add_log, reg=reg(),
+                            profile_overrides=job.params.get('quality') or None)
     if job.kind == 'render':
         job.frames_total = len(range(1, info['frames'] + 1, info['frame_step']))
     job.owner = 'worker'
     what = '%d فریم، ' % job.frames_total if job.frames_total else ''
-    job.set_state('SCENE_BUILDING', 'منتظرِ کارگرِ رندر (%s%dx%d)' % (what, *info['resolution']))
+    # پیامِ انتظار باید بگوید «چرا»: کارگرِ آماده هست، یا این کیفیت GPU می‌خواهد و GPU آنلاین نیست
+    eligible = eligible_workers(job)
+    if eligible:
+        msg = 'منتظرِ کارگرِ رندر (%s%dx%d) — کارگرِ آماده: %s' % (what, *info['resolution'], '، '.join(eligible))
+    else:
+        prof = reg().get('render_profile', job.profile) or {}
+        why = ('کیفیتِ «%s» کارگرِ GPU می‌خواهد و کارگرِ GPU آنلاین نیست؛ یا کارگرِ GPU راه بیندازید، یا «اجرا روی CPU» (کند) یا لغو'
+               % job.profile) if job.kind == 'render' and prof.get('recommended') == 'gpu' else 'هیچ کارگری آنلاین نیست'
+        msg = 'منتظرِ کارگر (%s%dx%d) — %s' % (what, *info['resolution'], why)
+    job.set_state('SCENE_BUILDING', msg)
 
 
 def engine_mode(job):

@@ -150,12 +150,16 @@ def under_narration(video_path, music: Track, out_path, *, duck: bool = True) ->
 
     # `normalize=0`: amix otherwise scales every input by 1/N, which took the
     # narration down 6 dB every time music was added (measured −41 → −47 dBFS).
+    # Both sides at one rate and layout before they meet: loudnorm outputs
+    # 192 kHz, narration is 24–48 kHz mono, and ffmpeg 4.4's sidechaincompress
+    # cannot negotiate that by itself ("No channel layout for input 1").
+    common = "aresample=48000,aformat=channel_layouts=stereo"
     if duck:
         # The voice drives the compressor on the music. `asplit` because the
         # voice is needed twice: once as the side-chain key, once in the mix.
         graph = (
-            f"[0:a]asplit=2[voice][key];"
-            f"[1:a]{fitted},{gain}[bed];"
+            f"[0:a]{common},asplit=2[voice][key];"
+            f"[1:a]{fitted},{gain},{common}[bed];"
             f"[bed][key]sidechaincompress=threshold=0.03:ratio={ratio:.1f}"
             f":attack=20:release=500[ducked];"
             f"[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0"
@@ -163,8 +167,9 @@ def under_narration(video_path, music: Track, out_path, *, duck: bool = True) ->
         )
     else:
         graph = (
-            f"[1:a]{fitted},{gain}[bed];"
-            f"[0:a][bed]amix=inputs=2:duration=first:dropout_transition=0"
+            f"[0:a]{common}[voice];"
+            f"[1:a]{fitted},{gain},{common}[bed];"
+            f"[voice][bed]amix=inputs=2:duration=first:dropout_transition=0"
             f":normalize=0,alimiter=limit=0.95[a]"
         )
 

@@ -54,6 +54,16 @@ def installed(force: bool = False) -> list[dict]:
     Returns [] when Ollama is unreachable — callers must treat that as
     "unknown", not as "nothing installed".
     """
+    from . import ollama_remote
+
+    base = _base_url()
+    if ollama_remote.is_agent_url(base) or (
+        not getattr(settings, "IS_TEST", False) and ollama_remote.use_remote(base)
+    ):
+        # Ollama lives on a processing node: it reports its pulled models in
+        # every heartbeat (ComputeNode.capabilities["ollama_models"]), so the
+        # answer comes from the database — no network, no cache needed.
+        return ollama_remote.installed_models(base)
     if getattr(settings, "IS_TEST", False):
         return []  # tests must never touch the network
     with _lock:

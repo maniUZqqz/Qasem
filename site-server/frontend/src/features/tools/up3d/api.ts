@@ -13,6 +13,7 @@ import type {
   JobKind,
   Project,
   ProjectLite,
+  QualityOverride,
   SceneDoc,
   SceneResponse,
   Status,
@@ -85,13 +86,26 @@ export const up3d = {
     api.post<Job>(`/up3d/video-projects/${id}/${action}/`, body).then((r) => r.data),
   validate: (document: SceneDoc) =>
     api.post<{ ok: boolean; errors: number; warnings: number; issues: Issue[] }>("/up3d/validate/", { document }).then((r) => r.data),
-  estimate: (profile: string, project: number | string) =>
-    api.get<Estimate>("/up3d/estimate/", { params: { profile, project } }).then((r) => r.data),
+  /** تخمین با همان ضریبِ تنظیمِ دستی (resolution/samples/frame_step) که request_job به کار می‌برد */
+  estimate: (profile: string, project: number | string, quality?: QualityOverride | null) =>
+    api
+      .get<Estimate>("/up3d/estimate/", {
+        params: {
+          profile,
+          project,
+          ...(quality?.resolution ? { resolution: quality.resolution } : {}),
+          ...(quality?.samples ? { samples: quality.samples } : {}),
+          ...(quality?.frame_step ? { frame_step: quality.frame_step } : {}),
+        },
+      })
+      .then((r) => r.data),
 
   jobs: (active = false) =>
     api.get<Job[]>("/up3d/jobs/", { params: active ? { active: 1 } : undefined }).then((r) => r.data),
   job: (id: number | string) => api.get<Job>(`/up3d/jobs/${id}/`).then((r) => r.data),
   cancelJob: (id: number | string) => api.post<Job>(`/up3d/jobs/${id}/cancel/`).then((r) => r.data),
+  /** کارِ منتظرِ کارگرِ GPU ⇐ اجازهٔ اجرا روی کارگرِ CPU */
+  allowCpu: (id: number | string) => api.post<Job>(`/up3d/jobs/${id}/allow-cpu/`).then((r) => r.data),
 
   thumbnails: (kind: string, ids?: string[]) =>
     api.post<{ queued: number; message: string }>("/up3d/assets/thumbnails/", { kind, ids }).then((r) => r.data),

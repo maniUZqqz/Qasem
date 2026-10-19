@@ -218,3 +218,7 @@ def build_embeddings_task(self, job_id, store_id):
         logger.exception("Embedding build job %s failed", job_id)
         job.mark_failed(exc)
         return {"error": str(exc)}
+
+
+# Registered here so the worker (autodiscovers `apps.ai.tasks`) knows it.
+from . import competitor_tasks  # noqa: E402,F401

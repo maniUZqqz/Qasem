@@ -30,8 +30,9 @@ def _write(path, data):
         json.dump(data, fh, ensure_ascii=False, indent=1, default=str)
 
 
-def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None):
-    """نیمهٔ پنل. خروجی: مسیرِ compiled.json و خلاصه."""
+def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, profile_overrides=None):
+    """نیمهٔ پنل. خروجی: مسیرِ compiled.json و خلاصه.
+    profile_overrides: تنظیمِ دستیِ کیفیت (compiler.clean_quality) روی پروفایل."""
     reg = reg or registry()
     job_dir = os.path.abspath(job_dir)
     os.makedirs(job_dir, exist_ok=True)
@@ -89,7 +90,10 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None):
         changed = True
     if changed:
         _write(os.path.join(job_dir, 'scene.json'), doc)
-    comp = compiler.compile_scene(doc, reg, profile_id, audio=audio, label_images=label_images)
+    comp = compiler.compile_scene(doc, reg, profile_id, audio=audio, label_images=label_images,
+                                  profile_overrides=profile_overrides)
+    if profile_overrides:
+        log('تنظیمِ دستیِ کیفیت: ' + '، '.join('%s=%s' % kv for kv in profile_overrides.items()))
     _write(os.path.join(job_dir, 'compiled.json'), comp)
     _write(os.path.join(job_dir, 'audio.json'), {k: {kk: vv for kk, vv in v.items() if kk not in ('energy',)}
                                                  for k, v in audio.items()})

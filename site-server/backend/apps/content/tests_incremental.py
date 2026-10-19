@@ -21,6 +21,7 @@ from django.utils import timezone
 from apps.billing import services as billing
 from apps.billing.models import Plan, Subscription, Usage
 from apps.content.models import VideoScene, VideoScript, VideoSegment
+from apps.content.tests import anchor_via
 from apps.content.tasks import generate_video_task
 from apps.jobs.models import Job
 from apps.products.models import Product, ProductImage
@@ -94,6 +95,9 @@ class IncrementalGenerationTests(TestCase):
         client.generate.side_effect = fake_generate
         mock_extract.side_effect = fake_extract
         mock_concat.side_effect = fake_concat
+        anchor = patch("apps.content.tasks.video_anchor.apply", side_effect=anchor_via(mock_extract))
+        anchor.start()
+        self.addCleanup(anchor.stop)
         return client
 
     def _job(self, mode=Job.Mode.SAFE):
@@ -229,7 +233,11 @@ class IncrementalGenerationTests(TestCase):
 
         def save_with_score(self_seg, *args, **kwargs):
             if self_seg.status == VideoSegment.Status.DONE:
-                self_seg.metadata = {**(self_seg.metadata or {}), "quality_score": 0.2}
+                # A judged, otherwise-good report: only the score may pause it.
+                judged = {"axes": [{"name": "نوردهی", "score": 90.0, "note": ""}],
+                          "verdict": "GOOD", "vision_checked": True, "error": ""}
+                self_seg.metadata = {**(self_seg.metadata or {}), "qc": judged,
+                                     "quality_score": 0.2}
             return original(self_seg, *args, **kwargs)
 
         with override_settings(UPMARKET_AI=merged):

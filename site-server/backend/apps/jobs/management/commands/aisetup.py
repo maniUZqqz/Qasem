@@ -29,8 +29,11 @@ QUESTIONS = [
     {
         "key": "AI_MODE_TEXT",
         "title": "متن، تحلیل و ایجنت فروش",
-        "local": "روی همین سیستم با Ollama",
-        "api": "با API سازگار با OpenAI",
+        # Ollama on this machine, or on the processing node (OLLAMA_BASE_URL=agent://any);
+        # either way the data stays on our own hardware. Even with «api», Ollama
+        # stays the fallback for customer messages, which an API may not see.
+        "local": "روی سخت‌افزار خودمان با Ollama (همین سیستم یا سرورِ پردازش) — qwq:32b / qwen3-vl:30b",
+        "api": "با API سازگار با OpenAI (پیام مشتری همچنان روی Ollama می‌ماند)",
         "needs": ["AI_API_BASE_URL", "AI_API_KEY"],
         "engine": "Ollama",
     },

@@ -6,41 +6,31 @@ import ParamInputs from "./ParamInputs";
 import { byId } from "./model";
 
 /**
- * تنظیماتِ صحنه (وقتی قطعه‌ای انتخاب نشده): مدت/قاب/fps، عنوان، محیط و نور با پارامترها،
- * بازیگرها (کاراکتر، جایگاه، ظاهر)، محصول‌ها (نام، شکل، سطح، برچسب/رنگ/جنس) و صدا (زیرنویس، موسیقی).
+ * تنظیماتِ صحنه، تکه‌تکه، تا هر تکه در بخشِ خودش در جریانِ راهنما بنشیند:
+ *   SceneBasics          مدت/قاب/fps/عنوان                       ⇐ بخشِ ۱
+ *   EnvironmentLighting  محیط و نور (+پارامترها در «تنظیمِ محیط»)   ⇐ بخشِ ۱
+ *   ActorsEditor         بازیگرها (کاراکتر، جایگاه، ظاهر)           ⇐ بخشِ ۱
+ *   ProductsEditor       محصول‌ها (نام، شکل، سطح، برچسب/رنگ/جنس)   ⇐ بخشِ ۱
+ *   AudioSettings        زیرنویس، موسیقی، بلندی                   ⇐ بخشِ ۳
+ * `SceneSettings` همهٔ این‌ها پشتِ سرِ هم است (همان چیدمانِ قدیمی).
  */
-export default function SceneSettings({
-  cat,
-  doc,
-  change,
-  upload,
-}: {
-  cat: Catalog;
-  doc: SceneDoc;
-  change: (fn: (d: SceneDoc) => void) => void;
-  upload: (file: File) => Promise<UploadResult | null>;
-}) {
-  const env = byId(cat, "environment", doc.environment.id);
-  const light = byId(cat, "lighting", doc.lighting.id);
-  const marks = Object.keys(env?.marks || {});
-  const surfaces = Object.keys(env?.surfaces || {});
 
+type Base = { cat: Catalog; doc: SceneDoc; change: (fn: (d: SceneDoc) => void) => void };
+type WithUpload = Base & { upload: (file: File) => Promise<UploadResult | null> };
+
+export function SceneBasics({ doc, change }: Base) {
   return (
     <div className="space-y-2">
-      <H3>تنظیماتِ صحنه</H3>
-      <p className="text-xs" style={{ color: "var(--text-3)" }}>
-        روی هر قطعهٔ خطِ زمان بزنید تا این‌جا ویرایش شود.
-      </p>
       <div className="grid grid-cols-3 gap-2">
         <Field label="مدت (ث)">
           <DraftNumber value={doc.output.duration} step={0.1} min={3} max={60} onCommit={(v) => change((d) => void (d.output.duration = v ?? 10))} />
         </Field>
         <Field label="قاب">
           <Select value={doc.output.aspect} onChange={(e) => change((d) => void (d.output.aspect = e.target.value))}>
-            <option value="9:16">۹:۱۶</option>
-            <option value="16:9">۱۶:۹</option>
-            <option value="1:1">۱:۱</option>
-            <option value="4:5">۴:۵</option>
+            <option value="9:16">۹:۱۶ عمودی</option>
+            <option value="16:9">۱۶:۹ افقی</option>
+            <option value="1:1">۱:۱ مربع</option>
+            <option value="4:5">۴:۵ پست</option>
           </Select>
         </Field>
         <Field label="fps">
@@ -51,7 +41,7 @@ export default function SceneSettings({
           </Select>
         </Field>
       </div>
-      <Field label="عنوان">
+      <Field label="عنوانِ ویدئو">
         <DraftInput
           value={doc.meta?.title || ""}
           onCommit={(v) =>
@@ -62,10 +52,16 @@ export default function SceneSettings({
           }
         />
       </Field>
+    </div>
+  );
+}
 
-      <Hr />
-      <H3>محیط و نور</H3>
-      <Field label="محیط">
+export function EnvironmentLighting({ cat, doc, change }: Base) {
+  const env = byId(cat, "environment", doc.environment.id);
+  const light = byId(cat, "lighting", doc.lighting.id);
+  return (
+    <div className="space-y-2">
+      <Field label="محیط (صحنه)">
         <Select
           value={doc.environment.id}
           onChange={(e) =>
@@ -89,7 +85,7 @@ export default function SceneSettings({
           ))}
         </Select>
       </Field>
-      <Details summary="تنظیمِ محیط">
+      <Details summary="تنظیمِ محیط (رنگِ پس‌زمینه، میز، تزئین)">
         <ParamInputs
           spec={env?.params}
           values={doc.environment.params || {}}
@@ -122,9 +118,15 @@ export default function SceneSettings({
           }
         />
       </Details>
+    </div>
+  );
+}
 
-      <Hr />
-      <H3>بازیگرها</H3>
+export function ActorsEditor({ cat, doc, change }: Base) {
+  const env = byId(cat, "environment", doc.environment.id);
+  const marks = Object.keys(env?.marks || {});
+  return (
+    <div className="space-y-2">
       {doc.actors.length === 0 && (
         <p className="text-xs" style={{ color: "var(--text-3)" }}>
           بازیگری نیست (فقط محصول با صدای راوی).
@@ -133,7 +135,7 @@ export default function SceneSettings({
       {doc.actors.map((a, i) => {
         const ch = byId(cat, "character", a.character);
         return (
-          <SubCard key={a.id} title={a.id}>
+          <SubCard key={a.id} title={`مجری: ${a.id}`}>
             <Field label="کاراکتر">
               <Select
                 value={a.character}
@@ -151,7 +153,7 @@ export default function SceneSettings({
                 ))}
               </Select>
             </Field>
-            <Field label="جایگاه">
+            <Field label="جایگاه در صحنه">
               <Select value={a.mark} onChange={(e) => change((d) => void (d.actors[i].mark = e.target.value))}>
                 {marks.map((m) => (
                   <option key={m} value={m}>
@@ -160,7 +162,7 @@ export default function SceneSettings({
                 ))}
               </Select>
             </Field>
-            <Details summary="ظاهر">
+            <Details summary="ظاهر (لباس، مو)">
               <ParamInputs
                 spec={ch?.params}
                 values={a.params || {}}
@@ -175,13 +177,19 @@ export default function SceneSettings({
           </SubCard>
         );
       })}
+    </div>
+  );
+}
 
-      <Hr />
-      <H3>محصول‌ها</H3>
+export function ProductsEditor({ cat, doc, change, upload }: WithUpload) {
+  const env = byId(cat, "environment", doc.environment.id);
+  const surfaces = Object.keys(env?.surfaces || {});
+  return (
+    <div className="space-y-2">
       {doc.products.map((p, i) => {
         const pa = byId(cat, "product", p.asset);
         return (
-          <SubCard key={p.id} title={p.id}>
+          <SubCard key={p.id} title={`محصول: ${p.id}`}>
             <Field label="نام">
               <DraftInput value={p.name || ""} onCommit={(v) => change((d) => void (d.products[i].name = v))} />
             </Field>
@@ -229,21 +237,18 @@ export default function SceneSettings({
           </SubCard>
         );
       })}
+    </div>
+  );
+}
 
-      <Hr />
-      <H3>صدا</H3>
+export function AudioSettings({ doc, change, upload }: Omit<WithUpload, "cat">) {
+  return (
+    <div className="space-y-2">
       <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
-        <input
-          type="checkbox"
-          checked={doc.audio.subtitles !== false}
-          onChange={(e) => change((d) => void (d.audio.subtitles = e.target.checked))}
-        />
+        <input type="checkbox" checked={doc.audio.subtitles !== false} onChange={(e) => change((d) => void (d.audio.subtitles = e.target.checked))} />
         زیرنویسِ خودکار از گفتار
       </label>
-      <Field
-        label="موسیقیِ پس‌زمینه (اختیاری)"
-        hint={doc.audio.music ? `فعلی: ${String(doc.audio.music).split(/[\\/]/).pop()}` : undefined}
-      >
+      <Field label="موسیقیِ پس‌زمینه (اختیاری)" hint={doc.audio.music ? `فعلی: ${String(doc.audio.music).split(/[\\/]/).pop()}` : "mp3 / wav / ogg / m4a"}>
         <input
           type="file"
           accept="audio/*"
@@ -257,9 +262,31 @@ export default function SceneSettings({
           }}
         />
       </Field>
-      <Field label={`بلندیِ موسیقی: ${doc.audio.music_volume ?? 0.14}`}>
+      <Field label={`بلندیِ موسیقی: ${doc.audio.music_volume ?? 0.14}`} hint="زیرِ گفتار خودکار آرام می‌شود">
         <DraftRange value={doc.audio.music_volume ?? 0.14} min={0} max={0.5} step={0.01} onCommit={(v) => change((d) => void (d.audio.music_volume = v))} />
       </Field>
+    </div>
+  );
+}
+
+/** همهٔ تنظیمات پشتِ سرِ هم (چیدمانِ قدیمیِ ستونِ کناری). */
+export default function SceneSettings(props: WithUpload) {
+  return (
+    <div className="space-y-2">
+      <H3>تنظیماتِ صحنه</H3>
+      <SceneBasics {...props} />
+      <Hr />
+      <H3>محیط و نور</H3>
+      <EnvironmentLighting {...props} />
+      <Hr />
+      <H3>بازیگرها</H3>
+      <ActorsEditor {...props} />
+      <Hr />
+      <H3>محصول‌ها</H3>
+      <ProductsEditor {...props} />
+      <Hr />
+      <H3>صدا</H3>
+      <AudioSettings {...props} />
     </div>
   );
 }

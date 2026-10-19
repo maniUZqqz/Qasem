@@ -171,7 +171,9 @@ class FiltergraphTests(SimpleTestCase):
         ])
         _, graph = T.build_filtergraph(line)
         self.assertIn("amix=inputs=2", graph)
-        self.assertIn("volume=2", graph)
+        # normalize=0 keeps every clip at its own level (it replaced a
+        # volume=N make-up gain after the 1/N mix).
+        self.assertIn("normalize=0", graph)
 
     def test_a_muted_track_is_left_out(self):
         line = T.Timeline(tracks=[

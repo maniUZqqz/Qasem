@@ -30,6 +30,31 @@ def _status_for(exc) -> str:
     return AIRequest.Status.PROVIDER_ERROR
 
 
+def _models_for_provider(provider, candidates: list[str]) -> list[str]:
+    """Let the provider rewrite the router's candidate list for itself.
+
+    `services.ai.router.models_for` names Ollama tags from .env. That is the
+    right list for OllamaProvider and the wrong one for an OpenAI-compatible
+    API, which answered every one of them with `model_not_supported` — the
+    last candidate, `qwen3-vl:30b`, was the name the owner saw in the error.
+    A provider that knows which model it was configured with says so here;
+    anything else (including the MagicMocks the tests pass) keeps the list.
+    """
+    chooser = getattr(provider, "select_models", None)
+    if not callable(chooser):
+        return candidates
+    try:
+        chosen = chooser(candidates)
+    except Exception as exc:  # noqa: BLE001 — a routing hint must never kill the call
+        logger.warning("provider.select_models failed (%s); using router candidates", exc)
+        return candidates
+    if isinstance(chosen, (list, tuple)) and chosen and all(isinstance(m, str) and m for m in chosen):
+        if list(chosen) != candidates:
+            logger.info("AI models for %s: %s → %s", type(provider).__name__, candidates, list(chosen))
+        return list(chosen)
+    return candidates
+
+
 def _single_call(
     *, store, task_type, prompt_id, prompt_version, provider, model, prompt,
     system=None, images=None, job=None, options=None,
@@ -86,6 +111,7 @@ def recorded_json_call(
     candidates = [m for m in (models or ([model] if model else [])) if m]
     if not candidates:
         raise ValueError("recorded_json_call needs `model` or a non-empty `models` list")
+    candidates = _models_for_provider(provider, candidates)
     conf = settings.UPMARKET_AI
     max_attempts = 1 if not conf.get("MODEL_FALLBACK_ENABLED", True) else conf.get(
         "MODEL_MAX_ATTEMPTS", 2

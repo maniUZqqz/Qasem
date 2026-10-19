@@ -51,14 +51,19 @@ sed -i "s#'/api/v1/scenes/'#'/api/v1/up3d/scenes/'#; s#'/api/v1/scenes/%s/render
 
 step "ffmpeg (نسخهٔ ۶ به بالا با drawtext لازم است؛ اوبونتو ۴٫۴ می‌دهد)"
 FFOK=$(/usr/local/bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -c " drawtext ")
-FFV=$(/usr/local/bin/ffmpeg -version 2>/dev/null | head -1 | grep -oE "version (N-|[0-9]+)" | grep -oE "N-|[0-9]+")
-if [ "${FFOK:-0}" -lt 1 ] || { [ "$FFV" != "N-" ] && ! [ "${FFV:-0}" -ge 6 ] 2>/dev/null; }; then
-  echo "  دانلودِ ffmpeg ایستا (BtbN، با drawtext) ..."
-  if curl -sSL -m 900 -o /root/ff.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz      && mkdir -p /opt/ffmpeg-btbn && tar xJf /root/ff.tar.xz -C /opt/ffmpeg-btbn --strip-components=1; then
-    ln -sf /opt/ffmpeg-btbn/bin/ffmpeg /usr/local/bin/ffmpeg; ln -sf /opt/ffmpeg-btbn/bin/ffprobe /usr/local/bin/ffprobe
+FFV=$(/usr/local/bin/ffmpeg -version 2>/dev/null | head -1 | grep -oE "version (N-|n?[0-9]+)" | grep -oE "N-|[0-9]+")
+# stable n8.1 only: the BtbN "master" (N-...) build's AAC encoder loops forever on 44.1k mono m4a (1404/07/27)
+if [ "${FFOK:-0}" -lt 1 ] || [ "$FFV" = "N-" ] || ! [ "${FFV:-0}" -ge 6 ] 2>/dev/null; then
+  echo "  دانلودِ ffmpeg ایستای پایدار (BtbN n8.1، با drawtext) ..."
+  if curl -sSL -m 900 -o /root/ff.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz \
+     && mkdir -p /opt/ffmpeg-btbn-n8.1 && tar xJf /root/ff.tar.xz -C /opt/ffmpeg-btbn-n8.1 --strip-components=1; then
+    ln -sf /opt/ffmpeg-btbn-n8.1/bin/ffmpeg /usr/local/bin/ffmpeg; ln -sf /opt/ffmpeg-btbn-n8.1/bin/ffprobe /usr/local/bin/ffprobe
   else
     echo "  !! دانلود از GitHub نشد؛ تلاش با johnvansickle 6.1"
-    curl -sSL -m 900 -o /root/ff.tar.xz https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-6.1-amd64-static.tar.xz       && mkdir -p /opt/ffmpeg-61 && tar xJf /root/ff.tar.xz -C /opt/ffmpeg-61 --strip-components=1       && ln -sf /opt/ffmpeg-61/ffmpeg /usr/local/bin/ffmpeg && ln -sf /opt/ffmpeg-61/ffprobe /usr/local/bin/ffprobe       || echo "  !! ffmpeg ایستا نصب نشد؛ ویدیو ممکن است خطا بدهد"
+    curl -sSL -m 900 -o /root/ff.tar.xz https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-6.1-amd64-static.tar.xz \
+      && mkdir -p /opt/ffmpeg-61 && tar xJf /root/ff.tar.xz -C /opt/ffmpeg-61 --strip-components=1 \
+      && ln -sf /opt/ffmpeg-61/ffmpeg /usr/local/bin/ffmpeg && ln -sf /opt/ffmpeg-61/ffprobe /usr/local/bin/ffprobe \
+      || echo "  !! ffmpeg ایستا نصب نشد؛ ویدیو ممکن است خطا بدهد"
   fi
   rm -f /root/ff.tar.xz
 fi

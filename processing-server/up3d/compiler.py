@@ -6,6 +6,65 @@
 from . import COMPILED_FORMAT
 from . import lipsync
 from . import scene as S
+from .assets import Asset
+
+# تنظیمِ دستیِ کیفیت روی یک پروفایل (بخشِ «کیفیت و رندر» ⇐ تنظیماتِ پیشرفتهٔ پنل): فقط همین کلیدها.
+QUALITY_LIMITS = {'resolution': (240, 3840), 'samples': (1, 2048), 'frame_step': (1, 4)}
+QUALITY_FLAGS = ('denoise', 'motion_blur')
+
+
+def clean_quality(q):
+    """{resolution, samples, frame_step, denoise, motion_blur} ⇐ فقط کلیدهای شناخته‌شده در بازهٔ امن.
+    خالی = همان پروفایل. ValueError برای مقدارِ نامعتبر (پیامِ فارسی برای پنل)."""
+    out = {}
+    if not isinstance(q, dict):
+        return out
+    for k, (lo, hi) in QUALITY_LIMITS.items():
+        v = q.get(k)
+        if v in (None, ''):
+            continue
+        try:
+            v = int(float(v))
+        except (TypeError, ValueError):
+            raise ValueError('«%s» عدد نیست' % k)
+        if not lo <= v <= hi:
+            raise ValueError('«%s» باید بین %d و %d باشد' % (k, lo, hi))
+        out[k] = v
+    for k in QUALITY_FLAGS:
+        v = q.get(k)
+        if v in (None, ''):
+            continue
+        out[k] = v.strip().lower() in ('1', 'true', 'yes', 'on') if isinstance(v, str) else bool(v)
+    return out
+
+
+def with_overrides(prof, quality=None):
+    """پروفایل + تنظیمِ دستی ⇐ پروفایلِ مؤثر (همان نوعِ ورودی: Asset می‌ماند Asset، دیکشنری می‌ماند دیکشنری)."""
+    if not quality or not prof:
+        return prof
+    p = dict(prof)
+    if quality.get('resolution'):
+        p['resolution'] = {**(p.get('resolution') or {}), 'long': int(quality['resolution'])}
+    if quality.get('samples'):
+        p['samples'] = int(quality['samples'])
+    if quality.get('frame_step'):
+        p['frame_step'] = int(quality['frame_step'])
+    for k in QUALITY_FLAGS:
+        if k in quality:
+            p[k] = bool(quality[k])
+    return Asset(p) if isinstance(prof, Asset) else p
+
+
+def quality_scale(prof, quality=None):
+    """ضریبِ تقریبیِ زمانِ هر فریم نسبت به پروفایلِ پایه: پیکسل‌ها × نمونه‌ها (فقط Cycles)."""
+    if not quality or not prof:
+        return 1.0
+    eff = with_overrides(prof, quality)
+    base_long = float((prof.get('resolution') or {}).get('long') or 640)
+    s = (float((eff.get('resolution') or {}).get('long') or base_long) / base_long) ** 2
+    if prof.get('engine', 'CYCLES') == 'CYCLES' and prof.get('samples') and eff.get('samples'):
+        s *= float(eff['samples']) / float(prof['samples'])
+    return max(0.05, s)
 
 
 def _frame(t, fps):
@@ -32,9 +91,10 @@ def _asset_block(asset, params, extra=()):
     return out
 
 
-def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None):
+def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, profile_overrides=None):
     """audio: {speech_id: {'file','offset','duration','visemes':[[t,vis,w]...], 'energy':[...], 'energy_rate'}}
-    label_images: {product_id: path_to_png}"""
+    label_images: {product_id: path_to_png}
+    profile_overrides: خروجیِ clean_quality — روی پروفایل می‌نشیند و به compiled می‌رود (موتور فقط اجرا می‌کند)."""
     doc = S.normalize(doc)
     audio = audio or {}
     label_images = label_images or {}
@@ -42,6 +102,7 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None):
     fps = out['fps']
     dur = out['duration']
     prof = reg.get('render_profile', profile_id or 'preview') or reg.default('render_profile')
+    prof = with_overrides(prof, profile_overrides)
     w, h = resolution_for(prof, out['aspect'])
     frame_end = _frame(dur, fps) - 1
 

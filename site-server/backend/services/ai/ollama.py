@@ -236,16 +236,67 @@ def extract_ollama_text(data: dict) -> str:
 
 
 class OllamaProvider:
-    def __init__(self, base_url=None, timeout=None, retries=None, backoff=2.0):
+    def __init__(self, base_url=None, timeout=None, retries=None, backoff=2.0, model=None):
         conf = settings.UPMARKET_AI
         self.base_url = (base_url or conf["OLLAMA_BASE_URL"]).rstrip("/")
         self.timeout = timeout or conf["OLLAMA_TIMEOUT"]
         self.retries = conf["OLLAMA_RETRIES"] if retries is None else retries
         self.backoff = backoff
+        # The model the admin row (or .env) named for this provider. Callers
+        # still pass a model per call; this one only goes first in the
+        # candidate list (see `select_models`).
+        self.model = model or ""
         # How long the model stays resident after the call. On one 12 GB card
         # a lingering 18 GB model starves the next one (beter.md v2 #9).
         self.keep_alive = conf.get("OLLAMA_KEEP_ALIVE", "60s")
         self.num_ctx = conf.get("OLLAMA_NUM_CTX", 0)
+
+    # ------------------------------------------------------------------
+
+    @property
+    def is_remote(self) -> bool:
+        """Served by a processing node through the compute queue (agent://),
+        or by one because nothing listens on the configured local URL."""
+        from . import ollama_remote
+
+        return ollama_remote.use_remote(self.base_url)
+
+    def select_models(self, candidates):
+        """Which model names to try, in order, given the router's candidates.
+
+        The router names Ollama models (.env), which is exactly what this
+        provider runs, so the list passes through — the admin row's own model
+        just goes first when it names a different one.
+        """
+        names = [m for m in (candidates or []) if m]
+        if self.model and self.model not in names:
+            names.insert(0, self.model)
+        return names or ([self.model] if self.model else [])
+
+    def _answer_from(self, data: dict, model: str, format_json: bool) -> str:
+        """The text out of one Ollama /api/generate answer (local or remote)."""
+        text = extract_ollama_text(data)
+
+        # Helpful diagnostic when Ollama returns an empty response.
+        if not text:
+            logger.error(
+                "Ollama returned empty model output: "
+                "model=%s response_chars=%s thinking_chars=%s "
+                "done=%s done_reason=%s",
+                model,
+                len(data.get("response") or ""),
+                len(data.get("thinking") or ""),
+                data.get("done"),
+                data.get("done_reason"),
+            )
+
+        if format_json and data.get("done_reason") == "length" and text:
+            raise OllamaTruncated(
+                f"Model {model} ran out of output budget mid-answer "
+                f"({len(text)} chars)",
+                partial=text,
+            )
+        return text
 
     def generate(
         self,
@@ -296,6 +347,18 @@ class OllamaProvider:
         opts.update(options or {})
         payload["options"] = opts
 
+        # No Ollama on this machine: the model lives on a processing node, so
+        # the same body goes through the compute queue (services/ai/ollama_remote.py)
+        # and comes back as Ollama's own JSON. Images travel as input files.
+        if self.is_remote:
+            from . import ollama_remote
+
+            remote_payload = {k: v for k, v in payload.items() if k != "images"}
+            data = ollama_remote.generate(
+                remote_payload, base_url=self.base_url, timeout_s=call_timeout, images=images,
+            )
+            return self._answer_from(data, model, format_json)
+
         # Ollama switched off is not a transient error: answer in under a
         # second instead of burning three refused connections plus backoff.
         if not getattr(settings, "IS_TEST", False) and not is_listening(self.base_url):
@@ -319,33 +382,7 @@ class OllamaProvider:
 
                 data = response.json()
 
-                text = extract_ollama_text(data)
-
-                # Helpful diagnostic when Ollama returns an empty response.
-                if not text:
-                    logger.error(
-                        "Ollama returned empty model output: "
-                        "model=%s response_chars=%s thinking_chars=%s "
-                        "done=%s done_reason=%s",
-                        model,
-                        len(data.get("response") or ""),
-                        len(data.get("thinking") or ""),
-                        data.get("done"),
-                        data.get("done_reason"),
-                    )
-
-                if (
-                    format_json
-                    and data.get("done_reason") == "length"
-                    and text
-                ):
-                    raise OllamaTruncated(
-                        f"Model {model} ran out of output budget mid-answer "
-                        f"({len(text)} chars)",
-                        partial=text,
-                    )
-
-                return text
+                return self._answer_from(data, model, format_json)
 
             except OllamaTruncated:
                 raise

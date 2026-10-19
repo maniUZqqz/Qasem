@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.conf import settings
+from django.test import SimpleTestCase, override_settings
 
 from services.ai.ollama import (
     OllamaMalformedOutput,
@@ -30,6 +31,15 @@ from services.video.ffmpeg import (
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
 
+#: The HTTP path is what these tests exercise. A server whose .env routes
+#: Ollama through the compute queue (OLLAMA_BASE_URL=agent://any) would
+#: otherwise send every call there.
+LOCAL_OLLAMA = override_settings(
+    UPMARKET_AI={**settings.UPMARKET_AI, "OLLAMA_BASE_URL": "http://127.0.0.1:11434"},
+)
+
+
+@LOCAL_OLLAMA
 class OllamaProviderTests(SimpleTestCase):
     def test_strip_reasoning_removes_think_blocks(self):
         text = "<think>internal chain of thought</think>{\"a\": 1}"
@@ -212,8 +222,10 @@ class WebResearchTests(SimpleTestCase):
         result = research_product("کفش")
         self.assertEqual(result["items"], [])
         self.assertTrue(all(not source["ok"] for source in result["sources"]))
-        # digikala + torob failures + web-search "not configured" note
-        self.assertEqual(len(result["sources"]), 3)
+        # digikala + torob + basalam failures + web-search "not configured" note
+        self.assertEqual(
+            [s["source"] for s in result["sources"]], ["digikala", "torob", "basalam", "web"],
+        )
         web_source = result["sources"][-1]
         self.assertTrue(web_source.get("skipped"))
 
@@ -399,10 +411,15 @@ class TTSLanguageTests(SimpleTestCase):
     """Voice selection per narration language (fa default, en optional)."""
 
     def test_edge_voice_for_language(self):
-        from services.audio.tts import EdgeTTSProvider, get_tts_provider
+        from services.audio.tts import ChainTTSProvider, EdgeTTSProvider, get_tts_provider
 
-        fa = get_tts_provider(language="fa")
-        en = get_tts_provider(language="en")
+        def first(provider):
+            # With a second engine installed (Piper) the answer is a chain
+            # with Edge first and the other as the fallback.
+            return provider.providers[0] if isinstance(provider, ChainTTSProvider) else provider
+
+        fa = first(get_tts_provider(language="fa"))
+        en = first(get_tts_provider(language="en"))
         self.assertIsInstance(fa, EdgeTTSProvider)
         self.assertTrue(fa.voice.startswith("fa-IR-"))
         self.assertTrue(en.voice.startswith("en-US-"))

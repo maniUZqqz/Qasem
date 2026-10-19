@@ -1,3 +1,4 @@
+from django.test import override_settings
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
@@ -238,6 +239,11 @@ class MarketAnalysisTests(APITestCase):
         self.assertFalse(MarketResearch.objects.filter(product=self.product).exists())
 
 
+from django.conf import settings as _settings
+_EMB_DIRECT = {**_settings.UPMARKET_AI, "OLLAMA_BASE_URL": "http://127.0.0.1:11434"}
+
+
+@override_settings(UPMARKET_AI=_EMB_DIRECT)  # the server .env routes Ollama to a node (agent://); embeddings need a direct URL
 class EmbeddingsTests(APITestCase):
     """Semantic product search: OFF by default, transparent fallback on failure."""
 

@@ -2,11 +2,17 @@ from django.urls import path
 
 from .views import EmbeddingsView, MarketAnalysisView, ProductAnalyzeView, ProductIntelligenceView
 from .views_competitors import (
+    CompetitorCrawlView,
     CompetitorDetailView,
+    CompetitorDiscoverAddView,
+    CompetitorDiscoverView,
     CompetitorListView,
+    CompetitorMatchView,
+    CompetitorProductDetailView,
     CompetitorProductsView,
     OpportunityDetailView,
     OpportunityListView,
+    OpportunityReadinessView,
     ProfitReportView,
 )
 from .views_policy import StoreAIPolicyView
@@ -19,6 +25,7 @@ from .views_trends import (
     TrendIdeaUseView,
     TrendIdeaView,
     TrendListView,
+    TrendRelevanceView,
 )
 
 urlpatterns = [
@@ -35,9 +42,30 @@ urlpatterns = [
         "stores/<int:store_id>/competitors/",
         CompetitorListView.as_view(), name="competitor-list",
     ),
+    # automatic discovery (marketplace sellers) — before <pk> routes
+    path(
+        "stores/<int:store_id>/competitors/discover/",
+        CompetitorDiscoverView.as_view(), name="competitor-discover",
+    ),
+    path(
+        "stores/<int:store_id>/competitors/discover/add/",
+        CompetitorDiscoverAddView.as_view(), name="competitor-discover-add",
+    ),
     path(
         "stores/<int:store_id>/competitors/<int:pk>/",
         CompetitorDetailView.as_view(), name="competitor-detail",
+    ),
+    path(
+        "stores/<int:store_id>/competitors/<int:pk>/crawl/",
+        CompetitorCrawlView.as_view(), name="competitor-crawl",
+    ),
+    path(
+        "stores/<int:store_id>/competitors/<int:pk>/match/",
+        CompetitorMatchView.as_view(), name="competitor-match",
+    ),
+    path(
+        "stores/<int:store_id>/competitors/<int:pk>/products/<int:product_pk>/",
+        CompetitorProductDetailView.as_view(), name="competitor-product-detail",
     ),
     path(
         "stores/<int:store_id>/competitors/<int:pk>/products/",
@@ -51,6 +79,10 @@ urlpatterns = [
     path(
         "stores/<int:store_id>/opportunities/",
         OpportunityListView.as_view(), name="opportunity-list",
+    ),
+    path(
+        "stores/<int:store_id>/opportunities/readiness/",
+        OpportunityReadinessView.as_view(), name="opportunity-readiness",
     ),
     path(
         "stores/<int:store_id>/opportunities/<int:pk>/",
@@ -76,6 +108,10 @@ urlpatterns = [
     path(
         "stores/<int:store_id>/trends/",
         TrendListView.as_view(), name="store-trends",
+    ),
+    path(
+        "stores/<int:store_id>/trends/relevance/",
+        TrendRelevanceView.as_view(), name="trend-relevance",
     ),
     path(
         "stores/<int:store_id>/trends/ideas/",

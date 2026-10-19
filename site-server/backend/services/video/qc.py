@@ -51,7 +51,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import frame_stats
-from .ffmpeg import FFMPEG, VideoProcessingError, _run, probe_duration, probe_video
+from .ffmpeg import (
+    FFMPEG,
+    VideoProcessingError,
+    _run,
+    fps_mode_args,
+    probe_duration,
+    probe_video,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +251,7 @@ def sample_frames(video_path, out_dir, count: int = SAMPLE_FRAMES, *,
         wanted = sorted({round(k * (total_frames - 1) / (count - 1)) for k in range(count)})
         expression = "+".join(f"eq(n\\,{n})" for n in wanted)
         chain = f"select='{expression}',scale={width}:-2"
-        extra = ["-fps_mode", "passthrough"]
+        extra = fps_mode_args("passthrough")
     else:
         try:
             duration = probe_duration(video_path)

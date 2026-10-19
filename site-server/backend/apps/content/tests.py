@@ -22,6 +22,24 @@ from .tasks import (
 
 TEMP_MEDIA = tempfile.mkdtemp(prefix="upmarket-content-test-media-")
 
+
+def anchor_via(fake_extract):
+    """A stand-in for services.video.anchor.apply that uses the test's fake
+    last-frame extractor.
+
+    A CONTINUE scene takes its anchor through video_anchor.apply, which calls
+    extract_last_frame from services.video.ffmpeg directly — patching the name
+    in apps.content.tasks does not reach it, and real ffmpeg then ran on the
+    fake MP4 bytes.
+    """
+    from services.video.anchor import Choice
+
+    def fake_apply(video_path, out_dir, *, label):
+        frame = fake_extract(video_path, Path(out_dir) / f"{label}_last.png")
+        return Path(video_path), frame, Choice(0, 0.0, 0.0, note="test")
+
+    return fake_apply
+
 VALID_CAPTIONS = {
     "captions": [
         {
@@ -232,6 +250,9 @@ class ContentTaskTests(APITestCase):
         client.generate.side_effect = fake_generate
         mock_extract.side_effect = fake_extract
         mock_concat.side_effect = fake_concat
+        anchor = patch("apps.content.tasks.video_anchor.apply", side_effect=anchor_via(mock_extract))
+        anchor.start()
+        self.addCleanup(anchor.stop)
 
         # Auto mode: no quality score exists yet, so nothing pauses and the
         # whole video renders in one pass. Safe mode is covered separately —
@@ -468,6 +489,9 @@ class ContentTaskTests(APITestCase):
             return Path(path)
 
         tts = MagicMock()
+        tts.describe.return_value = {
+            "engine": "fake", "voice": "fake", "local": True, "processor": "cpu", "notes": [],
+        }
         tts.synthesize.side_effect = lambda text, out: write_file(out)
         mock_get_tts.return_value = tts
         mock_probe.return_value = 4.0
@@ -516,6 +540,9 @@ class ContentTaskTests(APITestCase):
             return Path(path)
 
         tts = MagicMock()
+        tts.describe.return_value = {
+            "engine": "fake", "voice": "fake", "local": True, "processor": "cpu", "notes": [],
+        }
         tts.synthesize.side_effect = lambda text, out: write_file(out)
         mock_get_tts.return_value = tts
         mock_probe.return_value = 4.0

@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 def build(resolved: providers.Resolved):
     """Turn a resolved provider row into a usable client."""
     if resolved.kind == "OLLAMA":
-        return OllamaProvider(base_url=resolved.base_url, timeout=resolved.timeout_s)
+        return OllamaProvider(
+            base_url=resolved.base_url, timeout=resolved.timeout_s, model=resolved.model_name,
+        )
     if resolved.kind in ("OPENAI", "HTTP"):
         return OpenAICompatProvider(
             base_url=resolved.base_url,
@@ -56,9 +58,23 @@ def health(resolved: providers.Resolved) -> tuple[bool, str]:
         if resolved.kind == "OLLAMA":
             from services.net import is_listening
 
+            from . import models_registry, ollama_remote
+
+            if ollama_remote.use_remote(resolved.base_url):
+                nodes = ollama_remote.ollama_nodes(resolved.base_url)
+                if not nodes:
+                    return False, ollama_remote.unavailable_message(resolved.base_url)
+                names = [m["name"] for m in ollama_remote.installed_models(resolved.base_url)]
+                found = next(
+                    (n for n in names if models_registry._same_model(resolved.model_name, n)), None,
+                )
+                where = "، ".join(n.name for n in nodes)
+                if not found:
+                    return False, f"مدل «{resolved.model_name}» روی سرورِ پردازش ({where}) نصب نیست."
+                return True, f"سرورِ پردازش آنلاین ({where})؛ مدل {found} آماده است."
+
             if not is_listening(resolved.base_url):
                 return False, f"چیزی روی {resolved.base_url} گوش نمی‌دهد."
-            from . import models_registry
 
             found = models_registry.resolve_installed(resolved.model_name)
             if not found:

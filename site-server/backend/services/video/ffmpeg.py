@@ -1,6 +1,7 @@
 """FFmpeg helpers: last-frame extraction, concatenation, audio mixing, probing."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -64,18 +65,163 @@ def filter_path(path) -> str:
     return f"'{text}'"
 
 
-def _run(cmd):
+#: Hard ceiling for ONE ffmpeg/ffprobe call. No render here takes more than a
+#: few minutes; a call still running after this is stuck, not slow. Without a
+#: ceiling a stuck encoder holds a Celery worker forever — measured on the
+#: server (ffmpeg master snapshot N-127527, 2026-10): the native AAC encoder
+#: spun at 100% CPU for four days on a ten-second clip and ignored SIGTERM.
+#: subprocess.run kills with SIGKILL on timeout, which it cannot ignore.
+FFMPEG_TIMEOUT_SECONDS = float(os.getenv("FFMPEG_TIMEOUT_SECONDS") or 1800)
+
+#: Lines of ffmpeg's stderr that say nothing about the failure: the build
+#: banner (a static build's `configuration:` line alone is 2 KB, and it used to
+#: fill the whole error message so the real cause was cut off), library
+#: versions, and progress counters.
+_NOISE = re.compile(
+    r"^(ffmpeg|ffprobe) version |^built with |^configuration:|^--(enable|disable|extra|cc|cxx|ar|nm|ranlib|arch|target|pkg|prefix|cross)"
+    r"|^lib(av|sw|post)\w*\s+\d|^(frame|size)=\s*\S+.*(time|bitrate)=|^Press \[q\]"
+)
+#: A line that names the cause. These win over context lines when the message
+#: has to be cut down.
+_CAUSE = re.compile(
+    r"error|invalid|no such|not found|unable|cannot|can't|could not|failed|unrecogni[sz]ed"
+    r"|unknown|does not|mismatch|too (large|small|many)|out of|missing|denied|not supported|incorrect"
+    r"|no channel|consider|option not found",
+    re.IGNORECASE,
+)
+
+
+def _is_ff(exe) -> bool:
+    return Path(str(exe)).name.lower().startswith(("ffmpeg", "ffprobe"))
+
+
+def _quiet(cmd) -> list:
+    """The command with `-hide_banner` (and `-nostdin` for ffmpeg) up front.
+
+    -hide_banner: the banner is noise in every error message. -nostdin: under a
+    terminal or an ssh session ffmpeg reads stdin for its `q` key and can stop
+    or block on it. Both exist in every ffmpeg since 2.x, old and new.
+    """
+    cmd = list(cmd)
+    if not cmd or not _is_ff(cmd[0]):
+        return cmd
+    extra = []
+    if "-hide_banner" not in cmd:
+        extra.append("-hide_banner")
+    if Path(str(cmd[0])).name.lower().startswith("ffmpeg") and "-nostdin" not in cmd:
+        extra.append("-nostdin")
+    return [cmd[0], *extra, *cmd[1:]]
+
+
+def stderr_summary(stderr, limit: int = 1500) -> str:
+    """What actually went wrong, from ffmpeg's stderr — not its build banner.
+
+    Banner, library versions and progress lines are dropped. If any line names
+    a cause ("Invalid data…", "No such filter…", "Unrecognized option…") those
+    lines are kept (with the line before each, which is usually the file or
+    stream it is about); otherwise the last lines. Repeated lines collapse.
+    """
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    lines = []
+    for raw in (stderr or "").replace("\r", "\n").splitlines():
+        line = raw.strip()
+        if not line or _NOISE.search(line) or line.startswith("Last message repeated"):
+            continue
+        # The input/stream dump is indented; it is context, not the failure.
+        if raw[:1].isspace() and not _CAUSE.search(line):
+            continue
+        if lines and lines[-1] == line:
+            continue
+        lines.append(line)
+    if not lines:
+        return ""
+    cause_rows = [i for i, line in enumerate(lines) if _CAUSE.search(line)]
+    if cause_rows:
+        picked = []
+        for i in cause_rows:
+            for j in (i - 1, i):
+                if j >= 0 and j not in picked:
+                    picked.append(j)
+        chosen = [lines[j] for j in sorted(picked)]
+    else:
+        chosen = lines
+    seen = set()
+    unique = []
+    for line in chosen:
+        if line not in seen:
+            seen.add(line)
+            unique.append(line)
+    text = "\n".join(unique[-15:])
+    return text if len(text) <= limit else "…" + text[-limit:]
+
+
+#: binary -> (major, minor). Only a version actually read is remembered, so a
+#: probe that failed (a patched subprocess, a binary installed later) is retried.
+_VERSIONS: dict = {}
+
+
+def ffmpeg_version(binary: str | None = None) -> tuple[int, int]:
+    """(major, minor) of the ffmpeg in use, read once per binary.
+
+    "4.4.2-0ubuntu…" → (4, 4); "n8.1.3-18-g…" → (8, 1); a git snapshot
+    ("N-127527-g…") is newer than every release → (99, 0). Unreadable → (0, 0),
+    which picks the old spelling of an option.
+    """
+    exe = str(binary or FFMPEG)
+    if exe in _VERSIONS:
+        return _VERSIONS[exe]
+    try:
+        out = subprocess.run(
+            [exe, "-hide_banner", "-version"], capture_output=True,
+            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, timeout=30,
+        ).stdout
+    except Exception:  # noqa: BLE001 — no binary, a timeout, a patched subprocess
+        return (0, 0)
+    if not isinstance(out, str):
+        return (0, 0)
+    match = re.search(r"version\s+n?(\d+)\.(\d+)", out)
+    if match:
+        version = (int(match.group(1)), int(match.group(2)))
+    elif re.search(r"version\s+N-\d+", out):
+        version = (99, 0)
+    else:
+        return (0, 0)
+    _VERSIONS[exe] = version
+    return version
+
+
+def fps_mode_args(mode: str = "passthrough") -> list:
+    """Frame-rate mode for the output: `-fps_mode` from 5.1 on, `-vsync` before.
+
+    Current builds removed `-vsync` ("Unrecognized option"), and 4.x does not
+    know `-fps_mode` ("Option not found") — either spelling alone breaks one
+    of the two ffmpegs this code runs under.
+    """
+    return ["-fps_mode", mode] if ffmpeg_version() >= (5, 1) else ["-vsync", mode]
+
+
+def _run(cmd, timeout=None):
+    cmd = _quiet(cmd)
+    limit = FFMPEG_TIMEOUT_SECONDS if timeout is None else timeout
     try:
         result = subprocess.run(
-            cmd, capture_output=True, encoding="utf-8", errors="replace"
+            cmd, capture_output=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=limit,
         )
     except FileNotFoundError as exc:
         raise VideoProcessingError(
             f"{cmd[0]} binary not found — install ffmpeg or set FFMPEG_BIN/FFPROBE_BIN"
         ) from exc
+    except subprocess.TimeoutExpired as exc:
+        detail = stderr_summary(exc.stderr)
+        raise VideoProcessingError(
+            f"Command timed out after {limit:.0f}s and was killed ({cmd[0]})"
+            + (f": {detail}" if detail else "")
+        ) from exc
     if result.returncode != 0:
-        tail = (result.stderr or "")[-2000:]
-        raise VideoProcessingError(f"Command failed ({cmd[0]}): {tail}")
+        detail = stderr_summary(result.stderr) or f"exit code {result.returncode}"
+        raise VideoProcessingError(f"Command failed ({cmd[0]}): {detail}")
     return result
 
 

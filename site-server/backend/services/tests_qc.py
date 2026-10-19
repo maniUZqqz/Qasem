@@ -49,6 +49,12 @@ def noisy(base, seed=0, size=(64, 64)):
     return image
 
 
+def judged(**fields):
+    """A report something actually looked at. decide() answers REVIEW for a
+    report with no axes at all ("nobody looked" is not a quality verdict)."""
+    return qc.QCReport(axes=[qc.Axis("نوردهی", float(fields.get("overall", 0)))], **fields)
+
+
 class CodeAxisTests(TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -95,10 +101,16 @@ class CodeAxisTests(TestCase):
         self.assertIn("حرکتی ندارد", axes["کیفیت حرکت"].note)
 
     def test_colour_drift_from_start_to_end_is_caught(self):
-        images = [noisy((40 + i * 30, 90, 90), seed=i) for i in range(8)]
-        axes, fixable = self._axes(images)
+        """The cast is measured on near-grey pixels only (a coloured product
+        is not a cast), so the frames are grey leaning from blue to red. A
+        drift is not a colour curve away from fine: one curve cannot fix both
+        ends, so it is a regeneration cause."""
+        images = [noisy((108 + i * 3, 120, 132 - i * 3), seed=i) for i in range(8)]
+        paths = write_frames(self.dir, images)
+        found = qc.analyze_frames(paths)
+        axes = {a.name: a for a in found.axes}
         self.assertLess(axes["ثبات رنگ"].score, 80)
-        self.assertIn("COLOR", fixable)
+        self.assertIn(qc.COLOUR_DRIFT, found.regenerate)
 
     def test_one_frame_is_not_enough_to_judge(self):
         paths = write_frames(self.dir, [noisy((120, 120, 120))])
@@ -203,7 +215,7 @@ class RepairLadderTests(TestCase):
     """Which branch a failure takes, and why."""
 
     def test_a_dark_clip_goes_to_the_code_layer(self):
-        report = qc.QCReport(
+        report = judged(
             overall=68, verdict="REGENERATE", code_fixable=["EXPOSURE"],
         )
         self.assertTrue(repair.can_fix_with_code(report))
@@ -211,7 +223,7 @@ class RepairLadderTests(TestCase):
         self.assertIn("بدون GPU", repair.plan(report)["cost"])
 
     def test_a_changed_face_goes_to_regeneration(self):
-        report = qc.QCReport(
+        report = judged(
             overall=55, verdict="REGENERATE",
             needs_regeneration=["CHARACTER_CONSISTENCY"],
         )
@@ -222,7 +234,7 @@ class RepairLadderTests(TestCase):
 
     def test_a_changed_product_is_named_in_plain_words(self):
         """The check that matters most to a shop."""
-        report = qc.QCReport(
+        report = judged(
             overall=40, verdict="REGENERATE",
             needs_regeneration=["OBJECT_CONSISTENCY"],
         )
@@ -231,7 +243,7 @@ class RepairLadderTests(TestCase):
     def test_a_mixed_failure_is_not_code_fixable(self):
         """Correcting the colour would produce a well-lit clip of the wrong
         person, and the owner would have paid for the filter pass too."""
-        report = qc.QCReport(
+        report = judged(
             overall=50, verdict="REGENERATE",
             code_fixable=["COLOR"], needs_regeneration=["ANATOMY"],
         )
@@ -239,14 +251,14 @@ class RepairLadderTests(TestCase):
         self.assertEqual(repair.plan(report)["action"], "REGENERATE")
 
     def test_a_good_segment_is_simply_accepted(self):
-        report = qc.QCReport(overall=91, verdict="EXCELLENT")
+        report = judged(overall=91, verdict="EXCELLENT")
         plan = repair.plan(report)
         self.assertEqual(plan["action"], "ACCEPT")
         self.assertEqual(plan["cost"], "هیچ")
 
     def test_the_regeneration_cost_says_only_one_segment(self):
         """§9.3's rule: never re-render the whole video."""
-        report = qc.QCReport(
+        report = judged(
             overall=30, verdict="REGENERATE", needs_regeneration=["ARTIFACTS"],
         )
         self.assertIn("فقط همین قطعه", repair.plan(report)["cost"])
@@ -292,7 +304,9 @@ class CheckSegmentTests(TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_a_dark_segment_produces_a_low_score_and_a_repair_plan(self):
-        frames = write_frames(self.dir / "qc", [noisy((16, 16, 18), seed=i) for i in range(6)])
+        # Dark but rescuable: a midtone near 16 would need gamma > MAX_GAMMA
+        # and goes to regeneration instead (repair.decide, the DARK rule).
+        frames = write_frames(self.dir / "qc", [noisy((42, 42, 46), seed=i) for i in range(6)])
 
         with patch.object(qc, "sample_frames", return_value=frames):
             report = qc.check_segment(

@@ -19,7 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 def is_enabled() -> bool:
-    return bool(settings.UPMARKET_AI.get("EMBEDDINGS_ENABLED"))
+    if not settings.UPMARKET_AI.get("EMBEDDINGS_ENABLED"):
+        return False
+    # Embeddings are the one Ollama call not relayed through the processing
+    # node (apps.compute carries chat/generate only). With Ollama on a node
+    # there is nothing to POST to here, so say so once instead of raising on
+    # every product save; keyword retrieval takes over as when disabled.
+    if str(settings.UPMARKET_AI.get("OLLAMA_BASE_URL", "")).startswith("agent://"):
+        logger.info("EMBEDDINGS_ENABLED ignored: Ollama is on a processing node (agent://), embeddings need a direct URL")
+        return False
+    return True
 
 
 def embedding_model() -> str:

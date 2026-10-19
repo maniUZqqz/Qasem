@@ -53,9 +53,12 @@ def job_json(j, light=False):
          'created': j.created, 'started': j.started, 'finished': j.finished, 'final': j.final,
          'project': j.project_id, 'project_title': j.project.title if j.project_id else None,
          'version': j.version.number if j.version else None,
-         'files': {k: SV.file_url(v) for k, v in (j.files or {}).items()}, 'cancel_requested': j.cancel_requested}
+         'files': {k: SV.file_url(v) for k, v in (j.files or {}).items()}, 'cancel_requested': j.cancel_requested,
+         'quality': (j.params or {}).get('quality') or None}
     if j.started and not j.final and j.state == 'RENDERING' and j.sec_per_frame and j.frames_total:
         d['eta_seconds'] = round((j.frames_total - j.frames_done) * j.sec_per_frame)
+    # کارِ بی‌کارگر: پنل باید بگوید چرا منتظر است و چه کارگری می‌تواند بگیرد (نه فقط «منتظرِ کارگر»)
+    d['waiting'] = SV.waiting_info(j) if (j.owner == 'worker' and j.worker_id is None and not j.final) else None
     if not light:
         d.update({'log': j.log[-8000:], 'qc': j.qc, 'report': j.report, 'params': {k: v for k, v in j.params.items()
                                                                                     if k != 'document'}})
@@ -148,9 +151,11 @@ def project_edit(request, pk):
 
 def _job_request(request, pk, kind, default_profile):
     p = get_object_or_404(Project, pk=pk)
+    params = {k: v for k, v in request.data.items() if k in ('format', 'count', 'allow_cpu')}
+    if isinstance(request.data.get('quality'), dict):
+        params['quality'] = request.data['quality']       # SV.request_job ⇐ clean_quality (وارسی + بازه)
     try:
-        job = SV.request_job(p, kind, request.data.get('profile') or default_profile,
-                             {k: v for k, v in request.data.items() if k in ('format', 'count', 'allow_cpu')})
+        job = SV.request_job(p, kind, request.data.get('profile') or default_profile, params)
     except ValueError as e:
         return Response({'error': str(e)}, status=400)
     return Response(job_json(job, True), status=201)
@@ -219,6 +224,25 @@ def job_cancel(request, pk):
     return Response(job_json(j, True))
 
 
+@panel_view(['POST'])
+def job_allow_cpu(request, pk):
+    """کارِ منتظرِ کارگرِ GPU ⇐ اجازهٔ اجرا روی کارگرِ CPU (کند ولی راه می‌افتد). فقط تا وقتی کارگری نگرفته."""
+    j = get_object_or_404(Job, pk=pk)
+    if j.final or j.worker_id:
+        return Response({'error': 'این کار دیگر منتظرِ کارگر نیست'}, status=400)
+    j.params = {**(j.params or {}), 'allow_cpu': True}
+    est = SV.estimate(j.profile, j.frames_total or 0, allow_cpu=True, quality=j.params.get('quality'))
+    j.estimate_seconds = est['seconds']
+    j.add_log('اجازهٔ اجرا روی CPU داده شد (%s)' % (
+        'کارگر: %s، تخمین ~%d دقیقه' % (est['worker'], max(1, est['seconds'] // 60)) if est['available']
+        else 'فعلاً هیچ کارگری آنلاین نیست'), save=False)
+    if j.state == 'SCENE_BUILDING' and j.owner == 'worker':
+        j.message = ('منتظرِ کارگر — اجازهٔ CPU داده شد؛ کارگرِ آماده: %s' % '، '.join(SV.eligible_workers(j))
+                     if SV.eligible_workers(j) else 'منتظرِ کارگر — اجازهٔ CPU داده شد ولی هیچ کارگری آنلاین نیست')[:400]
+    j.save()
+    return Response(job_json(j, True))
+
+
 @panel_view(['GET'])
 def jobs_list(request):
     qs = Job.objects.select_related('worker', 'version', 'project').exclude(project__title='__thumbnails__')
@@ -238,10 +262,15 @@ def estimate(request):
     prof = request.query_params.get('profile', 'preview')
     pid = str(request.query_params.get('project') or '')
     p = Project.objects.filter(pk=int(pid)).first() if pid.isdigit() else None
-    frames = SV.frames_of(p.current.document, prof) if p and p.current else 240
-    out = {'frames': frames, **SV.estimate(prof, frames)}
+    # تنظیمِ دستیِ کیفیت (?resolution=&samples=&frame_step=) همان ضریبی را می‌گیرد که در request_job
+    try:
+        q = SV.clean_quality({k: request.query_params.get(k) for k in ('resolution', 'samples', 'frame_step')})
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
+    frames = SV.frames_of(p.current.document, prof, q) if p and p.current else 240
+    out = {'frames': frames, **SV.estimate(prof, frames, quality=q)}
     if not out['available']:
-        cpu = SV.estimate(prof, frames, allow_cpu=True)
+        cpu = SV.estimate(prof, frames, allow_cpu=True, quality=q)
         out['cpu_seconds'] = cpu['seconds'] if cpu['available'] else None
         out['cpu_worker'] = cpu['worker']
     return Response(out)

@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from services.ai import models_registry
 from services.ai.ollama import OllamaError, OllamaProvider, OllamaTimeout
@@ -70,6 +70,15 @@ class ModelRegistryTests(SimpleTestCase):
             self.assertTrue(models_for(TASK_REASONING))
 
 
+#: The HTTP path is what these tests exercise. A server whose .env routes
+#: Ollama through the compute queue (OLLAMA_BASE_URL=agent://any) would
+#: otherwise send every call there.
+LOCAL_OLLAMA = override_settings(
+    UPMARKET_AI={**settings.UPMARKET_AI, "OLLAMA_BASE_URL": "http://127.0.0.1:11434"},
+)
+
+
+@LOCAL_OLLAMA
 class OllamaResourceOptionTests(SimpleTestCase):
     """VRAM-related request options and the no-retry-on-timeout rule."""
 
@@ -245,6 +254,7 @@ class ServiceProbeTests(SimpleTestCase):
         self.assertFalse(net.is_listening("http://127.0.0.1:9"))
 
 
+@LOCAL_OLLAMA
 class TruncatedAnswerTests(SimpleTestCase):
     """A cut-off answer is a budget problem, not a model problem."""
 

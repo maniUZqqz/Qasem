@@ -5,11 +5,22 @@ import Icon from "../../../components/Icon";
 import { openTool } from "../../../components/Layout";
 import { Badge, Card, EmptyState, ErrorBox, SectionTitle, Spinner, Stat } from "../../../components/ui";
 import { P, ago, errMsg, fa, up3d } from "./api";
-import { JobLine, Muted, usePoll } from "./shared";
-import type { Dashboard, Job } from "./types";
+import { JobLine, Muted, WaitingAlert, usePoll, useToast } from "./shared";
+import type { Dashboard, Job, Worker } from "./types";
 
-/** داشبورد: معرفی، شمارِ کتابخانه، وضعیتِ AI و کارگرها، کارهای در جریان (زنده) و پروژه‌ها. */
+/**
+ * داشبورد: معرفی + سه گامِ «از این‌جا شروع کنید»، آماده‌باشِ سامانه (AI، کارگرها و این‌که کدام کیفیت‌ها الان ممکن‌اند،
+ * کارهای در جریان با هشدارِ «منتظرِ کارگر»)، و پروژه‌ها با وضعیتِ هر کدام.
+ */
+
+/** کدام کیفیت‌ها الان با کارگرهای آنلاین ممکن‌اند (همان قاعدهٔ Worker.accepts: بی‌GPU فقط انیمیک/پیش‌نمایش). */
+function capabilities(workers: Worker[]): { cpu: string[]; gpu: string[] } {
+  const online = workers.filter((w) => w.enabled && w.online);
+  return { cpu: online.filter((w) => !w.has_gpu).map((w) => w.name), gpu: online.filter((w) => w.has_gpu).map((w) => w.name) };
+}
+
 export default function DashboardPage() {
+  const toast = useToast();
   const [data, setData] = useState<Dashboard | null>(null);
   const [active, setActive] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +44,25 @@ export default function DashboardPage() {
     [],
   );
 
+  const allowCpu = async (id: number) => {
+    try {
+      await up3d.allowCpu(id);
+      toast("اجازهٔ اجرا روی CPU داده شد");
+      setActive(await up3d.jobs(true));
+    } catch (e) {
+      toast(errMsg(e), true);
+    }
+  };
+  const cancel = async (id: number) => {
+    if (!window.confirm("این کار لغو شود؟")) return;
+    try {
+      await up3d.cancelJob(id);
+      setActive(await up3d.jobs(true));
+    } catch (e) {
+      toast(errMsg(e), true);
+    }
+  };
+
   if (!data) {
     return (
       <div className="py-10 text-center">
@@ -42,6 +72,9 @@ export default function DashboardPage() {
   }
 
   const { ai, counts } = data;
+  const caps = capabilities(data.workers);
+  const latest = data.projects[0];
+  const waiting = (active || []).filter((j) => j.waiting && j.waiting.eligible.length === 0);
 
   return (
     <div className="space-y-5">
@@ -80,6 +113,41 @@ export default function DashboardPage() {
         </div>
       </Card>
 
+      <div>
+        <SectionTitle>از این‌جا شروع کنید</SectionTitle>
+        <div className="u3d-strip">
+          <Link to={P.newProject()}>
+            <span className="u3d-num">۱</span>
+            <span className="min-w-0">
+              <b>پروژهٔ تازه بسازید</b>
+              <small>نامِ محصول کافی است؛ مجری، محیط، صدا و قاب پیش‌فرضِ خوب دارند. برنامه در چند ثانیه نوشته می‌شود.</small>
+            </span>
+          </Link>
+          <Link to={latest ? P.project(latest.id) : P.newProject()}>
+            <span className="u3d-num">۲</span>
+            <span className="min-w-0">
+              <b>صحنه را تنظیم کنید</b>
+              <small>پنج گام: محصول و صحنه، حرکت و دوربین، متن و صدا، کیفیت، خروجی. {latest ? `آخرین پروژه: ${latest.title}` : ""}</small>
+            </span>
+          </Link>
+          <Link to={P.jobs()}>
+            <span className="u3d-num">۳</span>
+            <span className="min-w-0">
+              <b>رندر بگیرید و دانلود کنید</b>
+              <small>اول «انیمیک» (چند دقیقه روی CPU ِ سرور)، بعد کیفیتِ بالاتر. پیشرفت در «کارها» لحظه‌ای است.</small>
+            </span>
+          </Link>
+        </div>
+      </div>
+
+      {waiting.length > 0 && (
+        <div className="space-y-2">
+          {waiting.map((j) => (
+            <WaitingAlert key={j.id} job={j} onAllowCpu={(id) => void allowCpu(id)} onCancel={(id) => void cancel(id)} />
+          ))}
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <SectionTitle>هوشِ مصنوعی و صدا</SectionTitle>
@@ -96,11 +164,7 @@ export default function DashboardPage() {
               <Badge tone="warn">تنظیم نشده</Badge> بدونِ کلید، قالب‌های آماده و صدای بی‌صدا کار می‌کنند.
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => openTool("/admin/up3d/aisettings/1/change/")}
-            className="u-btn u-btn-secondary u-btn-sm mt-3"
-          >
+          <button type="button" onClick={() => openTool("/admin/up3d/aisettings/1/change/")} className="u-btn u-btn-secondary u-btn-sm mt-3">
             تنظیم در جنگو ادمین
           </button>
         </Card>
@@ -113,7 +177,10 @@ export default function DashboardPage() {
             <div className="space-y-1.5">
               {data.workers.map((w) => (
                 <div key={w.id} className="flex items-center justify-between gap-2 text-sm" style={{ color: "var(--text-2)" }}>
-                  <span>{w.name}</span>
+                  <span>
+                    {w.name}
+                    {!w.enabled && <span style={{ color: "var(--text-3)" }}> (غیرفعال)</span>}
+                  </span>
                   <span className="flex gap-1">
                     <Badge tone={w.has_gpu ? "ok" : "neutral"}>{w.has_gpu ? "GPU" : "CPU"}</Badge>
                     <Badge tone={w.online ? "ok" : "bad"}>{w.online ? "آنلاین" : "آفلاین"}</Badge>
@@ -122,8 +189,18 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+          <div className="u3d-check mt-3">
+            <div className={caps.cpu.length || caps.gpu.length ? "ok" : "bad"}>
+              <i>{caps.cpu.length || caps.gpu.length ? "✓" : "✕"}</i>
+              <span>انیمیک و پیش‌نمایش: {caps.cpu.length || caps.gpu.length ? [...caps.gpu, ...caps.cpu].join("، ") : "هیچ کارگری آنلاین نیست"}</span>
+            </div>
+            <div className={caps.gpu.length ? "ok" : "warn"}>
+              <i>{caps.gpu.length ? "✓" : "!"}</i>
+              <span>۷۲۰p / ۱۰۸۰p / 4K: {caps.gpu.length ? caps.gpu.join("، ") : "کارگرِ GPU آنلاین نیست (فقط با «اجرا روی CPU»، خیلی کند)"}</span>
+            </div>
+          </div>
           <Link to={P.workers()} className="u-btn u-btn-secondary u-btn-sm mt-3">
-            افزودنِ کارگرِ GPU
+            افزودن / راه‌اندازیِ کارگرِ GPU
           </Link>
         </Card>
 
@@ -140,6 +217,9 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+          <Link to={P.jobs()} className="u-btn u-btn-ghost u-btn-sm mt-3">
+            همهٔ کارها
+          </Link>
         </Card>
       </div>
 
@@ -153,7 +233,15 @@ export default function DashboardPage() {
 
       {data.projects.length === 0 ? (
         <Card>
-          <EmptyState icon="film" title="هنوز پروژه‌ای نیست" action={<Link to={P.newProject()} className="u-btn u-btn-primary u-btn-sm">اولین تبلیغ را بسازید</Link>} />
+          <EmptyState
+            icon="film"
+            title="هنوز پروژه‌ای نیست"
+            action={
+              <Link to={P.newProject()} className="u-btn u-btn-primary u-btn-sm">
+                اولین تبلیغ را بسازید
+              </Link>
+            }
+          />
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -167,17 +255,17 @@ export default function DashboardPage() {
                   <b className="block truncate text-sm" style={{ color: "var(--text)" }}>
                     {p.title}
                   </b>
-                  <div className="text-xs" style={{ color: "var(--text-3)" }}>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
                     {p.version ? (
-                      <>
-                        نسخهٔ {fa(p.version)} ·{" "}
-                        <span style={{ color: p.valid ? "var(--ok)" : "var(--bad)" }}>{p.valid ? "معتبر" : "ایراد دارد"}</span>
-                      </>
+                      <Badge tone={p.valid ? "ok" : "bad"}>
+                        نسخهٔ {fa(p.version)} · {p.valid ? "معتبر" : "ایراد دارد"}
+                      </Badge>
                     ) : (
-                      "در حالِ برنامه‌ریزی…"
+                      <Badge tone="info">در حالِ برنامه‌ریزی…</Badge>
                     )}
+                    {p.result ? <Badge tone="brand">ویدئو آماده ({p.result.profile})</Badge> : <Badge>بی‌ویدئو</Badge>}
                   </div>
-                  <div className="text-xs" style={{ color: "var(--text-3)" }}>
+                  <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>
                     {ago(p.updated)}
                   </div>
                 </div>

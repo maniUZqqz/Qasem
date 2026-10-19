@@ -108,12 +108,15 @@ class EffectTests(SimpleTestCase):
 
     def test_the_mix_is_compensated_so_the_video_does_not_get_quieter(self):
         """`amix` divides by the input count; without this a video with six
-        effects comes back noticeably quieter than it went in."""
+        effects comes back noticeably quieter than it went in. normalize=0
+        keeps every input at its own level (it replaced a volume=N make-up
+        gain after a 1/N mix, which was the same thing done twice)."""
         command = self._effects(
             music.Track(path=Path("a.mp3"), at=1),
             music.Track(path=Path("b.mp3"), at=2),
         )
-        self.assertIn("volume=3", command)
+        self.assertIn("amix=inputs=3", command)
+        self.assertIn("normalize=0", command)
 
     def test_music_in_the_effects_field_is_refused_by_name(self):
         with patch.object(music, "probe_duration", return_value=60.0), \

@@ -3,13 +3,16 @@ import { useNavigate } from "react-router-dom";
 
 import Icon from "../../../components/Icon";
 import { Badge, Button, Card, ErrorBox, Field, Input, PageHeader, Select, Spinner, TextArea } from "../../../components/ui";
-import { P, desc, errMsg, label, thumbUrl, up3d } from "./api";
-import { Muted, useCatalog, useStatus, useToast } from "./shared";
+import { P, desc, errMsg, fa, label, thumbUrl, up3d } from "./api";
+import { Advanced, Muted, Section, useCatalog, useStatus, useToast } from "./shared";
 import type { Asset, Template } from "./types";
 
 /**
- * «تبلیغِ تازه»: محصول، سبک، کارگردانی ⇐ خلاصهٔ کار (brief) ⇐ کارِ برنامه‌ریزی ⇐ ویرایشگر.
- * همان فرمِ project_new.html ِ قدیمی؛ خروجی‌اش دقیقاً همان brief است که قالب‌ها و کارگردانِ AI می‌خوانند.
+ * «تبلیغِ تازه» — سه گامِ شماره‌دار + کارتِ چسبانِ «چه چیزی ساخته می‌شود»:
+ *   ۱ محصول (نام، برند، شکل، شعار، قیمت، ویژگی‌ها؛ پیشرفته: عکسِ برچسب، مدلِ سه‌بعدی، رنگ‌ها)
+ *   ۲ مجری و صحنه (مجری، محیط، صدا، قاب، لحن)
+ *   ۳ پیام و کارگردانی (دعوت به خرید، درخواستِ آزاد، روش: AI یا قالب، قالب)
+ * خروجی دقیقاً همان brief ِ قبلی است که قالب‌ها و کارگردانِ AI می‌خوانند (هیچ فیلدی کم نشده).
  */
 
 type PickKind = "product" | "character" | "environment";
@@ -38,6 +41,8 @@ function Picker({ kind, list, value, onChange }: { kind: PickKind; list: Asset[]
 }
 
 type FileState = { text: string; ok: boolean; path: string | null };
+
+const ASPECT_FA: Record<string, string> = { "9:16": "عمودی ۹:۱۶ (استوری/ریلز)", "16:9": "افقی ۱۶:۹", "1:1": "مربع ۱:۱", "4:5": "۴:۵ (پست)" };
 
 export default function NewProjectPage() {
   const navigate = useNavigate();
@@ -114,6 +119,7 @@ export default function NewProjectPage() {
   const go = async () => {
     if (!productName.trim()) {
       toast("نامِ محصول لازم است", true);
+      document.getElementById("u3d-product-name")?.focus();
       return;
     }
     const brief: Record<string, unknown> = {
@@ -157,41 +163,112 @@ export default function NewProjectPage() {
     );
   }
 
+  const chosenProduct = cat.product.find((p) => p.id === product);
+  const chosenChar = cat.character.find((c) => c.id === character);
+  const chosenEnv = cat.environment.find((e) => e.id === environment);
+  const chosenVoice = cat.voice.find((v) => v.id === voice);
+  const chosenTpl = templates.find((t) => t.id === template);
+
+  const summary = (
+    <Card>
+      <h2 className="text-base font-bold" style={{ color: "var(--text)" }}>
+        چه چیزی ساخته می‌شود
+      </h2>
+      <table className="u3d-kv mt-2 w-full">
+        <tbody>
+          <tr>
+            <td>محصول</td>
+            <td>
+              {productName.trim() || <span style={{ color: "var(--bad)" }}>نام لازم است</span>}
+              {brand.trim() ? ` · ${brand.trim()}` : ""}
+              {" · "}
+              {modelFile.path ? "مدلِ خودتان" : label(chosenProduct)}
+            </td>
+          </tr>
+          <tr>
+            <td>مجری / محیط</td>
+            <td>
+              {label(chosenChar)} · {label(chosenEnv)}
+            </td>
+          </tr>
+          <tr>
+            <td>صدا / قاب</td>
+            <td>
+              {label(chosenVoice)} · {ASPECT_FA[aspect] || aspect}
+            </td>
+          </tr>
+          <tr>
+            <td>لحن</td>
+            <td>{tone}</td>
+          </tr>
+          <tr>
+            <td>روش</td>
+            <td>
+              {mode === "ai" ? "کارگردانِ هوشِ مصنوعی" : "قالبِ آماده"} · {chosenTpl?.fa || template}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="mt-3">
+        {aiReady ? <Badge tone="ok">کارگردانِ AI آماده</Badge> : <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>}
+      </div>
+      <Button type="submit" disabled={busy} className="mt-3 w-full" style={{ padding: 12 }}>
+        {busy ? "در حالِ ساخت…" : "ساختِ برنامهٔ تبلیغ ⇐"}
+      </Button>
+      <div className="mt-3 text-xs font-bold" style={{ color: "var(--text-3)" }}>
+        بعد چه می‌شود
+      </div>
+      <div className="u3d-check mt-1">
+        <div className="neutral">
+          <i>۱</i>
+          <span>برنامه (صحنه، حرکت، گفتار، دوربین) در چند ثانیه نوشته می‌شود.</span>
+        </div>
+        <div className="neutral">
+          <i>۲</i>
+          <span>در ویرایشگر می‌بینید و تغییر می‌دهید (پنج گام).</span>
+        </div>
+        <div className="neutral">
+          <i>۳</i>
+          <span>اول «انیمیک» (چند دقیقه)، بعد کیفیتِ بالاتر؛ ویدئو را دانلود می‌کنید.</span>
+        </div>
+      </div>
+    </Card>
+  );
+
   return (
     <div className="space-y-4">
       <PageHeader
         title="تبلیغِ تازه"
+        subtitle="سه گام: محصول ⇐ مجری و صحنه ⇐ پیام و کارگردانی. فقط نامِ محصول لازم است؛ بقیه پیش‌فرضِ خوب دارد."
         actions={aiReady ? <Badge tone="ok">کارگردانِ AI آماده</Badge> : <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>}
       />
       <ErrorBox message={error} />
 
       <form
-        className="grid gap-4 lg:grid-cols-2"
+        className="u3d-flow"
         onSubmit={(e) => {
           e.preventDefault();
           void go();
         }}
       >
-        <div className="space-y-4">
-          <Card>
-            <h2 className="mb-3 text-lg font-bold" style={{ color: "var(--text)" }}>
-              ۱. محصول
-            </h2>
+        <div className="u3d-main">
+          <Section n={1} title="محصول" help="نامِ محصول و شکلِ سه‌بعدی‌اش. شعار و قیمت روی برچسب و روی تصویر می‌نشینند؛ ویژگی‌ها به جمله‌های گفتار تبدیل می‌شوند.">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="نامِ محصول *">
-                <Input value={productName} onChange={(e) => setProductName(e.target.value)} required placeholder="مثلاً عطرِ رز" />
+                <Input id="u3d-product-name" value={productName} onChange={(e) => setProductName(e.target.value)} required placeholder="مثلاً عطرِ رز" />
               </Field>
               <Field label="برند">
                 <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="مثلاً UpMarket" />
               </Field>
             </div>
-            <div className="mt-3">
+            <div>
               <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
                 شکلِ محصول
               </span>
               <Picker kind="product" list={cat.product.filter((p) => p.id !== "custom_model")} value={product} onChange={setProduct} />
+              {modelFile.path && <Muted className="mt-1 text-xs">مدلِ سه‌بعدیِ خودتان بارگذاری شده و به‌جای شکلِ آماده می‌نشیند.</Muted>}
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label="شعار (روی برچسب)">
                 <Input value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="رایحهٔ ماندگار" />
               </Field>
@@ -199,57 +276,51 @@ export default function NewProjectPage() {
                 <Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="۸۹۰ هزار تومان" />
               </Field>
             </div>
-            <div className="mt-3">
-              <Field label="ویژگی‌ها / توضیح">
-                <TextArea
-                  rows={4}
-                  value={benefits}
-                  onChange={(e) => setBenefits(e.target.value)}
-                  placeholder={"هر ویژگی در یک خط؛ مثلاً:\nرایحه‌ای گرم و ماندگار تا پایانِ روز\nشیشه‌ای زیبا، هدیه‌ای به‌یادماندنی"}
-                />
-              </Field>
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="عکس/لوگوی برچسب (اختیاری)" hint={labelFile.text}>
-                <input type="file" accept="image/*" className="u-input" onChange={(e) => void uploadTo(e.target.files?.[0], setLabelFile)} />
-              </Field>
-              <Field label="مدلِ سه‌بعدیِ خودِ محصول (اختیاری)" hint={modelFile.text}>
-                <input
-                  type="file"
-                  accept=".glb,.gltf,.obj,.fbx"
-                  className="u-input"
-                  onChange={(e) => void uploadTo(e.target.files?.[0], setModelFile)}
-                />
-              </Field>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-4">
-              <Field label="رنگِ برچسب">
-                <input type="color" value={labelColor} onChange={(e) => setLabelColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
-              </Field>
-              <Field label="رنگِ تزئین">
-                <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
-              </Field>
-              <Field label="رنگِ عطر/مایع">
-                <input type="color" value={liquidColor} onChange={(e) => setLiquidColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
-              </Field>
-            </div>
-          </Card>
-        </div>
+            <Field label="ویژگی‌ها / توضیح" hint="هر ویژگی در یک خط؛ هر خط یک جملهٔ گفتار می‌شود">
+              <TextArea
+                rows={4}
+                value={benefits}
+                onChange={(e) => setBenefits(e.target.value)}
+                placeholder={"مثلاً:\nرایحه‌ای گرم و ماندگار تا پایانِ روز\nشیشه‌ای زیبا، هدیه‌ای به‌یادماندنی"}
+              />
+            </Field>
+            <Advanced title="تنظیماتِ پیشرفتهٔ محصول" hint="عکسِ برچسب، مدلِ سه‌بعدیِ خودتان، رنگ‌ها">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="عکس/لوگوی برچسب (اختیاری)" hint={labelFile.text}>
+                  <input type="file" accept="image/*" className="u-input" onChange={(e) => void uploadTo(e.target.files?.[0], setLabelFile)} />
+                </Field>
+                <Field label="مدلِ سه‌بعدیِ خودِ محصول (اختیاری)" hint={modelFile.text}>
+                  <input type="file" accept=".glb,.gltf,.obj,.fbx" className="u-input" onChange={(e) => void uploadTo(e.target.files?.[0], setModelFile)} />
+                </Field>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <Field label="رنگِ برچسب">
+                  <input type="color" value={labelColor} onChange={(e) => setLabelColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
+                </Field>
+                <Field label="رنگِ تزئین">
+                  <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
+                </Field>
+                <Field label="رنگِ عطر/مایع">
+                  <input type="color" value={liquidColor} onChange={(e) => setLiquidColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
+                </Field>
+              </div>
+            </Advanced>
+          </Section>
 
-        <div className="space-y-4">
-          <Card>
-            <h2 className="mb-3 text-lg font-bold" style={{ color: "var(--text)" }}>
-              ۲. سبک
-            </h2>
-            <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
-              مجری
-            </span>
-            <Picker kind="character" list={cat.character} value={character} onChange={setCharacter} />
-            <span className="mb-1.5 mt-3 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
-              محیط
-            </span>
-            <Picker kind="environment" list={cat.environment} value={environment} onChange={setEnvironment} />
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Section n={2} title="مجری و صحنه" help="چه کسی و کجا محصول را معرفی می‌کند. صدا خودکار هم‌جنسِ مجری انتخاب می‌شود؛ قاب برای استوری عمودی است.">
+            <div>
+              <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                مجری
+              </span>
+              <Picker kind="character" list={cat.character} value={character} onChange={setCharacter} />
+            </div>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                محیط
+              </span>
+              <Picker kind="environment" list={cat.environment} value={environment} onChange={setEnvironment} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
               <Field label="صدا">
                 <Select value={voice} onChange={(e) => setVoice(e.target.value)}>
                   {cat.voice.map((v) => (
@@ -261,10 +332,11 @@ export default function NewProjectPage() {
               </Field>
               <Field label="قاب">
                 <Select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-                  <option value="9:16">عمودی ۹:۱۶ (استوری/ریلز)</option>
-                  <option value="16:9">افقی ۱۶:۹</option>
-                  <option value="1:1">مربع ۱:۱</option>
-                  <option value="4:5">۴:۵ (پست)</option>
+                  {Object.entries(ASPECT_FA).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
                 </Select>
               </Field>
               <Field label="لحن">
@@ -276,18 +348,13 @@ export default function NewProjectPage() {
                 </Select>
               </Field>
             </div>
-            <div className="mt-3">
-              <Field label="دعوت به خرید">
-                <Input value={cta} onChange={(e) => setCta(e.target.value)} placeholder="همین حالا از آپ‌مارکت سفارش بدید!" />
-              </Field>
-            </div>
-          </Card>
+          </Section>
 
-          <Card>
-            <h2 className="mb-3 text-lg font-bold" style={{ color: "var(--text)" }}>
-              ۳. کارگردانی
-            </h2>
-            <Field label="درخواستِ آزاد برای کارگردانِ AI">
+          <Section n={3} title="پیام و کارگردانی" help="دعوت به خرید در پایانِ ویدئو می‌آید. با کلیدِ AI، کارگردان از درخواستِ آزادِ شما صحنه می‌نویسد؛ بی‌آن، قالبِ آماده.">
+            <Field label="دعوت به خرید">
+              <Input value={cta} onChange={(e) => setCta(e.target.value)} placeholder="همین حالا از آپ‌مارکت سفارش بدید!" />
+            </Field>
+            <Field label="درخواستِ آزاد برای کارگردانِ AI (اختیاری)">
               <TextArea
                 rows={4}
                 value={request}
@@ -295,7 +362,7 @@ export default function NewProjectPage() {
                 placeholder="مثلاً: یک خانم عطر را از روی میز بردارد، نزدیکِ صورتش نشان بدهد، کمی روی گردن بزند و با لبخند دعوت به خرید کند. ۱۲ ثانیه."
               />
             </Field>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label="روش">
                 <Select value={mode} onChange={(e) => setMode(e.target.value as "ai" | "template")}>
                   <option value="ai" disabled={!aiReady}>
@@ -304,7 +371,7 @@ export default function NewProjectPage() {
                   <option value="template">قالبِ آماده (بی‌AI)</option>
                 </Select>
               </Field>
-              <Field label="قالب (و پشتیبانِ AI)">
+              <Field label="قالب (و پشتیبانِ AI)" hint="اگر AI نتواند، همین قالب ساخته می‌شود">
                 <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
                   {templates.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -314,14 +381,14 @@ export default function NewProjectPage() {
                 </Select>
               </Field>
             </div>
-            <Button type="submit" disabled={busy} className="mt-4 w-full" style={{ padding: 12 }}>
+            <Button type="submit" disabled={busy} className="w-full" style={{ padding: 12 }}>
               {busy ? "در حالِ ساخت…" : "ساختِ برنامهٔ تبلیغ ⇐"}
             </Button>
-            <Muted className="mt-2">
-              بعد از ساخت، صحنه را در ویرایشگر می‌بینید، تغییر می‌دهید و اول «انیمیک» (چند دقیقه) و بعد کیفیتِ بالاتر می‌گیرید.
-            </Muted>
-          </Card>
+            <Muted className="text-xs">بعد از ساخت، صحنه را در ویرایشگر می‌بینید، تغییر می‌دهید و اول «انیمیک» (چند دقیقه) و بعد کیفیتِ بالاتر می‌گیرید.</Muted>
+          </Section>
         </div>
+
+        <aside className="u3d-aside">{summary}</aside>
       </form>
     </div>
   );

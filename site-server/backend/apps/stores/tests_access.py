@@ -308,7 +308,9 @@ class OwnershipQueryBoundaryTests(SimpleTestCase):
     FORBIDDEN = ("owner=request.user", "owner=self.request.user", "store__owner")
 
     # The access layer defines the rule.
-    EXEMPT = {"stores/access.py"}
+    EXEMPT = {"stores/access.py",
+              # the 3D video tool is staff-only (IsAdminUser) and not store-scoped: the owner is simply the creator
+              "up3d/api.py", "up3d/panel.py"}
 
     #: Setting the owner when a store is created is the opposite of the problem:
     #: it is a write, not a query, and someone has to be recorded as owner.

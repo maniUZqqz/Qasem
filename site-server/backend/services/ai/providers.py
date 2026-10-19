@@ -120,36 +120,82 @@ def local_services_needed() -> set[str]:
     return needed
 
 
-def _default_for(capability: str) -> Resolved | None:
-    """The provider implied by .env when the database has no rows."""
+def ollama_base_url() -> str:
+    """Where Ollama actually is for this install.
+
+    `OLLAMA_BASE_URL` as configured — except that a loopback address with
+    nothing listening, on an install that has a processing node with Ollama,
+    means the models live on that node: the answer is then `agent://any`,
+    the same convention ComfyUI uses. The site server has no GPU; pretending
+    the model is on 127.0.0.1 only produced «Ollama در دسترس نیست».
+    """
+    from . import ollama_remote
+
+    return ollama_remote.effective_base_url(_conf()["OLLAMA_BASE_URL"])
+
+
+def _api_default(capability: str) -> Resolved | None:
+    """The OpenAI-compatible API named in .env, if any (external)."""
+    conf = _conf()
+    if not conf.get("AI_API_BASE_URL"):
+        return None
+    model_key = "AI_API_MODEL_VISION" if capability == VISION else "AI_API_MODEL_TEXT"
+    return Resolved(
+        capability=capability,
+        kind="OPENAI",
+        name="API سازگار با OpenAI (پیش‌فرض .env)",
+        base_url=conf["AI_API_BASE_URL"],
+        api_key=conf["AI_API_KEY"],
+        model_name=conf[model_key],
+        timeout_s=int(conf.get("AI_API_TIMEOUT", 180)),
+        is_local=False,
+    )
+
+
+def _ollama_default(capability: str) -> Resolved:
+    """Ollama — on this machine or on our processing node (local either way)."""
+    conf = _conf()
+    key = "MODEL_VISION" if capability == VISION else "MODEL_REASONING"
+    base = ollama_base_url()
+    from . import ollama_remote
+
+    name = (
+        "Ollama روی سرورِ پردازش (پیش‌فرض .env)" if ollama_remote.is_agent_url(base)
+        else "Ollama (پیش‌فرض .env)"
+    )
+    return Resolved(
+        capability=capability,
+        kind="OLLAMA",
+        name=name,
+        base_url=base,
+        api_key="",
+        model_name=conf[key],
+        timeout_s=int(conf.get("OLLAMA_TIMEOUT", 600)),
+        is_local=True,
+    )
+
+
+def _defaults_for(capability: str) -> list[Resolved]:
+    """The providers implied by .env when the database has no rows, best first.
+
+    Text and vision get BOTH the API (when one is configured) and Ollama, in
+    the order `AI_MODE_TEXT` asks for. They used to get one or the other, and
+    that is how an install with `AI_MODE_TEXT=api` ended up with no provider
+    at all for customer messages: the API may not see them, and the only
+    local engine — Ollama on the processing node — was never a candidate.
+    The store's data policy (services.ai.gateway) picks among these, so an
+    external default still never sees data it is not allowed to.
+    """
     conf = _conf()
     if capability in (TEXT, VISION):
+        api = _api_default(capability)
+        local = _ollama_default(capability)
         if api_mode(capability):
-            model_key = "AI_API_MODEL_VISION" if capability == VISION else "AI_API_MODEL_TEXT"
-            return Resolved(
-                capability=capability,
-                kind="OPENAI",
-                name="API سازگار با OpenAI (پیش‌فرض .env)",
-                base_url=conf["AI_API_BASE_URL"],
-                api_key=conf["AI_API_KEY"],
-                model_name=conf[model_key],
-                timeout_s=int(conf.get("AI_API_TIMEOUT", 180)),
-                is_local=False,
-            )
-        key = "MODEL_VISION" if capability == VISION else "MODEL_REASONING"
-        return Resolved(
-            capability=capability,
-            kind="OLLAMA",
-            name="Ollama (پیش‌فرض .env)",
-            base_url=conf["OLLAMA_BASE_URL"],
-            api_key="",
-            model_name=conf[key],
-            timeout_s=int(conf.get("OLLAMA_TIMEOUT", 600)),
-            is_local=True,
-        )
+            return [api, local] if api else [local]
+        return [local, api] if api else [local]
     if capability in (IMAGE, VIDEO):
         if api_mode(capability):
-            return Resolved(
+            return [Resolved(
                 capability=capability,
                 kind="REPLICATE",
                 name="API تصویر/ویدیو (پیش‌فرض .env)",
@@ -161,8 +207,8 @@ def _default_for(capability: str) -> Resolved | None:
                 ),
                 timeout_s=int(conf.get("MEDIA_API_TIMEOUT", 900)),
                 is_local=False,
-            )
-        return Resolved(
+            )]
+        return [Resolved(
             capability=capability,
             kind="COMFYUI",
             name="ComfyUI (پیش‌فرض .env)",
@@ -171,14 +217,22 @@ def _default_for(capability: str) -> Resolved | None:
             model_name="flux_txt2img@v1" if capability == IMAGE else "wan22_i2v@v1",
             timeout_s=int(conf.get("COMFYUI_TIMEOUT", 900)),
             is_local=True,
-        )
-    return None
+        )]
+    return []
+
+
+def _default_for(capability: str) -> Resolved | None:
+    """The first .env default (kept for callers that want a single answer)."""
+    found = _defaults_for(capability)
+    return found[0] if found else None
 
 
 def _from_row(row) -> Resolved:
     conf = _conf()
+    # A blank address on an Ollama row means "wherever Ollama is" — which, on
+    # a site server without a GPU, is the processing node, not 127.0.0.1.
     base = row.base_url or (
-        conf["OLLAMA_BASE_URL"] if row.kind == "OLLAMA"
+        ollama_base_url() if row.kind == "OLLAMA"
         else conf["COMFYUI_BASE_URL"] if row.kind == "COMFYUI"
         else ""
     )
@@ -211,8 +265,7 @@ def candidates(capability: str) -> list[Resolved]:
 
     resolved = [_from_row(row) for row in rows]
     if not resolved:
-        fallback = _default_for(capability)
-        return [fallback] if fallback else []
+        return _defaults_for(capability)
     return resolved
 
 

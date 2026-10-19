@@ -1,12 +1,14 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Badge } from "../../../components/ui";
+import Icon from "../../../components/Icon";
+import { Alert, Badge, Button } from "../../../components/ui";
 import { P, dur, errMsg, fa, up3d } from "./api";
 import type { Catalog, Job, JobState, Status } from "./types";
 
 /**
- * قطعه‌های مشترکِ بخشِ سه‌بعدی: برچسبِ وضعیت، مراحلِ کار، خطِ کار، پیامِ کوتاه، پرس‌وجوی دوره‌ای و دفترِ دارایی‌ها.
+ * قطعه‌های مشترکِ بخشِ سه‌بعدی: برچسبِ وضعیت، مراحلِ کار، خطِ کار، پیامِ کوتاه، پرس‌وجوی دوره‌ای، دفترِ دارایی‌ها،
+ * و قطعه‌های «جریانِ راهنما»: بخشِ شماره‌دار، تنظیماتِ پیشرفتهٔ تاشو، هشدارِ «منتظرِ کارگر».
  */
 
 // ───────────────────────── وضعیتِ کار
@@ -116,8 +118,124 @@ export function JobLine({ job, action }: { job: Job; action?: ReactNode }) {
           {job.message}
         </div>
       )}
+      {job.waiting && job.waiting.eligible.length === 0 && (
+        <div className="mt-1 text-xs font-semibold" style={{ color: "var(--warn)" }}>
+          منتظرِ کارگر —{" "}
+          {job.waiting.needs_gpu && !job.waiting.allow_cpu ? "این کیفیت کارگرِ GPU می‌خواهد و کارگرِ GPU آنلاین نیست" : "هیچ کارگری آنلاین نیست"}
+        </div>
+      )}
       {action && <div className="mt-1.5">{action}</div>}
     </div>
+  );
+}
+
+// ───────────────────────── جریانِ راهنما: بخشِ شماره‌دار، تنظیماتِ پیشرفته، منتظرِ کارگر
+
+/** یک گامِ شماره‌دار: عنوان + یک خطِ راهنما + محتوا. همهٔ صفحه‌های سه‌بعدی از همین می‌سازند تا یک‌دست باشند. */
+export function Section({
+  n,
+  title,
+  help,
+  children,
+  id,
+  action,
+}: {
+  n: number;
+  title: ReactNode;
+  help?: ReactNode;
+  children: ReactNode;
+  id?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <section id={id} className="u-card u3d-section p-5">
+      <div className="u3d-section-h">
+        <span className="u3d-num">{fa(n)}</span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-bold leading-tight" style={{ color: "var(--text)" }}>
+            {title}
+          </h2>
+          {help && (
+            <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-3)" }}>
+              {help}
+            </p>
+          )}
+        </div>
+        {action && <div className="flex flex-wrap gap-2">{action}</div>}
+      </div>
+      <div className="mt-4 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+/** گزینه‌های کم‌کاربرد، تاشو — حذف نمی‌شوند، فقط از جلوی چشمِ تازه‌کار کنار می‌روند. */
+export function Advanced({
+  title = "تنظیماتِ پیشرفته",
+  hint = "اختیاری — پیش‌فرض‌ها برای شروع کافی‌اند",
+  children,
+  open,
+}: {
+  title?: string;
+  hint?: string;
+  children: ReactNode;
+  open?: boolean;
+}) {
+  return (
+    <details className="u3d-adv" open={open}>
+      <summary>
+        <Icon name="settings" size={14} />
+        {title}
+        {hint && <span className="u3d-adv-hint">{hint}</span>}
+      </summary>
+      <div className="u3d-adv-body">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * کارِ آماده ولی بی‌کارگر: می‌گوید چرا (GPU لازم است / کسی آنلاین نیست)، کدام کارگرها آنلاین‌اند،
+ * و سه راهِ پیشِ رو: اجرا روی CPU، راه‌اندازیِ کارگرِ GPU، لغو.
+ */
+export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowCpu?: (id: number) => void; onCancel?: (id: number) => void }) {
+  const w = job.waiting;
+  if (!w) return null;
+  const ready = w.eligible.length > 0;
+  const gpuOnly = w.needs_gpu && !w.allow_cpu;
+  const canCpu = !ready && gpuOnly && w.online.length > 0;
+  return (
+    <Alert
+      tone={ready ? "info" : "warn"}
+      title={
+        ready
+          ? `کارگرِ «${w.eligible.join("، ")}» آماده است؛ کارِ #${fa(job.id)} تا چند ثانیهٔ دیگر شروع می‌شود`
+          : `کارِ #${fa(job.id)} منتظرِ کارگر است و هیچ کارگرِ مناسبی آنلاین نیست`
+      }
+    >
+      {!ready && (
+        <div>
+          {gpuOnly ? `کیفیتِ «${job.profile}» کارگرِ GPU می‌خواهد. ` : ""}
+          {w.online.length
+            ? `کارگرهای آنلاین: ${w.online.join("، ")}${gpuOnly ? " (CPU؛ برای این کیفیت مناسب نیستند)" : ""}.`
+            : "هیچ کارگری آنلاین نیست."}
+          {job.estimate_seconds ? ` تخمینِ زمان: ~${dur(job.estimate_seconds)}.` : ""}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {canCpu && onAllowCpu && (
+          <Button size="sm" variant="secondary" onClick={() => onAllowCpu(job.id)}>
+            اجرا روی CPU (کند ولی راه می‌افتد)
+          </Button>
+        )}
+        <Link to={P.workers()} className="u-btn u-btn-ghost u-btn-sm">
+          راه‌اندازیِ کارگرِ GPU
+        </Link>
+        {onCancel && (
+          <Button size="sm" variant="danger" onClick={() => onCancel(job.id)}>
+            لغوِ کار
+          </Button>
+        )}
+      </div>
+    </Alert>
   );
 }
 

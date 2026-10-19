@@ -177,8 +177,14 @@ def _watermark(params: dict) -> str:
         raise ToolError("«متن» واترمارک خالی است")
     from services.video.ffmpeg import filter_path
 
+    from services.video.ffmpeg import ffmpeg_version
+
     x, y = _CORNERS[str(params.get("position", "br"))]
     opacity = float(params["opacity"])
+    # The box margin follows the frame like the font does — where drawtext
+    # evaluates boxborderw as an expression (current builds). 4.4 takes an
+    # integer only ("Error setting option boxborderw"); 8 px is h*0.008 at 1000p.
+    border = "'h*0.008'" if ffmpeg_version() >= (7, 0) else "8"
     # Size as a share of the frame height, so the mark the shop approved on
     # the 360p proxy is the same mark on the 1080p export — an absolute
     # fontsize=28 was 8 % of one and 1.6 % of the other.
@@ -188,7 +194,7 @@ def _watermark(params: dict) -> str:
         f":x={x}:y={y}"
         f":fontsize='h*{_f(float(params['size']) / 100)}'"
         f":fontcolor=white@{_f(opacity)}"
-        f":box=1:boxcolor=black@{_f(opacity * 0.4)}:boxborderw='h*0.008'"
+        f":box=1:boxcolor=black@{_f(opacity * 0.4)}:boxborderw={border}"
     )
 
 

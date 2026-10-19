@@ -40,6 +40,7 @@ urlpatterns = [
     path('jobs/', api.jobs_list),
     path('jobs/<int:pk>/', api.job_detail),
     path('jobs/<int:pk>/cancel/', api.job_cancel),
+    path('jobs/<int:pk>/allow-cpu/', api.job_allow_cpu),
     path('assets/', api.assets),
     path('estimate/', api.estimate),
 ]

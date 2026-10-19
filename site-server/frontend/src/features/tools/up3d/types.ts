@@ -73,7 +73,25 @@ export type RenderProfile = Asset & {
   samples?: number;
   recommended: "cpu" | "gpu";
   frame_step?: number;
+  denoise?: boolean;
+  motion_blur?: boolean;
+  adaptive_threshold?: number;
+  bounces?: Record<string, number>;
+  est_sec_per_frame_cpu?: number;
+  quality?: Record<string, unknown>;
 };
+
+/** تنظیمِ دستیِ کیفیت روی یک پروفایل (بخشِ «کیفیت و رندر» ⇐ تنظیماتِ پیشرفته) — همان کلیدهای compiler.clean_quality */
+export type QualityOverride = {
+  resolution?: number;
+  samples?: number;
+  frame_step?: number;
+  denoise?: boolean;
+  motion_blur?: boolean;
+};
+
+/** چرا کار هنوز کارگر ندارد (api.job_json ⇐ services.waiting_info) */
+export type Waiting = { needs_gpu: boolean; allow_cpu: boolean; online: string[]; eligible: string[] };
 
 export type Voice = Asset & { gender: string; provider: string; voice?: string };
 
@@ -191,6 +209,9 @@ export type Job = {
   files: Record<string, string>;
   cancel_requested: boolean;
   eta_seconds?: number;
+  /** فقط وقتی کار آمادهٔ کارگر است ولی هنوز کارگری نگرفته */
+  waiting?: Waiting | null;
+  quality?: QualityOverride | null;
   /** فقط در جزئیاتِ کار (light=false) */
   log?: string;
   qc?: QC;
@@ -285,6 +306,7 @@ export type Estimate = {
   worker: string | null;
   sec_per_frame: number;
   available: boolean;
+  needs_gpu?: boolean;
   cpu_seconds?: number | null;
   cpu_worker?: string | null;
 };

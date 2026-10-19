@@ -116,7 +116,7 @@ def steps(store) -> list[Step]:
             title="قوانین ایجنت فروش را تعیین کن",
             why="پیش‌فرض، ایجنت هیچ تخفیفی نمی‌دهد و شکایت را به تو ارجاع می‌دهد. "
                 "اگر قانون خاصی داری، همین‌جا بنویس.",
-            done=bool(agent and agent.updated_at != agent.created_at),
+            done=_agent_configured(agent),
             action=f"/stores/{store.pk}",
         ),
         Step(
@@ -165,3 +165,18 @@ def summary(store) -> dict:
         "complete": not todo,
         "next": (actionable[0].as_dict() if actionable else (todo[0].as_dict() if todo else None)),
     }
+
+
+def _agent_configured(agent) -> bool:
+    """The shop changed at least one rule. Timestamps cannot tell: auto_now and auto_now_add
+    are two separate clock reads, so a freshly created row already looks "edited"."""
+    if not agent:
+        return False
+    fresh = type(agent)()
+    skip = {"id", "store", "created_at", "updated_at"}
+    for f in agent._meta.concrete_fields:
+        if f.name in skip or f.attname in ("store_id",):
+            continue
+        if getattr(agent, f.attname) != getattr(fresh, f.attname):
+            return True
+    return False

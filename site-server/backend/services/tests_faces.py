@@ -19,6 +19,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import unittest
+
 from django.test import SimpleTestCase
 
 from services.video import faces
@@ -211,6 +213,23 @@ class CouldNotLookTests(SimpleTestCase):
         self.assertEqual(result["frames_sampled"], 1)
 
 
+def _haar_shipped() -> bool:
+    try:
+        import cv2
+
+        return (Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml").exists()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+#: OpenCV 5 wheels (opencv-python-headless 5.x) no longer ship the Haar cascade
+#: XML files. The detector is YuNet, bundled with the project; the cascades
+#: are only its fallback.
+requires_haar = unittest.skipUnless(
+    _haar_shipped(), "this OpenCV ships no Haar cascades (5.x); YuNet is the detector",
+)
+
+
 class ProfileFaceTests(SimpleTestCase):
     """Sideways heads. Somebody filming their own product turns constantly, and
     a missed face means a subtitle lands on it and a zoom crops it."""
@@ -223,6 +242,7 @@ class ProfileFaceTests(SimpleTestCase):
         cv2.imwrite(str(path), np.full((480, 640, 3), 180, dtype=np.uint8))
         return path
 
+    @requires_haar
     def test_the_profile_cascade_is_shipped_with_opencv(self):
         import cv2
 
@@ -230,13 +250,15 @@ class ProfileFaceTests(SimpleTestCase):
             (Path(cv2.data.haarcascades) / "haarcascade_profileface.xml").exists()
         )
 
+    @requires_haar
     def test_the_frame_is_searched_mirrored_as_well(self):
         """The profile cascade only finds one direction; the other side needs
-        the mirrored frame."""
+        the mirrored frame. (The Haar fallback path: YuNet is switched off.)"""
         import cv2
 
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(cv2, "flip", wraps=cv2.flip) as flip:
+            with patch.object(faces, "_yunet", return_value=None), \
+                    patch.object(cv2, "flip", wraps=cv2.flip) as flip:
                 faces.in_image(self._frame(directory))
         flip.assert_called()
 

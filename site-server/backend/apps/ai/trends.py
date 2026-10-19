@@ -55,7 +55,7 @@ def refresh(regions: list[str] | None = None, limit: int = 20) -> dict:
 
     stored = 0
     for row in payload["trends"]:
-        _, created = Trend.objects.get_or_create(
+        trend, created = Trend.objects.get_or_create(
             title=row["title"][:200],
             region=row["region"],
             seen_at=today,
@@ -66,6 +66,11 @@ def refresh(regions: list[str] | None = None, limit: int = 20) -> dict:
                 "source": row["source"],
             },
         )
+        if not created and (trend.context != row["context"] or trend.traffic != row["traffic"][:40]):
+            # Same story later in the day: newer headlines and traffic win.
+            trend.context = row["context"]
+            trend.traffic = row["traffic"][:40]
+            trend.save(update_fields=["context", "traffic", "updated_at"])
         stored += int(created)
 
     return {
@@ -82,8 +87,221 @@ def current(regions: list[str] | None = None, limit: int = 40) -> list[Trend]:
         seen_at__gte=timezone.now() - source.FRESH_FOR,
     )
     if regions:
-        rows = rows.filter(region__in=regions)
+        rows = rows.filter(region__in=source.expand_regions(regions))
     return list(rows[:limit])
+
+
+# ------------------------------------------------------------ relevance
+
+#: Category words across the languages the trend feeds arrive in (fa/en/fr/de/tr).
+#: A French trend about «mode» says nothing to a Persian keyword match unless
+#: we know «mode» is «پوشاک». Small on purpose: a wrong mapping is worse than
+#: none, and the model (when reachable) does the rest.
+LEXICON = {
+    "پوشاک و مد": [
+        "پوشاک", "لباس", "مد", "فشن", "مانتو", "کفش", "کیف", "شلوار", "پیراهن", "کت", "روسری",
+        "fashion", "clothing", "clothes", "dress", "shoes", "sneakers", "outfit",
+        "mode", "vetements", "robe", "chaussures", "kleidung", "schuhe", "giyim", "moda",
+        "ayakkabi", "elbise", "zara", "nike", "adidas",
+    ],
+    "قهوه و کافه": [
+        "قهوه", "کافه", "اسپرسو", "لاته", "coffee", "cafe", "espresso", "kaffee", "kahve",
+        "latte", "barista", "starbucks",
+    ],
+    "آرایشی و بهداشتی": [
+        "آرایش", "آرایشی", "بهداشتی", "پوست", "عطر", "ادکلن", "رژ", "makeup", "beauty",
+        "skincare", "cosmetics", "perfume", "parfum", "maquillage", "kosmetik", "parfum",
+        "guzellik", "sephora",
+    ],
+    "موبایل و دیجیتال": [
+        "موبایل", "گوشی", "لپتاپ", "هدفون", "دیجیتال", "آیفون", "سامسونگ", "شیائومی",
+        "iphone", "samsung", "apple", "phone", "smartphone", "laptop", "headphones", "airpods",
+        "pixel", "xiaomi", "handy", "telephone", "telefon", "ios", "android",
+    ],
+    "خوراکی": [
+        "غذا", "خوراکی", "شیرینی", "کیک", "شکلات", "آجیل", "زعفران", "food", "recipe",
+        "chocolate", "cake", "pastry", "restaurant", "nourriture", "recette", "essen",
+        "yemek", "tarif",
+    ],
+    "ورزش": [
+        "ورزش", "فوتبال", "بدنسازی", "باشگاه", "sport", "football", "soccer", "fitness",
+        "gym", "running", "fussball", "futbol", "marathon",
+    ],
+    "خانه و دکور": [
+        "خانه", "دکور", "مبل", "آشپزخانه", "home", "decor", "furniture", "kitchen", "maison",
+        "cuisine", "mobel", "kuche", "mobilya", "ikea",
+    ],
+    "کودک و اسباب‌بازی": [
+        "کودک", "بچه", "اسباب", "نوزاد", "kids", "baby", "toy", "toys", "enfant", "jouet",
+        "kinder", "spielzeug", "oyuncak", "bebek", "lego",
+    ],
+    "طلا و زیورآلات": [
+        "طلا", "جواهر", "زیورآلات", "گردنبند", "انگشتر", "ساعت", "gold", "jewelry",
+        "jewellery", "watch", "bijoux", "montre", "schmuck", "uhr", "altin", "taki",
+    ],
+}
+
+
+def _fold(text: str) -> str:
+    """normalize + strip Latin accents (café → cafe) for cross-language matching."""
+    import unicodedata
+
+    from services.research.product_match import normalize
+
+    text = normalize(text)
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)
+    )
+
+
+def store_vocabulary(store, products=None) -> dict:
+    """Words that describe this shop: its products, tags, brand, category, and
+    the lexicon groups those words fall into."""
+    from apps.products.models import Product
+    from services.research.product_match import STOPWORDS
+
+    products = products if products is not None else list(
+        Product.objects.filter(store=store).select_related("category")[:60]
+    )
+    words: dict[str, str] = {}  # word -> where it came from (product name / group)
+    texts = [store.business_type or ""]
+    for product in products:
+        parts = [product.name, product.brand or ""]
+        parts += [str(t) for t in (product.tags or []) if isinstance(t, (str, int))]
+        if getattr(product, "category", None) is not None:
+            parts.append(product.category.name)
+        texts += parts
+        for part in parts:
+            for token in _fold(part).split():
+                if len(token) > 2 and token not in STOPWORDS and not token.isdigit():
+                    words.setdefault(token, product.name)
+    folded_texts = " " + " ".join(_fold(t) for t in texts) + " "
+    groups = []
+    for group, members in LEXICON.items():
+        folded = [_fold(m) for m in members]
+        if any(f" {m} " in folded_texts for m in folded):
+            groups.append(group)
+            for m in folded:
+                words.setdefault(m, f"گروهِ «{group}»")
+    return {"words": words, "groups": groups}
+
+
+def relevance(trend, vocabulary: dict) -> dict:
+    """Keyword relevance of one trend to the shop: label, score, reason."""
+    words = vocabulary["words"]
+    title_tokens = set(_fold(trend.title).split())
+    news_tokens = set()
+    for item in trend.news:
+        news_tokens |= set(_fold(item.get("title", "")).split())
+    in_title = sorted(w for w in title_tokens if w in words)
+    in_news = sorted(w for w in news_tokens - title_tokens if w in words)
+    score = 2 * len(in_title) + len(in_news)
+    if score >= 2:
+        label, key = "مرتبط با فروشگاهِ شما", "high"
+    elif score == 1:
+        label, key = "شاید مرتبط", "maybe"
+    else:
+        label, key = "نامرتبط", "none"
+    hits = in_title + in_news
+    reason = (
+        "واژه‌های مشترک: " + "، ".join(f"«{w}» ({words[w]})" for w in hits[:4])
+        if hits else "واژه‌ی مشترکی با محصولات و دسته‌ی فروشگاه ندارد."
+    )
+    return {"key": key, "label": label, "score": score, "reason": reason, "words": hits[:6],
+            "method": "keywords"}
+
+
+RELEVANCE_JOB_KIND = "trend_relevance"
+
+
+def stored_llm_relevance(store) -> dict:
+    """The last model ranking for this store: ``{trend_id: {...}}``."""
+    from apps.jobs.models import Job
+
+    job = (
+        Job.objects.filter(store=store, type=Job.Type.MARKET_ANALYSIS, context__kind=RELEVANCE_JOB_KIND)
+        .order_by("-created_at").first()
+    )
+    if job is None:
+        return {}
+    return {int(k): v for k, v in ((job.result or {}).get("by_trend") or {}).items()}
+
+
+RELEVANCE_SYSTEM = (
+    "You judge whether current search trends are relevant to one specific shop's "
+    "products for marketing content. Answer with one JSON object only. Most trends "
+    "are NOT relevant to most shops; say so."
+)
+
+
+def rank_with_llm(store, trends, *, job=None) -> dict:
+    """Ask the model (only if reachable) how relevant each trend is. Stored."""
+    import json
+
+    from apps.jobs.models import Job
+    from apps.products.models import Product
+
+    from . import research_llm
+
+    products = list(Product.objects.filter(store=store)[:25])
+    payload = [
+        {"id": t.pk, "title": t.title, "where": t.region_title,
+         "news": [n.get("title", "") for n in t.news[:2]]}
+        for t in trends[:30]
+    ]
+    prompt = (
+        f"Shop: {json.dumps({'name': store.name, 'business_type': store.business_type}, ensure_ascii=False)}\n"
+        f"Products: {json.dumps([p.name for p in products], ensure_ascii=False)}\n"
+        f"Trends: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        "For each trend give relevance 0 (none), 1 (weak, content angle only) or 2 "
+        "(clear link to these products) and a short Persian reason naming the link.\n"
+        'Answer exactly: {"ranking": [{"id": 1, "relevance": 0, "reason": "..."}]}'
+    )
+    parsed = research_llm.ask_json(
+        store, prompt_id="trend_relevance", prompt=prompt, system=RELEVANCE_SYSTEM, job=job,
+        validate=lambda p: (isinstance((p or {}).get("ranking"), list), ["ranking باید فهرست باشد"]),
+    )
+    valid = {t.pk for t in trends}
+    by_trend = {}
+    for row in parsed.get("ranking") or []:
+        try:
+            tid = int(row.get("id"))
+            level = max(0, min(2, int(row.get("relevance", 0))))
+        except (TypeError, ValueError):
+            continue
+        if tid in valid:
+            by_trend[str(tid)] = {"relevance": level, "reason": str(row.get("reason", ""))[:300]}
+    record = Job.objects.create(
+        store=store, type=Job.Type.MARKET_ANALYSIS, context={"kind": RELEVANCE_JOB_KIND},
+    )
+    record.mark_completed({"kind": RELEVANCE_JOB_KIND, "by_trend": by_trend,
+                           "at": timezone.now().isoformat()})
+    return {int(k): v for k, v in by_trend.items()}
+
+
+def heuristic_idea(store, trend, vocabulary: dict, products) -> TrendIdea | None:
+    """A plain template idea when no model is reachable — only for a trend that
+    shares real words with the shop, and labelled as a template."""
+    rel = relevance(trend, vocabulary)
+    if rel["key"] == "none":
+        return None
+    words = vocabulary["words"]
+    named = {words[w] for w in rel["words"] if not words[w].startswith("گروهِ")}
+    product = next((p for p in products if p.name in named), None) or (products[0] if products else None)
+    if product is None:
+        return None
+    headline = trend.news[0]["title"] if trend.news else ""
+    return TrendIdea(
+        store=store, trend=trend, product=product, kind=TrendIdea.Kind.POST,
+        idea=(
+            f"[قالبِ ساده — بدونِ هوش مصنوعی] یک پست/استوری درباره‌ی «{product.name}» که "
+            f"با موضوعِ داغِ «{trend.title}» ({trend.region_title}) شروع شود"
+            + (f"؛ خبرِ پشتِ این ترند: «{headline[:120]}»" if headline else "")
+            + ". موضوعِ اصلی همچنان محصولِ شماست، ترند فقط زمینه است."
+        ),
+        why=f"این ترند با فروشگاهِ شما واژه‌ی مشترک دارد — {rel['reason']}",
+        hook=f"همه درباره‌ی «{trend.title[:40]}» حرف می‌زنند؛ این هم «{product.name[:40]}»",
+    )
 
 
 IDEA_SYSTEM = (
@@ -130,8 +348,14 @@ def _usable(reason: str) -> bool:
     return not any(empty in reason for empty in EMPTY_REASONS)
 
 
-def suggest(store, *, regions=None, job=None) -> dict:
-    """Ideas for this shop, from the trends that are live right now."""
+def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
+    """Ideas for this shop, from the trends that are live right now.
+
+    ``trend_ids`` narrows it to the trends the owner picked («ایده‌ی محتوا» on
+    one card); then only that trend's open ideas are replaced. With no model
+    reachable, a picked trend that shares words with the shop gets a labelled
+    template idea instead of an error.
+    """
     from apps.ai.models import AIRequest
     from apps.ai.services import recorded_json_call
     from apps.products.models import Product
@@ -139,6 +363,9 @@ def suggest(store, *, regions=None, job=None) -> dict:
     from services.ai.router import TASK_REASONING, models_for
 
     trends = current(regions)
+    if trend_ids:
+        wanted = {int(t) for t in trend_ids}
+        trends = [t for t in Trend.objects.filter(pk__in=wanted)]
     if not trends:
         return {
             "ideas": [],
@@ -154,6 +381,26 @@ def suggest(store, *, regions=None, job=None) -> dict:
             "dropped": 0,
         }
 
+    from . import research_llm
+
+    llm_ok, llm_note = research_llm.status(store) if trend_ids else (True, "")
+    if not llm_ok and trend_ids:
+        vocabulary = store_vocabulary(store, products)
+        made = [i for i in (heuristic_idea(store, t, vocabulary, products) for t in trends) if i]
+        TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN, trend__in=trends).delete()
+        TrendIdea.objects.bulk_create(made)
+        return {
+            "ideas": list(
+                TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN)
+                .select_related("trend", "product")
+            ),
+            "dropped": len(trends) - len(made),
+            "note": (
+                "مدلِ زبانی الان در دسترس نیست؛ "
+                + ("یک ایده‌ی سادهٔ قالبی ساخته شد." if made else
+                   "این ترند واژه‌ی مشترکی با فروشگاهِ شما ندارد، پس ایده‌ای ساخته نشد.")
+            ),
+        }
     parsed, _ = recorded_json_call(
         job=job,
         store=store,
@@ -205,7 +452,10 @@ def suggest(store, *, regions=None, job=None) -> dict:
 
     # Replace rather than accumulate: yesterday's open ideas are about trends
     # that have moved on, and a list that only grows is one nobody reads.
-    TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN).delete()
+    open_ideas = TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN)
+    if trend_ids:
+        open_ideas = open_ideas.filter(trend__in=trends)
+    open_ideas.delete()
     TrendIdea.objects.bulk_create(kept)
 
     return {
@@ -216,6 +466,10 @@ def suggest(store, *, regions=None, job=None) -> dict:
         "dropped": dropped,
         "note": (
             f"{dropped} پیشنهاد کنار گذاشته شد چون ربطش به فروشگاه شما روشن نبود."
-            if dropped else ""
+            if dropped else (
+                "مدلِ زبانی برای این ترند(ها) ربطِ قابل‌دفاعی با محصولاتِ شما پیدا نکرد، "
+                "پس ایده‌ای نساخت — بهتر از ایده‌ی زورکی است."
+                if not kept else ""
+            )
         ),
     }

@@ -79,8 +79,16 @@ export default function JobsPage() {
                     <div className="text-xs" style={{ color: "var(--text-3)" }}>
                       {j.message || ""}
                     </div>
+                    {j.waiting && j.waiting.eligible.length === 0 && (
+                      <div className="text-xs font-semibold" style={{ color: "var(--warn)" }}>
+                        منتظرِ کارگر — {j.waiting.needs_gpu && !j.waiting.allow_cpu ? "GPU لازم است" : "کسی آنلاین نیست"} ·{" "}
+                        <Link to={P.job(j.id)} style={{ color: "var(--brand-strong)" }}>
+                          راهِ حل
+                        </Link>
+                      </div>
+                    )}
                   </td>
-                  <td>{j.worker || "—"}</td>
+                  <td>{j.worker || (j.final ? "—" : <span style={{ color: "var(--text-3)" }}>هنوز نگرفته</span>)}</td>
                   <td className="text-xs">{j.eta_seconds ? `مانده ${dur(j.eta_seconds)}` : j.finished ? when(j.finished) : ""}</td>
                 </tr>
               ))}

@@ -75,8 +75,8 @@ DEFAULT_SERVICES = {
     "ollama": {"start": "ollama serve", "url": "ollama", "ready_timeout": 60, "note": "Ollama server (models load on demand)"},
     "comfyui": {"start": "${NM_COMFY_BAT}", "url": "comfyui", "ready_timeout": 240, "note": "set NM_COMFY_BAT or put the path of run_nvidia_gpu.bat here"},
     "voice": {"start": "tools\\PersianAiKit\\Voice\\Run-Server.bat", "url": "voice", "ready_timeout": 900, "note": "PersianAiKit voice server (.NET 8; run Setup-Services.bat once)"},
-    "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat", "url": "photo", "ready_timeout": 900, "note": "PersianAiKit photo editor (.NET 8; run Setup-Services.bat once)"},
-    "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat", "url": "video", "ready_timeout": 900, "note": "PersianAiKit video editor (.NET 8 + ffmpeg; run Setup-Services.bat once)"},
+    "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat --Photo:OpenBrowser=false", "url": "photo", "ready_timeout": 900, "note": "PersianAiKit photo editor (.NET 8; run Setup-Services.bat once)"},
+    "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat --Video:OpenBrowser=false", "url": "video", "ready_timeout": 900, "note": "PersianAiKit video editor (.NET 8 + ffmpeg; run Setup-Services.bat once)"},
     "worker3d": {"start": "worker-3d.bat", "url": None, "ready_timeout": 10, "note": "Blender render worker for the 3D section"},
 }
 SERVICE_KEYS = tuple(DEFAULT_SERVICES)
@@ -536,7 +536,7 @@ class ServiceManager:
             return False
         if key in ("voice", "photo", "video") and not editor_published(key):
             log("%s: no published build yet - the first start compiles the editor (several minutes; needs the .NET 8 SDK)."
-                " Run Setup-Services.bat once to make it start in seconds." % key)
+                " Run Setup-Services.bat once (downloads the ready editors from the site)." % key)
         os.makedirs(LOGS, exist_ok=True)
         logf = self.log_path(key)
         log("starting %s: %s  (output: logs\\%s)" % (key, cmd, os.path.basename(logf)))
@@ -805,17 +805,17 @@ def check(cfg):
         sdk = max((v for v in vers if int(v.split(".")[0]) >= 8), default=None)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         pass
-    row(True if sdk else None, ".NET SDK (editors)", sdk or "not found - run Setup-Services.bat (installs .NET 8, builds the editors)")
+    row(True, ".NET SDK (optional)", sdk or "not needed - Setup-Services.bat downloads the ready editors from the site")
     for key, kit in (("photo", "Photo"), ("video", "Video"), ("voice", "Voice")):
         pub = editor_published(key)
         row(True if pub else None, "  %s editor build" % key,
-            "published (starts in seconds)" if pub else "source only - first start builds (minutes); Setup-Services.bat publishes it")
+            "published (starts in seconds)" if pub else "not prepared - run Setup-Services.bat once (downloads it from the site)")
     ff = shutil.which("ffmpeg") or (os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")
                                     if os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")) else None)
-    row(True if ff else None, "  ffmpeg (video editor)", ff or "not found - Setup-Services.bat installs it")
+    row(True if ff else None, "  ffmpeg (video editor)", ff or "not found - Setup-Services.bat brings it from the site")
     vm = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
     have_voice = os.path.isfile(os.path.join(vm, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(vm, "vosk"))
-    row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat downloads them (text-to-speech needs them)")
+    row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat brings them from the site (text-to-speech needs them)")
     pm = os.path.join(HERE, "tools", "PersianAiKit", "Photo", "models", "upscale", "realesr-general-x4v3.onnx")
     row(True if os.path.isfile(pm) else None, "  photo models", pm if os.path.isfile(pm) else "upscaler missing (optional) - Setup-Services.bat downloads it")
     bl = blender_path()
@@ -1199,8 +1199,23 @@ def h_voice_tts(job):
     for k in ("voice", "engine", "speed", "seed"):
         if p.get(k) not in (None, ""):
             body[k] = str(p[k])
-    _obj, name = _relay(job, "voice", "POST", "/api/voice/tts", body, out_name=p.get("out") or "speech.wav", timeout=600)
-    return {"primary": name, "engine": "voice"}
+    out = p.get("out") or "speech.wav"
+    engine = str(p.get("engine") or "").lower()
+    # natural voices / cloning (/api/voice/tts) need the optional Python voice service (Setup-Voice.bat);
+    # Piper (/api/tts) is always there. Ask for the natural engine only when requested, and fall back to Piper.
+    if engine and engine != "piper":
+        try:
+            _obj, name = _relay(job, "voice", "POST", "/api/voice/tts", body, out_name=out, timeout=600)
+            return {"primary": name, "engine": "voice:" + engine}
+        except RuntimeError as e:
+            warn("natural voice engine '%s' unavailable (%s) - using Piper" % (engine, str(e)[:160]))
+    piper = {"text": text}
+    if p.get("speed") not in (None, ""):
+        piper["speed"] = str(p["speed"])
+    if p.get("voice") and str(p["voice"]).startswith("fa_IR-"):
+        piper["voice"] = str(p["voice"])
+    _obj, name = _relay(job, "voice", "POST", "/api/tts", piper, out_name=out, timeout=600)
+    return {"primary": name, "engine": "voice:piper"}
 
 
 def h_voice_asr(job):

@@ -37,10 +37,37 @@ RETRIES = 2
 BACKOFF = 2.0
 
 
-def _image_data_url(path) -> str:
-    raw = Path(path).read_bytes()
-    suffix = Path(path).suffix.lower().lstrip(".") or "png"
-    mime = "jpeg" if suffix in ("jpg", "jpeg") else suffix
+def _mime_from_bytes(head: bytes, fallback: str = "png") -> str:
+    if head.startswith(b"\x89PNG"):
+        return "png"
+    if head.startswith(b"\xff\xd8"):
+        return "jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head.startswith(b"GIF8"):
+        return "gif"
+    return fallback
+
+
+def _image_data_url(image) -> str:
+    """A file path, raw bytes, a base64 string or a data: URL → data: URL.
+
+    Every call site in `apps/` hands the provider base64 strings (that is what
+    OllamaProvider takes), so reading the argument as a path — the only thing
+    this did before — failed on the first vision call that went to an API.
+    """
+    if isinstance(image, str) and image.startswith("data:"):
+        return image
+    if isinstance(image, (bytes, bytearray)):
+        raw = bytes(image)
+    else:
+        text = str(image)
+        candidate = Path(text) if len(text) < 1024 else None
+        if candidate is not None and candidate.is_file():
+            raw = candidate.read_bytes()
+        else:
+            raw = base64.b64decode(text, validate=False)
+    mime = _mime_from_bytes(raw[:16])
     return f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
 
 
@@ -55,6 +82,19 @@ class OpenAICompatProvider:
         self.options = options or {}
 
     # ------------------------------------------------------------------
+
+    def select_models(self, candidates):
+        """Which model names to try against this endpoint.
+
+        The router's candidates are Ollama tags from .env (`qwq:32b`,
+        `qwen3-vl:30b`); an OpenAI-compatible API has never heard of them and
+        answers `model_not_supported`. The model this provider was configured
+        with is the only one that means anything here, so it replaces the list.
+        Candidates are only kept when no model was configured at all.
+        """
+        if self.model:
+            return [self.model]
+        return [m for m in (candidates or []) if m]
 
     def _url(self) -> str:
         # accept both ".../v1" and a bare host

@@ -274,7 +274,7 @@ def camera_shake(video_path, *, at: float | None = None, seconds: float = 1.0,
             [FFMPEG, "-hide_banner", "-loglevel", "error",
              "-ss", f"{at:.3f}", "-t", f"{seconds:.3f}", "-i", str(video_path),
              "-vf", f"scale={width}:{height},format=gray", "-f", "rawvideo", "-"],
-            capture_output=True,
+            capture_output=True, timeout=180,
         )
     except OSError as exc:
         logger.info("camera_shake: ffmpeg unavailable: %s", exc)

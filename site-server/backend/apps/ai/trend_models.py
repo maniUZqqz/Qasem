@@ -54,7 +54,18 @@ class Trend(TimeStampedModel):
 
     @property
     def region_title(self) -> str:
-        return trend_source.REGIONS.get(self.region, self.region)
+        return trend_source.REGION_TITLES.get(self.region, self.region)
+
+    @property
+    def news(self) -> list[dict]:
+        """Headlines that explain the trend. Older rows stored bare strings."""
+        out = []
+        for item in self.context or []:
+            if isinstance(item, dict):
+                out.append(item)
+            elif item:
+                out.append({"title": str(item), "url": "", "source": ""})
+        return out
 
     @property
     def age_hours(self) -> int:

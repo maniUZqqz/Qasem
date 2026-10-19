@@ -38,12 +38,12 @@ its own name.
 
 ## One-time setup of the editors: `Setup-Services.bat`
 
-The photo / video / voice editors (PersianAiKit, .NET 8) ship as source. Run **`Setup-Services.bat`** once: it installs the
-.NET 8 SDK (winget) if missing, publishes the three editors into `tools\PersianAiKit\<Kit>pp` (so they start in
-seconds instead of building for minutes), installs ffmpeg for the video editor, downloads the models (Piper voices +
-Vosk for the voice editor, the upscaler for the photo editor — from the site first, the internet as fallback) and ends with
-the diagnostic. Safe to run again. Without it the first start of each editor compiles it (several minutes) and the
-voice editor has no voices.
+The photo / video / voice editors (PersianAiKit) are prepared by **`Setup-Services.bat`** (runs `setup_kit.py`): it
+downloads from the site a ready Windows build of the three editors (self-contained, no .NET install needed) with ffmpeg,
+and their models (Piper + 6 Persian voices + Vosk for the voice editor, the upscaler for the photo editor), unpacks only
+what is missing and ends with the diagnostic. No VPN needed. If the site cannot be reached it falls back to
+`dotnet publish` and the kits' own internet downloads. Natural voices / voice cloning (3.4 GB, optional):
+`tools\PersianAiKit\Voice\Setup-Voice.bat`.
 
 Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
 the last lines are sent to the site log (panel → Processing servers → log of this node).

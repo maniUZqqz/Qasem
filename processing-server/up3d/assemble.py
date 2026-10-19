@@ -1,6 +1,7 @@
 """مونتاژِ نهایی با FFmpeg: ویدئوی رندرشده + گفتار (هر جمله سرِ زمانش) + موسیقی (زیرِ گفتار آرام می‌شود)
 + نوشته‌ها با محو شدنِ نرم ⇐ MP4 (H.264 + AAC، آمادهٔ اینستاگرام/وب)."""
 import os
+import re
 import subprocess
 
 from . import paths
@@ -8,6 +9,29 @@ from . import paths
 
 def _ff():
     return paths.ffmpeg_binary() or 'ffmpeg'
+
+
+_CFR_ARGS = None
+
+
+def cfr_args():
+    """گزینهٔ «نرخِ فریمِ ثابت» برای همین ffmpeg.
+
+    ffmpeg ≥ 5.1 (و همهٔ ساخت‌های git مثلِ N-127527) «-vsync» را حذف کرده‌اند و «-fps_mode» دارند؛
+    نسخه‌های قدیمی (۴.x روی ویندوز/اوبونتو) فقط «-vsync» را می‌فهمند. یک بار نسخه را می‌پرسیم.
+    (ffmpeg ِ تازهٔ سرور، ۱۴۰۵/۰۷/۲۳، با «-vsync» هر رندر را در گامِ ساختِ ویدئو می‌انداخت.)
+    """
+    global _CFR_ARGS
+    if _CFR_ARGS is None:
+        _CFR_ARGS = ['-vsync', 'cfr']
+        try:
+            head = subprocess.run([_ff(), '-version'], capture_output=True, text=True, timeout=20).stdout.split('\n', 1)[0]
+            m = re.search(r'ffmpeg version\s+n?(\d+)\.(\d+)', head)
+            if ' version N-' in head or (m and (int(m.group(1)), int(m.group(2))) >= (5, 1)):
+                _CFR_ARGS = ['-fps_mode', 'cfr']
+        except Exception:
+            pass
+    return list(_CFR_ARGS)
 
 
 def run(cmd):
@@ -108,7 +132,7 @@ def frames_to_video(frames, fps, out_path, crf=14):
         for f in frames:
             fh.write("file '%s'\nduration %.6f\n" % (f.replace("'", "'\\''"), step))
         fh.write("file '%s'\n" % frames[-1].replace("'", "'\\''"))
-    run([_ff(), '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', lst, '-vsync', 'cfr', '-r', str(fps),
+    run([_ff(), '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', lst] + cfr_args() + ['-r', str(fps),
          '-c:v', 'libx264', '-crf', str(crf), '-preset', 'medium', '-pix_fmt', 'yuv420p', out_path])
     os.remove(lst)
     return out_path

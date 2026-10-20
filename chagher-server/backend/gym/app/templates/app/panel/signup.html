@@ -1,0 +1,105 @@
+{% extends 'app/panel/auth_base.html' %}
+{% block title %}ثبت‌نام در چغر{% endblock %}
+{% block meta_robots %}noindex,nofollow{% endblock %}
+
+{% block auth_body %}
+{% if step == 'verify' %}
+
+  <h1>کد را وارد کن</h1>
+  <p class="sub">
+    یک کدِ چهاررقمی به <b class="au-num" style="letter-spacing:0">{{ phone }}</b>
+    پیامک شد. اگر نرسید، چند ثانیه صبر کن و دوباره بفرست.
+  </p>
+
+  {% if error %}
+  <div class="au-err"><i class="fas fa-circle-exclamation"></i><span>{{ error }}</span></div>
+  {% endif %}
+  {% if sent %}
+  <div class="au-ok"><i class="fas fa-paper-plane"></i><span>کد فرستاده شد.</span></div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="verify">
+
+    <div class="au-field">
+      <label for="id_code">کدِ پیامک‌شده</label>
+      <input id="id_code" name="verification_code" class="au-num" inputmode="numeric"
+             maxlength="4" autocomplete="one-time-code" placeholder="۱۲۳۴" required autofocus>
+    </div>
+
+    <div class="au-field">
+      <label for="id_name">نام و نام خانوادگی</label>
+      <input id="id_name" name="full_name" autocomplete="name"
+             placeholder="مثلاً مانی اکبری" value="{{ full_name|default:'' }}">
+      <span class="hint">اختیاری — برای این‌که برنامه‌ات به نامِ خودت باشد.</span>
+    </div>
+
+    <div class="au-field">
+      <label for="id_pass">رمزِ تازه</label>
+      <input id="id_pass" name="password" type="password" autocomplete="new-password"
+             placeholder="••••••••" required>
+      <span class="hint">دستِ‌کم ۸ نویسه.</span>
+    </div>
+
+    <div class="au-field">
+      <label for="id_pass2">تکرارِ رمز</label>
+      <input id="id_pass2" name="password_confirm" type="password"
+             autocomplete="new-password" placeholder="••••••••" required>
+    </div>
+
+    <button type="submit" class="au-btn">
+      <i class="fas fa-check"></i> ساختِ حساب
+    </button>
+  </form>
+
+  <div class="au-alt">
+    <form method="post" style="display:inline">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="resend">
+      <button type="submit" class="au-link">کد را دوباره بفرست</button>
+    </form>
+    <span style="opacity:.4;margin:0 6px">·</span>
+    <form method="post" style="display:inline">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="restart">
+      <button type="submit" class="au-link">تغییرِ شماره</button>
+    </form>
+  </div>
+
+{% else %}
+
+  <h1>ثبت‌نامِ ورزشکار</h1>
+  <p class="sub">
+    شماره‌ات را بده تا یک کدِ تأیید برایت پیامک کنیم.
+    {% if ai_free_programs %}{{ ai_free_programs }} برنامهٔ اول رایگان است.{% endif %}
+  </p>
+
+  {% if error %}
+  <div class="au-err"><i class="fas fa-circle-exclamation"></i><span>{{ error }}</span></div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="phone">
+    <div class="au-field">
+      <label for="id_phone">شمارهٔ موبایل</label>
+      <input id="id_phone" name="phone_number" class="au-num" inputmode="numeric"
+             autocomplete="tel" placeholder="09123456789"
+             value="{{ phone|default:'' }}" required autofocus>
+    </div>
+    <button type="submit" class="au-btn">
+      <i class="fas fa-paper-plane"></i> فرستادنِ کد
+    </button>
+  </form>
+
+{% endif %}
+
+<div class="au-alt">
+  حساب داری؟ <a href="{% url 'panel-login' %}">ورود</a>
+</div>
+
+<a class="au-back" href="{{ landing_url }}">
+  <i class="fas fa-arrow-right"></i> بازگشت به صفحهٔ اصلی
+</a>
+{% endblock %}

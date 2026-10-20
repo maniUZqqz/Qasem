@@ -1,0 +1,1523 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.authtoken.models import Token
+from django.http import HttpResponse
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
+import logging
+from datetime import timedelta
+from .models import (
+    CustomUser, Equipment, EquipmentCategory, Meal, ClientProgram, PasswordResetOTP,
+    GymClient, LedgerEntry, ProgramShareCode, AIUsageLog, SMSOutbox, AthleteProfile
+)
+from .exercise_catalog import muscle_groups as catalog_muscle_groups
+from .permissions import IsCoach, IsCoachOrPersonal
+from .suggestions import get_suggestions
+from .sms_service import SMSService
+from .throttling import SensitiveScopedRateThrottle
+from .serializers import (
+    RegisterSerializer, PersonalRegisterSerializer, LoginSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
+    ChangePasswordSerializer,
+    UserSerializer,
+    EquipmentSerializer, EquipmentCategorySerializer, MealSerializer,
+    ClientProgramSerializer, GenerateProgramSerializer, EditProgramSerializer,
+    ProgramHistorySerializer,
+    ProgramShareCodeSerializer, CreateProgramShareCodeSerializer,
+    RedeemProgramCodeSerializer
+)
+from ai_engine.ai_generator import generate_program
+from ai_engine.edit_engine import edit_program_with_feedback
+from pdf_generator.pdf_gen import generate_pdf, generate_workout_pdf, generate_meal_pdf
+
+
+
+
+
+
+
+logger = logging.getLogger(__name__)
+
+# هزینه توکن برای هر عملیات
+TOKEN_COSTS = {
+    'generate_program': 50,       # هر دو برنامه (ورزشی + غذایی)
+    'generate_workout_only': 25,  # فقط برنامه ورزشی
+    'generate_meal_only': 25,     # فقط برنامه غذایی
+    'edit_program': 25,           # ویرایش — هم‌قیمت برنامه تک‌بخشی
+}
+
+# هزینه بر اساس نوع برنامه درخواستی
+PROGRAM_TYPE_COSTS = {
+    'both': TOKEN_COSTS['generate_program'],
+    'workout': TOKEN_COSTS['generate_workout_only'],
+    'meal': TOKEN_COSTS['generate_meal_only'],
+}
+
+
+# ⚠ دو دیکشنریِ بالا فقط **پیش‌فرضِ کارخانه**اند. عددی که واقعاً کسر می‌شود از
+#   «تنظیمات سامانه» می‌آید تا مالک بتواند از ادمین عوضش کند. اگر دیتابیس در
+#   دسترس نبود (مهاجرت، اسکریپت) همان پیش‌فرض برمی‌گردد.
+def live_token_costs():
+    try:
+        from .models import PlatformSettings
+        return PlatformSettings.token_costs()
+    except Exception:
+        return dict(TOKEN_COSTS)
+
+
+def live_program_type_costs():
+    try:
+        from .models import PlatformSettings
+        return PlatformSettings.program_type_costs()
+    except Exception:
+        return dict(PROGRAM_TYPE_COSTS)
+
+
+def _accessible_programs_queryset(user):
+    """برنامه‌های قابل مشاهده برای این کاربر.
+
+    کاربر عادی/شخصی فقط برنامه‌های خودش را می‌بیند. مربی علاوه بر برنامه‌های
+    خودش (که مستقیماً برای شاگردانش ساخته)، برنامه‌هایی را هم می‌بیند که
+    ورزشکاران متصل به باشگاهش با اکانت خودشان برای خودشان ساخته‌اند —
+    چون ClientProgram.user یعنی «کسی که درخواست را زده»، نه لزوماً مالک باشگاه.
+    """
+    if user.account_type == CustomUser.ACCOUNT_TYPE_COACH:
+        client_user_ids = GymClient.objects.filter(
+            gym_owner=user, client_user__isnull=False
+        ).values_list('client_user_id', flat=True)
+        return ClientProgram.objects.filter(Q(user=user) | Q(user_id__in=client_user_ids))
+    return ClientProgram.objects.filter(user=user)
+
+
+def _client_programs_filter(coach, gym_client):
+    """فیلتر «برنامه‌های این مشتری» از دید مربی.
+
+    یک مشتری دو جور برنامه دارد و هر دو باید دیده شوند، وگرنه مربی بعد از
+    ساختن برنامه، آن را در تاریخچه‌ی همان مشتری پیدا نمی‌کند و نمی‌تواند
+    ویرایشش کند:
+      ۱) برنامه‌ای که خودِ ورزشکار با اکانتش ساخته (user = اکانت ورزشکار)
+      ۲) برنامه‌ای که مربی برای او ساخته (user = مربی، name = نام مشتری)
+    حالت دوم تنها راه شناسایی‌اش نام مشتری است، چون ClientProgram رابطه‌ی
+    مستقیمی با GymClient ندارد. مشتری‌ای که هنوز کدش را فعال نکرده فقط
+    حالت دوم را دارد.
+    """
+    condition = Q(pk__in=[])  # شرط همیشه-غلط به‌عنوان نقطه شروع
+    if gym_client.client_user_id:
+        condition |= Q(user_id=gym_client.client_user_id)
+    if gym_client.name:
+        condition |= Q(user=coach, name=gym_client.name)
+    return condition
+
+
+# ==================== Authentication Views ====================
+
+@extend_schema(tags=['Authentication'])
+class RegisterView(APIView):
+    """ثبت‌نام کاربر جدید"""
+    permission_classes = [AllowAny]
+    serializer_class = RegisterSerializer
+
+    @extend_schema(
+        request=RegisterSerializer,
+        responses={201: UserSerializer},
+        description="ثبت‌نام کاربر جدید با شماره تلفن و رمز عبور. فیلد gym_name اختیاری است."
+    )
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            token, _ = Token.objects.get_or_create(user=user)
+            logger.info(f"New user registered: {user.phone_number} (gym: {user.gym_name or '-'})")
+            return Response({
+                'user': UserSerializer(user).data,
+                'token': token.key,
+                'message': 'ثبت‌نام با موفقیت انجام شد.'
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Authentication'])
+class PersonalRegisterView(APIView):
+    """ثبت‌نام کاربر شخصی (B2C) — بدون نیاز به باشگاه"""
+    permission_classes = [AllowAny]
+    serializer_class = PersonalRegisterSerializer
+
+    @extend_schema(
+        request=PersonalRegisterSerializer,
+        responses={201: UserSerializer},
+        description="""ثبت‌نام کاربر شخصی که مستقل از باشگاه برنامه می‌گیرد.
+        این حساب به هیچ باشگاهی متصل نیست و به بخش‌های مدیریت باشگاه دسترسی ندارد.
+        """
+    )
+    def post(self, request):
+        serializer = PersonalRegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            token, _ = Token.objects.get_or_create(user=user)
+            logger.info(f"New personal (B2C) user registered: {user.phone_number}")
+            return Response({
+                'user': UserSerializer(user).data,
+                'token': token.key,
+                'message': 'ثبت‌نام با موفقیت انجام شد.'
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Authentication'])
+class LoginView(APIView):
+    """ورود کاربر"""
+    permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
+    throttle_classes = [SensitiveScopedRateThrottle]
+    throttle_scope = 'login'
+
+    @extend_schema(
+        request=LoginSerializer,
+        responses={200: UserSerializer},
+        description="ورود کاربر با شماره تلفن و رمز عبور"
+    )
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            token, _ = Token.objects.get_or_create(user=user)
+            logger.info(f"User logged in: {user.phone_number}")
+            return Response({
+                'user': UserSerializer(user).data,
+                'token': token.key,
+                'message': 'ورود با موفقیت انجام شد.'
+            })
+        logger.warning(f"Failed login attempt for phone: {request.data.get('phone_number', '-')}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Authentication'])
+class LogoutView(APIView):
+    """خروج کاربر"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        # خروج بدنه‌ای نمی‌گیرد؛ اعلام صریح جلوی حدس‌زدن سریالایزر را می‌گیرد
+        request=None,
+        responses={200: {'type': 'object', 'properties': {'message': {'type': 'string'}}}},
+        description="خروج کاربر و حذف توکن"
+    )
+    def post(self, request):
+        request.user.auth_token.delete()
+        return Response({'message': 'خروج با موفقیت انجام شد.'})
+
+
+@extend_schema(tags=['Authentication'])
+class PasswordResetRequestView(APIView):
+    """درخواست کد بازیابی رمز عبور (مرحله اول)"""
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetRequestSerializer
+    throttle_classes = [SensitiveScopedRateThrottle]
+    throttle_scope = 'password_reset'
+
+    @extend_schema(
+        request=PasswordResetRequestSerializer,
+        responses={200: {'type': 'object', 'properties': {'message': {'type': 'string'}}}},
+        description="""درخواست بازیابی رمز عبور.
+        اگر شماره در سامانه ثبت شده باشد، یک کد ۴ رقمی پیامک می‌شود
+        (اعتبار ۱۰ دقیقه). سپس با POST /api/auth/password-reset/confirm/ رمز جدید تعیین کنید.
+        پاسخ برای شماره ناموجود هم یکسان است تا وجود حساب افشا نشود.
+        """
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        phone = serializer.validated_data['phone_number'].strip()
+        user = CustomUser.objects.filter(phone_number=phone).first()
+        if user:
+            otp = PasswordResetOTP.issue(user)
+            sms = SMSService.get_active_service()
+            if sms:
+                result = sms.send_password_reset_code(phone, otp.code)
+                if not result.get('success'):
+                    logger.error(f"Failed to send password reset SMS to {phone}: {result.get('error')}")
+            else:
+                # بدون سرویس پیامکِ فعال: کد در صفِ گیت‌وی پیامک (گوشی) می‌رود
+                SMSOutbox.enqueue(
+                    phone, otp.code, purpose=SMSOutbox.PURPOSE_PASSWORD_RESET,
+                    ttl_seconds=PasswordResetOTP.OTP_EXPIRY_MINUTES * 60,
+                )
+            logger.info(f"Password reset code issued for user: {phone}")
+        else:
+            logger.warning(f"Password reset requested for unknown phone: {phone}")
+
+        return Response({
+            'message': 'اگر این شماره در سامانه ثبت شده باشد، کد تایید پیامک می‌شود.'
+        })
+
+
+@extend_schema(tags=['Authentication'])
+class PasswordResetConfirmView(APIView):
+    """تایید کد بازیابی و تعیین رمز جدید (مرحله دوم)"""
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+    throttle_classes = [SensitiveScopedRateThrottle]
+    throttle_scope = 'password_reset_confirm'
+
+    @extend_schema(
+        request=PasswordResetConfirmSerializer,
+        responses={200: {'type': 'object', 'properties': {'message': {'type': 'string'}}}},
+        description="""تعیین رمز جدید با کد پیامک‌شده.
+        کد یکبارمصرف است، ۱۰ دقیقه اعتبار دارد و پس از ۵ تلاش ناموفق باطل می‌شود.
+        پس از تغییر موفق، همه توکن‌های ورود قبلی باطل می‌شوند.
+        """
+    )
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        phone = serializer.validated_data['phone_number'].strip()
+        code = serializer.validated_data['code']
+        invalid_response = Response(
+            {'error': 'کد تایید نامعتبر یا منقضی است.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        user = CustomUser.objects.filter(phone_number=phone).first()
+        otp = None
+        if user:
+            otp = PasswordResetOTP.objects.filter(user=user, is_used=False).order_by('-created_at').first()
+
+        if not otp or otp.is_expired() or otp.attempts >= PasswordResetOTP.MAX_ATTEMPTS:
+            logger.warning(f"Password reset confirm failed (no valid OTP) for phone: {phone}")
+            return invalid_response
+
+        if otp.code != code:
+            otp.register_failed_attempt()
+            logger.warning(f"Password reset confirm wrong code for phone: {phone} (attempt {otp.attempts})")
+            return invalid_response
+
+        otp.is_used = True
+        otp.save(update_fields=['is_used'])
+
+        user.set_password(serializer.validated_data['new_password'])
+        user.save(update_fields=['password'])
+
+        # ابطال همه نشست‌های قبلی
+        Token.objects.filter(user=user).delete()
+
+        logger.info(f"Password reset completed for user: {phone}")
+        return Response({'message': 'رمز عبور با موفقیت تغییر کرد. اکنون با رمز جدید وارد شوید.'})
+
+
+@extend_schema(tags=['Authentication'])
+class ChangePasswordView(APIView):
+    """تغییر رمز عبور کاربر لاگین‌شده (مربی یا مشتری)"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
+
+    @extend_schema(
+        request=ChangePasswordSerializer,
+        responses={200: {'type': 'object', 'properties': {
+            'message': {'type': 'string'},
+            'token': {'type': 'string'},
+        }}},
+        description="""تغییر رمز عبور با تایید رمز فعلی.
+        - نیاز به احراز هویت دارد
+        - پس از تغییر موفق، توکن قبلی باطل و توکن جدید صادر می‌شود
+        """
+    )
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            logger.warning(f"Failed password change attempt for user: {request.user.phone_number}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        user.set_password(serializer.validated_data['new_password'])
+        user.save(update_fields=['password'])
+
+        # ابطال توکن قبلی و صدور توکن جدید (خروج از نشست‌های دیگر)
+        Token.objects.filter(user=user).delete()
+        token = Token.objects.create(user=user)
+
+        logger.info(f"Password changed for user: {user.phone_number}")
+        return Response({
+            'message': 'رمز عبور با موفقیت تغییر کرد.',
+            'token': token.key,
+        })
+
+
+@extend_schema(tags=['User'])
+class UserProfileView(APIView):
+    """نمایش و ویرایش پروفایل کاربر"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: UserSerializer},
+        description="دریافت اطلاعات پروفایل کاربر و موجودی توکن"
+    )
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=UserSerializer,
+        responses={200: UserSerializer},
+        description="ویرایش اطلاعات پروفایل کاربر"
+    )
+    def patch(self, request):
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ==================== Equipment Views ====================
+
+@extend_schema(tags=['Equipment'])
+@extend_schema_view(
+    list=extend_schema(description="دریافت لیست دستگاه‌های ورزشی کاربر"),
+    create=extend_schema(description="ایجاد دستگاه ورزشی جدید"),
+    retrieve=extend_schema(description="دریافت جزئیات یک دستگاه"),
+    update=extend_schema(description="ویرایش کامل دستگاه"),
+    partial_update=extend_schema(description="ویرایش جزئی دستگاه"),
+    destroy=extend_schema(description="حذف دستگاه"),
+)
+class EquipmentViewSet(viewsets.ModelViewSet):
+    """مدیریت دستگاه‌های ورزشی"""
+    serializer_class = EquipmentSerializer
+    # فقط برای مستندسازی: get_queryset واقعی بر اساس کاربر فیلتر می‌کند
+    # و هنگام ساخت schema (بدون request) قابل فراخوانی نیست.
+    queryset = Equipment.objects.none()
+    # کاربرِ شخصی (B2C) هم دستگاه دارد: نتیجهٔ اسکنِ باشگاهش. queryset روی خودِ
+    # کاربر فیلتر است، پس دسترسی به دستگاهِ دیگران باز نمی‌شود.
+    permission_classes = [IsCoachOrPersonal]
+
+    def get_queryset(self):
+        return Equipment.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+@extend_schema(tags=['Equipment'])
+@extend_schema_view(
+    list=extend_schema(description="دریافت لیست دسته‌بندی‌های دستگاه (دسته‌های خود مربی + دسته‌های سراسری)"),
+    create=extend_schema(description="ایجاد دسته‌بندی جدید (اختصاصی همین مربی)"),
+)
+class EquipmentCategoryViewSet(viewsets.ModelViewSet):
+    """مدیریت دسته‌بندی دستگاه‌ها
+
+    هر مربی فقط دسته‌های خودش و دسته‌های سراسری (owner خالی) را می‌بیند؛
+    ویرایش/حذف فقط روی دسته‌های خودش مجاز است.
+    """
+    serializer_class = EquipmentCategorySerializer
+    # فقط برای مستندسازی: get_queryset واقعی بر اساس کاربر فیلتر می‌کند
+    # و هنگام ساخت schema (بدون request) قابل فراخوانی نیست.
+    queryset = EquipmentCategory.objects.none()
+    permission_classes = [IsCoach]
+
+    def get_queryset(self):
+        qs = EquipmentCategory.objects.filter(
+            Q(owner=self.request.user) | Q(owner__isnull=True)
+        )
+        if self.action in ('update', 'partial_update', 'destroy'):
+            # دسته‌های سراسری فقط‌خواندنی هستند
+            qs = qs.filter(owner=self.request.user)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+# ==================== Meal Views ====================
+
+@extend_schema(tags=['Meals'])
+@extend_schema_view(
+    list=extend_schema(description="دریافت لیست غذاهای کاربر"),
+    create=extend_schema(description="ایجاد غذای جدید"),
+    retrieve=extend_schema(description="دریافت جزئیات یک غذا"),
+    update=extend_schema(description="ویرایش کامل غذا"),
+    partial_update=extend_schema(description="ویرایش جزئی غذا"),
+    destroy=extend_schema(description="حذف غذا"),
+)
+class MealViewSet(viewsets.ModelViewSet):
+    """مدیریت غذاها"""
+    serializer_class = MealSerializer
+    # فقط برای مستندسازی: get_queryset واقعی بر اساس کاربر فیلتر می‌کند
+    # و هنگام ساخت schema (بدون request) قابل فراخوانی نیست.
+    queryset = Meal.objects.none()
+    permission_classes = [IsCoach]
+
+    def get_queryset(self):
+        return Meal.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+# ==================== Equipment Suggestion Views ====================
+
+@extend_schema(tags=['Equipment'])
+class EquipmentSuggestionView(APIView):
+    """پیشنهاد دستگاه‌ها و حرکات پرکاربرد"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='training_place', type=OpenApiTypes.STR,
+                             description='فیلتر محیط تمرین: public_gym | home_basic | home_none'),
+            OpenApiParameter(name='muscle_group', type=OpenApiTypes.STR,
+                             description='فیلتر گروه عضلانی (مثلاً: سینه)'),
+            OpenApiParameter(name='search', type=OpenApiTypes.STR, description='جستجو در نام'),
+            OpenApiParameter(name='limit', type=OpenApiTypes.INT, description='تعداد نتیجه (پیش‌فرض 20)'),
+        ],
+        responses={200: {'type': 'object'}},
+        description="""پیشنهاد دستگاه‌ها و حرکات بر اساس محبوبیت در کل سامانه.
+
+        - هرچه دستگاهی را کاربران بیشتری ثبت کرده باشند، بالاتر پیشنهاد می‌شود
+          (`source: community` همراه با `usage_count`).
+        - تا وقتی داده واقعی کم است، کاتالوگ پایه جای خالی را پر می‌کند
+          (`source: starter`).
+        - برای مربی: `already_added` نشان می‌دهد قبلاً ثبتش کرده یا نه.
+        - برای کاربر شخصی: با `training_place` فقط حرکات قابل اجرا در محیط او
+          برگردانده می‌شود (مثلاً خانه بدون تجهیزات → فقط وزن بدن).
+        """
+    )
+    def get(self, request):
+        suggestions = get_suggestions(
+            user=request.user,
+            training_place=request.query_params.get('training_place'),
+            muscle_group=request.query_params.get('muscle_group'),
+            search=request.query_params.get('search'),
+            limit=request.query_params.get('limit', 20),
+        )
+        return Response({
+            'count': len(suggestions),
+            'muscle_groups': catalog_muscle_groups(),
+            'results': suggestions,
+        })
+
+
+@extend_schema(tags=['Equipment'])
+class EquipmentBulkAddView(APIView):
+    """افزودن گروهی دستگاه‌های پیشنهادی به باشگاه (فقط مربی)"""
+    permission_classes = [IsCoach]
+
+    @extend_schema(
+        request={'application/json': {'type': 'object', 'properties': {
+            'names': {'type': 'array', 'items': {'type': 'string'}}
+        }}},
+        responses={201: {'type': 'object'}},
+        description="""افزودن چند دستگاه پیشنهادی به تجهیزات باشگاه با یک درخواست.
+        دستگاه‌هایی که قبلاً ثبت شده‌اند نادیده گرفته می‌شوند (تکراری ساخته نمی‌شود).
+        """
+    )
+    def post(self, request):
+        names = request.data.get('names')
+        if not isinstance(names, list) or not names:
+            return Response({'error': 'فهرست names الزامی است.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # نگاشت نام به گروه عضلانی از کاتالوگ پایه
+        from .exercise_catalog import STARTER_CATALOG
+        catalog = {item['name']: item for item in STARTER_CATALOG}
+
+        existing = set(
+            Equipment.objects.filter(user=request.user).values_list('name', flat=True)
+        )
+
+        created, skipped = [], []
+        with transaction.atomic():
+            for raw in names:
+                name = (raw or '').strip()
+                if not name:
+                    continue
+                if name in existing:
+                    skipped.append(name)
+                    continue
+                info = catalog.get(name, {})
+                Equipment.objects.create(
+                    user=request.user,
+                    name=name,
+                    muscle_group=info.get('muscle_group', ''),
+                )
+                existing.add(name)
+                created.append(name)
+
+        logger.info(
+            f"Bulk equipment add by {request.user.phone_number}: "
+            f"{len(created)} created, {len(skipped)} skipped"
+        )
+        return Response({
+            'created': created,
+            'skipped': skipped,
+            'message': f'{len(created)} دستگاه اضافه شد.'
+        }, status=status.HTTP_201_CREATED)
+
+
+# ==================== Program Views ====================
+
+@extend_schema(tags=['Programs'])
+class GenerateProgramView(APIView):
+    """تولید برنامه ورزشی و غذایی با هوش مصنوعی"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=GenerateProgramSerializer,
+        responses={201: ClientProgramSerializer},
+        description="""تولید برنامه ورزشی و غذایی جدید.
+        - هزینه: هر دو ۵۰ توکن | فقط ورزشی یا فقط غذایی ۲۵ توکن
+        - اگر generate_pdf=true باشد، فایل PDF به صورت دانلود در پاسخ برگردانده می‌شود
+        - pdf_type: 'both', 'workout', 'meal' (پیش‌فرض: both)
+        - برنامه متنی همیشه در دیتابیس ذخیره می‌شود
+        """
+    )
+    def post(self, request):
+        serializer = GenerateProgramSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # هزینه بر اساس نوع برنامه (both: 50 | workout: 25 | meal: 25)
+        program_type = serializer.validated_data.get('program_type', 'both')
+        required_tokens = live_program_type_costs()[program_type]
+
+        # قاعده‌های قیمتِ ادمین اول حرف می‌زنند؛ اگر هیچ قاعده‌ای نخورد،
+        # رفتارِ قدیمی (۵ برنامهٔ رایگان) دست‌نخورده ادامه پیدا می‌کند.
+        from .pricing import resolve as _price, PROGRAM_TYPE_TO_FEATURE
+        _rule_note = ''
+        _d = _price(request.user, PROGRAM_TYPE_TO_FEATURE.get(program_type, 'ai_both'))
+        if _d is not None:
+            if _d.mode == 'blocked':
+                return Response({
+                    'error': _d.rule.blocked_message or 'این امکان الان در دسترس نیست.',
+                    'rule': _d.rule.title,
+                }, status=status.HTTP_402_PAYMENT_REQUIRED)
+            required_tokens = _d.cost
+            _rule_note = ' [قاعده: %s]' % _d.rule.title
+        else:
+            # سهمیهٔ رایگانِ هوش مصنوعی (خواستهٔ مالک: ۵ برنامهٔ اولِ هر مربی).
+            # تعدادش در «تنظیمات سامانه» است، پس بدونِ تغییرِ کد عوض می‌شود.
+            ai_free_left = request.user.ai_free_left()
+            if ai_free_left > 0:
+                required_tokens = 0
+
+        # محیط تمرین: کاربر شخصی تجهیزات ثبت‌شده ندارد، پس باید محیطش را مشخص کند.
+        # برای مربی/ورزشکار باشگاه، پیش‌فرض همان تجهیزات ثبت‌شده باشگاه است.
+        training_place = serializer.validated_data.get('training_place')
+        if request.user.is_personal:
+            # ورزشکارِ شخصی‌ای که باشگاهش را اسکن کرده، دستگاه‌های خودش را دارد؛
+            # پس «تجهیزاتِ ثبت‌شده» برای او هم معنا دارد و دیگر رد نمی‌شود.
+            has_own_equipment = Equipment.objects.filter(user=request.user).exists()
+            if (training_place == ClientProgram.TRAINING_PLACE_GYM_EQUIPMENT
+                    and has_own_equipment):
+                pass
+            elif not training_place or training_place == ClientProgram.TRAINING_PLACE_GYM_EQUIPMENT:
+                return Response({
+                    'error': 'محیط تمرین را مشخص کنید.',
+                    'training_place_choices': [
+                        {'value': v, 'label': l}
+                        for v, l in ClientProgram.TRAINING_PLACE_CHOICES
+                        if v != ClientProgram.TRAINING_PLACE_GYM_EQUIPMENT
+                    ]
+                }, status=status.HTTP_400_BAD_REQUEST)
+        elif training_place and training_place != ClientProgram.TRAINING_PLACE_GYM_EQUIPMENT:
+            # مربی هم می‌تواند برنامه خانگی برای شاگردش بسازد — مجاز است
+            pass
+
+        # بررسی توکن کافی
+        if required_tokens and not request.user.has_enough_tokens(required_tokens):
+            return Response({
+                'error': 'توکن کافی ندارید.',
+                'required_tokens': required_tokens,
+                'current_balance': request.user.token_balance
+            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        # کسر توکن — چک قطعی موجودی زیر قفل انجام می‌شود
+        if required_tokens and not request.user.deduct_tokens(required_tokens):
+            return Response({
+                'error': 'توکن کافی ندارید.',
+                'required_tokens': required_tokens,
+                'current_balance': request.user.get_effective_token_balance()
+            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        # ایجاد رکورد برنامه
+        program_data = serializer.validated_data.copy()
+
+        # کاربرِ شخصی یک‌بار پروفایلش را پر کرده؛ هر چه در فرم نیامده از آن
+        # برداشته می‌شود تا هر بار قد و وزن و آسیب‌ها دوباره پرسیده نشود.
+        if request.user.is_personal:
+            profile = AthleteProfile.objects.filter(user=request.user).first()
+            if profile:
+                untouched = [f for f in profile.PROGRAM_FIELDS if f not in request.data]
+                profile.apply_to(program_data, force=untouched)
+        generate_pdf_flag = program_data.pop('generate_pdf', False)
+        pdf_type = program_data.pop('pdf_type', 'both')
+
+        # PDF فقط برای بخش تولیدشده معنا دارد
+        if program_type != 'both':
+            pdf_type = program_type
+
+        client = ClientProgram.objects.create(
+            user=request.user,
+            tokens_consumed=required_tokens,
+            **program_data  # شامل program_type و exercise_history
+        )
+
+        try:
+            # تولید برنامه با هوش مصنوعی — فقط بخش درخواستی.
+            # کال شبکه‌ای عمداً خارج از تراکنش دیتابیس است تا قفل نوشتن
+            # به اندازه تاخیر مدل نگه داشته نشود.
+            workout, meal_plan, usage = generate_program(client.id, program_type)
+
+            client.generated_workout = workout
+            client.generated_meal_plan = meal_plan
+            ai_cost = client.record_ai_usage(
+                usage.model_name, usage.input_tokens, usage.output_tokens,
+                config=usage.provider_config,
+            )
+            client.save()
+        except Exception:
+            # جبران: حذف رکورد ناتمام و بازگشت توکن‌ها
+            logger.exception(
+                f"Error generating program for user {request.user.phone_number}"
+            )
+            client.delete()
+            request.user.add_tokens(required_tokens)
+            LedgerEntry.record(
+                LedgerEntry.TYPE_TOKEN_REFUND,
+                user=request.user,
+                tokens=required_tokens,
+                description='بازگشت توکن پس از خطای تولید برنامه',
+            )
+            return Response({
+                'error': 'خطا در تولید برنامه. توکن‌های شما بازگردانده شد؛ لطفاً دوباره تلاش کنید.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # سطر تفکیکی بهای تمام‌شده — کنار دفتر حساب و مستقل از آن.
+        # دفتر حساب فقط «چقدر خرج شد» را می‌گوید؛ این سطر می‌گوید آن خرج
+        # بابت چه نوع عملیاتی و در برابر چه درآمدی بوده است.
+        AIUsageLog.record(
+            program=client,
+            user=request.user,
+            operation=AIUsageLog.OP_GENERATE,
+            program_type=program_type,
+            usage=usage,
+            tokens_charged=required_tokens,
+            cost=ai_cost,
+        )
+
+        LedgerEntry.record(
+            LedgerEntry.TYPE_TOKEN_SPEND,
+            user=request.user,
+            tokens=-required_tokens,
+            reference=f'program#{client.id}',
+            description=f'تولید برنامه ({client.get_program_type_display()}){_rule_note}',
+        )
+        if ai_cost:
+            LedgerEntry.record(
+                LedgerEntry.TYPE_AI_COST,
+                user=request.user,
+                amount=-ai_cost,
+                reference=f'program#{client.id}',
+                description=f'هزینه مدل {usage.model_name}',
+            )
+
+        logger.info(
+            f"Program #{client.id} generated for user {request.user.phone_number} "
+            f"(type={program_type}, {required_tokens} tokens consumed, "
+            f"balance: {request.user.token_balance}, ai_cost={ai_cost})"
+        )
+
+        # اگر PDF درخواست شده، تولید و برگرداندن آن
+        if generate_pdf_flag:
+            try:
+                if pdf_type == 'workout':
+                    content, _ = generate_workout_pdf(client)
+                    filename = f"workout_{client.name}_{client.id}.pdf"
+                elif pdf_type == 'meal':
+                    content, _ = generate_meal_pdf(client)
+                    filename = f"meal_{client.name}_{client.id}.pdf"
+                else:  # 'both'
+                    content, _ = generate_pdf(client)
+                    filename = f"{client.name}_{client.id}.pdf"
+            except Exception:
+                # برنامه تولید و ذخیره شده؛ فقط PDF شکست خورده — برنامه را از دست نده
+                logger.exception(f"PDF generation failed for program #{client.id}")
+                return Response({
+                    'program': ClientProgramSerializer(client).data,
+                    'remaining_tokens': request.user.token_balance,
+                    'message': 'برنامه تولید و ذخیره شد اما ساخت PDF ناموفق بود. '
+                               'از مسیر دانلود PDF برنامه دوباره تلاش کنید.'
+                }, status=status.HTTP_201_CREATED)
+
+            response = HttpResponse(content, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+        # بازگشت JSON
+        return Response({
+            'program': ClientProgramSerializer(client).data,
+            'remaining_tokens': request.user.token_balance,
+            'message': 'برنامه با موفقیت تولید شد.'
+        }, status=status.HTTP_201_CREATED)
+
+
+
+
+@extend_schema(tags=['Programs'])
+class EditProgramView(APIView):
+    """ویرایش برنامه با بازخورد"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=EditProgramSerializer,
+        responses={200: ClientProgramSerializer},
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='شناسه برنامه'
+            )
+        ],
+        description="""ویرایش برنامه موجود با بازخورد.
+        - هزینه: 25 توکن (از حساب کاربری که درخواست ویرایش را می‌زند کسر می‌شود)
+        - مربی می‌تواند برنامه‌ی ورزشکاران باشگاهش را هم ویرایش کند (نه فقط برنامه‌های خودش)
+        - اگر generate_pdf=true باشد، فایل PDF به صورت دانلود در پاسخ برگردانده می‌شود
+        - pdf_type: 'both', 'workout', 'meal' (پیش‌فرض: both)
+        """
+    )
+    def post(self, request, program_id):
+        try:
+            client = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = EditProgramSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # بررسی توکن کافی — قاعده‌های ادمین اول
+        required_tokens = TOKEN_COSTS['edit_program']
+        from .pricing import resolve as _price, F_AI_EDIT
+        _d = _price(request.user, F_AI_EDIT)
+        if _d is not None:
+            if _d.mode == 'blocked':
+                return Response({
+                    'error': _d.rule.blocked_message or 'ویرایش الان در دسترس نیست.',
+                    'rule': _d.rule.title,
+                }, status=status.HTTP_402_PAYMENT_REQUIRED)
+            required_tokens = _d.cost
+        if required_tokens and not request.user.has_enough_tokens(required_tokens):
+            return Response({
+                'error': 'توکن کافی ندارید.',
+                'required_tokens': required_tokens,
+                'current_balance': request.user.token_balance
+            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        # کسر توکن — چک قطعی موجودی زیر قفل انجام می‌شود
+        if required_tokens and not request.user.deduct_tokens(required_tokens):
+            return Response({
+                'error': 'توکن کافی ندارید.',
+                'required_tokens': required_tokens,
+                'current_balance': request.user.get_effective_token_balance()
+            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        feedback = serializer.validated_data['feedback']
+        generate_pdf_flag = serializer.validated_data.get('generate_pdf', False)
+        pdf_type = serializer.validated_data.get('pdf_type', 'both')
+
+        try:
+            # کال شبکه‌ای هوش مصنوعی خارج از تراکنش دیتابیس
+            new_workout, new_meal, usage = edit_program_with_feedback(client, feedback)
+
+            client.tokens_consumed += required_tokens
+            client.generated_workout = new_workout
+            client.generated_meal_plan = new_meal
+            ai_cost = client.record_ai_usage(
+                usage.model_name, usage.input_tokens, usage.output_tokens,
+                config=usage.provider_config,
+            )
+            client.save()
+        except Exception:
+            # جبران: بازگشت توکن‌ها؛ برنامه قبلی دست‌نخورده مانده است
+            logger.exception(f"Error editing program {program_id}")
+            request.user.add_tokens(required_tokens)
+            LedgerEntry.record(
+                LedgerEntry.TYPE_TOKEN_REFUND,
+                user=request.user,
+                tokens=required_tokens,
+                reference=f'program#{program_id}',
+                description='بازگشت توکن پس از خطای ویرایش برنامه',
+            )
+            return Response({
+                'error': 'خطا در ویرایش برنامه. توکن‌های شما بازگردانده شد؛ لطفاً دوباره تلاش کنید.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        AIUsageLog.record(
+            program=client,
+            user=request.user,
+            operation=AIUsageLog.OP_EDIT,
+            program_type=client.program_type,
+            usage=usage,
+            tokens_charged=required_tokens,
+            cost=ai_cost,
+        )
+
+        LedgerEntry.record(
+            LedgerEntry.TYPE_TOKEN_SPEND,
+            user=request.user,
+            tokens=-required_tokens,
+            reference=f'program#{client.id}',
+            description='ویرایش برنامه با بازخورد',
+        )
+        if ai_cost:
+            LedgerEntry.record(
+                LedgerEntry.TYPE_AI_COST,
+                user=request.user,
+                amount=-ai_cost,
+                reference=f'program#{client.id}',
+                description=f'هزینه مدل {usage.model_name} (ویرایش)',
+            )
+
+        logger.info(
+            f"Program #{client.id} edited for user {request.user.phone_number} "
+            f"({required_tokens} tokens consumed, balance: {request.user.token_balance}, "
+            f"ai_cost={ai_cost})"
+        )
+
+        # اگر PDF درخواست شده
+        if generate_pdf_flag:
+            # PDF فقط برای بخش‌های موجود برنامه معنا دارد
+            if not client.generated_meal_plan and pdf_type in ('both', 'meal'):
+                pdf_type = 'workout'
+            elif not client.generated_workout and pdf_type in ('both', 'workout'):
+                pdf_type = 'meal'
+
+            try:
+                if pdf_type == 'workout':
+                    content, _ = generate_workout_pdf(client)
+                    filename = f"workout_{client.name}_{client.id}.pdf"
+                elif pdf_type == 'meal':
+                    content, _ = generate_meal_pdf(client)
+                    filename = f"meal_{client.name}_{client.id}.pdf"
+                else:  # 'both'
+                    content, _ = generate_pdf(client)
+                    filename = f"{client.name}_{client.id}.pdf"
+            except Exception:
+                logger.exception(f"PDF generation failed for edited program #{client.id}")
+                return Response({
+                    'program': ClientProgramSerializer(client).data,
+                    'remaining_tokens': request.user.token_balance,
+                    'message': 'برنامه ویرایش و ذخیره شد اما ساخت PDF ناموفق بود. '
+                               'از مسیر دانلود PDF برنامه دوباره تلاش کنید.'
+                })
+
+            response = HttpResponse(content, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+        # بازگشت JSON
+        return Response({
+            'program': ClientProgramSerializer(client).data,
+            'remaining_tokens': request.user.token_balance,
+            'message': 'برنامه با موفقیت ویرایش شد.'
+        })
+
+
+
+
+@extend_schema(tags=['Programs'])
+class GeneratePDFView(APIView):
+    """تولید PDF از برنامه موجود"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: {'type': 'string', 'format': 'binary'}},
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='شناسه برنامه'
+            )
+        ],
+        description="تولید فایل PDF از برنامه موجود و دانلود آن (بدون ذخیره در دیتابیس)"
+    )
+    def get(self, request, program_id):
+        try:
+            client = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not client.generated_workout and not client.generated_meal_plan:
+            return Response({'error': 'برنامه هنوز تولید نشده است.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            content, _ = generate_pdf(client)
+        except Exception:
+            logger.exception(f"Error generating PDF for program {program_id}")
+            return Response({
+                'error': 'خطا در تولید PDF. لطفاً دوباره تلاش کنید.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{client.name}_{client.id}.pdf"'
+        return response
+
+
+
+
+@extend_schema(tags=['Programs'])
+class ProgramDetailView(APIView):
+    """دریافت جزئیات برنامه"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ClientProgramSerializer},
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='شناسه برنامه'
+            )
+        ],
+        description="دریافت متن کامل برنامه ورزشی و غذایی"
+    )
+    def get(self, request, program_id):
+        try:
+            client = _accessible_programs_queryset(request.user).get(id=program_id)
+            return Response(ClientProgramSerializer(client).data)  # ✅ خودکار شامل exercise_history میشه
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+
+
+
+
+
+@extend_schema(tags=['Programs'])
+class ProgramShareCodeView(APIView):
+    """کد یکبارمصرف دانلود برای برنامه‌ای که مربی ساخته است.
+
+    این کد جای «کد دسترسی پنل» را نمی‌گیرد؛ مکمل آن است:
+
+    * کد دسترسی پنل (`GymClient.access_code`): ورزشکار وارد پنل می‌شود و
+      خودش اطلاعاتش را می‌دهد تا برنامه ساخته شود — زمان‌دار یا دائمی،
+      بنا به تنظیم مربی، و ورود مجدد هم می‌دهد.
+    * این کد: برنامه از قبل آماده است و ورزشکار فقط آن را دانلود می‌کند،
+      **فقط یک بار**. دسترسی خود مربی از تاریخچه همیشگی است و این کد هیچ
+      اثری بر آن ندارد.
+
+    توکنی مصرف نمی‌شود؛ هزینه هنگام تولید برنامه از مربی کسر شده است.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=CreateProgramShareCodeSerializer,
+        responses={201: ProgramShareCodeSerializer},
+        description='ساخت کد یکبارمصرف دانلود برای یک برنامه.'
+    )
+    def post(self, request, program_id):
+        try:
+            program = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CreateProgramShareCodeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        section = serializer.validated_data.get('section') or 'both'
+
+        # کد فقط برای بخشی که واقعاً تولید شده معنا دارد
+        has_workout = bool(program.generated_workout)
+        has_meal = bool(program.generated_meal_plan)
+        if not has_workout and not has_meal:
+            return Response(
+                {'error': 'این برنامه هنوز محتوایی ندارد.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if section == 'workout' and not has_workout:
+            return Response(
+                {'error': 'این برنامه بخش ورزشی ندارد.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if section == 'meal' and not has_meal:
+            return Response(
+                {'error': 'این برنامه بخش غذایی ندارد.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if section == 'both':
+            # برنامه تک‌بخشی: کد را به همان بخش موجود محدود کن
+            if not has_meal:
+                section = 'workout'
+            elif not has_workout:
+                section = 'meal'
+
+        expires_in = serializer.validated_data.get('expires_in_hours')
+        expires_at = (
+            timezone.now() + timedelta(hours=expires_in) if expires_in else None
+        )
+
+        share = ProgramShareCode.objects.create(
+            program=program,
+            created_by=request.user,
+            section=section,
+            expires_at=expires_at,
+        )
+
+        logger.info(
+            f"Share code created for program #{program.id} "
+            f"by {request.user.phone_number}"
+        )
+        return Response(
+            ProgramShareCodeSerializer(share).data, status=status.HTTP_201_CREATED
+        )
+
+    @extend_schema(
+        responses={200: ProgramShareCodeSerializer(many=True)},
+        description='کدهای ساخته‌شده برای این برنامه.'
+    )
+    def get(self, request, program_id):
+        try:
+            program = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        codes = program.share_codes.all()
+        return Response(ProgramShareCodeSerializer(codes, many=True).data)
+
+
+@extend_schema(tags=['Programs'])
+class RedeemProgramCodeView(APIView):
+    """دریافت برنامه با کد یکبارمصرف — بدون نیاز به حساب کاربری.
+
+    ورزشکاری که مربی برایش برنامه ساخته، فقط یک کد دارد و نباید مجبور به
+    ساخت حساب شود. کد پس از یک دانلود موفق مصرف می‌شود.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [SensitiveScopedRateThrottle]
+    throttle_scope = 'client_access'
+
+    @extend_schema(
+        request=RedeemProgramCodeSerializer,
+        responses={200: {'type': 'string', 'format': 'binary'}},
+        description="""دانلود برنامه با کد یکبارمصرف.
+
+        پاسخ موفق خود فایل PDF است. کد پس از این دانلود دیگر کار نمی‌کند.
+        """
+    )
+    def post(self, request):
+        serializer = RedeemProgramCodeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        code = serializer.validated_data['code'].strip()
+        share = (
+            ProgramShareCode.objects
+            .select_related('program')
+            .filter(code=code)
+            .first()
+        )
+
+        if not share:
+            return Response(
+                {'error': 'کد معتبر نیست.'}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if share.is_expired:
+            return Response(
+                {'error': 'این کد منقضی شده است. از مربی خود کد جدید بگیرید.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if share.is_used:
+            return Response(
+                {
+                    'error': 'این کد قبلاً استفاده شده است. هر کد فقط یک بار '
+                             'کار می‌کند؛ برای دریافت دوباره از مربی خود کد '
+                             'جدید بگیرید.'
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        # PDF پیش از مصرف کد ساخته می‌شود: اگر ساخت فایل شکست بخورد، کد
+        # نباید سوخته باشد و ورزشکار بدون برنامه بماند.
+        program = share.program
+        try:
+            if share.section == 'workout':
+                content, _ = generate_workout_pdf(program)
+            elif share.section == 'meal':
+                content, _ = generate_meal_pdf(program)
+            else:
+                content, _ = generate_pdf(program)
+        except Exception:
+            logger.exception(f"PDF generation failed for share code #{share.id}")
+            return Response(
+                {'error': 'ساخت فایل ناموفق بود. لطفاً دوباره تلاش کنید.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # مصرف اتمیک: دو درخواست هم‌زمان با یک کد، فقط یکی موفق می‌شود
+        if not share.redeem():
+            return Response(
+                {'error': 'این کد همین الان استفاده شد.'},
+                status=status.HTTP_410_GONE,
+            )
+
+        logger.info(f"Share code #{share.id} redeemed for program #{program.id}")
+
+        filename = f"program_{program.id}_{share.section}.pdf"
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+@extend_schema(tags=['Programs'])
+class HistoryView(APIView):
+    """تاریخچه برنامه‌های تولید شده"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ProgramHistorySerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                name='client_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description='فقط مربی: محدود کردن نتایج به یک مشتری خاص (همان ID در /api/gym-clients/) — '
+                            'هم برنامه‌هایی که مربی برای او ساخته و هم آنچه خودش ساخته'
+            ),
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description='محدود کردن نتایج به یک برنامه خاص'
+            ),
+        ],
+        description="""دریافت لیست برنامه‌های تولید شده.
+        - کاربر شخصی/ورزشکار: فقط برنامه‌های خودش.
+        - مربی: برنامه‌هایی که خودش برای شاگردانش ساخته + تمام برنامه‌هایی که
+          ورزشکاران متصل به باشگاهش با اکانت خودشان برای خودشان ساخته‌اند.
+        - با client_id یا program_id قابل فیلتر است.
+        """
+    )
+    def get(self, request):
+        # برنامه‌ای که حداقل یک بخش غیرخالی (ورزشی یا غذایی) دارد در تاریخچه می‌آید
+        programs = _accessible_programs_queryset(request.user).filter(
+            (Q(generated_workout__isnull=False) & ~Q(generated_workout='')) |
+            (Q(generated_meal_plan__isnull=False) & ~Q(generated_meal_plan=''))
+        )
+
+        client_id = request.query_params.get('client_id')
+        if client_id:
+            try:
+                gym_client = GymClient.objects.get(id=int(client_id), gym_owner=request.user)
+            except (ValueError, GymClient.DoesNotExist):
+                return Response({'error': 'مشتری یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+            programs = programs.filter(_client_programs_filter(request.user, gym_client))
+
+        program_id = request.query_params.get('program_id')
+        if program_id:
+            try:
+                programs = programs.filter(id=int(program_id))
+            except ValueError:
+                return Response({'error': 'program_id نامعتبر است.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        programs = programs.order_by('-created_at')
+        data = ProgramHistorySerializer(programs, many=True).data
+        return Response(data)
+
+
+
+
+
+@extend_schema(tags=['Programs'])
+class GenerateWorkoutPDFView(APIView):
+    """تولید PDF فقط برای برنامه ورزشی"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: {'type': 'string', 'format': 'binary'}},
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='شناسه برنامه'
+            )
+        ],
+        description="تولید فایل PDF فقط برای برنامه ورزشی"
+    )
+    def get(self, request, program_id):
+        try:
+            client = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not client.generated_workout:
+            return Response({'error': 'برنامه ورزشی تولید نشده است.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            content, _ = generate_workout_pdf(client)
+        except Exception:
+            logger.exception(f"Error generating workout PDF for program {program_id}")
+            return Response({'error': 'خطا در تولید PDF. لطفاً دوباره تلاش کنید.'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="workout_{client.name}_{client.id}.pdf"'
+        return response
+
+
+@extend_schema(tags=['Programs'])
+class GenerateMealPDFView(APIView):
+    """تولید PDF فقط برای برنامه غذایی"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: {'type': 'string', 'format': 'binary'}},
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='شناسه برنامه'
+            )
+        ],
+        description="تولید فایل PDF فقط برای برنامه غذایی"
+    )
+    def get(self, request, program_id):
+        try:
+            client = _accessible_programs_queryset(request.user).get(id=program_id)
+        except ClientProgram.DoesNotExist:
+            return Response({'error': 'برنامه یافت نشد.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not client.generated_meal_plan:
+            return Response({'error': 'برنامه غذایی تولید نشده است.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            content, _ = generate_meal_pdf(client)
+        except Exception:
+            logger.exception(f"Error generating meal PDF for program {program_id}")
+            return Response({'error': 'خطا در تولید PDF. لطفاً دوباره تلاش کنید.'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="meal_{client.name}_{client.id}.pdf"'
+        return response
+
+
+
+
+
+# ==================== Template-Based Views (صفحات معرفی) ====================
+
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
+from .models import HomePage, Feature, BlogPost, TeamMember, ContactMessage
+
+
+def home_page(request):
+    """صفحهٔ خانه — روی میزبانِ ورزشکار، لندینگِ خودش را نشان می‌دهد.
+
+    دو لندینگِ جدا خواستهٔ صریحِ مالک است: پیامِ باشگاه‌دار و پیامِ ورزشکار یکی
+    نیست و قاطی‌کردنشان هر دو را ضعیف می‌کند.
+    """
+    # روی میزبانِ **پنلِ** ورزشکار، ریشه مستقیم می‌رود به پنلِ خودش؛ لندینگ
+    # جای دیگری است (قرینهٔ panel.chagher.ir که اپ را می‌دهد، نه لندینگ).
+    if getattr(request, 'is_b2c_panel', False):
+        # ریشهٔ میزبانِ پنل (my): کاربرِ واردشده می‌رود به حسابش، ولی مهمان
+        # نباید با یک فرمِ لختِ ورود روبه‌رو شود — می‌رود به هوم‌پیجِ ورزشکار.
+        if request.user.is_authenticated:
+            return redirect('panel-me')
+        landing = getattr(request, 'b2c_host', '') or 'app.chagher.ir'
+        return redirect('https://%s/' % landing)
+
+    if getattr(request, 'is_b2c', False):
+        from .models import PlatformSettings
+        settings_obj = PlatformSettings.get_solo()
+        # اعدادِ صفحه از دیتابیس می‌آیند، نه دست‌نویس — وگرنه روزی که کتابخانه
+        # بزرگ‌تر شود، لندینگ دروغ می‌گوید.
+        from .models import ExerciseLibrary, EquipmentCatalog
+        return render(request, 'app/b2c_home.html', {
+            'ai_free_programs': _fa_num(settings_obj.ai_free_programs),
+            'exercise_count': _fa_num(
+                ExerciseLibrary.objects.filter(is_public=True).count()
+                or ExerciseLibrary.objects.count()),
+            'equipment_count': _fa_num(EquipmentCatalog.objects.count()),
+            # محتوای واقعی به‌جای کارتِ خالی: نوارِ حرکت‌ها و عکسِ دستگاه‌ها.
+            # نام‌های کوتاه انتخاب می‌شوند تا زیرِ تصویر نشکنند.
+            'strip_exercises': list(
+                ExerciseLibrary.objects
+                .exclude(thumb='').exclude(thumb__isnull=True)
+                .exclude(name_fa='')
+                .order_by('external_id')[:60]
+            )[:14],
+            'equipment_samples': _equipment_cards(EquipmentCatalog),
+            'app_host': getattr(request, 'b2c_host', ''),
+            'panel_host': getattr(request, 'b2c_panel_host', ''),
+            'b2b_host': getattr(request, 'b2b_host', 'chagher.ir'),
+        })
+    return _home_page_b2b(request)
+
+
+def _fa_num(value):
+    """عدد را با ارقامِ فارسی و جداکنندهٔ هزارگانِ فارسی برمی‌گرداند.
+
+    چرا لازم شد: در لندینگِ B2C شماره‌های گام فارسی بودند ولی اعدادِ آمار
+    لاتین درمی‌آمدند و چشم را می‌زد.
+    """
+    try:
+        text = '{:,}'.format(int(value)).replace(',', '٬')
+    except (TypeError, ValueError):
+        return value
+    return text.translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+
+def _equipment_cards(model, limit=6):
+    """عکسِ دستگاه‌ها برای لندینگ — با نسخهٔ کوچکِ ۴۰۰پیکسلی اگر ساخته شده باشد.
+
+    اصل‌ها ۵۳ تا ۱۹۳ کیلوبایت‌اند ولی روی صفحه حدود ۱۷۰ پیکسل دیده می‌شوند؛
+    فرستادنِ اصل به موبایلِ کاربر اسراف است. اگر فایلِ کوچک نبود، خودِ اصل
+    داده می‌شود تا صفحه هرگز عکسِ شکسته نشان ندهد.
+    """
+    import os
+    from django.conf import settings
+    cards = []
+    qs = model.objects.exclude(image='').exclude(image__isnull=True)[:limit]
+    for item in qs:
+        url = item.image.url
+        base = os.path.basename(item.image.name)
+        small_rel = os.path.join('equipment_catalog', 'sm', os.path.splitext(base)[0] + '.jpg')
+        if os.path.exists(os.path.join(settings.MEDIA_ROOT, small_rel)):
+            url = settings.MEDIA_URL + small_rel.replace(os.sep, '/')
+        cards.append({'url': url, 'name': getattr(item, 'name_fa', '') or item.name})
+    return cards
+
+def _home_page_b2b(request):
+    """صفحه اصلی سایت"""
+    homepage = HomePage.objects.filter(is_active=True).first()
+    features = Feature.objects.filter(is_active=True).order_by('order')[:6]
+
+    context = {
+        'homepage': homepage,
+        'features': features,
+    }
+    return render(request, 'app/home.html', context)
+
+
+def blog_list(request):
+    """لیست وبلاگ"""
+    posts = BlogPost.objects.filter(is_published=True).order_by('-created_at')
+
+    context = {
+        'posts': posts,
+    }
+    return render(request, 'app/blog.html', context)
+
+
+def blog_detail(request, slug):
+    """جزئیات پست وبلاگ"""
+    post = get_object_or_404(BlogPost, slug=slug, is_published=True)
+
+    context = {
+        'post': post,
+    }
+    return render(request, 'app/blog_detail.html', context)
+
+
+def contact_page(request):
+    """صفحه تماس با ما"""
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        email = request.POST.get('email')
+        phone = request.POST.get('phone', '')
+        subject = request.POST.get('subject')
+        message = request.POST.get('message')
+
+        # ذخیره پیام در دیتابیس
+        ContactMessage.objects.create(
+            name=name,
+            email=email,
+            phone=phone,
+            subject=subject,
+            message=message
+        )
+
+        messages.success(request, 'پیام شما با موفقیت ارسال شد. به زودی با شما تماس خواهیم گرفت.')
+        # الگوی Post/Redirect/Get — رفرش صفحه باعث ارسال دوباره فرم نمی‌شود
+        return redirect('contact')
+
+    return render(request, 'app/contact.html')
+
+
+def about_page(request):
+    """صفحه درباره ما"""
+    team_members = TeamMember.objects.all().order_by('order')
+
+    context = {
+        'team_members': team_members,
+    }
+    return render(request, 'app/about.html', context)
+
+
+def features_page(request):
+    """صفحه امکانات"""
+    features = Feature.objects.filter(is_active=True).order_by('order')
+
+    context = {
+        'features': features,
+    }
+    return render(request, 'app/features.html', context)
+
+
+# ==================== صفحه‌های آموزشِ حرکت (کتابخانهٔ چغر) ====================
+def exercise_detail_page(request, external_id):
+    """صفحهٔ آموزشِ یک حرکت — همین آدرس در PDF لینک می‌شود."""
+    from django.shortcuts import get_object_or_404
+    from .models import ExerciseLibrary
+    ex = get_object_or_404(ExerciseLibrary, external_id=external_id, is_active=True)
+    related = (ExerciseLibrary.objects
+               .filter(is_active=True, target=ex.target)
+               .exclude(pk=ex.pk)[:8])
+    # دکمهٔ «بررسیِ درستیِ حرکت» فقط وقتی ساخته می‌شود که مدیر روشنش کرده باشد
+    from .models import PlatformSettings
+    return render(request, 'app/exercise_detail.html', {
+        'ex': ex, 'related': related,
+        'form_check_enabled': PlatformSettings.get_solo().form_check_enabled,
+    })
+
+
+def exercise_list_page(request):
+    """کتابخانهٔ حرکت‌ها با جست‌وجو و فیلترِ دستگاه."""
+    from django.core.paginator import Paginator
+    from django.db.models import Q
+    from .models import ExerciseLibrary
+    qs = ExerciseLibrary.objects.filter(is_active=True)
+    q = (request.GET.get('q') or '').strip()
+    equipment = (request.GET.get('equipment') or '').strip()
+    if q:
+        qs = qs.filter(Q(name_fa__icontains=q) | Q(name__icontains=q) | Q(target_fa__icontains=q))
+    if equipment:
+        qs = qs.filter(equipment_fa=equipment)
+    equipments = (ExerciseLibrary.objects.filter(is_active=True)
+                  .exclude(equipment_fa='').values_list('equipment_fa', flat=True).distinct().order_by('equipment_fa'))
+    paginator = Paginator(qs.order_by('name_fa'), 24)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    return render(request, 'app/exercise_list.html', {
+        'page_obj': page_obj, 'q': q, 'equipment': equipment,
+        'equipments': list(equipments), 'total': qs.count(),
+    })

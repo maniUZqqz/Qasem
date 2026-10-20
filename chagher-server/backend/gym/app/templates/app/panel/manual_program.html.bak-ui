@@ -1,0 +1,445 @@
+{% extends 'app/panel/_shell.html' %}
+{% block title %}برنامهٔ دستی | چغر{% endblock %}
+{% comment %}
+برنامهٔ دستیِ مربی — بدونِ هوش مصنوعی.
+
+سه چیزی که در این نسخه درست شد (گزارشِ مالک ۱۴۰۵/۰۷/۱۵):
+
+۱) «ساختِ برنامه کار نمی‌کند» — ریشه‌اش این بود: دکمهٔ «+ حرکت» یک کارتِ
+   جداگانه را **ته صفحه** باز می‌کرد. مربی کلیک می‌کرد و چیزی نمی‌دید، حرکتی
+   اضافه نمی‌شد، و بعد ذخیره می‌گفت «هر جلسه باید حداقل یک حرکت داشته باشد».
+   حالا جست‌وجو **داخلِ خودِ جلسه** است و جایی نمی‌پرد.
+   به‌علاوه جلسهٔ کاملاً خالی پیش از اعتبارسنجی کنار گذاشته می‌شود، تا بشود
+   برنامهٔ فقط-غذایی هم ساخت (یک جلسهٔ خالی پیش‌فرض ساخته می‌شود و جلوی
+   ذخیره را می‌گرفت).
+
+۲) ورودیِ حرکت سرچی شد: تایپ می‌کنی، فهرستِ پیشنهاد با **تصویرِ** حرکت
+   می‌آید، با کلیک یا Enter انتخاب می‌شود. حرکتی که در کتابخانه نیست هم با
+   همان Enter به‌عنوانِ «حرکتِ آزاد» ثبت می‌شود.
+
+۳) ظاهر: کارت‌های گردتر، فاصله‌های یک‌دست، شمارهٔ مرحله، و حالتِ خالیِ گویا.
+{% endcomment %}
+
+{% block panel_head %}
+<style>
+  .mp{--r:16px;--r-sm:11px}
+  .mp .step-h{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+  .mp .step-n{flex:0 0 auto;width:28px;height:28px;border-radius:50%;
+              background:var(--pnl-primary,#126F85);color:#fff;font-size:13px;font-weight:800;
+              display:grid;place-items:center}
+  .mp .step-h h3{margin:0;font-size:16px}
+
+  .mp .day{border:1px solid #e3e6ee;border-radius:var(--r);padding:14px;margin-bottom:12px;
+           background:#fbfcfe}
+  .mp .day-top{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  .mp .day-badge{flex:0 0 auto;background:#eef4ff;color:#163F75;border-radius:999px;
+                 padding:4px 12px;font-size:12.5px;font-weight:800;white-space:nowrap}
+
+  /* ── یک حرکت در فهرستِ جلسه ── */
+  .mp .ex{display:flex;gap:9px;align-items:center;background:#fff;border:1px solid #e9edf6;
+          border-radius:var(--r-sm);padding:8px;margin-bottom:7px;flex-wrap:wrap}
+  .mp .ex img{width:44px;height:44px;border-radius:9px;object-fit:cover;background:#f2f6ff;
+              border:1px solid #e9edf6;flex:0 0 auto}
+  .mp .ex .ph{width:44px;height:44px;border-radius:9px;background:#f2f6ff;flex:0 0 auto;
+              display:grid;place-items:center;color:#9aa7bd;font-size:15px}
+  .mp .ex .nm{flex:1 1 150px;font-size:13.5px;font-weight:700;color:#1B2B45;line-height:1.7}
+  .mp .ex .nm small{display:block;font-weight:400;color:#7a879b;font-size:11.5px}
+  .mp .ex input{width:62px;flex:0 0 62px;text-align:center;padding:7px 4px!important;font-size:13px}
+  .mp .ex .del{flex:0 0 auto;border:0!important;background:#fdeaea!important;color:#b02a2a!important;
+               padding:7px 11px!important;border-radius:9px!important;font-size:12.5px}
+
+  /* ── جست‌وجوی درون‌خطیِ حرکت ── */
+  .mp .pick{position:relative}
+  .mp .pick input{width:100%}
+  .mp .pick-hint{font-size:11.5px;color:#7a879b;margin-top:5px;line-height:1.8}
+  .mp .sug{position:absolute;z-index:40;inset-inline:0;top:calc(100% + 5px);
+           background:#fff;border:1px solid #d9e1f0;border-radius:var(--r-sm);
+           box-shadow:0 12px 30px rgba(22,63,117,.16);max-height:300px;overflow:auto;display:none}
+  .mp .sug.on{display:block}
+  .mp .sug div.it{display:flex;gap:9px;align-items:center;padding:8px 10px;cursor:pointer;
+                  border-bottom:1px solid #f2f5fa}
+  .mp .sug div.it:last-child{border-bottom:0}
+  .mp .sug div.it:hover,.mp .sug div.it.hl{background:#f0f6ff}
+  .mp .sug img{width:38px;height:38px;border-radius:8px;object-fit:cover;background:#f2f6ff;flex:0 0 auto}
+  .mp .sug b{font-size:13px;font-weight:700;color:#1B2B45;display:block;line-height:1.6}
+  .mp .sug small{font-size:11px;color:#7a879b}
+  .mp .sug .free{background:#f7fbff;color:#126F85;font-weight:800;font-size:12.5px;
+                 padding:10px;text-align:center;cursor:pointer}
+
+  .mp .empty{color:#8a97ab;font-size:12.5px;padding:10px;text-align:center;
+             border:1px dashed #d9e1f0;border-radius:var(--r-sm);margin-bottom:8px}
+  .mp .add-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+  /* شبکهٔ منظم به‌جای flex-wrapِ نامرتب: روی گوشی ۲ ستون، روی دسکتاپ ۴ */
+  .mp-two{display:grid;gap:12px;grid-template-columns:2fr 1fr}
+  .mp-four{display:grid;gap:12px;grid-template-columns:repeat(4,1fr);margin-top:12px}
+  @media (max-width:640px){
+    .mp-two{grid-template-columns:1fr}
+    .mp-four{grid-template-columns:repeat(2,1fr)}
+  }
+  /* ⚠ ترتیبِ قبلی عجیب بود: تیتر، بعد دکمهٔ حذف، بعد توضیحات.
+     حالا تیتر و حذف یک سطرند و توضیحات تمام‌عرض زیرشان. */
+  .mp .pair{background:#fff;border:1px solid #e9edf6;border-radius:13px;
+            padding:12px;margin-bottom:10px}
+  .mp .pair-head{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+  .mp .pair-head input{flex:1 1 auto;min-width:0}
+  .mp .pair-head .del{flex:0 0 auto}
+  .mp .pair textarea{width:100%}
+  @media (max-width:620px){
+    .mp .pair{flex-direction:column}
+    .mp .pair .t{flex:1 1 auto;width:100%}
+    .mp .ex input{width:54px;flex:0 0 54px}
+  }
+</style>
+{% endblock %}
+
+{% block panel %}
+<div class="mp">
+
+<div class="pnl-card">
+  <div class="step-h"><span class="step-n">۱</span><h3>ورزشکار</h3></div>
+  <div class="mp-two">
+    <div>
+      <label for="name">نامِ ورزشکار</label>
+      <input type="text" id="name" placeholder="مثلاً رضا احمدی">
+    </div>
+    <div>
+      <label for="gymClient">ورزشکارِ ثبت‌شده (اختیاری)</label>
+      <select id="gymClient"><option value="">— انتخاب نشده —</option></select>
+    </div>
+  </div>
+  <div class="mp-four">
+    <div><label for="age">سن</label><input type="number" id="age" min="8" max="99" placeholder="۲۸"></div>
+    <div><label for="gender">جنسیت</label>
+      <select id="gender"><option value="">—</option><option value="M">مرد</option><option value="F">زن</option></select>
+    </div>
+    <div><label for="height">قد (cm)</label><input type="number" id="height" placeholder="۱۷۵"></div>
+    <div><label for="weight">وزن (kg)</label><input type="number" id="weight" placeholder="۷۲"></div>
+  </div>
+  <div id="quota" class="muted" style="margin-top:10px">نام را بنویس تا سهمِ رایگان را نشان بدهم.</div>
+</div>
+
+<div class="pnl-card">
+  <div class="step-h"><span class="step-n">۲</span><h3>جلسه‌های تمرین</h3></div>
+  <p class="muted" style="margin-top:0">
+    در کادرِ جست‌وجو نامِ حرکت را بنویس؛ از فهرست انتخاب کن یا با Enter
+    همان متنِ خودت را ثبت کن. حرکتی که در کتابخانهٔ ما نیست هم پذیرفته می‌شود.
+  </p>
+  <div id="days"></div>
+  <button type="button" onclick="addDay()">+ جلسهٔ تازه</button>
+</div>
+
+<div class="pnl-card">
+  <div class="step-h"><span class="step-n">۳</span><h3>برنامهٔ غذایی (اختیاری)</h3></div>
+  <p class="muted" style="margin-top:0">هر تیتری که می‌خواهی بساز («صبحانه»،
+    «میان‌وعدهٔ قبل تمرین»، «روزِ استراحت»…) و زیرش آزاد بنویس. محدودیتی در
+    تعدادِ تیترها نیست.</p>
+  <div id="meals"></div>
+  <button type="button" onclick="addMeal()">+ تیترِ غذاییِ تازه</button>
+</div>
+
+<div class="pnl-card">
+  <div class="step-h"><span class="step-n">۴</span><h3>مکمل و ویتامین (اختیاری)</h3></div>
+  <p class="muted" style="margin-top:0">این بخش در PDF کادرِ جداگانهٔ خودش را
+    دارد — مثلِ برنامه‌های هوش مصنوعی.</p>
+  <div id="supps"></div>
+  <button type="button" onclick="addSupp()">+ مکملِ تازه</button>
+</div>
+
+<div class="pnl-card">
+  <div class="step-h"><span class="step-n">۵</span><h3>نکتهٔ کلی و ساخت</h3></div>
+  <textarea id="notes" rows="2" placeholder="مثلاً: هر جلسه ۱۰ دقیقه گرم‌کردن"></textarea>
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button type="button" class="primary" id="save" onclick="save()">ساختِ برنامه</button>
+    <span id="msg" class="muted"></span>
+  </div>
+</div>
+
+<div class="pnl-card" id="result" style="display:none">
+  <h3>برنامهٔ ساخته‌شده</h3>
+  <div id="resultMeta" class="muted"></div>
+  <pre id="resultText"></pre>
+  <button type="button" onclick="getPdf()">دانلودِ PDF (حرکت‌ها لینکِ آموزش دارند)</button>
+</div>
+
+</div>
+{% endblock %}
+
+{% block panel_js %}
+<script>
+let days = [];
+let meals = [];
+let supps = [];
+let programId = null;
+
+// ── بخش‌های غذایی و مکمل ──
+function addMeal(t, c) { meals.push({ title: t || '', content: c || '' }); renderMeals(); }
+function addSupp(t, c) { supps.push({ title: t || '', content: c || '' }); renderSupps(); }
+
+function renderPairs(boxId, list, rerender, tph, cph, rows) {
+  const box = document.getElementById(boxId);
+  box.innerHTML = '';
+  if (!list.length) box.append(el('div', { class: 'empty' }, ['هنوز چیزی اضافه نشده.']));
+  list.forEach((item, i) => {
+    const title = el('input', { type: 'text', value: item.title, placeholder: tph });
+    title.addEventListener('input', e => item.title = e.target.value);
+    const content = el('textarea', { rows: rows || 3, placeholder: cph });
+    content.value = item.content;
+    content.addEventListener('input', e => item.content = e.target.value);
+    const del = el('button', { type: 'button', class: 'del',
+      title: 'حذفِ این بخش',
+      onclick: () => { list.splice(i, 1); rerender(); } }, ['حذف']);
+    box.append(el('div', { class: 'pair' }, [
+      el('div', { class: 'pair-head' }, [title, del]),
+      content,
+    ]));
+  });
+}
+function renderMeals() { renderPairs('meals', meals, renderMeals, 'تیتر (مثلاً صبحانه)', 'آزاد بنویس…', 3); }
+function renderSupps() { renderPairs('supps', supps, renderSupps, 'نامِ مکمل', 'مقدار و زمانِ مصرف…', 2); }
+
+// ── جلسه‌ها ──
+function addDay() { days.push({ title: '', exercises: [] }); renderDays(); }
+
+function renderDays() {
+  const box = document.getElementById('days');
+  box.innerHTML = '';
+  days.forEach((d, i) => {
+    const card = el('div', { class: 'day' }, []);
+
+    const title = el('input', { type: 'text', value: d.title,
+      placeholder: 'عنوانِ جلسه (مثلاً سینه و پشت بازو)' });
+    title.addEventListener('input', e => d.title = e.target.value);
+    card.append(el('div', { class: 'day-top' }, [
+      el('span', { class: 'day-badge' }, ['جلسهٔ ' + (i + 1)]), title,
+    ]));
+
+    if (!d.exercises.length) {
+      card.append(el('div', { class: 'empty' }, ['هنوز حرکتی اضافه نشده — از کادرِ پایین جست‌وجو کن.']));
+    }
+    d.exercises.forEach((ex, j) => {
+      const left = ex.thumb
+        ? el('img', { src: ex.thumb, alt: ex.name, loading: 'lazy' })
+        : el('span', { class: 'ph' }, ['✎']);
+      const nm = el('span', { class: 'nm' }, [(j + 1) + '. ' + ex.name]);
+      if (ex.meta) nm.append(el('small', {}, [ex.meta]));
+      const row = el('div', { class: 'ex' }, [left, nm]);
+      [['sets', 'ست'], ['reps', 'تکرار'], ['rest', 'استراحت']].forEach(([k, ph]) => {
+        const inp = el('input', { type: 'text', value: ex[k] || '', placeholder: ph });
+        inp.addEventListener('input', e => ex[k] = e.target.value);
+        row.append(inp);
+      });
+      row.append(el('button', { type: 'button', class: 'del',
+        onclick: () => { d.exercises.splice(j, 1); renderDays(); } }, ['حذف']));
+      card.append(row);
+    });
+
+    card.append(buildPicker(i));
+    card.append(el('div', { class: 'add-row' }, [
+      el('button', { type: 'button', style: 'font-size:13px',
+        onclick: () => { days.splice(i, 1); if (!days.length) addDay(); else renderDays(); } },
+        ['حذفِ این جلسه']),
+    ]));
+    box.append(card);
+  });
+}
+
+/** کادرِ جست‌وجوی درون‌خطیِ هر جلسه. */
+function buildPicker(dayIndex) {
+  const wrap = el('div', { class: 'pick' }, []);
+  const input = el('input', { type: 'text', autocomplete: 'off',
+    placeholder: 'جست‌وجوی حرکت… (مثلاً پرس سینه) — یا نامِ دلخواهت را بنویس و Enter بزن' });
+  const sug = el('div', { class: 'sug' }, []);
+  wrap.append(input, sug);
+  wrap.append(el('div', { class: 'pick-hint' },
+    ['انتخاب از فهرست = حرکتِ کتابخانه با تصویر و آموزش · Enter = همان متنِ خودت']));
+
+  let timer = null, items = [], hl = -1;
+
+  const addPicked = (r) => {
+    days[dayIndex].exercises.push({
+      exercise_id: r.external_id, name: r.name_fa || r.name,
+      meta: r.equipment_fa || r.body_part_fa || '', thumb: r.thumb_url || '',
+      sets: '3', reps: '12', rest: '',
+    });
+    renderDays();
+  };
+  const addFree = () => {
+    const name = input.value.trim();
+    if (!name) return;
+    days[dayIndex].exercises.push({ exercise_id: null, name: name, meta: 'حرکتِ دلخواه',
+                                    thumb: '', sets: '3', reps: '12', rest: '' });
+    renderDays();
+  };
+
+  const close = () => { sug.classList.remove('on'); hl = -1; };
+
+  const render = () => {
+    sug.innerHTML = ''; hl = -1;
+    items.forEach((r, k) => {
+      const img = r.thumb_url ? el('img', { src: r.thumb_url, alt: '', loading: 'lazy' })
+                              : el('span', { class: 'ph' }, ['']);
+      const t = el('div', {}, [
+        el('b', {}, [r.name_fa || r.name]),
+        el('small', {}, [[r.equipment_fa, r.body_part_fa].filter(Boolean).join(' · ')]),
+      ]);
+      const row = el('div', { class: 'it', onclick: () => addPicked(r) }, [img, t]);
+      row.dataset.k = k;
+      sug.append(row);
+    });
+    if (input.value.trim()) {
+      sug.append(el('div', { class: 'free', onclick: addFree },
+        ['+ افزودنِ «' + input.value.trim() + '» به‌عنوانِ حرکتِ دلخواه']));
+    }
+    if (!items.length && !input.value.trim()) close(); else sug.classList.add('on');
+  };
+
+  const run = async () => {
+    const q = input.value.trim();
+    const { ok, data } = await api('exercise-library/?page_size=8&search=' + encodeURIComponent(q));
+    items = (ok && data && data.results) ? data.results : [];
+    render();
+  };
+
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
+  input.addEventListener('focus', run);
+  input.addEventListener('keydown', (e) => {
+    const rows = [...sug.querySelectorAll('.it')];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!rows.length) return;
+      rows.forEach(r => r.classList.remove('hl'));
+      hl = e.key === 'ArrowDown' ? Math.min(hl + 1, rows.length - 1) : Math.max(hl - 1, -1);
+      if (hl >= 0) { rows[hl].classList.add('hl'); rows[hl].scrollIntoView({ block: 'nearest' }); }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (hl >= 0 && items[hl]) addPicked(items[hl]); else addFree();
+    } else if (e.key === 'Escape') { close(); }
+  });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+  return wrap;
+}
+
+// ── سهم و دسترسی ──
+async function showAccess() {
+  const { ok, data } = await api('me/features/');
+  if (!ok || !data) return;
+  const a = data.manual_access || {};
+  const box = document.getElementById('quota');
+  if (a.allowed === false) {
+    box.innerHTML = '<span class="bad">دورهٔ رایگانِ برنامهٔ دستی تمام شده است. '
+      + 'برای ادامه، اشتراکِ سالانه لازم است'
+      + (data.prices && data.prices.manual_annual
+          ? ' (' + Number(data.prices.manual_annual).toLocaleString('fa-IR') + ' تومان)' : '')
+      + '.</span>';
+  } else if (a.reason === 'trial') {
+    box.innerHTML = '<span class="ok">دورهٔ آزمایشی — ' + (a.days_left || 0) + ' روز باقی مانده.</span>';
+  }
+}
+
+async function refreshQuota() {
+  const name = document.getElementById('name').value.trim();
+  const gc = document.getElementById('gymClient').value;
+  if (!name && !gc) return;
+  const qs = gc ? 'gym_client=' + gc : 'name=' + encodeURIComponent(name);
+  const { ok, data } = await api('programs/manual/quota/?' + qs);
+  if (!ok || !data) return;
+  const box = document.getElementById('quota');
+  box.textContent = data.free_remaining > 0
+    ? 'برای این ورزشکار ' + data.free_remaining + ' برنامهٔ رایگان باقی مانده.'
+    : 'سهمِ رایگانِ این ورزشکار تمام شده؛ برنامهٔ بعدی توکن می‌برد.';
+}
+document.getElementById('name').addEventListener('blur', refreshQuota);
+document.getElementById('gymClient').addEventListener('change', refreshQuota);
+
+// ── ذخیره ──
+async function save() {
+  const btn = document.getElementById('save');
+  const msg = document.getElementById('msg');
+  const mealsClean = meals.filter(m => (m.title || '').trim() || (m.content || '').trim());
+  const suppsClean = supps.filter(m => (m.title || '').trim() || (m.content || '').trim());
+
+  // ⚠ جلسهٔ کاملاً خالی (بی‌عنوان و بی‌حرکت) کنار گذاشته می‌شود، وگرنه همان
+  //   جلسهٔ پیش‌فرضِ ابتدای صفحه جلوی ساختِ برنامهٔ فقط-غذایی را می‌گرفت.
+  const daysClean = days.filter(d => d.exercises.length || (d.title || '').trim());
+  const halfEmpty = daysClean.find(d => !d.exercises.length);
+  if (halfEmpty) {
+    msg.innerHTML = '<span class="bad">جلسهٔ «' + (halfEmpty.title || 'بی‌عنوان')
+      + '» هیچ حرکتی ندارد — یا حرکت اضافه کن یا جلسه را حذف کن.</span>';
+    return;
+  }
+  if (!daysClean.length && !mealsClean.length && !suppsClean.length) {
+    msg.innerHTML = '<span class="bad">حداقل یک جلسهٔ تمرین یا یک بخشِ غذایی لازم است.</span>';
+    return;
+  }
+
+  // فیلدهای کمکیِ نمایش (تصویر و زیرنویس) به سرور فرستاده نمی‌شوند
+  const payloadDays = daysClean.map(d => ({
+    title: d.title, note: d.note || '',
+    exercises: d.exercises.map(e => ({
+      exercise_id: e.exercise_id || null, name: e.name,
+      sets: e.sets || '', reps: e.reps || '', rest: e.rest || '',
+      duration: e.duration || '', note: e.note || '',
+    })),
+  }));
+
+  const body = {
+    name: document.getElementById('name').value.trim(),
+    gym_client: document.getElementById('gymClient').value || null,
+    age: document.getElementById('age').value || null,
+    gender: document.getElementById('gender').value || null,
+    height: document.getElementById('height').value || null,
+    weight: document.getElementById('weight').value || null,
+    notes: document.getElementById('notes').value,
+    days: payloadDays,
+    meal_sections: mealsClean,
+    supplements: suppsClean,
+  };
+
+  btn.disabled = true; msg.textContent = 'در حالِ ذخیره…';
+  const { ok, data, status } = await api('programs/manual/', { json: body });
+  btn.disabled = false;
+  if (!ok) {
+    const why = (data && (data.error || data.detail)) || ('خطای ' + status);
+    msg.innerHTML = '<span class="bad">' + why + '</span>';
+    return;
+  }
+  msg.innerHTML = '<span class="ok">ساخته شد ✓</span>';
+  programId = data.program.id;
+  document.getElementById('result').style.display = '';
+  document.getElementById('resultMeta').textContent =
+    (data.was_free ? 'رایگان ساخته شد' : data.charged_tokens + ' توکن کم شد')
+    + ' · شناسهٔ برنامه: ' + programId
+    + ' · رایگانِ باقی‌مانده برای این ورزشکار: ' + data.quota.free_remaining;
+  const parts = [];
+  if (data.program.generated_workout) parts.push(data.program.generated_workout);
+  if (data.program.generated_meal_plan) parts.push('\n' + data.program.generated_meal_plan);
+  document.getElementById('resultText').textContent = parts.join('\n');
+  window.__programType = data.program.program_type;
+  refreshQuota();
+  document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function getPdf() {
+  if (!programId) return;
+  const t = window.__programType || 'workout';
+  const path = t === 'meal' ? 'pdf-meal/' : (t === 'both' ? 'pdf/' : 'pdf-workout/');
+  downloadPdf('programs/' + programId + '/' + path, 'barname-' + programId + '.pdf');
+}
+
+(async () => {
+  const { ok, data } = await api('gym-clients/');
+  if (!ok) return;
+  const rows = Array.isArray(data) ? data : (data.results || []);
+  const sel = document.getElementById('gymClient');
+  rows.forEach(r => {
+    if (!r.client_user && !r.name) return;
+    sel.append(el('option', { value: r.id }, [(r.name || 'بی‌نام') + ' (کد ' + r.access_code + ')']));
+  });
+})();
+
+addDay();
+renderMeals();
+renderSupps();
+showAccess();
+</script>
+{% endblock %}

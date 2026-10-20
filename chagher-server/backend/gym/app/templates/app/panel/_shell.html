@@ -1,0 +1,127 @@
+{% extends 'app/base.html' %}
+{% comment %}
+پوستهٔ مشترکِ پنلِ وب: منو، استایل و دو تابعِ کمکیِ جاوااسکریپت.
+همهٔ فراخوانی‌ها با توکنِ DRF انجام می‌شود — همان توکنی که اپِ فلاتر هم دارد.
+{% endcomment %}
+
+{% block extra_head %}
+<style>
+  /* رنگِ برندِ چغر — پیش از این آبیِ #1565c0 بود که رنگِ ما نیست */
+  .pnl { --pnl-primary:#126F85; --pnl-deep:#163F75; --pnl-line:#dfe6f3;
+         max-width: 900px; margin: 0 auto; padding: 16px; }
+  .pnl-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .pnl-nav a, .pnl-btn, .pnl button {
+    display: inline-block; padding: 9px 15px; border-radius: 11px; border: 1px solid var(--pnl-line);
+    background: #fff; color: #1f2733; text-decoration: none; font-size: 14px; cursor: pointer;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .pnl-nav a:hover, .pnl button:hover { border-color: var(--pnl-primary); }
+  .pnl-nav a.on { background: var(--pnl-primary); color: #fff; border-color: var(--pnl-primary); }
+  .pnl button.primary {
+    background: linear-gradient(140deg, #126F85, #163F75); color: #fff; border: 0;
+    font-weight: 800; padding: 12px 24px; border-radius: 12px; font-size: 15px;
+  }
+  .pnl button.primary:hover { box-shadow: 0 8px 20px rgba(18,111,133,.26); }
+  .pnl button:disabled { opacity: .55; cursor: default; }
+  .pnl-card { border: 1px solid var(--pnl-line); border-radius: 18px; padding: 18px;
+              margin-bottom: 16px; background: #fff; box-shadow: 0 2px 10px rgba(22,63,117,.04); }
+  .pnl-card h3 { margin: 0 0 8px; font-size: 16px; color: var(--pnl-deep); font-weight: 800; }
+  .pnl label { display: block; font-size: 13px; color: #55606f; margin: 8px 0 3px; }
+  .pnl input[type=text], .pnl input[type=number], .pnl input[type=password],
+  .pnl select, .pnl textarea {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--pnl-line);
+    border-radius: 11px; font: inherit; background: #fbfcfe;
+    transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+  }
+  .pnl input:focus, .pnl select:focus, .pnl textarea:focus {
+    outline: none; background: #fff; border-color: var(--pnl-primary);
+    box-shadow: 0 0 0 3px rgba(18,111,133,.12);
+  }
+  .pnl .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pnl .row > * { flex: 1 1 120px; }
+  .pnl .muted { color: #6b7686; font-size: 13px; }
+  .pnl .ok { color: #1b7f3b; } .pnl .bad { color: #c62828; }
+  .pnl .chip { display: inline-block; background: #eef2f9; border-radius: 999px;
+               padding: 2px 9px; font-size: 12px; margin-inline-end: 4px; }
+  .pnl .ex-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .pnl .ex-row .nm { flex: 1 1 160px; font-size: 14px; }
+  .pnl .ex-row input { width: 68px; flex: 0 0 68px; }
+  .pnl .res { max-height: 240px; overflow: auto; border: 1px solid #e3e6ee; border-radius: 10px; }
+  .pnl .res div { padding: 8px 10px; border-bottom: 1px solid #f0f2f7; cursor: pointer; font-size: 14px; }
+  .pnl .res div:hover { background: #f6f8fc; }
+  .pnl .step { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
+  .pnl pre { white-space: pre-wrap; background: #f7f9fc; padding: 12px; border-radius: 10px;
+             font-family: inherit; font-size: 14px; line-height: 1.9; }
+  @media (max-width: 640px) { .pnl { padding: 12px; } .pnl .ex-row input { flex-basis: 56px; width: 56px; } }
+</style>
+{# هر صفحهٔ پنل می‌تواند استایلِ خودش را این‌جا اضافه کند #}
+{% block panel_head %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="pnl" dir="rtl">
+  <div class="pnl-nav">
+    <a href="{% url 'panel-home' %}" {% if page == 'home' %}class="on"{% endif %}>خانه</a>
+    <a href="{% url 'panel-manual-program' %}" {% if page == 'manual' %}class="on"{% endif %}>برنامهٔ دستی</a>
+    <a href="{% url 'panel-scan' %}" {% if page == 'scan' %}class="on"{% endif %}>اسکنِ دستگاه</a>
+    <a href="{% url 'panel-me' %}" {% if page == 'me' %}class="on"{% endif %}>حسابِ من</a>
+    <a href="{% url 'exercise-list' %}">کتابخانهٔ حرکت‌ها</a>
+    {% if request.user.is_staff %}
+      {# ابزارِ مالک: چه حرکتی/دستگاهی عکس و آموزش ندارد #}
+      <a href="{% url 'data-coverage' %}">پوششِ داده</a>
+    {% endif %}
+    {% if app_mode %}
+      {# داخلِ اپ، «خروج» معنا ندارد و کاربر را از حسابش بیرون می‌اندازد #}
+      <a href="{{ app_home_url }}">بازگشت به اپ</a>
+    {% else %}
+      <a href="{% url 'panel-logout' %}">خروج</a>
+    {% endif %}
+  </div>
+  {% block panel %}{% endblock %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const API = "{{ api_base }}";
+  const TOKEN = "{{ api_token }}";
+  const H = { 'Authorization': 'Token ' + TOKEN };
+
+  async function api(path, opts) {
+    opts = opts || {};
+    const headers = Object.assign({}, H, opts.headers || {});
+    if (opts.json !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(opts.json);
+      opts.method = opts.method || 'POST';
+    }
+    const res = await fetch(API + path, { method: opts.method || 'GET', headers, body: opts.body });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  /** PDF را با توکن می‌گیرد و دانلود می‌کند (تگِ a ساده هِدر نمی‌فرستد). */
+  async function downloadPdf(path, filename) {
+    const res = await fetch(API + path, { headers: H });
+    if (!res.ok) { alert('ساختِ PDF ناموفق بود (' + res.status + ')'); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || 'chagher.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function el(tag, attrs, children) {
+    const n = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => {
+      if (k === 'class') n.className = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (v !== null && v !== undefined) n.setAttribute(k, v);
+    });
+    (children || []).forEach(c => n.append(c));
+    return n;
+  }
+</script>
+{% block panel_js %}{% endblock %}
+{% endblock %}

@@ -1,0 +1,227 @@
+# -*- coding: utf-8 -*-
+"""B2C — ورزشکاری که خودش آمده است.
+
+مسیرها:
+    GET/PUT/PATCH api/me/athlete-profile/   مشخصاتِ خودم (یک‌بار پر می‌شود)
+    GET           api/me/status/            من کجای کار هستم و قدمِ بعدی چیست
+
+قدم‌های ورزشکارِ شخصی: ثبت‌نام ← پرکردنِ مشخصات ← اسکنِ باشگاه ← خریدِ توکن ←
+گرفتنِ برنامه. مسیرِ «status» همین زنجیره را برمی‌گرداند تا اپ (یا صفحهٔ وب)
+مجبور نباشد خودش قاعده‌ها را دوباره بنویسد.
+"""
+from rest_framework import serializers, status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import (AthleteProfile, ClientProgram, Equipment, EquipmentScan,
+                     PlatformSettings)
+
+
+class AthleteProfileSerializer(serializers.ModelSerializer):
+    is_complete = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = AthleteProfile
+        fields = [
+            'full_name', 'age', 'gender', 'height', 'weight', 'goal',
+            'injuries', 'food_allergies', 'body_issues', 'chronic_diseases',
+            'exercise_history', 'program_days', 'training_place', 'gym_name',
+            'is_complete', 'updated_at',
+        ]
+        read_only_fields = ['is_complete', 'updated_at']
+
+    def validate_program_days(self, value):
+        if not 1 <= value <= 7:
+            raise serializers.ValidationError('روزهای تمرین باید بینِ ۱ تا ۷ باشد.')
+        return value
+
+
+class AthleteProfileView(APIView):
+    """مشخصاتِ خودِ ورزشکار — یک‌بار پر می‌شود و هر بار برنامه از آن پر می‌شود."""
+    permission_classes = [IsAuthenticated]
+    serializer_class = AthleteProfileSerializer
+
+    def _profile(self, request):
+        profile, _ = AthleteProfile.objects.get_or_create(
+            user=request.user,
+            defaults={'full_name': request.user.first_name or ''},
+        )
+        return profile
+
+    def get(self, request):
+        profile = self._profile(request)
+        return Response({
+            'profile': AthleteProfileSerializer(profile).data,
+            'program_defaults': profile.program_defaults(),
+        })
+
+    def patch(self, request):
+        return self._save(request, partial=True)
+
+    def put(self, request):
+        return self._save(request, partial=False)
+
+    def _save(self, request, partial):
+        profile = self._profile(request)
+        serializer = AthleteProfileSerializer(profile, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        # نامِ باشگاه روی حسابِ کاربر هم بنشیند تا در پنل و فاکتور دیده شود
+        gym_name = serializer.validated_data.get('gym_name')
+        if gym_name and not request.user.gym_name:
+            request.user.gym_name = gym_name
+            request.user.save(update_fields=['gym_name'])
+        profile.refresh_from_db()
+        return Response({
+            'profile': AthleteProfileSerializer(profile).data,
+            'program_defaults': profile.program_defaults(),
+            'message': 'مشخصات ذخیره شد.',
+        })
+
+
+class MyStatusView(APIView):
+    """«من کجای کارم؟» — برای ساختنِ صفحهٔ خانهٔ ورزشکار و اپ."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        profile = AthleteProfile.objects.filter(user=user).first()
+        equipment_count = Equipment.objects.filter(user=user).count()
+        last_scan = EquipmentScan.objects.filter(user=user).first()
+        balance = user.get_effective_token_balance()
+        settings_obj = PlatformSettings.get_solo()
+
+        steps = []
+        if not (profile and profile.is_complete):
+            steps.append({'key': 'profile', 'title': 'مشخصاتت را کامل کن',
+                          'done': False, 'url': 'api/me/athlete-profile/'})
+        else:
+            steps.append({'key': 'profile', 'title': 'مشخصات کامل است', 'done': True})
+        steps.append({
+            'key': 'scan',
+            'title': 'باشگاهت را با دوربین اسکن کن' if not equipment_count
+                     else '%d دستگاه ثبت شده' % equipment_count,
+            'done': equipment_count > 0,
+            'url': 'api/equipment-scan/',
+        })
+        steps.append({
+            'key': 'tokens',
+            'title': 'توکن بخر' if balance <= 0 else '%d توکن داری' % balance,
+            'done': balance > 0,
+            'url': 'api/purchase-token/',
+        })
+        can_generate = bool(profile and profile.is_complete) and balance > 0
+        steps.append({'key': 'program', 'title': 'برنامه بگیر', 'done': False,
+                      'enabled': can_generate, 'url': 'api/programs/generate/'})
+
+        return Response({
+            'account_type': user.account_type,
+            'account_type_label': user.get_account_type_display(),
+            'phone_number': user.phone_number,
+            'token_balance': balance,
+            # ⚠ موجودیِ توکن صفر است ولی کاربر هنوز برنامهٔ رایگان دارد؛
+            #   بی‌این عدد، صفحه «صفر» نشان می‌داد و کاربر فکر می‌کرد هیچ ندارد.
+            'ai_free_left': user.ai_free_left(),
+            'ai_free_total': __import__('app.models', fromlist=['PlatformSettings']).PlatformSettings.get_solo().ai_free_programs,
+            'equipment_count': equipment_count,
+            'program_count': ClientProgram.objects.filter(user=user).count(),
+            'profile_complete': bool(profile and profile.is_complete),
+            'program_defaults': profile.program_defaults() if profile else {},
+            'last_scan': {
+                'id': last_scan.pk,
+                'status': last_scan.status,
+                'detected': last_scan.items.count(),
+                'created_at': last_scan.created_at,
+            } if last_scan else None,
+            'scan_token_cost': settings_obj.equipment_scan_token_cost,
+            'can_generate_program': can_generate,
+            'steps': steps,
+        })
+
+
+def _manual_access(user):
+    """دسترسیِ برنامهٔ دستی — قاعدهٔ قیمت بر دورهٔ آزمایشی مقدم است."""
+    try:
+        from .pricing import resolve as _r, F_MANUAL
+        d = _r(user, F_MANUAL)
+    except Exception:
+        d = None
+    if d is not None:
+        return {'allowed': d.mode != 'blocked', 'reason': 'rule',
+                'days_left': 0, 'rule': d.rule.title,
+                'cost': d.cost, 'free': d.mode == 'free'}
+    allowed, reason, days = user.manual_plan_status()
+    return {'allowed': allowed, 'reason': reason, 'days_left': days}
+
+
+def _quotes(user):
+    """قیمتِ همین لحظهٔ هر امکان، از موتورِ قیمت."""
+    try:
+        from . import pricing as pr
+    except Exception:
+        return {}
+    out = {}
+    for key, feat in (('ai_both', pr.F_AI_BOTH), ('ai_workout', pr.F_AI_WORKOUT),
+                      ('ai_meal', pr.F_AI_MEAL), ('ai_edit', pr.F_AI_EDIT),
+                      ('manual_program', pr.F_MANUAL)):
+        try:
+            out[key] = pr.quote(user, feat)
+        except Exception:
+            pass
+    return out
+
+
+class MyFeaturesView(APIView):
+    """کدام قابلیت‌ها برای این کاربر روشن است — تا اپ دکمهٔ بی‌خود نسازد.
+
+    قاعدهٔ مهم: قابلیتی که مدیر خاموش کرده، این‌جا هم `false` می‌آید و اپ باید
+    دکمه‌اش را **نسازد**، نه این‌که بسازد و خطا بدهد. آدرسِ صفحه‌های وب هم
+    همین‌جا می‌آید تا در اپ آدرس دستی نوشته نشود.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.urls import reverse
+
+        settings_obj = PlatformSettings.get_solo()
+        user = request.user
+        return Response({
+            'manual_program': user.is_coach or user.is_personal,
+            'equipment_scan': True,
+            'exercise_library': True,
+            'athlete_profile': True,
+            'form_check': settings_obj.form_check_enabled,
+            'account_type': user.account_type,
+            'token_balance': user.get_effective_token_balance(),
+            # وضعیتِ سهمیه‌ها و تعرفه — اپ و صفحهٔ وب از همین می‌خوانند
+            'manual_access': _manual_access(user),
+            'ai_free_left': user.ai_free_left(),
+            # ⚠ «چقدر می‌شود» از همان موتوری می‌آید که کسر می‌کند — تا عددِ
+            #   پنل و کسرِ واقعی هیچ‌وقت از هم جدا نیفتند.
+            'quote': _quotes(user),
+            'prices': {
+                'manual_annual': int(settings_obj.manual_plan_annual_price),
+                # ⚠ اگر در ادمین صفر مانده باشد، از تعرفهٔ زنده حساب می‌شود؛
+                #   وگرنه اپ «۰ تومان» نشان می‌داد در حالی که واقعاً پول می‌گیریم.
+                'ai_program': _ai_program_price(settings_obj),
+                'ai_program_source': ('admin' if settings_obj.ai_program_price
+                                      else 'tariff'),
+            },
+            # دکمهٔ پلِ اپ؛ خاموش ⇒ اپ دکمه را نمی‌سازد
+            'app_bridge': settings_obj.app_bridge_enabled,
+            # آدرس‌ها **مطلق** برمی‌گردند تا اپ هیچ‌وقت پیشوندِ مسیر را حدس نزند.
+            # همین یک قاعده، باگِ «دکمه کار نمی‌کند» را برای همیشه می‌بندد.
+            'urls': {
+                key: request.build_absolute_uri(reverse(name))
+                for key, name in (
+                    ('sso', 'panel-sso'),
+                    ('panel', 'panel-home'),
+                    ('manual_program', 'panel-manual-program'),
+                    ('equipment_scan', 'panel-scan'),
+                    ('athlete_profile', 'panel-me'),
+                    ('exercise_library', 'exercise-list'),
+                )
+            },
+        })

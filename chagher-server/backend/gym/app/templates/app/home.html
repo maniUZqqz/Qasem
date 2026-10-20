@@ -1,0 +1,1104 @@
+{% extends 'app/base.html' %}
+{% load static %}
+
+{% block title %}{{ homepage.title|default:"چغر | ابزار هوش مصنوعی مربی‌ها" }}{% endblock %}
+
+
+{% block meta_description %}{{ homepage.subtitle|default:"چغر، ابزار هوش مصنوعی مربی‌ها برای ساخت برنامه تمرینی و غذایی اختصاصی هر ورزشکار." }}{% endblock %}
+{% block og_title %}{{ homepage.title|default:"چغر، ابزار هوش مصنوعی برای مربی‌ها" }}{% endblock %}
+{% block og_description %}{{ homepage.subtitle|default:"دستیار هوشمند مربی برای ساخت برنامه اختصاصی، ثبت اطلاعات مجموعه و تحویل حرفه‌ای خروجی." }}{% endblock %}
+{% block twitter_title %}{{ homepage.title|default:"چغر، ابزار هوش مصنوعی برای مربی‌ها" }}{% endblock %}
+{% block twitter_description %}{{ homepage.subtitle|default:"دستیار هوشمند مربی برای ساخت برنامه اختصاصی، ثبت اطلاعات مجموعه و تحویل حرفه‌ای خروجی." }}{% endblock %}
+{% block og_image_meta %}
+    {% if homepage and homepage.hero_image %}
+        <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{{ homepage.hero_image.url }}">
+    {% endif %}
+{% endblock %}
+{% block twitter_image_meta %}
+    {% if homepage and homepage.hero_image %}
+        <meta name="twitter:image" content="{{ request.scheme }}://{{ request.get_host }}{{ homepage.hero_image.url }}">
+    {% endif %}
+{% endblock %}
+
+{% block structured_data %}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "چغر",
+            "url": "{{ request.scheme }}://{{ request.get_host }}/",
+            "description": "{{ homepage.subtitle|default:'چغر، ابزار هوش مصنوعی مربی‌ها برای تولید برنامه شخصی‌سازی‌شده.' }}"
+        }
+    </script>
+{% endblock %}
+{% block content %}
+    <!-- افزودن متا تگ ویوپورت در صورت نیاز (اگر در بیس‌تمپلیت وجود ندارد) -->
+    <style>
+
+        /* اضافه کردن استایل برای عکس‌ها */
+        .feature-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .card-img {
+            height: 170px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .feature-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ریسپانسیو */
+        @media (max-width: 768px) {
+            .card-img {
+                height: 150px;
+            }
+        }
+
+        /* ===== ریست و تنظیمات پایه ===== */
+        :root {
+            /* پالت آبی روشن / سفید — هم‌راستا با اپلیکیشن */
+            --primary: #126F85;
+            --primary-dark: #0E5566;
+            --secondary: #163F75;
+            --tint: #DBE6FF;
+            --tint-soft: #EDF3FF;
+            --success: #126F85;
+            --warning: #163F75;
+            --danger: #C0392B;
+            --light: #F7FAFF;
+            --dark: #163F75;
+            --line: #C9D8F2;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            padding: 0 15px;
+            margin: 0 auto;
+            max-width: 1200px;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                padding: 0 30px;
+            }
+        }
+
+        /* ===== Hero Section - کاملاً اصلاح شده برای دسکتاپ و موبایل ===== */
+        /* ===== Hero Section - اصلاح شده ===== */
+        .hero {
+            background: linear-gradient(135deg, #163F75 0%, #14587A 55%, #126F85 100%);
+            position: relative;
+            overflow: hidden;
+            padding: 80px 0;
+            margin: 30px 20px 40px; /* کاهش فاصله */
+            /* clamp جلوی رشد بی‌رویه هیرو در نمایشگرهای بلند را می‌گیرد */
+            min-height: clamp(380px, 55vh, 560px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 900px;
+            width: 100%;
+            text-align: center !important;
+            padding: 0 20px;
+            margin: 0 auto; /* وسط چین کردن */
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .hero h1, .hero p {
+            text-align: center !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+
+        /* ===== Features Section - اصلاح شده ===== */
+        .section-features {
+            padding: 50px 0; /* کاهش فاصله */
+        }
+
+        .feature-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .card-img {
+            height: 170px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .feature-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ===== CTA Section - اصلاح شده ===== */
+        .cta-section {
+            background: linear-gradient(135deg, #F7FAFF 0%, #DBE6FF 100%);
+            position: relative;
+            padding: 90px 0;
+            text-align: center;
+            border-radius: 32px;
+            margin: 60px 30px 80px; /* کاهش فاصله */
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+        }
+
+        /* ===== ریسپانسیو ===== */
+        @media (max-width: 768px) {
+            .hero {
+                margin: 15px 10px 25px; /* کاهش فاصله */
+                border-radius: 16px;
+                padding: 70px 0;
+            }
+
+            .section-features {
+                padding: 40px 0; /* کاهش فاصله */
+            }
+
+            .card-img {
+                height: 150px;
+            }
+
+            .cta-section {
+                margin: 40px 12px 60px; /* کاهش فاصله */
+                border-radius: 24px;
+                padding: 60px 0;
+            }
+        }
+
+        /* حذف border-radius در موبایل */
+        @media (max-width: 768px) {
+            .hero {
+                margin: 20px 10px 50px; /* فاصله کمتر در موبایل */
+                border-radius: 16px; /* ردیوس کمتر در موبایل */
+                padding: 70px 0;
+            }
+        }
+
+        .hero::before, .hero::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 0;
+        }
+
+        .hero::before {
+            top: -40%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .hero::after {
+            bottom: -30%;
+            left: -15%;
+            width: 400px;
+            height: 400px;
+            animation: float 15s ease-in-out infinite reverse;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0) translateX(0);
+            }
+            25% {
+                transform: translateY(-20px) translateX(20px);
+            }
+            50% {
+                transform: translateY(-30px) translateX(0);
+            }
+            75% {
+                transform: translateY(-20px) translateX(-20px);
+            }
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 900px;
+            width: 100%;
+            text-align: center !important; /* مهم: متن همیشه وسط */
+            padding: 0 20px;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero h1 {
+            font-size: 3.2rem;
+            font-weight: 800;
+            margin-bottom: 25px;
+            line-height: 1.3;
+            text-shadow: 0 2px 15px rgba(0, 0, 0, 0.25);
+            background: linear-gradient(to right, #FFFFFF, #DBE6FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            word-wrap: break-word;
+            direction: rtl; /* جهت متن فارسی */
+        }
+
+        .hero p {
+            font-size: 1.45rem;
+            max-width: 750px;
+            margin: 0 auto 35px !important; /* مهم: فاصله خودکار */
+            opacity: 0.95;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 300;
+            line-height: 1.7;
+            direction: rtl; /* جهت متن فارسی */
+        }
+
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 50px;
+            flex-wrap: wrap;
+        }
+
+        .hero-stat-item {
+            text-align: center;
+            color: white;
+            min-width: 140px;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .hero-stat-item:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .hero-stat-item:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(15px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero-stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            display: block;
+            margin-bottom: 8px;
+            background: linear-gradient(to right, #FFFFFF, #DBE6FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-stat-label {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        /* ===== دکمه‌ها ===== */
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 30px;
+        }
+
+        .btn {
+            position: relative;
+            overflow: hidden;
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 50px;
+            transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 25px rgba(18, 111, 133, 0.45);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-width: 200px;
+            white-space: nowrap;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+            transform: translateX(100%);
+            transition: transform 0.6s ease;
+            z-index: -1;
+        }
+
+        .btn:hover::before {
+            transform: translateX(-100%);
+        }
+
+        .btn:hover {
+            transform: translateY(-4px) scale(1.05);
+            box-shadow: 0 12px 35px rgba(18, 111, 133, 0.6);
+        }
+
+        .btn:active {
+            transform: translateY(1px) scale(0.98);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn-outline:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        /* ===== Features Section ===== */
+        .section-features {
+            padding: 50px 0;
+        }
+
+        .section-title {
+            font-size: 2.4rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+            color: var(--dark);
+            text-align: center;
+            direction: rtl;
+        }
+
+        .section-subtitle {
+            font-size: 1.3rem;
+            color: #5a5a72;
+            max-width: 700px;
+            margin: 0 auto 50px;
+            text-align: center;
+            line-height: 1.6;
+            direction: rtl;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 32px;
+            margin-top: 40px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.09);
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            text-align: center;
+            border: none;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover {
+            transform: translateY(-12px);
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+        }
+
+        .card-img {
+            height: 170px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .card-body {
+            padding: 30px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-title {
+            font-size: 1.65rem;
+            font-weight: 700;
+            margin-bottom: 18px;
+            color: var(--dark);
+            line-height: 1.3;
+            direction: rtl;
+        }
+
+        .card-text {
+            color: #555;
+            line-height: 1.7;
+            font-size: 1.1rem;
+            flex-grow: 1;
+            direction: rtl;
+        }
+
+        /* ===== CTA Section ===== */
+        .cta-section {
+            background: linear-gradient(135deg, #F7FAFF 0%, #DBE6FF 100%);
+            position: relative;
+            padding: 90px 0;
+            text-align: center;
+            border-radius: 32px;
+            margin: 60px 30px 80px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+        }
+
+        @media (max-width: 768px) {
+            .hero {
+                margin: 15px 10px 25px; /* از 20px 10px 50px به 15px 10px 25px */
+            }
+
+            .section-features {
+                padding: 40px 0; /* از 65px 0 به 40px 0 */
+            }
+
+            .cta-section {
+                margin: 40px 12px 60px; /* از 65px 12px 85px به 40px 12px 60px */
+            }
+        }
+
+        .cta-section::before, .cta-section::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            z-index: 0;
+        }
+
+        .cta-section::before {
+            top: -40%;
+            right: -15%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(18, 111, 133, 0.08) 0%, transparent 70%);
+        }
+
+        .cta-section::after {
+            bottom: -40%;
+            left: -15%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(22, 63, 117, 0.08) 0%, transparent 70%);
+        }
+
+        .cta-content {
+            position: relative;
+            z-index: 2;
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 0 30px;
+            animation: fadeIn 0.9s ease-out;
+        }
+
+        .cta-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 10px 28px;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 30px;
+            box-shadow: 0 6px 20px rgba(18, 111, 133, 0.35);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        .cta-section h2 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            margin-bottom: 25px;
+            color: var(--dark);
+            line-height: 1.3;
+            direction: rtl;
+        }
+
+        .cta-section p {
+            font-size: 1.35rem;
+            color: #4a4a6a;
+            margin-bottom: 45px;
+            line-height: 1.7;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            direction: rtl;
+        }
+
+        .cta-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 25px;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+
+        .cta-primary-btn, .cta-secondary-btn {
+            padding: 18px 50px;
+            font-size: 1.2rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            transition: all 0.35s ease;
+            min-width: 220px;
+            white-space: nowrap;
+        }
+
+        .cta-primary-btn {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            box-shadow: 0 10px 30px rgba(18, 111, 133, 0.5);
+        }
+
+        .cta-primary-btn:hover {
+            transform: translateY(-5px) scale(1.07);
+            box-shadow: 0 15px 40px rgba(18, 111, 133, 0.65);
+        }
+
+        .cta-secondary-btn {
+            background: white;
+            color: var(--primary);
+            border: 2px solid var(--primary);
+            box-shadow: 0 6px 20px rgba(18, 111, 133, 0.2);
+        }
+
+        .cta-secondary-btn:hover {
+            background: rgba(18, 111, 133, 0.08);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(18, 111, 133, 0.3);
+        }
+
+        .trust-indicators {
+            display: flex;
+            justify-content: center;
+            gap: 50px;
+            margin-top: 50px;
+            flex-wrap: wrap;
+            color: #555;
+            font-weight: 500;
+            font-size: 1.1rem;
+        }
+
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 160px;
+        }
+
+        .trust-item i {
+            color: var(--primary);
+            font-size: 1.5rem;
+            min-width: 28px;
+        }
+
+        /* ===== ریسپانسیو کامل ===== */
+        @media (max-width: 992px) {
+            .hero {
+                padding: 90px 0;
+                margin: 40px 20px 70px;
+                border-radius: 20px;
+            }
+
+            .hero h1 {
+                font-size: 2.8rem;
+            }
+
+            .hero p {
+                font-size: 1.3rem;
+            }
+
+            .hero-stat-number {
+                font-size: 2.2rem;
+            }
+
+            .cta-section {
+                margin: 80px 30px 100px;
+                padding: 80px 0;
+            }
+
+            .cta-section h2 {
+                font-size: 2.4rem;
+            }
+
+            .cta-section p {
+                font-size: 1.25rem;
+            }
+
+            .section-title {
+                font-size: 2.2rem;
+            }
+
+            .section-subtitle {
+                font-size: 1.2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero {
+                padding: 60px 0;
+                margin: 25px 12px 55px;
+                border-radius: 16px;
+                min-height: clamp(320px, 50vh, 460px);
+            }
+
+            .hero h1 {
+                font-size: 2.3rem;
+                padding: 0 10px;
+            }
+
+            .hero p {
+                font-size: 1.15rem;
+                margin-bottom: 30px !important;
+                padding: 0 5px;
+            }
+
+            .hero-stats {
+                gap: 18px;
+                margin-top: 35px;
+            }
+
+            /* در موبایل هر سه آمار در یک ردیف بمانند تا هیرو کشیده نشود */
+            .hero-stat-item {
+                min-width: 0;
+                flex: 1 1 0;
+            }
+
+            .hero-stat-number {
+                font-size: 1.95rem;
+            }
+
+            .hero-stat-label {
+                font-size: 0.9rem;
+            }
+
+            .btn {
+                padding: 14px 28px;
+                font-size: 1.05rem;
+                min-width: auto;
+                width: 100%;
+                max-width: 320px;
+            }
+
+            .btn-group {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .section-features {
+                padding: 65px 0;
+            }
+
+            .section-title {
+                font-size: 2rem;
+            }
+
+            .section-subtitle {
+                font-size: 1.15rem;
+                margin-bottom: 40px;
+            }
+
+            .features-grid {
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 25px;
+            }
+
+            .card-img {
+                height: 150px;
+            }
+
+            .card-title {
+                font-size: 1.5rem;
+            }
+
+            .card-text {
+                font-size: 1.05rem;
+            }
+
+            .cta-section {
+                padding: 65px 15px;
+                margin: 65px 12px 85px;
+                border-radius: 22px;
+            }
+
+            .cta-section h2 {
+                font-size: 2.1rem;
+            }
+
+            .cta-section p {
+                font-size: 1.15rem;
+                margin-bottom: 35px;
+            }
+
+            .cta-primary-btn, .cta-secondary-btn {
+                width: 100%;
+                max-width: 350px;
+                padding: 16px;
+                font-size: 1.15rem;
+            }
+
+            .cta-btn-wrapper {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .trust-indicators {
+                flex-direction: column;
+                gap: 15px;
+                margin-top: 35px;
+            }
+
+            .trust-item {
+                font-size: 1.05rem;
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero {
+                padding: 50px 0;
+                margin: 20px 8px 45px;
+                border-radius: 14px;
+                min-height: clamp(280px, 45vh, 400px);
+            }
+
+            .hero h1 {
+                font-size: 2.05rem;
+            }
+
+            .hero p {
+                font-size: 1.08rem;
+                margin-bottom: 25px !important;
+            }
+
+            .hero-stats {
+                gap: 10px;
+            }
+
+            .hero-stat-number {
+                font-size: 1.5rem;
+            }
+
+            .hero-stat-label {
+                font-size: 0.75rem;
+                line-height: 1.4;
+            }
+
+            .btn {
+                padding: 13px 25px;
+                font-size: 1rem;
+                max-width: 300px;
+            }
+
+            .section-title {
+                font-size: 1.85rem;
+            }
+
+            .section-subtitle {
+                font-size: 1.1rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                max-width: 380px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .card-img {
+                height: 140px;
+            }
+
+            .card-title {
+                font-size: 1.45rem;
+            }
+
+            .card-text {
+                font-size: 1rem;
+            }
+
+            .cta-section {
+                padding: 55px 15px;
+                margin: 50px 8px 70px;
+                border-radius: 18px;
+            }
+
+            .cta-section h2 {
+                font-size: 1.9rem;
+            }
+
+            .cta-section p {
+                font-size: 1.05rem;
+            }
+
+            .cta-badge {
+                padding: 8px 22px;
+                font-size: 0.95rem;
+            }
+
+            .trust-indicators {
+                font-size: 1rem;
+            }
+
+            .trust-item i {
+                font-size: 1.4rem;
+            }
+        }
+    </style>
+
+<!-- Hero Section -->
+<section class="hero">
+    <div class="container">
+        <div class="hero-content">
+            <h1>{{ homepage.title|default:"چغر، ابزار هوش مصنوعی برای مربی‌ها" }}</h1>
+            <p>{{ homepage.subtitle|default:"دستیار شما در نوشتن برنامه ورزشی و غذایی اختصاصی هر ورزشکار" }}</p>
+            <div class="btn-group">
+                {% if homepage.web_app_link %}
+                    <a href="{{ homepage.web_app_link }}" class="btn">
+                        <i class="fas fa-rocket"></i> شروع 
+                    </a>
+                {% else %}
+                    <a href="/api/docs/" class="btn">
+                        <i class="fas fa-rocket"></i> شروع
+                    </a>
+                {% endif %}
+                {% if homepage.app_download_link %}
+                    <a href="{{ homepage.app_download_link }}" class="btn btn-outline">
+                        <i class="fas fa-download"></i> چغر چیه؟
+                    </a>
+                {% endif %}
+            </div>
+
+            <div class="hero-stats">
+                <div class="hero-stat-item">
+                    <span class="hero-stat-number">98%</span>
+                    <span class="hero-stat-label">رضایت مربیان</span>
+                </div>
+                <div class="hero-stat-item">
+                    <span class="hero-stat-number">+500</span>
+                    <span class="hero-stat-label">برنامه ساخته شده</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Features Section -->
+<section class="section-features">
+    <div class="container">
+        <h2 class="section-title">چغر چه کاری برای مربی انجام می‌دهد؟</h2>
+        <p class="section-subtitle">ابزارهایی که کار روزانه‌ی مربی را سریع‌تر و دقیق‌تر می‌کنند</p>
+
+        <div class="features-grid">
+            {% for feature in features %}
+                <div class="card">
+                    <div class="card-img"
+                         style="background-color: {% cycle '#DBE6FF' '#E2F0F4' '#E8EFFF' '#DDE8FF' %};">
+
+                        {% if feature.image %}
+                            <img src="{{ feature.image.url }}" alt="{{ feature.title }}" class="feature-image">
+                        {% else %}
+                            <div class="feature-placeholder"
+                                 style="background-color: {% cycle '#DBE6FF' '#E2F0F4' '#E8EFFF' '#DDE8FF' %};">
+                                <i class="fas fa-{{ feature.icon|default:'cog' }}"
+                                   style="font-size: 2.8rem; color: var(--primary);"></i>
+                            </div>
+                        {% endif %}
+
+
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title">{{ feature.title|default:"عنوان امکانات" }}</h3>
+                        <p class="card-text">{{ feature.description|default:"توضیحات کامل امکانات سیستم در اینجا نمایش داده می‌شود." }}</p>
+                    </div>
+                </div>
+            {% empty %}
+                <div class="card">
+                    <div class="card-img" style="background-color: #DBE6FF;">
+                        <i class="fas fa-robot" style="font-size: 2.8rem; color: var(--primary);"></i>
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title">هوش مصنوعی</h3>
+                        <p class="card-text">تولید خودکار برنامه ورزشی و غذایی شخصی‌سازی شده با استفاده از
+                            الگوریتم‌های پیشرفته.</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-img" style="background-color: #E2F0F4;">
+                        <i class="fas fa-clipboard-list" style="font-size: 2.8rem; color: #126F85;"></i>
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title">دستورالعمل شخصی مربی</h3>
+                        <p class="card-text">قواعد ثابت خودتان را یک بار بنویسید تا در تولید هر برنامه
+                            رعایت شود؛ سبک مربیگری شما در خروجی حفظ می‌شود.</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-img" style="background-color: #E8EFFF;">
+                        <i class="fas fa-file-pdf" style="font-size: 2.8rem; color: #163F75;"></i>
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title">خروجی PDF</h3>
+                        <p class="card-text">دانلود و اشتراک‌گذاری برنامه‌ها به صورت حرفه‌ای و قابل چاپ در قالب
+                            PDF.</p>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+
+    </div>
+</section>
+
+<!-- CTA Section -->
+<section class="cta-section">
+    <div class="container">
+        <div class="cta-content">
+            <div class="cta-badge">
+                <i class="fas fa-check-circle"></i> شروع رایگان — بدون نیاز به کارت اعتباری
+            </div>
+            <h2>آماده‌اید کار مربیگری‌تان سبک‌تر شود؟</h2>
+            <p>همین حالا اولین برنامه‌ی اختصاصی‌تان را با چغر بسازید و ببینید نوشتن برنامه چقدر کوتاه‌تر می‌شود</p>
+            <div class="cta-btn-wrapper">
+                <a href="{{ homepage.web_app_link }}" class="cta-primary-btn">
+                    <i class="fas fa-rocket"></i> شروع رایگان
+                </a>
+                <a href="{% url 'contact' %}" class="cta-secondary-btn">
+                    <i class="fas fa-comments"></i> مشاوره رایگان
+                </a>
+            </div>
+            <div class="trust-indicators">
+                <div class="trust-item">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>امنیت 100%</span>
+                </div>
+                <div class="trust-item">
+                    <i class="fas fa-headset"></i>
+                    <span>پشتیبانی مربیان</span>
+                </div>
+                <div class="trust-item">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>به‌روزرسانی رایگان</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+    // حذف افکت پارالاکس که در موبایل باعث لگ می‌شود
+    if (window.innerWidth > 768) {
+        document.addEventListener('scroll', function () {
+            const hero = document.querySelector('.hero');
+            const scrollPosition = window.scrollY;
+            if (hero && scrollPosition < 300) {
+                hero.style.backgroundPosition = `center ${scrollPosition * 0.3}px`;
+            }
+        });
+    }
+
+    // انیمیشن ورود المان‌ها با رعایت عملکرد در موبایل
+    document.addEventListener('DOMContentLoaded', function () {
+        if ('IntersectionObserver' in window) {
+            const observerOptions = {
+                threshold: 0.1,
+                rootMargin: '0px 0px -30px 0px'
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = entry.target.classList.contains('card')
+                            ? 'translateY(0)'
+                            : 'translateY(0)';
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            // رعایت عملکرد: فقط در دسکتاپ انیمیشن کارت‌ها فعال شود
+            if (window.innerWidth > 768) {
+                document.querySelectorAll('.card').forEach(card => {
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(25px)';
+                    card.style.transition = 'all 0.6s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                    observer.observe(card);
+                });
+            }
+        }
+    });
+</script>
+
+{% endblock %}

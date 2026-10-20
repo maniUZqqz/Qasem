@@ -1,0 +1,49 @@
+{% extends 'app/panel/_shell.html' %}
+{% block title %}پنلِ چغر{% endblock %}
+{% block panel %}
+<div class="pnl-card">
+  <h3>خوش آمدید</h3>
+  <div id="sum" class="muted">در حالِ خواندنِ وضعیت…</div>
+</div>
+
+<div class="pnl-card">
+  <h3>برنامهٔ دستی (بدونِ هوش مصنوعی)</h3>
+  <p class="muted">خودت جلسه‌ها و حرکت‌ها را بچین. چند برنامهٔ اولِ هر ورزشکار
+    رایگان است و بعد از آن توکن کم می‌شود — تعدادش را مدیر از پنلِ ادمین تنظیم می‌کند.</p>
+  <a class="pnl-btn" href="{% url 'panel-manual-program' %}">ساختِ برنامهٔ دستی</a>
+</div>
+
+<div class="pnl-card">
+  <h3>اسکنِ دستگاه‌ها با دوربین</h3>
+  <p class="muted">در باشگاه بچرخ و عکس بگیر؛ سامانه دستگاه‌ها را تشخیص می‌دهد و
+    بعد از تأییدِ تو به فهرستِ باشگاه اضافه می‌کند.</p>
+  <a class="pnl-btn" href="{% url 'panel-scan' %}">شروعِ اسکن</a>
+</div>
+
+<div class="pnl-card">
+  <h3>کتابخانهٔ حرکت‌ها</h3>
+  <p class="muted">۱۳۲۴ حرکت با نامِ فارسی، گیفِ آموزشی و توضیحِ گام‌به‌گام.
+    در PDFِ برنامه‌ها، نامِ هر حرکت به همین صفحه‌ها لینک است.</p>
+  <a class="pnl-btn" href="{% url 'exercise-list' %}">دیدنِ کتابخانه</a>
+</div>
+{% endblock %}
+
+{% block panel_js %}
+<script>
+(async () => {
+  const { ok, data } = await api('me/status/');
+  const box = document.getElementById('sum');
+  if (!ok) { box.textContent = 'خواندنِ وضعیت ممکن نشد.'; return; }
+  box.innerHTML = '';
+  [
+    ['نوعِ حساب', data.account_type_label],
+    ['توکنِ باقی‌مانده', data.token_balance],
+    // سهمِ رایگان جدا از توکن است؛ نبودنش باعث می‌شد کاربر «صفر» ببیند و
+    // فکر کند هیچ برنامه‌ای نمی‌تواند بسازد.
+    ['برنامهٔ رایگانِ باقی‌مانده', (data.ai_free_left ?? 0) + ' از ' + (data.ai_free_total ?? 0)],
+    ['دستگاه‌های ثبت‌شده', data.equipment_count],
+    ['برنامه‌های ساخته‌شده', data.program_count],
+  ].forEach(([k, v]) => box.append(el('span', { class: 'chip' }, [k + ': ' + v])));
+})();
+</script>
+{% endblock %}

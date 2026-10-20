@@ -1,0 +1,81 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+{% if economics %}
+<div style="direction:rtl;font-family:Tahoma,sans-serif;margin-bottom:22px;">
+
+  {% if economics.pricing_missing %}
+  <div style="background:#fff4e5;border:1px solid #f0c68a;border-radius:8px;
+              padding:10px 14px;margin-bottom:14px;font-size:13px;color:#8a5700;">
+    تعرفه‌ی مدل ثبت نشده است، پس ستون‌های هزینه صفر می‌مانند.
+    از «ارائه‌دهنده‌های هوش مصنوعی» قیمت هر یک میلیون توکن ورودی و خروجی را وارد کنید.
+  </div>
+  {% endif %}
+
+  <h2 style="font-size:15px;margin:0 0 10px;">بهای تمام‌شده به تفکیک نوع عملیات</h2>
+
+  <table style="border-collapse:collapse;font-size:12.5px;width:100%;max-width:1100px;">
+    <thead>
+      <tr style="background:#eef3fa;">
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;text-align:right;">نوع</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">تعداد</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">میانگین توکن ورودی</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">میانگین توکن خروجی</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">بهای تمام‌شده هر مورد</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">توکن کاربری</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">قیمت فروش هر مورد</th>
+        <th style="border:1px solid #d7e0ec;padding:7px 10px;">سود هر مورد</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in economics.rows %}
+      <tr>
+        <th style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;background:#f8fafc;">{{ row.label }}</th>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.count }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.avg_in }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.avg_out }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.avg_cost }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.avg_tokens }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;">{{ row.avg_revenue }}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;
+                   font-weight:700;color:{% if row.negative %}#c0392b{% else %}#1b7a4b{% endif %};">
+          {{ row.avg_margin }}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8" style="border:1px solid #e2e8f0;padding:14px;text-align:center;color:#718096;">
+          هنوز هیچ فراخوانی مدلی ثبت نشده است.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table style="border-collapse:collapse;font-size:12.5px;margin-top:14px;">
+    <tr>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">کل فراخوانی‌ها</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;">{{ economics.total_calls }}</td>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">کل توکن ورودی</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;">{{ economics.total_input }}</td>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">کل توکن خروجی</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;">{{ economics.total_output }}</td>
+    </tr>
+    <tr>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">کل هزینه (تومان)</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;">{{ economics.total_cost }}</td>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">کل درآمد معادل (تومان)</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;">{{ economics.total_revenue }}</td>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">سود ناخالص (تومان)</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;font-weight:700;">{{ economics.total_margin }}</td>
+    </tr>
+    <tr>
+      <th style="border:1px solid #e2e8f0;padding:6px 12px;background:#f8fafc;text-align:right;">نرخ فروش هر توکن (تومان)</th>
+      <td style="border:1px solid #e2e8f0;padding:6px 12px;" colspan="5">{{ economics.token_unit_price }}</td>
+    </tr>
+  </table>
+</div>
+{% endif %}
+
+{{ block.super }}
+{% endblock %}

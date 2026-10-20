@@ -1,0 +1,3175 @@
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+from django.db import models, transaction
+from django.db.models import F
+from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
+from datetime import timedelta
+from decimal import Decimal
+import logging
+import secrets
+import uuid
+
+logger = logging.getLogger(__name__)
+
+
+class PrivateMediaStorage(FileSystemStorage):
+    """فضای ذخیره‌ی فایل‌های حساس، بیرون از MEDIA_ROOT عمومی.
+
+    مسیر را در هر دسترسی از تنظیمات می‌خواند (نه یک بار هنگام بارگذاری مدل)
+    تا هم مسیر مطلقِ این ماشین داخل مایگریشن ثابت نشود و هم تست‌ها بتوانند
+    آن را به یک پوشه موقت تغییر بدهند.
+
+    عمداً base_url ندارد: هیچ آدرس عمومی‌ای برای این فایل‌ها وجود ندارد و
+    فراخوانی .url روی آن‌ها باید خطا بدهد تا کسی سهواً لینک مستقیم نسازد.
+    """
+
+    @property
+    def base_location(self):
+        return settings.PRIVATE_MEDIA_ROOT
+
+    @property
+    def location(self):
+        import os as _os
+        return _os.path.abspath(self.base_location)
+
+    @property
+    def base_url(self):
+        return None
+
+    @base_url.setter
+    def base_url(self, value):
+        # FileSystemStorage در __init__ مقدار می‌دهد؛ نادیده گرفته می‌شود
+        pass
+
+
+class CustomUserManager(BaseUserManager):
+    """مدیر سفارشی برای کاربر با شماره تلفن"""
+
+    def create_user(self, phone_number, password=None, **extra_fields):
+        if not phone_number:
+            raise ValueError('شماره تلفن الزامی است')
+        user = self.model(phone_number=phone_number, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, phone_number, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self.create_user(phone_number, password, **extra_fields)
+
+
+#======================================
+class CustomUser(AbstractUser):
+    """کاربر سفارشی با شماره تلفن، نام باشگاه و موجودی توکن"""
+    # نوع حساب — مرز صریح بین دنیای B2B (باشگاه) و B2C (کاربر شخصی)
+    # coach: مربی/باشگاه‌دار | gym_client: ورزشکار متصل به باشگاه | personal: کاربر شخصی
+    ACCOUNT_TYPE_COACH = 'coach'
+    ACCOUNT_TYPE_GYM_CLIENT = 'gym_client'
+    ACCOUNT_TYPE_PERSONAL = 'personal'
+    ACCOUNT_TYPE_CHOICES = [
+        (ACCOUNT_TYPE_COACH, 'مربی / باشگاه‌دار'),
+        (ACCOUNT_TYPE_GYM_CLIENT, 'ورزشکار باشگاه'),
+        (ACCOUNT_TYPE_PERSONAL, 'کاربر شخصی'),
+    ]
+    account_type = models.CharField(
+        max_length=12,
+        choices=ACCOUNT_TYPE_CHOICES,
+        default=ACCOUNT_TYPE_COACH,
+        db_index=True,
+        verbose_name='نوع حساب'
+    )
+
+    phone_number = models.CharField(max_length=11, unique=True)
+    # اشتراکِ سالانهٔ «برنامهٔ دستی». خالی = اشتراک ندارد (فقط دورهٔ آزمایشی).
+    # مدیر می‌تواند از جنگو ادمین دستی تمدید کند؛ درگاهِ پرداخت هم همین را پر می‌کند.
+    manual_plan_expires_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='پایانِ اشتراکِ برنامهٔ دستی',
+        help_text='خالی یعنی اشتراک ندارد و فقط دورهٔ آزمایشیِ اولِ ثبت‌نام را دارد.'
+    )
+    gym_name = models.CharField(max_length=200, blank=True, null=True)
+    token_balance = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+
+    # غیرفعال کردن فیلدهای غیرضروری
+    username = None  # حذف کامل فیلد username
+    email = models.EmailField(blank=True, null=True)
+
+    USERNAME_FIELD = 'phone_number'
+    REQUIRED_FIELDS = []
+
+    objects = CustomUserManager()
+
+    class Meta:
+        verbose_name = 'کاربر'
+        verbose_name_plural = 'کاربران'
+
+    def __str__(self):
+        return f"{self.phone_number} - {self.gym_name or 'بدون نام باشگاه'}"
+
+    # ------------------------------------------------------------------
+    # کیف پول توکن
+    # قانون: برای مالک باشگاه، «کیف پول برند» (GymBrand.token_balance) مرجع
+    # واحد است و CustomUser.token_balance فقط آینه/کش آن است.
+    # همه کسر/افزودن‌ها با قفل ردیف و چک اتمیک انجام می‌شوند تا دستکاری
+    # همزمان (ادمین + API) موجودی را خراب نکند.
+    # ------------------------------------------------------------------
+
+    @property
+    def is_coach(self):
+        return self.account_type == self.ACCOUNT_TYPE_COACH
+
+    @property
+    def is_gym_client(self):
+        return self.account_type == self.ACCOUNT_TYPE_GYM_CLIENT
+
+    @property
+    def is_personal(self):
+        return self.account_type == self.ACCOUNT_TYPE_PERSONAL
+
+    def _gym_wallet(self):
+        """اگر کاربر مالک باشگاه باشد، کیف پول باشگاه را (تازه از دیتابیس) برمی‌گرداند."""
+        # عمداً از self.gym_brand استفاده نمی‌کنیم — کش رابطه ممکن است کهنه باشد
+        return GymBrand.objects.filter(user=self).first()
+
+    def get_effective_token_balance(self):
+        """موجودی موثر کاربر (برای مالک باشگاه از کیف پول باشگاه)."""
+        wallet = self._gym_wallet()
+        if wallet:
+            return wallet.token_balance
+        return self.token_balance
+
+    def display_token_balance(self):
+        """موجودیِ **نمایشی**: توکنِ واقعی + ارزشِ برنامه‌های رایگانِ باقی‌مانده.
+
+        چرا لازم شد (خواستِ مالک ۱۴۰۵/۰۷/۱۸): اپِ فلاتر فقط یک عدد نشان می‌دهد
+        و صفحهٔ توکنش دستِ ما نیست. مربیِ تازه ۵ برنامهٔ رایگان دارد ولی عدد را
+        «۰» می‌دید و فکر می‌کرد هیچ کاری نمی‌تواند بکند.
+
+        ⚠ این فقط **نمایش** است. کسرِ واقعی همچنان از
+        `get_effective_token_balance()` و `deduct_tokens()` می‌گذرد، پس این عدد
+        نمی‌تواند باعث شود کسی توکنی را خرج کند که ندارد: تا وقتی سهمِ رایگان
+        هست، ساختِ برنامه اصلاً توکن نمی‌برد.
+
+        واحد را گران‌ترین نوعِ برنامه می‌گیریم، چون سهمِ رایگان هر نوعی را
+        پوشش می‌دهد — پس عددِ نشان‌داده‌شده کم‌فروشی نمی‌کند.
+        """
+        real = self.get_effective_token_balance()
+        try:
+            unit = max(PlatformSettings.program_type_costs().values())
+        except Exception:
+            unit = 50
+
+        # ⚠ اگر مالک «قاعدهٔ قیمت» نوشته باشد، همان حرفِ آخر است — وگرنه عددِ
+        #   نمایشی با کسرِ واقعی جور درنمی‌آید (مثلاً اپ ۲۵۰ بگوید ولی هر
+        #   برنامه ۶۰ توکن کم کند).
+        try:
+            from .pricing import (resolve as _resolve, free_runs_left,
+                                  price_after_free, F_AI_BOTH, M_FREE)
+            d = _resolve(self, F_AI_BOTH)
+            if d is not None:
+                if d.mode != M_FREE:
+                    return real          # واقعاً باید توکن داشته باشد
+                n = free_runs_left(self, F_AI_BOTH) or 0
+                return real + n * (price_after_free(self, F_AI_BOTH,
+                                                    default=unit) or unit)
+        except Exception:
+            pass
+
+        free = self.ai_free_left()
+        if free <= 0:
+            return real
+        return real + free * unit
+
+    def has_enough_tokens(self, required_tokens):
+        """بررسی کفایت توکن (چک نرم — چک قطعی داخل deduct_tokens انجام می‌شود)"""
+        return self.get_effective_token_balance() >= required_tokens
+
+
+    def deduct_tokens(self, amount):
+        """کسر توکن از حساب کاربر. چک موجودی و کسر، اتمیک و زیر قفل انجام می‌شود."""
+        if amount <= 0:
+            return False
+
+        with transaction.atomic():
+            wallet = GymBrand.objects.select_for_update().filter(user=self).first()
+            if wallet:
+                if wallet.token_balance < amount:
+                    return False
+                wallet.token_balance -= amount
+                wallet.save(update_fields=["token_balance", "updated_at"])
+                self.token_balance = wallet.token_balance
+                return True
+
+            # بدون برند: به‌روزرسانی شرطی که در برابر درخواست همزمان امن است
+            updated = CustomUser.objects.filter(
+                pk=self.pk, token_balance__gte=amount
+            ).update(token_balance=F('token_balance') - amount)
+            if not updated:
+                return False
+            self.refresh_from_db(fields=['token_balance'])
+            return True
+
+
+    def add_tokens(self, amount):
+        """افزودن توکن به حساب کاربر"""
+        if amount <= 0:
+            return
+
+        with transaction.atomic():
+            wallet = GymBrand.objects.select_for_update().filter(user=self).first()
+            if wallet:
+                wallet.token_balance += amount
+                wallet.save(update_fields=["token_balance", "updated_at"])
+                self.token_balance = wallet.token_balance
+                return
+
+            CustomUser.objects.filter(pk=self.pk).update(
+                token_balance=F('token_balance') + amount
+            )
+            self.refresh_from_db(fields=['token_balance'])
+
+
+    def manual_plan_status(self):
+        """وضعیتِ دسترسی به برنامهٔ دستی: (مجاز؟، علت، روزِ باقی‌مانده).
+
+        ترتیبِ قاعده‌ها عمداً این است:
+          ۱) اشتراکِ فعال ⇒ مجاز
+          ۲) دورهٔ آزمایشیِ اولِ ثبت‌نام ⇒ مجاز
+          ۳) وگرنه ⇒ نامجاز با پیامِ قیمت
+        هر سه عدد از «تنظیمات سامانه» می‌آید، نه از کد.
+        """
+        from django.utils import timezone
+        settings_obj = PlatformSettings.get_solo()
+        now = timezone.now()
+
+        if self.manual_plan_expires_at and self.manual_plan_expires_at > now:
+            days = (self.manual_plan_expires_at - now).days
+            return True, 'subscription', days
+
+        trial_days = settings_obj.manual_trial_days
+        if trial_days:
+            trial_end = self.date_joined + timezone.timedelta(days=trial_days)
+            if trial_end > now:
+                return True, 'trial', (trial_end - now).days + 1
+
+        return False, 'expired', 0
+
+    def ai_free_left(self):
+        """چند برنامهٔ رایگانِ هوش مصنوعی برای این مربی مانده است."""
+        settings_obj = PlatformSettings.get_solo()
+        quota = settings_obj.ai_free_programs
+        if not quota:
+            return 0
+        used = ClientProgram.objects.filter(user=self, source=ClientProgram.SOURCE_AI).count()
+        return max(0, quota - used)
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        explicit_token_change = (
+            update_fields is not None and 'token_balance' in update_fields
+        )
+
+        # ذخیره کامل (مثل ویرایش پروفایل یا ادمین): آینه را از کیف پول برند
+        # تازه کن تا مقدار کهنه‌ی در حافظه، کیف پول را بازنویسی نکند.
+        if self.pk and update_fields is None:
+            wallet_balance = (
+                GymBrand.objects.filter(user=self)
+                .values_list('token_balance', flat=True)
+                .first()
+            )
+            if wallet_balance is not None:
+                self.token_balance = wallet_balance
+
+        super().save(*args, **kwargs)
+
+        # تغییر عمدی موجودی (update_fields شامل token_balance): کیف پول برند هم دنبال کند
+        if explicit_token_change:
+            GymBrand.objects.filter(user=self).exclude(
+                token_balance=self.token_balance
+            ).update(token_balance=self.token_balance, updated_at=timezone.now())
+
+
+
+
+class EquipmentCategory(models.Model):
+    """دسته‌بندی دستگاه‌های ورزشی
+
+    owner خالی = دسته سراسری (برای همه قابل مشاهده، فقط‌خواندنی).
+    owner پر = دسته اختصاصی همان مربی؛ فقط خودش می‌بیند و ویرایش می‌کند.
+    """
+    owner = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='equipment_categories',
+        verbose_name='مالک',
+        help_text='خالی = دسته سراسری و فقط‌خواندنی برای مربی‌ها'
+    )
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = 'دسته‌بندی دستگاه'
+        verbose_name_plural = 'دسته‌بندی‌های دستگاه'
+
+    def __str__(self):
+        return self.name
+
+
+class Equipment(models.Model):
+    """دستگاه‌های ورزشی باشگاه"""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='equipments')
+    name = models.CharField(max_length=200)
+    # عکسِ خودِ این دستگاه در این باشگاه. وقتی با اسکنِ دوربین ساخته شود، عکسِ
+    # مرجعِ کاتالوگ این‌جا کپی می‌شود تا فهرستِ باشگاه بی‌تصویر نماند.
+    image = models.ImageField(
+        upload_to='equipment/%Y/%m/', blank=True, null=True, verbose_name='عکسِ دستگاه'
+    )
+    catalog = models.ForeignKey(
+        'EquipmentCatalog', on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='gym_equipments', verbose_name='دستگاهِ کاتالوگ',
+        help_text='اگر از فهرستِ شناخته‌شدهٔ سامانه انتخاب شده باشد.'
+    )
+    description = models.TextField(blank=True, null=True)
+    category = models.ForeignKey(EquipmentCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='equipments')
+    muscle_group = models.CharField(max_length=100, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def link_to_catalog(self):
+        """این دستگاه را به کاتالوگِ واحد گره می‌زند و خالی‌ها را از آن پر می‌کند.
+
+        چرا این‌جا و نه در ویو: دستگاه از چهار راه ساخته می‌شود (API مربی،
+        جنگو ادمین، اسکنِ دوربین، واردکردنِ دسته‌ای). اگر قاعده در ویو باشد،
+        سه راهِ دیگر گسسته می‌مانند — همان مشکلی که مالک گزارش داد.
+
+        نامِ ناشناخته، ردیفِ کاتالوگِ **غیرفعال** می‌سازد: پیوستگی برقرار است
+        ولی تا تأییدِ مدیر، به پیشنهادهای اسکنِ بقیه راه پیدا نمی‌کند.
+        """
+        from .equipment_scan import norm
+
+        if self.catalog_id:
+            row = self.catalog
+        else:
+            key = norm(self.name)
+            if not key:
+                return False
+            row = None
+            for candidate in EquipmentCatalog.objects.all():
+                if norm(candidate.name) == key:
+                    row = candidate
+                    break
+                if any(norm(a) == key for a in candidate.alias_list()):
+                    row = candidate
+                    break
+            if row is None:
+                row = EquipmentCatalog.objects.create(
+                    name=self.name.strip()[:200],
+                    muscle_group=self.muscle_group or None,
+                    is_active=False,
+                    sort_order=900,
+                    notes='از افزودنِ دستیِ باشگاه ساخته شد — پس از بازبینی فعال کنید.',
+                )
+            self.catalog = row
+
+        changed = ['catalog']
+        if not self.muscle_group and row.muscle_group:
+            self.muscle_group = row.muscle_group
+            changed.append('muscle_group')
+        return changed
+
+    class Meta:
+        verbose_name = 'دستگاه'
+        verbose_name_plural = 'دستگاه‌ها'
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        creating = self.pk is None
+        super().save(*args, **kwargs)
+        # گره‌زدن بعد از ذخیره انجام می‌شود تا ساختِ ردیفِ کاتالوگ، ذخیرهٔ خودِ
+        # دستگاه را به خطر نیندازد. شکستش هم نباید ثبتِ دستگاه را بشکند.
+        if creating or not self.catalog_id:
+            try:
+                fields = self.link_to_catalog()
+                if fields:
+                    super().save(update_fields=fields + ['updated_at'])
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'گره‌زدنِ دستگاه #%s به کاتالوگ نشد', self.pk, exc_info=True)
+
+    def display_image_url(self):
+        """عکسِ این دستگاه؛ اگر خودش ندارد، عکسِ مرجعِ کاتالوگ."""
+        if self.image:
+            return self.image.url
+        if self.catalog_id and self.catalog:
+            return self.catalog.display_image_url()
+        return None
+
+    def __str__(self):
+        return f"{self.name} ({self.user.phone_number})"
+
+
+class Meal(models.Model):
+    """غذاهای قابل انتخاب برای برنامه غذایی"""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='meals')
+    name = models.CharField(max_length=200)
+    description = models.TextField()
+    calories = models.IntegerField()
+    protein = models.FloatField()
+    carbs = models.FloatField()
+    fat = models.FloatField()
+    allergens = models.CharField(max_length=200, blank=True)  # e.g., "gluten, nuts"
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'غذا'
+        verbose_name_plural = 'غذاها'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.user.phone_number})"
+
+
+class ClientProgram(models.Model):
+    """برنامه ورزشی و غذایی مشتری"""
+    # کاربر صاحب این برنامه
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='programs')
+
+    # ورودی‌های کاربر
+    name = models.CharField(max_length=100, verbose_name='نام مشتری')
+    age = models.PositiveIntegerField(blank=True, null=True, verbose_name='سن')
+    GENDER_CHOICES = [('M', 'مرد'), ('F', 'زن')]
+    gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True, verbose_name='جنسیت')
+    height = models.FloatField(blank=True, null=True, verbose_name='قد (سانتی‌متر)')
+    weight = models.FloatField(blank=True, null=True, verbose_name='وزن (کیلوگرم)')
+    injuries = models.TextField(blank=True, null=True, verbose_name='آسیب‌های بدنی')
+    food_allergies = models.TextField(blank=True, null=True, verbose_name='حساسیت‌های غذایی')
+    body_issues = models.TextField(blank=True, null=True, verbose_name='مشکلات بدنی')
+    chronic_diseases = models.TextField(blank=True, null=True, verbose_name='بیماری‌های مزمن')
+    extra_notes = models.TextField(
+        blank=True, null=True,
+        verbose_name='توضیحات تکمیلی',
+        help_text='هر توضیح اضافه‌ای که باید در تولید برنامه لحاظ شود'
+    )
+
+    exercise_history = models.TextField(
+            blank=True, 
+            null=True, 
+            verbose_name='سابقه ورزشی',
+            help_text='توضیحات کامل درباره سابقه ورزشی کاربر (مثل: مدت زمان تمرین، نوع ورزش‌های قبلی، سطح آمادگی و ...)'
+        )
+
+
+    # تعداد روزهای برنامه (1 تا 7 روز)
+    program_days = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+        default=7,
+        verbose_name='تعداد روزهای برنامه'
+    )
+
+    # محیط تمرین — برای کاربر شخصی (B2C) که دستگاه ثبت‌شده ندارد.
+    # پیش‌فرض gym_equipment یعنی رفتار فعلی باشگاه: از Equipment های ثبت‌شده استفاده کن.
+    TRAINING_PLACE_GYM_EQUIPMENT = 'gym_equipment'
+    TRAINING_PLACE_PUBLIC_GYM = 'public_gym'
+    TRAINING_PLACE_HOME_BASIC = 'home_basic'
+    TRAINING_PLACE_HOME_NONE = 'home_none'
+    TRAINING_PLACE_CHOICES = [
+        (TRAINING_PLACE_GYM_EQUIPMENT, 'تجهیزات ثبت‌شده باشگاه'),
+        (TRAINING_PLACE_PUBLIC_GYM, 'باشگاه عمومی (دستگاه‌های استاندارد)'),
+        (TRAINING_PLACE_HOME_BASIC, 'خانه با تجهیزات ساده (دمبل/کش)'),
+        (TRAINING_PLACE_HOME_NONE, 'خانه بدون تجهیزات (وزن بدن)'),
+    ]
+    training_place = models.CharField(
+        max_length=16,
+        choices=TRAINING_PLACE_CHOICES,
+        default=TRAINING_PLACE_GYM_EQUIPMENT,
+        verbose_name='محیط تمرین'
+    )
+
+    # نوع برنامه: فقط ورزشی، فقط غذایی یا هر دو (هزینه توکن بر همین اساس محاسبه می‌شود)
+    PROGRAM_TYPE_CHOICES = [
+        ('both', 'ورزشی و غذایی'),
+        ('workout', 'فقط ورزشی'),
+        ('meal', 'فقط غذایی'),
+    ]
+    program_type = models.CharField(
+        max_length=10,
+        choices=PROGRAM_TYPE_CHOICES,
+        default='both',
+        verbose_name='نوع برنامه'
+    )
+
+    # خروجی هوش مصنوعی
+    generated_workout = models.TextField(blank=True, null=True, verbose_name='برنامه ورزشی')
+    generated_meal_plan = models.TextField(blank=True, null=True, verbose_name='برنامه غذایی')
+
+    # منبعِ برنامه — متنِ هر دو حالت یکی است (پس PDF و لینکِ حرکت‌ها یکسان کار
+    # می‌کند)، ولی حسابِ توکن و سهمِ رایگان فقط برای حالتِ دستی معنا دارد.
+    SOURCE_AI = 'ai'
+    SOURCE_MANUAL = 'manual'
+    SOURCE_CHOICES = [
+        (SOURCE_AI, 'هوش مصنوعی'),
+        (SOURCE_MANUAL, 'دستیِ مربی'),
+    ]
+    source = models.CharField(
+        max_length=6, choices=SOURCE_CHOICES, default=SOURCE_AI, db_index=True,
+        verbose_name='منبعِ برنامه'
+    )
+    manual_plan = models.JSONField(
+        blank=True, null=True, verbose_name='ساختارِ برنامهٔ دستی',
+        help_text='جلسه‌ها و حرکت‌هایی که مربی چیده است. متنِ برنامه از همین ساخته '
+                  'می‌شود؛ برای ویرایشِ بعدی لازم است.'
+    )
+    gym_client = models.ForeignKey(
+        'GymClient', on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='client_programs', verbose_name='ورزشکارِ باشگاه',
+        help_text='اگر برنامه برای یکی از ورزشکارانِ ثبت‌شده است، سهمِ رایگانش روی '
+                  'همین رکورد شمرده می‌شود، نه روی نامِ تایپ‌شده.'
+    )
+
+    # توکن مصرف شده برای این برنامه
+    tokens_consumed = models.IntegerField(default=0, verbose_name='توکن مصرف شده')
+
+    # ---- مصرف واقعی مدل هوش مصنوعی (برای حساب‌کتاب هزینه) ----
+    # اینها «توکن پلتفرم» نیستند؛ توکن واقعی مدل‌اند که پولش را ما می‌دهیم.
+    ai_model_name = models.CharField(
+        max_length=100, blank=True, null=True,
+        verbose_name='مدل هوش مصنوعی',
+        help_text='مدلی که این برنامه با آن ساخته شد'
+    )
+    ai_input_tokens = models.PositiveIntegerField(
+        default=0, verbose_name='توکن ورودی مدل'
+    )
+    ai_output_tokens = models.PositiveIntegerField(
+        default=0, verbose_name='توکن خروجی مدل'
+    )
+    ai_cost = models.DecimalField(
+        max_digits=12, decimal_places=4, default=Decimal('0'),
+        verbose_name='هزینه هوش مصنوعی (تومان)',
+        help_text='بر اساس تعرفه ثبت‌شده همان مدل در لحظه تولید محاسبه می‌شود'
+    )
+
+    # تاریخ‌ها
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='تاریخ آخرین ویرایش')
+
+    class Meta:
+        verbose_name = 'برنامه مشتری'
+        verbose_name_plural = 'برنامه‌های مشتری'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.user.phone_number} - {self.created_at.strftime('%Y-%m-%d')}"
+
+    def record_ai_usage(self, model_name, input_tokens, output_tokens, config=None):
+        """مصرف و هزینه یک فراخوانی مدل را روی برنامه جمع می‌زند.
+
+        ویرایش برنامه هم یک فراخوانی جدید است، پس مقادیر جمع می‌شوند نه جایگزین.
+
+        `config` باید تعرفه‌ی همان ارائه‌دهنده‌ای باشد که واقعاً پاسخ داده.
+        اگر زنجیره به ارائه‌دهنده‌ی دوم رفته باشد و اینجا تعرفه‌ی اولی حساب
+        شود، هزینه‌ی ثبت‌شده غلط می‌شود.
+        """
+        cost = APIConfig.estimate_cost(input_tokens, output_tokens, config)
+        self.ai_model_name = model_name or self.ai_model_name
+        self.ai_input_tokens = (self.ai_input_tokens or 0) + int(input_tokens or 0)
+        self.ai_output_tokens = (self.ai_output_tokens or 0) + int(output_tokens or 0)
+        self.ai_cost = (self.ai_cost or Decimal('0')) + cost
+        return cost
+
+
+class APIConfig(models.Model):
+    """یک ارائه‌دهنده‌ی هوش مصنوعی در زنجیره‌ی اولویت.
+
+    چند ارائه‌دهنده می‌توانند هم‌زمان فعال باشند. هنگام تولید برنامه، زنجیره
+    به ترتیب `priority` پیمایش می‌شود و اولین ارائه‌دهنده‌ای که پاسخ بدهد
+    استفاده می‌شود. اگر یکی در دسترس نباشد (سرور محلی خاموش، اینترنت قطع،
+    اعتبار تمام‌شده) سامانه به‌جای خطا دادن به کاربر، سراغ بعدی می‌رود.
+
+    دو نوع ارائه‌دهنده پشتیبانی می‌شود و هر دو از همان پروتکل OpenAI استفاده
+    می‌کنند (اولاما و اکثر سرورهای محلی، درگاه سازگار با OpenAI دارند):
+
+    * `api`   — سرویس ابری با کلید: متیس، اوپن‌ای‌آی و مشابه‌ها.
+    * `local` — مدل روی سیستم یا سرور خودمان؛ فقط آدرس لازم است و کلید
+                اختیاری است.
+    """
+
+    TYPE_API = 'api'
+    TYPE_LOCAL = 'local'
+    # حالتِ سوم: سرورِ هوش مصنوعیِ خودمان که **آی‌پیِ ثابت ندارد**. ما به او وصل
+    # نمی‌شویم؛ خودش این سایت را گوش می‌دهد، کار برمی‌دارد و جواب می‌فرستد.
+    TYPE_LISTENER = 'listener'
+    PROVIDER_TYPE_LISTENER = TYPE_LISTENER
+    PROVIDER_TYPE_CHOICES = [
+        (TYPE_API, 'سرویس ابری (با کلید API)'),
+        (TYPE_LOCAL, 'مدل محلی / سرور خودم (فقط آدرس)'),
+        (TYPE_LISTENER, 'سرورِ خودم بدونِ آی‌پی (شنونده — خودش وصل می‌شود)'),
+    ]
+
+    name = models.CharField(max_length=100, default='OpenAI Config', verbose_name='نام تنظیمات')
+    provider_type = models.CharField(
+        max_length=10,
+        choices=PROVIDER_TYPE_CHOICES,
+        default=TYPE_API,
+        db_index=True,
+        verbose_name='نوع ارائه‌دهنده',
+        help_text='برای مدل محلی (مثل اولاما) گزینه دوم را انتخاب کنید؛ کلید API لازم نیست.'
+    )
+    base_url = models.URLField(
+        default='https://api.metisai.ir/openai/v1',
+        verbose_name='آدرس API',
+        help_text='ابری: https://api.openai.com/v1 — محلی: http://SERVER_IP:11434/v1'
+    )
+    api_key = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        verbose_name='کلید API',
+        help_text='برای سرویس ابری الزامی است. برای مدل محلی خالی بگذارید.'
+    )
+    model_name = models.CharField(
+        max_length=100,
+        default='gpt-4o-mini',
+        blank=True,
+        verbose_name='نام مدل',
+        help_text='ابری: الزامی (مثل gpt-4o-mini). محلی: خالی بگذارید تا خودکار '
+                  'از روی سرور خوانده شود؛ فقط اگر چند مدل دارید و یکی خاص را '
+                  'می‌خواهید، نامش را بنویسید.'
+    )
+    priority = models.PositiveIntegerField(
+        default=1,
+        db_index=True,
+        validators=[MinValueValidator(1)],
+        verbose_name='اولویت',
+        help_text='۱ یعنی اول از همه امتحان شود. اگر پاسخ نداد، سراغ اولویت بعدی می‌رویم.'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال',
+        help_text='ارائه‌دهنده‌های فعال به ترتیب اولویت در زنجیره امتحان می‌شوند.'
+    )
+    timeout_seconds = models.PositiveIntegerField(
+        default=180,
+        validators=[MinValueValidator(5), MaxValueValidator(600)],
+        verbose_name='مهلت پاسخ (ثانیه)',
+        help_text='یک برنامه کامل تا ۱۰۵۰۰ توکن خروجی دارد و نوشتنش طول می‌کشد؛ '
+                  'با عدد کم، درخواستِ سالم وسط کار قطع می‌شود. مدل محلی روی '
+                  'سخت‌افزار ضعیف کندتر است؛ مهلت بیشتری بدهید (مثلاً ۳۰۰).'
+    )
+
+    # ---- کشف خودکار مدل (فقط برای ارائه‌دهنده محلی) ----
+    # سرورهای سازگار با OpenAI یک /models دارند که فهرست مدل‌های نصب‌شده را
+    # می‌دهد. نتیجه اینجا کش می‌شود تا هر بار تولید برنامه یک درخواست اضافه
+    # به سرور نزند.
+    discovered_model = models.CharField(
+        max_length=100, blank=True, null=True,
+        verbose_name='مدل کشف‌شده',
+        help_text='نامی که خودکار از سرور خوانده شد'
+    )
+    discovered_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='زمان کشف مدل'
+    )
+
+    # ---- پارامترهای پذیرفته‌شده‌ی این مدل (یادگرفته‌شده، نه دستی) ----
+    # هر خانواده‌ی مدل کمی متفاوت است: مدل‌های استدلالی اوپن‌ای‌آی به‌جای
+    # `max_tokens` فقط `max_completion_tokens` را می‌پذیرند و `temperature`
+    # سفارشی را رد می‌کنند. این تفاوت با آزمون‌وخطا کشف می‌شود، اما نتیجه
+    # همین‌جا می‌ماند تا فقط یک بار هزینه بدهد؛ وگرنه هر تولید برنامه دو
+    # رفت‌وبرگشت شکست‌خورده‌ی اضافه می‌زند و کاربر آن را به شکل «کندی» و
+    # «تایم‌اوت» می‌بیند.
+    token_param = models.CharField(
+        max_length=32, blank=True, default='',
+        verbose_name='پارامتر سقف توکن',
+        help_text='خالی = هنوز کشف نشده. هنگام اولین درخواست خودکار پر می‌شود.'
+    )
+    supports_temperature = models.BooleanField(
+        blank=True, null=True, default=None,
+        verbose_name='پذیرش temperature سفارشی',
+        help_text='خالی = هنوز مشخص نشده. اگر «نه» باشد، مقدار پیش‌فرض مدل استفاده می‌شود.'
+    )
+
+    # ---- سلامت ارائه‌دهنده (فقط گزارشی) ----
+    last_success_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='آخرین پاسخ موفق'
+    )
+    last_failure_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='آخرین خطا'
+    )
+    last_error = models.CharField(
+        max_length=400, blank=True, null=True, verbose_name='آخرین پیام خطا'
+    )
+
+    # ---- قیمت توکن این مدل (برای حساب‌کتاب هزینه واقعی هر برنامه) ----
+    # قیمت‌ها بر حسب «تومان به ازای یک میلیون توکن» وارد می‌شوند؛ همان واحدی
+    # که سرویس‌دهنده‌ها (متیس، اوپن‌ای‌آی و ...) اعلام می‌کنند.
+    input_price_per_million = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name='قیمت هر یک میلیون توکن ورودی (تومان)',
+        help_text='از صورتحساب سرویس‌دهنده همین مدل وارد شود. صفر یعنی محاسبه نشود.'
+    )
+    output_price_per_million = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name='قیمت هر یک میلیون توکن خروجی (تومان)',
+        help_text='معمولاً چند برابر قیمت ورودی است. صفر یعنی محاسبه نشود.'
+    )
+
+    # ── حالتِ شنونده ──
+    listener_last_seen_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='آخرین تماسِ سرورِ شنونده',
+        help_text='سرورِ بی‌آی‌پی هر چند ثانیه «من روشنم» می‌گوید و این‌جا ثبت می‌شود.'
+    )
+    listener_worker_name = models.CharField(
+        max_length=80, blank=True, verbose_name='نامِ کارگرِ شنونده'
+    )
+    listener_online_window = models.PositiveIntegerField(
+        default=90,
+        verbose_name='پنجرهٔ زنده‌بودنِ شنونده (ثانیه)',
+        help_text='اگر در این مدت تماسی نگیرد، «خاموش» حساب می‌شود و سامانه '
+                  'سراغِ ارائه‌دهندهٔ بعدی می‌رود — تا کاربر معطل نماند.'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='تاریخ آخرین ویرایش')
+
+    class Meta:
+        verbose_name = 'ارائه‌دهنده هوش مصنوعی'
+        verbose_name_plural = 'ارائه‌دهنده‌های هوش مصنوعی'
+        ordering = ['priority', 'id']
+
+    def __str__(self):
+        status = '✓ فعال' if self.is_active else '✗ غیرفعال'
+        return f"#{self.priority} {self.name} — {self.model_name} ({status})"
+
+    # مدت اعتبار کش مدل کشف‌شده
+    MODEL_DISCOVERY_TTL = timedelta(hours=6)
+
+    # پارامتر سقف توکن که پیش از هر کشفی امتحان می‌شود (رایج‌ترین حالت)
+    TOKEN_PARAM_DEFAULT = 'max_tokens'
+
+    @property
+    def is_local(self):
+        return self.provider_type == self.TYPE_LOCAL
+
+    def save(self, *args, **kwargs):
+        self.base_url = self.normalized_base_url()
+        # تغییر آدرس، نوع یا مدل، کشف قبلی را بی‌اعتبار می‌کند — هم نام مدل
+        # و هم پارامترهایی که آن مدل می‌پذیرفت، چون مدل جدید ممکن است
+        # خانواده‌ی دیگری باشد.
+        if self.pk:
+            previous = APIConfig.objects.filter(pk=self.pk).values(
+                'base_url', 'provider_type', 'model_name'
+            ).first()
+            if previous and (
+                previous['base_url'] != self.base_url
+                or previous['provider_type'] != self.provider_type
+            ):
+                self.discovered_model = None
+                self.discovered_at = None
+                self.token_param = ''
+                self.supports_temperature = None
+            elif previous and previous['model_name'] != self.model_name:
+                self.token_param = ''
+                self.supports_temperature = None
+        super().save(*args, **kwargs)
+
+    def effective_token_param(self):
+        """نام پارامتر سقف توکن که باید برای این ارائه‌دهنده فرستاده شود."""
+        return (self.token_param or '').strip() or self.TOKEN_PARAM_DEFAULT
+
+    def remember_param_style(self, token_param=None, supports_temperature=None):
+        """آنچه درباره‌ی پارامترهای این مدل یاد گرفتیم را ماندگار می‌کند.
+
+        بدون این، هر تولید برنامه دوباره همان دو خطای ۴۰۰ را می‌گیرد تا
+        بفهمد این مدل `max_tokens` یا `temperature` سفارشی نمی‌پذیرد.
+        """
+        changes = {}
+        if token_param and token_param != self.token_param:
+            changes['token_param'] = token_param
+        if (
+            supports_temperature is not None
+            and supports_temperature != self.supports_temperature
+        ):
+            changes['supports_temperature'] = supports_temperature
+        if not changes:
+            return
+
+        for field, value in changes.items():
+            setattr(self, field, value)
+        try:
+            APIConfig.objects.filter(pk=self.pk).update(**changes)
+        except Exception:  # pragma: no cover — یادگیری نباید تولید را بشکند
+            logger.warning('Could not persist parameter style for provider %s', self.pk)
+
+    def normalized_base_url(self):
+        """آدرسی که کاربر وارد کرده را به نقطه‌ی پایانی سازگار با OpenAI می‌رساند.
+
+        کاربر معمولاً فقط «آدرس سرورم» را می‌داند — مثل
+        `http://192.168.1.50:11434`. تقریباً همه‌ی سرورهای محلی (اولاما،
+        vLLM، LM Studio) درگاه سازگار را زیر `/v1` می‌گذارند، پس اگر مسیری
+        داده نشده باشد خودمان اضافه می‌کنیم. اگر کاربر مسیر خودش را داده
+        (مثل یک reverse proxy)، دست نمی‌زنیم.
+        """
+        url = (self.base_url or '').strip().rstrip('/')
+        if not url:
+            return url
+        from urllib.parse import urlsplit
+        parts = urlsplit(url)
+        if not parts.path or parts.path == '/':
+            return f'{url}/v1'
+        return url
+
+    def resolve_model(self, client=None):
+        """نام مدلی که باید به سرور فرستاده شود.
+
+        اگر کاربر نامی نوشته، همان. وگرنه — فقط برای ارائه‌دهنده محلی —
+        فهرست مدل‌های سرور خوانده و اولین مورد استفاده می‌شود. نتیجه کش
+        می‌شود تا هر تولید برنامه یک رفت‌وبرگشت اضافه نزند.
+        """
+        explicit = (self.model_name or '').strip()
+        if explicit:
+            return explicit
+
+        if not self.is_local:
+            raise ValueError(
+                f'برای ارائه‌دهنده ابری «{self.name}» باید نام مدل را وارد کنید.'
+            )
+
+        if self.discovered_model and self.discovered_at:
+            if timezone.now() - self.discovered_at < self.MODEL_DISCOVERY_TTL:
+                return self.discovered_model
+
+        if client is None:
+            raise ValueError('برای کشف مدل، اتصال به سرور لازم است.')
+
+        model = self._discover_model(client)
+        self.discovered_model = model
+        self.discovered_at = timezone.now()
+        APIConfig.objects.filter(pk=self.pk).update(
+            discovered_model=model, discovered_at=self.discovered_at
+        )
+        return model
+
+    def _discover_model(self, client):
+        """اولین مدل موجود روی سرور."""
+        listing = client.models.list()
+        models_found = [
+            getattr(item, 'id', None) for item in (getattr(listing, 'data', None) or [])
+        ]
+        models_found = [m for m in models_found if m]
+        if not models_found:
+            raise ValueError(
+                f'سرور «{self.name}» هیچ مدلی معرفی نکرد. '
+                'مطمئن شوید مدلی روی آن نصب است (مثلاً: ollama pull llama3.2).'
+            )
+        return models_found[0]
+
+    def available_models(self, client):
+        """فهرست کامل مدل‌های سرور — برای نمایش در پنل ادمین."""
+        listing = client.models.list()
+        return [
+            getattr(item, 'id', None)
+            for item in (getattr(listing, 'data', None) or [])
+            if getattr(item, 'id', None)
+        ]
+
+    @property
+    def resolved_api_key(self):
+        """کلیدی که به کلاینت داده می‌شود.
+
+        سرورهای محلی (اولاما و مشابه) کلید نمی‌خواهند، اما کتابخانه‌ی OpenAI
+        بدون کلید اصلاً کلاینت نمی‌سازد؛ پس یک مقدار جانشین می‌فرستیم که
+        سمت سرور نادیده گرفته می‌شود.
+        """
+        key = (self.api_key or '').strip()
+        if key:
+            return key
+        return 'local' if self.is_local else ''
+
+    def as_config(self):
+        """همان دیکشنری‌ای که بقیه‌ی کد از get_active_config انتظار دارد.
+
+        `model_name` اینجا ممکن است خالی باشد (ارائه‌دهنده محلی بدون نام
+        صریح)؛ مقدار نهایی هنگام فراخوانی با `resolve_model` مشخص می‌شود،
+        چون کشف آن نیاز به اتصال دارد و نباید در ساخت دیکشنری اتفاق بیفتد.
+        """
+        return {
+            'id': self.pk,
+            'name': self.name,
+            'provider_type': self.provider_type,
+            'base_url': self.base_url,
+            'api_key': self.resolved_api_key,
+            'model_name': self.model_name,
+            'timeout_seconds': self.timeout_seconds,
+            'input_price_per_million': self.input_price_per_million,
+            'output_price_per_million': self.output_price_per_million,
+        }
+
+    @classmethod
+    def default_config(cls):
+        return {
+            'id': None,
+            'name': 'پیش‌فرض',
+            'provider_type': cls.TYPE_API,
+            'base_url': 'https://api.metisai.ir/openai/v1',
+            'api_key': '',
+            'model_name': 'gpt-4o-mini',
+            'timeout_seconds': 90,
+            'input_price_per_million': Decimal('0'),
+            'output_price_per_million': Decimal('0'),
+        }
+
+    def mark_listener_seen(self, worker=None):
+        """ثبتِ «کارگر روشن است». ارزان است و هر چند ثانیه صدا زده می‌شود."""
+        from django.utils import timezone
+        fields = ['listener_last_seen_at']
+        self.listener_last_seen_at = timezone.now()
+        if worker:
+            self.listener_worker_name = str(worker)[:80]
+            fields.append('listener_worker_name')
+        APIConfig.objects.filter(pk=self.pk).update(
+            **{f: getattr(self, f) for f in fields})
+
+    def listener_is_online(self):
+        """آیا سرورِ شنونده به‌تازگی خبر داده است؟"""
+        from django.utils import timezone
+        if self.provider_type != self.TYPE_LISTENER:
+            return False
+        if not self.listener_last_seen_at:
+            return False
+        window = self.listener_online_window or 90
+        return (timezone.now() - self.listener_last_seen_at).total_seconds() <= window
+
+    @classmethod
+    def get_chain(cls):
+        """ارائه‌دهنده‌های فعال به ترتیب اولویت.
+
+        اولویت برابر با ترتیب ثبت (id) شکسته می‌شود تا چیدمان قطعی باشد و
+        دو ارائه‌دهنده با اولویت یکسان هر بار جای هم را نگیرند.
+        """
+        return list(cls.objects.filter(is_active=True).order_by('priority', 'id'))
+
+    @classmethod
+    def get_active_config(cls):
+        """تنظیمات اولین ارائه‌دهنده‌ی زنجیره (سازگاری با کد قبلی)."""
+        config = cls.objects.filter(is_active=True).order_by('priority', 'id').first()
+        if not config:
+            return cls.default_config()
+        return config.as_config()
+
+    def mark_success(self):
+        """ثبت پاسخ موفق — فقط برای دیده‌شدن وضعیت در پنل ادمین."""
+        APIConfig.objects.filter(pk=self.pk).update(
+            last_success_at=timezone.now(), last_error=None
+        )
+
+    def mark_failure(self, error):
+        """ثبت خطا؛ نباید جریان اصلی را بشکند، پس خودش هم محافظت شده است."""
+        try:
+            APIConfig.objects.filter(pk=self.pk).update(
+                last_failure_at=timezone.now(),
+                last_error=str(error)[:400],
+            )
+        except Exception:  # pragma: no cover
+            pass
+
+    @staticmethod
+    def estimate_cost(input_tokens, output_tokens, config=None):
+        """هزینه ریالی یک فراخوانی مدل را بر اساس تعرفه همان مدل حساب می‌کند.
+
+        اگر تعرفه‌ای ثبت نشده باشد (صفر)، خروجی صفر است و در حساب‌کتاب
+        به‌عنوان «تعرفه ثبت نشده» دیده می‌شود — نه یک عدد ساختگی.
+        """
+        cfg = config or APIConfig.get_active_config()
+        million = Decimal('1000000')
+        cost_in = (Decimal(input_tokens or 0) / million) * Decimal(
+            cfg.get('input_price_per_million') or 0
+        )
+        cost_out = (Decimal(output_tokens or 0) / million) * Decimal(
+            cfg.get('output_price_per_million') or 0
+        )
+        return (cost_in + cost_out).quantize(Decimal('0.0001'))
+
+
+#======================================================
+class TokenPackage(models.Model):
+    """بسته‌های توکن برای فروش"""
+    name = models.CharField(max_length=100, verbose_name='نام بسته')
+    token_amount = models.IntegerField(validators=[MinValueValidator(50)], verbose_name='تعداد توکن')
+    price_per_50_tokens = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='قیمت هر 50 توکن (تومان)')
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'بسته توکن'
+        verbose_name_plural = 'بسته‌های توکن'
+        ordering = ['token_amount']
+
+    def __str__(self):
+        return f"{self.name} - {self.token_amount} توکن"
+
+    def calculate_price(self, custom_amount=None):
+        """محاسبه قیمت بر اساس تعداد توکن"""
+        amount = custom_amount or self.token_amount
+        # قیمت = (تعداد توکن / 50) * قیمت هر 50 توکن
+        return (Decimal(amount) / Decimal('50')) * self.price_per_50_tokens
+
+
+#================================
+class DiscountCode(models.Model):
+    """کد تخفیف"""
+    code = models.CharField(max_length=50, unique=True, verbose_name='کد تخفیف')
+    discount_percent = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        verbose_name='درصد تخفیف'
+    )
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+    single_use_per_user = models.BooleanField(
+        default=True,
+        verbose_name='یک بار مصرف برای هر کاربر',
+        help_text='اگر فعال باشد، هر کاربر فقط یک بار می‌تواند از این کد استفاده کند'
+    )
+    creator = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='created_discount_codes',
+        verbose_name='سازنده کد',
+        help_text='کاربری که این کد را ساخته و سود از استفاده آن می‌برد'
+    )
+    commission_percent = models.IntegerField(
+        default=10,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name='درصد کمیسیون سازنده',
+        help_text='درصدی از مبلغ خرید که به سازنده کد تعلق می‌گیرد'
+    )
+    used_count = models.IntegerField(default=0, verbose_name='تعداد استفاده')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'کد تخفیف'
+        verbose_name_plural = 'کدهای تخفیف'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        status = '✓ فعال' if self.is_active else '✗ غیرفعال'
+        return f"{self.code} ({self.discount_percent}% - {status})"
+
+    def can_use(self, user):
+        """بررسی اینکه آیا کاربر می‌تواند از این کد استفاده کند"""
+        if not self.is_active:
+            return False, 'کد تخفیف غیرفعال است'
+
+        if self.single_use_per_user:
+            # بررسی اینکه آیا این کاربر قبلاً از این کد استفاده کرده
+            has_used = DiscountCodeUsage.objects.filter(
+                discount_code=self,
+                user=user
+            ).exists()
+            if has_used:
+                return False, 'شما قبلاً از این کد استفاده کرده‌اید'
+
+        return True, 'کد معتبر است'
+
+    def apply_discount(self, original_price):
+        """اعمال تخفیف به قیمت"""
+        discount_amount = (original_price * self.discount_percent) / 100
+        final_price = original_price - discount_amount
+        return final_price, discount_amount
+
+
+#======================================
+class DiscountCodeUsage(models.Model):
+    """استفاده از کد تخفیف"""
+    discount_code = models.ForeignKey(DiscountCode, on_delete=models.CASCADE, related_name='usages')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='discount_usages')
+    used_at = models.DateTimeField(auto_now_add=True)
+    purchase_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='مبلغ خرید')
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='مبلغ تخفیف')
+    commission_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='کمیسیون سازنده')
+
+    class Meta:
+        verbose_name = 'استفاده از کد تخفیف'
+        verbose_name_plural = 'استفاده‌های کد تخفیف'
+        ordering = ['-used_at']
+        unique_together = [['discount_code', 'user']]  # هر کاربر فقط یک بار از هر کد
+
+    def __str__(self):
+        return f"{self.user.phone_number} - {self.discount_code.code} - {self.used_at.strftime('%Y-%m-%d')}"
+
+
+#=====================================================
+class CardPaymentAccount(models.Model):
+    """شماره کارت مقصدِ پرداخت کارت‌به‌کارت.
+
+    فقط یک حساب می‌تواند فعال باشد؛ همان شماره‌ای که به کاربر نشان داده می‌شود
+    و رسیدش بعداً در پنل ادمین بررسی و تایید می‌شود.
+    """
+    title = models.CharField(
+        max_length=100, default='حساب اصلی', verbose_name='عنوان حساب',
+        help_text='برای تفکیک حساب شرکا — مثلاً «کارت شریک اول»'
+    )
+    card_number = models.CharField(
+        max_length=19, verbose_name='شماره کارت',
+        help_text='۱۶ رقم، بدون فاصله یا خط تیره'
+    )
+    card_holder = models.CharField(max_length=100, verbose_name='نام صاحب کارت')
+    bank_name = models.CharField(max_length=100, blank=True, null=True, verbose_name='نام بانک')
+    sheba = models.CharField(
+        max_length=34, blank=True, null=True, verbose_name='شماره شبا',
+        help_text='اختیاری — برای کاربرانی که کارت‌به‌کارت نمی‌توانند'
+    )
+    instructions = models.TextField(
+        blank=True, null=True, verbose_name='راهنمای پرداخت',
+        help_text='متنی که کنار شماره کارت به کاربر نمایش داده می‌شود'
+    )
+    is_active = models.BooleanField(
+        default=True, verbose_name='فعال',
+        help_text='فقط یک حساب می‌تواند فعال باشد'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'حساب کارت‌به‌کارت'
+        verbose_name_plural = 'حساب‌های کارت‌به‌کارت'
+        ordering = ['-is_active', '-updated_at']
+
+    def __str__(self):
+        status = '✓ فعال' if self.is_active else '✗ غیرفعال'
+        return f"{self.title} - {self.masked_card_number} ({status})"
+
+    @property
+    def masked_card_number(self):
+        digits = ''.join(ch for ch in (self.card_number or '') if ch.isdigit())
+        if len(digits) < 8:
+            return self.card_number or '-'
+        return f"{digits[:4]}****{digits[-4:]}"
+
+    @property
+    def formatted_card_number(self):
+        digits = ''.join(ch for ch in (self.card_number or '') if ch.isdigit())
+        return '-'.join(digits[i:i + 4] for i in range(0, len(digits), 4)) or (self.card_number or '')
+
+    def save(self, *args, **kwargs):
+        self.card_number = ''.join(ch for ch in (self.card_number or '') if ch.isdigit())
+        if self.is_active:
+            CardPaymentAccount.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_active(cls):
+        return cls.objects.filter(is_active=True).first()
+
+
+#=====================================================
+class TokenPurchase(models.Model):
+    """خرید توکن"""
+    STATUS_CHOICES = [
+        ('pending', 'در انتظار پرداخت'),
+        ('awaiting_receipt', 'در انتظار بارگذاری رسید'),
+        ('under_review', 'در انتظار تایید مدیر'),
+        ('paid', 'پرداخت شده'),
+        ('rejected', 'رسید رد شد'),
+        ('failed', 'ناموفق'),
+        ('cancelled', 'لغو شده'),
+    ]
+
+    METHOD_GATEWAY = 'gateway'
+    METHOD_CARD = 'card'
+    PAYMENT_METHOD_CHOICES = [
+        (METHOD_GATEWAY, 'درگاه آنلاین'),
+        (METHOD_CARD, 'کارت به کارت'),
+    ]
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='token_purchases')
+    token_amount = models.IntegerField(validators=[MinValueValidator(50)], verbose_name='تعداد توکن')
+    original_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='قیمت اصلی')
+    discount_code = models.ForeignKey(
+        DiscountCode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='purchases',
+        verbose_name='کد تخفیف'
+    )
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='مبلغ تخفیف')
+    final_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='قیمت نهایی')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='وضعیت')
+    payment_authority = models.CharField(
+        max_length=200, blank=True, null=True, db_index=True,
+        verbose_name='شناسه تراکنش درگاه (Authority)',
+        help_text='هنگام ایجاد تراکنش در درگاه ثبت می‌شود و کال‌بک با همین شناسه verify می‌کند'
+    )
+    payment_ref_id = models.CharField(max_length=200, blank=True, null=True, verbose_name='شماره تراکنش')
+
+    # ---- روش پرداخت و مسیر کارت‌به‌کارت ----
+    payment_method = models.CharField(
+        max_length=10, choices=PAYMENT_METHOD_CHOICES, default=METHOD_GATEWAY,
+        db_index=True, verbose_name='روش پرداخت'
+    )
+    card_account = models.ForeignKey(
+        CardPaymentAccount, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='purchases', verbose_name='کارت مقصد',
+        help_text='کارتی که در لحظه ثبت سفارش به کاربر نشان داده شد'
+    )
+    receipt_image = models.ImageField(
+        upload_to='payment_receipts/%Y/%m/', blank=True, null=True,
+        storage=PrivateMediaStorage(),
+        verbose_name='تصویر رسید',
+        help_text='در فضای خصوصی ذخیره می‌شود و فقط از مسیر محافظت‌شده قابل مشاهده است'
+    )
+    receipt_reference = models.CharField(
+        max_length=100, blank=True, null=True, verbose_name='شماره پیگیری واریز'
+    )
+    receipt_note = models.TextField(blank=True, null=True, verbose_name='توضیح کاربر')
+    receipt_uploaded_at = models.DateTimeField(
+        blank=True, null=True, verbose_name='زمان بارگذاری رسید'
+    )
+    reviewed_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_purchases', verbose_name='بررسی‌کننده'
+    )
+    reviewed_at = models.DateTimeField(blank=True, null=True, verbose_name='زمان بررسی')
+    review_note = models.TextField(blank=True, null=True, verbose_name='یادداشت بررسی')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'خرید توکن'
+        verbose_name_plural = 'خریدهای توکن'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.phone_number} - {self.token_amount} توکن - {self.get_status_display()}"
+
+    @property
+    def receipt_url(self):
+        """آدرس محافظت‌شده‌ی رسید (نه آدرس مستقیم فایل).
+
+        فضای خصوصی base_url ندارد، پس فراخوانی .url روی فایل خطا می‌دهد؛
+        هر جا رسید نمایش داده می‌شود باید از همین مسیر استفاده کند.
+        """
+        if not self.receipt_image:
+            return None
+        return f'/api/purchase-token/{self.pk}/receipt/file/'
+
+    @property
+    def is_settled(self):
+        """آیا این خرید نهایی شده و توکنش آزاد شده است؟"""
+        return self.status == 'paid'
+
+    @property
+    def awaits_admin_review(self):
+        return self.payment_method == self.METHOD_CARD and self.status == 'under_review'
+
+
+#=====================================================
+class AIUsageLog(models.Model):
+    """یک فراخوانی مدل هوش مصنوعی — برای درآوردن بهای تمام‌شده هر برنامه.
+
+    `ClientProgram.ai_cost` مجموع همه‌ی فراخوانی‌های همان برنامه است (تولید
+    + هر ویرایش). این جدول همان عددها را **تفکیک‌شده** نگه می‌دارد تا بشود
+    گفت «ویرایش چقدر برایمان آب می‌خورد» یا «برنامه‌ی فقط غذایی گران‌تر است
+    یا فقط ورزشی».
+
+    تعرفه و نرخ فروش توکن در همین سطر **عکس‌برداری** می‌شوند. اگر بعداً
+    قیمت مدل یا قیمت بسته‌ی توکن عوض شود، گزارش گذشته نباید با قیمت جدید
+    بازنویسی شود؛ بهای تمام‌شده‌ی یک برنامه مال روزی است که ساخته شده.
+    """
+
+    OP_GENERATE = 'generate'
+    OP_EDIT = 'edit'
+    OPERATION_CHOICES = [
+        (OP_GENERATE, 'تولید برنامه'),
+        (OP_EDIT, 'ویرایش برنامه'),
+    ]
+
+    program = models.ForeignKey(
+        'ClientProgram', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ai_usages', verbose_name='برنامه',
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ai_usages', verbose_name='کاربر',
+    )
+    operation = models.CharField(
+        max_length=12, choices=OPERATION_CHOICES, db_index=True,
+        verbose_name='نوع عملیات',
+    )
+    program_type = models.CharField(
+        max_length=10, blank=True, null=True, db_index=True,
+        verbose_name='نوع برنامه',
+        help_text='both / workout / meal — همان چیزی که در لحظه‌ی فراخوانی خواسته شده بود',
+    )
+
+    provider_name = models.CharField(
+        max_length=100, blank=True, null=True, verbose_name='ارائه‌دهنده',
+    )
+    model_name = models.CharField(
+        max_length=100, blank=True, null=True, verbose_name='مدل',
+    )
+
+    input_tokens = models.PositiveIntegerField(default=0, verbose_name='توکن ورودی مدل')
+    output_tokens = models.PositiveIntegerField(default=0, verbose_name='توکن خروجی مدل')
+
+    input_price_per_million = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0'),
+        verbose_name='تعرفه ورودی (تومان بر میلیون)',
+    )
+    output_price_per_million = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0'),
+        verbose_name='تعرفه خروجی (تومان بر میلیون)',
+    )
+    cost = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal('0'),
+        verbose_name='هزینه این فراخوانی (تومان)',
+    )
+
+    tokens_charged = models.PositiveIntegerField(
+        default=0, verbose_name='توکن کاربری کسرشده',
+        help_text='همان ۵۰ / ۲۵ که از حساب مربی کم شد',
+    )
+    token_unit_price = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal('0'),
+        verbose_name='نرخ فروش هر توکن (تومان)',
+        help_text='از تعرفه‌ی فعال بسته‌ی توکن در لحظه‌ی همین فراخوانی',
+    )
+    revenue = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal('0'),
+        verbose_name='درآمد معادل (تومان)',
+        help_text='توکن کسرشده × نرخ فروش هر توکن',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='تاریخ')
+
+    class Meta:
+        verbose_name = 'مصرف هوش مصنوعی'
+        verbose_name_plural = 'مصرف هوش مصنوعی'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['operation', 'program_type']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.get_operation_display()} | {self.model_name or '-'} | "
+            f"{self.input_tokens}+{self.output_tokens} | {self.cost}"
+        )
+
+    @property
+    def margin(self):
+        """سود ناخالص همین فراخوانی: درآمد معادل منهای هزینه‌ی مدل."""
+        return (self.revenue or Decimal('0')) - (self.cost or Decimal('0'))
+
+    @staticmethod
+    def current_token_unit_price():
+        """نرخ فروش هر توکن از روی بسته‌ی فعال.
+
+        بسته‌ها قیمت را «به ازای ۵۰ توکن» نگه می‌دارند. اگر هیچ بسته‌ی فعالی
+        نباشد صفر برمی‌گردد و گزارش، درآمد را صفر نشان می‌دهد — نه یک عدد
+        حدسی.
+        """
+        package = TokenPackage.objects.filter(is_active=True).order_by('token_amount', 'id').first()
+        if not package or not package.price_per_50_tokens:
+            return Decimal('0')
+        return (Decimal(package.price_per_50_tokens) / Decimal('50')).quantize(Decimal('0.0001'))
+
+    @classmethod
+    def record(cls, *, program, user, operation, program_type, usage,
+               tokens_charged, cost):
+        """ثبت یک فراخوانی. شکستش نباید تولید برنامه را خراب کند."""
+        try:
+            config = getattr(usage, 'provider_config', None) or APIConfig.get_active_config()
+            unit_price = cls.current_token_unit_price()
+            return cls.objects.create(
+                program=program,
+                user=user,
+                operation=operation,
+                program_type=program_type,
+                provider_name=(config or {}).get('name'),
+                model_name=getattr(usage, 'model_name', None),
+                input_tokens=getattr(usage, 'input_tokens', 0) or 0,
+                output_tokens=getattr(usage, 'output_tokens', 0) or 0,
+                input_price_per_million=(config or {}).get('input_price_per_million') or Decimal('0'),
+                output_price_per_million=(config or {}).get('output_price_per_million') or Decimal('0'),
+                cost=cost or Decimal('0'),
+                tokens_charged=tokens_charged or 0,
+                token_unit_price=unit_price,
+                revenue=(Decimal(tokens_charged or 0) * unit_price).quantize(Decimal('0.0001')),
+            )
+        except Exception:
+            logger.exception('Failed to record AIUsageLog')
+            return None
+
+
+
+class PricingRule(models.Model):
+    """یک قاعدهٔ قیمت: «چه کسی، چه چیزی، کِی، چندمین بار ⇒ چقدر».
+
+    قاعده‌ها به ترتیبِ «اولویت» سنجیده می‌شوند و **اولین قاعده‌ای که شرطش
+    بخورد حکم می‌دهد**. اگر هیچ‌کدام نخورد، سامانه رفتارِ پیش‌فرضِ قدیمی را
+    ادامه می‌دهد — پس تا قاعده ننویسی، چیزی عوض نمی‌شود.
+
+    نمونه‌ها:
+      · «تا پایانِ مهر همه‌چیز رایگان»  ⇒ تا تاریخ = ۱ آبان، حکم = رایگان
+      · «۵ برنامهٔ اولِ هر مربی رایگان» ⇒ شمارش = برنامه‌های AI، از ۰ تا ۵، رایگان
+      · «از ششم به بعد ۶۰ توکن»        ⇒ شمارش = برنامه‌های AI، از ۵، با توکن ۶۰
+      · «۱۰ روزِ اولِ ثبت‌نام رایگان»   ⇒ روزِ ثبت‌نام از ۰ تا ۱۰، رایگان
+    """
+    from .pricing import (FEATURE_CHOICES, AUDIENCE_CHOICES,
+                          COUNT_SCOPE_CHOICES, MODE_CHOICES)
+
+    title = models.CharField(max_length=120, verbose_name='نامِ قاعده',
+                             help_text='برای خودت، مثلاً «۵ برنامهٔ اول رایگان»')
+    is_active = models.BooleanField(default=True, db_index=True, verbose_name='روشن')
+    priority = models.IntegerField(
+        default=100, db_index=True, verbose_name='اولویت',
+        help_text='کوچک‌تر زودتر سنجیده می‌شود. اولین قاعده‌ای که بخورد برنده است.')
+
+    feature = models.CharField(max_length=20, choices=FEATURE_CHOICES, default='any',
+                               db_index=True, verbose_name='این قاعده برای چیست')
+    audience = models.CharField(max_length=10, choices=AUDIENCE_CHOICES, default='any',
+                                verbose_name='برای چه کسانی')
+    user = models.ForeignKey(
+        'CustomUser', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='pricing_rules', verbose_name='فقط این کاربر',
+        help_text='خالی = همه. پر = استثنا فقط برای همین یک نفر.')
+
+    # ── شرطِ زمانِ تقویمی ──
+    starts_at = models.DateTimeField(null=True, blank=True, verbose_name='از تاریخ/ساعت',
+                                     help_text='خالی = از همیشه')
+    ends_at = models.DateTimeField(null=True, blank=True, verbose_name='تا تاریخ/ساعت',
+                                   help_text='خالی = تا همیشه. خودِ این لحظه دیگر شامل نیست.')
+
+    # ── شرطِ زمان از روی ثبت‌نامِ کاربر ──
+    signup_days_from = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name='از روزِ چندمِ ثبت‌نام')
+    signup_days_to = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name='تا روزِ چندمِ ثبت‌نام',
+        help_text='مثلاً «تا ۱۰» یعنی ده روزِ اول. خودِ روزِ ۱۰ دیگر شامل نیست.')
+
+    # ── شرطِ تعداد ──
+    count_scope = models.CharField(max_length=20, choices=COUNT_SCOPE_CHOICES,
+                                   default='none', verbose_name='شمارشِ چه چیزی')
+    count_from = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name='از بارِ چندم',
+        help_text='صفر یعنی از اولین بار.')
+    count_to = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name='تا بارِ چندم',
+        help_text='مثلاً «تا ۵» یعنی پنج تای اول. خودِ ۵ دیگر شامل نیست.')
+
+    # ── حکم ──
+    mode = models.CharField(max_length=10, choices=MODE_CHOICES, default='free',
+                            verbose_name='حکم')
+    token_cost = models.PositiveIntegerField(
+        default=0, verbose_name='چند توکن',
+        help_text='فقط وقتی حکم «با توکن» است.')
+    blocked_message = models.CharField(
+        max_length=300, blank=True, verbose_name='پیامِ بسته‌بودن',
+        help_text='فقط وقتی حکم «بسته» است؛ همین متن به کاربر نشان داده می‌شود.')
+
+    note = models.TextField(blank=True, verbose_name='یادداشت')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'قاعدهٔ قیمت'
+        verbose_name_plural = 'قاعده‌های قیمت'
+        ordering = ['priority', 'id']
+
+    def __str__(self):
+        return '%s (%s)' % (self.title, self.get_mode_display())
+
+    def human(self):
+        """شرح‌ِ یک‌خطیِ فارسیِ این قاعده — در ادمین نشان داده می‌شود."""
+        bits = []
+        if self.starts_at or self.ends_at:
+            a = self.starts_at.strftime('%Y-%m-%d %H:%M') if self.starts_at else '…'
+            b = self.ends_at.strftime('%Y-%m-%d %H:%M') if self.ends_at else '…'
+            bits.append('زمان %s تا %s' % (a, b))
+        if self.signup_days_from is not None or self.signup_days_to is not None:
+            bits.append('روزِ %s تا %s از ثبت‌نام'
+                        % (self.signup_days_from if self.signup_days_from is not None else '۰',
+                           self.signup_days_to if self.signup_days_to is not None else '…'))
+        if self.count_scope != 'none':
+            bits.append('%s: از %s تا %s'
+                        % (self.get_count_scope_display(),
+                           self.count_from if self.count_from is not None else '۰',
+                           self.count_to if self.count_to is not None else '…'))
+        if self.audience != 'any':
+            bits.append(self.get_audience_display())
+        if self.user_id:
+            bits.append('فقط کاربرِ %s' % self.user_id)
+        cond = ' + '.join(bits) if bits else 'بی‌شرط (همیشه)'
+        out = 'رایگان' if self.mode == 'free' else (
+            '%d توکن' % self.token_cost if self.mode == 'tokens' else 'بسته')
+        return '%s ⇒ %s' % (cond, out)
+
+
+class LedgerEntry(models.Model):
+    """دفتر حساب پلتفرم — فقط افزودنی (append-only).
+
+    هر رویداد مالی یا توکنی یک سطر اینجا می‌سازد و هیچ‌کس (حتی از پنل ادمین)
+    نمی‌تواند سطر را ویرایش یا حذف کند. هدف این است که «ورودی و خروجی» هر
+    کاربر و سهم شرکا از روی یک منبع تغییرناپذیر قابل استناد باشد.
+    """
+    TYPE_PURCHASE = 'purchase'
+    TYPE_TOKEN_GRANT = 'token_grant'
+    TYPE_TOKEN_SPEND = 'token_spend'
+    TYPE_TOKEN_REFUND = 'token_refund'
+    TYPE_TOKEN_TRANSFER = 'token_transfer'
+    TYPE_COMMISSION = 'commission'
+    TYPE_AI_COST = 'ai_cost'
+
+    ENTRY_TYPE_CHOICES = [
+        (TYPE_PURCHASE, 'خرید توکن (درآمد)'),
+        (TYPE_TOKEN_GRANT, 'شارژ توکن'),
+        (TYPE_TOKEN_SPEND, 'مصرف توکن'),
+        (TYPE_TOKEN_REFUND, 'بازگشت توکن'),
+        (TYPE_TOKEN_TRANSFER, 'انتقال توکن به شاگرد'),
+        (TYPE_COMMISSION, 'کمیسیون کد تخفیف (هزینه)'),
+        (TYPE_AI_COST, 'هزینه هوش مصنوعی'),
+    ]
+
+    entry_type = models.CharField(
+        max_length=20, choices=ENTRY_TYPE_CHOICES, db_index=True, verbose_name='نوع رویداد'
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.PROTECT, related_name='ledger_entries',
+        verbose_name='کاربر'
+    )
+    counterparty = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ledger_counterparty_entries', verbose_name='طرف مقابل',
+        help_text='مثلاً سازنده کد تخفیف که کمیسیون می‌گیرد'
+    )
+    tokens = models.IntegerField(
+        default=0, verbose_name='توکن',
+        help_text='مثبت = افزوده شد، منفی = مصرف شد'
+    )
+    amount = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal('0'),
+        verbose_name='مبلغ (تومان)',
+        help_text='مثبت = درآمد پلتفرم، منفی = هزینه پلتفرم'
+    )
+    reference = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+        verbose_name='مرجع', help_text='مثلاً purchase#12 یا program#34'
+    )
+    description = models.CharField(max_length=300, blank=True, null=True, verbose_name='شرح')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='تاریخ ثبت')
+
+    class Meta:
+        verbose_name = 'سطر دفتر حساب'
+        verbose_name_plural = 'دفتر حساب (فقط خواندنی)'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['user', 'entry_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_entry_type_display()} | {self.user.phone_number} | {self.reference or '-'}"
+
+    def save(self, *args, **kwargs):
+        # append-only: یک سطر ثبت‌شده هرگز ویرایش نمی‌شود
+        if self.pk is not None:
+            raise ValueError('سطرهای دفتر حساب قابل ویرایش نیستند.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('سطرهای دفتر حساب قابل حذف نیستند.')
+
+    @classmethod
+    def record(cls, entry_type, user, tokens=0, amount=Decimal('0'),
+               reference=None, description=None, counterparty=None):
+        """ثبت یک رویداد در دفتر حساب.
+
+        شکست ثبت دفتر نباید عملیات اصلی (شارژ/مصرف توکن) را بشکند، چون
+        دفتر گزارش است نه منبع حقیقت موجودی. پس خطا فقط لاگ می‌شود.
+        """
+        try:
+            return cls.objects.create(
+                entry_type=entry_type,
+                user=user,
+                counterparty=counterparty,
+                tokens=int(tokens or 0),
+                amount=Decimal(amount or 0),
+                reference=reference,
+                description=description,
+            )
+        except Exception:  # pragma: no cover - دفتر نباید جریان اصلی را قطع کند
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to write ledger entry (%s / %s)', entry_type, reference
+            )
+            return None
+
+
+class UnitEconomicsReport(AIUsageLog):
+    """نمای گزارشی روی AIUsageLog — «هر برنامه چقدر برایمان تمام می‌شود».
+
+    پروکسی است تا در پنل ادمین یک صفحه‌ی جدا با جمع‌بندی تفکیک‌شده داشته
+    باشد، بدون اینکه جدول دومی در دیتابیس بسازد.
+    """
+
+    class Meta:
+        proxy = True
+        verbose_name = 'گزارش بهای تمام‌شده'
+        verbose_name_plural = 'گزارش بهای تمام‌شده'
+
+
+class AccountStatement(CustomUser):
+    """نمای «صورت‌حساب کاربر» در پنل ادمین — کاملاً فقط خواندنی.
+
+    یک proxy روی CustomUser است تا بدون جدول جدید، ورودی/خروجی هر کاربر
+    (چقدر خریده و چقدر مصرف کرده) در یک صفحه غیرقابل‌ویرایش دیده شود.
+    """
+
+    class Meta:
+        proxy = True
+        verbose_name = 'صورت‌حساب کاربر'
+        verbose_name_plural = 'حسابداری — صورت‌حساب کاربران'
+
+
+class GymBrand(models.Model):
+    """برندسازی باشگاه"""
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='gym_brand')
+    gym_name = models.CharField(max_length=200, verbose_name='نام باشگاه')
+    logo = models.ImageField(upload_to='gym_logos/', blank=True, null=True, verbose_name='لوگو')
+    primary_color = models.CharField(max_length=7, default='#1976d2', verbose_name='رنگ اصلی', help_text='مثال: #1976d2')
+    secondary_color = models.CharField(max_length=7, default='#424242', verbose_name='رنگ فرعی', help_text='مثال: #424242')
+    accent_color = models.CharField(max_length=7, default='#ff9800', verbose_name='رنگ برجسته', help_text='مثال: #ff9800')
+    description = models.TextField(blank=True, null=True, verbose_name='توضیحات باشگاه')
+
+    # دستورالعمل مربی: متنی که در تولید هر برنامه به هوش مصنوعی داده می‌شود
+    program_instructions = models.TextField(
+        blank=True, null=True,
+        verbose_name='دستورالعمل مربی برای برنامه‌ها',
+        help_text='قواعد ثابت شما که در تولید هر برنامه رعایت می‌شود. '
+                  'مثال: «روز اول هر هفته سبک باشد» یا «برای بانوان از پرس سرشانه بالای سر استفاده نشود».'
+    )
+    address = models.TextField(blank=True, null=True, verbose_name='آدرس')
+    phone = models.CharField(max_length=11, blank=True, null=True, verbose_name='شماره تماس')
+    email = models.EmailField(blank=True, null=True, verbose_name='ایمیل')
+    instagram = models.CharField(max_length=100, blank=True, null=True, verbose_name='اینستاگرام')
+    token_balance = models.IntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='کیف پول توکن باشگاه')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'برند باشگاه'
+        verbose_name_plural = 'برندهای باشگاه'
+
+    def __str__(self):
+        return f"{self.gym_name} ({self.user.phone_number})"
+
+    def save(self, *args, **kwargs):
+        # اولین بار که برند ساخته می‌شود، موجودی فعلی کاربر را به ارث می‌برد
+        if self._state.adding and self.token_balance == 0 and self.user.token_balance > 0:
+            self.token_balance = self.user.token_balance
+
+        super().save(*args, **kwargs)
+
+        # کیف پول برند مرجع است — آینه‌ی کاربر را بدون فراخوانی save مدل (بدون بازگشت) به‌روز کن
+        CustomUser.objects.filter(pk=self.user_id).exclude(
+            token_balance=self.token_balance
+        ).update(token_balance=self.token_balance)
+
+
+
+def _code_is_taken(code):
+    """آیا این کد در هیچ‌کدام از دو فضای کد استفاده شده است؟
+
+    ورزشکار هر دو نوع کد را در یک فیلد وارد می‌کند (کد ورود به پنل، و کد
+    یکبارمصرف دانلود برنامه). اگر یک رشته در هر دو جدول وجود داشته باشد،
+    معلوم نیست کدام را باید اجرا کرد؛ پس یکتایی باید بین هر دو برقرار باشد.
+    """
+    if GymClient.objects.filter(access_code=code).exists():
+        return True
+    return ProgramShareCode.objects.filter(code=code).exists()
+
+
+def _generate_code(start_length, error_message):
+    """کد عددی یکتا با طول پویا و مولد امن رمزنگاری.
+
+    اگر فضای آن طول پر شده باشد، خودکار یک رقم اضافه می‌شود.
+    """
+    for length in range(start_length, start_length + 17):
+        for _ in range(5000):
+            code = ''.join(secrets.choice('0123456789') for _ in range(length))
+            if not _code_is_taken(code):
+                return code
+    raise ValueError(error_message)
+
+
+class GymClient(models.Model):
+    """مشتریان باشگاه"""
+    gym_owner = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='gym_clients', verbose_name='صاحب باشگاه')
+    access_code = models.CharField(max_length=20, unique=True, verbose_name='کد دسترسی یکبار مصرف')
+    access_code_expires_at = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name='انقضای کد دسترسی',
+        help_text='خالی = کد دائمی. اگر تنظیم شود، پس از این زمان کد (فعال‌سازی و ورود مجدد) کار نمی‌کند.'
+    )
+    is_used = models.BooleanField(default=False, verbose_name='استفاده شده')
+    tokens_reserved_at = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name='زمان آخرین رزرو توکن',
+        help_text='مبنای محاسبه انقضای توکن‌های رزروشده روی این کد'
+    )
+    pending_tokens = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name='توکن رزروشده قبل از فعال‌سازی'
+    )
+
+    # اطلاعات مشتری (پس از ورود)
+    client_user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='client_profile',
+        verbose_name='کاربر مشتری'
+    )
+    name = models.CharField(max_length=100, blank=True, null=True, verbose_name='نام مشتری')
+    age = models.PositiveIntegerField(blank=True, null=True, verbose_name='سن')
+    # همان مجموعه‌ی ClientProgram — تعریف دوباره‌اش باعث می‌شد در مستندات
+    # دو enum جدا با نام‌های تصادفی ساخته شود.
+    gender = models.CharField(
+        max_length=1, choices=ClientProgram.GENDER_CHOICES,
+        blank=True, null=True, verbose_name='جنسیت'
+    )
+    height = models.FloatField(blank=True, null=True, verbose_name='قد (سانتی‌متر)')
+    weight = models.FloatField(blank=True, null=True, verbose_name='وزن (کیلوگرم)')
+    goal = models.TextField(blank=True, null=True, verbose_name='هدف')
+    injuries = models.TextField(blank=True, null=True, verbose_name='آسیب‌های بدنی')
+    food_allergies = models.TextField(blank=True, null=True, verbose_name='حساسیت‌های غذایی')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'مشتری باشگاه'
+        verbose_name_plural = 'مشتریان باشگاه'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        if self.name:
+            return f"{self.name} ({self.gym_owner.gym_name})"
+        return f"کد: {self.access_code} ({self.gym_owner.gym_name})"
+
+    def save(self, *args, **kwargs):
+        # تولید کد دسترسی یکبار مصرف
+        if not self.access_code:
+            self.access_code = self.generate_unique_code()
+        super().save(*args, **kwargs)
+
+    def reclaim_pending_tokens(self, reason='expiry'):
+        """بازگرداندن توکن‌های رزروشده روی این کد به حساب مربی.
+
+        اتمیک است: یا هر دو (صفرشدن رزرو + شارژ مربی) انجام می‌شود یا هیچ‌کدام.
+        """
+        if self.pending_tokens <= 0:
+            return 0
+
+        amount = self.pending_tokens
+        with transaction.atomic():
+            updated = GymClient.objects.filter(pk=self.pk, pending_tokens=amount).update(
+                pending_tokens=0, tokens_reserved_at=None
+            )
+            if not updated:
+                # کسی همزمان تغییرش داده — دوباره تلاش نمی‌کنیم
+                return 0
+            self.gym_owner.add_tokens(amount)
+
+        self.pending_tokens = 0
+        self.tokens_reserved_at = None
+        return amount
+
+    def pending_tokens_expired(self, expiry_days):
+        """آیا مهلت توکن‌های رزروشده این کد تمام شده است؟"""
+        if expiry_days <= 0 or self.pending_tokens <= 0 or self.is_used:
+            return False
+        if self.tokens_reserved_at is None:
+            return False
+        return timezone.now() >= self.tokens_reserved_at + timedelta(days=expiry_days)
+
+    @property
+    def access_code_is_expired(self):
+        """آیا کد دسترسی زمان‌دار این مشتری منقضی شده است؟ (کد بدون انقضا = دائمی)"""
+        return (
+            self.access_code_expires_at is not None
+            and timezone.now() >= self.access_code_expires_at
+        )
+
+    @property
+    def access_code_is_permanent(self):
+        """کد دائمی است یا زمان‌دار؟ (فرانت با همین تصمیم می‌گیرد تایمر نشان بدهد یا نه)"""
+        return self.access_code_expires_at is None
+
+    @property
+    def access_code_remaining_seconds(self):
+        """شمارش معکوس اعتبار کد به ثانیه — دقیقاً مثل تایمر کد پیامکی.
+
+        None یعنی کد دائمی (تایمری در کار نیست) و 0 یعنی منقضی شده.
+        عدد از خود سرور می‌آید تا ساعت اشتباه دستگاه کاربر تایمر را خراب نکند.
+        """
+        if self.access_code_expires_at is None:
+            return None
+        remaining = (self.access_code_expires_at - timezone.now()).total_seconds()
+        return max(0, int(remaining))
+
+    def set_access_code_validity(self, days=0, minutes=0):
+        """تنظیم مدت اعتبار کد از الان.
+
+        days و minutes با هم جمع می‌شوند؛ صفر بودن هر دو یعنی تبدیل به کد دائمی.
+        """
+        total_minutes = int(days or 0) * 24 * 60 + int(minutes or 0)
+        if total_minutes > 0:
+            self.access_code_expires_at = timezone.now() + timedelta(minutes=total_minutes)
+        else:
+            self.access_code_expires_at = None
+
+    # طول پیش‌فرض کد وقتی تنظیمات سامانه در دسترس نیست
+    DEFAULT_ACCESS_CODE_LENGTH = 4
+
+    @classmethod
+    def access_code_length(cls):
+        """طول کد دسترسی از تنظیمات سامانه (قابل تغییر از پنل ادمین)."""
+        try:
+            length = PlatformSettings.get_solo().access_code_length
+        except Exception:
+            # مثلاً حین مایگریشن که هنوز جدول تنظیمات وجود ندارد
+            return cls.DEFAULT_ACCESS_CODE_LENGTH
+        return max(int(length or cls.DEFAULT_ACCESS_CODE_LENGTH), 1)
+
+    @classmethod
+    def generate_unique_code(cls):
+        """تولید کد یونیک با طول پویا.
+
+        طول پایه از «تنظیمات سامانه → طول کد دسترسی» خوانده می‌شود (پیش‌فرض ۴).
+        اگر فضای آن طول پر شده باشد، خودکار یک رقم اضافه می‌شود تا کد یکتا پیدا شود.
+        کد با مولد امن رمزنگاری (secrets) ساخته می‌شود.
+        """
+        return _generate_code(
+            cls.access_code_length(),
+            'عدم توانایی در تولید کد دسترسی یکتا',
+        )
+
+
+class ProgramShareCode(models.Model):
+    """کد یکبارمصرف برای تحویل برنامه‌ای که مربی خودش ساخته است.
+
+    دو مسیر تحویل برنامه وجود دارد و این مدل مسیر دوم است:
+
+    ۱. **کد دسترسی پنل** (`GymClient.access_code`) — ورزشکار وارد پنل می‌شود،
+       اطلاعاتش را خودش پر می‌کند و برنامه ساخته می‌شود. آن کد بنا به تنظیم
+       مربی زمان‌دار یا دائمی است و ورود مجدد می‌دهد.
+
+    ۲. **این مدل** — مربی برنامه را از قبل ساخته و فقط می‌خواهد ورزشکار آن را
+       بگیرد. این کد از سمت ورزشکار **فقط یک بار** کار می‌کند و بعد از یک
+       دانلود موفق مصرف می‌شود. دسترسی خود مربی به برنامه از تاریخچه‌اش
+       همیشگی است و این کد هیچ تأثیری بر آن ندارد.
+
+    اینجا توکنی مصرف نمی‌شود: هزینه‌ی برنامه هنگام تولیدش از مربی کسر شده و
+    این مرحله فقط تحویل است.
+    """
+
+    SECTION_CHOICES = [
+        ('both', 'ورزشی و غذایی'),
+        ('workout', 'فقط ورزشی'),
+        ('meal', 'فقط غذایی'),
+    ]
+
+    program = models.ForeignKey(
+        ClientProgram,
+        on_delete=models.CASCADE,
+        related_name='share_codes',
+        verbose_name='برنامه',
+    )
+    code = models.CharField(
+        max_length=20, unique=True, db_index=True,
+        verbose_name='کد یکبارمصرف',
+    )
+    created_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='created_share_codes',
+        verbose_name='سازنده (مربی)',
+    )
+    section = models.CharField(
+        max_length=10, choices=SECTION_CHOICES, default='both',
+        verbose_name='بخش قابل دانلود',
+        help_text='ورزشکار فقط همین بخش را می‌گیرد.'
+    )
+    expires_at = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name='انقضا',
+        help_text='خالی = بدون محدودیت زمانی. در هر حال کد فقط یک بار کار می‌کند.'
+    )
+
+    is_used = models.BooleanField(default=False, db_index=True, verbose_name='مصرف شده')
+    used_at = models.DateTimeField(null=True, blank=True, verbose_name='زمان مصرف')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'کد دانلود برنامه'
+        verbose_name_plural = 'کدهای دانلود برنامه'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        state = '✓ مصرف‌شده' if self.is_used else 'آماده'
+        return f"{self.code} → {self.program.name} ({state})"
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = self.generate_unique_code()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def generate_unique_code(cls):
+        return _generate_code(
+            GymClient.access_code_length(),
+            'عدم توانایی در تولید کد دانلود یکتا',
+        )
+
+    @property
+    def is_expired(self):
+        if self.expires_at is None:
+            return False
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_redeemable(self):
+        return not self.is_used and not self.is_expired
+
+    def redeem(self):
+        """مصرف اتمیک کد.
+
+        زیر شرط `is_used=False` به‌روزرسانی می‌شود تا دو درخواست هم‌زمان با
+        یک کد، دو بار دانلود نگیرند.
+
+        خروجی: True اگر همین فراخوانی کد را مصرف کرد.
+        """
+        now = timezone.now()
+        updated = ProgramShareCode.objects.filter(
+            pk=self.pk, is_used=False
+        ).update(is_used=True, used_at=now)
+        if updated:
+            self.is_used = True
+            self.used_at = now
+            return True
+        return False
+
+
+class TokenRequest(models.Model):
+    """درخواست توکن از مربی"""
+    STATUS_CHOICES = [
+        ('pending', 'در انتظار بررسی'),
+        ('approved', 'تایید شده'),
+        ('rejected', 'رد شده'),
+    ]
+
+    client = models.ForeignKey(GymClient, on_delete=models.CASCADE, related_name='token_requests', verbose_name='مشتری')
+    gym_owner = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='client_token_requests', verbose_name='مربی')
+    requested_tokens = models.IntegerField(validators=[MinValueValidator(50)], verbose_name='تعداد توکن درخواستی')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='وضعیت')
+    message = models.TextField(blank=True, null=True, verbose_name='پیام درخواست')
+    response_message = models.TextField(blank=True, null=True, verbose_name='پیام پاسخ')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'درخواست توکن'
+        verbose_name_plural = 'درخواست‌های توکن'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.client.name or self.client.access_code} - {self.requested_tokens} توکن - {self.get_status_display()}"
+
+    def approve(self, response_message=''):
+        """تایید درخواست و افزودن توکن به مشتری"""
+        if self.status != 'pending':
+            return False, 'این درخواست قبلاً بررسی شده است'
+
+        with transaction.atomic():
+            # کسر توکن از مربی — چک موجودی داخل deduct_tokens زیر قفل انجام می‌شود
+            if not self.gym_owner.deduct_tokens(self.requested_tokens):
+                return False, 'موجودی توکن مربی کافی نیست'
+
+            # افزودن توکن به مشتری:
+            # اگر کاربر مشتری فعال باشد مستقیم به حسابش می‌رود،
+            # در غیر این صورت روی کد مشتری رزرو می‌شود تا بعد از فعال‌سازی منتقل شود.
+            if self.client.client_user:
+                self.client.client_user.add_tokens(self.requested_tokens)
+            else:
+                GymClient.objects.filter(pk=self.client_id).update(
+                    pending_tokens=F('pending_tokens') + self.requested_tokens,
+                    tokens_reserved_at=timezone.now(),
+                )
+                self.client.refresh_from_db(fields=['pending_tokens'])
+
+            self.status = 'approved'
+            self.response_message = response_message
+            self.save()
+
+        return True, 'درخواست تایید شد'
+
+    def reject(self, response_message=''):
+        """رد درخواست"""
+        if self.status != 'pending':
+            return False, 'این درخواست قبلاً بررسی شده است'
+
+        self.status = 'rejected'
+        self.response_message = response_message
+        self.save()
+
+        return True, 'درخواست رد شد'
+
+
+class HomePage(models.Model):
+    """محتوای صفحه اصلی"""
+    title = models.CharField(max_length=200, verbose_name='عنوان')
+    subtitle = models.CharField(max_length=300, verbose_name='زیرعنوان')
+    hero_image = models.ImageField(upload_to='homepage/', blank=True, null=True, verbose_name='تصویر اصلی')
+    description = models.TextField(verbose_name='توضیحات')
+    app_download_link = models.URLField(blank=True, null=True, verbose_name='لینک دانلود اپلیکیشن')
+    web_app_link = models.URLField(blank=True, null=True, verbose_name='لینک وب اپلیکیشن')
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'صفحه اصلی'
+        verbose_name_plural = 'صفحه اصلی'
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        # فقط یک محتوای صفحه اصلی می‌تواند فعال باشد
+        if self.is_active:
+            HomePage.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+
+class BlogPost(models.Model):
+    """پست‌های وبلاگ"""
+    title = models.CharField(max_length=200, verbose_name='عنوان')
+    slug = models.SlugField(max_length=200, unique=True, verbose_name='آدرس URL')
+    author = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='blog_posts', verbose_name='نویسنده')
+    image = models.ImageField(upload_to='blog/', blank=True, null=True, verbose_name='تصویر')
+    summary = models.TextField(max_length=300, verbose_name='خلاصه')
+    content = models.TextField(verbose_name='محتوا')
+    is_published = models.BooleanField(default=False, verbose_name='منتشر شده')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'پست وبلاگ'
+        verbose_name_plural = 'پست‌های وبلاگ'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        # ⚠ نبودنِ همین متد، /sitemap.xml را خطای ۵۰۰ می‌کرد: نقشهٔ سایت برای
+        # هر پست آدرسش را می‌پرسد و جنگو AttributeError می‌داد. همهٔ ۳۰ خطای
+        # ۵۰۰ِ امروز همین یک علت را داشت — و گوگل هم نقشهٔ سایت را نمی‌خواند.
+        from django.urls import reverse
+        return reverse('blog_detail', kwargs={'slug': self.slug})
+
+
+class ContactMessage(models.Model):
+    """پیام‌های تماس با ما"""
+    name = models.CharField(max_length=100, verbose_name='نام')
+    email = models.EmailField(verbose_name='ایمیل')
+    phone = models.CharField(max_length=11, blank=True, null=True, verbose_name='شماره تماس')
+    subject = models.CharField(max_length=200, verbose_name='موضوع')
+    message = models.TextField(verbose_name='پیام')
+    is_read = models.BooleanField(default=False, verbose_name='خوانده شده')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'پیام تماس'
+        verbose_name_plural = 'پیام‌های تماس'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.subject}"
+
+
+class TeamMember(models.Model):
+    """اعضای تیم"""
+    name = models.CharField(max_length=100, verbose_name='نام')
+    role = models.CharField(max_length=100, verbose_name='نقش')
+    photo = models.ImageField(upload_to='team/', blank=True, null=True, verbose_name='عکس')
+    icon = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name='نام آیکون',
+        help_text='آیکون Bootstrap Icons بدون پیشوند bi- (مثال: code-slash، clipboard-pulse، headset). '
+                  'وقتی عکس آپلود نشده باشد، همین آیکون روی کارت تیم نمایش داده می‌شود.'
+    )
+    bio = models.TextField(blank=True, null=True, verbose_name='بیوگرافی')
+    linkedin = models.URLField(blank=True, null=True, verbose_name='لینکدین')
+    email = models.EmailField(blank=True, null=True, verbose_name='ایمیل')
+    order = models.IntegerField(default=0, verbose_name='ترتیب نمایش')
+
+    class Meta:
+        verbose_name = 'عضو تیم'
+        verbose_name_plural = 'اعضای تیم'
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return f"{self.name} - {self.role}"
+
+
+class Feature(models.Model):
+    """امکانات و محصولات"""
+    title = models.CharField(max_length=200, verbose_name='عنوان')
+    description = models.TextField(verbose_name='توضیحات')
+    icon = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name='نام آیکون',
+        help_text='نام آیکون Font Awesome بدون پیشوند fa- (مثال: robot، users، chart-line، dumbbell). ایموجی کار نمی‌کند.'
+    )
+    image = models.ImageField(upload_to='features/', blank=True, null=True, verbose_name='تصویر')
+    order = models.IntegerField(default=0, verbose_name='ترتیب نمایش')
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+
+    class Meta:
+        verbose_name = 'امکانات'
+        verbose_name_plural = 'امکانات'
+        ordering = ['order', 'title']
+
+    def __str__(self):
+        return self.title
+
+
+class PaymentGatewayConfig(models.Model):
+    """تنظیمات درگاه پرداخت"""
+    GATEWAY_CHOICES = [
+        ('mock', 'درگاه تستی (شبیه‌ساز داخلی — بدون پول واقعی)'),
+        ('zarinpal', 'زرین پال'),
+        ('idpay', 'آیدی پی'),
+        ('nextpay', 'نکست پی'),
+        ('zibal', 'زیبال'),
+        ('mellat', 'ملت'),
+        ('saman', 'سامان'),
+    ]
+
+    gateway_type = models.CharField(max_length=20, choices=GATEWAY_CHOICES, verbose_name='نوع درگاه')
+    merchant_id = models.CharField(
+        max_length=200, blank=True, default='',
+        verbose_name='Merchant ID / کلید پذیرنده',
+        help_text='برای درگاه تستی لازم نیست خالی بگذارید'
+    )
+    api_key = models.CharField(max_length=500, blank=True, null=True, verbose_name='API Key')
+    callback_url = models.URLField(verbose_name='آدرس بازگشت (Callback URL)', help_text='مثال: https://yourdomain.com/api/payment-callback/')
+    is_sandbox = models.BooleanField(default=True, verbose_name='حالت تست (Sandbox)')
+    is_active = models.BooleanField(default=False, verbose_name='فعال')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'تنظیمات درگاه پرداخت'
+        verbose_name_plural = 'تنظیمات درگاه‌های پرداخت'
+
+    def __str__(self):
+        status = '✓ فعال' if self.is_active else '✗ غیرفعال'
+        mode = 'Sandbox' if self.is_sandbox else 'Production'
+        return f"{self.get_gateway_type_display()} ({mode} - {status})"
+
+    def save(self, *args, **kwargs):
+        # فقط یک درگاه می‌تواند فعال باشد
+        if self.is_active:
+            PaymentGatewayConfig.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_active_gateway(cls):
+        """دریافت درگاه فعال"""
+        return cls.objects.filter(is_active=True).first()
+
+
+class PlatformSettings(models.Model):
+    """تنظیمات سراسری سامانه (فقط یک رکورد فعال).
+
+    مقادیر عملیاتی که مدیر باید بدون تغییر کد بتواند تنظیم کند.
+    """
+    name = models.CharField(max_length=100, default='تنظیمات اصلی', verbose_name='عنوان')
+
+    pending_token_expiry_days = models.PositiveIntegerField(
+        default=30,
+        verbose_name='مهلت توکن رزروشده (روز)',
+        help_text='اگر توکنی روی یک کد دسترسی رزرو شود و مشتری تا این تعداد روز '
+                  'کد را فعال نکند، توکن‌ها خودکار به حساب مربی برمی‌گردند. '
+                  'مقدار 0 یعنی هرگز برنگردد.'
+    )
+
+    access_code_length = models.PositiveIntegerField(
+        default=4,
+        validators=[MinValueValidator(4), MaxValueValidator(12)],
+        verbose_name='طول کد دسترسی (رقم)',
+        help_text='تعداد رقم کدهای دسترسی جدیدِ مشتریان باشگاه (پیش‌فرض ۴). '
+                  'کدهای ساخته‌شده تغییر نمی‌کنند. عدد بزرگ‌تر حدس‌زدن کد را سخت‌تر می‌کند.'
+    )
+
+    b2c_split_active = models.BooleanField(
+        default=False,
+        verbose_name='جداییِ کاملِ B2C فعال باشد',
+        help_text='تا وقتی خاموش است، هیچ کاربری به ساب‌دامینِ ورزشکار هدایت '
+                  'نمی‌شود و همه‌چیز مثلِ امروز کار می‌کند. **اول** رکوردِ DNS را '
+                  'در کلادفلر بسازید و مطمئن شوید app.chagher.ir باز می‌شود، '
+                  'بعد این تیک را بزنید.'
+    )
+
+    # ── نشانی و نقشه (خواستِ مالک ۱۴۰۵/۰۷/۱۸) ──
+    # پیش از این نشانی در فوتر و صفحهٔ تماس دست‌نویس بود («تهران، ایران») و
+    # نقشه یک iframeِ ثابت با مختصاتِ اشتباه. حالا هر دو از همین‌جا می‌آیند.
+    contact_address = models.CharField(
+        max_length=300, blank=True, default='تهران، ایران',
+        verbose_name='نشانی (متنی)',
+        help_text='همان متنی که در فوتر و صفحهٔ «تماس با ما» دیده می‌شود.')
+    contact_phone = models.CharField(
+        max_length=40, blank=True, default='09019056524', verbose_name='تلفن')
+    contact_email = models.CharField(
+        max_length=120, blank=True, default='akbari.manix@gmail.com', verbose_name='ایمیل')
+    map_lat = models.CharField(
+        max_length=24, blank=True, default='', verbose_name='عرضِ جغرافیایی نقشه',
+        help_text='مثلاً 35.7325 — از گوگل‌مپ روی نقطه راست‌کلیک کن، عدد اول.')
+    map_lng = models.CharField(
+        max_length=24, blank=True, default='', verbose_name='طولِ جغرافیایی نقشه',
+        help_text='مثلاً 51.4215 — عدد دوم. اگر هر دو خالی باشند نقشه نشان داده نمی‌شود.')
+    map_zoom = models.PositiveSmallIntegerField(
+        default=15, verbose_name='بزرگ‌نماییِ نقشه', help_text='۱ تا ۲۰؛ پیش‌فرض ۱۵.')
+
+    @property
+    def map_embed_url(self):
+        """آدرسِ iframe نقشه از مختصات — بی‌نیاز به کلیدِ گوگل."""
+        lat = (self.map_lat or '').strip()
+        lng = (self.map_lng or '').strip()
+        if not lat or not lng:
+            return ''
+        return ('https://maps.google.com/maps?q=%s,%s&z=%s&hl=fa&output=embed'
+                % (lat, lng, self.map_zoom or 15))
+
+    app_bridge_enabled = models.BooleanField(
+        default=True,
+        verbose_name='دکمهٔ «ابزارهای چغر» در اپ فعال باشد',
+        help_text='دکمهٔ گردِ کوچکی که داخلِ اپِ فلاتر، صفحه‌های تازه (برنامهٔ دستی، '
+                  'اسکنِ دستگاه، حسابِ من) را باز می‌کند. تیک را بردارید ⇒ دکمه از '
+                  'اپ ناپدید می‌شود و هیچ‌کس نمی‌فهمد بوده است.'
+    )
+
+    form_check_enabled = models.BooleanField(
+        default=False,
+        verbose_name='بررسیِ درستیِ حرکت با دوربین فعال باشد',
+        help_text='وقتی خاموش است، نه دکمه‌اش در صفحهٔ آموزش دیده می‌شود و نه '
+                  'مسیرهایش پاسخ می‌دهند — یعنی کاربر اصلاً نمی‌فهمد چنین چیزی هست.'
+    )
+
+    form_check_token_cost = models.PositiveIntegerField(
+        default=0,
+        verbose_name='توکنِ هر دورِ بررسیِ حرکت',
+        help_text='هزینهٔ یک دورِ بررسی (هر دور چند فریم دارد). ۰ یعنی رایگان.'
+    )
+
+    form_check_max_frames = models.PositiveIntegerField(
+        default=40,
+        verbose_name='حداکثر فریمِ هر دورِ بررسی',
+        help_text='هر فریم یک فراخوانیِ مدل است. این سقف جلوی مصرفِ بی‌حساب را می‌گیرد.'
+    )
+
+    form_check_store_frames = models.BooleanField(
+        default=False,
+        verbose_name='عکسِ فریم‌ها نگه داشته شود',
+        help_text='فقط برای عیب‌یابی. روشن‌کردنش دیسک را پر می‌کند و عکسِ ورزشکار '
+                  'را ذخیره می‌کند؛ پیش‌فرض خاموش است.'
+    )
+
+    equipment_scan_token_cost = models.PositiveIntegerField(
+        default=0,
+        verbose_name='توکنِ هر اسکنِ دستگاه',
+        help_text='هزینهٔ یک دورِ «اسکنِ باشگاه با دوربین». ۰ یعنی رایگان. یک دور '
+                  'می‌تواند چند عکس داشته باشد و فقط یک‌بار حساب می‌شود.'
+    )
+
+    equipment_scan_max_photos = models.PositiveIntegerField(
+        default=12,
+        verbose_name='حداکثر عکسِ هر اسکن',
+        help_text='هر عکس یک فراخوانیِ مدل است؛ این سقف جلوی فرستادنِ ده‌ها عکس '
+                  'در یک درخواست را می‌گیرد.'
+    )
+
+    # ── سهمیهٔ رایگانِ هر مربی (خواستهٔ مالک: ۱۰ روز دستی + ۵ هوش مصنوعی) ──
+    manual_trial_days = models.PositiveIntegerField(
+        default=10,
+        verbose_name='روزهای رایگانِ برنامهٔ دستی برای هر مربی',
+        help_text='از تاریخِ ثبت‌نامِ مربی، این تعداد روز برنامهٔ دستی رایگان است. '
+                  'بعد از آن، اشتراکِ سالانه لازم می‌شود. مقدار ۰ یعنی از روزِ اول پولی.'
+    )
+
+    ai_free_programs = models.PositiveIntegerField(
+        default=5,
+        verbose_name='برنامهٔ رایگانِ هوش مصنوعی برای هر مربی',
+        help_text='این تعداد برنامهٔ اولِ هوش مصنوعی برای هر مربی رایگان است (توکن کم '
+                  'نمی‌شود). بعد از آن، مثلِ همیشه توکن کسر می‌شود.'
+    )
+
+    @staticmethod
+    def token_costs():
+        """نرخِ مصرفِ توکنِ هر کار — زنده از ادمین، نه عددِ ثابتِ کد."""
+        st = PlatformSettings.get_solo()
+        return {
+            'generate_program': int(st.ai_tokens_both),
+            'generate_workout_only': int(st.ai_tokens_workout),
+            'generate_meal_only': int(st.ai_tokens_meal),
+            'edit_program': int(st.ai_tokens_edit),
+        }
+
+    @staticmethod
+    def program_type_costs():
+        c = PlatformSettings.token_costs()
+        return {'both': c['generate_program'],
+                'workout': c['generate_workout_only'],
+                'meal': c['generate_meal_only']}
+
+    manual_plan_annual_price = models.DecimalField(
+        max_digits=12, decimal_places=0, default=2000000,
+        verbose_name='قیمتِ سالانهٔ برنامهٔ دستی (تومان)',
+        help_text='اشتراکِ یک‌سالهٔ ساختِ برنامهٔ دستی و PDF آن.'
+    )
+
+    ai_program_price = models.DecimalField(
+        max_digits=12, decimal_places=0, default=0,
+        verbose_name='قیمتِ هر برنامهٔ هوش مصنوعی (تومان)',
+        help_text='برای نمایش در صفحهٔ خرید. کسرِ واقعی با توکن انجام می‌شود؛ '
+                  'این عدد فقط تعرفه است. ۰ یعنی «با بستهٔ توکن حساب می‌شود».'
+    )
+
+    manual_program_free_quota = models.PositiveIntegerField(
+        default=3,
+        verbose_name='برنامهٔ دستیِ رایگان برای هر ورزشکار',
+        help_text='مربی می‌تواند بدون هوش مصنوعی، خودش برنامه بنویسد. این تعداد برنامهٔ '
+                  'اولِ هر ورزشکار رایگان است و از آن به بعد به ازای هر برنامه توکن کم '
+                  'می‌شود. مقدار ۰ یعنی از همان اولی پولی باشد.'
+    )
+
+    # ── نرخِ مصرفِ توکن (۰۷/۲۱) ──
+    # پیش از این در views.py هاردکد بود و مالک نمی‌توانست عوضش کند.
+    ai_tokens_both = models.PositiveIntegerField(
+        default=50, verbose_name='توکنِ برنامهٔ کامل (ورزشی + غذایی)')
+    ai_tokens_workout = models.PositiveIntegerField(
+        default=25, verbose_name='توکنِ فقط برنامهٔ ورزشی')
+    ai_tokens_meal = models.PositiveIntegerField(
+        default=25, verbose_name='توکنِ فقط برنامهٔ غذایی')
+    ai_tokens_edit = models.PositiveIntegerField(
+        default=25, verbose_name='توکنِ ویرایشِ برنامه')
+
+    MANUAL_BILL_TRIAL = 'trial'
+    MANUAL_BILL_TOKENS = 'tokens'
+    MANUAL_BILL_FREE = 'free'
+    MANUAL_BILLING_CHOICES = [
+        (MANUAL_BILL_TRIAL,
+         'دورهٔ آزمایشی، بعد اشتراکِ سالانه (رفتارِ قبلی)'),
+        (MANUAL_BILL_TOKENS,
+         'با توکن — پس از سهمِ رایگانِ هر ورزشکار'),
+        (MANUAL_BILL_FREE, 'همیشه رایگان'),
+    ]
+    manual_billing_mode = models.CharField(
+        max_length=10, choices=MANUAL_BILLING_CHOICES, default=MANUAL_BILL_TRIAL,
+        verbose_name='برنامهٔ دستی چطور حساب شود',
+        help_text='اگر «با توکن» را بزنی، دورهٔ آزمایشی و اشتراک دخالت '
+                  'نمی‌کنند: تا «سهمِ رایگان» مجانی است و بعدش «هزینهٔ توکن» '
+                  'کم می‌شود.')
+
+    manual_program_token_cost = models.PositiveIntegerField(
+        default=10,
+        verbose_name='توکنِ برنامهٔ دستی (پس از پایانِ رایگان‌ها)',
+        help_text='هزینهٔ هر برنامهٔ دستی وقتی سهمِ رایگانِ آن ورزشکار تمام شده باشد. '
+                  'برنامهٔ هوش مصنوعی ۵۰ توکن است؛ این عدد معمولاً کمتر گذاشته می‌شود '
+                  'چون هیچ مدلی اجرا نمی‌شود. مقدار ۰ یعنی برنامهٔ دستی همیشه رایگان.'
+    )
+
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'تنظیمات سامانه'
+        verbose_name_plural = 'تنظیمات سامانه'
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            PlatformSettings.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        """تنظیمات فعال؛ اگر نبود با مقادیر پیش‌فرض ساخته می‌شود."""
+        settings_obj = cls.objects.filter(is_active=True).first()
+        if settings_obj is None:
+            settings_obj = cls.objects.create()
+        return settings_obj
+
+
+class SMSConfig(models.Model):
+    """تنظیمات سرویس SMS"""
+    SMS_PROVIDER_CHOICES = [
+        ('farazsms', 'فراز اس ام اس'),
+        ('kavenegar', 'کاوه نگار'),
+        ('ghasedak', 'قاصدک'),
+        ('melipayamak', 'ملی پیامک'),
+    ]
+
+    provider = models.CharField(max_length=20, choices=SMS_PROVIDER_CHOICES, verbose_name='سرویس دهنده')
+    api_key = models.CharField(max_length=500, verbose_name='API Key / کلید دسترسی')
+    sender_number = models.CharField(max_length=15, verbose_name='شماره ارسال‌کننده')
+    is_active = models.BooleanField(default=False, verbose_name='فعال')
+
+    # قالب‌های پیامک
+    access_code_template = models.TextField(
+        default='کد دسترسی شما به باشگاه: {code}\nباشگاه: {gym_name}',
+        verbose_name='قالب کد دسترسی',
+        help_text='متغیرها: {code}, {gym_name}'
+    )
+    token_approved_template = models.TextField(
+        default='درخواست توکن شما تایید شد.\n{tokens} توکن به حساب شما اضافه شد.',
+        verbose_name='قالب تایید توکن',
+        help_text='متغیرها: {tokens}'
+    )
+    token_rejected_template = models.TextField(
+        default='متاسفانه درخواست توکن شما رد شد.\nدلیل: {reason}',
+        verbose_name='قالب رد توکن',
+        help_text='متغیرها: {reason}'
+    )
+    password_reset_template = models.TextField(
+        default='کد بازیابی رمز عبور شما: {code}',
+        verbose_name='قالب کد بازیابی رمز',
+        help_text='متغیرها: {code}'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'تنظیمات SMS'
+        verbose_name_plural = 'تنظیمات SMS'
+
+    def __str__(self):
+        status = '✓ فعال' if self.is_active else '✗ غیرفعال'
+        return f"{self.get_provider_display()} ({status})"
+
+    def save(self, *args, **kwargs):
+        # فقط یک سرویس می‌تواند فعال باشد
+        if self.is_active:
+            SMSConfig.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_active_service(cls):
+        """دریافت سرویس فعال"""
+        return cls.objects.filter(is_active=True).first()
+
+
+class PasswordResetOTP(models.Model):
+    """کد یکبارمصرف بازیابی رمز عبور (ارسال با پیامک).
+
+    بدون کد معتبر، هیچ رمزی عوض نمی‌شود — جایگزین ریست مستقیم و ناامن قبلی.
+    """
+    OTP_EXPIRY_MINUTES = 10
+    MAX_ATTEMPTS = 5
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE,
+        related_name='password_reset_otps', verbose_name='کاربر'
+    )
+    code = models.CharField(max_length=4, verbose_name='کد تایید')
+    attempts = models.PositiveIntegerField(default=0, verbose_name='تعداد تلاش ناموفق')
+    is_used = models.BooleanField(default=False, verbose_name='استفاده/باطل شده')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'کد بازیابی رمز'
+        verbose_name_plural = 'کدهای بازیابی رمز'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.phone_number} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+    def is_expired(self):
+        return timezone.now() >= self.created_at + timedelta(minutes=self.OTP_EXPIRY_MINUTES)
+
+    def register_failed_attempt(self):
+        """ثبت یک تلاش ناموفق؛ پس از MAX_ATTEMPTS کد دیگر پذیرفته نمی‌شود."""
+        self.attempts = models.F('attempts') + 1
+        self.save(update_fields=['attempts'])
+        self.refresh_from_db(fields=['attempts'])
+
+    @classmethod
+    def issue(cls, user):
+        """صدور کد جدید و ابطال کدهای استفاده‌نشده قبلی همان کاربر."""
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        # ۴ رقمی (به‌خواست مالک) — مثلِ کدِ ثبت‌نام که از اول ۴ رقمی بود
+        code = ''.join(secrets.choice('0123456789') for _ in range(4))
+        return cls.objects.create(user=user, code=code)
+
+
+
+class SMSOutbox(models.Model):
+    """صف پیامک‌های کد تایید برای گیت‌وی پیامک (گوشیِ ارسال‌کننده).
+
+    گوشی مرتب GET /api/next-otp را می‌خواند، هر کد را پیامک می‌کند و با
+    POST /api/mark-sent آن را «ارسال شد» علامت می‌زند (app/sms_gateway.py).
+    """
+    PURPOSE_REGISTER = 'register'
+    PURPOSE_PASSWORD_RESET = 'password_reset'
+    PURPOSE_CHOICES = [
+        (PURPOSE_REGISTER, 'ثبت‌نام'),
+        (PURPOSE_PASSWORD_RESET, 'بازیابی رمز'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    phone = models.CharField(max_length=15, verbose_name='شماره موبایل')
+    code = models.CharField(max_length=10, verbose_name='کد')
+    purpose = models.CharField(
+        max_length=20, choices=PURPOSE_CHOICES, default=PURPOSE_REGISTER, verbose_name='نوع'
+    )
+    sent = models.BooleanField(default=False, verbose_name='ارسال شد')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='زمان ثبت')
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name='زمان ارسال')
+    expires_at = models.DateTimeField(
+        blank=True, verbose_name='انقضا',
+        help_text='بعد از این زمان به گیت‌وی داده نمی‌شود. خالی = ۵ دقیقه بعد.'
+    )
+
+    class Meta:
+        verbose_name = 'پیامک در صف'
+        verbose_name_plural = 'صف پیامک (گیت‌وی)'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['sent', 'expires_at'])]
+
+    def __str__(self):
+        return f"{self.phone} - {self.code}"
+
+    def save(self, *args, **kwargs):
+        if self.expires_at is None:
+            ttl = getattr(settings, 'SMS_CODE_TTL', 300)
+            self.expires_at = timezone.now() + timedelta(seconds=ttl)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self):
+        return self.expires_at is not None and timezone.now() >= self.expires_at
+
+    @classmethod
+    def pending(cls):
+        """پیامک‌های ارسال‌نشده و منقضی‌نشده، قدیمی‌ترین اول."""
+        return cls.objects.filter(sent=False, expires_at__gt=timezone.now()).order_by('created_at')
+
+    @classmethod
+    def enqueue(cls, phone, code, purpose=PURPOSE_REGISTER, ttl_seconds=300):
+        """افزودن به صف؛ اگر همین کد برای همین شماره هنوز در صف است، تکرار نمی‌شود."""
+        existing = cls.pending().filter(phone=phone, code=code).first()
+        if existing:
+            return existing
+        return cls.objects.create(
+            phone=phone, code=code, purpose=purpose,
+            expires_at=timezone.now() + timedelta(seconds=ttl_seconds),
+        )
+
+
+# ==========================================================================
+# کتابخانهٔ حرکت‌های ورزشی (دیتاستِ چغر — ۱۳۰۰+ حرکت با گیفِ آموزشی)
+# جدا از Equipment است: Equipment «دستگاهِ همین باشگاه» است که مربی تعریف می‌کند،
+# این‌جا کاتالوگِ آماده‌ای است که یک‌بار از دیتاست وارد می‌شود و بینِ همه مشترک است.
+# ==========================================================================
+class ExerciseLibrary(models.Model):
+    """یک حرکتِ ورزشی در کاتالوگِ آمادهٔ چغر."""
+
+    # حرکتِ سراسری (owner خالی) یا حرکتِ خودِ یک مربی. مربی باید بتواند حرکتِ
+    # خودش را اضافه کند؛ ولی حرکتِ او نباید در کتابخانهٔ بقیه دیده شود.
+    owner = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, blank=True, null=True,
+        related_name='own_exercises', verbose_name='مالک',
+        help_text='خالی = حرکتِ سراسریِ چغر. پر = حرکتِ اختصاصیِ همان مربی.'
+    )
+    is_public = models.BooleanField(
+        default=True, verbose_name='سراسری',
+        help_text='حرکتِ مربی را می‌شود با این تیک سراسری کرد تا همه ببینند.'
+    )
+
+    external_id = models.CharField(max_length=32, unique=True, db_index=True,
+                                   verbose_name='شناسه در دیتاست')
+    name = models.CharField(max_length=200, verbose_name='نام انگلیسی')
+    name_fa = models.CharField(max_length=200, blank=True, verbose_name='نام فارسی')
+
+    category = models.CharField(max_length=60, blank=True, verbose_name='دسته')
+    category_fa = models.CharField(max_length=60, blank=True, verbose_name='دسته (فارسی)')
+    body_part = models.CharField(max_length=60, blank=True, verbose_name='بخش بدن')
+    body_part_fa = models.CharField(max_length=60, blank=True, verbose_name='بخش بدن (فارسی)')
+    equipment = models.CharField(max_length=60, blank=True, db_index=True, verbose_name='دستگاه/وسیله')
+    equipment_fa = models.CharField(max_length=60, blank=True, verbose_name='دستگاه (فارسی)')
+    target = models.CharField(max_length=60, blank=True, verbose_name='عضلهٔ هدف')
+    target_fa = models.CharField(max_length=60, blank=True, verbose_name='عضلهٔ هدف (فارسی)')
+    muscle_group = models.CharField(max_length=60, blank=True, verbose_name='گروه عضلانی')
+    muscle_group_fa = models.CharField(max_length=60, blank=True, verbose_name='گروه عضلانی (فارسی)')
+    secondary_muscles = models.JSONField(default=list, blank=True, verbose_name='عضله‌های کمکی')
+    secondary_muscles_fa = models.JSONField(default=list, blank=True, verbose_name='عضله‌های کمکی (فارسی)')
+
+    instructions_en = models.TextField(blank=True, verbose_name='آموزش (انگلیسی)')
+    instructions_fa = models.TextField(blank=True, verbose_name='آموزش (فارسی)')
+    steps_en = models.JSONField(default=list, blank=True, verbose_name='مراحل (انگلیسی)')
+    steps_fa = models.JSONField(default=list, blank=True, verbose_name='مراحل (فارسی)')
+
+    gif = models.FileField(upload_to='exercise_library/gif/', blank=True, null=True,
+                           verbose_name='گیف آموزشی')
+    thumb = models.ImageField(upload_to='exercise_library/thumb/', blank=True, null=True,
+                              verbose_name='عکس')
+
+    source = models.CharField(max_length=80, blank=True, default='chagher-dataset', verbose_name='منبع')
+    brand = models.CharField(max_length=40, blank=True, default='چغر', verbose_name='برند')
+    attribution = models.CharField(max_length=200, blank=True, verbose_name='حق‌طبع مدیا')
+    is_active = models.BooleanField(default=True, verbose_name='فعال')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'حرکت کتابخانه'
+        verbose_name_plural = 'کتابخانهٔ حرکت‌ها'
+        ordering = ['external_id']
+
+    def __str__(self):
+        return self.name_fa or self.name
+
+
+class EquipmentScan(models.Model):
+    """یک دورِ «اسکنِ باشگاه با دوربین».
+
+    مربی (یا ورزشکارِ B2C) با گوشی در باشگاه می‌چرخد و چند عکس می‌فرستد. عکس‌ها
+    به مدلِ بینایی داده می‌شوند و فهرستِ وسیله‌های تشخیص‌داده‌شده همین‌جا ذخیره
+    می‌شود. تا وقتی کاربر تأیید نکند، هیچ دستگاهی به باشگاه اضافه نمی‌شود — این
+    همان «بعد از اسکن بیاید همه را تأیید بگیرد» است.
+
+    پاسخِ خامِ مدل هم نگه داشته می‌شود؛ وقتی تشخیص غلط بود، بدونِ آن نمی‌شود
+    فهمید اشکال از عکس بوده یا از مدل.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_DONE = 'done'
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'در حالِ بررسی'),
+        (STATUS_DONE, 'تشخیص انجام شد — منتظرِ تأیید'),
+        (STATUS_CONFIRMED, 'تأیید شد'),
+        (STATUS_FAILED, 'ناموفق'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='equipment_scans',
+        verbose_name='کاربر'
+    )
+    gym_name = models.CharField(
+        max_length=200, blank=True, null=True, verbose_name='نامِ باشگاه',
+        help_text='برای ورزشکارِ شخصی (B2C) که باشگاهِ محلِ تمرینش را اسکن می‌کند.'
+    )
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING,
+        db_index=True, verbose_name='وضعیت'
+    )
+    model_name = models.CharField(max_length=100, blank=True, null=True, verbose_name='مدلِ بینایی')
+    tokens_charged = models.PositiveIntegerField(default=0, verbose_name='توکنِ کم‌شده')
+    raw_answer = models.TextField(blank=True, null=True, verbose_name='پاسخِ خامِ مدل')
+    error = models.TextField(blank=True, null=True, verbose_name='خطا')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخِ اسکن')
+    confirmed_at = models.DateTimeField(blank=True, null=True, verbose_name='تاریخِ تأیید')
+
+    class Meta:
+        verbose_name = 'اسکنِ دستگاه'
+        verbose_name_plural = 'اسکن‌های دستگاه'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return 'اسکن #%s — %s' % (self.pk, self.user.phone_number)
+
+
+class EquipmentScanPhoto(models.Model):
+    """عکس‌های یک دورِ اسکن."""
+    scan = models.ForeignKey(
+        EquipmentScan, on_delete=models.CASCADE, related_name='photos', verbose_name='اسکن'
+    )
+    image = models.ImageField(upload_to='equipment_scans/%Y/%m/', verbose_name='عکس')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'عکسِ اسکن'
+        verbose_name_plural = 'عکس‌های اسکن'
+
+    def __str__(self):
+        return 'عکسِ اسکن #%s' % self.scan_id
+
+
+class EquipmentScanItem(models.Model):
+    """یک وسیلهٔ تشخیص‌داده‌شده در اسکن — تا تأیید نشود، دستگاه ساخته نمی‌شود."""
+    scan = models.ForeignKey(
+        EquipmentScan, on_delete=models.CASCADE, related_name='items', verbose_name='اسکن'
+    )
+    photo = models.ForeignKey(
+        EquipmentScanPhoto, on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='items', verbose_name='عکسِ منبع'
+    )
+    name = models.CharField(max_length=200, verbose_name='نامِ وسیله')
+    muscle_group = models.CharField(max_length=100, blank=True, null=True, verbose_name='گروهِ عضلانی')
+    confidence = models.FloatField(default=0, verbose_name='اطمینان')
+    in_library = models.BooleanField(
+        default=False, verbose_name='در کتابخانهٔ حرکت‌ها هست',
+        help_text='یعنی این نام از فهرستِ وسیله‌های دیتابیس آمده، نه حدسِ آزادِ مدل.'
+    )
+    already_exists = models.BooleanField(
+        default=False, verbose_name='از قبل در باشگاه بود',
+        help_text='دوباره ساخته نمی‌شود؛ فقط نشان داده می‌شود که دیده شده است.'
+    )
+    equipment = models.ForeignKey(
+        'Equipment', on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='scan_items', verbose_name='دستگاهِ ساخته‌شده'
+    )
+    catalog = models.ForeignKey(
+        'EquipmentCatalog', on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='scan_items', verbose_name='ردیفِ کاتالوگ',
+        help_text='تشخیصِ مدل به کدام دستگاهِ شناخته‌شده خورده است (عکسِ مرجع از همین می‌آید).'
+    )
+    is_confirmed = models.BooleanField(default=False, verbose_name='تأیید شد')
+    is_rejected = models.BooleanField(default=False, verbose_name='رد شد')
+
+    class Meta:
+        verbose_name = 'وسیلهٔ تشخیص‌داده‌شده'
+        verbose_name_plural = 'وسیله‌های تشخیص‌داده‌شده'
+        ordering = ['-confidence', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class AthleteProfile(models.Model):
+    """مشخصاتِ ورزشکارِ شخصی (B2C).
+
+    در دنیای باشگاه، مربی مشخصاتِ شاگرد را هر بار در فرمِ برنامه می‌نویسد. ولی
+    ورزشکاری که خودش آمده، نباید هر بار قد و وزن و آسیب‌هایش را تایپ کند؛ یک‌بار
+    این‌جا ثبت می‌شود و هر بار برنامه‌گرفتن از همین پر می‌شود.
+
+    نامِ باشگاه هم این‌جا می‌نشیند: وقتی ورزشکار باشگاهش را با دوربین اسکن کند،
+    نامِ باشگاه و دستگاه‌هایش به حسابِ خودش وصل می‌شود و برنامه با همان
+    دستگاه‌ها نوشته می‌شود.
+    """
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE, related_name='athlete_profile',
+        verbose_name='کاربر'
+    )
+    full_name = models.CharField(max_length=100, blank=True, null=True, verbose_name='نام و نام خانوادگی')
+    age = models.PositiveIntegerField(blank=True, null=True, verbose_name='سن')
+    GENDER_CHOICES = [('M', 'مرد'), ('F', 'زن')]
+    gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True, verbose_name='جنسیت')
+    height = models.FloatField(blank=True, null=True, verbose_name='قد (سانتی‌متر)')
+    weight = models.FloatField(blank=True, null=True, verbose_name='وزن (کیلوگرم)')
+    goal = models.TextField(blank=True, null=True, verbose_name='هدف')
+    injuries = models.TextField(blank=True, null=True, verbose_name='آسیب‌های بدنی')
+    food_allergies = models.TextField(blank=True, null=True, verbose_name='حساسیت‌های غذایی')
+    body_issues = models.TextField(blank=True, null=True, verbose_name='مشکلات بدنی')
+    chronic_diseases = models.TextField(blank=True, null=True, verbose_name='بیماری‌های مزمن')
+    exercise_history = models.TextField(blank=True, null=True, verbose_name='سابقهٔ ورزشی')
+    program_days = models.PositiveIntegerField(default=3, verbose_name='روزهای تمرین در هفته')
+    training_place = models.CharField(
+        max_length=20, choices=ClientProgram.TRAINING_PLACE_CHOICES,
+        default=ClientProgram.TRAINING_PLACE_PUBLIC_GYM, verbose_name='محلِ تمرین'
+    )
+    gym_name = models.CharField(max_length=200, blank=True, null=True, verbose_name='نامِ باشگاه')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # فیلدهایی که ورزشکار پر می‌کند و مستقیم به فرمِ برنامه می‌روند
+    PROGRAM_FIELDS = [
+        'age', 'gender', 'height', 'weight', 'injuries', 'food_allergies',
+        'body_issues', 'chronic_diseases', 'exercise_history', 'program_days',
+        'training_place',
+    ]
+
+    class Meta:
+        verbose_name = 'پروفایلِ ورزشکارِ شخصی'
+        verbose_name_plural = 'پروفایل‌های ورزشکارِ شخصی'
+
+    def __str__(self):
+        return self.full_name or self.user.phone_number
+
+    @property
+    def is_complete(self):
+        """حداقلِ لازم برای یک برنامهٔ درست."""
+        return all([self.age, self.gender, self.height, self.weight])
+
+    def program_defaults(self):
+        """پیش‌فرض‌های فرمِ برنامه — هدف و نامِ باشگاه داخلِ «توضیحاتِ بیشتر» می‌روند."""
+        data = {'name': self.full_name or self.user.phone_number}
+        for field in self.PROGRAM_FIELDS:
+            value = getattr(self, field)
+            if value not in (None, ''):
+                data[field] = value
+        # اگر باشگاهش را اسکن کرده و دستگاه‌هایش ثبت شده، برنامه باید با همان
+        # دستگاه‌ها نوشته شود، نه با فرضِ «باشگاهِ عمومی». انتخابِ صریحِ خودش
+        # (خانه یا باشگاهِ عمومی) دست نمی‌خورد.
+        if (self.training_place == ClientProgram.TRAINING_PLACE_PUBLIC_GYM
+                and Equipment.objects.filter(user_id=self.user_id).exists()):
+            data['training_place'] = ClientProgram.TRAINING_PLACE_GYM_EQUIPMENT
+        extra = []
+        if self.goal:
+            extra.append('هدف: %s' % self.goal)
+        if self.gym_name:
+            extra.append('باشگاه: %s' % self.gym_name)
+        if extra:
+            data['extra_notes'] = ' | '.join(extra)
+        return data
+
+    def apply_to(self, payload, force=()):
+        """فیلدهای نبودهٔ فرم را از پروفایل پر می‌کند.
+
+        `force`: کلیدهایی که کاربر در درخواست **نفرستاده** است. برای این‌ها حتی
+        اگر سریالایزر پیش‌فرض گذاشته باشد (مثلِ program_days=7)، مقدارِ پروفایل
+        می‌نشیند؛ وگرنه عددِ پیش‌فرض همیشه جلوی انتخابِ خودِ ورزشکار را می‌گرفت.
+        """
+        for key, value in self.program_defaults().items():
+            if key in force or payload.get(key) in (None, ''):
+                payload[key] = value
+        return payload
+
+
+class EquipmentCatalog(models.Model):
+    """فهرستِ شناخته‌شدهٔ دستگاه‌ها — با عکسِ مرجع، قابلِ ویرایش در جنگو ادمین.
+
+    سه کار می‌کند:
+    ۱) به مدلِ بینایی می‌گوید «فقط از این نام‌ها انتخاب کن» تا هر بار نامِ تازه
+       نسازد و فهرستِ باشگاه‌ها پر از تکراری نشود.
+    ۲) در صفحهٔ تأییدِ اسکن، کنارِ هر تشخیص **عکسِ مرجع** را نشان می‌دهد تا کاربر
+       ببیند سامانه چه فهمیده است.
+    ۳) وقتی دستگاه به باشگاه اضافه می‌شود، همین عکس به آن داده می‌شود.
+
+    «نام‌های دیگر» برای تشخیص است: پک‌دک/قفسهٔ سینه/باترفلای همه یک دستگاه‌اند.
+    """
+    name = models.CharField(max_length=200, unique=True, verbose_name='نامِ دستگاه')
+    aliases = models.TextField(
+        blank=True, null=True, verbose_name='نام‌های دیگر',
+        help_text='هر نام در یک خط یا با ویرگول. مثال: پک‌دک، باترفلای، قفسهٔ سینه'
+    )
+    muscle_group = models.CharField(
+        max_length=100, blank=True, null=True, verbose_name='گروهِ عضلانی'
+    )
+    image = models.ImageField(
+        upload_to='equipment_catalog/', blank=True, null=True,
+        verbose_name='عکسِ مرجع',
+        help_text='عکسِ واضحِ همین دستگاه. اگر خالی باشد، سامانه از کتابخانهٔ '
+                  'حرکت‌ها عکسِ نزدیک را برمی‌دارد.'
+    )
+    exercise = models.ForeignKey(
+        'ExerciseLibrary', on_delete=models.SET_NULL, blank=True, null=True,
+        related_name='catalog_rows', verbose_name='حرکتِ نمونه',
+        help_text='از کتابخانهٔ حرکت‌ها — برای عکس و آموزش.'
+    )
+    sort_order = models.IntegerField(default=100, verbose_name='ترتیب')
+    is_active = models.BooleanField(
+        default=True, verbose_name='فعال',
+        help_text='غیرفعال یعنی در اسکن پیشنهاد نمی‌شود (ولی دستگاه‌های ثبت‌شده می‌مانند).'
+    )
+    notes = models.TextField(blank=True, null=True, verbose_name='یادداشت')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'دستگاهِ کاتالوگ'
+        verbose_name_plural = 'کاتالوگِ دستگاه‌ها'
+        ordering = ['sort_order', 'name']
+
+    def __str__(self):
+        return self.name
+
+    def alias_list(self):
+        raw = (self.aliases or '').replace('،', '\n').replace(',', '\n')
+        return [a.strip() for a in raw.splitlines() if a.strip()]
+
+    def display_image_url(self):
+        """عکسِ مرجع؛ اگر خودش نداشت، عکسِ حرکتِ نمونه."""
+        if self.image:
+            return self.image.url
+        if self.exercise_id and self.exercise and self.exercise.thumb:
+            return self.exercise.thumb.url
+        return None
+
+
+class FormCheckSession(models.Model):
+    """یک دورِ «بررسیِ درستیِ حرکت با دوربین».
+
+    فریم‌های دوربین یکی‌یکی با متنِ آموزشِ همان حرکت مقایسه می‌شوند. عکسِ فریم‌ها
+    پیش‌فرض **ذخیره نمی‌شود** (هم دیسک، هم حرمتِ تصویرِ ورزشکار)؛ فقط حکم و
+    راهنمایی می‌ماند تا بشود کیفیتِ تشخیص را سنجید.
+    """
+    CAMERA_FRONT = 'front'
+    CAMERA_BACK = 'back'
+    CAMERA_CHOICES = [(CAMERA_FRONT, 'دوربینِ جلو'), (CAMERA_BACK, 'دوربینِ عقب')]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='form_checks', verbose_name='کاربر'
+    )
+    exercise = models.ForeignKey(
+        'ExerciseLibrary', on_delete=models.SET_NULL, null=True,
+        related_name='form_checks', verbose_name='حرکت'
+    )
+    camera = models.CharField(
+        max_length=5, choices=CAMERA_CHOICES, default=CAMERA_BACK, verbose_name='دوربین'
+    )
+    frames_checked = models.PositiveIntegerField(default=0, verbose_name='فریمِ بررسی‌شده')
+    ok_count = models.PositiveIntegerField(default=0, verbose_name='درست')
+    bad_count = models.PositiveIntegerField(default=0, verbose_name='نادرست')
+    tokens_charged = models.PositiveIntegerField(default=0, verbose_name='توکنِ کم‌شده')
+    model_name = models.CharField(max_length=100, blank=True, null=True, verbose_name='مدل')
+    # هزینهٔ مدل روی همین دور جمع می‌شود و در پایان **یک** سطرِ دفتر می‌خورد؛
+    # وگرنه هر فریم یک سطر می‌شد و دفترِ حساب ناخوانا می‌شد.
+    ai_cost = models.DecimalField(max_digits=12, decimal_places=4, default=0,
+                                  verbose_name='هزینهٔ مدل')
+    ledger_written = models.BooleanField(default=False, verbose_name='در دفتر ثبت شد')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='شروع')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='آخرین فریم')
+
+    class Meta:
+        verbose_name = 'بررسیِ درستیِ حرکت'
+        verbose_name_plural = 'بررسی‌های درستیِ حرکت'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return 'بررسی #%s — %s' % (self.pk, self.exercise.name_fa if self.exercise else '-')
+
+
+class FormCheckFrame(models.Model):
+    """حکمِ یک فریم."""
+    VERDICT_OK = 'ok'
+    VERDICT_BAD = 'bad'
+    VERDICT_UNSURE = 'unsure'
+    VERDICT_CHOICES = [
+        (VERDICT_OK, 'درست (سبز)'),
+        (VERDICT_BAD, 'نادرست (قرمز)'),
+        (VERDICT_UNSURE, 'نامشخص'),
+    ]
+
+    session = models.ForeignKey(
+        FormCheckSession, on_delete=models.CASCADE, related_name='frames', verbose_name='دور'
+    )
+    verdict = models.CharField(max_length=6, choices=VERDICT_CHOICES, verbose_name='حکم')
+    message = models.TextField(blank=True, null=True, verbose_name='راهنماییِ روی صفحه')
+    confidence = models.FloatField(default=0, verbose_name='اطمینان')
+    image = models.ImageField(
+        upload_to='form_check/%Y/%m/', blank=True, null=True, verbose_name='فریم'
+    )
+    raw_answer = models.TextField(blank=True, null=True, verbose_name='پاسخِ خامِ مدل')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'فریمِ بررسی'
+        verbose_name_plural = 'فریم‌های بررسی'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s — %s' % (self.get_verdict_display(), (self.message or '')[:40])
+
+
+class AIJob(models.Model):
+    """یک کارِ هوش مصنوعی که سرورِ شنونده باید انجامش بدهد.
+
+    چرا جدول لازم است: سرورِ محلی آی‌پیِ ثابت ندارد، پس ما نمی‌توانیم به او وصل
+    شویم؛ او می‌آید و کار برمی‌دارد. این جدول همان «صفِ کار» است.
+
+    دو قاعدهٔ ایمنی که صریحاً خواسته شده:
+      · **مهلت:** هر کار `lease_until` و مهلتِ کلی دارد؛ سایت تا ابد منتظر
+        نمی‌ماند و کاربر معطل نمی‌شود.
+      · **یک جواب برای یک درخواست:** کار فقط به یک کارگر اجاره داده می‌شود و
+        جوابِ دیررس (پس از `expired`) پذیرفته نمی‌شود، تا دو هزینه ندهیم.
+    """
+    STATUS_QUEUED = 'queued'
+    STATUS_LEASED = 'leased'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, 'در صف'),
+        (STATUS_LEASED, 'دستِ کارگر'),
+        (STATUS_DONE, 'انجام شد'),
+        (STATUS_FAILED, 'ناموفق'),
+        (STATUS_EXPIRED, 'مهلت تمام شد'),
+    ]
+
+    provider = models.ForeignKey(
+        APIConfig, on_delete=models.CASCADE, related_name='jobs',
+        verbose_name='ارائه‌دهندهٔ شنونده'
+    )
+    kind = models.CharField(max_length=20, default='chat', verbose_name='نوعِ کار')
+    payload = models.JSONField(default=dict, verbose_name='ورودی')
+    result = models.TextField(blank=True, verbose_name='جواب')
+    usage = models.JSONField(default=dict, blank=True, verbose_name='مصرفِ توکن')
+    status = models.CharField(max_length=8, choices=STATUS_CHOICES,
+                              default=STATUS_QUEUED, db_index=True, verbose_name='وضعیت')
+    worker_name = models.CharField(max_length=80, blank=True, verbose_name='کارگر')
+    attempts = models.PositiveIntegerField(default=0, verbose_name='تعدادِ برداشت')
+    error = models.CharField(max_length=500, blank=True, verbose_name='خطا')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='ساخت')
+    leased_at = models.DateTimeField(blank=True, null=True, verbose_name='برداشت')
+    lease_until = models.DateTimeField(blank=True, null=True, verbose_name='مهلتِ کارگر')
+    finished_at = models.DateTimeField(blank=True, null=True, verbose_name='پایان')
+
+    class Meta:
+        verbose_name = 'کارِ هوش مصنوعیِ شنونده'
+        verbose_name_plural = 'کارهای هوش مصنوعیِ شنونده'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return 'کار #%s — %s' % (self.pk, self.get_status_display())
+
+    def waited_seconds(self):
+        end = self.finished_at or timezone.now()
+        return round((end - self.created_at).total_seconds(), 1)
+
+
+# ==========================================================================
+# تطبیقِ نامِ حرکت — دو جدولی که از گزارشِ مالک (۱۴۰۵/۰۷/۱۶) درآمدند
+#
+# اندازه‌گیری نشان داد ۳۳٪ از خط‌های برنامه به کتابخانه وصل نمی‌شوند. بخشی‌اش
+# نامِ دوم است («جلو پا ماشین» = «جلو پا دستگاه») و بخشی‌اش حرکتی است که واقعاً
+# نداریم. الگوریتمِ تشابه تا جایی جلو می‌رود؛ از آن به بعد باید آدم تصمیم بگیرد.
+# این دو جدول همان جای تصمیمِ آدم‌اند.
+# ==========================================================================
+class ExerciseAlias(models.Model):
+    """نامِ دومِ یک حرکت.
+
+    هوش مصنوعی و مربی‌ها یک حرکت را به چند اسم صدا می‌زنند. هر اسمی که این‌جا
+    ثبت شود، در تطبیق دقیقاً مثلِ نامِ اصلی عمل می‌کند — بدونِ حدس و بدونِ
+    دست‌کاریِ الگوریتم.
+    """
+    exercise = models.ForeignKey(
+        'ExerciseLibrary', on_delete=models.CASCADE, related_name='name_aliases',
+        verbose_name='حرکت')
+    name = models.CharField(max_length=200, unique=True, db_index=True,
+                            verbose_name='نامِ دیگر')
+    note = models.CharField(max_length=200, blank=True, verbose_name='توضیح')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'نامِ دیگرِ حرکت'
+        verbose_name_plural = 'نام‌های دیگرِ حرکت‌ها'
+        ordering = ['name']
+
+    def __str__(self):
+        return '%s ← %s' % (self.name, self.exercise.name_fa or self.exercise.name)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._reset_matcher()
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        self._reset_matcher()
+
+    @staticmethod
+    def _reset_matcher():
+        # ایندکسِ تطبیق در حافظه کش می‌شود؛ بعد از هر تغییر باید از نو ساخته شود
+        try:
+            from .exercise_match import reset_cache
+            reset_cache()
+        except Exception:
+            pass
+
+
+class UnmatchedExercise(models.Model):
+    """نامی که در برنامه آمده ولی به هیچ حرکتی وصل نشد.
+
+    این همان «چه چیزی کم داریم» است. از دلِ خودِ برنامه‌های ساخته‌شده پر می‌شود،
+    نه از حدس. در جنگو ادمین دو کار می‌شود کرد:
+        · «وصل‌کردن»: حرکت را داریم، فقط اسمش فرق دارد ⇒ نامِ دیگر ساخته می‌شود
+        · «ساختن»:   اصلاً نداریم ⇒ حرکتِ تازه ساخته و همین نام رویش می‌نشیند
+    """
+    STATUS_NEW = 'new'
+    STATUS_LINKED = 'linked'
+    STATUS_ADDED = 'added'
+    STATUS_IGNORED = 'ignored'
+    STATUS_CHOICES = [
+        (STATUS_NEW, 'بررسی نشده'),
+        (STATUS_LINKED, 'به حرکتِ موجود وصل شد'),
+        (STATUS_ADDED, 'حرکتِ تازه ساخته شد'),
+        (STATUS_IGNORED, 'نادیده گرفته شد'),
+    ]
+
+    name = models.CharField(max_length=200, unique=True, db_index=True,
+                            verbose_name='نامی که نوشته شده')
+    seen_count = models.PositiveIntegerField(default=1, verbose_name='چند بار دیده شد')
+    sample_line = models.CharField(max_length=300, blank=True, verbose_name='نمونهٔ خطِ برنامه')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES,
+                              default=STATUS_NEW, db_index=True, verbose_name='وضعیت')
+    linked_exercise = models.ForeignKey(
+        'ExerciseLibrary', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='unmatched_names', verbose_name='وصل‌شده به')
+    first_seen = models.DateTimeField(auto_now_add=True, verbose_name='اولین بار')
+    last_seen = models.DateTimeField(auto_now=True, verbose_name='آخرین بار')
+
+    # ── از کجا آمده (۰۷/۲۰) ──
+    SOURCE_AI = 'ai'
+    SOURCE_MANUAL = 'manual'
+    SOURCE_BOTH = 'both'
+    SOURCE_CHOICES = [
+        (SOURCE_AI, 'برنامهٔ هوش مصنوعی'),
+        (SOURCE_MANUAL, 'برنامهٔ دستیِ مربی'),
+        (SOURCE_BOTH, 'هر دو'),
+    ]
+    source = models.CharField(
+        max_length=10, choices=SOURCE_CHOICES, default=SOURCE_AI, db_index=True,
+        verbose_name='از کجا آمده')
+
+    # ── ساختِ حرکتِ تازه از همین‌جا (۰۷/۲۰) ──
+    # کنشِ bulk نمی‌تواند فایل بگیرد، پس گیف را روی خودِ این ردیف می‌گیریم و
+    # هنگامِ ساختِ حرکت منتقلش می‌کنیم.
+    new_name_en = models.CharField(
+        max_length=200, blank=True, verbose_name='نامِ انگلیسی (اختیاری)',
+        help_text='اگر خالی بماند، همان نامِ فارسی گذاشته می‌شود.')
+    new_gif = models.FileField(
+        upload_to='exercise_library/gif/', blank=True, null=True,
+        verbose_name='گیف یا ویدیوی آموزش',
+        help_text='لوگو و نامِ چغر خودکار رویش می‌نشیند.')
+    create_now = models.BooleanField(
+        default=False, verbose_name='با ذخیره، حرکتِ تازه بساز',
+        help_text='تیک بزن و ذخیره کن: حرکت با همین نام و همین گیف ساخته '
+                  'می‌شود و این نام از حالا به آن وصل می‌ماند.')
+
+    class Meta:
+        verbose_name = 'نامِ بی‌تطبیق'
+        verbose_name_plural = 'نام‌های بی‌تطبیق (کارِ باقی‌مانده)'
+        ordering = ['-seen_count', 'name']
+
+    def __str__(self):
+        return '%s (%d بار)' % (self.name, self.seen_count)

@@ -1,0 +1,76 @@
+{% extends 'app/base.html' %}
+{% load static %}
+
+{% block title %}{{ ex.name_fa|default:ex.name }} | آموزش حرکت | چغر{% endblock %}
+{% block meta_description %}آموزش حرکت {{ ex.name_fa|default:ex.name }} — دستگاه: {{ ex.equipment_fa }}، عضله هدف: {{ ex.target_fa }}.{% endblock %}
+
+{% block content %}
+<style>
+  .ex-wrap{max-width:900px;margin:30px auto;padding:0 16px}
+  .ex-top{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .ex-media{flex:0 0 360px;max-width:100%;border:1px solid #eee;border-radius:14px;overflow:hidden;background:#fff}
+  .ex-media img{width:100%;display:block}
+  .ex-info{flex:1;min-width:260px}
+  .ex-title{font-size:26px;font-weight:700;margin:0 0 6px}
+  .ex-en{color:#888;font-size:14px;margin-bottom:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .chip{background:#f1f5f9;border-radius:999px;padding:6px 14px;font-size:13px}
+  .chip b{color:#1565c0}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:22px 0}
+  .steps li{counter-increment:s;position:relative;padding:10px 46px 10px 10px;border-bottom:1px solid #f0f0f0;line-height:1.9}
+  .steps li::before{content:counter(s);position:absolute;right:8px;top:10px;width:26px;height:26px;border-radius:50%;
+    background:#1565c0;color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .back{display:inline-block;margin-top:18px;color:#1565c0;text-decoration:none}
+  @media(max-width:700px){.ex-media{flex:0 0 100%}}
+</style>
+
+<div class="ex-wrap">
+  <div class="ex-top">
+    <div class="ex-media">
+      {% if ex.gif %}<img src="{{ ex.gif.url }}" alt="{{ ex.name_fa|default:ex.name }}" loading="eager">
+      {% elif ex.thumb %}<img src="{{ ex.thumb.url }}" alt="{{ ex.name_fa|default:ex.name }}">
+      {% else %}<div style="padding:40px;text-align:center;color:#999">تصویری ثبت نشده</div>{% endif %}
+    </div>
+    <div class="ex-info">
+      <h1 class="ex-title">{{ ex.name_fa|default:ex.name }}</h1>
+      <div class="ex-en">{{ ex.name }}</div>
+      <div class="chips">
+        {% if ex.equipment_fa %}<span class="chip">دستگاه: <b>{{ ex.equipment_fa }}</b></span>{% endif %}
+        {% if ex.target_fa %}<span class="chip">عضله هدف: <b>{{ ex.target_fa }}</b></span>{% endif %}
+        {% if ex.body_part_fa %}<span class="chip">بخش بدن: <b>{{ ex.body_part_fa }}</b></span>{% endif %}
+      </div>
+      {% if form_check_enabled %}
+        <a href="{% url 'form-check-page' ex.external_id %}"
+           style="display:inline-block;margin-top:12px;padding:10px 16px;border-radius:11px;
+                  background:#1565c0;color:#fff;text-decoration:none;font-weight:700;font-size:14px">
+          بررسیِ درستیِ حرکت با دوربین
+        </a>
+      {% endif %}
+      {% if ex.secondary_muscles_fa %}
+        <div class="chips">
+          {% for m in ex.secondary_muscles_fa %}<span class="chip">{{ m }}</span>{% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if ex.steps_fa %}
+    <h2 style="font-size:19px;margin-top:28px">روشِ انجام</h2>
+    <ol class="steps">{% for s in ex.steps_fa %}<li>{{ s }}</li>{% endfor %}</ol>
+  {% elif ex.instructions_fa %}
+    <p style="line-height:2">{{ ex.instructions_fa }}</p>
+  {% endif %}
+
+  {% if related %}
+    <h2 style="font-size:19px;margin-top:10px">حرکت‌های مشابه</h2>
+    <div class="chips">
+      {% for r in related %}
+        <a class="chip" href="{% url 'exercise-detail' r.external_id %}">{{ r.name_fa|default:r.name }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <a class="back" href="{% url 'exercise-list' %}">← همهٔ حرکت‌ها</a>
+  {% if ex.attribution %}<p style="color:#aaa;font-size:12px;margin-top:24px">{{ ex.attribution }}</p>{% endif %}
+</div>
+{% endblock %}

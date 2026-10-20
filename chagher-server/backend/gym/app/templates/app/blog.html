@@ -1,0 +1,397 @@
+{% extends 'app/base.html' %}
+{% load static %}
+
+{% block title %}وبلاگ | چغر{% endblock %}
+
+
+{% block meta_description %}مقالات تخصصی مدیریت باشگاه، تمرین، تغذیه و استفاده از هوش مصنوعی در برنامه‌ریزی ورزشی.{% endblock %}
+{% block og_title %}وبلاگ | چغر{% endblock %}
+{% block og_description %}آخرین مطالب آموزشی و تخصصی حوزه مدیریت باشگاه و برنامه تمرینی/غذایی.{% endblock %}
+{% block twitter_title %}وبلاگ | چغر{% endblock %}
+{% block twitter_description %}آخرین مطالب آموزشی و تخصصی حوزه مدیریت باشگاه و برنامه تمرینی/غذایی.{% endblock %}
+
+{% block og_image_meta %}
+    {% if posts and posts.0.image %}
+        <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{{ posts.0.image.url }}">
+    {% endif %}
+{% endblock %}
+{% block twitter_image_meta %}
+    {% if posts and posts.0.image %}
+        <meta name="twitter:image" content="{{ request.scheme }}://{{ request.get_host }}{{ posts.0.image.url }}">
+    {% endif %}
+{% endblock %}
+{% block structured_data %}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Blog",
+            "name": "وبلاگ چغر",
+            "url": "{{ request.build_absolute_uri }}",
+            "inLanguage": "fa-IR"
+        }
+    </script>
+{% endblock %}
+{% block content %}
+
+    <style>
+        /* ⚠ شعاع‌ها پیش از این ۶/۸/۱۰/۱۲ قاطی بودند و صفحه ناهماهنگ به‌نظر
+           می‌رسید. حالا از یک مقیاسِ واحد می‌آیند. */
+        .blog-page { --r-lg:18px; --r:13px; --r-sm:9px;
+                     --line:#e8eef8; --muted:#64748b; --ink:#1B2B45; }
+
+        .blog-header {
+            padding: 44px 0 26px;
+            border-bottom: 1px solid #e8eef8;
+            margin-bottom: 26px;
+        }
+
+        .blog-header h1 {
+            font-size: 2rem;
+            font-weight: 800;
+        }
+
+        .blog-header p {
+            color: #6b7280;
+            margin-top: 8px;
+        }
+
+        /* BLOG LIST */
+        .blog-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .blog-item {
+            display: flex;
+            flex-direction: row;
+            gap: 16px;
+            padding: 16px;
+            text-decoration: none;
+            color: inherit;
+            border-radius: var(--r-lg, 18px);
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(22, 63, 117, 0.05);
+            transition: all 0.3s ease;
+            align-items: flex-start;
+            border: 1px solid #f1f5f9;
+        }
+
+        .blog-item:hover {
+            background: #fbfcff;
+            border-color: #126F85;
+            box-shadow: 0 10px 24px rgba(22, 63, 117, 0.10);
+            transform: translateY(-3px);
+        }
+
+        .blog-thumb {
+            flex-shrink: 0;
+            width: 100px;
+            height: 100px;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #163F75 0%, #126F85 100%);
+        }
+
+        .blog-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .blog-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .blog-meta {
+            font-size: 0.8rem;
+            color: #6b7280;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-weight: 500;
+        }
+
+        .blog-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .blog-meta span i {
+            font-size: 0.75rem;
+        }
+
+        .blog-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin: 0;
+            line-height: 1.4;
+            color: #111827;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .blog-summary {
+            font-size: 0.9rem;
+            color: #4b5563;
+            line-height: 1.6;
+            margin: 0;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .blog-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: #f3f4f6;
+            color: #6b7280;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+
+        .blog-item:hover .blog-arrow {
+            background: #126F85;
+            color: white;
+            transform: translateX(4px);
+        }
+
+        /* EMPTY STATE */
+        .empty-blog {
+            padding: 80px 20px;
+            text-align: center;
+            color: #9ca3af;
+            background: #f9fafb;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+
+        .empty-blog i {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        .empty-blog p {
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        /* RESPONSIVE DESIGN */
+        @media (max-width: 768px) {
+            .blog-header {
+                padding: 40px 0 20px;
+                text-align: center;
+            }
+
+            .blog-header h1 {
+                font-size: 1.75rem;
+            }
+
+            .blog-header p {
+                font-size: 0.95rem;
+            }
+
+            .blog-item {
+                flex-direction: column;
+                padding: 16px;
+            }
+
+            .blog-thumb {
+                width: 100%;
+                height: 180px;
+                border-radius: 10px;
+            }
+
+            .blog-title {
+                font-size: 1.1rem;
+            }
+
+            .blog-summary {
+                font-size: 0.9rem;
+            }
+
+            .blog-arrow {
+                align-self: flex-end;
+                margin-top: 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .blog-item {
+                padding: 14px;
+            }
+
+            .blog-thumb {
+                height: 140px;
+            }
+
+            .blog-title {
+                font-size: 1rem;
+                -webkit-line-clamp: 2;
+            }
+
+            .blog-summary {
+                font-size: 0.85rem;
+                -webkit-line-clamp: 2;
+            }
+
+            .blog-meta {
+                font-size: 0.75rem;
+            }
+
+            .blog-arrow {
+                width: 32px;
+                height: 32px;
+                font-size: 0.85rem;
+            }
+        }
+
+        /* LOADING STATE */
+        .blog-skeleton {
+            display: flex;
+            gap: 16px;
+            padding: 20px;
+            border-radius: 12px;
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            animation: skeleton-loading 1.5s infinite ease-in-out;
+        }
+
+        @keyframes skeleton-loading {
+            0% {
+                background-color: #f9fafb;
+            }
+            50% {
+                background-color: #f3f4f6;
+            }
+            100% {
+                background-color: #f9fafb;
+            }
+        }
+
+        .skeleton-thumb {
+            width: 100px;
+            height: 100px;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 50%, #f3f4f6 100%);
+        }
+
+        .skeleton-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .skeleton-line {
+            height: 12px;
+            background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 50%, #f3f4f6 100%);
+            border-radius: 6px;
+        }
+
+        .skeleton-line.short {
+            width: 60%;
+        }
+
+        .skeleton-line.title {
+            width: 80%;
+            height: 16px;
+        }
+
+        .skeleton-line.meta {
+            width: 40%;
+            height: 10px;
+        }
+
+        @media (max-width: 560px) {
+            .blog-item { flex-direction: column; }
+            .blog-thumb { width: 100%; height: 170px; }
+            .blog-header { padding: 30px 0 18px; }
+        }
+    </style>
+
+<!-- BLOG HEADER -->
+<div class="blog-page">
+<section class="blog-header">
+    <div class="container">
+        <h1>وبلاگ</h1>
+        <p>نکات کاربردی برای مدیریت بهتر باشگاه</p>
+    </div>
+</section>
+
+<!-- BLOG LIST -->
+<section class="py-4">
+    <div class="container">
+
+        <div class="blog-list">
+
+            {% for post in posts %}
+                <a href="{% url 'blog_detail' post.slug %}" class="blog-item">
+
+                    {% if post.image %}
+                        <div class="blog-thumb">
+                            <img src="{{ post.image.url }}" alt="{{ post.title }}" loading="lazy">
+                        </div>
+                    {% else %}
+                        <div class="blog-thumb" style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #163F75 0%, #126F85 100%);">
+                            <i class="bi bi-file-earmark-text" style="color: white; font-size: 2.5rem; opacity: 0.7;"></i>
+                        </div>
+                    {% endif %}
+
+                    <div class="blog-info">
+                        <div class="blog-meta">
+                            <span>
+                                <i class="bi bi-calendar3"></i>
+                                {{ post.created_at|date:"Y/m/d" }}
+                            </span>
+                            <span>
+                                <i class="bi bi-person"></i>
+                                {{ post.author.gym_name|default:"تحریریه" }}
+                            </span>
+                        </div>
+
+                        <h3 class="blog-title">
+                            {{ post.title }}
+                        </h3>
+
+                        <p class="blog-summary">
+                            {{ post.summary }}
+                        </p>
+                    </div>
+
+                    <div class="blog-arrow">
+                        <i class="bi bi-arrow-left"></i>
+                    </div>
+
+                </a>
+            {% empty %}
+                <div class="empty-blog">
+                    <i class="bi bi-journal-text"></i>
+                    <p>هنوز مطلبی منتشر نشده است.</p>
+                </div>
+            {% endfor %}
+
+        </div>
+
+    </div>
+</section>
+
+
+</div>
+{% endblock %}

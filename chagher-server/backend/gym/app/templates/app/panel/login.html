@@ -1,0 +1,41 @@
+{% extends 'app/panel/auth_base.html' %}
+{% block title %}ورود به چغر{% endblock %}
+{% block meta_robots %}noindex,nofollow{% endblock %}
+
+{% block auth_body %}
+<h1>خوش برگشتی</h1>
+<p class="sub">با همان شماره و رمزِ حسابِ چغر وارد شو.</p>
+
+{% if error %}
+<div class="au-err"><i class="fas fa-circle-exclamation"></i><span>{{ error }}</span></div>
+{% endif %}
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="au-field">
+    <label for="id_phone">شمارهٔ موبایل</label>
+    <input id="id_phone" name="phone_number" class="au-num" inputmode="numeric"
+           autocomplete="username" placeholder="09123456789"
+           value="{{ phone|default:'' }}" required>
+  </div>
+  <div class="au-field">
+    <label for="id_pass">رمز</label>
+    <input id="id_pass" name="password" type="password"
+           autocomplete="current-password" placeholder="••••••••" required>
+  </div>
+  <button type="submit" class="au-btn">
+    <i class="fas fa-right-to-bracket"></i> ورود
+  </button>
+</form>
+
+<div class="au-alt">
+  حساب نداری؟
+  <a href="{% url 'panel-signup' %}{% if next %}?next={{ next|urlencode }}{% endif %}">
+    ثبت‌نامِ رایگان
+  </a>
+</div>
+
+<a class="au-back" href="{{ landing_url }}">
+  <i class="fas fa-arrow-right"></i> بازگشت به صفحهٔ اصلی
+</a>
+{% endblock %}

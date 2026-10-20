@@ -1,0 +1,49 @@
+{% extends 'app/base.html' %}
+{% block title %}کتابخانهٔ حرکت‌ها | چغر{% endblock %}
+{% block meta_description %}کتابخانهٔ حرکت‌های ورزشی چغر — آموزش تصویری هر حرکت با دستگاه و عضلهٔ هدف.{% endblock %}
+
+{% block content %}
+<style>
+  .lib{max-width:1100px;margin:30px auto;padding:0 16px}
+  .lib form{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
+  .lib input,.lib select{padding:9px 12px;border:1px solid #ddd;border-radius:10px;font-size:14px}
+  .lib button{padding:9px 20px;border:0;border-radius:10px;background:#1565c0;color:#fff;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+  .card{border:1px solid #eee;border-radius:14px;overflow:hidden;background:#fff;text-decoration:none;color:inherit;display:block}
+  .card img{width:100%;display:block;background:#fafafa}
+  .card .t{padding:10px 12px;font-size:14px;font-weight:600;line-height:1.6}
+  .card .m{padding:0 12px 12px;font-size:12px;color:#777}
+  .pager{display:flex;gap:10px;justify-content:center;margin:26px 0}
+  .pager a{padding:8px 16px;border:1px solid #ddd;border-radius:10px;text-decoration:none;color:#333}
+</style>
+<div class="lib">
+  <h1 style="font-size:24px">کتابخانهٔ حرکت‌ها</h1>
+  <p style="color:#666">{{ total }} حرکت با آموزش تصویری</p>
+  <form method="get">
+    <input name="q" value="{{ q }}" placeholder="جست‌وجوی نام حرکت…">
+    <select name="equipment">
+      <option value="">همهٔ دستگاه‌ها</option>
+      {% for e in equipments %}<option value="{{ e }}" {% if e == equipment %}selected{% endif %}>{{ e }}</option>{% endfor %}
+    </select>
+    <button type="submit">جست‌وجو</button>
+  </form>
+
+  <div class="grid">
+    {% for ex in page_obj %}
+      <a class="card" href="{% url 'exercise-detail' ex.external_id %}">
+        {% if ex.thumb %}<img src="{{ ex.thumb.url }}" alt="{{ ex.name_fa }}" loading="lazy">{% endif %}
+        <div class="t">{{ ex.name_fa|default:ex.name }}</div>
+        <div class="m">{{ ex.equipment_fa }} · {{ ex.target_fa }}</div>
+      </a>
+    {% empty %}
+      <p>حرکتی پیدا نشد.</p>
+    {% endfor %}
+  </div>
+
+  <div class="pager">
+    {% if page_obj.has_previous %}<a href="?q={{ q }}&equipment={{ equipment }}&page={{ page_obj.previous_page_number }}">قبلی</a>{% endif %}
+    <span style="padding:8px 16px">صفحهٔ {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a href="?q={{ q }}&equipment={{ equipment }}&page={{ page_obj.next_page_number }}">بعدی</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

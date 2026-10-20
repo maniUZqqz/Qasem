@@ -1,0 +1,64 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>درگاه پرداخت تستی</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #eef2f7; margin: 0; padding: 40px 16px; }
+        .card { max-width: 460px; margin: 0 auto; background: #fff; border-radius: 12px;
+                box-shadow: 0 6px 24px rgba(0,0,0,.08); overflow: hidden; }
+        .head { background: #37474f; color: #fff; padding: 16px 20px; }
+        .head h1 { font-size: 17px; margin: 0 0 4px; }
+        .head p { font-size: 12px; margin: 0; opacity: .8; }
+        .warn { background: #fff8e1; border-right: 4px solid #163F75; padding: 10px 14px;
+                font-size: 12px; line-height: 1.9; color: #6d4c41; }
+        .rows { padding: 8px 20px 16px; }
+        .row { display: flex; justify-content: space-between; padding: 10px 0;
+               border-bottom: 1px solid #eceff1; font-size: 13px; }
+        .row:last-child { border-bottom: 0; }
+        .row span:first-child { color: #78909c; }
+        .row span:last-child { font-weight: bold; color: #263238; }
+        .amount { color: #2e7d32 !important; font-size: 16px; }
+        .authority { font-family: monospace; font-size: 11px; direction: ltr; }
+        .actions { display: flex; gap: 10px; padding: 0 20px 22px; }
+        .btn { flex: 1; display: block; text-align: center; padding: 12px; border-radius: 8px;
+               text-decoration: none; font-weight: bold; font-size: 14px; }
+        .ok { background: #2e7d32; color: #fff; }
+        .no { background: #eceff1; color: #546e7a; }
+        .paid { margin: 0 20px 22px; padding: 12px; border-radius: 8px;
+                background: #E2F0F4; color: #2e7d32; font-size: 13px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="head">
+            <h1>🧪 درگاه پرداخت تستی</h1>
+            <p>شبیه‌ساز داخلی — هیچ پول واقعی جابه‌جا نمی‌شود</p>
+        </div>
+
+        <div class="warn">
+            این صفحه جای صفحه درگاه واقعی را گرفته است. با زدن «پرداخت موفق»،
+            سرور دقیقاً همان مسیر کال‌بک و verify واقعی را طی می‌کند و توکن‌ها شارژ می‌شوند.
+            برای رفتن به حالت واقعی، در پنل ادمین درگاه واقعی را فعال کنید.
+        </div>
+
+        <div class="rows">
+            <div class="row"><span>شماره سفارش</span><span>#{{ purchase.id }}</span></div>
+            <div class="row"><span>خریدار</span><span>{{ purchase.user.phone_number }}</span></div>
+            <div class="row"><span>تعداد توکن</span><span>{{ purchase.token_amount }}</span></div>
+            <div class="row"><span>مبلغ قابل پرداخت</span><span class="amount">{{ purchase.final_price }} تومان</span></div>
+            <div class="row"><span>شناسه تراکنش</span><span class="authority">{{ authority }}</span></div>
+        </div>
+
+        {% if already_paid %}
+            <div class="paid">این سفارش قبلاً پرداخت شده است؛ پرداخت دوباره توکن اضافه نمی‌کند.</div>
+        {% endif %}
+
+        <div class="actions">
+            <a class="btn ok" href="{{ success_url }}">✅ پرداخت موفق</a>
+            <a class="btn no" href="{{ failure_url }}">✖ انصراف / ناموفق</a>
+        </div>
+    </div>
+</body>
+</html>

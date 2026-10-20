@@ -24,6 +24,31 @@ EXCL=(--exclude='.git' --exclude='venv/' --exclude='node_modules/' --exclude='__
 rsync -a --delete "${EXCL[@]}" "$SRC/" "$REPO/site-server/"
 rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='vendor/' --exclude='__pycache__/' \
       "$SRC/processing/" "$REPO/processing-server/"
+# ---- Chagher (moved here from 185.239.3.189 on 1405/07/28): code + server config; never the database, media, logs or secrets
+CH=/www/wwwroot/Cheghar
+if [ -d "$CH/backend/gym" ]; then
+  rsync -a --delete --exclude='.git' --exclude='venv/' --exclude='__pycache__/' --exclude='*.pyc' --exclude='*.log' \
+        --exclude='db.sqlite3*' --exclude='backend/gym/media/' --exclude='backend/gym/private_media/' --exclude='backend/gym/logs/' \
+        --exclude='.env' --exclude='deploy/' "$CH/" "$REPO/chagher-server/"
+  mkdir -p "$REPO/chagher-server/deploy"
+  cp -f /www/server/panel/vhost/nginx/zz-chagher.conf /www/server/nginx/conf/chagher-proxy.conf \
+        /etc/systemd/system/cheghar.service /usr/local/bin/chagher-watchdog.sh /usr/local/bin/chagher-backup.sh \
+        "$REPO/chagher-server/deploy/" 2>/dev/null
+  cat > "$REPO/chagher-server/deploy/README-fa.md" <<'EOF2'
+# چغر روی سرورِ مشترک (87.107.160.17، کنارِ ارکا و آپ‌مارکت)
+
+| فایل | جایش روی سرور |
+|---|---|
+| `zz-chagher.conf` | `/www/server/panel/vhost/nginx/` (nginx ِ aaPanel؛ پیشوندِ zz تا tamouz پیش‌فرضِ 443 بماند) |
+| `chagher-proxy.conf` | `/www/server/nginx/conf/` |
+| `cheghar.service` | `/etc/systemd/system/` — gunicorn روی 127.0.0.1:8001، کاربر www |
+| `chagher-watchdog.sh`, `chagher-backup.sh` | `/usr/local/bin/` — cron ِ root: هر ۲ دقیقه / هر شب ۳:۳۰ |
+
+کد: `/www/wwwroot/Cheghar` (این پوشه). venv با پایتون 3.12 (`/opt/uv/python`) و `pip install -r` از نسخه‌های ثبت‌شده.
+در گیت نیست: `db.sqlite3`، `media/` و `private_media/`، لاگ‌ها، `/etc/cheghar/cheghar.env` (رمزها)، `/etc/letsencrypt` (گواهی‌ها) — این‌ها در `/root/backups` ِ سرورند.
+گواهی‌ها با certbot (webroot = /var/www/html) خودکار تمدید می‌شوند.
+EOF2
+fi
 
 cat > "$REPO/README.md" <<'EOF'
 # Qasem — NMarketing (UpMarket)
@@ -48,6 +73,9 @@ every 6 hours (`deploy/nm/git-autopush.sh`).
 Copy `processing-server/` to the GPU machine (Python 3.10+, ComfyUI running), run `START.bat`, paste the
 enrollment key from the panel (Tools → Processing servers → "Register a new server"). The machine registers
 itself under its own name. Details: `processing-server/README.md`.
+
+`chagher-server/` is the Chagher app (chagher.ir) that runs on the same site server since 1405/07/28: code, web panel build,
+exercise dataset and its server config (`chagher-server/deploy/`); its database, media and secrets stay in the server backups.
 
 `prompts/` holds the owner's request/answer files and sample outputs (added by hand; the auto-push never touches it).
 EOF

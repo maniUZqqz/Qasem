@@ -1,0 +1,163 @@
+{% extends 'app/base.html' %}
+{% comment %}
+«چه داریم و چه نداریم» — برای توسعهٔ کتابخانه.
+فقط برای کارکنان (staff). پیش‌فرض: فقط ردیف‌های ناقص.
+{% endcomment %}
+{% block title %}پوششِ داده | چغر{% endblock %}
+{% block meta_robots %}noindex,nofollow{% endblock %}
+
+{% block extra_head %}
+<style>
+  .cv{--p:#126F85;--deep:#163F75;--ink:#1B2B45;--muted:#5A6B85;--line:#dfe6f3;
+      max-width:1100px;margin:0 auto;padding:20px 16px 56px;color:var(--ink)}
+  .cv *{box-sizing:border-box}
+  .cv h1{font-size:22px;color:var(--deep);font-weight:800;margin:0 0 6px}
+  .cv .lead{color:var(--muted);font-size:14px;line-height:1.95;margin:0 0 20px}
+
+  .cv-sum{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:22px}
+  .cv-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px}
+  .cv-card b{display:block;font-size:25px;font-weight:800;line-height:1.4}
+  .cv-card span{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .cv-card.good b{color:#15803d}
+  .cv-card.warn b{color:#b45309}
+  .cv-card.bad  b{color:#b02a2a}
+  .cv-card.neutral b{color:var(--p)}
+
+  .cv-bar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+  .cv-bar a,.cv-bar button{display:inline-block;padding:9px 15px;border-radius:11px;
+    border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;
+    font-size:13.5px;cursor:pointer;font-family:inherit}
+  .cv-bar a.on{background:var(--p);color:#fff;border-color:var(--p);font-weight:700}
+  .cv-bar input{padding:9px 13px;border:1px solid var(--line);border-radius:11px;
+                font:inherit;min-width:190px;background:#fbfcfe}
+  .cv-bar .sp{flex:1 1 auto}
+
+  .cv-tb{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .cv-row{display:flex;gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid #f1f4fa}
+  .cv-row:last-child{border-bottom:0}
+  .cv-row:hover{background:#fafcff}
+  .cv-row img{width:46px;height:46px;border-radius:10px;object-fit:cover;flex:0 0 auto;
+              background:#f2f6ff;border:1px solid var(--line)}
+  .cv-row .noimg{width:46px;height:46px;border-radius:10px;flex:0 0 auto;background:#fdeaea;
+                 display:grid;place-items:center;color:#b02a2a;font-size:11px;font-weight:700}
+  .cv-row .nm{flex:1 1 180px;min-width:0}
+  .cv-row .nm b{display:block;font-size:13.5px;font-weight:700;line-height:1.7;
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cv-row .nm small{color:var(--muted);font-size:11.5px}
+  .cv-row .fl{display:flex;gap:5px;flex-wrap:wrap;flex:0 0 auto}
+  .cv-chip{font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap}
+  .cv-chip.y{background:#e4f6ec;color:#15803d}
+  .cv-chip.n{background:#fdeaea;color:#b02a2a}
+  .cv-row .go{flex:0 0 auto;font-size:12.5px;color:var(--p);text-decoration:none;font-weight:700;
+              border:1px solid var(--line);padding:7px 12px;border-radius:9px}
+  .cv-row .go:hover{border-color:var(--p)}
+
+  .cv-pg{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+  .cv-pg a,.cv-pg span{padding:7px 13px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;text-decoration:none;color:var(--ink);font-size:13px}
+  .cv-pg span.cur{background:var(--p);color:#fff;border-color:var(--p);font-weight:700}
+  .cv-empty{padding:34px;text-align:center;color:var(--muted);font-size:14px;line-height:2}
+
+  @media (max-width:680px){
+    .cv-row{flex-wrap:wrap}
+    .cv-row .fl{width:100%}
+    .cv-row .go{margin-inline-start:auto}
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cv">
+  <h1>پوششِ داده — چه داریم و چه نداریم</h1>
+  <p class="lead">
+    این صفحه می‌گوید کدام حرکت یا دستگاه عکس، آموزشِ ویدیویی و متنِ فارسی دارد و
+    کدام ندارد. پیش‌فرض فقط ردیف‌های <b>ناقص</b> را نشان می‌دهد — همان‌هایی که
+    باید کامل شوند.
+  </p>
+
+  <div class="cv-sum">
+    <div class="cv-card neutral"><b>{{ summary.ex_total }}</b><span>کلِ حرکت‌ها</span></div>
+    <div class="cv-card {% if summary.ex_no_thumb %}bad{% else %}good{% endif %}">
+      <b>{{ summary.ex_no_thumb }}</b><span>حرکتِ بی‌عکس</span></div>
+    <div class="cv-card {% if summary.ex_no_gif %}bad{% else %}good{% endif %}">
+      <b>{{ summary.ex_no_gif }}</b><span>حرکتِ بی‌آموزشِ ویدیویی</span></div>
+    <div class="cv-card {% if summary.ex_no_steps %}warn{% else %}good{% endif %}">
+      <b>{{ summary.ex_no_steps }}</b><span>حرکتِ بی‌مراحلِ فارسی</span></div>
+    <div class="cv-card neutral"><b>{{ summary.cat_total }}</b><span>کلِ دستگاه‌های کاتالوگ</span></div>
+    <div class="cv-card {% if summary.cat_no_image %}bad{% else %}good{% endif %}">
+      <b>{{ summary.cat_no_image }}</b><span>دستگاهِ بی‌عکس</span></div>
+    <div class="cv-card neutral"><b>{{ summary.gym_total }}</b><span>دستگاهِ ثبت‌شدهٔ باشگاه‌ها</span></div>
+    {% if summary.gym_unlinked is not None %}
+    <div class="cv-card {% if summary.gym_unlinked %}warn{% else %}good{% endif %}">
+      <b>{{ summary.gym_unlinked }}</b><span>بی‌اتصال به کاتالوگ</span></div>
+    {% endif %}
+  </div>
+
+  <form class="cv-bar" method="get">
+    <a href="?kind=exercise&show={{ show }}" class="{% if kind != 'equipment' %}on{% endif %}">حرکت‌ها</a>
+    <a href="?kind=equipment&show={{ show }}" class="{% if kind == 'equipment' %}on{% endif %}">دستگاه‌ها</a>
+    <a href="?kind=unmatched" class="{% if kind == 'unmatched' %}on{% endif %}">نامِ بی‌لینک</a>
+    <span style="width:10px"></span>
+    <a href="?kind={{ kind }}&show=missing" class="{% if show == 'missing' %}on{% endif %}">فقط ناقص‌ها</a>
+    <a href="?kind={{ kind }}&show=all" class="{% if show == 'all' %}on{% endif %}">همه</a>
+    <span class="sp"></span>
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="show" value="{{ show }}">
+    <input type="text" name="q" value="{{ q }}" placeholder="جست‌وجوی نام یا کد…">
+    <button type="submit">جست‌وجو</button>
+    <a href="?kind={{ kind }}&show={{ show }}&q={{ q|urlencode }}&format=csv">دانلودِ CSV</a>
+  </form>
+
+  <p class="lead" style="margin:-6px 0 14px">
+    {{ total_rows }} ردیف
+    {% if kind == 'unmatched' %}
+      — نام‌هایی که هوش مصنوعی در برنامه‌ها نوشته ولی در کتابخانه پیدا نشدند.
+      هر کدام را که واقعاً نداریم، با دکمهٔ «افزودن» بساز؛ آن‌هایی که با نامِ
+      دیگری داریم، کافی است نامِ دوم را در همان حرکت بنویسی.
+    {% endif %}
+  </p>
+
+  <div class="cv-tb">
+    {% for r in rows %}
+    <div class="cv-row">
+      {% if r.image_url %}
+        <img src="{{ r.image_url }}" alt="" loading="lazy">
+      {% else %}
+        <span class="noimg">بی‌عکس</span>
+      {% endif %}
+      <span class="nm">
+        <b>{{ r.name }}</b>
+        <small>{{ r.code }} · {{ r.extra }}</small>
+      </span>
+      <span class="fl">
+        {% for f in r.flags %}
+          <span class="cv-chip {% if f.1 %}y{% else %}n{% endif %}">{{ f.0 }}{% if not f.1 %} ✗{% endif %}</span>
+        {% endfor %}
+      </span>
+      <a class="go" href="{{ r.admin }}">{% if kind == 'unmatched' %}افزودن{% else %}ویرایش{% endif %}</a>
+    </div>
+    {% empty %}
+    <div class="cv-empty">
+      {% if show == 'missing' %}
+        هیچ ردیفِ ناقصی نیست — این بخش کامل است. ✓<br>
+        برای دیدنِ همه، «همه» را بزن.
+      {% else %}
+        چیزی پیدا نشد.
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="cv-pg">
+    {% if page_obj.has_previous %}
+      <a href="?kind={{ kind }}&show={{ show }}&q={{ q|urlencode }}&page={{ page_obj.previous_page_number }}">قبلی</a>
+    {% endif %}
+    <span class="cur">{{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a href="?kind={{ kind }}&show={{ show }}&q={{ q|urlencode }}&page={{ page_obj.next_page_number }}">بعدی</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

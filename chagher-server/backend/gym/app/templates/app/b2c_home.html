@@ -1,0 +1,366 @@
+{% extends 'app/base.html' %}
+{% load static %}
+{% comment %}
+لندینگِ B2C — برای ورزشکار، نه باشگاه‌دار.
+
+سربرگ و پابرگِ مشترکِ سایت عمداً دست‌نخورده می‌مانند (خواستِ مالک).
+همهٔ کلاس‌ها پیشوندِ b2c- دارند و زیرِ .b2c محصورند تا به صفحه‌های B2B نشت نکنند.
+
+دو درسِ دورِ قبل که این‌جا رعایت شده:
+  · هایلایتِ پشتِ تیتر با background-gradient روی span چندخطی می‌شکند و بلوکِ
+    خاکستری می‌سازد — حذف شد؛ تأکید با رنگ انجام می‌شود.
+  · فاصله‌ها باید از یک مقیاسِ واحد بیایند (۱۶/۲۴/۴۰/۶۴) وگرنه صفحه بی‌قاعده
+    به‌نظر می‌رسد.
+{% endcomment %}
+
+{% block title %}چغر | برنامهٔ ورزشی و غذاییِ اختصاصیِ خودت{% endblock %}
+{% block meta_description %}ورزشکار؟ باشگاهت را با دوربین اسکن کن، مشخصاتت را بده و برنامهٔ تمرین و تغذیهٔ اختصاصی بگیر. درستیِ حرکت را هم با دوربین بسنج.{% endblock %}
+
+{# سئوی مخصوصِ دنیای ورزشکار — پیامش با صفحهٔ باشگاه‌ها یکی نیست، پس
+   تگ‌هایش هم نباید همان باشند، وگرنه گوگل هر دو را یک صفحه می‌بیند. #}
+{% block og_type %}website{% endblock %}
+{% block og_title %}چغر | برنامهٔ ورزشی و غذاییِ اختصاصیِ خودت{% endblock %}
+{% block og_description %}باشگاهت را با دوربین اسکن کن و برنامه‌ای بگیر که با همان دستگاه‌ها نوشته شده است.{% endblock %}
+{% block twitter_title %}چغر | برنامهٔ ورزشی و غذاییِ اختصاصیِ خودت{% endblock %}
+{% block twitter_description %}باشگاهت را با دوربین اسکن کن و برنامه‌ای بگیر که با همان دستگاه‌ها نوشته شده است.{% endblock %}
+
+{% block structured_data %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "چغر — برنامهٔ ورزشکار",
+  "url": "{{ request.scheme }}://{{ request.get_host }}/",
+  "applicationCategory": "HealthApplication",
+  "operatingSystem": "Web, Android, iOS",
+  "inLanguage": "fa-IR",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "IRR",
+             "description": "{{ ai_free_programs }} برنامهٔ اول رایگان"}
+}
+</script>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .b2c{
+    --p:#126F85; --p-d:#0E5566; --deep:#163F75;
+    --accent:#7FE3F0;                /* فیروزه‌ای روشن — فقط برای تأکید */
+    --ink:#1B2B45; --muted:#5A6B85;
+    --line:#DCE6F7; --soft:#F2F7FF; --card:#fff;
+    --r-lg:28px; --r:20px; --r-sm:14px;
+    --s1:8px; --s2:16px; --s3:24px; --s4:40px; --s5:64px;
+    color:var(--ink);
+  }
+  .b2c *,.b2c *::before,.b2c *::after{box-sizing:border-box}
+  .b2c-shell{max-width:1120px;margin:0 auto;padding:0 var(--s2)}
+
+  /* ───────────── قهرمان: یک کارتِ گرد، نه مستطیلِ تیزِ تمام‌عرض ───────────── */
+  .b2c-hero{
+    position:relative;overflow:hidden;color:#fff;text-align:center;
+    margin:var(--s2) 0 0;border-radius:var(--r-lg);
+    padding:var(--s4) var(--s3) calc(var(--s4) + var(--s3));
+    background:
+      radial-gradient(760px 320px at 78% -14%, rgba(127,227,240,.26), transparent 62%),
+      linear-gradient(142deg,#0E5566 0%,#126F85 46%,#163F75 100%);
+  }
+  .b2c-hero::after{
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.35;
+    background-image:radial-gradient(rgba(255,255,255,.16) 1px,transparent 1px);
+    background-size:24px 24px;
+    -webkit-mask-image:linear-gradient(180deg,#000,transparent 70%);
+            mask-image:linear-gradient(180deg,#000,transparent 70%);
+  }
+  .b2c-hero>*{position:relative;z-index:1}
+
+  .b2c-badge{
+    display:inline-flex;align-items:center;gap:var(--s1);
+    background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.3);
+    padding:7px 16px;border-radius:999px;font-size:13px;font-weight:700;
+    margin-bottom:var(--s3);
+  }
+  .b2c-hero h1{
+    font-size:clamp(25px,4.4vw,41px);line-height:1.62;font-weight:800;
+    margin:0 auto var(--s2);max-width:22ch;letter-spacing:-.2px;
+  }
+  .b2c-hero h1 em{font-style:normal;color:var(--accent)}
+  .b2c-lead{
+    font-size:clamp(14.5px,1.9vw,17px);line-height:1.95;opacity:.93;
+    max-width:46ch;margin:0 auto var(--s3);
+  }
+
+  .b2c-cta{display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:center}
+  .b2c-cta a{
+    display:inline-flex;align-items:center;gap:var(--s1);text-decoration:none;
+    padding:15px 30px;border-radius:var(--r-sm);font-weight:800;font-size:15.5px;
+    transition:transform .18s ease,box-shadow .18s ease,background .18s ease;
+  }
+  .b2c-cta .main{background:#fff;color:var(--p-d);box-shadow:0 10px 26px rgba(0,0,0,.2)}
+  .b2c-cta .main:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(0,0,0,.26)}
+  .b2c-cta .ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.38)}
+  .b2c-cta .ghost:hover{background:rgba(255,255,255,.2);transform:translateY(-2px)}
+
+  /* آمار، داخلِ خودِ قهرمان — بی‌هم‌پوشانیِ ناجور */
+  .b2c-stats{
+    margin:var(--s3) auto 0;max-width:620px;
+    display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s1);
+  }
+  .b2c-stat{
+    background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+    border-radius:var(--r-sm);padding:12px var(--s1);
+  }
+  .b2c-stat b{display:block;font-size:clamp(18px,2.8vw,23px);font-weight:800;line-height:1.5}
+  .b2c-stat span{font-size:12px;opacity:.82;line-height:1.7}
+
+  /* ───────────── نوارِ حرکت‌های واقعی ───────────── */
+  /* قبلاً با مارجینِ منفی داخلِ سربرگ کشیده می‌شد و به لبه می‌چسبید */
+  .b2c-strip{
+    margin-top:var(--s3);position:relative;z-index:2;
+    background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:var(--s1) 0 var(--s2);box-shadow:0 10px 26px rgba(22,63,117,.09);
+  }
+  /* لبه‌ها محو می‌شوند تا «بریده» به‌نظر نرسند و معلوم باشد اسکرول دارد */
+  /* از لبه فاصله می‌گیرد و محوشدگی فقط ۱۲px است، وگرنه تصویرِ اول و آخر
+     «بریده» دیده می‌شوند. padding با scroll-padding هم‌خوان است تا اسنپ درست بیفتد. */
+  .b2c-strip-row{display:flex;gap:var(--s2);overflow-x:auto;
+                 padding:var(--s2) var(--s2) var(--s2);scroll-padding-inline:var(--s2);
+                 scrollbar-width:thin;scroll-snap-type:x mandatory;scroll-behavior:smooth;
+                 -webkit-mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);
+                         mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent)}
+  .b2c-strip-row::-webkit-scrollbar{height:6px}
+  .b2c-strip-row::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+  .b2c-thumb{flex:0 0 auto;width:124px;scroll-snap-align:start;text-align:center}
+  .b2c-thumb img{
+    width:124px;height:124px;object-fit:cover;border-radius:var(--r-sm);
+    background:#fff;border:1px solid var(--line);display:block;
+  }
+  /* نام دقیقاً دو خط — وگرنه ارتفاعِ کارت‌ها ناهمگون می‌شود */
+  /* ⚠ ارتفاع باید دقیقاً ۲ × line-height باشد وگرنه خطِ دوم از پایین بریده
+     می‌شود — همان چیزی که در صفحه دیده شد. */
+  .b2c-thumb span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+                  overflow:hidden;font-size:11.5px;color:var(--muted);margin-top:var(--s1);
+                  line-height:1.6;height:3.2em}
+  .b2c-strip-note{text-align:center;font-size:13px;color:var(--muted);
+                  margin:var(--s2) 0 0;padding:0 var(--s3)}
+
+  /* ───────────── بخش‌ها ───────────── */
+  .b2c-sec{padding-top:var(--s5)}
+  .b2c-strip + .b2c-sec{padding-top:var(--s4)}
+  .b2c-h2{font-size:clamp(19px,3.1vw,26px);color:var(--deep);font-weight:800;
+          text-align:center;margin:0 0 var(--s1)}
+  .b2c-sub{text-align:center;color:var(--muted);font-size:14px;line-height:1.95;
+           max-width:48ch;margin:0 auto var(--s4)}
+
+  .b2c-grid{display:grid;gap:var(--s2)}
+  .b2c-grid.c4{grid-template-columns:repeat(auto-fit,minmax(228px,1fr))}
+  .b2c-grid.c3{grid-template-columns:repeat(auto-fit,minmax(286px,1fr))}
+
+  .b2c-card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:var(--s3);transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;
+  }
+  .b2c-card:hover{transform:translateY(-3px);border-color:var(--p);
+                  box-shadow:0 14px 30px rgba(22,63,117,.11)}
+  .b2c-card .ico{
+    width:50px;height:50px;border-radius:var(--r-sm);display:grid;place-items:center;
+    background:linear-gradient(140deg,#126F85,#163F75);color:#fff;font-size:20px;
+    margin-bottom:var(--s2);box-shadow:0 6px 14px rgba(18,111,133,.26);
+  }
+  .b2c-card h3{font-size:16px;margin:0 0 var(--s1);color:var(--deep);font-weight:800;line-height:1.7}
+  .b2c-card p{font-size:13.8px;line-height:2;color:var(--muted);margin:0}
+  .b2c-step-n{
+    display:inline-block;font-size:12px;font-weight:800;color:var(--p);
+    background:var(--soft);border-radius:999px;padding:3px 11px;margin-bottom:var(--s2);
+  }
+
+  /* چراغِ راهنما */
+  .b2c-lights{display:flex;gap:6px;margin-top:var(--s2);flex-wrap:wrap}
+  .b2c-lights span{font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px}
+  .b2c-lights .g{background:#E4F6EC;color:#1C7A47}
+  .b2c-lights .y{background:#FFF4DB;color:#8A6400}
+  .b2c-lights .r{background:#FDE8E8;color:#A62121}
+
+  /* دستگاه‌های واقعی */
+  /* ۶ تا، در شبکه‌ای که روی هر عرض بی‌یتیم بسته می‌شود (۶ ⇒ ۳ ⇒ ۲) */
+  .b2c-eq{display:grid;gap:var(--s2);grid-template-columns:repeat(6,1fr)}
+  @media (max-width:980px){.b2c-eq{grid-template-columns:repeat(3,1fr)}}
+  @media (max-width:560px){.b2c-eq{grid-template-columns:repeat(2,1fr)}}
+  .b2c-eq figure{margin:0;background:var(--card);border:1px solid var(--line);
+                 border-radius:var(--r);overflow:hidden}
+  .b2c-eq img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;background:#fff}
+  .b2c-eq figcaption{padding:11px var(--s2);font-size:12.5px;color:var(--deep);
+                     font-weight:700;text-align:center;line-height:1.7}
+
+  /* نوارِ پایانی */
+  .b2c-final{
+    margin:var(--s5) 0 0;border-radius:var(--r-lg);padding:var(--s4) var(--s3);text-align:center;color:#fff;
+    background:
+      radial-gradient(560px 220px at 84% 0%,rgba(127,227,240,.2),transparent 60%),
+      linear-gradient(140deg,#126F85,#163F75);
+  }
+  .b2c-final h2{font-size:clamp(19px,3.1vw,26px);margin:0 0 var(--s1);font-weight:800}
+  .b2c-final p{margin:0 0 var(--s3);opacity:.92;font-size:14.5px;line-height:1.95}
+
+  .b2c-coach{text-align:center;color:var(--muted);font-size:13.5px;line-height:2.1;
+             padding:var(--s4) var(--s2) var(--s5);
+             display:flex;flex-direction:column;align-items:center;gap:var(--s2)}
+  .b2c-coach p{margin:0;max-width:52ch}
+  .b2c-coach a.inline{color:var(--p);font-weight:800;text-decoration:none;
+                      border-bottom:1px solid rgba(18,111,133,.35)}
+  .b2c-coach a.inline:hover{border-bottom-color:var(--p)}
+  /* «ورود» دکمه است، نه لینکِ خط‌چین‌دار — خط‌چین شکسته به‌نظر می‌رسید */
+  .b2c-login{display:inline-flex;align-items:center;gap:var(--s1);
+             background:#fff;color:var(--p);border:1px solid var(--line);
+             border-radius:var(--r-sm);padding:11px 24px;font-weight:800;font-size:14px;
+             text-decoration:none;transition:border-color .18s ease,box-shadow .18s ease}
+  .b2c-login:hover{border-color:var(--p);box-shadow:0 6px 16px rgba(22,63,117,.10)}
+
+  @media (max-width:700px){
+    .b2c{--s5:44px;--s4:28px;--r-lg:22px}
+    .b2c-hero{padding:var(--s4) 18px;margin-top:var(--s1)}
+    .b2c-stats{grid-template-columns:1fr;gap:var(--s1);max-width:320px}
+    .b2c-stat{display:flex;align-items:baseline;justify-content:center;gap:var(--s1);
+              padding:11px var(--s2)}
+    .b2c-stat b{font-size:19px}
+    .b2c-cta a{width:100%;justify-content:center}
+    .b2c-strip{margin-top:var(--s2)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .b2c-card,.b2c-cta a{transition:none}
+    .b2c-card:hover,.b2c-cta a:hover{transform:none}
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="b2c">
+<div class="b2c-shell">
+
+  <section class="b2c-hero">
+    {% if ai_free_programs %}
+    <div class="b2c-badge"><i class="fas fa-gift"></i> {{ ai_free_programs }} برنامهٔ اول رایگان</div>
+    {% endif %}
+
+    <h1>برنامه‌ای که با <em>دستگاه‌های باشگاهِ خودت</em> نوشته می‌شود</h1>
+
+    <p class="b2c-lead">
+      باشگاهت را با دوربین اسکن کن، مشخصاتت را یک‌بار بده،
+      و برنامهٔ تمرین و تغذیه بگیر.
+    </p>
+
+    <div class="b2c-cta">
+      <a class="main" href="https://{{ panel_host }}/panel/signup/"><i class="fas fa-bolt"></i> شروع کن — رایگان</a>
+      <a class="ghost" href="{% url 'exercise-list' %}"><i class="fas fa-list"></i> کتابخانهٔ حرکت‌ها</a>
+    </div>
+
+    <div class="b2c-stats">
+      <div class="b2c-stat"><b>{{ exercise_count }}</b><span>حرکت با آموزشِ تصویری</span></div>
+      <div class="b2c-stat"><b>{{ equipment_count }}</b><span>دستگاهِ شناخته‌شده</span></div>
+      <div class="b2c-stat"><b>{{ ai_free_programs }}</b><span>برنامهٔ رایگان</span></div>
+    </div>
+  </section>
+
+  {% if strip_exercises %}
+  <div class="b2c-strip">
+    <div class="b2c-strip-row">
+      {% for e in strip_exercises %}
+      <div class="b2c-thumb">
+        <img src="{{ e.thumb.url }}" alt="{{ e.name_fa|default:e.name }}" loading="lazy" width="112" height="112">
+        <span title="{{ e.name_fa|default:e.name }}">{{ e.name_fa|default:e.name }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="b2c-strip-note">هر حرکت، تصویرِ آموزشیِ خودش را دارد — نه فقط یک اسم در جدول.</p>
+  </div>
+  {% endif %}
+
+  <section class="b2c-sec">
+    <h2 class="b2c-h2">چهار قدم تا برنامه‌ات</h2>
+    <p class="b2c-sub">همه‌اش با گوشیِ خودت، داخلِ باشگاه.</p>
+    <div class="b2c-grid c4">
+      <div class="b2c-card">
+        <span class="b2c-step-n">قدمِ ۱</span>
+        <div class="ico"><i class="fas fa-camera"></i></div>
+        <h3>باشگاهت را اسکن کن</h3>
+        <p>دوربین را روشن کن و در باشگاه بچرخ؛ دستگاه‌ها خودشان شناسایی می‌شوند و بعد از تأییدِ تو به فهرستت اضافه می‌شوند.</p>
+      </div>
+      <div class="b2c-card">
+        <span class="b2c-step-n">قدمِ ۲</span>
+        <div class="ico"><i class="fas fa-id-card"></i></div>
+        <h3>مشخصاتت را بده</h3>
+        <p>سن، قد، وزن، هدف و آسیب‌ها را یک‌بار می‌نویسی؛ دفعهٔ بعد دیگر پرسیده نمی‌شود.</p>
+      </div>
+      <div class="b2c-card">
+        <span class="b2c-step-n">قدمِ ۳</span>
+        <div class="ico"><i class="fas fa-dumbbell"></i></div>
+        <h3>برنامه بگیر</h3>
+        <p>برنامهٔ تمرین و تغذیه با همان دستگاه‌هایی که داری نوشته می‌شود{% if ai_free_programs %} — {{ ai_free_programs }} برنامهٔ اول رایگان{% endif %}.</p>
+      </div>
+      <div class="b2c-card">
+        <span class="b2c-step-n">قدمِ ۴</span>
+        <div class="ico"><i class="fas fa-video"></i></div>
+        <h3>درستیِ حرکت را بسنج</h3>
+        <p>روی هر حرکت بزن، آموزشش را ببین و با دوربین چک کن که درست اجرا می‌کنی یا نه.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="b2c-sec">
+    <h2 class="b2c-h2">چه چیزی چغر را فرق می‌گذارد</h2>
+    <p class="b2c-sub">برنامه‌ای که نتوانی اجرا کنی به چه درد می‌خورد؟</p>
+    <div class="b2c-grid c3">
+      <div class="b2c-card">
+        <div class="ico"><i class="fas fa-magnifying-glass"></i></div>
+        <h3>اسکنِ زندهٔ دستگاه</h3>
+        <p>عکس‌گرفتن لازم نیست؛ دوربین را بگیر و راه برو. هرچه شناخته شود همان لحظه نشانت می‌دهد و خودت تأیید می‌کنی.</p>
+      </div>
+      <div class="b2c-card">
+        <div class="ico"><i class="fas fa-circle-check"></i></div>
+        <h3>بررسیِ درستیِ حرکت</h3>
+        <p>دوربین را روبه‌رویت بگذار و حرکت را بزن؛ با رنگ می‌گوید درست می‌روی یا باید اصلاح کنی.</p>
+        <div class="b2c-lights"><span class="g">درست</span><span class="y">مرزی</span><span class="r">اصلاح کن</span></div>
+      </div>
+      <div class="b2c-card">
+        <div class="ico"><i class="fas fa-utensils"></i></div>
+        <h3>تغذیه، نه فقط تمرین</h3>
+        <p>کنارِ برنامهٔ تمرین، وعده‌های غذایی و مکمل‌ها هم نوشته می‌شود — در همان یک فایلِ قابلِ ذخیره.</p>
+      </div>
+    </div>
+  </section>
+
+  {% if equipment_samples %}
+  <section class="b2c-sec">
+    <h2 class="b2c-h2">دستگاه‌هایی که دوربین می‌شناسد</h2>
+    <p class="b2c-sub">نمونه‌ای از {{ equipment_count }} دستگاهی که سامانه تشخیص می‌دهد.</p>
+    <div class="b2c-eq">
+      {% for q in equipment_samples %}
+      <figure>
+        <img src="{{ q.url }}" alt="{{ q.name }}" loading="lazy" width="400" height="400">
+        <figcaption>{{ q.name }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="b2c-final">
+    <h2>آماده‌ای؟</h2>
+    <p>چند دقیقه وقت می‌برد و برای شروع هزینه‌ای ندارد.</p>
+    <div class="b2c-cta">
+      <a class="main" href="https://{{ panel_host }}/panel/signup/"><i class="fas fa-arrow-left"></i> ساختِ برنامهٔ من</a>
+    </div>
+  </section>
+
+  <div class="b2c-coach">
+    <a class="b2c-login" href="https://{{ panel_host }}/panel/login/">
+      <i class="fas fa-right-to-bracket"></i> حساب داری؟ وارد شو
+    </a>
+    <p>
+      مربی یا باشگاه‌داری و می‌خواهی برای شاگردانت برنامه بسازی؟
+      پنلِ باشگاه‌ها جای دیگری است:
+      <a class="inline" href="https://{{ b2b_host }}/">{{ b2b_host }}</a>
+    </p>
+  </div>
+
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,530 @@
+{% extends 'app/base.html' %}
+{% load static %}
+
+{% block title %}{{ post.title }} - وبلاگ{% endblock %}
+
+
+{% block meta_description %}{{ post.summary|striptags|truncatechars:155 }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ post.title }} | وبلاگ{% endblock %}
+{% block og_description %}{{ post.summary|striptags|truncatechars:200 }}{% endblock %}
+{% block twitter_title %}{{ post.title }} | وبلاگ{% endblock %}
+{% block twitter_description %}{{ post.summary|striptags|truncatechars:200 }}{% endblock %}
+{% block og_image_meta %}
+    {% if post.image %}
+        <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{{ post.image.url }}">
+    {% endif %}
+{% endblock %}
+{% block twitter_image_meta %}
+    {% if post.image %}
+        <meta name="twitter:image" content="{{ request.scheme }}://{{ request.get_host }}{{ post.image.url }}">
+    {% endif %}
+{% endblock %}
+{% block structured_data %}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": "{{ post.title|escapejs }}",
+            "description": "{{ post.summary|striptags|escapejs }}",
+            "author": {
+                "@type": "Person",
+                "name": "{{ post.author.gym_name|default:post.author.phone_number|escapejs }}"
+            },
+            "datePublished": "{{ post.created_at|date:'c' }}",
+            "dateModified": "{{ post.updated_at|date:'c' }}",
+            "mainEntityOfPage": "{{ request.build_absolute_uri }}",
+            "inLanguage": "fa-IR",
+            "publisher": {
+                "@type": "Organization",
+                "name": "چغر",
+                "url": "{{ request.scheme }}://{{ request.get_host }}/"
+            }{% if post.image %},
+            "image": "{{ request.scheme }}://{{ request.get_host }}{{ post.image.url }}"{% endif %}
+        }
+    </script>
+    {# مسیرِ راهنما — گوگل آن را زیرِ عنوانِ نتیجه نشان می‌دهد #}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {"@type":"ListItem","position":1,"name":"خانه","item":"{{ request.scheme }}://{{ request.get_host }}/"},
+                {"@type":"ListItem","position":2,"name":"وبلاگ","item":"{{ request.scheme }}://{{ request.get_host }}/blog/"},
+                {"@type":"ListItem","position":3,"name":"{{ post.title|escapejs }}"}
+            ]
+        }
+    </script>
+{% endblock %}
+
+{% block content %}
+
+
+    <style>
+        /* ARTICLE CONTAINER */
+        .article-container {
+            padding: 60px 0;
+        }
+
+        .article-card {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+            padding: 40px;
+            margin-top: 20px;
+        }
+
+        /* ARTICLE HEADER */
+        .article-header {
+            margin-bottom: 30px;
+        }
+
+        .article-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            line-height: 1.3;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+
+        .article-meta {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            padding: 12px 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border-left: 4px solid #126F85;
+        }
+
+        .article-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.9rem;
+            color: #4b5563;
+            font-weight: 500;
+        }
+
+        .article-meta-item i {
+            color: #126F85;
+            font-size: 1rem;
+        }
+
+        /* ARTICLE IMAGE */
+        .article-image {
+            width: 100%;
+            height: 450px;
+            object-fit: cover;
+            border-radius: 12px;
+            margin: 30px 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .article-image-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+
+        .article-image-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.1), transparent 70%);
+        }
+
+        /* ARTICLE CONTENT */
+        .article-content {
+            line-height: 1.8;
+            color: #374151;
+            font-size: 1.05rem;
+        }
+
+        .article-content p {
+            margin-bottom: 20px;
+            text-align: justify;
+        }
+
+        .article-content h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 40px 0 20px;
+            color: #111827;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+
+        .article-content h3 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin: 30px 0 15px;
+            color: #1f2937;
+        }
+
+        .article-content ul,
+        .article-content ol {
+            margin: 20px 0;
+            padding-right: 25px;
+        }
+
+        .article-content li {
+            margin-bottom: 10px;
+            line-height: 1.8;
+        }
+
+        .article-content a {
+            color: #126F85;
+            text-decoration: underline;
+            transition: opacity 0.2s;
+        }
+
+        .article-content a:hover {
+            opacity: 0.8;
+        }
+
+        .article-content blockquote {
+            border-right: 4px solid #126F85;
+            background: #f9fafb;
+            padding: 20px 25px;
+            margin: 25px 0;
+            border-radius: 8px;
+            font-style: italic;
+            color: #4b5563;
+        }
+
+        .article-content code {
+            background: #f3f4f6;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95rem;
+        }
+
+        .article-content pre {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95rem;
+        }
+
+        /* BACK BUTTON */
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: #f9fafb;
+            color: #4b5563;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid #e5e7eb;
+        }
+
+        .back-button:hover {
+            background: #126F85;
+            color: white;
+            border-color: #126F85;
+            transform: translateX(-4px);
+        }
+
+        .back-button i {
+            font-size: 1.1rem;
+            transition: transform 0.3s ease;
+        }
+
+        .back-button:hover i {
+            transform: translateX(-4px);
+        }
+
+        /* SHARE SECTION */
+        .share-section {
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .share-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #4b5563;
+            margin-bottom: 15px;
+        }
+
+        .share-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .share-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f3f4f6;
+            color: #6b7280;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .share-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .share-btn.whatsapp {
+            background: #25d366;
+            color: white;
+        }
+
+        .share-btn.telegram {
+            background: #0088cc;
+            color: white;
+        }
+
+        .share-btn.twitter {
+            background: #1da1f2;
+            color: white;
+        }
+
+        .share-btn.linkedin {
+            background: #0a66c2;
+            color: white;
+        }
+
+        /* RESPONSIVE DESIGN */
+        @media (max-width: 992px) {
+            .article-card {
+                padding: 30px 25px;
+            }
+
+            .article-title {
+                font-size: 2.2rem;
+            }
+
+            .article-image {
+                height: 400px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .article-container {
+                padding: 40px 0 20px;
+            }
+
+            .article-card {
+                padding: 25px 20px;
+                border-radius: 12px;
+            }
+
+            .article-title {
+                font-size: 1.8rem;
+                line-height: 1.4;
+            }
+
+            .article-meta {
+                flex-direction: column;
+                gap: 10px;
+                padding: 15px;
+            }
+
+            .article-image {
+                height: 300px;
+            }
+
+            .article-content {
+                font-size: 1rem;
+            }
+
+            .article-content h2 {
+                font-size: 1.5rem;
+            }
+
+            .article-content h3 {
+                font-size: 1.25rem;
+            }
+
+            .back-button {
+                width: 100%;
+                justify-content: center;
+                padding: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .article-container {
+                padding: 20px 0 10px;
+            }
+
+            .article-card {
+                padding: 20px 15px;
+                border-radius: 10px;
+            }
+
+            .article-title {
+                font-size: 1.6rem;
+            }
+
+            .article-image {
+                height: 220px;
+            }
+
+            .article-content {
+                font-size: 0.95rem;
+                line-height: 1.7;
+            }
+
+            .article-content p {
+                margin-bottom: 16px;
+            }
+
+            .share-buttons {
+                flex-wrap: wrap;
+            }
+
+            .share-btn {
+                width: 36px;
+                height: 36px;
+                font-size: 0.95rem;
+            }
+        }
+    </style>
+
+
+<article class="article-container">
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <!-- ARTICLE CARD -->
+                <div class="article-card">
+                    <!-- TITLE -->
+                    <header class="article-header">
+                        <h1 style="border-radius: 16px;" class="article-title">{{ post.title }}</h1>
+
+                    </header>
+
+                    <!-- FEATURED IMAGE -->
+                    {% if post.image %}
+                        <div class="article-image-wrapper">
+                            <img src="{{ post.image.url }}" class="article-image" alt="{{ post.title }}"
+                                 loading="lazy">
+                        </div>
+                    {% endif %}
+
+                    <!-- CONTENT -->
+                    <div class="article-content">
+                        {{ post.content|linebreaks }}
+                    </div>
+
+                    <!-- META INFO -->
+                    <div class="article-meta">
+                        <div class="article-meta-item">
+                            <i class="bi bi-calendar3"></i>
+                            <span>{{ post.created_at|date:"l, d F Y" }}</span>
+                        </div>
+                        <div class="article-meta-item">
+                            <i class="bi bi-clock"></i>
+                            <span>{{ post.created_at|date:"H:i" }}</span>
+                        </div>
+                        <div class="article-meta-item">
+                            <i class="bi bi-person"></i>
+                            <span>{{ post.author.gym_name|default:"تحریریه" }}</span>
+                        </div>
+                    </div>
+
+                    <!-- SHARE SECTION -->
+                    <div style="margin: 10px" class="share-section">
+                        <div class="share-title">
+                            <i class="bi bi-share"></i> به اشتراک بگذارید:
+                        </div>
+                        <div class="share-buttons">
+                            <button class="share-btn whatsapp" onclick="shareWhatsApp()" title="اشتراک در واتساپ">
+                                <svg width="24" height="24" viewBox="0 0 24 24">
+                                    <path fill="currentColor"
+                                          d="M12.032 21.998c-2.491 0-4.837-.65-6.884-1.791l-4.13 1.37 1.406-4.015C1.464 15.36.84 13.256.84 11.002.84 5.398 5.82.426 12.032.426c3.164 0 6.01 1.22 8.159 3.362 2.148 2.142 3.333 5.077 3.333 8.214 0 6.603-4.98 11.576-11.192 11.576zm-5.49-3.338l.362.214c1.896 1.117 4.064 1.704 6.29 1.704 5.246 0 9.528-4.269 9.528-9.518 0-2.723-1.11-5.281-3.125-7.207-2.015-1.926-4.695-2.986-7.543-2.986-5.247 0-9.53 4.269-9.53 9.518 0 1.918.57 3.784 1.647 5.388l.112.17-.478 1.368 1.49-.486z"/>
+                                </svg>
+                            </button>
+
+                            <button class="share-btn telegram" onclick="shareTelegram()" title="اشتراک در تلگرام">
+                                <svg width="24" height="24" viewBox="0 0 24 24">
+                                    <path fill="currentColor"
+                                          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.57-1.38-.93-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.06-.2-.07-.06-.17-.04-.24-.03-.1.02-1.79 1.14-5.06 3.35-.48.33-.91.49-1.3.48-.43-.01-1.26-.24-1.87-.44-.75-.24-1.35-.37-1.3-.78.03-.24.37-.48 1.01-.74 3.92-1.71 6.54-2.84 7.86-3.39 3.84-1.6 4.64-1.88 5.16-1.89.11 0 .37.03.54.18.14.13.18.3.2.42.02.1.04.33.02.51z"/>
+                                </svg>
+                            </button>
+
+                            <button class="share-btn twitter" onclick="shareTwitter()" title="اشتراک در توییتر">
+                                <svg width="24" height="24" viewBox="0 0 24 24">
+                                    <path fill="currentColor"
+                                          d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                </svg>
+                            </button>
+
+                            <button class="share-btn linkedin" onclick="shareLinkedIn()" title="اشتراک در لینکدین">
+                                <svg width="24" height="24" viewBox="0 0 24 24">
+                                    <path fill="currentColor"
+                                          d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- BACK BUTTON -->
+                    <div class="text-center mt-5">
+                        <a href="{% url 'blog_list' %}" class="back-button">
+                            <i class="bi bi-arrow-right"></i>
+                            بازگشت به لیست مقالات
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</article>
+
+<script>
+    // Share Functions
+    function shareWhatsApp() {
+        const title = encodeURIComponent(document.title);
+        const url = encodeURIComponent(window.location.href);
+        const text = encodeURIComponent('مقاله جالبی پیدا کردم:');
+        window.open(`https://wa.me/?text=${text}%20${title}%20${url}`, '_blank');
+    }
+
+    function shareTelegram() {
+        const title = encodeURIComponent(document.title);
+        const url = encodeURIComponent(window.location.href);
+        const text = encodeURIComponent('مقاله جالبی پیدا کردم:');
+        window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank');
+    }
+
+    function shareTwitter() {
+        const title = encodeURIComponent(document.title);
+        const url = encodeURIComponent(window.location.href);
+        window.open(`https://twitter.com/intent/tweet?text=${title}&url=${url}`, '_blank');
+    }
+
+    function shareLinkedIn() {
+        const title = encodeURIComponent(document.title);
+        const url = encodeURIComponent(window.location.href);
+        window.open(`https://www.linkedin.com/shareArticle?mini=true&url=${url}&title=${title}`, '_blank');
+    }
+</script>
+
+
+{% endblock %}
+
+

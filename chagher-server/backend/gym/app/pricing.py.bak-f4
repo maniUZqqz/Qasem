@@ -1,0 +1,245 @@
+# -*- coding: utf-8 -*-
+"""موتورِ قاعدهٔ قیمت — «چه کسی، چه چیزی، کِی، چندمین بار ⇒ چقدر».
+
+چرا ساخته شد (خواستِ مالک ۱۴۰۵/۰۷/۲۰):
+    «بشه تایمی، بشه تعدادی، بشه عددی قیمت‌گذاری و رایگان کرد… و حتی قیمت را با
+     توکن کم و زیاد کنم. همهٔ دسترسی را می‌خواهم.»
+
+طرز کار
+-------
+هر قاعده یک **شرط** دارد و یک **حکم**. قاعده‌ها به ترتیبِ «اولویت» سنجیده
+می‌شوند و **اولین قاعده‌ای که شرطش بخورد، حکم می‌دهد**؛ بقیه دیگر خوانده
+نمی‌شوند. این عمدی است: ترتیب را خودِ مالک می‌چیند و همیشه می‌داند کدام برنده
+شده (در «آزمونِ قیمت» دیده می‌شود).
+
+⚠ اگر هیچ قاعده‌ای نخورد، تابع `None` برمی‌گرداند و فراخوان باید رفتارِ قدیمیِ
+خودش را ادامه دهد. این عمدی است: روزِ اول که هنوز قاعده‌ای ننوشته‌ای، هیچ‌چیز
+عوض نمی‌شود.
+"""
+from collections import namedtuple
+
+# mode: 'free' | 'tokens' | 'blocked'
+Decision = namedtuple('Decision', 'mode cost rule reason')
+
+# شناسهٔ امکانات — هر جا قیمت گرفته می‌شود یکی از این‌هاست
+F_AI_BOTH = 'ai_both'
+F_AI_WORKOUT = 'ai_workout'
+F_AI_MEAL = 'ai_meal'
+F_AI_EDIT = 'ai_edit'
+F_MANUAL = 'manual_program'
+F_ANY = 'any'
+
+FEATURE_CHOICES = [
+    (F_ANY, 'همهٔ موارد (قاعدهٔ عمومی)'),
+    (F_AI_BOTH, 'هوش مصنوعی — ورزشی + غذایی'),
+    (F_AI_WORKOUT, 'هوش مصنوعی — فقط ورزشی'),
+    (F_AI_MEAL, 'هوش مصنوعی — فقط غذایی'),
+    (F_AI_EDIT, 'هوش مصنوعی — ویرایشِ برنامه'),
+    (F_MANUAL, 'برنامهٔ دستیِ مربی'),
+]
+
+PROGRAM_TYPE_TO_FEATURE = {
+    'both': F_AI_BOTH,
+    'workout': F_AI_WORKOUT,
+    'meal': F_AI_MEAL,
+}
+
+AUD_ANY = 'any'
+AUD_GYM = 'gym'
+AUD_PERSONAL = 'personal'
+AUDIENCE_CHOICES = [
+    (AUD_ANY, 'همه'),
+    (AUD_GYM, 'فقط مربی/باشگاه'),
+    (AUD_PERSONAL, 'فقط کاربرِ شخصی (B2C)'),
+]
+
+CS_NONE = 'none'
+CS_USER_AI = 'user_ai'
+CS_USER_AI_TYPE = 'user_ai_type'
+CS_USER_MANUAL = 'user_manual'
+CS_ATHLETE_MANUAL = 'athlete_manual'
+CS_USER_ALL = 'user_all'
+COUNT_SCOPE_CHOICES = [
+    (CS_NONE, 'شرطِ تعداد ندارد'),
+    (CS_USER_AI, 'چندمین برنامهٔ هوش مصنوعیِ این کاربر'),
+    (CS_USER_AI_TYPE, 'چندمین برنامهٔ هوش مصنوعی از همین نوع'),
+    (CS_USER_MANUAL, 'چندمین برنامهٔ دستیِ این کاربر'),
+    (CS_ATHLETE_MANUAL, 'چندمین برنامهٔ دستی برای همین ورزشکار'),
+    (CS_USER_ALL, 'چندمین برنامهٔ این کاربر (هر نوع)'),
+]
+
+M_FREE = 'free'
+M_TOKENS = 'tokens'
+M_BLOCKED = 'blocked'
+MODE_CHOICES = [
+    (M_FREE, 'رایگان'),
+    (M_TOKENS, 'با توکن'),
+    (M_BLOCKED, 'بسته (اجازه نده)'),
+]
+
+
+# ──────────────────────────────────────────────────────────────────
+def usage_count(user, scope, feature=None, athlete_key=None, extra_used=0):
+    """تا این لحظه چند بار استفاده شده — پایهٔ شرطِ «تا این تعداد».
+
+    عدد **قبل از** این درخواست است؛ پس برای اولین استفاده صفر برمی‌گردد و
+    بازهٔ «از ۰ تا ۵» یعنی پنج تای اول.
+    """
+    from .models import ClientProgram
+    if scope == CS_NONE:
+        return 0
+    qs = ClientProgram.objects.filter(user=user)
+    if scope == CS_USER_ALL:
+        return qs.count() + extra_used
+    if scope == CS_USER_AI:
+        return qs.filter(source=ClientProgram.SOURCE_AI).count() + extra_used
+    if scope == CS_USER_AI_TYPE:
+        ptype = {F_AI_BOTH: 'both', F_AI_WORKOUT: 'workout',
+                 F_AI_MEAL: 'meal'}.get(feature)
+        qs = qs.filter(source=ClientProgram.SOURCE_AI)
+        base = qs.filter(program_type=ptype).count() if ptype else qs.count()
+        return base + extra_used
+    if scope == CS_USER_MANUAL:
+        return qs.filter(source=ClientProgram.SOURCE_MANUAL).count() + extra_used
+    if scope == CS_ATHLETE_MANUAL:
+        qs = ClientProgram.objects.filter(source=ClientProgram.SOURCE_MANUAL)
+        if isinstance(athlete_key, int):
+            return qs.filter(gym_client_id=athlete_key).count() + extra_used
+        return qs.filter(user=user, gym_client__isnull=True,
+                         name=(athlete_key or '')).count() + extra_used
+    return 0
+
+
+def _audience_ok(rule, user):
+    if rule.audience == AUD_ANY:
+        return True
+    is_personal = bool(getattr(user, 'is_personal', False))
+    if rule.audience == AUD_PERSONAL:
+        return is_personal
+    return not is_personal
+
+
+def check(rule, user, feature, athlete_key=None, now=None, extra_used=0):
+    """آیا شرطِ این قاعده می‌خورد؟ ⇒ (بله/نه، دلیلِ فارسی)."""
+    from django.utils import timezone
+    now = now or timezone.now()
+
+    if not rule.is_active:
+        return False, 'خاموش است'
+    if rule.feature not in (F_ANY, feature):
+        return False, 'برای این مورد نیست'
+    if rule.user_id and rule.user_id != user.pk:
+        return False, 'برای کاربرِ دیگری است'
+    if not _audience_ok(rule, user):
+        return False, 'مخاطبش این کاربر نیست'
+
+    if rule.starts_at and now < rule.starts_at:
+        return False, 'هنوز شروع نشده (از %s)' % rule.starts_at.strftime('%Y-%m-%d %H:%M')
+    if rule.ends_at and now >= rule.ends_at:
+        return False, 'تمام شده (تا %s)' % rule.ends_at.strftime('%Y-%m-%d %H:%M')
+
+    if rule.signup_days_from is not None or rule.signup_days_to is not None:
+        joined = getattr(user, 'date_joined', None)
+        if not joined:
+            return False, 'تاریخِ ثبت‌نام ندارد'
+        age = (now - joined).days
+        if rule.signup_days_from is not None and age < rule.signup_days_from:
+            return False, 'روزِ %d از ثبت‌نام — هنوز به بازه نرسیده' % age
+        if rule.signup_days_to is not None and age >= rule.signup_days_to:
+            return False, 'روزِ %d از ثبت‌نام — از بازه گذشته' % age
+
+    if rule.count_scope != CS_NONE:
+        used = usage_count(user, rule.count_scope, feature, athlete_key, extra_used)
+        if rule.count_from is not None and used < rule.count_from:
+            return False, 'تا حالا %d بار — هنوز به بازه نرسیده' % used
+        if rule.count_to is not None and used >= rule.count_to:
+            return False, 'تا حالا %d بار — از بازه گذشته' % used
+        return True, 'شرط‌ها خورد (تا حالا %d بار)' % used
+
+    return True, 'شرط‌ها خورد'
+
+
+def resolve(user, feature, athlete_key=None, now=None, extra_used=0):
+    """اولین قاعده‌ای که بخورد ⇒ Decision. هیچ‌کدام نخورد ⇒ None.
+
+    extra_used: «فرض کن n بارِ دیگر هم استفاده کرده» — برای شمردنِ
+    دفعه‌های رایگانِ باقی‌مانده بدونِ اینکه چیزی واقعاً ساخته شود.
+    """
+    from .models import PricingRule
+    rules = (PricingRule.objects
+             .filter(is_active=True, feature__in=[feature, F_ANY])
+             .order_by('priority', 'id'))
+    for rule in rules:
+        hit, why = check(rule, user, feature, athlete_key, now, extra_used)
+        if hit:
+            cost = int(rule.token_cost or 0) if rule.mode == M_TOKENS else 0
+            return Decision(rule.mode, cost, rule, why)
+    return None
+
+
+def free_runs_left(user, feature, athlete_key=None, cap=20):
+    """چند بارِ دیگر رایگان است؟ None یعنی «قاعده‌ای نیست، رفتارِ قدیمی».
+
+    با بالا بردنِ فرضیِ شمارنده جلو می‌رود تا به اولین بارِ غیررایگان برسد.
+    سقف دارد چون قاعدهٔ زمانی ممکن است تا ابد رایگان باشد.
+    """
+    n = 0
+    while n < cap:
+        d = resolve(user, feature, athlete_key, extra_used=n)
+        if d is None:
+            return None
+        if d.mode != M_FREE:
+            break
+        n += 1
+    return n
+
+
+def price_after_free(user, feature, athlete_key=None, cap=20, default=50):
+    """وقتی دفعه‌های رایگان تمام شد، هر بار چند توکن می‌شود؟"""
+    for n in range(cap + 1):
+        d = resolve(user, feature, athlete_key, extra_used=n)
+        if d is None:
+            return default
+        if d.mode == M_TOKENS:
+            return d.cost
+        if d.mode == M_BLOCKED:
+            return 0
+    return default
+
+
+def quote(user, feature, athlete_key=None):
+    """یک جای واحد برای «پنل چه نشان بدهد» — دقیقاً همان چیزی که کسر می‌شود.
+
+    خروجی همیشه این کلیدها را دارد، چه قاعده باشد چه نباشد؛ پس نما و عمل
+    نمی‌توانند از هم جدا بیفتند.
+    """
+    d = resolve(user, feature, athlete_key)
+    if d is None:
+        return {'source': 'default', 'mode': None, 'cost': None,
+                'rule': None, 'free_left': None, 'blocked_message': ''}
+    return {
+        'source': 'rule',
+        'mode': d.mode,
+        'cost': d.cost,
+        'rule': d.rule.title,
+        'free_left': free_runs_left(user, feature, athlete_key),
+        'blocked_message': d.rule.blocked_message or '',
+    }
+
+
+def explain(user, feature, athlete_key=None, now=None):
+    """همهٔ قاعده‌ها با نتیجهٔ سنجش — برای صفحهٔ «آزمونِ قیمت».
+
+    خروجی: (تصمیمِ نهایی یا None، [(قاعده، خورد؟، دلیل، برنده؟), …])
+    """
+    from .models import PricingRule
+    rows, winner = [], None
+    for rule in PricingRule.objects.all().order_by('priority', 'id'):
+        hit, why = check(rule, user, feature, athlete_key, now)
+        is_win = bool(hit and winner is None
+                      and rule.feature in (F_ANY, feature) and rule.is_active)
+        if is_win:
+            cost = int(rule.token_cost or 0) if rule.mode == M_TOKENS else 0
+            winner = Decision(rule.mode, cost, rule, why)
+        rows.append((rule, hit, why, is_win))
+    return winner, rows

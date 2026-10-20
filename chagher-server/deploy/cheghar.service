@@ -1,0 +1,22 @@
+[Unit]
+Description=Cheghar Django backend (gunicorn) — 127.0.0.1:8001 (moved from 185.239.3.189, 1405/07/28)
+After=network.target
+
+[Service]
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/Cheghar/backend/gym
+EnvironmentFile=/etc/cheghar/cheghar.env
+Environment="PATH=/www/wwwroot/Cheghar/backend/gym/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="SMS_RETURN_CODE_IN_RESPONSE=1"
+RuntimeDirectory=cheghar
+ExecStart=/www/wwwroot/Cheghar/backend/gym/venv/bin/gunicorn \
+  --workers 2 --threads 4 --preload --timeout 330 \
+  --max-requests 800 --max-requests-jitter 100 \
+  --access-logfile - --error-logfile - \
+  --bind 127.0.0.1:8001 gym.wsgi:application
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

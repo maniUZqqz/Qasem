@@ -1,0 +1,242 @@
+{% extends 'app/base.html' %}
+{% load static %}
+
+{% block title %}امکانات | چغر{% endblock %}
+
+
+{% block meta_description %}امکانات چغر: تولید برنامه با هوش مصنوعی، دستورالعمل شخصی مربی، تمرین بر اساس تجهیزات مجموعه و خروجی PDF.{% endblock %}
+{% block og_title %}امکانات | چغر{% endblock %}
+{% block og_description %}همه قابلیت‌های کلیدی برای مدیریت حرفه‌ای باشگاه در یک داشبورد یکپارچه.{% endblock %}
+{% block twitter_title %}امکانات | چغر{% endblock %}
+{% block twitter_description %}همه قابلیت‌های کلیدی برای مدیریت حرفه‌ای باشگاه در یک داشبورد یکپارچه.{% endblock %}
+
+{% block content %}
+
+    <style>
+
+        /* ===== FEATURES ===== */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .feature-media {
+            height: 140px;
+            overflow: hidden;
+            background: #f1f3f5;
+        }
+
+        .feature-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .feature-media.icon-only {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            color: var(--primary);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        /* ===== PROCESS ===== */
+        .process-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+
+        .process-step {
+            background: white;
+            padding: 30px 20px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .process-step i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            margin-bottom: 15px;
+        }
+
+        .cta-section {
+            padding: 40px 0;
+            background: linear-gradient(135deg, #163F75, #6366f1);
+            color: #fff;
+            text-align: center;
+        }
+
+        .cta-box h2 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            line-height: 1.4;
+            margin-bottom: 16px;
+        }
+
+        .cta-box h2 span {
+            color: #fde68a;
+        }
+
+        .cta-box .section-subtitle {
+            font-size: 1.05rem;
+            opacity: 0.95;
+            max-width: 620px;
+            margin: 0 auto 32px;
+        }
+
+        .cta-actions {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            background: #fff;
+            color: #163F75;
+            font-weight: 700;
+        }
+
+        .btn-outline {
+            border: 2px solid #fff;
+            color: #fff;
+            background: transparent;
+        }
+
+
+    </style>
+
+
+
+<!-- HERO -->
+<section style="margin-top: 40px; border-radius: 16px;" class="hero">
+    <div class="container">
+        <h1>امکانات چغر</h1>
+        <p>
+            هر آنچه یک مربی برای ساختن سریع و دقیق برنامه‌ی اختصاصی لازم دارد
+        </p>
+    </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section-features">
+    <div class="container">
+
+        <div class="features-grid">
+
+            {% for feature in features %}
+                <div class="card feature-card">
+                    {% if feature.image %}
+                        <div class="feature-media">
+                            <img src="{{ feature.image.url }}" alt="{{ feature.title }}">
+                        </div>
+                    {% else %}
+                        <div class="feature-media icon-only">
+                            <i class="fas fa-{{ feature.icon|default:'star' }}"></i>
+                        </div>
+                    {% endif %}
+
+                    <div class="card-body">
+                        <h3 class="card-title">{{ feature.title }}</h3>
+                        <p class="card-text">{{ feature.description }}</p>
+                    </div>
+                </div>
+            {% empty %}
+                <!-- FALLBACK FEATURES -->
+                <div class="card feature-card">
+                    <div class="feature-media icon-only"><i class="fas fa-robot"></i></div>
+                    <div class="card-body">
+                        <h3 class="card-title">هوش مصنوعی</h3>
+                        <p class="card-text">تولید برنامه ورزشی و غذایی کاملاً شخصی‌سازی‌شده</p>
+                    </div>
+                </div>
+
+                <div class="card feature-card">
+                    <div class="feature-media icon-only"><i class="fas fa-file-pdf"></i></div>
+                    <div class="card-body">
+                        <h3 class="card-title">خروجی PDF</h3>
+                        <p class="card-text">دانلود برنامه‌ها به‌صورت فایل حرفه‌ای و برندشده</p>
+                    </div>
+                </div>
+
+                <div class="card feature-card">
+                    <div class="feature-media icon-only"><i class="fas fa-clipboard-list"></i></div>
+                    <div class="card-body">
+                        <h3 class="card-title">دستورالعمل شخصی مربی</h3>
+                        <p class="card-text">قواعد ثابت شما در هر برنامه رعایت می‌شود</p>
+                    </div>
+                </div>
+
+                <div class="card feature-card">
+                    <div class="feature-media icon-only"><i class="fas fa-credit-card"></i></div>
+                    <div class="card-body">
+                        <h3 class="card-title">پرداخت آنلاین</h3>
+                        <p class="card-text">اتصال امن به درگاه‌های پرداخت معتبر</p>
+                    </div>
+                </div>
+            {% endfor %}
+
+        </div>
+    </div>
+</section>
+
+<!-- PROCESS -->
+<section class="py-5">
+    <div class="container text-center">
+        <h2 class="section-title">فرآیند کار</h2>
+        <p class="section-subtitle">۴ قدم تا اولین برنامه‌ی اختصاصی</p>
+
+        <div class="process-grid">
+            <div class="process-step">
+                <i class="fas fa-user-plus"></i>
+                <h4>ثبت‌نام</h4>
+                <p>ساخت حساب مربی در کمتر از یک دقیقه</p>
+            </div>
+
+            <div class="process-step">
+                <i class="fas fa-coins"></i>
+                <h4>خرید توکن</h4>
+                <p>تهیه اعتبار برای تولید برنامه</p>
+            </div>
+
+            <div class="process-step">
+                <i class="fas fa-clipboard-list"></i>
+                <h4>وارد کردن اطلاعات مجموعه</h4>
+                <p>تجهیزات، غذاها و دستورالعمل شخصی شما</p>
+            </div>
+
+            <div class="process-step">
+                <i class="fas fa-magic"></i>
+                <h4>تولید برنامه</h4>
+                <p>هوش مصنوعی وارد عمل می‌شود</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+
+
+
+{% endblock %}
+
+
+

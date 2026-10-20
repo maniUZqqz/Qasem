@@ -1,0 +1,162 @@
+{% extends 'app/panel/_shell.html' %}
+{% block title %}حسابِ من | چغر{% endblock %}
+{% block panel %}
+<div class="pnl-card">
+  <h3>قدم‌های تو</h3>
+  <div id="steps" class="muted">در حالِ خواندن…</div>
+</div>
+
+<div class="pnl-card">
+  <h3>مشخصاتِ من</h3>
+  <p class="muted">یک‌بار پر کن؛ هر بار برنامه‌گرفتن از همین برداشته می‌شود.</p>
+  <div class="row">
+    <div style="flex:2 1 200px"><label>نام و نام خانوادگی</label><input type="text" id="full_name"></div>
+    <div><label>سن</label><input type="number" id="age"></div>
+    <div><label>جنسیت</label>
+      <select id="gender"><option value="">—</option><option value="M">مرد</option><option value="F">زن</option></select>
+    </div>
+  </div>
+  <div class="row">
+    <div><label>قد (سانتی‌متر)</label><input type="number" id="height"></div>
+    <div><label>وزن (کیلوگرم)</label><input type="number" id="weight"></div>
+    <div><label>روزهای تمرین در هفته</label><input type="number" id="program_days" min="1" max="7"></div>
+    <div><label>نامِ باشگاه</label><input type="text" id="gym_name"></div>
+  </div>
+  <div class="row">
+    <div><label>هدف</label><input type="text" id="goal" placeholder="عضله‌سازی / کاهشِ چربی"></div>
+    <div><label>آسیب‌ها</label><input type="text" id="injuries"></div>
+    <div><label>حساسیتِ غذایی</label><input type="text" id="food_allergies"></div>
+  </div>
+  <div style="margin-top:12px">
+    <button type="button" class="primary" onclick="saveProfile()">ذخیرهٔ مشخصات</button>
+    <span id="pmsg" class="muted"></span>
+  </div>
+</div>
+
+<div class="pnl-card">
+  <h3>باشگاهم</h3>
+  <p class="muted">با دوربین باشگاهت را اسکن کن تا برنامه با همان دستگاه‌ها نوشته شود.</p>
+  <a class="pnl-btn" href="{% url 'panel-scan' %}">اسکنِ باشگاه</a>
+  <span id="eq" class="muted"></span>
+</div>
+
+<div class="pnl-card">
+  <h3>توکن</h3>
+  <div id="packs" class="muted">در حالِ خواندنِ بسته‌ها…</div>
+</div>
+
+<div class="pnl-card">
+  <h3>برنامهٔ من</h3>
+  <p class="muted">با مشخصات و دستگاه‌های خودت، برنامه ساخته می‌شود (یک تا دو دقیقه طول می‌کشد).</p>
+  <div class="row">
+    <div><label>نوعِ برنامه</label>
+      <select id="ptype">
+        <option value="workout">فقط ورزشی</option>
+        <option value="both">ورزشی + غذایی</option>
+        <option value="meal">فقط غذایی</option>
+      </select>
+    </div>
+  </div>
+  <div style="margin-top:12px">
+    <button type="button" class="primary" id="gen" onclick="generate()">ساختِ برنامه</button>
+    <span id="gmsg" class="muted"></span>
+  </div>
+  <div id="pout" style="display:none;margin-top:12px">
+    <pre id="ptext"></pre>
+    <button type="button" onclick="getPdf()">دانلودِ PDF</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block panel_js %}
+<script>
+let myProgramId = null;
+const FIELDS = ['full_name', 'age', 'gender', 'height', 'weight', 'program_days',
+                'gym_name', 'goal', 'injuries', 'food_allergies'];
+
+async function loadProfile() {
+  const { ok, data } = await api('me/athlete-profile/');
+  if (!ok) return;
+  FIELDS.forEach(f => {
+    const v = data.profile[f];
+    if (v !== null && v !== undefined) document.getElementById(f).value = v;
+  });
+}
+
+async function saveProfile() {
+  const body = {};
+  FIELDS.forEach(f => {
+    const v = document.getElementById(f).value;
+    if (v !== '') body[f] = v;
+  });
+  const msg = document.getElementById('pmsg');
+  msg.textContent = 'در حالِ ذخیره…';
+  const { ok, data } = await api('me/athlete-profile/', { method: 'PATCH', json: body });
+  msg.innerHTML = ok ? '<span class="ok">ذخیره شد.</span>'
+                     : '<span class="bad">' + JSON.stringify(data) + '</span>';
+  loadStatus();
+}
+
+async function loadStatus() {
+  const { ok, data } = await api('me/status/');
+  const box = document.getElementById('steps');
+  if (!ok) { box.textContent = 'خطا در خواندنِ وضعیت'; return; }
+  box.innerHTML = '';
+  data.steps.forEach(s => {
+    box.append(el('div', { class: 'step' }, [
+      el('span', { class: s.done ? 'ok' : 'muted' }, [s.done ? '✓' : '•']),
+      el('span', {}, [s.title]),
+    ]));
+  });
+  document.getElementById('eq').textContent = ' دستگاه‌های ثبت‌شده: ' + data.equipment_count;
+  document.getElementById('gen').disabled = !data.can_generate_program;
+  if (!data.can_generate_program) {
+    document.getElementById('gmsg').textContent =
+      'برای ساختِ برنامه، مشخصات کامل و توکن لازم است.';
+  } else {
+    document.getElementById('gmsg').textContent = '';
+  }
+}
+
+async function loadPacks() {
+  const { ok, data } = await api('token-packages/');
+  const box = document.getElementById('packs');
+  if (!ok) { box.textContent = 'خواندنِ بسته‌ها ممکن نشد.'; return; }
+  const rows = Array.isArray(data) ? data : (data.results || []);
+  box.innerHTML = '';
+  rows.forEach(p => box.append(el('div', { class: 'chip' },
+    [p.name + ' — ' + p.tokens + ' توکن'])));
+  box.append(el('p', { class: 'muted' },
+    ['خریدِ توکن در اپِ چغر انجام می‌شود (درگاه و رسیدِ کارت‌به‌کارت همان‌جاست).']));
+}
+
+async function generate() {
+  const btn = document.getElementById('gen');
+  const msg = document.getElementById('gmsg');
+  const prof = await api('me/athlete-profile/');
+  if (!prof.ok) { msg.textContent = 'اول مشخصات را ذخیره کن.'; return; }
+  const body = Object.assign({}, prof.data.program_defaults,
+                             { program_type: document.getElementById('ptype').value });
+  btn.disabled = true; msg.textContent = 'در حالِ ساختن… (یک تا دو دقیقه)';
+  const { ok, data } = await api('programs/generate/', { json: body });
+  btn.disabled = false;
+  if (!ok) { msg.innerHTML = '<span class="bad">' + ((data && data.error) || 'خطا') + '</span>'; return; }
+  const p = data.program || data;
+  myProgramId = p.id;
+  msg.innerHTML = '<span class="ok">ساخته شد.</span> توکنِ مانده: ' + (data.remaining_tokens ?? '-');
+  document.getElementById('ptext').textContent =
+    p.generated_workout || p.generated_meal_plan || '';
+  document.getElementById('pout').style.display = '';
+  loadStatus();
+}
+
+function getPdf() {
+  if (!myProgramId) return;
+  const t = document.getElementById('ptype').value;
+  const path = t === 'meal' ? 'pdf-meal/' : (t === 'workout' ? 'pdf-workout/' : 'pdf/');
+  downloadPdf('programs/' + myProgramId + '/' + path, 'barname-' + myProgramId + '.pdf');
+}
+
+loadProfile(); loadStatus(); loadPacks();
+</script>
+{% endblock %}

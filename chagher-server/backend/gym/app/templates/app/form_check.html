@@ -1,0 +1,261 @@
+{% extends 'app/base.html' %}
+{% comment %}
+صفحهٔ «بررسیِ درستیِ حرکت با دوربین».
+
+دو حالت دارد و خودش تصمیم می‌گیرد:
+۱) **زنده** — وقتی سایت روی HTTPS باز شده باشد. مرورگر فقط در بسترِ امن اجازهٔ
+   دوربینِ زنده می‌دهد؛ این قاعدهٔ خودِ مرورگر است، نه انتخابِ ما.
+۲) **عکسی** — روی HTTP. دکمه دوربینِ گوشی را باز می‌کند، کاربر یک عکس می‌گیرد و
+   همان بررسی می‌شود. کندتر است ولی همین امروز کار می‌کند.
+{% endcomment %}
+
+{% block title %}بررسیِ درستیِ حرکت — {{ ex.name_fa|default:ex.name }} | چغر{% endblock %}
+
+{% block extra_head %}
+<style>
+  .fc { max-width: 720px; margin: 18px auto 40px; padding: 0 14px; }
+  .fc h1 { font-size: 20px; margin: 0 0 4px; }
+  .fc .sub { color: #6b7686; font-size: 13px; margin-bottom: 14px; }
+  .fc-ex { display: flex; gap: 12px; align-items: center; border: 1px solid #e3e6ee;
+           border-radius: 14px; padding: 10px; background: #fff; margin-bottom: 14px; }
+  .fc-ex img { height: 74px; width: 74px; object-fit: cover; border-radius: 10px; }
+  .fc-ex b { display: block; font-size: 15px; }
+  .fc-ex a { font-size: 13px; color: #1565c0; }
+  .fc-stage { position: relative; background: #0d1117; border-radius: 16px; overflow: hidden;
+              aspect-ratio: 3 / 4; display: flex; align-items: center; justify-content: center; }
+  .fc-stage video, .fc-stage img.shot { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .fc-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .fc-hint { color: #c9d1d9; font-size: 14px; text-align: center; padding: 20px; }
+  .fc-msg { position: absolute; inset-inline: 0; bottom: 0; padding: 10px 12px;
+            background: rgba(0,0,0,.62); color: #ffd400; font-size: 15px; font-weight: 700;
+            line-height: 1.7; text-align: center; }
+  .fc-badge { position: absolute; top: 10px; inset-inline-start: 10px; padding: 5px 12px;
+              border-radius: 999px; font-size: 13px; font-weight: 700; color: #fff; display: none; }
+  .fc-badge.ok { background: #1b9e4b; display: inline-block; }
+  .fc-badge.bad { background: #d32f2f; display: inline-block; }
+  .fc-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .fc button { padding: 11px 16px; border-radius: 11px; border: 1px solid #d4d8e2;
+               background: #fff; font: inherit; cursor: pointer; }
+  .fc button.primary { background: #1565c0; color: #fff; border-color: #1565c0; font-weight: 700; }
+  .fc button:disabled { opacity: .5; cursor: default; }
+  .fc .stat { margin-top: 10px; color: #55606f; font-size: 13px; }
+  .fc .sum { margin-top: 14px; border: 1px solid #e3e6ee; border-radius: 14px;
+             padding: 12px; background: #fff; display: none; }
+  .fc .warn { background: #fff8e1; border: 1px solid #ffe082; border-radius: 12px;
+              padding: 10px 12px; font-size: 13px; line-height: 1.9; margin-bottom: 12px; }
+  .fc .steps { font-size: 14px; line-height: 2; padding-inline-start: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fc" dir="rtl">
+  <h1>بررسیِ درستیِ حرکت</h1>
+  <div class="sub">دوربین را روبه‌رویت بگذار و حرکت را بزن؛ سامانه می‌گوید درست است یا نه.</div>
+
+  <div class="fc-ex">
+    {% if ex.thumb %}<img src="{{ ex.thumb.url }}" alt="{{ ex.name_fa }}">{% endif %}
+    <div>
+      <b>{{ ex.name_fa|default:ex.name }}</b>
+      <span style="color:#6b7686;font-size:13px">{{ ex.equipment_fa }}</span>
+      <a href="{% url 'exercise-detail' ex.external_id %}">دیدنِ آموزشِ کامل</a>
+    </div>
+  </div>
+
+  <div class="warn" id="modeNote">در حالِ آماده‌سازی…</div>
+
+  <div class="fc-stage" id="stage">
+    <video id="cam" playsinline muted autoplay></video>
+    <img id="shot" class="shot" alt="">
+    <canvas id="ov"></canvas>
+    <div class="fc-hint" id="hint">برای شروع، دکمهٔ زیر را بزن.</div>
+    <div class="fc-badge" id="badge"></div>
+    <div class="fc-msg" id="msg" style="display:none"></div>
+  </div>
+
+  <div class="fc-controls">
+    <button class="primary" id="btnStart">شروعِ بررسی</button>
+    <button id="btnSwap" disabled>دوربینِ جلو / عقب</button>
+    <button id="btnSnap" style="display:none">گرفتنِ عکس و بررسی</button>
+    <button id="btnStop" disabled>پایان</button>
+    <input type="file" accept="image/*" capture="environment" id="snapFile" hidden>
+  </div>
+
+  <div class="stat" id="stat"></div>
+  <div class="sum" id="sum"></div>
+
+  {% if ex.steps_fa %}
+    <h2 style="font-size:17px;margin-top:22px">روشِ درست</h2>
+    <ol class="steps">{% for s in ex.steps_fa %}<li>{{ s }}</li>{% endfor %}</ol>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API = "{{ api_base }}";
+const TOKEN = "{{ api_token }}";
+const EXT = "{{ ex.external_id }}";
+const H = { 'Authorization': 'Token ' + TOKEN };
+
+const video = document.getElementById('cam');
+const shot = document.getElementById('shot');
+const ov = document.getElementById('ov');
+const ctx = ov.getContext('2d');
+const msg = document.getElementById('msg');
+const badge = document.getElementById('badge');
+const hint = document.getElementById('hint');
+const stat = document.getElementById('stat');
+const sum = document.getElementById('sum');
+const note = document.getElementById('modeNote');
+
+let session = null, stream = null, timer = null, facing = 'environment';
+let maxFrames = 40, interval = 2500, busy = false;
+const live = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+note.innerHTML = live
+  ? 'حالتِ <b>زنده</b>: دوربین باز می‌شود و هر چند ثانیه یک فریم بررسی می‌شود. گوشی را جایی بگذار که تمامِ بدنت در کادر باشد.'
+  : 'این آدرس روی <b>HTTP</b> باز شده و مرورگر اجازهٔ دوربینِ زنده نمی‌دهد (قاعدهٔ خودِ مرورگر است). '
+    + 'پس حالتِ <b>عکسی</b> فعال است: دکمه دوربین را باز می‌کند، یک عکس در حینِ حرکت بگیر و بررسی می‌شود. '
+    + 'برای حالتِ زنده، سایت باید روی HTTPS باشد.';
+
+function resizeOverlay(w, h) {
+  ov.width = w || 720; ov.height = h || 960;
+}
+
+function drawBox(box, color) {
+  ctx.clearRect(0, 0, ov.width, ov.height);
+  if (!color || color === 'none') return;
+  const b = box || { x: 0.15, y: 0.08, w: 0.7, h: 0.84 };
+  ctx.lineWidth = Math.max(4, ov.width * 0.012);
+  ctx.strokeStyle = color === 'green' ? '#2bd466' : '#ff4d4d';
+  ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12;
+  ctx.strokeRect(b.x * ov.width, b.y * ov.height, b.w * ov.width, b.h * ov.height);
+  ctx.shadowBlur = 0;
+}
+
+function show(result) {
+  badge.className = 'fc-badge ' + (result.verdict === 'ok' ? 'ok' : result.verdict === 'bad' ? 'bad' : '');
+  badge.textContent = result.verdict === 'ok' ? 'درست' : result.verdict === 'bad' ? 'اشتباه' : '';
+  drawBox(result.box, result.color);
+  msg.style.display = '';
+  msg.textContent = result.message;          // خطِ زردِ راهنمایی
+  stat.textContent = 'بررسی‌شده: ' + result.frames_checked + ' | باقی‌مانده: ' + result.frames_left;
+  if (result.frames_left === 0) stop();
+}
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 720 } }, audio: false,
+  });
+  video.srcObject = stream;
+  video.style.display = 'block';
+  hint.style.display = 'none';
+  await video.play().catch(() => {});
+  resizeOverlay(video.videoWidth || 720, video.videoHeight || 960);
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.style.display = 'none';
+}
+
+async function grabBlob() {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth || 640; c.height = video.videoHeight || 480;
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(res, 'image/jpeg', 0.8));
+}
+
+async function sendFrame(blob) {
+  if (!session || busy) return;
+  busy = true;
+  const fd = new FormData();
+  fd.append('frame', blob, 'frame.jpg');
+  try {
+    const res = await fetch(API + 'form-check/session/' + session + '/frame/',
+                            { method: 'POST', headers: H, body: fd });
+    const data = await res.json().catch(() => null);
+    if (res.status === 429) { msg.style.display = ''; msg.textContent = data.message; stop(); return; }
+    if (!res.ok) { msg.style.display = ''; msg.textContent = (data && (data.error || data.detail)) || 'خطا'; return; }
+    show(data);
+  } finally { busy = false; }
+}
+
+async function start() {
+  document.getElementById('btnStart').disabled = true;
+  sum.style.display = 'none';
+  const res = await fetch(API + 'form-check/' + EXT + '/start/', {
+    method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, H),
+    body: JSON.stringify({ camera: facing === 'user' ? 'front' : 'back' }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    document.getElementById('btnStart').disabled = false;
+    msg.style.display = ''; msg.textContent = (data && (data.error || data.detail)) || 'شروع نشد';
+    return;
+  }
+  session = data.session_id; maxFrames = data.max_frames; interval = data.frame_interval_ms;
+  stat.textContent = 'سقفِ این دور: ' + maxFrames + ' بررسی' +
+                     (data.charged_tokens ? ' · ' + data.charged_tokens + ' توکن کم شد' : ' · رایگان');
+  document.getElementById('btnStop').disabled = false;
+
+  if (live) {
+    try { await startCamera(); } catch (e) {
+      msg.style.display = ''; msg.textContent = 'دوربین باز نشد: ' + e.message;
+      document.getElementById('btnStart').disabled = false; return;
+    }
+    document.getElementById('btnSwap').disabled = false;
+    timer = setInterval(async () => { const b = await grabBlob(); if (b) sendFrame(b); }, interval);
+  } else {
+    document.getElementById('btnSnap').style.display = '';
+    hint.textContent = 'دکمهٔ «گرفتنِ عکس و بررسی» را بزن.';
+  }
+}
+
+async function stop() {
+  if (timer) { clearInterval(timer); timer = null; }
+  stopCamera();
+  document.getElementById('btnSwap').disabled = true;
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnSnap').style.display = 'none';
+  if (!session) return;
+  const res = await fetch(API + 'form-check/session/' + session + '/finish/',
+                          { method: 'POST', headers: H });
+  const data = await res.json().catch(() => null);
+  session = null;
+  if (!data) return;
+  sum.style.display = '';
+  sum.innerHTML = '<b>خلاصهٔ این دور</b><br>بررسی‌شده: ' + data.frames_checked +
+    ' · درست: ' + data.ok_count + ' · اشتباه: ' + data.bad_count +
+    ' · درستی: ' + data.ok_percent + '٪<br><span style="color:#6b7686;font-size:13px">' +
+    (data.note || '') + '</span>';
+}
+
+document.getElementById('btnStart').addEventListener('click', start);
+document.getElementById('btnStop').addEventListener('click', stop);
+document.getElementById('btnSwap').addEventListener('click', async () => {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  stopCamera();
+  try { await startCamera(); } catch (e) { msg.textContent = 'دوربین عوض نشد: ' + e.message; }
+});
+document.getElementById('btnSnap').addEventListener('click', () => document.getElementById('snapFile').click());
+document.getElementById('snapFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  shot.src = URL.createObjectURL(f);
+  shot.style.display = 'block';
+  hint.style.display = 'none';
+  shot.onload = () => resizeOverlay(shot.naturalWidth, shot.naturalHeight);
+  msg.style.display = ''; msg.textContent = 'در حالِ بررسی…';
+  await sendFrame(f);
+  e.target.value = '';
+});
+// اگر کاربر صفحه را ببندد، دور بسته شود تا حسابِ هزینه ناتمام نماند
+window.addEventListener('pagehide', () => {
+  // sendBeacon هِدرِ توکن نمی‌برد؛ fetch با keepalive می‌برد و بعد از بسته‌شدنِ صفحه هم می‌رسد
+  if (session) fetch(API + 'form-check/session/' + session + '/finish/',
+                     { method: 'POST', headers: H, keepalive: true }).catch(() => {});
+});
+</script>
+{% endblock %}

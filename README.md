@@ -21,4 +21,7 @@ Copy `processing-server/` to the GPU machine (Python 3.10+, ComfyUI running), ru
 enrollment key from the panel (Tools → Processing servers → "Register a new server"). The machine registers
 itself under its own name. Details: `processing-server/README.md`.
 
+`chagher-server/` is the Chagher app (chagher.ir) that runs on the same site server since 1405/07/28: code, web panel build,
+exercise dataset and its server config (`chagher-server/deploy/`); its database, media and secrets stay in the server backups.
+
 `prompts/` holds the owner's request/answer files and sample outputs (added by hand; the auto-push never touches it).

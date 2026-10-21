@@ -176,3 +176,105 @@ def noise1(t, seed=0.0):
     """نویزِ نرمِ یک‌بعدی (جمعِ سینوس‌های ناهم‌دوره) — بی‌وابستگی و تکرارپذیر."""
     return (math.sin(t * 1.13 + seed * 7.1) * 0.5 + math.sin(t * 2.37 + seed * 3.3) * 0.3 +
             math.sin(t * 4.91 + seed * 1.7) * 0.2)
+
+
+# ───────────────────────── لایه‌های «زنده‌بودن» (پس از نمونه‌برداریِ کانال‌ها)
+
+def smootherstep(u):
+    """آسان‌شدنِ C2 (شروع و پایانِ نرم‌تر از smoothstep؛ شتاب هم بی‌پرش)."""
+    u = max(0.0, min(1.0, u))
+    return u * u * u * (u * (u * 6 - 15) + 10)
+
+
+def spring_follow(targets, fps, freq=3.0, zeta=0.75, substeps=4):
+    """دنبال‌کنندهٔ فنریِ مرتبهٔ دو (جرم-فنر-میراگر): کمی دیرتر می‌رسد، کمی جلوتر می‌رود و نرم می‌نشیند
+    — همان «ادامهٔ حرکت» (follow-through) که حرکتِ کلید‌به‌کلید ندارد. ورودی: فهرستِ Vector."""
+    if not targets:
+        return []
+    w = 2 * math.pi * freq
+    dt = 1.0 / fps / substeps
+    x = Vector(targets[0])
+    v = Vector([0.0] * len(x))
+    out = [x.copy()]
+    for i in range(1, len(targets)):
+        a0, a1 = Vector(targets[i - 1]), Vector(targets[i])
+        for k in range(substeps):
+            tgt = a0.lerp(a1, (k + 1) / substeps)
+            acc = (tgt - x) * (w * w) - v * (2 * zeta * w)
+            v = v + acc * dt
+            x = x + v * dt
+        out.append(x.copy())
+    return out
+
+
+def quat_lag(quats, fps, tau=0.05):
+    """تأخیرِ مرتبهٔ یکِ چرخش (مچ کمی دیرتر از ساعد می‌چرخد: «کشیده‌شدن»)."""
+    if not quats:
+        return []
+    a = 1.0 - math.exp(-1.0 / (fps * max(1e-4, tau)))
+    cur = Quaternion(quats[0])
+    out = [cur.copy()]
+    for q in quats[1:]:
+        q = Quaternion(q)
+        if cur.dot(q) < 0:
+            q = -q
+        cur = cur.slerp(q, a)
+        out.append(cur.copy())
+    return out
+
+
+def lag(values, fps, tau=0.08):
+    """تأخیرِ مرتبهٔ یک برای فهرستِ بردار/فهرستِ عدد (انگشت‌ها پشتِ سرِ دست)."""
+    if not values:
+        return []
+    a = 1.0 - math.exp(-1.0 / (fps * max(1e-4, tau)))
+    cur = list(values[0])
+    out = [list(cur)]
+    for v in values[1:]:
+        cur = [c + (x - c) * a for c, x in zip(cur, v)]
+        out.append(list(cur))
+    return out
+
+
+def stance_series(frames, fps, seed, first_change=(1.5, 4.0), every=(5.5, 9.0), blend=1.4):
+    """جابه‌جاییِ وزن (کنتراپوستو): -۱ = وزن روی پای راست، +۱ = پای چپ. تعویضِ گاه‌به‌گاه با گذارِ نرم."""
+    import random
+    rnd = random.Random(int(seed * 100003) % 2147483647)
+    t_end = frames[-1] / fps if frames else 0.0
+    side = rnd.choice((-1.0, 1.0)) * rnd.uniform(0.55, 0.9)
+    events = [(-10.0, side)]
+    t = rnd.uniform(*first_change)
+    while t < t_end + 1:
+        side = (-1.0 if side > 0 else 1.0) * rnd.uniform(0.55, 1.0)
+        events.append((t, side))
+        t += rnd.uniform(*every)
+    out = []
+    for f in frames:
+        t = f / fps
+        val = events[0][1]
+        for i in range(1, len(events)):
+            t0, s1 = events[i]
+            if t < t0:
+                break
+            u = smootherstep((t - t0) / blend)
+            val = events[i - 1][1] + (s1 - events[i - 1][1]) * u if u < 1 else s1
+        out.append(val)
+    return out
+
+
+def saccade_offsets(frames, fps, seed, amp=1.0):
+    """ریزجهشِ چشم: نگاه چند صدم ثانیه ثابت می‌ماند و بعد در ۲ فریم کمی می‌پرد (نه لغزشِ سینوسی)."""
+    import random
+    rnd = random.Random(int(seed * 7919) % 2147483647)
+    out = []
+    cur = Vector((0.0, 0.0))
+    nxt_t = 0.0
+    tgt = cur.copy()
+    for f in frames:
+        t = f / fps
+        if t >= nxt_t:
+            tgt = Vector((rnd.uniform(-1, 1), rnd.uniform(-0.7, 0.7))) * amp
+            nxt_t = t + rnd.uniform(0.45, 1.6)
+        cur = cur.lerp(tgt, 0.6)
+        out.append(cur.copy())
+    return out

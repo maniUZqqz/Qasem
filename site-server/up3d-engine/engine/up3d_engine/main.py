@@ -56,9 +56,14 @@ def _sync_viewport_colors():
 def _localize(c, base):
     """مسیرها را برای همین ماشین درست می‌کند (کارگرِ دیگر پوشهٔ دارایی‌ها را جای دیگری دارد)."""
     root = os.environ.get('UP3D_ROOT', '')
-    kinds = {'environment': 'environments', 'character': 'characters', 'product': 'products', 'lighting': 'lighting'}
+    kinds = {'environment': 'environments', 'character': 'characters', 'product': 'products', 'lighting': 'lighting',
+             'motion': 'motions'}
 
     def folder(blk, kind):
+        # دارایی‌های بسته (asset pack) همراهِ بستهٔ کار می‌آیند (inputs/packs/...) — اول همان
+        pr = blk.get('pack_rel')
+        if pr and os.path.isdir(os.path.join(base, pr)):
+            return os.path.join(base, pr)
         f = blk.get('folder', '')
         if f and os.path.isdir(f):
             return f
@@ -73,6 +78,12 @@ def _localize(c, base):
         q = os.path.join(base, p)
         return q if os.path.exists(q) else p
     c['environment']['folder'] = folder(c['environment'], 'environment')
+    if c.get('lighting'):
+        c['lighting']['folder'] = folder(c['lighting'], 'lighting')
+    for act in c.get('actions', []):
+        if (act.get('source') or {}).get('type') == 'clip':
+            act['folder'] = folder({'id': act.get('motion'), 'folder': act.get('folder', ''), 'pack_rel': act.get('pack_rel')},
+                                   'motion')
     for a in c['actors']:
         a['character']['folder'] = folder(a['character'], 'character')
     for p in c['products']:

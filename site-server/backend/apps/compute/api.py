@@ -87,14 +87,27 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
 
 # ───────────────────────────── گره
 
+def _control(node) -> dict:
+    """خواستهٔ پنل برای سرویس‌های گره + «رندرِ سه‌بعدی» وقتی کارِ سه‌بعدی منتظرِ کارگر است و پنل برای این گره
+    دربارهٔ worker3d چیزی نگفته (سوئیچِ خودکار روشن) — گره worker-3d.bat را بالا می‌آورد (Blender را یک بار دانلود می‌کند)."""
+    desired = dict(node.desired or {})
+    if "worker3d" not in desired and node.auto_switch:
+        try:
+            from apps.up3d.services import wants_gpu_worker
+            if wants_gpu_worker(node):
+                desired["worker3d"] = True
+        except Exception:  # noqa: BLE001 — بخشِ سه‌بعدی نباید سرورهای پردازش را بخواباند
+            pass
+    return {"desired": desired, "auto_switch": node.auto_switch}
+
+
 @node_api("POST")
 def heartbeat(request):
     node = _node(request)
     if isinstance(request.data, dict) and request.data:
         node.capabilities = dict(request.data)
         node.save(update_fields=["capabilities"])
-    return Response({"ok": True, "name": node.name, "server_time": timezone.now(),
-                     "desired": node.desired or {}, "auto_switch": node.auto_switch})
+    return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **_control(node)})
 
 
 @node_api("POST")
@@ -104,7 +117,7 @@ def claim(request):
         node.capabilities = dict(request.data["capabilities"])
         node.save(update_fields=["capabilities"])
     job = SV.claim(node)
-    control = {"desired": node.desired or {}, "auto_switch": node.auto_switch}
+    control = _control(node)
     if not job:
         return Response({"job": None, **control})
     return Response({"job": {"uid": str(job.uid), "kind": job.kind, "payload": job.payload,

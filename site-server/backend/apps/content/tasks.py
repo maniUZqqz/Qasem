@@ -204,7 +204,7 @@ def generate_video_script_task(self, job_id, product_id, total_duration=30, obje
             ),
             system=script_prompts.VIDEO_SCRIPT_SYSTEM,
             validate=lambda parsed: script_prompts.validate_video_script(
-                parsed, segment_duration
+                parsed, segment_duration, product=product,
             ),
             validation_message="سناریوی ویدیو ناقص بود",
         )
@@ -513,6 +513,11 @@ def generate_voice_task(self, job_id, script_id):
                     parts = [synced.get(scene.index) or segment_paths.get(scene.index) for scene in scenes]
                     if all(parts):
                         picture_path = concat_videos(parts, out_dir / "picture_lipsynced.mp4")
+                        # Re-assembled from the raw segments, so it needs the
+                        # same finishing pass the published video had.
+                        picture_path, _ = _finish_picture(
+                            picture_path, out_dir / "picture_lipsynced_hd.mp4",
+                        )
                     else:
                         warnings.append("همه‌ی تکه‌های ویدیو در دسترس نبود؛ لب‌خوانی روی ویدیو اعمال نشد")
             warnings += [row["note"] for row in lipsync_rows if row["status"] not in ("done",)]
@@ -560,6 +565,28 @@ def generate_voice_task(self, job_id, script_id):
 
         media.store(script.voice_audio, voice_path)
         media.store(script.final_video_voiced, voiced_path)
+        saved = ["voice_audio", "final_video_voiced", "sound_design", "updated_at"]
+
+        # The shop's own music, when it chose a track: laid under the voiced
+        # mix and ducked while the narrator speaks, in the same job, so the
+        # finished video comes out with everything without another click.
+        # (We never pick music for the shop — see services/audio/music.py.)
+        if script.music:
+            job.mark_progress(len(scenes) + 2, "در حال گذاشتن موسیقی زیر صدا")
+            try:
+                from services.audio import music as music_engine
+
+                music_out = voiced_path.with_name("final_music.mp4")
+                with media.reading(script.music) as music_path:
+                    track = music_engine.Track(path=music_path, level_db=script.music_level_db)
+                    music_engine.under_narration(voiced_path, track, music_out, duck=True)
+                media.store(script.final_video_music, music_out)
+                saved.append("final_video_music")
+                design["music"] = {"level_db": track.safe_level(), "ducked": True}
+            except Exception as exc:  # noqa: BLE001 — the voiced cut still stands
+                logger.warning("Music for script %s failed: %s", script.id, exc)
+                warnings.append(f"موسیقی روی ویدیو ننشست و نسخه‌ی بدون موسیقی ماند: {exc}"[:300])
+
         # Saved with the video, not only in the job result: the score and the
         # warnings (a brand name read letter by letter, a scene squeezed to
         # fit) are what the shop needs next to the player, on any later visit.
@@ -568,7 +595,15 @@ def generate_voice_task(self, job_id, script_id):
         design["timing"] = timing_rows
         design["warnings"] = list(dict.fromkeys(warnings))[:20]
         script.sound_design = design
-        script.save(update_fields=["voice_audio", "final_video_voiced", "sound_design", "updated_at"])
+        script.finishing = {
+            **(script.finishing or {}),
+            "voice": {
+                "done": True, "job_id": job.id, "auto": bool((job.context or {}).get("auto")),
+                "music": "final_video_music" in saved,
+            },
+        }
+        saved.append("finishing")
+        script.save(update_fields=saved)
 
         job.mark_progress(len(scenes) + 2, "")
         job.mark_completed(
@@ -602,7 +637,7 @@ ANCHOR_DENOISE = 0.7
 
 
 def _flux_anchor(client, scene, out_dir, *, product_image_path=None, state=None,
-                 product_name: str = ""):
+                 product_name: str = "", allow_people=None, product=None):
     """A fresh FLUX anchor image for a NEW_SCENE cut, at video resolution.
 
     Image-conditioned on the PRODUCT PHOTO whenever there is one. A text-only
@@ -614,6 +649,7 @@ def _flux_anchor(client, scene, out_dir, *, product_image_path=None, state=None,
     """
     positive, negative = scene_state.compile_prompt(
         scene, state, product_name=product_name, base_negative=NEGATIVE_PROMPT,
+        allow_people=allow_people, product=product,
     )
     seed = random.randint(1, 2**31)
     if product_image_path and Path(product_image_path).exists():
@@ -715,6 +751,104 @@ def _quality_preview(segment) -> dict:
     }
 
 
+#: The QC cause for a person in a scene that was rendered product-only.
+UNWANTED_PERSON = "UNWANTED_PERSON"
+
+
+def _flag_unwanted_people(report, allow_people, *, observed=None):
+    """Turn "the vision model counted a person" into a regeneration cause when
+    the scene was meant to show only the product.
+
+    Only on a report the vision model actually produced: a code-only report
+    has no head count, and "nobody looked" must not read as "nobody there".
+    """
+    if allow_people or report is None:
+        return report
+    seen = observed if observed is not None else (report.observed or {})
+    if not (report.vision_checked or observed is not None):
+        return report
+    try:
+        people = int((seen or {}).get("people") or 0)
+    except (TypeError, ValueError):
+        people = 0
+    if people > 0 and UNWANTED_PERSON not in (report.needs_regeneration or []):
+        report.needs_regeneration = [*(report.needs_regeneration or []), UNWANTED_PERSON]
+    return report
+
+
+def _candidate_rank(report) -> tuple:
+    """Which of several attempts to keep: no stranger first, then the score."""
+    return (UNWANTED_PERSON not in (report.needs_regeneration or []), report.overall)
+
+
+def _finish_picture(raw_path, out_path, job=None) -> tuple[Path, dict]:
+    """The finishing pass (services/video/enhance.py) on a stitched video.
+
+    Returns (the file to publish, what was done). Skip-safe: when it is off
+    or fails, the raw file is returned and the dict says why. The raw file is
+    kept either way — it is the original, and the enhanced one is derived.
+    """
+    from services.video import enhance
+
+    raw_path = Path(raw_path)
+    cfg = enhance.config()
+    if not cfg["enabled"]:
+        return raw_path, {"ok": False, "note": "بهبود کیفیت خاموش است",
+                          "source": media.media_rel(raw_path)}
+    if job is not None:
+        job.mark_progress(job.total_steps or 1, "در حال بهتر کردن کیفیت ویدیو (نرم‌تر، واضح‌تر، ۷۲۰p)")
+    result = enhance.enhance(raw_path, out_path, cfg=cfg)
+    info = result.as_dict()
+    info["source"] = media.media_rel(raw_path)
+    info["source_url"] = _original_url(raw_path)
+    if result.ok and result.path is not None:
+        return result.path, info
+    return raw_path, info
+
+
+def _start_auto_voice(script, video_job) -> dict:
+    """Voice the finished video without anyone having to press «صداگذاری».
+
+    A product video without sound is not finished: the owner of script 1
+    (1405/07/29) watched a silent video and reported "it has no sound",
+    because the voice was a separate button. Now the video job hands over to
+    the voice job — narration from the scenes, ambience and effects from the
+    sound library ducked under it, and the shop's own music when it set one —
+    as a job of its own, so a voice failure never fails the video.
+    """
+    if not settings.UPMARKET_AI.get("VIDEO_AUTO_VOICE", True):
+        return {"started": False, "note": "صداگذاری خودکار خاموش است"}
+    if not any((scene.narration or "").strip() for scene in script.scenes.all()):
+        return {"started": False, "note": "هیچ صحنه‌ای نریشن ندارد"}
+    from apps.jobs import staleness
+    from apps.jobs.services import dispatch_job
+
+    active = Job.objects.filter(
+        store=script.store, type=Job.Type.VOICE_GENERATION, context__script_id=script.id,
+    )
+    staleness.reap(active)
+    running = active.filter(state__in=staleness.ACTIVE_STATES).first()
+    if running is not None:
+        return {"started": False, "job_id": running.id, "note": "صداگذاری از قبل در جریان است"}
+    context = (video_job.context or {}) if video_job is not None else {}
+    voice_job = Job.objects.create(
+        store=script.store,
+        type=Job.Type.VOICE_GENERATION,
+        context={
+            "script_id": script.id,
+            "ambience": bool(context.get("ambience", True)),
+            "effects": bool(context.get("effects", True)),
+            "auto": True,
+            "after_job": getattr(video_job, "id", None),
+        },
+    )
+    error = dispatch_job(voice_job, generate_voice_task, voice_job.id, script.id)
+    if error is not None:
+        voice_job.refresh_from_db()
+        return {"started": False, "job_id": voice_job.id, "note": (voice_job.error or "")[:300]}
+    return {"started": True, "job_id": voice_job.id}
+
+
 def _original_url(path) -> str | None:
     """A media URL for a pre-repair file, when local storage can serve it."""
     if path is None or media.is_shared():
@@ -726,7 +860,7 @@ def _original_url(path) -> str | None:
 
 
 def _anchor_for_segment(scene, previous_frame_path, product_image_path, segment, client, out_dir,
-                        *, state=None, product_name: str = ""):
+                        *, state=None, product_name: str = "", allow_people=None, product=None):
     """Choose the real anchor image for a segment, recording its origin."""
     if scene.index == 1 or previous_frame_path is None:
         segment.anchor_source = "product_image"
@@ -736,6 +870,7 @@ def _anchor_for_segment(scene, previous_frame_path, product_image_path, segment,
             anchor = _flux_anchor(
                 client, scene, out_dir, product_image_path=product_image_path,
                 state=state, product_name=product_name,
+                allow_people=allow_people, product=product,
             )
             segment.anchor_source = (
                 "flux_new_scene (from product photo)" if product_image_path else "flux_new_scene"
@@ -855,9 +990,17 @@ def generate_video_task(self, job_id, script_id):
             segment.status = VideoSegment.Status.GENERATING
             segment.error = ""
             state = scene_state.from_scene(scene, previous_state or product_state)
+            # Product-only unless the shop asked for a person in this scene or
+            # the product is worn on the body. A product-only scene carries
+            # nobody forward either: "the same smiling person" in the next
+            # prompt is how a person stays once one slipped in.
+            allow_people = scene_state.people_allowed(scene, script.product, state)
+            if not allow_people:
+                state = scene_state.without_people(state)
             anchor_path = _anchor_for_segment(
                 scene, previous_frame_path, product_image_path, segment, client, out_dir,
                 state=state, product_name=product_name,
+                allow_people=allow_people, product=script.product,
             )
             segment.save()
             # Safe mode renders once and asks; Auto mode may re-roll a segment
@@ -875,6 +1018,7 @@ def generate_video_task(self, job_id, script_id):
                     positive, negative = scene_state.compile_prompt(
                         scene, state, product_name=product_name, hints=hints,
                         attempt=attempt_no, base_negative=NEGATIVE_PROMPT,
+                        allow_people=allow_people, product=script.product,
                     )
                     seed = random.randint(1, 2**31)
                     patched = patch_workflow(
@@ -915,18 +1059,24 @@ def generate_video_task(self, job_id, script_id):
                     # Lips: a voice-over scene with a person in it must not
                     # show them talking. A lip-sync scene is exempt — its
                     # mouth is redrawn to the narration afterwards.
-                    watch_mouth = scene_state.has_people(scene, state) and not getattr(
+                    watch_mouth = allow_people and scene_state.has_people(scene, state) and not getattr(
                         scene, "speaker_on_camera", False,
                     )
+                    # The judge is told what was ASKED for — the compiled
+                    # positive, "product only, no people" included — not the
+                    # script's raw words, which may still name the person the
+                    # compiler cut out.
+                    scene_note = positive[:600]
                     report = qc.check_segment(
                         video_path,
                         out_dir,
                         store=script.store,
                         product_image_path=product_image_path,
-                        scene_note=scene.visual_prompt,
+                        scene_note=scene_note,
                         job=job,
                         mouth_check=watch_mouth,
                     )
+                    _flag_unwanted_people(report, allow_people)
                     decision = repair.decide(report)
                     original_path = None
                     report_before = None
@@ -945,10 +1095,11 @@ def generate_video_task(self, job_id, script_id):
                             after = qc.check_segment(
                                 fixed.path, out_dir, store=script.store,
                                 product_image_path=product_image_path,
-                                scene_note=scene.visual_prompt, job=job,
+                                scene_note=scene_note, job=job,
                                 use_vision=False, reuse_vision=report,
                                 mouth_check=watch_mouth,
                             )
+                            _flag_unwanted_people(after, allow_people, observed=report.observed)
                             kept, why = repair.kept_the_repair(report, after, decision.causes)
                             if kept:
                                 original_path = video_path
@@ -981,7 +1132,9 @@ def generate_video_task(self, job_id, script_id):
                         "hints": list(hints),
                         "positive": positive,
                     })
-                    if best is None or report.overall > best["report"].overall:
+                    # A clean product shot beats a higher-scoring one with a
+                    # stranger in it: the person is the defect the shop sees.
+                    if best is None or _candidate_rank(report) > _candidate_rank(best["report"]):
                         best = candidate
 
                     if decision.action != repair.REGENERATE:
@@ -1060,6 +1213,8 @@ def generate_video_task(self, job_id, script_id):
                 if (report.vision_checked and not report.needs_regeneration
                         and all(a is None or a.score >= good for a in identity_axes)):
                     state = scene_state.absorb_observed(state, report.observed)
+                if not allow_people:
+                    state = scene_state.without_people(state)
                 segment.status = VideoSegment.Status.DONE
                 segment.scene_state = state.as_dict()
                 metadata = {
@@ -1152,14 +1307,32 @@ def generate_video_task(self, job_id, script_id):
         done_segments = [segments[s.index] for s in scenes]
         with media.reading_all([seg.video for seg in done_segments]) as parts:
             final_path = concat_videos(parts, out_dir / "final.mp4")
+        # 16 → 32 fps, 480p → 720p, denoise and sharpen, on the site's CPU.
+        # final.mp4 stays the raw original; the published file is final_hd.mp4.
+        final_path, enhanced = _finish_picture(final_path, out_dir / "final_hd.mp4", job=job)
         media.store(script.final_video, final_path)
         script.status = VideoScript.Status.READY
+        script.finishing = {**(script.finishing or {}), "enhance": enhanced}
         script.save()
+
+        # Sound by default: hand the finished picture to the voice job.
+        try:
+            voice = _start_auto_voice(script, job)
+        except Exception as exc:  # noqa: BLE001 — the video is done whatever happens here
+            logger.warning("Auto voice for script %s not started: %s", script.id, exc)
+            voice = {"started": False, "note": str(exc)[:300]}
+        script.finishing = {**(script.finishing or {}), "voice": voice}
+        script.save(update_fields=["finishing", "updated_at"])
 
         # Nothing to commit here: every segment was billed and committed as it
         # finished. Stitching costs no GPU seconds.
         job.mark_completed(
-            {"script_id": script.id, "final_video": script.final_video.url}
+            {
+                "script_id": script.id,
+                "final_video": script.final_video.url,
+                "enhance": enhanced,
+                "voice_job_id": voice.get("job_id"),
+            }
         )
         return {"script_id": script.id}
     except Exception as exc:  # noqa: BLE001

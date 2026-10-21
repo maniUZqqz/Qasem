@@ -358,7 +358,7 @@ def w_package(request, pk):
 @worker_api
 def w_progress(request, pk):
     w, j = _wjob(request, pk)
-    return Response(SV.worker_progress(j, request.data))
+    return Response(SV.worker_progress(j, request.data, w))
 
 
 @worker_api

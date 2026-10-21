@@ -136,12 +136,144 @@ def estimate(profile_id, frames, allow_cpu=False, quality=None):
             'needs_gpu': (p or {}).get('recommended') == 'gpu'}
 
 
+# ───────────────────────── مسیرِ کار: اول GPU
+
+def gpu_class(job, prof=None):
+    """کاری که جایش روی GPU است (رندرِ کیفیتِ «استاندارد» به بالا)."""
+    prof = prof if prof is not None else reg().get('render_profile', job.profile)
+    return job.kind == 'render' and (prof or {}).get('recommended') == 'gpu'
+
+
+MIN_WORKER = (1, 1, 0)
+
+
+def worker_version(worker):
+    v = str((worker.capabilities or {}).get('version') or '0')
+    try:
+        return tuple(int(x) for x in v.split('.')[:3])
+    except ValueError:
+        return (0,)
+
+
+def needs_mpfb(job):
+    doc = (job.params or {}).get('document') or (job.version.document if job.version_id else None) or {}
+    r = reg()
+    for a in doc.get('actors') or []:
+        ch = r.get('character', a.get('character'))
+        if ch is not None and ch.get('provider', 'mpfb') == 'mpfb':
+            return True
+    return False
+
+
+def capable(worker, job=None):
+    """این کارگر می‌تواند کار بگیرد؟ کارگرِ قدیمی (پوشهٔ processing ِ به‌روزنشده) کار نمی‌گیرد — بستهٔ کار و
+    پروتکلش عوض شده؛ کارگرِ بی‌دادهٔ MPFB کارِ با مجریِ ساخته‌شده (MPFB) نمی‌گیرد."""
+    if worker_version(worker) < MIN_WORKER:
+        return False
+    if job is not None and (worker.capabilities or {}).get('mpfb') is False and needs_mpfb(job):
+        return False
+    return True
+
+
+def busy(worker):
+    return Job.objects.filter(worker=worker, owner='worker').exclude(state__in=FINAL).exists()
+
+
+def gpu_workers(prof=None, idle_only=False):
+    """کارگرهای GPU ِ آنلاین که این پروفایل را می‌پذیرند."""
+    out = []
+    for w in Worker.objects.filter(enabled=True):
+        if not (w.online and w.has_gpu and capable(w)):
+            continue
+        if prof is not None and not w.accepts(prof):
+            continue
+        if idle_only and busy(w):
+            continue
+        out.append(w)
+    return out
+
+
+def leave_for_gpu(job, prof, worker):
+    """کارگرِ بی‌GPU این کار را برندارد؟ — اگر کارگرِ GPU ِ بیکار آنلاین است، همیشه؛ اگر GPU سرش گرم است،
+    فقط کارهای GPU-کلاس منتظرِ او می‌مانند و کارهای سبک (انیمیک، پیش‌نمایش، تصویر) همین‌جا انجام می‌شوند."""
+    if worker.has_gpu:
+        return False
+    gpus = gpu_workers(prof if job.kind == 'render' else None)
+    if not gpus:
+        return False
+    if any(not busy(g) for g in gpus):
+        return True
+    return gpu_class(job, prof)
+
+
+def release_reason(job, worker):
+    """کارگرِ CPU که کارِ GPU-کلاس (با اجازهٔ CPU) را می‌سازد آن را رها کند؟
+    handoff: کارگرِ GPU ِ بیکار آنلاین شد ⇐ کار به او می‌رود.
+    yield:   کارِ سبکی در صف است که همین کارگر می‌تواند بگیرد ⇐ موقتاً کنار می‌رود (فریم‌ها می‌مانند و بعد ادامه می‌دهد)."""
+    if worker.has_gpu or job.kind != 'render':
+        return None
+    r = reg()
+    prof = r.get('render_profile', job.profile)
+    if not gpu_class(job, prof):
+        return None
+    if gpu_workers(prof, idle_only=True):
+        return 'handoff'
+    for j in Job.objects.filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING', cancel_requested=False):
+        p2 = r.get('render_profile', j.profile)
+        if not gpu_class(j, p2) and (j.kind != 'render' or (p2 is not None and worker.accepts(p2))):
+            return 'yield'
+    return None
+
+
+def gpu_nodes():
+    """سرورهای پردازشِ دارای GPU و آمادگیِ رندرِ سه‌بعدی‌شان (برای پنل: چرا GPU کار نمی‌گیرد و چطور روشنش کنیم)."""
+    try:
+        from apps.compute.models import ComputeNode
+    except Exception:       # noqa: BLE001 — اپِ سرورهای پردازش نصب نیست
+        return []
+    out = []
+    workers = {w.name: w for w in Worker.objects.all()}
+    for n in ComputeNode.objects.filter(enabled=True):
+        caps = n.capabilities or {}
+        if not caps.get('gpu'):
+            continue
+        w = workers.get(n.name)
+        managed = (caps.get('managed') or {}).get('worker3d')
+        out.append({
+            'id': n.pk, 'name': n.name, 'online': n.online, 'gpu': caps.get('gpu'), 'agent': caps.get('agent'),
+            'blender': bool(caps.get('blender')), 'worker3d_running': bool(caps.get('worker3d')), 'managed': managed,
+            'startable': bool((caps.get('startable') or {}).get('worker3d')), 'desired': (n.desired or {}).get('worker3d'),
+            'auto_switch': n.auto_switch, 'worker_online': bool(w and w.online), 'worker_gpu': bool(w and w.has_gpu),
+            'worker_blender': (w.capabilities or {}).get('blender_version') if w else None,
+            'worker_version': (w.capabilities or {}).get('version') if w else None,
+            'worker_capable': bool(w and capable(w)), 'worker_mpfb': (w.capabilities or {}).get('mpfb') if w else None,
+        })
+    return out
+
+
+def wants_gpu_worker(node):
+    """هماهنگ‌کنندهٔ گره: کارِ سه‌بعدیِ منتظر هست و این گره GPU و «رندرِ سه‌بعدی»ِ قابلِ روشن‌کردن دارد ⇐
+    کارگرِ سه‌بعدیِ گره روشن شود (worker-3d.bat؛ اگر Blender نیست خودش یک بار دانلود می‌کند)."""
+    caps = node.capabilities or {}
+    if not caps.get('gpu') or not (caps.get('startable') or {}).get('worker3d'):
+        return False
+    waiting = Job.objects.filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING', cancel_requested=False).exists()
+    if waiting:
+        return True
+    # کارِ GPU-کلاسی که الان روی CPU ِ سرور ساخته می‌شود ⇐ با آمدنِ GPU واگذار می‌شود
+    for j in Job.objects.filter(owner='worker', worker__isnull=False, kind='render').exclude(state__in=FINAL).select_related('worker'):
+        if j.worker and not j.worker.has_gpu and gpu_class(j):
+            return True
+    return False
+
+
 def eligible_workers(job):
-    """کارگرهای آنلاینی که همین حالا می‌توانند این کار را بگیرند — همان شرطِ claim()."""
+    """کارگرهای آنلاینی که همین حالا می‌توانند این کار را بگیرند — همان شرطِ claim() (با اولویتِ GPU)."""
     prof = reg().get('render_profile', job.profile)
     allow = bool((job.params or {}).get('allow_cpu'))
     return [w.name for w in Worker.objects.filter(enabled=True)
-            if w.online and (job.kind != 'render' or allow or (prof is not None and w.accepts(prof)))]
+            if w.online and capable(w, job) and (job.kind != 'render' or allow or (prof is not None and w.accepts(prof)))
+            and not leave_for_gpu(job, prof, w)]
 
 
 def waiting_info(job):
@@ -149,7 +281,8 @@ def waiting_info(job):
     prof = reg().get('render_profile', job.profile) or {}
     online = [w.name for w in Worker.objects.filter(enabled=True) if w.online]
     return {'needs_gpu': job.kind == 'render' and prof.get('recommended') == 'gpu',
-            'allow_cpu': bool((job.params or {}).get('allow_cpu')), 'online': online, 'eligible': eligible_workers(job)}
+            'allow_cpu': bool((job.params or {}).get('allow_cpu')), 'online': online, 'eligible': eligible_workers(job),
+            'gpu_online': [w.name for w in gpu_workers()], 'gpu_nodes': gpu_nodes()}
 
 
 def game_pack_doc(character_id):
@@ -256,12 +389,35 @@ def engine_mode(job):
 
 
 def claim(worker):
+    """یک کار به این کارگر. GPU اول: کارگرِ بی‌GPU کاری را که کارگرِ GPU ِ آنلاین می‌تواند بگیرد برنمی‌دارد،
+    و از میانِ کارهای مجاز، اول کارهای سبک (کارِ GPU-کلاس با «اجازهٔ CPU» آخر از همه)."""
     r = reg()
     with transaction.atomic():
-        for job in Job.objects.select_for_update().filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING',
-                                                          cancel_requested=False).order_by('created'):
+        # کارگری که کار می‌خواهد بیکار است ⇐ کارِ نیمه‌تمامی که هنوز به نامِ اوست (فرایندش ری‌استارت شده) دوباره به خودش
+        # می‌رسد و از فریم‌های ساخته‌شده ادامه می‌دهد — مگر کارگرِ GPU ِ بیکار منتظرش باشد
+        for job in Job.objects.select_for_update().filter(worker=worker, owner='worker', cancel_requested=False).exclude(
+                state__in=FINAL).order_by('created'):
+            if release_reason(job, worker) == 'handoff' or not capable(worker, job):
+                job.worker = None
+                job.state = 'SCENE_BUILDING'
+                job.add_log('کارگرِ %s دوباره راه افتاد؛ کار به صف برگشت' % worker.name, save=False)
+                job.save()
+                continue
+            job.claimed = timezone.now()
+            job.add_log('کارگرِ %s دوباره راه افتاد؛ ادامهٔ همان کار' % worker.name, save=False)
+            job.save()
+            mode, extra = engine_mode(job)
+            return {'id': job.pk, 'uid': str(job.uid), 'kind': job.kind, 'profile': job.profile, 'params': job.params,
+                    'mode': mode, 'extra': extra}
+        jobs = list(Job.objects.select_for_update().filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING',
+                                                           cancel_requested=False).order_by('created'))
+        if not worker.has_gpu:
+            jobs.sort(key=lambda j: (gpu_class(j, r.get('render_profile', j.profile)), j.created))
+        for job in jobs:
             prof = r.get('render_profile', job.profile)
             if job.kind == 'render' and not (worker.accepts(prof) or job.params.get('allow_cpu')):
+                continue
+            if not capable(worker, job) or leave_for_gpu(job, prof, worker):
                 continue
             job.worker = worker
             job.claimed = timezone.now()
@@ -274,18 +430,31 @@ def claim(worker):
 
 
 def package(job):
+    """بستهٔ کار برای کارگر: compiled.json + inputs/ (برچسب، مدل، و پوشه‌های دارایی‌های بسته — بازگشتی)."""
     d = job_dir(job)
     z = os.path.join(d, 'package.zip')
     with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.write(os.path.join(d, 'compiled.json'), 'compiled.json')
         inputs = os.path.join(d, 'inputs')
         if os.path.isdir(inputs):
-            for f in os.listdir(inputs):
-                zf.write(os.path.join(inputs, f), 'inputs/' + f)
+            for dp, _, fns in os.walk(inputs):
+                for f in fns:
+                    full = os.path.join(dp, f)
+                    zf.write(full, os.path.relpath(full, d).replace(os.sep, '/'))
     return z
 
 
-def worker_progress(job, data):
+def worker_progress(job, data, worker=None):
+    worker = worker or job.worker
+    why = release_reason(job, worker) if worker is not None else None
+    if why:
+        job.worker = None
+        job.state = 'SCENE_BUILDING'
+        job.message = ('به کارگرِ GPU واگذار شد (فریم‌های CPU روی سرور نگه داشته شد)' if why == 'handoff' else
+                       'موقتاً کنار رفت تا کارِ کوتاهِ در صف انجام شود؛ بعد از همان فریم ادامه می‌دهد')
+        job.add_log('کارگرِ %s: %s' % (worker.name, job.message), save=False)
+        job.save()
+        return {'cancel': True, 'release': why}
     st = data.get('state')
     if st in ('SCENE_BUILDING', 'RENDERING') and job.state != st:
         job.state = st

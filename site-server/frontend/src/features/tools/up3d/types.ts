@@ -41,6 +41,8 @@ export type Asset = {
   order?: number;
   license?: string;
   params?: Record<string, ParamSpec>;
+  /** شناسهٔ بستهٔ دارایی (data/asset-packs/<pack>) — دارایی‌های خودِ موتور null */
+  pack?: string | null;
 };
 
 export type Motion = Asset & {
@@ -91,7 +93,71 @@ export type QualityOverride = {
 };
 
 /** چرا کار هنوز کارگر ندارد (api.job_json ⇐ services.waiting_info) */
-export type Waiting = { needs_gpu: boolean; allow_cpu: boolean; online: string[]; eligible: string[] };
+export type Waiting = {
+  needs_gpu: boolean;
+  allow_cpu: boolean;
+  online: string[];
+  eligible: string[];
+  /** کارگرهای GPU ِ آنلاین (اولویت با آن‌هاست) */
+  gpu_online?: string[];
+  /** سرورهای پردازشِ دارای GPU و آمادگیِ رندرِ سه‌بعدی‌شان */
+  gpu_nodes?: GpuNode[];
+};
+
+/** سرورِ پردازشِ دارای GPU (apps.compute) از نگاهِ بخشِ سه‌بعدی — services.gpu_nodes() */
+export type GpuNode = {
+  id: number;
+  name: string;
+  online: boolean;
+  gpu: string | string[] | null;
+  agent?: string | null;
+  /** Blender روی آن گره پیدا شده؟ (اگر نه، worker-3d.bat یک بار دانلودش می‌کند) */
+  blender: boolean;
+  worker3d_running: boolean;
+  managed?: "agent" | "external" | "off" | null;
+  startable: boolean;
+  /** خواستهٔ پنل برای «رندرِ سه‌بعدی»: true/false یا undefined = پیش‌فرض (خودکار وقتی کارِ سه‌بعدی منتظر است) */
+  desired?: boolean | null;
+  auto_switch: boolean;
+  worker_online: boolean;
+  worker_gpu: boolean;
+  worker_blender?: string | null;
+  /** نسخهٔ up3d ِ کارگرِ آن گره؛ کمتر از 1.1 ⇐ پوشهٔ processing قدیمی است و کار نمی‌گیرد */
+  worker_version?: string | null;
+  worker_capable?: boolean;
+  /** دادهٔ کاراکترهای MPFB روی آن گره هست؟ */
+  worker_mpfb?: boolean | null;
+};
+
+// ───────────────────────── بسته‌های دارایی
+
+export type PackAssetRow = { kind: string; id: string; name?: { fa?: string; en?: string } | null; active?: boolean };
+
+export type AssetPack = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  installed?: string;
+  source?: string;
+  size?: number;
+  assets: PackAssetRow[];
+  problems?: { file: string; error: string }[];
+};
+
+export type PackReportAsset = { kind: string; id: string | null; label?: string; folder: string; errors: string[]; warnings: string[] };
+
+export type PackReport = {
+  ok: boolean;
+  pack: string | null;
+  name: string | null;
+  assets: PackReportAsset[];
+  errors: string[];
+  warnings: string[];
+  dry_run: boolean;
+  size?: number;
+  message?: string;
+};
 
 export type Voice = Asset & { gender: string; provider: string; voice?: string };
 
@@ -269,6 +335,8 @@ export type Worker = {
   created: string;
   token: string;
 };
+
+export type WorkersResponse = { workers: Worker[]; server: string; gpu_nodes?: GpuNode[]; blender_zip?: string };
 
 export type AiInfo = {
   ready: boolean;

@@ -1,0 +1,19 @@
+{
+ "kind": "person",
+ "id": "presenter_young_m",
+ "name": {
+  "fa": "امید — مجریِ آقای جوان",
+  "en": "Omid (example)"
+ },
+ "gender": "male",
+ "provider": "mpfb",
+ "macro": {
+  "gender": 1.0,
+  "age": 0.4,
+  "muscle": 0.55,
+  "weight": 0.45,
+  "height": 0.6,
+  "proportions": 0.6
+ },
+ "license": "CC0 (MakeHuman / MPFB)"
+}

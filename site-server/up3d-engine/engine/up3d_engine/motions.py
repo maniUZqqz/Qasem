@@ -93,19 +93,27 @@ def _hold_pose(m, s, pid, f, point=None, yaw=None, tilt=0.0, roll=0.0, mode='aut
 
 @motion('idle')
 def idle(ctx, rig, act):
+    """ایستادنِ زنده: دست‌ها آرام به حالتِ رها می‌روند (نه هم‌زمان)، تنه صاف؛ نفس و جابه‌جاییِ وزن
+    و ریزحرکتِ دست را لایه‌های rig.realize اضافه می‌کنند."""
     m = M(ctx, rig, act)
+    lag = {'R': 0.0, 'L': 0.12}
     for s in SIDES:
         if m.free(s):
             m.anchor_side(s)
-            _neutral(rig, s, m.F(min(1.0, 0.6 / max(0.6, m.secs()))))
+            u = min(1.0, (0.7 + lag[s]) / max(0.7, m.secs()))
+            _neutral(rig, s, m.F(u))
             _neutral(rig, s, m.F(1.0), 'flat')
     m.anchor('spine')
-    rig.key_spine(m.F(0.3), 0.0, 0.0, 0.0)
+    rig.key_spine(m.F(min(1.0, 0.45)), 0.0, 0.0, 0.0)
 
 
 @motion('talk')
 def talk(ctx, rig, act):
-    """ژستِ هنگامِ حرف‌زدن، هم‌زمان با تکیه‌های صدا (اگر صدا هست)."""
+    """ژستِ هنگامِ حرف‌زدن، هم‌زمان با تکیه‌های صدا.
+
+    دست‌ها به «حالتِ آماده» جلوی شکم می‌آیند (آرنج کنارِ بدن، کفِ دست‌ها رو به هم)، و روی هر تکیه یکی از
+    سه ژست: بازکردنِ یک دست (کفِ دست رو به بالا)، بازکردنِ دو دست، یا ژستِ ظریفِ «نیشگون» جلوی سینه.
+    هر ژست پیش‌حرکت (کمی عقب)، ضربه، ماندنِ کوتاه با لغزش و برگشت دارد؛ اندازه و زمان از دانهٔ تصادفیِ همین کنش."""
     m = M(ctx, rig, act)
     L = rig.L
     free = [s for s in SIDES if m.free(s)]
@@ -114,35 +122,65 @@ def talk(ctx, rig, act):
         return
     for s in free:
         m.anchor_side(s)
-    peaks = ctx.energy_peaks(rig.id, m.f0 + 0.25 * m.fps, m.f1 - 0.35 * m.fps, min_gap=0.55 * m.fps)
+        m.anchor('elbow.' + s)
+    fps = m.fps
+    peaks = ctx.energy_peaks(rig.id, m.f0 + 0.35 * fps, m.f1 - 0.4 * fps, min_gap=0.6 * fps)
     if not peaks:
-        n = max(1, int(m.secs() / 1.1))
-        peaks = [m.F((i + 0.6) / (n + 0.4)) for i in range(n)]
-    ready_f = min(m.F(0.15), m.f0 + 0.45 * m.fps)
-    for s in free:
-        sg = SIGN[s]
-        pos = L['shoulder.' + s] + Vector((-sg * 0.02 + sg * 0.11, -0.2, -0.27))
-        rot = rig.hand_rot(s, Vector((-sg * 0.35, -1, 0.15)), Vector((-sg * 0.35, -0.1, 1)))
-        rig.key_hand(s, ready_f, pos, rot)
-        rig.key_fingers(s, ready_f, 'relaxed', index=0.1, middle=0.14)
+        n = max(1, int(m.secs() / 1.15))
+        peaks = [m.F((i + 0.65) / (n + 0.45)) for i in range(n)]
     seed = ctx.seed(act['id'])
-    for i, fb in enumerate(peaks):
-        s = free[i % len(free)] if len(free) > 1 and (i + int(seed * 10)) % 3 else free[0]
+
+    def ready(s, k=0.0):
         sg = SIGN[s]
-        amp = 0.6 + 0.4 * ((i * 7 + int(seed * 13)) % 5) / 4.0
-        out = L['shoulder.' + s] + Vector((sg * (0.12 + 0.07 * amp), -0.25 - 0.05 * amp, -0.22 + 0.04 * amp))
-        back = L['shoulder.' + s] + Vector((sg * 0.09, -0.2, -0.27))
-        rot_open = rig.hand_rot(s, Vector((-sg * 0.1, -1, 0.25)), Vector((sg * 0.25, -0.35, 1)))
-        rot_back = rig.hand_rot(s, Vector((-sg * 0.35, -1, 0.15)), Vector((-sg * 0.35, -0.1, 1)))
-        rig.key_hand(s, fb - 0.18 * m.fps, back, rot_back)
-        rig.key_hand(s, fb, out, rot_open)
-        rig.key_fingers(s, fb, 'open')
-        rig.key_hand(s, fb + 0.32 * m.fps, back + Vector((0, -0.01, 0.01)), rot_back)
-        rig.key_fingers(s, fb + 0.32 * m.fps, 'relaxed', index=0.12)
-        rig.key_spine(fb, 2.0, -sg * 2.5 * amp, 0)
-        rig.key_head(fb, tilt=sg * 2.5 * amp)
-        rig.key_clav(s, fb, 3.0 * amp)
-        rig.key_clav(s, fb + 0.35 * m.fps, 0.0)
+        S = L['shoulder.' + s]
+        pos = S + Vector((-sg * 0.06 + sg * 0.015 * k, -0.24 - 0.01 * k, -0.38 + 0.02 * k))
+        rot = rig.hand_rot(s, Vector((-sg * 0.45, -1, 0.08)), Vector((-sg * 0.8, -0.1, 0.5)))
+        return pos, rot
+
+    ready_f = min(m.F(0.18), m.f0 + 0.5 * fps)
+    for i, s in enumerate(free):
+        p, q = ready(s)
+        rig.key_hand(s, ready_f + i * 2, p, q)
+        rig.key_fingers(s, ready_f + i * 2, 'relaxed', index=0.15, middle=0.2)
+        rig.ch['elbow.' + s].key(ready_f, 0.15)
+    last = {s: ready_f for s in free}
+    for i, fb in enumerate(peaks):
+        r = (math.sin(seed * 12.9898 + i * 78.233) * 43758.5453) % 1.0      # تکرارپذیر، بی‌random
+        amp = 0.65 + 0.35 * ((i * 7 + int(seed * 13)) % 5) / 4.0
+        kind = 'both' if len(free) == 2 and r < 0.28 else ('pinch' if r > 0.8 else 'one')
+        sides = free if kind == 'both' else [free[i % len(free)] if len(free) > 1 and (i + int(seed * 10)) % 3 else free[0]]
+        for s in sides:
+            if fb - last[s] < 0.45 * fps:
+                continue
+            sg = SIGN[s]
+            S = L['shoulder.' + s]
+            k = 0.6 if kind == 'both' else 1.0
+            p0, q0 = ready(s, r)
+            if kind == 'pinch':
+                out = S + Vector((-sg * 0.03, -0.3, -0.24))
+                rot_out = rig.hand_rot(s, Vector((-sg * 0.3, -1, 0.35)), Vector((-sg * 0.7, -0.2, -0.3)))
+                fing = 'pinch'
+            else:
+                out = S + Vector((sg * (0.07 + 0.1 * amp * k), -0.3 - 0.04 * amp, -0.27 + 0.05 * amp * k))
+                rot_out = rig.hand_rot(s, Vector((sg * 0.2, -1, 0.05)), Vector((sg * 0.3, -0.25, 1)))
+                fing = 'open'
+            pre = p0 + Vector((0, 0.015, 0.012))
+            rig.key_hand(s, fb - 0.2 * fps, pre, q0)
+            rig.key_hand(s, fb, out, rot_out)
+            rig.key_fingers(s, fb - 0.04 * fps, fing)
+            rig.ch['elbow.' + s].key(fb, 0.35 if kind != 'pinch' else 0.2)
+            hold = out + Vector((sg * 0.008, -0.006, -0.01))
+            rig.key_hand(s, fb + 0.16 * fps, hold, rot_out)
+            back, q1 = ready(s, (r * 3.7) % 1.0)
+            rig.key_hand(s, fb + 0.5 * fps, back, q1)
+            rig.key_fingers(s, fb + 0.5 * fps, 'relaxed', index=0.14, middle=0.2)
+            rig.ch['elbow.' + s].key(fb + 0.5 * fps, 0.15)
+            rig.key_clav(s, fb, 2.5 * amp)
+            rig.key_clav(s, fb + 0.4 * fps, 0.0)
+            last[s] = fb + 0.5 * fps
+        sg = SIGN[sides[0]]
+        rig.key_spine(fb, 2.0, (0 if kind == 'both' else -sg * 2.5 * amp), 0)
+        rig.key_head(fb, tilt=(0 if kind == 'both' else sg * 2.5 * amp))
     end = m.F(1.0)
     rig.key_spine(end, 1.0, 0, 0)
     rig.key_head(end, tilt=0.0)
@@ -150,31 +188,45 @@ def talk(ctx, rig, act):
 
 @motion('wave_hello')
 def wave_hello(ctx, rig, act):
+    """سلام با دست: پیش‌حرکت، بالا آمدنِ دست (آرنج پایین و بیرون، ساعد تقریباً عمود)، ۴ تابِ ساعد با دامنهٔ
+    کم‌شونده، پایین آمدنِ نرم؛ تنه کمی خلافِ دست و سر کمی کج."""
     m = M(ctx, rig, act)
     s = m.pick_side('R')
     sg = SIGN[s]
     L = rig.L
+    S = L['shoulder.' + s]
     m.anchor_side(s)
-    m.anchor('head_tilt', 'spine')
-    up = L['shoulder.' + s] + Vector((sg * 0.13, -0.13, 0.19))
-    fing = Vector((sg * 0.12, -0.05, 1))
-    palm = Vector((0, -1, 0))
-    mid = L['shoulder.' + s] + Vector((sg * 0.12, -0.16, -0.08))
-    rig.key_hand(s, m.F(0.18), mid, rig.hand_rot(s, Vector((sg * 0.1, -0.6, 0.6)), Vector((-sg * 0.3, -0.7, 0))))
+    m.anchor('head_tilt', 'spine', 'elbow.' + s)
+    cur, cq = rig.hand_state(s, m.f0)
+    rig.key_hand(s, m.F(0.08), cur + Vector((0, 0.015, -0.015)), cq)          # پیش‌حرکت
+    up = S + Vector((sg * 0.19, -0.16, 0.13))      # کنارِ سر؛ آرنج پایین‌تر از دست
+    fing = Vector((sg * 0.12, -0.12, 1))
+    palm = Vector((-sg * 0.1, -1, 0.05))
+    mid = S + Vector((sg * 0.07, -0.25, -0.2))      # مسیرِ بالا آمدن از جلوی بدن (نه تابِ بازو به بیرون)
+    rig.key_hand(s, m.F(0.2), mid, rig.hand_rot(s, Vector((0, -0.6, 0.8)), Vector((-sg * 0.6, -0.4, -0.3))))
+    rig.key_fingers(s, m.F(0.2), 'relaxed', index=0.12)
+    rig.ch['elbow.' + s].key(m.F(0.2), 0.1)
+    rig.ch['elbow.' + s].key(m.F(0.34), 0.3)
     rig.key_hand(s, m.F(0.34), up, rig.hand_rot(s, fing, palm))
-    rig.key_fingers(s, m.F(0.34), 'spread')
+    rig.key_fingers(s, m.F(0.3), 'open', thumb=0.12, index=0.05, middle=0.06, ring=0.09, pinky=0.12)
     n = 4
     for i in range(n):
         u = 0.4 + i * (0.38 / n)
-        ang = math.radians(16 if i % 2 == 0 else -14)
+        a = (1.0, 0.9, 0.78, 0.6)[i]
+        ang = math.radians(17 * a if i % 2 == 0 else -15 * a)
         f2 = Quaternion((0, -1, 0), ang) @ fing
-        rig.key_hand(s, m.F(u), up + Vector((sg * 0.01 * (1 if i % 2 == 0 else -1), 0, 0)), rig.hand_rot(s, f2, palm))
-    rig.key_hand(s, m.F(0.8), up + Vector((0, 0, -0.02)), rig.hand_rot(s, fing, palm))
-    rig.key_hand(s, m.F(0.9), mid, rig.hand_rot(s, Vector((sg * 0.1, -0.6, 0.6)), Vector((-sg * 0.3, -0.7, 0))))
-    _neutral(rig, s, m.F(1.0) + 4)
+        dx = -math.sin(ang) * 0.06
+        rig.key_hand(s, m.F(u), up + Vector((dx, 0, -0.005 * i)), rig.hand_rot(s, f2, palm))
+    rig.key_hand(s, m.F(0.8), up + Vector((0, 0.005, -0.03)), rig.hand_rot(s, fing, palm))
+    rig.key_hand(s, m.F(0.92), mid + Vector((0, 0.03, -0.1)),
+                 rig.hand_rot(s, Vector((0, -0.5, 0.3)), Vector((-sg * 0.7, -0.3, -0.3))))
+    rig.ch['elbow.' + s].key(m.F(0.92), 0.1)
+    rig.key_fingers(s, m.F(0.9), 'relaxed')
+    rig.ch['elbow.' + s].key(m.F(1.0), 0.25)
+    _neutral(rig, s, m.F(1.0) + 6)
     rig.key_head(m.F(0.3), tilt=sg * 4.0)
     rig.key_head(m.F(0.95), tilt=0.0)
-    rig.key_spine(m.F(0.3), 0, -sg * 3, sg * 1.5)
+    rig.key_spine(m.F(0.32), -1.0, -sg * 3, sg * 1.5)
     rig.key_spine(m.F(1.0), 0, 0, 0)
 
 
@@ -379,14 +431,23 @@ def point_at(ctx, rig, act):
         point = L['shoulder.' + s] + Vector((sg * 0.05, -1.5, 0.0))
     sh = L['shoulder.' + s]
     d = (point - sh).normalized()
-    wrist = sh + d * 0.58 * L['arm_len.' + s] + Vector((sg * 0.04, -0.04, 0.06))
+    wrist = sh + d * 0.55 * L['arm_len.' + s] + Vector((sg * 0.05, -0.06, 0.04))
     d = (point - wrist).normalized()
     palm = (Vector((0, 0, -1)) - d * Vector((0, 0, -1)).dot(d)).normalized()
-    palm = (palm * 0.75 + Vector((-sg, 0, 0)) * 0.25).normalized()
+    palm = (palm * 0.7 + Vector((-sg, 0, 0)) * 0.3).normalized()
     m.anchor_side(s)
-    rig.key_hand(s, m.F(0.3), wrist, rig.hand_rot(s, d, palm))
-    rig.key_fingers(s, m.F(0.3), 'point')
-    rig.key_hand(s, m.F(0.75), wrist + d * 0.01, rig.hand_rot(s, d, palm), 'flat')
+    m.anchor('elbow.' + s, 'spine')
+    cur, cq = rig.hand_state(s, m.f0)
+    rig.key_hand(s, m.F(0.1), cur + Vector((0, 0.01, 0.01)), cq)
+    rig.ch['elbow.' + s].key(m.F(0.3), 0.4)
+    rig.key_hand(s, m.F(0.32), wrist + d * 0.015, rig.hand_rot(s, d, palm))   # کمی جلوتر می‌رود و برمی‌گردد
+    rig.key_fingers(s, m.F(0.26), 'point')
+    rig.key_hand(s, m.F(0.42), wrist, rig.hand_rot(s, d, palm))
+    rig.key_hand(s, m.F(0.75), wrist - d * 0.008, rig.hand_rot(s, d, palm), 'flat')
+    rig.key_spine(m.F(0.35), 2.0, -sg * 3.0, 0)
+    rig.key_fingers(s, m.F(0.88), 'relaxed')
+    rig.ch['elbow.' + s].key(m.F(1.0), 0.25)
+    rig.key_spine(m.F(1.0), 0, 0, 0)
     _neutral(rig, s, m.F(1.0))
 
 
@@ -397,11 +458,18 @@ def thumbs_up(ctx, rig, act):
     sg = SIGN[s]
     L = rig.L
     m.anchor_side(s)
-    pos = L['shoulder.' + s] + Vector((-sg * 0.02, -0.27, -0.16))
+    m.anchor('elbow.' + s, 'head_tilt')
+    pos = L['shoulder.' + s] + Vector((-sg * 0.01, -0.3, -0.17))
     rot = rig.hand_rot(s, Vector((-sg * 0.45, -0.9, 0)), Vector((-sg, 0.2, 0)))
-    rig.key_hand(s, m.F(0.3), pos, rot)
-    rig.key_fingers(s, m.F(0.3), 'thumbs_up')
-    rig.key_hand(s, m.F(0.75), pos + Vector((0, -0.01, 0.01)), rot, 'flat')
+    rig.key_hand(s, m.F(0.28), pos + Vector((0, -0.012, 0.015)), rot)        # کمی جلوتر و بالاتر، بعد می‌نشیند
+    rig.key_fingers(s, m.F(0.22), 'thumbs_up')
+    rig.ch['elbow.' + s].key(m.F(0.28), 0.2)
+    rig.key_hand(s, m.F(0.38), pos, rot)
+    rig.key_hand(s, m.F(0.75), pos + Vector((0, -0.006, 0.008)), rot, 'flat')
+    rig.key_head(m.F(0.35), tilt=sg * 3.0)
+    rig.key_head(m.F(1.0), tilt=0.0)
+    rig.key_fingers(s, m.F(0.88), 'relaxed')
+    rig.ch['elbow.' + s].key(m.F(1.0), 0.25)
     _neutral(rig, s, m.F(1.0))
 
 
@@ -415,32 +483,48 @@ def hand_on_chest(ctx, rig, act):
     m.anchor('head_tilt')
     palm_pt = L['chest'] + Vector((-sg * 0.05, -0.115, 0.02))
     q = rig.hand_rot(s, Vector((-sg * 0.8, 0, 0.5)), Vector((0, 1, 0)))
-    rig.key_hand(s, m.F(0.35), rig.wrist_for_palm(s, palm_pt, q), q)
-    rig.key_fingers(s, m.F(0.35), 'relaxed', index=0.05, middle=0.05)
-    rig.key_hand(s, m.F(0.75), rig.wrist_for_palm(s, palm_pt, q), q, 'flat')
+    w = rig.wrist_for_palm(s, palm_pt, q)
+    rig.key_hand(s, m.F(0.3), w + Vector((0, -0.012, 0.006)), q)       # کمی جلوتر می‌رسد و روی سینه می‌نشیند
+    rig.key_hand(s, m.F(0.4), w, q)
+    rig.key_fingers(s, m.F(0.3), 'relaxed', index=0.05, middle=0.05)
+    rig.key_hand(s, m.F(0.68), w + Vector((0, -0.004, -0.004)), q, 'flat')
     rig.key_head(m.F(0.4), tilt=sg * 5.0)
+    rig.key_spine(m.F(0.4), 2.5, 0, 0)
     rig.key_head(m.F(1.0), tilt=0.0)
-    _neutral(rig, s, m.F(1.0))
+    rig.key_spine(m.F(1.0), 0, 0, 0)
+    # برگشتِ آرام‌تر (~۰٫۵ ثانیه، کمی بیش از پایانِ کنش) — پایین‌آمدنِ ۰٫۳ ثانیه‌ای ساعد را تند می‌چرخاند
+    _neutral(rig, s, m.F(1.0) + 0.15 * m.fps)
 
 
 @motion('open_arms')
 def open_arms(ctx, rig, act):
+    """آغوشِ باز / خوش‌آمد: دست‌ها ۳۵ درجه پایین‌تر از افق و کمی جلو، آرنج نرم، کفِ دست رو به جلو و بالا؛
+    سینه باز و کمی عقب، دو دست با چند فریم فاصله (نه قرینهٔ کامل)."""
     m = M(ctx, rig, act)
     L = rig.L
-    m.anchor('spine')
-    for s in SIDES:
+    m.anchor('spine', 'head_tilt')
+    for j, s in enumerate(SIDES):
         if not m.free(s):
             continue
         sg = SIGN[s]
         m.anchor_side(s)
-        pos = L['shoulder.' + s] + Vector((sg * 0.28, -0.2, -0.17))
-        rot = rig.hand_rot(s, Vector((sg * 0.4, -1, 0.2)), Vector((sg * 0.2, -0.3, 1)))
-        rig.key_hand(s, m.F(0.35), pos, rot)
-        rig.key_fingers(s, m.F(0.35), 'spread')
-        rig.key_hand(s, m.F(0.7), pos + Vector((sg * 0.01, -0.01, 0.01)), rot, 'flat')
-        _neutral(rig, s, m.F(1.0))
-    rig.key_spine(m.F(0.35), -2.0, 0, 0)
+        m.anchor('elbow.' + s)
+        d = j * 2
+        pos = L['shoulder.' + s] + Vector((sg * 0.17, -0.31, -0.25))
+        rot = rig.hand_rot(s, Vector((sg * 0.55, -0.8, -0.05)), Vector((sg * 0.05, -0.45, 0.9)))
+        rig.key_hand(s, m.F(0.1) + d, rig.hand_state(s, m.f0)[0] + Vector((0, 0.01, -0.01)), None)
+        rig.key_hand(s, m.F(0.36) + d, pos + Vector((sg * 0.012, -0.01, 0.015)), rot)
+        rig.key_fingers(s, m.F(0.3) + d, 'open', thumb=0.1, ring=0.08, pinky=0.12)
+        rig.ch['elbow.' + s].key(m.F(0.36), 0.45)
+        rig.key_hand(s, m.F(0.48) + d, pos, rot)
+        rig.key_hand(s, m.F(0.74) + d, pos + Vector((-sg * 0.01, 0.005, -0.012)), rot, 'flat')
+        rig.key_fingers(s, m.F(0.86) + d, 'relaxed')
+        rig.ch['elbow.' + s].key(m.F(1.0), 0.25)
+        _neutral(rig, s, m.F(1.0) + d)
+    rig.key_spine(m.F(0.36), -3.0, 0, 0)
+    rig.key_head(m.F(0.4), tilt=1.5)
     rig.key_spine(m.F(1.0), 0, 0, 0)
+    rig.key_head(m.F(1.0), tilt=0.0)
 
 
 def apply(ctx, rig, act):

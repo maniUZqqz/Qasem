@@ -1,0 +1,37 @@
+{
+ "kind": "lighting",
+ "id": "light_sunset",
+ "name": {
+  "fa": "غروبِ گرم (نمونه)",
+  "en": "Warm sunset (example)"
+ },
+ "world": {
+  "hdri": "sunset",
+  "hdri_strength": 0.6
+ },
+ "rig": [
+  {
+   "name": "key",
+   "type": "AREA",
+   "azimuth": -45,
+   "elevation": 25,
+   "distance": 2.0,
+   "size": 1.2,
+   "power": 150,
+   "kelvin": 3800,
+   "target": "face"
+  },
+  {
+   "name": "rim",
+   "type": "AREA",
+   "azimuth": 150,
+   "elevation": 35,
+   "distance": 1.6,
+   "size": 0.5,
+   "power": 110,
+   "kelvin": 3200,
+   "target": "face"
+  }
+ ],
+ "license": "CC0 (UpMarket example)"
+}

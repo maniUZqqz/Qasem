@@ -80,10 +80,19 @@ class OllamaUnavailable(OllamaError):
 
 
 def strip_reasoning(text: str) -> str:
-    """Remove explicit <think>...</think> blocks from model output."""
+    """Remove explicit <think>...</think> blocks from model output.
+
+    QwQ's chat template opens the `<think>` itself, so the text that comes back
+    often holds only the CLOSING tag: "reasoning… </think>{json}". Without the
+    second rule the reasoning stayed in, and its first "{" (a draft object the
+    model was thinking about) was taken as the start of the answer.
+    """
     if not text:
         return ""
-    return THINK_RE.sub("", text).strip()
+    text = THINK_RE.sub("", text)
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    return text.strip()
 
 
 def extract_json_block(text: str):

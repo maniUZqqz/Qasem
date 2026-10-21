@@ -156,6 +156,25 @@ def empty(name, loc=(0, 0, 0), size=0.05, coll=None, parent=None, kind='PLAIN_AX
     return e
 
 
+def body_frame_align(hips, head, r_shoulder, l_shoulder):
+    """ماتریسِ ۳×۳ که بدنِ یک اسکلت را «ایستاده (بالا = +Z) و رو به -Y» می‌کند.
+    بالا = لگن ⇐ سر؛ راست = شانهٔ راست منهای چپ (عمود بر بالا)؛ جلو = بالا × راست.
+    (BVH ِ خروجیِ Blender بالا را -Y می‌گذارد، FBX/GLB ِ برخی نرم‌افزارها خوابیده می‌آیند — فقط چرخش دورِ Z کافی نبود.)"""
+    up = (Vector(head) - Vector(hips))
+    if up.length < 1e-6:
+        up = Vector((0, 0, 1))
+    up.normalize()
+    right = Vector(r_shoulder) - Vector(l_shoulder)
+    right = right - up * right.dot(up)
+    if right.length < 1e-6:
+        right = Vector((-1, 0, 0)) - up * Vector((-1, 0, 0)).dot(up)
+    right.normalize()
+    fwd = up.cross(right).normalized()
+    S = Matrix((right, fwd, up)).transposed()                       # ستون‌ها: راست، جلو، بالا (منبع)
+    T = Matrix(((-1, 0, 0), (0, -1, 0), (0, 0, 1))).transposed()    # بازیگر: راست = -X، جلو = -Y، بالا = +Z
+    return T @ S.transposed()
+
+
 def quat_align(prev, q):
     """جلوگیری از چرخشِ ۳۶۰ درجه بینِ دو کلید (هم‌نیم‌کره کردنِ کواترنیون)."""
     if prev is not None and prev.dot(q) < 0:

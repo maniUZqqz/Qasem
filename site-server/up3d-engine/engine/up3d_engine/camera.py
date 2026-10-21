@@ -71,7 +71,7 @@ def build(ctx, series):
         seed = ctx.seed(shot['id'])
         rack = fr.get('rack_from')
         for i, f in enumerate(frames):
-            u = ease_inout(i / n)
+            u = anim.smootherstep(i / n)      # آسانیِ C2: شروع و ایستِ دوربین بی‌تکان
             d = dist
             a, e = az, el
             off = Vector((0, 0, 0))

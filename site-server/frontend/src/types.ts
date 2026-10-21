@@ -438,11 +438,46 @@ export interface VideoScriptInfo {
   final_video: string | null;
   voice_audio: string | null;
   final_video_voiced: string | null;
+  /** Voiced cut with the shop's own music under it — the most finished one. */
+  final_video_music?: string | null;
   sound_design?: SoundDesign | null;
+  finishing?: VideoFinishing | null;
   scenes: VideoSceneInfo[];
   segments: VideoSegmentInfo[];
   created_at: string;
   updated_at: string;
+}
+
+/** Shape of a video before/after the finishing pass. */
+export interface VideoShape {
+  width: number;
+  height: number;
+  fps: number;
+  duration: number;
+  has_audio?: boolean;
+  bytes?: number;
+}
+
+/** What happened after the segments were stitched (VideoScript.finishing). */
+export interface VideoFinishing {
+  enhance?: {
+    ok: boolean;
+    applied?: string[];
+    seconds?: number;
+    before?: VideoShape;
+    after?: VideoShape;
+    note?: string;
+    source?: string;
+    source_url?: string | null;
+  };
+  voice?: {
+    started?: boolean;
+    done?: boolean;
+    job_id?: number;
+    auto?: boolean;
+    music?: boolean;
+    note?: string;
+  };
 }
 
 export type ApprovalState = "DRAFT" | "APPROVED" | "REJECTED" | "PUBLISHED" | "ARCHIVED";

@@ -9,8 +9,12 @@ from mathutils import Vector
 from .util import empty, kelvin_rgb, link, log
 
 
-def _hdri_path(name):
+def _hdri_path(name, folder=None):
     root = os.environ.get('UP3D_ROOT', '')
+    if folder and name:                       # HDRI ِ کنارِ manifest ِ نور (بستهٔ دارایی)
+        for cand in (os.path.join(folder, name), os.path.join(folder, name + '.exr'), os.path.join(folder, name + '.hdr')):
+            if os.path.isfile(cand):
+                return cand
     for cand in (os.path.join(root, 'assets', 'hdri', name), os.path.join(root, 'assets', 'hdri', name + '.exr'),
                  os.path.join(root, 'assets', 'hdri', name + '.hdr')):
         if os.path.isfile(cand):
@@ -27,7 +31,7 @@ def world(spec):
     w.use_nodes = True
     nt = w.node_tree
     bg = nt.nodes['Background']
-    path = _hdri_path(spec.get('hdri', 'interior'))
+    path = _hdri_path(spec.get('hdri', 'interior'), spec.get('_folder'))
     if path:
         tc = nt.nodes.new('ShaderNodeTexCoord')
         mp = nt.nodes.new('ShaderNodeMapping')
@@ -60,7 +64,7 @@ def build(ctx):
     rig = lt.get('rig', [])
     params = lt.get('params', {})
     coll = ctx.coll('lighting')
-    world({**lt.get('world', {}), **{k: v for k, v in params.items() if k.startswith('hdri')}})
+    world({**lt.get('world', {}), **{k: v for k, v in params.items() if k.startswith('hdri')}, '_folder': lt.get('folder')})
     actors = ctx.c['actors']
     if actors:
         mk = actors[0]['mark']

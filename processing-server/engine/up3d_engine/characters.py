@@ -7,11 +7,13 @@
 خروجیِ هر فراهم‌کننده یکسان است: {'armature', 'body', 'meshes', 'rigmap', 'face_meshes'}
 """
 import json
+import math
 import os
 
 import bpy
+from mathutils import Matrix, Vector
 
-from .util import hex_to_linear, log
+from .util import body_frame_align, hex_to_linear, log
 
 ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MPFB_READY = False
@@ -205,8 +207,134 @@ def _eye_color(obj, color):
 
 # ───────────────────────── کاراکترِ فایل
 
+def _rig_presets(extra_dirs=()):
+    out = {}
+    for d in [os.path.join(ENGINE_DIR, 'rigs')] + [x for x in extra_dirs if x]:
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith('.json') and fn != 'manifest.json':
+                try:
+                    with open(os.path.join(d, fn), encoding='utf-8') as fh:
+                        m = json.load(fh)
+                except (OSError, ValueError):
+                    continue
+                if isinstance(m, dict) and m.get('roles'):
+                    out[m.get('id') or fn[:-5]] = m
+    return out
+
+
+def pick_rigmap(bone_names, want='auto', extra_dirs=()):
+    """نقشهٔ استخوانِ مناسب: نامِ یک نقشه، دیکشنریِ نقشه (درونِ manifest)، یا auto = نقشه‌ای که بیشترین نقش را می‌یابد."""
+    from .rig import resolve_rigmap
+    if isinstance(want, dict):
+        m = want if 'roles' in want else {'roles': want}
+        resolve_rigmap(bone_names, m)
+        return m
+    presets = _rig_presets(extra_dirs)
+    names = [want] if want and want != 'auto' else list(presets)
+    best, errs = None, []
+    for n in names:
+        m = presets.get(n)
+        if not m:
+            errs.append('نقشهٔ «%s» نیست' % n)
+            continue
+        try:
+            res = resolve_rigmap(bone_names, m)
+        except ValueError as e:
+            errs.append('%s: %s' % (n, e))
+            continue
+        score = sum(len(v) if isinstance(v, (list, dict)) else (1 if v else 0) for v in res['roles'].values())
+        if best is None or score > best[0]:
+            best = (score, m)
+    if best is None:
+        raise ValueError('نقشهٔ استخوانی که با این کاراکتر بخواند پیدا نشد — در manifest «rigmap» بدهید. ' + ' | '.join(errs[:3]))
+    return best[1]
+
+
+def _select_only(objs, active=None):
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    for o in objs:
+        try:
+            o.select_set(True)
+        except RuntimeError:
+            pass
+    bpy.context.view_layer.objects.active = active or (objs[0] if objs else None)
+
+
+def _normalize_character(arm, meshes, spec):
+    """کاراکترِ واردشده ⇐ اسکلتِ بی‌چرخش/بی‌مقیاس، ایستاده روی زمین (z=0)، لگن روی مبدأ، رو به -Y، قدِ معقول.
+    (FBX ِ Mixamo معمولاً چرخشِ ۹۰ درجه و مقیاسِ ۰٫۰۱ دارد؛ ActorRig چرخش و جای شیء را صفر می‌کند.)"""
+    from .rig import resolve_rigmap
+    vl = bpy.context.view_layer
+    objs = [arm] + meshes
+    for o in objs:
+        if o.parent and o.parent not in objs:
+            mw = o.matrix_world.copy()
+            o.parent = None
+            o.matrix_world = mw
+    vl.update()
+    _select_only(objs, arm)
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    vl.update()
+
+    def bbox():
+        # اندازه از روی اسکلت؛ از مش‌ها فقط نقطه‌هایی که نزدیکِ اسکلت‌اند (مشِ کمکیِ جاماندهٔ برخی خروجی‌ها قد را خراب نکند)
+        bones = [arm.matrix_world @ b.head_local for b in arm.data.bones] + \
+                [arm.matrix_world @ b.tail_local for b in arm.data.bones]
+        blo = min(q.z for q in bones)
+        bhi = max(q.z for q in bones)
+        hb = max(1e-3, bhi - blo)
+        cx = sum(q.x for q in bones) / len(bones)
+        cy = sum(q.y for q in bones) / len(bones)
+        pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+        pts = [q for q in pts if blo - 0.2 * hb <= q.z <= bhi + 0.15 * hb and abs(q.x - cx) < 0.6 * hb
+               and abs(q.y - cy) < 0.6 * hb] or bones
+        return (Vector((min(q.x for q in pts), min(q.y for q in pts), min(min(q.z for q in pts), blo))),
+                Vector((max(q.x for q in pts), max(q.y for q in pts), max(max(q.z for q in pts), bhi))))
+
+    roles = resolve_rigmap([b.name for b in arm.data.bones], spec['_rigmap'])['roles']
+
+    def hips_w():
+        return arm.matrix_world @ arm.data.bones[roles['hips']].head_local
+    lo, hi = bbox()
+    h = hi.z - lo.z
+    target = spec.get('height_m')
+    s = (float(target) / h) if target and h > 1e-6 else ((1.7 / h) if h > 1e-6 and not 0.5 <= h <= 2.6 else 1.0)
+    B = arm.data.bones
+    mw = arm.matrix_world
+    A3 = body_frame_align(mw @ B[roles['hips']].head_local, mw @ B[roles['head']].head_local,
+                          mw @ B[roles['arm.R']['upper']].head_local, mw @ B[roles['arm.L']['upper']].head_local)
+    A = Matrix.Rotation(math.radians(float(spec.get('facing_deg', 0.0))), 3, 'Z') @ A3
+    rot = math.degrees(A.to_quaternion().angle)
+    if abs(s - 1.0) > 1e-4 or rot > 0.05:
+        for o in objs:
+            if o.parent is None:
+                o.matrix_world = A.to_4x4() @ Matrix.Scale(s, 4) @ o.matrix_world
+        vl.update()
+        _select_only(objs, arm)
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        vl.update()
+        lo, hi = bbox()
+    hp = hips_w()
+    shift = Vector((-hp.x, -hp.y, -lo.z))
+    for o in objs:
+        if o.parent is None:
+            o.location = o.location + shift
+    vl.update()
+    _select_only(objs, arm)
+    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    vl.update()
+    log('character-file normalized', 'height=%.2fm scale=%.4f turned=%.0fdeg' % (hi.z - lo.z, s, rot))
+
+
 def build_file(spec, actor_id, coll, quality):
-    path = spec['path'] if os.path.isabs(spec['path']) else os.path.join(spec['folder'], spec['path'])
+    """کاراکترِ آماده (.blend / .glb / .gltf / .fbx) با اسکلت. نقشهٔ استخوان: rigmap (نام یا دیکشنری) یا auto."""
+    rel = spec.get('path') or spec.get('file') or ''
+    path = rel if os.path.isabs(rel) else os.path.join(spec.get('folder', ''), rel)
+    if not os.path.isfile(path):
+        raise FileNotFoundError('فایلِ کاراکتر پیدا نشد: %s' % rel)
     before = set(bpy.data.objects)
     ext = os.path.splitext(path)[1].lower()
     if ext == '.blend':
@@ -218,20 +346,31 @@ def build_file(spec, actor_id, coll, quality):
     elif ext in ('.glb', '.gltf'):
         bpy.ops.import_scene.gltf(filepath=path)
     elif ext == '.fbx':
-        bpy.ops.import_scene.fbx(filepath=path, automatic_bone_orientation=True)
+        bpy.ops.import_scene.fbx(filepath=path, automatic_bone_orientation=True, ignore_leaf_bones=False)
     else:
         raise ValueError('قالبِ فایلِ کاراکتر پشتیبانی نمی‌شود: %s' % ext)
     new = [o for o in bpy.data.objects if o not in before]
-    arm = next((o for o in new if o.type == 'ARMATURE'), None)
-    if not arm:
+    for o in [o for o in new if o.type in ('CAMERA', 'LIGHT')]:
+        new.remove(o)
+        bpy.data.objects.remove(o, do_unlink=True)
+    arms = [o for o in new if o.type == 'ARMATURE']
+    if not arms:
         raise ValueError('فایلِ کاراکتر اسکلت ندارد')
+    arm = max(arms, key=lambda o: len(o.data.bones))
     meshes = [o for o in new if o.type == 'MESH']
+    if arm.animation_data:
+        arm.animation_data_clear()
     body = max(meshes, key=lambda o: len(o.data.vertices)) if meshes else None
     _move_to(new, coll)
+    rigmap = pick_rigmap([b.name for b in arm.data.bones], spec.get('rigmap') or 'auto', [spec.get('folder', '')])
+    spec = dict(spec)
+    spec['_rigmap'] = rigmap
+    _normalize_character(arm, meshes, spec)
     arm.name = '%s.rig' % actor_id
     face_meshes = [o for o in meshes if o.data.shape_keys and len(o.data.shape_keys.key_blocks) > 1]
-    rigmap = load_rigmap(spec.get('rigmap', 'mpfb_default'))
+    rigmap = dict(rigmap)
     if spec.get('face'):
-        rigmap = dict(rigmap)
         rigmap['face'] = spec['face']
+    log('character-file', actor_id, os.path.basename(path), 'bones=%d meshes=%d face_meshes=%d' % (
+        len(arm.data.bones), len(meshes), len(face_meshes)))
     return {'armature': arm, 'body': body, 'meshes': meshes, 'rigmap': rigmap, 'face_meshes': face_meshes}

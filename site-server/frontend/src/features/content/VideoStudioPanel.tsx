@@ -125,8 +125,14 @@ export default function VideoStudioPanel({
   useEffect(() => {
     if (!script?.id) return;
     void resumeVideo({ type: "video_generation", scriptId: script.id });
+  }, [resumeVideo, script?.id]);
+  // The video job starts the voice job itself when it finishes, so the voice
+  // runner re-attaches every time the script reloads (updated_at moves when
+  // the render completes) — the owner sees «صداگذاری» running without a click.
+  useEffect(() => {
+    if (!script?.id) return;
     void resumeVoice({ type: "voice_generation", scriptId: script.id });
-  }, [resumeVideo, resumeVoice, script?.id]);
+  }, [resumeVoice, script?.id, script?.updated_at]);
 
   const generateScript = async () => {
     scriptRunner.begin();
@@ -232,7 +238,11 @@ export default function VideoStudioPanel({
         {script?.final_video && (
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={generateVoice} disabled={anyBusy} variant="secondary">
-              {voiceRunner.running ? "در حال صداگذاری…" : "🔊 صداگذاری"}
+              {voiceRunner.running
+                ? "در حال صداگذاری…"
+                : script.final_video_voiced
+                  ? "🔊 صداگذاری دوباره"
+                  : "🔊 صداگذاری"}
             </Button>
             <label className="flex items-center gap-1 text-sm" style={{ color: "var(--text-2)" }}>
               <input
@@ -325,8 +335,8 @@ export default function VideoStudioPanel({
                     <th>نریشن</th>
                     <th>پرامپت بصری (EN)</th>
                     <th>صدای محیط و افکت</th>
-                    <th title="آدمِ این صحنه خودش نریشن را می‌گوید و لب‌هایش با صدا هماهنگ می‌شود">
-                      گوینده در تصویر
+                    <th title="یک آدم رو به دوربین در این صحنه ساخته می‌شود و خودش نریشن را می‌گوید. برای داشتنِ صدا لازم نیست — صدا خودکار اضافه می‌شود.">
+                      آدمِ گوینده در تصویر
                     </th>
                   </tr>
                 </thead>
@@ -357,19 +367,24 @@ export default function VideoStudioPanel({
                             disabled={anyBusy}
                             onChange={(e) => void setOnCamera(scene, e.target.checked)}
                           />
-                          لب‌خوانی
+                          آدم بیاید
                         </label>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
+                صحنه‌ها به‌طور پیش‌فرض فقط محصول را نشان می‌دهند و فقط دوربین حرکت می‌کند؛ آدم
+                و دست فقط برای محصولِ پوشیدنی (لباس، کفش، کیف، زیورآلات، آرایشی) ساخته می‌شود.
+                صدای گوینده و صدای محیط بعد از ساختِ ویدیو خودکار اضافه می‌شود.
+              </p>
               {script.scenes.some((s) => s.speaker_on_camera) && (
-                <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-                  در صحنه‌های «لب‌خوانی» آدمِ تصویر رو به دوربین نریشن را می‌گوید و لب‌هایش با
-                  صدای گوینده هماهنگ می‌شود (نیازمند ComfyUI و مدل LatentSync روی سیستم اصلی).
-                  بهتر است پیش از «تولید ویدیو» روشن شود تا چهره رو به دوربین ساخته شود. بقیه‌ی
-                  صحنه‌ها صدای روی تصویر هستند و آدمشان نباید لب بزند.
+                <p className="mt-2 text-xs" style={{ color: "var(--warn)" }}>
+                  در صحنه‌های «آدم بیاید» یک آدم رو به دوربین ساخته می‌شود که خودش نریشن را
+                  می‌گوید و لب‌هایش با صدای گوینده هماهنگ می‌شود (نیازمند ComfyUI و مدل LatentSync
+                  روی سیستم اصلی). اگر آدم نمی‌خواهید، این تیک را بردارید — برای داشتنِ صدا لازم
+                  نیست.
                 </p>
               )}
               {soundChanged && script.final_video && (
@@ -389,31 +404,7 @@ export default function VideoStudioPanel({
           )}
 
           {script.final_video && (
-            <div className="flex flex-wrap gap-6">
-              <div>
-                <h4 className="mb-2 text-sm font-bold text-slate-700">🎉 ویدیوی نهایی</h4>
-                <video
-                  controls
-                  src={script.final_video}
-                  className="w-full max-w-md rounded-lg border border-slate-200"
-                />
-              </div>
-              {script.final_video_voiced && (
-                <div>
-                  <h4 className="mb-2 text-sm font-bold text-slate-700">🔊 نسخه صداگذاری‌شده</h4>
-                  <video
-                    controls
-                    src={script.final_video_voiced}
-                    className="w-full max-w-md rounded-lg border border-violet-300"
-                  />
-                  {script.sound_design?.voice && (
-                    <div className="mt-2 max-w-md">
-                      <SoundDesignCard design={script.sound_design} />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <FinalVideo script={script} voicing={voiceRunner.running} />
           )}
         </div>
       )}
@@ -430,6 +421,74 @@ export default function VideoStudioPanel({
         </div>
       )}
     </Card>
+  );
+}
+
+function shapeText(shape?: { width: number; height: number; fps: number }): string {
+  if (!shape) return "";
+  return `${shape.width}×${shape.height} · ${Math.round(shape.fps)}fps`;
+}
+
+/**
+ * The finished video, sound first: the cut with music, else the voiced one,
+ * else the silent picture (while the automatic voicing is still running, it
+ * says so). The silent version stays one click away, not side by side —
+ * the owner of script 1 watched the silent player and reported "no sound".
+ */
+function FinalVideo({ script, voicing }: { script: VideoScriptInfo; voicing: boolean }) {
+  const best = script.final_video_music || script.final_video_voiced || script.final_video;
+  const label = script.final_video_music
+    ? "🎉 ویدیوی نهایی — با صدای گوینده، صدای محیط و موسیقی"
+    : script.final_video_voiced
+      ? "🎉 ویدیوی نهایی — با صدای گوینده و صدای محیط"
+      : "🎉 ویدیوی نهایی";
+  const enhance = script.finishing?.enhance;
+  const silentOnly = !script.final_video_voiced && !script.final_video_music;
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-bold text-slate-700">{label}</h4>
+      <video
+        key={best ?? ""}
+        controls
+        src={best ?? undefined}
+        className="w-full max-w-xl rounded-lg border border-violet-300"
+      />
+      {enhance?.ok && enhance.before && enhance.after && (
+        <p className="text-xs" style={{ color: "var(--text-2)" }}>
+          کیفیت بهتر شد: {shapeText(enhance.before)} ← {shapeText(enhance.after)} (نرم‌تر،
+          واضح‌تر){enhance.source_url && (
+            <>
+              {" — "}
+              <a href={enhance.source_url} target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">
+                نسخه‌ی خام
+              </a>
+            </>
+          )}
+        </p>
+      )}
+      {silentOnly && (
+        <p className="text-xs" style={{ color: "var(--warn)" }}>
+          {voicing
+            ? "صدای گوینده و صدای محیط در حال اضافه شدن است؛ چند دقیقه‌ی دیگر همین‌جا نسخه‌ی با صدا پخش می‌شود."
+            : "این نسخه هنوز صدا ندارد — «🔊 صداگذاری» را بزنید."}
+        </p>
+      )}
+      {script.sound_design?.voice && !silentOnly && (
+        <div className="max-w-xl">
+          <SoundDesignCard design={script.sound_design} />
+        </div>
+      )}
+      {!silentOnly && (
+        <details className="text-xs" style={{ color: "var(--text-2)" }}>
+          <summary className="cursor-pointer">نسخه‌ی بی‌صدا</summary>
+          <video
+            controls
+            src={script.final_video ?? undefined}
+            className="mt-2 w-full max-w-md rounded-lg border border-slate-200"
+          />
+        </details>
+      )}
+    </div>
   );
 }
 

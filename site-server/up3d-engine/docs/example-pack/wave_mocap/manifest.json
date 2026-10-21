@@ -1,0 +1,26 @@
+{
+ "kind": "animation",
+ "id": "wave_mocap",
+ "name": {
+  "fa": "سلام (mocap نمونه)",
+  "en": "Wave (example mocap)"
+ },
+ "source": {
+  "type": "clip",
+  "file": "wave.bvh",
+  "rig": "auto",
+  "channels": [
+   "spine",
+   "neck",
+   "arms",
+   "fingers"
+  ]
+ },
+ "duration": {
+  "min": 1.5,
+  "default": 3.0,
+  "max": 6.0
+ },
+ "category": "gesture",
+ "license": "CC0 (UpMarket example)"
+}

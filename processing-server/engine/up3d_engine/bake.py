@@ -34,8 +34,7 @@ def run(ctx):
             pb = rig.pb
             r = rig.roles
             rec[aid]['head'][f] = mw @ pb[r['head']].head
-            eyes = [mw @ pb[e].head for e in r['eyes']]
-            rec[aid]['eyes'][f] = (eyes[0] + eyes[1]) / 2
+            rec[aid]['eyes'][f] = rig.eyes_point()
             rec[aid]['chest'][f] = mw @ pb[r['spine'][-1]].head
             rec[aid]['hips'][f] = mw @ pb[r['hips']].head
             feet = [rig.foot_world(s) for s in ('R', 'L')]
@@ -165,16 +164,27 @@ def gaze(ctx, fn):
                 return ctx.rec[sid]['eyes'][f]
             return rig.root.matrix_world @ (rig.L['eyes'] + Vector((0, -2, 0)))
         raw = [target_at(f) for f in frames]
-        eyes = anim.smooth_series(raw, 0.45)
-        head = anim.smooth_series(raw, 0.82)
+        # چشم: جهش (saccade) به هدفِ تازه در ۲-۳ فریم + ریزجهش‌های پله‌ای هنگامِ خیره ماندن
+        # سر: با ~۱۲۰ میلی‌ثانیه تأخیر و فنرِ نرم دنبالِ چشم می‌رود (قبلاً هر دو هموارسازیِ دوطرفه بودند ⇐
+        # سر و چشم پیش از عوض‌شدنِ هدف راه می‌افتادند و حرکت «شناور» بود)
+        eyes, cur = [], Vector(raw[0])
+        for p in raw:
+            cur = cur.lerp(Vector(p), 0.62)
+            eyes.append(cur.copy())
+        delay = max(1, int(round(ctx.fps * 0.12)))
+        delayed = [raw[max(0, i - delay)] for i in range(len(raw))]
+        head = anim.spring_follow(delayed, ctx.fps, freq=1.25, zeta=0.92)
+        sacc = anim.saccade_offsets(frames, ctx.fps, ctx.seed(aid))
         e_locs, h_locs = [], []
         for i, f in enumerate(frames):
             ep = ctx.rec[aid]['eyes'][f]
             t = f / ctx.fps
-            sacc = Vector((anim.noise1(t * 2.3, ctx.seed(aid)) * 0.01, 0, anim.noise1(t * 2.1, ctx.seed(aid) + 1) * 0.008))
-            e_locs.append((eyes[i] + sacc)[:])
+            dist_e = max(0.3, (eyes[i] - ep).length)
+            k = dist_e * 0.006                      # ~۰٫۳ درجه
+            e_locs.append((eyes[i] + Vector((sacc[i].x * k, 0, sacc[i].y * k)))[:])
             pitch, yaw, _ = rig.ch['head_off'].value(f)
-            hp = head[i]
+            hp = head[i] + Vector((anim.noise1(t * 0.31, ctx.seed(aid) + 41) * 0.012 * dist_e,
+                                   0, anim.noise1(t * 0.27, ctx.seed(aid) + 43) * 0.008 * dist_e))
             dist = max(0.3, (hp - ep).length)
             hp = hp + Vector((0, 0, -math.tan(math.radians(pitch)) * dist)) + Vector((math.tan(math.radians(yaw)) * dist, 0, 0))
             h_locs.append(hp[:])

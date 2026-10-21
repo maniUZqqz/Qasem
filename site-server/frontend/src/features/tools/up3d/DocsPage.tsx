@@ -16,6 +16,7 @@ const SECTIONS = [
   ["extend", "۷. توسعه (حرفه‌ای‌تر کردن)"],
   ["game", "۸. بازی، مدل، وب"],
   ["files", "۹. ساختارِ پوشه‌ها"],
+  ["packs", "۱۰. بستهٔ دارایی (محیط، شخص، حرکت)"],
 ];
 
 const SCENE_JSON = `{
@@ -327,6 +328,20 @@ python -m up3d worker --server ${server}/3d --token T  # کارگرِ رندر`}
             </section>
           </Card>
 
+          <Card>
+            <section id="packs">
+              <H2>۱۰. بستهٔ دارایی: محیط/صحنه، شخص و حرکتِ تازه بی‌کد</H2>
+              <p className="text-sm" style={text}>
+                در <Link to={P.assets()} className="underline">کتابخانهٔ دارایی‌ها ← بسته‌های دارایی</Link> یک zip بارگذاری کنید: هر پوشه یک{" "}
+                <code className="u3d-mono">manifest.json</code> با «kind» (environment، person، animation، product، lighting، camera) و
+                فایل‌هایش — محیط از glb/fbx/obj/blend، شخص از glb/fbx ِ اسکلت‌دار (Mixamo، Ready Player Me؛ rigmap: auto/mixamo) یا دستورِ
+                ساختِ MPFB، حرکت از BVH یا FBX (روی هر بازیگری بازهدف‌گیری می‌شود). وارسی پیش از نصب، روشن/خاموش و حذف از همان صفحه؛
+                راهنمای کامل با نمونه و «بستهٔ نمونه (zip)» همان‌جاست. API: <code className="u3d-mono">GET/POST /api/v1/up3d/asset-packs/</code>
+                (multipart: file، replace، dry_run)، <code className="u3d-mono">POST …/asset-packs/&lt;id&gt;/toggle/</code>،{" "}
+                <code className="u3d-mono">DELETE …/asset-packs/&lt;id&gt;/</code>.
+              </p>
+            </section>
+          </Card>
           <Card>
             <section id="files">
               <H2>۹. ساختارِ پوشه‌ها (UP3D_ROOT)</H2>

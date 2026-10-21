@@ -1,0 +1,45 @@
+{
+ "kind": "environment",
+ "id": "room_simple",
+ "name": {
+  "fa": "اتاقِ سادهٔ نمونه",
+  "en": "Simple room (example)"
+ },
+ "description": {
+  "fa": "کف، دو دیوار، قفسه و پیشخوان از یک فایلِ glb"
+ },
+ "builder": "model_file",
+ "file": "room.glb",
+ "scale": 1.0,
+ "rotation_deg": 0,
+ "marks": {
+  "center": {
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "facing": 0
+  }
+ },
+ "surfaces": {
+  "counter_center": {
+   "pos": [
+    0,
+    -0.4,
+    0.86
+   ],
+   "yaw": 0
+  },
+  "counter_right": {
+   "pos": [
+    -0.25,
+    -0.4,
+    0.86
+   ],
+   "yaw": 0
+  }
+ },
+ "default_lighting": "soft_beauty",
+ "license": "CC0 (UpMarket example)"
+}

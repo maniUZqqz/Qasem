@@ -198,10 +198,25 @@ export function Advanced({
  */
 export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowCpu?: (id: number) => void; onCancel?: (id: number) => void }) {
   const w = job.waiting;
+  const toast = useToast();
+  const [busyNode, setBusyNode] = useState<number | null>(null);
   if (!w) return null;
   const ready = w.eligible.length > 0;
   const gpuOnly = w.needs_gpu && !w.allow_cpu;
   const canCpu = !ready && gpuOnly && w.online.length > 0;
+  // سرورِ پردازشِ GPU آنلاین است ولی کارگرِ سه‌بعدی‌اش نه ⇐ همین‌جا روشنش کن
+  const idleGpuNodes = (w.gpu_nodes || []).filter((n) => n.online && !n.worker_online);
+  const enable = async (id: number, name: string) => {
+    setBusyNode(id);
+    try {
+      await up3d.setNode3d(id, true);
+      toast(`«رندرِ سه‌بعدی» روی ${name} روشن شد؛ اگر Blender ندارد یک بار دانلود می‌کند (چند دقیقه)`);
+    } catch (e) {
+      toast(errMsg(e), true);
+    } finally {
+      setBusyNode(null);
+    }
+  };
   return (
     <Alert
       tone={ready ? "info" : "warn"}
@@ -218,6 +233,23 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
             ? `کارگرهای آنلاین: ${w.online.join("، ")}${gpuOnly ? " (CPU؛ برای این کیفیت مناسب نیستند)" : ""}.`
             : "هیچ کارگری آنلاین نیست."}
           {job.estimate_seconds ? ` تخمینِ زمان: ~${dur(job.estimate_seconds)}.` : ""}
+        </div>
+      )}
+      {idleGpuNodes.length > 0 && (
+        <div className="mt-1">
+          {idleGpuNodes.map((n) => (
+            <div key={n.id} className="mt-1 flex flex-wrap items-center gap-2">
+              <span>
+                سرورِ پردازشِ <b>{n.name}</b> ({Array.isArray(n.gpu) ? n.gpu.join("، ") : n.gpu}) آنلاین است ولی «رندرِ سه‌بعدی»اش
+                {n.worker3d_running ? " در حالِ راه‌افتادن است (شاید Blender را دانلود می‌کند)" : " روشن نیست"}.
+              </span>
+              {!n.worker3d_running && (
+                <Button size="sm" variant="secondary" disabled={busyNode === n.id} onClick={() => void enable(n.id, n.name)}>
+                  روشن کردنِ رندرِ سه‌بعدی روی {n.name}
+                </Button>
+              )}
+            </div>
+          ))}
         </div>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
@@ -316,7 +348,7 @@ export function loadCatalog(force = false): Promise<Catalog> {
   return catalogCache;
 }
 
-export function useCatalog(): { cat: Catalog | null; error: string | null } {
+export function useCatalog(): { cat: Catalog | null; error: string | null; reload: () => Promise<void> } {
   const [cat, setCat] = useState<Catalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -328,7 +360,16 @@ export function useCatalog(): { cat: Catalog | null; error: string | null } {
       alive = false;
     };
   }, []);
-  return { cat, error };
+  /** بعد از نصب/حذفِ بستهٔ دارایی: دفتر از نو (برای همهٔ صفحه‌ها) */
+  const reload = useCallback(async () => {
+    try {
+      setCat(await loadCatalog(true));
+      setError(null);
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  }, []);
+  return { cat, error, reload };
 }
 
 export function useStatus(pollMs = 0): Status | null {

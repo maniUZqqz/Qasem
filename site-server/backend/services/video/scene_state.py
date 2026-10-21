@@ -232,6 +232,218 @@ def has_people(scene, state: "SceneState | None") -> bool:
     return bool(_PEOPLE.search(getattr(scene, "visual_prompt", "") or ""))
 
 
+# ---------------------------------------------------------------------------
+#  Product-only scenes.
+#
+#  A coffee ad (script 1, 1405/07/29) came out with "a woman with a man's
+#  hands" grabbing the mug from the middle of the table: the script model had
+#  written "a hand reaching for it" and "a smile on a person's face" into
+#  scenes 2 and 3 although nothing asked for a person, and the continuity
+#  clause then carried "the same smiling person" forward. A person who
+#  appears from nowhere is the most artificial thing a generated product
+#  video can show, so unless a scene really needs one — the shop marked the
+#  scene «گوینده در تصویر», or the product is worn or applied on the body —
+#  the scene is rendered product-only: the person is cut out of its words,
+#  the motion is the camera's, and the prompt says so in the POSITIVE text
+#  (Wan runs at cfg 1 here, where the negative prompt is skipped).
+# ---------------------------------------------------------------------------
+
+#: Said in the positive prompt of a product-only scene, right after the scene.
+PRODUCT_ONLY = (
+    "product only, no people, no hands, nobody enters the frame, "
+    "only the camera moves, the product stays still"
+)
+#: Added to the negative of a product-only scene (used once the sampler runs
+#: with guidance; harmless at cfg 1).
+NO_PEOPLE_NEGATIVE = (
+    "person, people, human, face, hands, fingers, arm, body, extra limbs, "
+    "deformed hands, text, watermark"
+)
+#: The motion a product-only scene gets when the script's motion was a
+#: person's (a hand reaching, a face smiling).
+CAMERA_ONLY_MOTION = "slow push-in on the product, camera only, nothing else moves"
+
+#: Parts of a body, and what bodies do to a product. A hand alone is a person
+#: to the video model: it has to belong to somebody, and Wan draws them.
+_BODY = re.compile(
+    r"\b(?:hands?|fingers?|arms?|faces?|lips|mouth|smil(?:e|es|ed|ing)|eyes|wrists?|palms?|"
+    r"someone|somebody|anyone|holding|holds|grabs?|grabbing|reach(?:es|ing)?|picks? up|"
+    r"sips?|sipping|wears|wearing|human|humans)\b",
+    re.IGNORECASE,
+)
+
+#: Products a person naturally appears with: worn or applied on the body. Matched
+#: as whole words of the product's name, category, tags and attributes —
+#: never the shop's business type (a clothing shop's test coffee is coffee).
+WEARABLE_WORDS = frozenset({
+    # fa
+    "لباس", "پوشاک", "پیراهن", "تیشرت", "تی‌شرت", "شلوار", "مانتو", "کت", "کاپشن",
+    "ژاکت", "هودی", "سویشرت", "دامن", "بلوز", "تونیک", "پالتو", "جین", "شومیز",
+    "کفش", "کتانی", "کتونی", "صندل", "بوت", "چکمه", "دمپایی", "کیف", "کوله",
+    "عینک", "ساعت", "انگشتر", "گردنبند", "دستبند", "گوشواره", "جواهر", "زیورآلات",
+    "بدلیجات", "کلاه", "شال", "روسری", "جوراب", "دستکش", "کمربند", "کراوات",
+    "آرایش", "آرایشی", "رژ", "ریمل", "کرم", "لوسیون", "عطر", "ادکلن", "شامپو",
+    "لاک", "مژه", "ساپورت", "لگ",
+    # en
+    "shirt", "t-shirt", "tshirt", "dress", "jacket", "coat", "pants", "trousers",
+    "jeans", "skirt", "hoodie", "sweater", "blouse", "shoe", "shoes", "sneaker",
+    "sneakers", "boot", "boots", "sandal", "sandals", "heels", "bag", "handbag",
+    "backpack", "purse", "glasses", "sunglasses", "eyewear", "watch", "ring",
+    "necklace", "bracelet", "earring", "earrings", "jewelry", "jewellery", "hat",
+    "cap", "scarf", "hijab", "socks", "gloves", "belt", "tie", "makeup", "lipstick",
+    "mascara", "cream", "lotion", "perfume", "cologne", "fragrance", "shampoo",
+    "nail", "wig", "apparel", "clothing", "fashion", "wearable",
+})
+
+_TOKEN = re.compile(r"[\w‌\-]+", re.UNICODE)
+
+
+def _product_words(product) -> list[str]:
+    texts = [
+        str(getattr(product, "name", "") or ""),
+        str(getattr(product, "short_description", "") or ""),
+    ]
+    try:
+        category = getattr(product, "category", None)
+        if category is not None:
+            texts.append(str(getattr(category, "name", "") or ""))
+    except Exception:  # noqa: BLE001
+        pass
+    tags = getattr(product, "tags", None) or []
+    if isinstance(tags, list):
+        texts += [str(t) for t in tags]
+    try:
+        for attribute in product.attributes.all()[:40]:
+            texts.append(f"{attribute.key} {attribute.value}")
+    except Exception:  # noqa: BLE001 — a product without attributes is fine
+        pass
+    words = []
+    for token in _TOKEN.findall(" ".join(texts).lower()):
+        words.append(token)
+        # «کفش‌های» → «کفش»: the stem before a zero-width joiner
+        if "‌" in token:
+            words.append(token.split("‌", 1)[0])
+    return words
+
+
+def people_fit(product) -> bool:
+    """Is this a product a person naturally appears with (worn, applied)?"""
+    if product is None:
+        return False
+    return any(word in WEARABLE_WORDS for word in _product_words(product))
+
+
+def mentions_people(text: str) -> bool:
+    """Does this text put a person — or a part of one — in the frame?"""
+    text = text or ""
+    return bool(_PEOPLE.search(text) or _BODY.search(text))
+
+
+def people_allowed(scene, product=None, state: "SceneState | None" = None) -> bool:
+    """May this scene show a person?
+
+    Yes when the shop asked for one (the scene is marked «گوینده در تصویر»),
+    or when the product is worn or applied on the body and the scene has a
+    person in it. Otherwise the scene is product-only.
+    """
+    if bool(getattr(scene, "speaker_on_camera", False)):
+        return True
+    if not people_fit(product):
+        return False
+    return has_people(scene, state) or mentions_people(getattr(scene, "visual_prompt", "") or "")
+
+
+_CLAUSE = re.compile(r"(?<=[.;,!?])\s+")
+_JOINER = re.compile(
+    r"\s+(?=(?:with|while|as|and|beside|next to|near|by|in front of|then|where)\s)",
+    re.IGNORECASE,
+)
+
+
+def without_people_text(text: str) -> str:
+    """The scene's words with every clause that puts a person in cut out.
+
+    "The same coffee cup, now with a hand reaching for it, warm lighting" →
+    "The same coffee cup, warm lighting". A clause is first cut at its joining
+    words ("A cup of coffee with a hand reaching for it" keeps "A cup of
+    coffee"), so the product's own description survives.
+    """
+    kept: list[str] = []
+    for clause in _CLAUSE.split((text or "").strip()):
+        if not clause.strip():
+            continue
+        if not mentions_people(clause):
+            kept.append(clause.strip())
+            continue
+        head: list[str] = []
+        for piece in _JOINER.split(clause):
+            if mentions_people(piece):
+                break
+            head.append(piece.strip())
+        # "now with a hand…" would leave a lone "now": not a description.
+        if len(" ".join(head).split()) >= 2:
+            kept.append(" ".join(head).rstrip(".;,!? ") + ("," if clause.rstrip().endswith(",") else ""))
+    out = " ".join(kept).strip().rstrip(",;").strip()
+    return out
+
+
+def without_people(state: "SceneState | None") -> "SceneState | None":
+    """The same state with nobody in it: no characters, no clothing, and an
+    action only if it is not a person's."""
+    if state is None:
+        return None
+    nxt = SceneState.from_dict(state.as_dict())
+    nxt.characters = []
+    nxt.clothing = []
+    if mentions_people(nxt.action):
+        nxt.action = CAMERA_ONLY_MOTION
+    return nxt
+
+
+def _visual_subject(product) -> str:
+    """An English description of the product from its photo analysis, if any."""
+    try:
+        intelligence = getattr(product, "intelligence", None)
+        rows = list(getattr(intelligence, "visual_analysis", None) or [])
+    except Exception:  # noqa: BLE001 — no analysis is the common case
+        rows = []
+    for row in rows:
+        text = str((row or {}).get("what_is_visible", "") if isinstance(row, dict) else "").strip()
+        letters = [ch for ch in text if ch.isalpha()]
+        if letters and sum(ch.isascii() for ch in letters) / len(letters) > 0.8:
+            text = without_people_text(text) or ""
+            if text:
+                return _trim_words(text, 16)
+    return ""
+
+
+def product_shot_prompt(product=None, *, product_name: str = "",
+                        state: "SceneState | None" = None) -> str:
+    """A product-faithful visual prompt built from what we know about the product.
+
+    Used when the script model wrote no visual for a scene, or when cutting
+    the person out of its visual left nothing about the product. The video
+    starts from the shop's own photo, so "the product from the reference
+    photo" is enough for Wan when the name is not English.
+    """
+    subject = (
+        product_name
+        or (english_name(product) if product is not None else "")
+        or (_visual_subject(product) if product is not None else "")
+        or "the product from the reference photo"
+    )
+    parts = [f"Commercial product shot of {subject}, centred and fully visible"]
+    if state is not None and state.location:
+        parts.append(f"in {state.location}")
+    else:
+        parts.append("on a clean surface with a softly blurred background")
+    parts.append(f"{state.lighting} lighting" if state is not None and state.lighting
+                 else "soft warm studio lighting")
+    parts.append("sharp focus, true-to-life colours, shallow depth of field")
+    parts.append("no text, no letters, no logos")
+    return ", ".join(parts)
+
+
 #: What to ask for differently when a QC cause names the problem. Keyed by the
 #: cause names the QC and repair layers use.
 HINTS = {
@@ -254,11 +466,16 @@ HINTS = {
     "DARK": "bright, well-lit scene with soft even studio lighting on the product",
     "FLICKER": "steady constant lighting, no flicker",
     "COLOUR_DRIFT": "constant colour and lighting from the first frame to the last",
+    # From the vision QC: somebody appeared in a scene that is product-only.
+    "UNWANTED_PERSON": (
+        "empty scene with only the product, no person, no hands, no face, "
+        "nobody enters the frame"
+    ),
 }
 
 #: Causes that mean "the motion the script asked for was too much for the
 #: model" — on a retry the camera does the simplest thing that still moves.
-_SIMPLIFY_MOTION_FOR = {"ANATOMY", "OBJECT_CONSISTENCY", "ARTIFACTS", "MOTION_JUMP"}
+_SIMPLIFY_MOTION_FOR = {"ANATOMY", "OBJECT_CONSISTENCY", "ARTIFACTS", "MOTION_JUMP", "UNWANTED_PERSON"}
 SIMPLE_MOTION = "slow push-in on the product, camera only, nothing else moves"
 
 
@@ -364,6 +581,8 @@ def compile_prompt(
     hints=(),
     attempt: int = 1,
     base_negative: str = "",
+    allow_people: bool | None = None,
+    product=None,
 ) -> tuple[str, str]:
     """(positive, negative) for one Wan segment.
 
@@ -371,18 +590,37 @@ def compile_prompt(
     scene, its motion, the anchors, the continuity, then the repair hint. On a
     retry for a cause that implies the motion was too ambitious, the motion is
     replaced by the simplest move that still moves.
+
+    `allow_people=False` renders the scene product-only (see `people_allowed`):
+    the person is cut out of the scene's words and the continuity, the motion
+    becomes the camera's, and "product only, no people" is said right after
+    the scene. None keeps the scene as written (callers that predate the rule).
     """
     causes = [str(c).upper() for c in (hints or []) if c]
-    scene_text = _trim_words((getattr(scene, "visual_prompt", "") or "").strip(), SCENE_WORD_BUDGET)
+    product_only = allow_people is False
+    visual = (getattr(scene, "visual_prompt", "") or "").strip()
     motion = (getattr(scene, "motion_prompt", "") or "").strip()
+    if product_only:
+        state = without_people(state)
+        cleaned = without_people_text(visual)
+        if len(cleaned.split()) < 4:
+            cleaned = product_shot_prompt(product, product_name=product_name, state=state)
+        visual = cleaned
+        if not motion or mentions_people(motion):
+            motion = CAMERA_ONLY_MOTION
+    elif not visual:
+        visual = product_shot_prompt(product, product_name=product_name, state=state)
+    scene_text = _trim_words(visual, SCENE_WORD_BUDGET)
     if attempt > 1 and any(c in _SIMPLIFY_MOTION_FOR for c in causes):
         motion = SIMPLE_MOTION
     motion = _trim_words(motion, MOTION_WORD_BUDGET)
 
     parts = [scene_text]
+    if product_only:
+        parts.append(PRODUCT_ONLY)
     if motion:
         parts.append(f"Motion: {motion}")
-    people = has_people(scene, state)
+    people = (not product_only) and has_people(scene, state)
     on_camera = bool(getattr(scene, "speaker_on_camera", False))
     if people:
         # Right after the motion: it is about the motion of one body part,
@@ -404,7 +642,8 @@ def compile_prompt(
     # a guided sampler. Not for a lip-sync scene: the mouth will be redrawn
     # anyway, and forbidding it could fight the model's frontal face.
     talking = TALKING_NEGATIVE if people and not on_camera else ""
+    nobody = NO_PEOPLE_NEGATIVE if product_only else ""
     negative = ", ".join(
-        part for part in (base_negative.strip().rstrip(","), VIDEO_NEGATIVE, talking) if part
+        part for part in (base_negative.strip().rstrip(","), VIDEO_NEGATIVE, talking, nobody) if part
     )
     return positive, negative

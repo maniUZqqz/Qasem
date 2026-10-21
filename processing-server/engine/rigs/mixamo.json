@@ -1,0 +1,187 @@
+{
+ "id": "mixamo",
+ "description": "Mixamo / Ready Player Me / most humanoid glTF-FBX characters (prefix mixamorig: or mixamorig_ ignored)",
+ "forward": [
+  0,
+  -1,
+  0
+ ],
+ "roles": {
+  "hips": "Hips",
+  "spine": [
+   "Spine",
+   "Spine1",
+   "Spine2"
+  ],
+  "spine_weights": [
+   0.3,
+   0.35,
+   0.35
+  ],
+  "neck": [
+   "Neck"
+  ],
+  "head": "Head",
+  "head_forward_axis": "auto",
+  "eyes": [
+   "LeftEye",
+   "RightEye"
+  ],
+  "eye_forward_axis": "auto",
+  "arm.R": {
+   "clavicle": "RightShoulder",
+   "upper": "RightArm",
+   "fore": "RightForeArm",
+   "hand": "RightHand"
+  },
+  "leg.R": {
+   "upper": "RightUpLeg",
+   "lower": "RightLeg",
+   "foot": "RightFoot"
+  },
+  "fingers.R": {
+   "thumb": [
+    "RightHandThumb1",
+    "RightHandThumb2",
+    "RightHandThumb3"
+   ],
+   "index": [
+    "RightHandIndex1",
+    "RightHandIndex2",
+    "RightHandIndex3"
+   ],
+   "middle": [
+    "RightHandMiddle1",
+    "RightHandMiddle2",
+    "RightHandMiddle3"
+   ],
+   "ring": [
+    "RightHandRing1",
+    "RightHandRing2",
+    "RightHandRing3"
+   ],
+   "pinky": [
+    "RightHandPinky1",
+    "RightHandPinky2",
+    "RightHandPinky3"
+   ]
+  },
+  "arm.L": {
+   "clavicle": "LeftShoulder",
+   "upper": "LeftArm",
+   "fore": "LeftForeArm",
+   "hand": "LeftHand"
+  },
+  "leg.L": {
+   "upper": "LeftUpLeg",
+   "lower": "LeftLeg",
+   "foot": "LeftFoot"
+  },
+  "fingers.L": {
+   "thumb": [
+    "LeftHandThumb1",
+    "LeftHandThumb2",
+    "LeftHandThumb3"
+   ],
+   "index": [
+    "LeftHandIndex1",
+    "LeftHandIndex2",
+    "LeftHandIndex3"
+   ],
+   "middle": [
+    "LeftHandMiddle1",
+    "LeftHandMiddle2",
+    "LeftHandMiddle3"
+   ],
+   "ring": [
+    "LeftHandRing1",
+    "LeftHandRing2",
+    "LeftHandRing3"
+   ],
+   "pinky": [
+    "LeftHandPinky1",
+    "LeftHandPinky2",
+    "LeftHandPinky3"
+   ]
+  }
+ },
+ "face": {
+  "kind": "shape_keys",
+  "visemes": {
+   "sil": "viseme_sil",
+   "PP": "viseme_PP",
+   "FF": "viseme_FF",
+   "TH": "viseme_TH",
+   "DD": "viseme_DD",
+   "kk": "viseme_kk",
+   "CH": "viseme_CH",
+   "SS": "viseme_SS",
+   "nn": "viseme_nn",
+   "RR": "viseme_RR",
+   "aa": "viseme_aa",
+   "E": "viseme_E",
+   "I": "viseme_I",
+   "O": "viseme_O",
+   "U": "viseme_U"
+  },
+  "blink": [
+   "eyeBlinkLeft",
+   "eyeBlinkRight"
+  ],
+  "jaw_open": "jawOpen",
+  "expressions": {
+   "neutral": {},
+   "smile": {
+    "mouthSmileLeft": 0.45,
+    "mouthSmileRight": 0.45,
+    "cheekSquintLeft": 0.15,
+    "cheekSquintRight": 0.15
+   },
+   "big_smile": {
+    "mouthSmileLeft": 0.8,
+    "mouthSmileRight": 0.8,
+    "cheekSquintLeft": 0.35,
+    "cheekSquintRight": 0.35,
+    "eyeSquintLeft": 0.2,
+    "eyeSquintRight": 0.2,
+    "browInnerUp": 0.1
+   },
+   "warm": {
+    "mouthSmileLeft": 0.28,
+    "mouthSmileRight": 0.28,
+    "browInnerUp": 0.12,
+    "cheekSquintLeft": 0.08,
+    "cheekSquintRight": 0.08
+   },
+   "surprised": {
+    "browInnerUp": 0.6,
+    "browOuterUpLeft": 0.5,
+    "browOuterUpRight": 0.5,
+    "eyeWideLeft": 0.4,
+    "eyeWideRight": 0.4,
+    "jawOpen": 0.15
+   },
+   "thinking": {
+    "browDownLeft": 0.25,
+    "mouthPressLeft": 0.3,
+    "mouthPressRight": 0.3,
+    "eyeSquintLeft": 0.15,
+    "mouthRollLower": 0.15
+   },
+   "confident": {
+    "mouthSmileLeft": 0.35,
+    "mouthSmileRight": 0.2,
+    "browDownLeft": 0.08,
+    "browDownRight": 0.08,
+    "eyeSquintLeft": 0.1,
+    "eyeSquintRight": 0.1
+   },
+   "wink": {
+    "eyeBlinkLeft": 1.0,
+    "mouthSmileLeft": 0.55,
+    "mouthSmileRight": 0.35,
+    "cheekSquintLeft": 0.4
+   }
+  }
+ }
+}

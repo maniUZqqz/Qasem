@@ -589,6 +589,28 @@ UPMARKET_AI = {
     "LIPSYNC_STEPS": int(os.getenv("LIPSYNC_STEPS", "20")),
     "LIPSYNC_LIPS_EXPRESSION": float(os.getenv("LIPSYNC_LIPS_EXPRESSION", "1.5")),
     "VIDEO_SEGMENT_DURATION": int(os.getenv("VIDEO_SEGMENT_DURATION", "5")),
+    # --- finishing pass on every generated video (services/video/enhance.py)
+    # Runs on THIS server with ffmpeg, so it works with the GPU node offline:
+    # 16→32 fps motion interpolation, 480p→720p lanczos, light denoise and
+    # deband, contrast-adaptive sharpening, x264 CRF 18. Off in tests (the
+    # suite renders fake files); VIDEO_ENHANCE=0 turns it off here too.
+    "VIDEO_ENHANCE": env_bool("VIDEO_ENHANCE", not IS_TEST),
+    "VIDEO_ENHANCE_FPS": int(os.getenv("VIDEO_ENHANCE_FPS", "32")),
+    # mci (motion-compensated, ~22 s per 5 s segment on 2 free cores) | blend | off
+    "VIDEO_ENHANCE_INTERPOLATION": os.getenv("VIDEO_ENHANCE_INTERPOLATION", "mci"),
+    "VIDEO_ENHANCE_SHORT_SIDE": int(os.getenv("VIDEO_ENHANCE_SHORT_SIDE", "720")),
+    "VIDEO_ENHANCE_LONG_SIDE": int(os.getenv("VIDEO_ENHANCE_LONG_SIDE", "1280")),
+    "VIDEO_ENHANCE_SHARPEN": float(os.getenv("VIDEO_ENHANCE_SHARPEN", "0.45")),
+    "VIDEO_ENHANCE_DENOISE": os.getenv("VIDEO_ENHANCE_DENOISE", "1.5:1.5:4:4"),
+    "VIDEO_ENHANCE_DEBAND": env_bool("VIDEO_ENHANCE_DEBAND", True),
+    "VIDEO_ENHANCE_CRF": int(os.getenv("VIDEO_ENHANCE_CRF", "18")),
+    # medium, not slow: on these 2 shared cores slow saved ~2% size at CRF 18
+    "VIDEO_ENHANCE_PRESET": os.getenv("VIDEO_ENHANCE_PRESET", "medium"),
+    "VIDEO_ENHANCE_NICE": int(os.getenv("VIDEO_ENHANCE_NICE", "10")),
+    # After the video is stitched, voice it automatically (narration +
+    # ambience/effects + the shop's music if set) — the shop should not have
+    # to find a second button to get sound. Off in tests (no TTS there).
+    "VIDEO_AUTO_VOICE": env_bool("VIDEO_AUTO_VOICE", not IS_TEST),
     "GPU_CONCURRENCY_LIMIT": int(os.getenv("GPU_CONCURRENCY_LIMIT", "1")),
     # single-GPU VRAM coordination: unload Ollama models before ComfyUI work
     # and free ComfyUI VRAM before/after heavy Ollama work (best-effort)

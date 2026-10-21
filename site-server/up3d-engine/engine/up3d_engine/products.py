@@ -97,7 +97,8 @@ def _label_plane(name, w, h, z, y, coll, parent, img, curve=0.0):
         for i in range(nx):
             f = bm.faces.new((verts[j][i], verts[j][i + 1], verts[j + 1][i + 1], verts[j + 1][i]))
             for loop, (a, b) in zip(f.loops, ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))):
-                loop[uv].uv = (1 - a / nx, b / ny)   # جلو رو به -Y ⇐ برعکسِ x
+                # جلو رو به -Y است و دوربینِ روبه‌رو +X را سمتِ راستِ تصویر می‌بیند ⇐ u هم‌جهتِ x (برعکس‌کردنش متن را آینه‌ای می‌کرد)
+                loop[uv].uv = (a / nx, b / ny)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
@@ -109,14 +110,33 @@ def _label_plane(name, w, h, z, y, coll, parent, img, curve=0.0):
 
 
 def _wrap_uv_cylinder(obj, img_mat, side_mat):
-    """رویهٔ کناریِ استوانه ⇐ برچسبِ دورپیچ."""
+    """رویهٔ کناریِ استوانه ⇐ برچسبِ دورپیچ.
+
+    create_cone بی‌لایهٔ UV هیچ UV ای نمی‌سازد (برچسبِ قوطی هرگز دیده نمی‌شد) ⇐ UV ِ استوانه‌ای را خودمان می‌سازیم:
+    وسطِ برچسب (u=0.5) روبه‌روی دوربین (-Y)، u به سمتِ +X (راستِ تصویر) زیاد می‌شود ⇐ متن آینه‌ای نیست؛ درز پشتِ قوطی."""
     me = obj.data
     me.materials.clear()
     me.materials.append(side_mat)
     me.materials.append(img_mat)
+    uv = me.uv_layers.get('UVMap') or me.uv_layers.new(name='UVMap')
+    for n in (img_mat.node_tree.nodes if img_mat.use_nodes else []):
+        if n.type == 'TEX_IMAGE':
+            n.extension = 'REPEAT'               # دورپیچ: لبهٔ درز از سرِ دیگرِ تصویر ادامه می‌یابد
+    zs = [v.co.z for v in me.vertices]
+    z0, z1 = min(zs), max(zs)
+    hz = max(1e-6, z1 - z0)
     for p in me.polygons:
         if abs(p.normal.z) < 0.3:
             p.material_index = 1
+            us = []
+            for li in p.loop_indices:
+                co = me.vertices[me.loops[li].vertex_index].co
+                us.append(0.5 + math.atan2(co.x, -co.y) / (2 * math.pi))
+            if max(us) - min(us) > 0.5:          # چهره‌ای که روی درز است
+                us = [u + 1.0 if u < 0.5 else u for u in us]
+            for li, u in zip(p.loop_indices, us):
+                co = me.vertices[me.loops[li].vertex_index].co
+                uv.data[li].uv = (u, (co.z - z0) / hz)
 
 
 @builder('perfume_bottle')
@@ -201,7 +221,9 @@ def can_drink(entry, coll, root):
 @builder('file')
 def from_file(entry, coll, root):
     """مدلِ آماده (GLB/OBJ/FBX) ⇐ اندازهٔ واقعی و مبدأ روی کف."""
-    path = entry['params'].get('model_path')
+    path = (entry.get('params') or {}).get('model_path')
+    if not path and entry.get('file'):            # محصولِ بستهٔ دارایی: فایل کنارِ manifest
+        path = entry['file'] if os.path.isabs(entry['file']) else os.path.join(entry.get('folder', ''), entry['file'])
     if not path or not os.path.isfile(path):
         log('product file missing, fallback box')
         return box_package(entry, coll, root)

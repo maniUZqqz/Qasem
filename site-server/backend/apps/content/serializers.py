@@ -174,7 +174,11 @@ class VideoScriptSerializer(serializers.ModelSerializer):
             "final_video",
             "voice_audio",
             "final_video_voiced",
+            # The cut with the shop's music under the voice — the most finished
+            # version, so the panel plays it first when it exists.
+            "final_video_music",
             "sound_design",
+            "finishing",
             "scenes",
             "segments",
             "created_at",

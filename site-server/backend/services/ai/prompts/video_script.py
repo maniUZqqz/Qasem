@@ -9,7 +9,10 @@ import json
 from .product_analysis import brand_context, product_context
 
 VIDEO_SCRIPT_PROMPT_ID = "video_script"
-VIDEO_SCRIPT_PROMPT_VERSION = "6"
+#: 7: product-only by default (no invented people/hands), camera-only motion,
+#: a per-scene "people" flag, and a validator that repairs instead of dropping
+#: a scene whose visual is missing or under another key.
+VIDEO_SCRIPT_PROMPT_VERSION = "7"
 
 NARRATION_LANGUAGES = {
     "fa": "Persian (Farsi)",
@@ -66,16 +69,27 @@ def build_video_script_prompt(
         '"visual_prompt": "...EN, detailed, cinematic...", '
         '"motion_prompt": "...EN camera/subject motion...", '
         '"narration": "...", "transition": "NEW_SCENE|CONTINUE|TRANSITION", '
-        '"state": {"characters": ["..."], "objects": ["..."], "location": "...", '
+        '"people": false, '
+        '"state": {"characters": [], "objects": ["..."], "location": "...", '
         '"lighting": "...", "camera": "...", "clothing": ["..."], "colors": ["..."]}, '
         '"sound": {"ambience": "<one ambience key or none>", '
         '"effects": [{"key": "<effect key>", "at": <seconds into the scene>}]}}\n]}\n\n'
         "Rules:\n"
         f"- Exactly {scene_count} scenes, index starting at 1.\n"
         "- Scene 1 transition must be NEW_SCENE (it starts from the product photo).\n"
+        "- EVERY scene MUST have a non-empty visual_prompt and motion_prompt (these "
+        "exact key names).\n"
         "- visual_prompt: rich English description of what is on screen (product, "
         "environment, lighting, style). motion_prompt: short English description of "
-        "camera/subject movement suitable for an image-to-video model.\n"
+        "the CAMERA movement suitable for an image-to-video model.\n"
+        "- PRODUCT ONLY, NO PEOPLE: show the product and its setting, nothing else. "
+        "Do NOT put people, hands, fingers, faces, smiles or any body part in any "
+        "visual_prompt, motion_prompt or state — a person who appears from nowhere "
+        "looks fake in a generated video. The ONLY exception is a product worn or "
+        "applied on the body (clothing, shoes, bags, jewellery, glasses, watches, "
+        "cosmetics, perfume): then a person may appear in that scene and it sets "
+        '"people": true. Every other scene sets "people": false and '
+        '"characters": [].\n'
         f"- narration: {narration_lang}, and it MUST fit the scene when spoken. Budget "
         f"about 2.5 words per second, so roughly {max(4, int(segment_duration * 2.5))} "
         "words for this scene — one sentence, two at most. A narration that overruns "
@@ -88,11 +102,14 @@ def build_video_script_prompt(
         "logos, no typography'.\n"
         "- visual_prompt must keep the product itself unchanged across scenes (same "
         "shape, colour and branding) and ask for sharp, well-lit commercial footage.\n"
-        "- motion_prompt: ONE simple camera or subject movement (slow push-in, gentle "
-        "orbit, tilt up...). Image-to-video models break down on complex motion.\n"
+        "- motion_prompt: ONE gentle CAMERA movement (slow push-in, slow orbit around "
+        "the product, slow parallax pan, tilt up...). The product itself stays still "
+        "and nothing enters the frame. Image-to-video models break down on complex "
+        "motion.\n"
         "- The last scene should include the call to action.\n"
         "- state: ENGLISH, short. What must stay identical in the NEXT scene: the "
-        "people (at most 3 words each), the product and props, the place, the "
+        "people (only in a scene with people: true; at most 3 words each), the "
+        "product and props, the place, the "
         "lighting, the camera, clothing, the product's colours. At most 3 items per "
         "list. Leave a field out when it is unchanged from the previous scene; on a "
         "NEW_SCENE state everything anew.\n"
@@ -175,26 +192,103 @@ def _clean_state(raw) -> dict:
     return out
 
 
-def validate_video_script(parsed, segment_duration: int):
-    """Return (ok, problems); normalizes scenes in place (sequential re-index)."""
+#: Where models put the visual when they do not use our key. Reasoning models
+#: in particular rename keys between their <think> draft and the answer.
+VISUAL_KEYS = ("visual_prompt", "visual", "video_prompt", "image_prompt", "prompt",
+               "visual_description", "description", "shot", "scene_description")
+MOTION_KEYS = ("motion_prompt", "motion", "camera_motion", "camera_movement", "camera")
+
+
+def _first_text(scene: dict, keys) -> tuple[str, str]:
+    """(text, key) of the first non-empty string among `keys`."""
+    for key in keys:
+        value = scene.get(key)
+        if isinstance(value, dict):  # {"visual": {"en": "..."}}
+            value = value.get("en") or value.get("text") or ""
+        text = str(value or "").strip() if not isinstance(value, (list, dict)) else ""
+        if text:
+            return text, key
+    return "", ""
+
+
+def _ascii_share(text: str) -> float:
+    letters = [ch for ch in text if ch.isalpha()]
+    return (sum(ch.isascii() for ch in letters) / len(letters)) if letters else 0.0
+
+
+def validate_video_script(parsed, segment_duration: int, product=None):
+    """Return (ok, problems); normalizes scenes in place (sequential re-index).
+
+    Repairs rather than rejects what can be repaired, and says what it did in
+    `parsed["repairs"]` (saved with the script's raw JSON):
+
+    * a visual or motion under another key is taken from there;
+    * a scene with no usable English visual gets one built from the product
+      (`scene_state.product_shot_prompt`) instead of being dropped — dropping
+      it failed the whole script, or silently shortened the video;
+    * a scene that puts a person in the frame when the product is not worn on
+      the body has the person cut out (scene_state.people_allowed), so a
+      coffee ad no longer gets "a hand reaching for the cup".
+    """
+    from services.video import scene_state
+
     if not isinstance(parsed, dict):
         return False, ["output is not a JSON object"]
     problems = []
+    repairs: list[dict] = []
     for key in ["concept", "cta", "scenes"]:
         if key not in parsed:
             problems.append(key)
     scenes = parsed.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         return False, problems + ["scenes"]
+    wearable = scene_state.people_fit(product)
+    product_name = scene_state.english_name(product) if product is not None else ""
     normalized = []
     for position, scene in enumerate(scenes[:MAX_SCENES], start=1):
         if not isinstance(scene, dict):
             problems.append(f"scene {position}: not an object")
             continue
-        visual = str(scene.get("visual_prompt", "") or "").strip()
+        visual, visual_key = _first_text(scene, VISUAL_KEYS)
+        if visual and visual_key != "visual_prompt":
+            repairs.append({"scene": position, "fix": f"visual_prompt از کلید «{visual_key}»"})
+        motion, motion_key = _first_text(scene, MOTION_KEYS)
+        if motion and motion_key != "motion_prompt":
+            repairs.append({"scene": position, "fix": f"motion_prompt از کلید «{motion_key}»"})
+        state = _clean_state(scene.get("state"))
+        if visual and _ascii_share(visual) < 0.6:
+            # A Persian visual is noise to Wan's English text encoder.
+            repairs.append({"scene": position, "fix": "visual_prompt انگلیسی نبود"})
+            visual = ""
         if not visual:
-            problems.append(f"scene {position}: visual_prompt")
-            continue
+            visual = scene_state.product_shot_prompt(
+                product, product_name=product_name,
+                state=scene_state.SceneState.from_dict(state),
+            )
+            repairs.append({"scene": position, "fix": "visual_prompt از روی خود محصول ساخته شد"})
+
+        wants_people = bool(scene.get("people")) or bool(state.get("characters")) \
+            or scene_state.mentions_people(visual)
+        # Without the product the rule cannot be judged; the render-time gate
+        # (scene_state.people_allowed) still applies.
+        if wants_people and product is not None and not wearable:
+            cleaned = scene_state.without_people_text(visual)
+            if len(cleaned.split()) < 4:
+                cleaned = scene_state.product_shot_prompt(
+                    product, product_name=product_name,
+                    state=scene_state.SceneState.from_dict(state),
+                )
+            visual = cleaned
+            state.pop("characters", None)
+            state.pop("clothing", None)
+            if scene_state.mentions_people(state.get("action", "")):
+                state.pop("action", None)
+            if scene_state.mentions_people(motion):
+                motion = ""
+            repairs.append({"scene": position, "fix": "آدم از صحنه حذف شد (محصول پوشیدنی نیست)"})
+        if not motion:
+            motion = scene_state.CAMERA_ONLY_MOTION
+
         transition = str(scene.get("transition", "CONTINUE")).upper()
         if transition not in TRANSITIONS:
             transition = "CONTINUE"
@@ -206,18 +300,20 @@ def validate_video_script(parsed, segment_duration: int):
             {
                 "duration": max(1, min(10, duration)),
                 "visual_prompt": visual,
-                "motion_prompt": str(scene.get("motion_prompt", "") or "").strip(),
+                "motion_prompt": motion,
                 "narration": str(scene.get("narration", "") or "").strip(),
                 "transition": transition,
                 # Optional and tolerant: a model that answers without it must not
                 # fail the script. The continuity engine fills what is missing
                 # from the previous segment and from the product itself.
-                "state": _clean_state(scene.get("state")),
+                "state": state,
                 # Same rule for sound: absent or unknown keys → decided later
                 # from the scene's own words.
                 "sound": _clean_sound(scene.get("sound"), duration),
             }
         )
+    if repairs:
+        parsed["repairs"] = repairs
     # sequential re-index (no gaps, regardless of model numbering);
     # the first scene always anchors on a fresh image
     for index, scene in enumerate(normalized, start=1):

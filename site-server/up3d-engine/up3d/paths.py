@@ -17,8 +17,33 @@ def asset_roots():
     user_pack = os.path.join(DATA, 'asset-packs')
     if os.path.isdir(user_pack):
         roots += [os.path.join(user_pack, d) for d in sorted(os.listdir(user_pack))
-                  if os.path.isdir(os.path.join(user_pack, d))]
+                  if not d.startswith('.') and os.path.isdir(os.path.join(user_pack, d)) and pack_enabled(os.path.join(user_pack, d))]
     return [r for r in roots if os.path.isdir(r)]
+
+
+def pack_enabled(folder):
+    """بستهٔ دارایی خاموش است اگر pack.json ِ آن "enabled": false بگوید."""
+    pj = os.path.join(folder, 'pack.json')
+    if not os.path.isfile(pj):
+        return True
+    try:
+        import json
+        with open(pj, encoding='utf-8') as fh:
+            return bool((json.load(fh) or {}).get('enabled', True))
+    except (OSError, ValueError):
+        return True
+
+
+def packs_stamp():
+    """اثرِ انگشتِ بسته‌ها (برای بازخوانیِ خودکارِ دفتر در همهٔ فرایندها: وب، هماهنگ‌کننده، کارگر)."""
+    d = os.path.join(DATA, 'asset-packs')
+    out = []
+    for p in (d, os.path.join(d, '.stamp')):
+        try:
+            out.append(os.stat(p).st_mtime_ns)
+        except OSError:
+            out.append(0)
+    return tuple(out)
 
 
 def blender_binary():

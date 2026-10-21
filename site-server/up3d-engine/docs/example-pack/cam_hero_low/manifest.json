@@ -1,0 +1,24 @@
+{
+ "kind": "camera",
+ "id": "cam_hero_low",
+ "name": {
+  "fa": "نمای پایین و قهرمانانه (نمونه)",
+  "en": "Low hero (example)"
+ },
+ "subject": "actor",
+ "framing": {
+  "height": 1.1,
+  "lens": 35,
+  "fstop": 2.8,
+  "elevation": -8,
+  "azimuth": 15,
+  "anchor": "chest",
+  "anchor_pos": 0.4
+ },
+ "moves": [
+  "static",
+  "push_in",
+  "orbit_left"
+ ],
+ "license": "CC0 (UpMarket example)"
+}

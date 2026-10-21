@@ -92,6 +92,7 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
         _write(os.path.join(job_dir, 'scene.json'), doc)
     comp = compiler.compile_scene(doc, reg, profile_id, audio=audio, label_images=label_images,
                                   profile_overrides=profile_overrides)
+    ship_pack_assets(comp, job_dir, log)
     if profile_overrides:
         log('تنظیمِ دستیِ کیفیت: ' + '، '.join('%s=%s' % kv for kv in profile_overrides.items()))
     _write(os.path.join(job_dir, 'compiled.json'), comp)
@@ -100,6 +101,44 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
     return {'compiled': os.path.join(job_dir, 'compiled.json'), 'frames': comp['frame_end'], 'fps': comp['fps'],
             'frame_step': comp['profile'].get('frame_step', 1), 'resolution': comp['resolution'],
             'duration': comp['duration'], 'doc': doc}
+
+
+def ship_pack_assets(comp, job_dir, log=print):
+    """دارایی‌های بستهٔ کاربر (data/asset-packs) روی کارگرِ دیگر نیستند ⇐ پوشه‌شان کنارِ کار کپی می‌شود
+    (inputs/packs/<kind>/<id>/) و موتور (main._localize) از همان‌جا می‌خواند."""
+    base_assets = os.path.normpath(os.path.join(paths.ROOT, 'assets'))
+    shipped = {}
+
+    def ship(blk, kind, aid):
+        f = blk.get('folder') or ''
+        if not f or not os.path.isdir(f):
+            return None
+        nf = os.path.normpath(f)
+        if nf == base_assets or nf.startswith(base_assets + os.sep):
+            return None
+        key = (kind, aid)
+        if key not in shipped:
+            rel = 'inputs/packs/%s/%s' % (kind, aid)
+            dst = os.path.join(job_dir, *rel.split('/'))
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(f, dst, ignore=shutil.ignore_patterns('thumbnail.jpg', 'preview.mp4', '*.blend1', '__pycache__'))
+            shipped[key] = rel
+        blk['pack_rel'] = shipped[key]
+        return shipped[key]
+    ship(comp['environment'], 'environments', comp['environment'].get('id'))
+    if comp.get('lighting'):
+        ship(comp['lighting'], 'lighting', comp['lighting'].get('id'))
+    for a in comp['actors']:
+        ship(a['character'], 'characters', a['character'].get('id'))
+    for p in comp['products']:
+        ship(p, 'products', p.get('asset') or p.get('id'))
+    for act in comp['actions']:
+        if (act.get('source') or {}).get('type') == 'clip':
+            ship(act, 'motions', act['motion'])
+    if shipped:
+        log('دارایی‌های بستهٔ کاربر همراهِ کار: ' + '، '.join('%s/%s' % k for k in shipped))
+    return shipped
 
 
 def render(job_dir, on_event=None, should_cancel=None, nice=10, threads=0, log_path=None, mode='render', extra=()):

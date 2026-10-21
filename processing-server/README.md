@@ -13,7 +13,7 @@ one node and never processes an identical request twice.
 | `START.bat` | the only file you run. First time it asks for the **enrollment key** (panel → Tools → Processing servers → "Register a new server") and saves `node.json`; afterwards it just starts |
 | `agent.py` | the node (Python standard library only, nothing to install) |
 | `site.json` | the site URL (edit it if the site moves) |
-| `worker-3d.bat` | Blender render worker for the 3D video section (same registration); started automatically by `START.bat` when the `up3d` folder exists |
+| `worker-3d.bat` | Blender render worker for the 3D video section (same registration); started by the agent (panel: services -> 3D render, or automatically while 3D jobs wait). First run downloads Blender 4.5 (~400 MB) and the MPFB character data (~430 MB) from the site, resumable |
 | `upmarket_comfyui_flask\` | ComfyUI profiles (FLUX / Wan) and workflow graphs. `agent.py` reads `profiles.json` + `workflows\*.json` directly; running the Flask bridge itself is optional |
 | `up3d\`, `engine\`, `assets\` | 3D engine + assets (shipped; nothing else to download except Blender) |
 | `tools\PersianAiKit\Photo`, `Video`, `Voice` | photo / video / voice editors (.NET 8); `Setup-Services.bat` prepares them once |
@@ -29,8 +29,8 @@ one node and never processes an identical request twice.
 4. The node shows **online** in the panel within a few seconds, with the services it found.
 5. Optional: Ollama (text/vision models on the GPU) and the PersianAiKit editors — whatever is running is
    detected automatically and reported to the site.
-6. For 3D rendering, Blender 4.5 is needed. If it is not installed, `worker-3d.bat` downloads it **once**
-   from the site (about 400 MB) into `vendor\blender\`. Or install Blender 4.5 LTS yourself, or set
+6. For 3D rendering, Blender 4.5 and the MPFB character data (`vendor\blender-user`) are needed. If missing, `worker-3d.bat` downloads them **once**
+   from the site (about 400 + 430 MB) into `vendor\blender\`. Or install Blender 4.5 LTS yourself, or set
    `UP3D_BLENDER` to the path of `blender.exe`.
 
 Second machine: copy the same folder (without `node.json`) and run `START.bat` again — it registers under

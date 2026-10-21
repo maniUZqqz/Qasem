@@ -284,12 +284,79 @@ def home(ctx, e, coll):
 
 @env('blend_file')
 def blend_file(ctx, e, coll):
-    path = os.path.join(e['folder'], e['params'].get('file') or e.get('file', 'scene.blend'))
+    path = os.path.join(e['folder'], (e.get('params') or {}).get('file') or e.get('file', 'scene.blend'))
     with bpy.data.libraries.load(path, link=False) as (src, dst):
         dst.objects = list(src.objects)
     for o in dst.objects:
         if o and o.type != 'CAMERA':
             coll.objects.link(o)
+    return {'floor_z': 0.0}
+
+
+def _import_any(path):
+    """فایلِ سه‌بعدی ⇐ اشیای تازه (glb/gltf/fbx/obj/blend)."""
+    before = set(bpy.data.objects)
+    ext = os.path.splitext(path)[1].lower()
+    if ext in ('.glb', '.gltf'):
+        bpy.ops.import_scene.gltf(filepath=path)
+    elif ext == '.fbx':
+        bpy.ops.import_scene.fbx(filepath=path)
+    elif ext == '.obj':
+        bpy.ops.wm.obj_import(filepath=path)
+    elif ext == '.blend':
+        with bpy.data.libraries.load(path, link=False) as (src, dst):
+            dst.objects = list(src.objects)
+        for o in dst.objects:
+            if o:
+                bpy.context.scene.collection.objects.link(o)
+    else:
+        raise ValueError('قالبِ فایلِ محیط پشتیبانی نمی‌شود: %s' % ext)
+    return [o for o in bpy.data.objects if o not in before]
+
+
+@env('model_file')
+def model_file(ctx, e, coll):
+    """محیطِ آماده از فایل (بستهٔ دارایی): .glb / .gltf / .fbx / .obj / .blend.
+
+    manifest: file، scale، rotation_deg (دورِ محورِ عمودی)، offset [x,y,z]، keep_lights (نورهای خودِ فایل بمانند؟)،
+    add_floor (کفِ ساده اگر فایل کف ندارد)، add_table + furniture.table (میزِ گردِ زیرِ «سطح‌ها» اگر فایل میز ندارد).
+    بازیگر روی «جایگاه‌ها» (marks) و محصول روی «سطح‌ها» (surfaces) می‌نشیند؛ مختصاتِ آن‌ها پس از مقیاس/چرخش است."""
+    p = e.get('params') or {}
+    rel = p.get('file') or e.get('file') or 'scene.glb'
+    path = rel if os.path.isabs(rel) else os.path.join(e['folder'], rel)
+    if not os.path.isfile(path):
+        raise FileNotFoundError('فایلِ محیط پیدا نشد: %s' % rel)
+    new = _import_any(path)
+    keep_lights = bool(p.get('keep_lights', e.get('keep_lights', False)))
+    for o in list(new):
+        if o.type == 'CAMERA' or (o.type == 'LIGHT' and not keep_lights):
+            new.remove(o)
+            bpy.data.objects.remove(o, do_unlink=True)
+    for o in new:
+        for c in list(o.users_collection):
+            c.objects.unlink(o)
+        coll.objects.link(o)
+    s = float(p.get('scale', e.get('scale', 1.0)) or 1.0)
+    rot = math.radians(float(p.get('rotation_deg', e.get('rotation_deg', 0.0)) or 0.0))
+    off = Vector(e.get('offset') or p.get('offset') or (0, 0, 0))
+    root = bpy.data.objects.new('env.root', None)
+    link(root, coll)
+    root.location = off
+    root.rotation_euler = (0, 0, rot)
+    root.scale = (s, s, s)
+    bpy.context.view_layer.update()
+    for o in new:
+        if o.parent is None:
+            o.parent = root
+    if p.get('add_floor', e.get('add_floor', False)):
+        plane('floor', (0, 0, 0), (14, 14), coll, M.by_spec(e.get('floor_material') or {'type': 'wood', 'color': '#8a6a4e'}))
+    if p.get('add_table', e.get('add_table', False)) and (e.get('furniture') or {}).get('table'):
+        furn = e['furniture']['table']
+        if 'size' in furn:
+            counter('table', furn, coll, M.marble(), M.wood('#5a3b26', 3.0, 0.45, 'counter_wood'))
+        else:
+            table_round('table', furn, coll, M.marble(), M.metal('#b8975a', 0.25, 'brass'))
+    log('model_file', os.path.basename(path), 'objects=%d scale=%.3f' % (len(new), s))
     return {'floor_z': 0.0}
 
 

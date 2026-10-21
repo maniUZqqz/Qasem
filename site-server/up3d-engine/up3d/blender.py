@@ -45,9 +45,36 @@ def run_engine(mode, compiled_path, out_dir, on_event=None, should_cancel=None, 
     log = open(log_path, 'a', encoding='utf-8') if log_path else None
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, preexec_fn=pre,
                             creationflags=flags, text=True, encoding='utf-8', errors='replace', bufsize=1)
+    # خواندنِ خروجی در رشتهٔ جدا: فریمِ سنگین (ده‌ها دقیقه روی CPU) چیزی چاپ نمی‌کند و
+    # بی این، درخواستِ لغو/واگذاری تا پایانِ فریم شنیده نمی‌شد
+    import queue
+    import threading
+    lines = queue.Queue()
+
+    def pump():
+        for ln in proc.stdout:
+            lines.put(ln)
+        lines.put(None)
+    threading.Thread(target=pump, daemon=True).start()
     tail = []
+
+    def stream():
+        while True:
+            try:
+                ln = lines.get(timeout=1.0)
+            except queue.Empty:
+                if should_cancel and should_cancel():
+                    proc.terminate()
+                    raise EngineError('لغو شد')
+                if timeout and time.time() - t0 > timeout:
+                    proc.terminate()
+                    raise EngineError('زمانِ مجاز تمام شد')
+                continue
+            if ln is None:
+                return
+            yield ln
     try:
-        for line in proc.stdout:
+        for line in stream():
             line = line.rstrip('\n')
             if log:
                 log.write(line + '\n')

@@ -2,6 +2,7 @@
 import json
 import mimetypes
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -49,11 +50,21 @@ class ApiClient:
     def post(self, path, data=None, **kw):
         return self._req('POST', path, data if data is not None else {}, **kw)
 
-    def download(self, path, dest, timeout=600):
-        data = self._req('GET', path, raw=True, timeout=timeout)
-        with open(dest, 'wb') as fh:
-            fh.write(data)
-        return dest
+    def download(self, path, dest, timeout=600, attempts=4):
+        """بستهٔ کار؛ با خطِ ناپایدار چند بار تلاش (فاصلهٔ ۵، ۱۰، ۲۰ ثانیه)."""
+        last = None
+        for i in range(attempts):
+            try:
+                data = self._req('GET', path, raw=True, timeout=timeout)
+                with open(dest, 'wb') as fh:
+                    fh.write(data)
+                return dest
+            except ApiError as e:
+                last = e
+                if re.search(r'⇐ 4\d\d', str(e)):      # 4xx: تکرار فایده ندارد
+                    raise
+                time.sleep(5 * (2 ** i))
+        raise last
 
     def upload(self, path, files, fields=None, timeout=1800):
         """files: {field: filepath}"""

@@ -148,6 +148,12 @@ class VideoScript(TimeStampedModel):
         upload_to="generated/videos/", null=True, blank=True,
     )
     raw = models.JSONField(default=dict, blank=True)
+    #: What happened after the segments were stitched: the finishing pass
+    #: (`enhance`: before/after size, fps, seconds, the raw file kept as
+    #: `source`) and the automatic voicing (`voice`: job id, done, music).
+    #: The panel reads it to say "832×480 · 16fps → 1280×720 · 32fps" and to
+    #: know a voice job is on its way.
+    finishing = models.JSONField(default=dict, blank=True)
     source_request = models.ForeignKey(
         AIRequest, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )

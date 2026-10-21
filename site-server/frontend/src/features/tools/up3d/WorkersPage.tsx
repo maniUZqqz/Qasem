@@ -4,7 +4,7 @@ import Icon from "../../../components/Icon";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, PageHeader, Spinner, Table } from "../../../components/ui";
 import { ago, errMsg, fa, up3d } from "./api";
 import { Muted, useToast } from "./shared";
-import type { Worker } from "./types";
+import type { GpuNode, Worker } from "./types";
 
 /**
  * کارگرهای رندر: فهرست (آنلاین، سخت‌افزار، سرعتِ اندازه‌گیری‌شده)، افزودن، فعال/غیرفعال،
@@ -27,12 +27,17 @@ export default function WorkersPage() {
   const [profiles, setProfiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [shown, setShown] = useState<Set<number>>(new Set());
+  const [nodes, setNodes] = useState<GpuNode[]>([]);
+  const [blenderZip, setBlenderZip] = useState("");
+  const [nodeBusy, setNodeBusy] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
       const r = await up3d.workers();
       setWorkers(r.workers);
       setServer(r.server);
+      setNodes(r.gpu_nodes || []);
+      setBlenderZip(r.blender_zip || "");
       setError(null);
     } catch (e) {
       setError(errMsg(e));
@@ -84,6 +89,27 @@ export default function WorkersPage() {
     }
   };
 
+  const setNode3d = async (n: GpuNode, on: boolean | null) => {
+    setNodeBusy(n.id);
+    try {
+      await up3d.setNode3d(n.id, on);
+      toast(
+        on === true
+          ? `«رندرِ سه‌بعدی» روی ${n.name} روشن شد — در heartbeat ِ بعدی (چند ثانیه) worker-3d.bat اجرا می‌شود${
+              n.blender ? "" : "؛ Blender و دادهٔ کاراکترها یک بار دانلود می‌شوند (~۸۰۰ مگابایت)"
+            }`
+          : on === false
+            ? `«رندرِ سه‌بعدی» روی ${n.name} خاموش شد`
+            : `«رندرِ سه‌بعدی» روی ${n.name} خودکار شد`,
+      );
+      await load();
+    } catch (err) {
+      toast(errMsg(err), true);
+    } finally {
+      setNodeBusy(null);
+    }
+  };
+
   const reveal = (id: number) =>
     setShown((prev) => {
       const next = new Set(prev);
@@ -101,10 +127,112 @@ export default function WorkersPage() {
       <PageHeader title="کارگرهای رندر" />
       <Muted>
         رندرِ سنگین داخلِ پنل اجرا نمی‌شود؛ «کارگر» کار را از پنل می‌گیرد، با Blender رندر می‌کند و نتیجه را پس می‌فرستد. کارگرِ{" "}
-        <b>server-cpu</b> روی همین سرور با اولویتِ پایین (فقط انیمیک و پیش‌نمایش) کار می‌کند. برای کیفیتِ <b>استاندارد/بالا/4K</b> یک
-        کامپیوترِ دارای کارتِ گرافیک (مثلاً RTX 3060) را کارگر کنید — همان کد، صد برابر سریع‌تر.
+        <b>server-cpu</b> روی همین سرور با اولویتِ پایین فقط وقتی کار می‌کند که GPU نیست یا سرش گرم است. برای کیفیتِ
+        <b> استاندارد/بالا/4K</b> «رندرِ سه‌بعدی» ِ سرورِ پردازش (RTX 3060) را روشن کنید — همان کد، ده‌ها برابر سریع‌تر.
       </Muted>
       <ErrorBox message={error} />
+
+      <Card>
+        <h2 className="text-lg font-bold" style={{ color: "var(--text)" }}>
+          سرورهای پردازشِ GPU (رندرِ سه‌بعدی)
+        </h2>
+        <Muted>
+          کارها اول به GPU می‌روند: تا وقتی کارگرِ GPU ِ بیکار آنلاین است، سرور هیچ رندری برنمی‌دارد؛ اگر GPU سرش گرم است، سرور فقط
+          کارهای سبک (انیمیک، پیش‌نمایش، تصویر) را می‌سازد. کارِ سنگینی که با «اجرا روی CPU» روی سرور است، با آمدنِ GPU به آن واگذار
+          می‌شود و برای کارِ کوتاهِ تازه موقتاً کنار می‌رود (فریم‌های ساخته‌شده می‌مانند). روی سرورِ پردازش «رندرِ سه‌بعدی» را روشن کنید
+          (همین‌جا، یا ابزارها ← سرورهای پردازش ← سرویس‌ها ← «رندرِ سه‌بعدی»)؛ با «سوئیچِ خودکار» هر وقت کارِ سه‌بعدی منتظر باشد خودش
+          روشن می‌شود. بارِ اول worker-3d.bat ِ آن کامپیوتر Blender 4.5 (~۴۰۰ مگابایت) و دادهٔ کاراکترهای MPFB
+          (~۴۳۰ مگابایت) را از همین سایت می‌گیرد — دانلود ادامه‌پذیر است و پیش از باز شدن وارسی می‌شود. پوشهٔ processing ِ آن کامپیوتر
+          باید به‌روز باشد (git pull).
+        </Muted>
+        {nodes.length === 0 ? (
+          <div className="mt-2 text-sm" style={{ color: "var(--text-3)" }}>
+            هیچ سرورِ پردازشی با GPU ثبت نشده (ابزارها ← سرورهای پردازش).
+          </div>
+        ) : (
+          <div className="mt-3">
+            <Table>
+              <thead>
+                <tr>
+                  <th>سرور</th>
+                  <th>GPU</th>
+                  <th>Blender</th>
+                  <th>رندرِ سه‌بعدی</th>
+                  <th>کارگر</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {nodes.map((n) => (
+                  <tr key={n.id}>
+                    <td>
+                      <b style={{ color: "var(--text)" }}>{n.name}</b>{" "}
+                      <Badge tone={n.online ? "ok" : "bad"}>{n.online ? "آنلاین" : "آفلاین"}</Badge>
+                      <div className="text-xs" style={{ color: "var(--text-3)" }}>
+                        عامل {n.agent || "?"}
+                      </div>
+                    </td>
+                    <td className="text-xs">{Array.isArray(n.gpu) ? n.gpu.join(", ") : n.gpu}</td>
+                    <td className="text-xs">
+                      {n.blender ? <Badge tone="ok">هست</Badge> : <Badge tone="warn">نیست — بارِ اول دانلود می‌شود</Badge>}
+                    </td>
+                    <td className="text-xs">
+                      {n.worker3d_running ? <Badge tone="ok">در حالِ اجرا</Badge> : <Badge>خاموش</Badge>}{" "}
+                      <span style={{ color: "var(--text-3)" }}>
+                        {n.desired === true ? "· پنل: روشن" : n.desired === false ? "· پنل: خاموش" : n.auto_switch ? "· خودکار" : "· پیش‌فرضِ گره"}
+                      </span>
+                    </td>
+                    <td className="text-xs">
+                      {n.worker_online ? (
+                        <>
+                          <Badge tone={n.worker_capable ? "ok" : "warn"}>{n.worker_capable ? "آنلاین" : "قدیمی"}</Badge>{" "}
+                          {n.worker_gpu ? "GPU" : "بی‌GPU؟"} {n.worker_blender || ""} {n.worker_version ? `· up3d ${n.worker_version}` : ""}
+                          {!n.worker_capable && (
+                            <div style={{ color: "var(--warn)" }}>پوشهٔ processing ِ این کامپیوتر قدیمی است؛ git pull کنید تا کار بگیرد</div>
+                          )}
+                          {n.worker_capable && n.worker_mpfb === false && (
+                            <div style={{ color: "var(--warn)" }}>دادهٔ کاراکترهای MPFB نیست ⇐ صحنه‌های با مجریِ ساخته‌شده به آن نمی‌رود</div>
+                          )}
+                        </>
+                      ) : (
+                        <Badge tone="bad">آفلاین</Badge>
+                      )}
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-1.5">
+                        {n.desired !== true && (
+                          <Button size="sm" disabled={nodeBusy === n.id || !n.startable} onClick={() => void setNode3d(n, true)}>
+                            روشن کن
+                          </Button>
+                        )}
+                        {n.desired !== false && (
+                          <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, false)}>
+                            خاموش
+                          </Button>
+                        )}
+                        {n.desired != null && (
+                          <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, null)}>
+                            خودکار
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        )}
+        {blenderZip && (
+          <div className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
+            دانلودِ دستیِ Blender برای ویندوز:{" "}
+            <a href={blenderZip} className="underline" style={{ color: "var(--brand-strong)" }}>
+              blender-windows.zip
+            </a>{" "}
+            (در processing\vendor\blender باز شود، طوری که vendor\blender\blender.exe باشد)
+          </div>
+        )}
+      </Card>
 
       {workers === null ? (
         <div className="py-10 text-center">
@@ -135,6 +263,7 @@ export default function WorkersPage() {
                     <b style={{ color: "var(--text)" }}>{w.name}</b> {!w.enabled && <Badge tone="bad">غیرفعال</Badge>}
                     <div className="text-xs" style={{ color: "var(--text-3)" }}>
                       {w.profiles.length ? `فقط: ${w.profiles.join("، ")}` : "پروفایل: خودکار"}
+                      {w.capabilities.version ? ` · up3d ${String(w.capabilities.version)}` : ""}
                     </div>
                   </td>
                   <td>

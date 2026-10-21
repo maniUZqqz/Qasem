@@ -152,7 +152,7 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, prof
         params, _ = reg.resolve_params(m, act.get('params'))
         f0, f1 = _frame(act['start'], fps), _frame(S.end_of(act), fps)
         comp['actions'].append({
-            'id': act['id'], 'actor': act['actor'], 'motion': m.id, 'source': m['source'],
+            'id': act['id'], 'actor': act['actor'], 'motion': m.id, 'source': m['source'], 'folder': m.folder,
             'layer': bool(m.get('layer')), 'hands': m.get('hands', {}), 'product_rule': m.get('product', {}),
             't0': act['start'], 't1': S.end_of(act), 'f0': f0, 'f1': max(f1, f0 + 2), 'params': params,
         })

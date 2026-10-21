@@ -16,6 +16,6 @@
 همین بسته داخلِ پایتونِ Blender هم بار می‌شود.
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'   # 1.1: تپشِ قلب در کار، واگذاری/کنار رفتن، بسته‌های دارایی، کلیپ
 SCENE_FORMAT = 'up3d.scene/1'
 COMPILED_FORMAT = 'up3d.compiled/1'

@@ -13,6 +13,7 @@ from rest_framework import exceptions
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 
+from up3d import packs as PK
 from up3d import templates as T
 
 from . import services as SV
@@ -111,13 +112,98 @@ def asset_thumbnails(request):
                      'message': '%d کارِ ساختِ تصویر در صف گذاشته شد.' % len(jobs)})
 
 
+# ───────────────────────── بسته‌های دارایی (محیط، شخص، حرکت، محصول، نور، دوربین)
+
+def _truthy(v):
+    return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+@panel_view(['GET', 'POST'])
+def asset_packs(request):
+    """GET: بسته‌های نصب‌شده + مشکل‌های دفتر. POST (multipart: file=zip، id؟، name؟، replace؟، dry_run؟): وارسی و نصب."""
+    if request.method == 'GET':
+        reg = SV.reg()
+        return Response({'packs': PK.list_packs(reg), 'problems': reg.problems, 'counts': reg.counts(),
+                         'kinds': list(PK.UPLOAD_KINDS)})
+    f = request.FILES.get('file')
+    if not f:
+        raise exceptions.ValidationError('فایلِ zip نیامد (فیلدِ file)')
+    if not f.name.lower().endswith('.zip'):
+        raise exceptions.ValidationError('بسته باید فایلِ .zip باشد')
+    tmp_dir = os.path.join(str(settings.UP3D_DATA_DIR), 'uploads', 'packs')
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp = os.path.join(tmp_dir, '%s.zip' % uuid.uuid4().hex)
+    with open(tmp, 'wb') as fh:
+        for ch in f.chunks():
+            fh.write(ch)
+    try:
+        rep = PK.install_zip(tmp, pack_id=(request.data.get('id') or None), name=(request.data.get('name') or None),
+                             replace=_truthy(request.data.get('replace')), dry_run=_truthy(request.data.get('dry_run')),
+                             reg=SV.reg(), source_name=f.name)
+    except PK.PackError as e:
+        return Response({'error': str(e), 'report': e.report}, status=400)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if not rep.get('dry_run'):
+        SV.reg()          # دفتر با .stamp ِ تازه دوباره خوانده می‌شود
+        rep['message'] = 'بستهٔ «%s» نصب شد: %d دارایی' % (rep['name'], len(rep['assets']))
+    else:
+        rep['message'] = 'وارسی بی‌خطا بود (%d دارایی) — نصب نشد' % len(rep['assets'])
+    return Response(rep, status=200 if rep.get('dry_run') else 201)
+
+
+@panel_view(['POST'])
+def asset_pack_toggle(request, pack_id):
+    try:
+        cur = PK.read_info(os.path.join(PK.packs_dir(), pack_id)) if os.path.isdir(os.path.join(PK.packs_dir(), pack_id)) else None
+        if cur is None:
+            raise PK.PackError('بستهٔ «%s» نیست' % pack_id)
+        want = request.data.get('enabled')
+        info = PK.set_enabled(pack_id, (not cur.get('enabled', True)) if want is None else _truthy(want))
+    except PK.PackError as e:
+        return Response({'error': str(e)}, status=404)
+    return Response({'pack': info, 'message': 'بستهٔ «%s» %s شد' % (info.get('name'), 'روشن' if info['enabled'] else 'خاموش')})
+
+
+@panel_view(['DELETE'])
+def asset_pack_delete(request, pack_id):
+    try:
+        PK.delete(pack_id)
+    except PK.PackError as e:
+        return Response({'error': str(e)}, status=404)
+    return Response({'ok': True, 'message': 'بستهٔ «%s» حذف شد' % pack_id})
+
+
+@panel_view(['GET'])
+def asset_pack_example(request):
+    """بستهٔ نمونه (zip): یک دوربین، یک نور، یک شخصِ MPFB، یک حرکتِ BVH و یک محیطِ glb — برای شروع."""
+    src = os.path.join(str(settings.UP3D_ROOT), 'docs', 'example-pack')
+    if not os.path.isdir(src):
+        raise Http404('بستهٔ نمونه روی سرور نیست')
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for dp, _, fns in os.walk(src):
+            for fn in sorted(fns):
+                full = os.path.join(dp, fn)
+                zf.write(full, os.path.relpath(full, src).replace(os.sep, '/'))
+    resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+    resp['Content-Disposition'] = 'attachment; filename="up3d-example-pack.zip"'
+    return resp
+
+
 # ───────────────────────── کارگرها
 
 @panel_view(['GET', 'POST'])
 def workers(request):
     if request.method == 'GET':
         return Response({'workers': [worker_json(w) for w in Worker.objects.all()],
-                         'server': _worker_server(request)})
+                         'server': _worker_server(request), 'gpu_nodes': SV.gpu_nodes(),
+                         'blender_zip': request.build_absolute_uri(settings.UP3D_FILES_URL + 'downloads/blender-windows.zip')})
     name = (request.data.get('name') or '').strip() or 'worker-%s' % uuid.uuid4().hex[:5]
     prof = request.data.get('profiles') or []
     if isinstance(prof, str):

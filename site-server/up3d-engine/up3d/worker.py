@@ -12,12 +12,14 @@
   POST /api/worker/jobs/<id>/finish/          پایان (موفق/ناموفق)
 """
 import glob
+import hashlib
 import json
 import os
 import platform
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import traceback
 import zipfile
@@ -67,8 +69,13 @@ class Worker:
     def capabilities(self):
         if self.caps is None:
             dev = probe_devices()
+            ud = paths.blender_user_resources()
+            mpfb = os.path.isfile(os.path.join(ud, 'extensions', 'user_default', 'mpfb', '__init__.py'))
             self.caps = {'name': self.name, 'version': __version__, 'os': platform.platform(), 'cpu_count': os.cpu_count(),
-                         'profiles': self.profiles or 'auto', **dev}
+                         'profiles': self.profiles or 'auto', 'mpfb': mpfb, 'features': ['ping', 'release', 'packs', 'clips'],
+                         **dev}
+            if not mpfb:
+                self.log('هشدار: دادهٔ کاراکترهای MPFB در %s نیست ⇐ کارهای با مجریِ ساخته‌شده به این کارگر داده نمی‌شود' % ud)
             self.log('کارگر %s · Blender %s · GPU: %s' % (self.name, dev.get('blender_version'), dev.get('gpu') or 'ندارد'))
         return self.caps
 
@@ -93,23 +100,52 @@ class Worker:
                 return
             time.sleep(6)
 
+    @staticmethod
+    def _digest(path):
+        if not os.path.isfile(path):
+            return None
+        with open(path, 'rb') as fh:
+            return hashlib.sha1(fh.read()).hexdigest()
+
     def run_job(self, job):
         jid = job['id']
         jdir = os.path.join(self.work, str(jid))
+        # کارِ نیمه‌تمامی که دوباره به همین کارگر رسید (ری‌استارت، یا واگذاریِ موقت): فریم‌های ساخته‌شده نگه داشته می‌شوند
+        # و اگر compiled.json همان باشد، رندر از همان‌جا ادامه می‌یابد (موتور فریمِ موجود را دوباره نمی‌سازد)
+        old_digest = self._digest(os.path.join(jdir, 'compiled.json'))
+        keep = os.path.join(self.work, '%s.frames-keep' % jid)
+        shutil.rmtree(keep, ignore_errors=True)
+        if old_digest and os.path.isdir(os.path.join(jdir, 'frames')):
+            os.replace(os.path.join(jdir, 'frames'), keep)
         shutil.rmtree(jdir, ignore_errors=True)
         os.makedirs(jdir)
         self.log('کارِ %s (%s، %s) گرفته شد' % (jid, job.get('kind'), job.get('profile')))
         pkg = os.path.join(jdir, 'package.zip')
         last = [0.0]
         cancel = [False]
+        release = [None]           # handoff (به GPU) / yield (جا برای کارِ کوتاه) ⇐ بی‌finish، فریم‌ها می‌مانند
+        cur_state = ['SCENE_BUILDING']
 
         def report(state, **kw):
+            cur_state[0] = state
             try:
                 r = self.api.post('/api/worker/jobs/%s/progress/' % jid, {'state': state, **kw})
                 if r.get('cancel'):
                     cancel[0] = True
+                if r.get('release'):
+                    release[0] = r['release']
+                    cancel[0] = True
             except ApiError as e:
                 self.log('گزارشِ پیشرفت نرسید: %s' % e)
+
+        # تپشِ قلب در طولِ کار: فریمِ سنگینِ CPU ده‌ها دقیقه چیزی گزارش نمی‌کند؛ بی این، پنل کارگر را «آفلاین»
+        # می‌دید و بعد از ۱۰ دقیقه کار را دوباره در صف می‌گذاشت در حالی که این‌جا هنوز رندر می‌شد
+        stop = threading.Event()
+
+        def pinger():
+            while not stop.wait(30):
+                report(cur_state[0])
+        threading.Thread(target=pinger, daemon=True).start()
 
         def on_event(kind, data):
             if kind == 'stage':
@@ -131,6 +167,13 @@ class Worker:
             self.api.download('/api/worker/jobs/%s/package/' % jid, pkg)
             with zipfile.ZipFile(pkg) as z:
                 z.extractall(jdir)
+            if os.path.isdir(keep):
+                if old_digest and old_digest == self._digest(os.path.join(jdir, 'compiled.json')):
+                    os.replace(keep, os.path.join(jdir, 'frames'))
+                    n = len(glob.glob(os.path.join(jdir, 'frames', 'f_*.png')))
+                    report('SCENE_BUILDING', message='ادامهٔ رندر از %d فریمِ ساخته‌شده' % n)
+                else:
+                    shutil.rmtree(keep, ignore_errors=True)
             kind = job.get('kind', 'render')
             t0 = time.time()
 
@@ -163,6 +206,11 @@ class Worker:
             self.api.post('/api/worker/jobs/%s/finish/' % jid, {'ok': True, 'seconds': round(time.time() - t0, 1)})
             self.log('کارِ %s تمام شد (%.0f ثانیه)' % (jid, time.time() - t0))
         except Exception as e:
+            if release[0]:
+                why = {'handoff': 'به کارگرِ GPU واگذار شد', 'yield': 'برای کارِ کوتاه‌ترِ در صف موقتاً کنار رفت'}.get(
+                    release[0], release[0])
+                self.log('کارِ %s %s؛ فریم‌های ساخته‌شده نگه داشته شد' % (jid, why))
+                return
             traceback.print_exc()
             msg = str(e)[:1500]
             try:
@@ -174,5 +222,6 @@ class Worker:
                 pass
             self.log('کارِ %s ناموفق: %s' % (jid, msg))
         finally:
-            if not os.environ.get('UP3D_KEEP_WORK'):
+            stop.set()
+            if not os.environ.get('UP3D_KEEP_WORK') and not release[0]:
                 shutil.rmtree(os.path.join(jdir, 'frames'), ignore_errors=True)

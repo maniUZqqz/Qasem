@@ -1,0 +1,46 @@
+{
+ "id": "cmu",
+ "description": "CMU mocap BVH naming (Hips, LowerBack, LeftUpLeg...) - for clips",
+ "forward": [
+  0,
+  -1,
+  0
+ ],
+ "roles": {
+  "hips": "Hips",
+  "spine": [
+   "LowerBack",
+   "Spine",
+   "Spine1"
+  ],
+  "neck": [
+   "Neck",
+   "Neck1"
+  ],
+  "head": "Head",
+  "head_forward_axis": "auto",
+  "eyes": [],
+  "arm.R": {
+   "clavicle": "RightShoulder",
+   "upper": "RightArm",
+   "fore": "RightForeArm",
+   "hand": "RightHand"
+  },
+  "leg.R": {
+   "upper": "RightUpLeg",
+   "lower": "RightLeg",
+   "foot": "RightFoot"
+  },
+  "arm.L": {
+   "clavicle": "LeftShoulder",
+   "upper": "LeftArm",
+   "fore": "LeftForeArm",
+   "hand": "LeftHand"
+  },
+  "leg.L": {
+   "upper": "LeftUpLeg",
+   "lower": "LeftLeg",
+   "foot": "LeftFoot"
+  }
+ }
+}

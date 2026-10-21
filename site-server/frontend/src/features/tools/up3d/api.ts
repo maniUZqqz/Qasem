@@ -4,6 +4,9 @@ import { api, errorMessage } from "../../../api/client";
 import { fa } from "../../../components/ui";
 import type {
   Asset,
+  AssetPack,
+  PackReport,
+  WorkersResponse,
   Catalog,
   Dashboard,
   EditResponse,
@@ -110,7 +113,31 @@ export const up3d = {
   thumbnails: (kind: string, ids?: string[]) =>
     api.post<{ queued: number; message: string }>("/up3d/assets/thumbnails/", { kind, ids }).then((r) => r.data),
 
-  workers: () => api.get<{ workers: Worker[]; server: string }>("/up3d/workers/").then((r) => r.data),
+  workers: () => api.get<WorkersResponse>("/up3d/workers/").then((r) => r.data),
+  /** «رندرِ سه‌بعدی» روی سرورِ پردازش (کشوی سرویس‌های /tools/compute): true روشن، false خاموش، null پیش‌فرض */
+  setNode3d: (nodeId: number, on: boolean | null) =>
+    api.post(`/compute/nodes/${nodeId}/desired/`, { services: { worker3d: on } }).then((r) => r.data),
+
+  packs: () =>
+    api
+      .get<{ packs: AssetPack[]; problems: { file: string; error: string }[]; kinds: string[] }>("/up3d/asset-packs/")
+      .then((r) => r.data),
+  /** بارگذاریِ zip: وارسیِ manifest ها ⇐ نصب (dryRun: فقط وارسی) */
+  uploadPack: (file: File, opts: { replace?: boolean; dryRun?: boolean; id?: string } = {}) => {
+    const body = new FormData();
+    body.append("file", file);
+    if (opts.replace) body.append("replace", "1");
+    if (opts.dryRun) body.append("dry_run", "1");
+    if (opts.id) body.append("id", opts.id);
+    return api.post<PackReport>("/up3d/asset-packs/", body).then((r) => r.data);
+  },
+  togglePack: (id: string, enabled: boolean) =>
+    api.post<{ pack: AssetPack; message: string }>(`/up3d/asset-packs/${id}/toggle/`, { enabled }).then((r) => r.data),
+  deletePack: (id: string) => api.delete<{ message: string }>(`/up3d/asset-packs/${id}/`).then((r) => r.data),
+  downloadExamplePack: async () => {
+    const { data } = await api.get<Blob>("/up3d/asset-packs/example.zip", { responseType: "blob" });
+    saveBlob(data, "up3d-example-pack.zip");
+  },
   addWorker: (name: string, profiles: string[]) =>
     api.post<{ worker: Worker; created: boolean; message: string }>("/up3d/workers/", { name, profiles }).then((r) => r.data),
   toggleWorker: (id: number) => api.post<Worker>(`/up3d/workers/${id}/toggle/`).then((r) => r.data),

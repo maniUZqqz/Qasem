@@ -65,6 +65,7 @@ class Asset(dict):
         thumb = self.get('thumbnail') or 'thumbnail.jpg'
         out['has_thumbnail'] = os.path.isfile(self.path(thumb))
         out['has_preview'] = os.path.isfile(self.path('preview.mp4'))
+        out['pack'] = self.get('_pack')
         return out
 
 
@@ -97,6 +98,7 @@ class Registry:
                     data['kind'] = kind
                     data['_folder'] = os.path.dirname(mf)
                     data['_root'] = root
+                    data['_pack'] = os.path.basename(root) if os.path.basename(os.path.dirname(root)) == 'asset-packs' else None
                     miss = [f for f in REQUIRED.get(kind, ()) if f not in data]
                     if miss:
                         self.problems.append({'file': mf, 'error': 'فیلدِ لازم نیست: ' + ', '.join(miss)})
@@ -216,10 +218,14 @@ class Registry:
 
 
 _REGISTRY = None
+_STAMP = None
 
 
 def registry(reload=False):
-    global _REGISTRY
-    if _REGISTRY is None or reload:
+    """دفترِ مشترک. اگر بسته‌ای نصب/خاموش/حذف شده باشد (paths.packs_stamp) خودش دوباره می‌خواند."""
+    global _REGISTRY, _STAMP
+    stamp = paths.packs_stamp()
+    if _REGISTRY is None or reload or stamp != _STAMP:
         _REGISTRY = Registry()
+        _STAMP = stamp
     return _REGISTRY

@@ -1,8 +1,9 @@
 import { useState } from "react";
 
 import Icon from "../../../components/Icon";
-import { Button, Card, EmptyState, ErrorBox, PageHeader, Spinner } from "../../../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorBox, PageHeader, Spinner } from "../../../components/ui";
 import { desc, errMsg, fa, label, previewUrl, thumbUrl, up3d } from "./api";
+import PacksPanel from "./PacksPanel";
 import { ButtonTabs, Muted, useCatalog, useToast } from "./shared";
 import type { Asset, CatalogKind, Character, Environment, Motion, ProductAsset, RenderProfile, Shot, Voice } from "./types";
 
@@ -59,11 +60,14 @@ function meta(kind: CatalogKind, a: Asset): string {
   }
 }
 
+type View = "library" | "packs";
+
 export default function AssetsPage() {
   const toast = useToast();
-  const { cat, error } = useCatalog();
+  const { cat, error, reload } = useCatalog();
   const [kind, setKind] = useState<CatalogKind>("character");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<View>("library");
 
   const makeThumbs = async () => {
     setBusy(true);
@@ -86,6 +90,24 @@ export default function AssetsPage() {
   }
 
   const list: Asset[] = cat[kind] || [];
+  const fromPacks = Object.values(cat).reduce((n, arr) => n + (arr as Asset[]).filter((a) => a.pack).length, 0);
+
+  if (view === "packs") {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="کتابخانهٔ دارایی‌ها" />
+        <ButtonTabs
+          tabs={[
+            { id: "library" as View, label: "کتابخانه" },
+            { id: "packs" as View, label: `بسته‌های دارایی${fromPacks ? ` (${fa(fromPacks)} دارایی)` : ""}` },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+        <PacksPanel onChanged={() => void reload()} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -100,11 +122,18 @@ export default function AssetsPage() {
           ) : undefined
         }
       />
+      <ButtonTabs
+        tabs={[
+          { id: "library" as View, label: "کتابخانه" },
+          { id: "packs" as View, label: `بسته‌های دارایی${fromPacks ? ` (${fa(fromPacks)} دارایی)` : ""}` },
+        ]}
+        value={view}
+        onChange={setView}
+      />
       <Muted>
-        هر دارایی یک پوشه است با فایلِ <code className="u3d-mono">manifest.json</code> در <code className="u3d-mono">assets/</code>؛ افزودنِ
-        کاراکتر، حرکت، محیط، محصول، نور یا نمای دوربینِ تازه کد نمی‌خواهد (جز حرکت/محیطِ رویه‌ایِ تازه که یک تابع در موتور است). بستهٔ
-        دارایی (مثلاً کاراکترِ اسکن‌شده یا بافتِ واقعی) با همین شکل در <code className="u3d-mono">data/asset-packs/</code> می‌نشیند و
-        جایگزین می‌شود.
+        هر دارایی یک پوشه است با فایلِ <code className="u3d-mono">manifest.json</code>. محیط/صحنه، شخص، حرکت (mocap)، محصول، نور و نمای
+        دوربینِ تازه بی‌نوشتنِ کد اضافه می‌شود: در زبانهٔ «بسته‌های دارایی» یک zip بارگذاری کنید (glb/fbx/obj/blend، BVH/FBX، HDRI)؛ وارسی و
+        نصب خودکار است و دارایی‌ها همین‌جا و در ویرایشگر می‌آیند.
       </Muted>
 
       <ButtonTabs
@@ -147,7 +176,8 @@ export default function AssetsPage() {
                   </b>{" "}
                   <span className="u3d-mono text-xs" style={{ color: "var(--text-3)" }}>
                     {a.id}
-                  </span>
+                  </span>{" "}
+                  {a.pack && <Badge tone="brand">بسته: {a.pack}</Badge>}
                   <div className="mt-0.5 text-xs" style={{ color: "var(--text-2)" }}>
                     {desc(a)}
                   </div>

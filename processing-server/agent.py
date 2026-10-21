@@ -54,7 +54,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.4"
+VERSION = "1.5"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -145,6 +145,188 @@ def editor_published(key):
     """The PersianAiKit editor has a published build (starts in seconds); otherwise the first start builds from source."""
     kit = {"voice": "Voice", "photo": "Photo", "video": "Video"}.get(key)
     return bool(kit) and os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", kit, "app", "PersianAiKit.%s.Server.exe" % kit))
+
+
+KIT_DIRS = {"voice": "Voice", "photo": "Photo", "video": "Video"}
+#: small per-editor packages on the site ({site}/3d/files/downloads/...), built by deploy/nm/build-kit-packages.sh
+KIT_APP_PACK = {"voice": "kit-app-voice.zip", "photo": "kit-app-photo.zip", "video": "kit-app-video.zip"}
+
+
+def site_base():
+    for name in ("node.json", "site.json"):
+        try:
+            v = json.load(open(os.path.join(HERE, name), encoding="utf-8")).get("site")
+            if v:
+                return v.rstrip("/")
+        except (OSError, ValueError):
+            pass
+    return (os.environ.get("NM_SITE") or CONFIG.get("site") or "").rstrip("/")
+
+
+def find_dotnet():
+    """A .NET SDK >= 8, also when it is not on PATH (installed after this window was opened, or per-user)."""
+    cands = [shutil.which("dotnet")]
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), r"C:\Program Files",
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft"), os.path.expanduser("~")):
+        if base:
+            cands.append(os.path.join(base, "dotnet", "dotnet.exe" if sys.platform.startswith("win") else "dotnet"))
+    cands += ["/usr/share/dotnet/dotnet", "/usr/lib/dotnet/dotnet", "/usr/bin/dotnet"]
+    seen = set()
+    for c in cands:
+        if not c or c in seen or not os.path.isfile(c):
+            continue
+        seen.add(c)
+        try:
+            out = subprocess.run([c, "--list-sdks"], capture_output=True, text=True, timeout=30).stdout
+            for line in out.splitlines():
+                head = line.strip().split(".")[0]
+                if head.isdigit() and int(head) >= 8:
+                    return c
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
+
+
+def ffmpeg_ok():
+    return bool(shutil.which("ffmpeg")) or os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe"))
+
+
+def voice_models_ok():
+    m = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
+    v = os.path.join(m, "piper", "voices")
+    return (os.path.isfile(os.path.join(m, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(m, "vosk"))
+            and os.path.isdir(v) and any(f.endswith(".onnx") for f in os.listdir(v)))
+
+
+def download_resumable(url, dest, tick=None, attempts=10):
+    """Download with HTTP Range resume: a flaky line that stops half-way continues from where it stopped."""
+    part = dest + ".part"
+    total = None
+    last = None
+    for attempt in range(1, attempts + 1):
+        have = os.path.getsize(part) if os.path.isfile(part) else 0
+        headers = {"User-Agent": "nm-node/" + VERSION}
+        if have:
+            headers["Range"] = "bytes=%d-" % have
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as r:
+                if have and r.status != 206:
+                    have = 0                         # server ignored Range: start again
+                cr = r.headers.get("Content-Range") or ""
+                if "/" in cr:
+                    total = int(cr.rsplit("/", 1)[1])
+                elif r.headers.get("Content-Length"):
+                    total = have + int(r.headers["Content-Length"])
+                next_tick = time.time() + 30
+                with open(part, "ab" if have else "wb") as fh:
+                    while True:
+                        chunk = r.read(256 * 1024)
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+                        have += len(chunk)
+                        if tick and time.time() > next_tick:
+                            next_tick = time.time() + 30
+                            tick("downloading %s: %d / %s MB" % (os.path.basename(dest), have >> 20, (total >> 20) if total else "?"))
+            if total is None or have >= total:
+                os.replace(part, dest)
+                return dest
+            last = "stopped at %d of %d bytes" % (have, total)
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and total and have >= total:
+                os.replace(part, dest)
+                return dest
+            if e.code in (403, 404):
+                raise RuntimeError("%s -> HTTP %s" % (url, e.code))
+            last = e
+        except (urllib.error.URLError, socket.timeout, OSError) as e:
+            last = e
+        warn("download %s: attempt %d/%d failed (%s) - resuming" % (os.path.basename(dest), attempt, attempts, last))
+        time.sleep(min(30, 3 * attempt))
+    raise RuntimeError("download %s failed after %d attempts: %s" % (url, attempts, last))
+
+
+def fetch_pack(name, tick=None):
+    """Download one package from the site and unpack only missing files into tools/PersianAiKit."""
+    base = site_base()
+    if not base:
+        raise RuntimeError("site URL unknown (site.json)")
+    kit = os.path.join(HERE, "tools", "PersianAiKit")
+    tmp = os.path.join(HERE, "work", name)
+    os.makedirs(os.path.dirname(tmp), exist_ok=True)
+    log("fetching %s from the site" % name)
+    download_resumable("%s/3d/files/downloads/%s" % (base, name), tmp, tick)
+    added = 0
+    with zipfile.ZipFile(tmp) as z:
+        for member in z.namelist():
+            if member.endswith("/") or not member.startswith("PersianAiKit/"):
+                continue
+            target = os.path.join(kit, *member.split("/")[1:])
+            if os.path.isfile(target):
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with z.open(member) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+            added += 1
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    log("%s: %d file(s) unpacked" % (name, added))
+    return added
+
+
+def run_logged(cmd, logf, tick=None, timeout=2400, label=""):
+    """Run a long command, write its output to logf, keep the job alive with tick(); True on exit code 0."""
+    os.makedirs(os.path.dirname(logf), exist_ok=True)
+    with open(logf, "w", encoding="utf-8", errors="replace") as fh:
+        p = subprocess.Popen(cmd, cwd=HERE, stdout=fh, stderr=subprocess.STDOUT)
+        t0 = time.time()
+        while p.poll() is None:
+            if time.time() - t0 > timeout:
+                p.kill()
+                return False
+            if tick:
+                tick("%s ... %ds" % (label, int(time.time() - t0)))
+            for _ in range(15):
+                if p.poll() is not None:
+                    break
+                time.sleep(2)
+    return p.returncode == 0
+
+
+def ensure_editor(key, tick=None):
+    """Make a PersianAiKit editor runnable without any manual setup: build it with the local .NET SDK
+    (the owner has one), else take the ready build from the site; then fetch what it needs (ffmpeg, voice models)."""
+    kit = KIT_DIRS[key]
+    root = os.path.join(HERE, "tools", "PersianAiKit", kit)
+    if not editor_published(key):
+        dn = find_dotnet()
+        if dn:
+            proj = os.path.join(root, "src", "PersianAiKit.%s.Server" % kit, "PersianAiKit.%s.Server.csproj" % kit)
+            logf = os.path.join(LOGS, "build-%s.log" % key)
+            log("%s: building the editor with %s (first time only; NuGet packages are downloaded) - log: logs\\build-%s.log" % (key, dn, key))
+            ok = run_logged([dn, "publish", proj, "-c", "Release", "-o", os.path.join(root, "app"), "--nologo"],
+                            logf, tick, label="building the %s editor" % key)
+            if ok and editor_published(key):
+                log("%s editor built" % key)
+            else:
+                warn("%s: dotnet publish failed (last lines of logs\\build-%s.log below) - taking the ready build from the site\n%s"
+                     % (key, key, "\n".join(tail_lines(logf, 8))))
+        if not editor_published(key):
+            fetch_pack(KIT_APP_PACK[key], tick)
+        if not editor_published(key):
+            raise RuntimeError("the %s editor could not be prepared (no .NET build and no site package)" % key)
+    if key == "video" and not ffmpeg_ok():
+        fetch_pack("kit-ffmpeg.zip", tick)
+    if key == "voice" and not voice_models_ok():
+        fetch_pack("kit-models-voice-min.zip", tick)
+    if key == "photo" and not os.path.isfile(os.path.join(root, "models", "upscale", "realesr-general-x4v3.onnx")):
+        try:
+            fetch_pack("kit-models-photo.zip", tick)
+        except Exception as e:  # noqa: BLE001 - optional model
+            warn("photo upscaler model not fetched (%s); the editor works without it" % e)
+    return True
 
 
 def tail_lines(path, n=15):
@@ -355,6 +537,8 @@ class Site:
             return http(method, self.base + path, data, h, timeout=timeout, raw=raw)
         except urllib.error.HTTPError as e:
             detail = e.read()[:300].decode("utf-8", "replace")
+            if e.code == 403 and "/jobs/" in path:
+                raise JobLost("the site gave this job to another attempt: %s" % detail) from e
             if e.code in (401, 403):
                 raise SiteError("site rejected the node token (HTTP %s). The token was rotated or the node was deleted: "
                                 "delete node.json and run START.bat again with the enrollment key. %s" % (e.code, detail)) from e
@@ -563,7 +747,7 @@ class ServiceManager:
             first, rest = parts[0], (parts[1] if len(parts) > 1 else "")
         return "& '%s' %s" % (first.replace("'", "''"), rest.strip())
 
-    def start(self, key, wait=True):
+    def start(self, key, wait=True, tick=None):
         if self.running(key):
             return True
         cmd = self._command(key)
@@ -573,19 +757,27 @@ class ServiceManager:
                 warn("cannot start %s: no start command (edit services.json%s)" % (
                     key, ' -> "comfyui" -> "start" = path of run_nvidia_gpu.bat, or set NM_COMFY_BAT' if key == "comfyui" else ""))
             return False
-        if key in ("voice", "photo", "video") and not editor_published(key):
-            log("%s: no published build yet - the first start compiles the editor (several minutes; needs the .NET 8 SDK)."
-                " Run Setup-Services.bat once (downloads the ready editors from the site)." % key)
+        if key in KIT_DIRS:
+            try:
+                ensure_editor(key, tick)
+            except Exception as e:  # noqa: BLE001
+                error("cannot prepare the %s editor: %s" % (key, e))
+                return False
         os.makedirs(LOGS, exist_ok=True)
+        env = dict(os.environ)
+        dn = find_dotnet() if key in KIT_DIRS else None
+        if dn and not shutil.which("dotnet"):
+            env["PATH"] = os.path.dirname(dn) + os.pathsep + env.get("PATH", "")
         logf = self.log_path(key)
         log("starting %s: %s  (output: logs\\%s)" % (key, cmd, os.path.basename(logf)))
         try:
             if sys.platform.startswith("win"):
                 ps = "%s 2>&1 | Tee-Object -FilePath '%s'" % (self._ps_command(cmd), logf.replace("'", "''"))
                 self.procs[key] = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                                                   cwd=HERE, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                                                   cwd=HERE, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
-                self.procs[key] = subprocess.Popen("%s >> '%s' 2>&1" % (cmd, logf), cwd=HERE, shell=True, start_new_session=True)
+                self.procs[key] = subprocess.Popen("%s >> '%s' 2>&1" % (cmd, logf), cwd=HERE, shell=True, env=env,
+                                                   start_new_session=True)
         except OSError as e:
             error("could not start %s: %s" % (key, e))
             return False
@@ -603,9 +795,11 @@ class ServiceManager:
                     key, p.returncode, os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
                 return False
             if time.time() > next_note:
-                next_note = time.time() + 60
+                next_note = time.time() + 30
                 last = tail_lines(logf, 1)
                 log("still waiting for %s ... %s" % (key, (last[0][:120] if last else "")))
+                if tick:
+                    tick("starting %s ..." % key)
             time.sleep(2)
         warn("%s did not come up within %ss. Last lines of logs\\%s:\n%s" % (
             key, int(self.cfg.get(key, {}).get("ready_timeout") or 60), os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
@@ -686,7 +880,7 @@ class ServiceManager:
         if "worker3d" not in (desired or {}) and blender_path() and os.path.isdir(os.path.join(HERE, "up3d")):
             self.start("worker3d", wait=False)
 
-    def prepare_for(self, kind, auto_switch):
+    def prepare_for(self, kind, auto_switch, tick=None):
         """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
         family = kind.split(".", 1)[0]
         need = {"comfy": "comfyui", "ollama": "ollama", "voice": "voice", "photo": "photo", "video": "video"}.get(family)
@@ -699,7 +893,7 @@ class ServiceManager:
                 self.free_comfy()
             if not self.running(need):
                 log("auto-switch: %s job needs %s — starting it" % (kind, need))
-                self.start(need)
+                self.start(need, tick=tick)
         elif not self.running(need):
             raise RuntimeError("%s is not running on this node and auto-switch is off (turn it on in the panel or start the service)" % need)
 
@@ -747,10 +941,20 @@ class Capabilities:
                     info = http("GET", service_url("comfyui") + "/object_info", timeout=60)
                     self.comfy_nodes = sorted(info.keys()) if isinstance(info, dict) else []
                     self.comfy_nodes_at = time.time()
+                    models = {}
+                    for node_name, label in (("UpscaleModelLoader", "upscale"), ("FrameInterpolationModelLoader", "frame_interpolation"),
+                                             ("CheckpointLoaderSimple", "checkpoints"), ("UNETLoader", "unet"), ("LoraLoader", "loras")):
+                        req = (((info.get(node_name) or {}).get("input") or {}).get("required") or {}) if isinstance(info, dict) else {}
+                        for spec in req.values():
+                            if isinstance(spec, list) and spec and isinstance(spec[0], list):
+                                models[label] = [str(x) for x in spec[0]][:60]
+                                break
+                    self.comfy_models = models
                 except Exception as e:  # noqa: BLE001
                     warn("could not read ComfyUI node list (/object_info): %s" % e)
                     self.comfy_nodes = self.comfy_nodes or []
             caps["comfy_nodes"] = self.comfy_nodes
+            caps["comfy_models"] = getattr(self, "comfy_models", {})
             caps["lipsync"] = "LatentSyncNode" in (self.comfy_nodes or [])
             caps["comfy_profiles"] = [p["id"] for p in load_profiles()]
         if caps["ollama"]:
@@ -1001,6 +1205,10 @@ def apply_profile(profile, prompt, negative, image_name, values):
 
 
 # ───────────────────────────────────────────── job
+
+class JobLost(Exception):
+    """The site re-queued this job (lease expired) - our result for it is no longer wanted."""
+
 
 class Cancelled(Exception):
     pass
@@ -1331,7 +1539,15 @@ def run_job(site, data):
             raise RuntimeError("this node does not know job kind '%s'" % job.kind)
         if MANAGER is not None:
             job.progress(0.02, "preparing services")
-            MANAGER.prepare_for(job.kind, STATE["auto_switch"])
+            last = [0.0]
+
+            def tick(msg):
+                # keep the site's lease on this job alive while services are prepared / started (it re-queues after 10 min)
+                if time.time() - last[0] >= 25:
+                    last[0] = time.time()
+                    job.progress(0.02, msg[:120])
+
+            MANAGER.prepare_for(job.kind, STATE["auto_switch"], tick)
         meta = handler(job) or {}
         names = job.upload_outputs()
         meta.update({"node": CONFIG["name"], "seconds": round(time.time() - t0, 1), "files": names})
@@ -1351,6 +1567,9 @@ def run_job(site, data):
         log(traceback.format_exc()[-1500:], "DEBUG")
         try:
             job.finish(False, err, {"node": CONFIG["name"]})
+        except JobLost:
+            warn("job %s: the site had already put it back in the queue (no news from this node for too long); "
+                 "this attempt is discarded" % job.uid[:8])
         except SiteError as e2:
             error("could not report the failed job: %s" % e2)
     finally:

@@ -36,14 +36,19 @@ one node and never processes an identical request twice.
 Second machine: copy the same folder (without `node.json`) and run `START.bat` again — it registers under
 its own name.
 
-## One-time setup of the editors: `Setup-Services.bat`
+## The editors prepare themselves (agent 1.5)
 
-The photo / video / voice editors (PersianAiKit) are prepared by **`Setup-Services.bat`** (runs `setup_kit.py`): it
-downloads from the site a ready Windows build of the three editors (self-contained, no .NET install needed) with ffmpeg,
-and their models (Piper + 6 Persian voices + Vosk for the voice editor, the upscaler for the photo editor), unpacks only
-what is missing and ends with the diagnostic. No VPN needed. If the site cannot be reached it falls back to
-`dotnet publish` and the kits' own internet downloads. Natural voices / voice cloning (3.4 GB, optional):
-`tools\PersianAiKit\Voice\Setup-Voice.bat`.
+The photo / video / voice editors (PersianAiKit) need no manual step any more. The first time a job needs one,
+the agent prepares it while the job waits (the site is told the job is alive, so it is not re-queued):
+
+1. if a .NET 8+ SDK is installed (found even when it is not on PATH, e.g. `C:\Program Files\dotnet`), it builds the
+   editor with `dotnet publish` (first time ~5-20 minutes: NuGet packages are downloaded; log in `logs\build-<editor>.log`);
+2. otherwise, or if the build fails, it downloads the ready Windows build from the site (`kit-app-<editor>.zip`,
+   43-83 MB, resumable after a dropped connection);
+3. then ffmpeg for the video editor and the voice models (engine + default voice) for the voice editor.
+
+`Setup-Services.bat` (runs `setup_kit.py`) does the same for all three editors ahead of time; `python setup_kit.py --all`
+also fetches all six Persian voices. Natural voices / voice cloning (3.4 GB, optional): `tools\PersianAiKit\Voice\Setup-Voice.bat`.
 
 Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
 the last lines are sent to the site log (panel → Processing servers → log of this node).

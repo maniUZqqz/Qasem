@@ -42,7 +42,7 @@ class ArticleAdmin(admin.ModelAdmin):
     name_en = "Blog articles"
     description = (
         "پست‌های وبلاگ سایت عمومی. چیزی که اینجا ذخیره می‌شود، همان است که در "
-        "upmarket.ir/blog دیده می‌شود."
+        "nmarketing.ir/blog دیده می‌شود."
     )
     # The only reason this form exists: `tags` is a JSONField, and Django
     # renders those as a box that demands valid JSON. See forms.py.

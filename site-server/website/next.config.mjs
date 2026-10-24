@@ -16,6 +16,16 @@ const nextConfig = {
     const api = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
     return [{ source: "/api/:path*", destination: `${api}/api/:path*` }];
   },
+  // Renamed with the rebrand (UpMarket -> NMarketing): old links, shares and
+  // search results for /compare/upmarket-vs-* must keep landing on the page.
+  async redirects() {
+    const slugs = ["marketing-agency", "freelancer", "doing-it-yourself"];
+    return slugs.flatMap((s) => [
+      { source: `/compare/upmarket-vs-${s}`, destination: `/compare/nmarketing-vs-${s}`, permanent: true },
+      { source: `/fa/compare/upmarket-vs-${s}`, destination: `/compare/nmarketing-vs-${s}`, permanent: true },
+      { source: `/en/compare/upmarket-vs-${s}`, destination: `/en/compare/nmarketing-vs-${s}`, permanent: true },
+    ]);
+  },
   images: { remotePatterns: [{ protocol: "http", hostname: "127.0.0.1" }] },
 };
 export default nextConfig;

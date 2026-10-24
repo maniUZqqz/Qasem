@@ -34,8 +34,8 @@ SETTINGS = {
     "tagline_en": "An AI sales and marketing employee for online shops",
     "one_liner": "اطلاعات محصولت را بده — پوستر، ویدیو، کپشن و پشتیبانی فروشش را تحویل بگیر.",
     "one_liner_en": "Add your product — get the poster, the video, the caption and the sales replies.",
-    "email": "hello@upmarket.ir",
-    "instagram": "https://instagram.com/upmarket.ir",
+    "email": "hello@nmarketing.ir",
+    "instagram": "https://instagram.com/nmarketing.ir",
     "keywords": (
         "بازاریابی هوش مصنوعی، تولید محتوا با هوش مصنوعی، پوستر تبلیغاتی، "
         "ویدیو تبلیغاتی، کپشن اینستاگرام، فروشگاه آنلاین، تحلیل رقبا، "

@@ -34,8 +34,8 @@ const site: Localized<Site> = {
     oneLiner:
       "اطلاعات محصولت را بده — پوستر، ویدیو، کپشن و پشتیبانی فروشش را تحویل بگیر.",
     panelUrl: PANEL_URL,
-    email: "hello@upmarket.ir",
-    instagram: "https://instagram.com/upmarket.ir",
+    email: "hello@nmarketing.ir",
+    instagram: "https://instagram.com/nmarketing.ir",
     keywords: [
       "بازاریابی هوش مصنوعی",
       "تولید محتوا با هوش مصنوعی",
@@ -55,8 +55,8 @@ const site: Localized<Site> = {
     oneLiner:
       "Add your product — get the poster, the video, the caption and the sales replies.",
     panelUrl: PANEL_URL,
-    email: "hello@upmarket.ir",
-    instagram: "https://instagram.com/upmarket.ir",
+    email: "hello@nmarketing.ir",
+    instagram: "https://instagram.com/nmarketing.ir",
     keywords: [
       "AI marketing",
       "AI content generation",

@@ -40,7 +40,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 USER_AGENT = (
-    "Mozilla/5.0 (compatible; UpMarketBot/1.0; +https://upmarket.ir/bot) "
+    "Mozilla/5.0 (compatible; NMarketingBot/1.0; +https://nmarketing.ir/bot) "
     "price-comparison for the shop owner"
 )
 HEADERS = {"User-Agent": USER_AGENT, "Accept-Language": "fa,en;q=0.8"}

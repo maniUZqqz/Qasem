@@ -176,7 +176,7 @@ class AttributionTests(TestCase):
         self.assertEqual(row.channel, Attribution.Channel.SOCIAL)
 
     def test_arriving_from_the_blog_counts_as_content(self):
-        row = record_signup(self.store, referrer="https://upmarket.ir/blog/x")
+        row = record_signup(self.store, referrer="https://nmarketing.ir/blog/x")
         self.assertEqual(row.channel, Attribution.Channel.CONTENT)
 
     def test_signing_up_twice_does_not_create_two_attributions(self):

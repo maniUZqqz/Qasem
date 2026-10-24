@@ -126,7 +126,7 @@ def search(query: str = "", *, limit: int = 20, page: int = 1) -> dict:
     try:
         response = requests.get(
             API, params=params,
-            headers={"User-Agent": "UpMarket/1.0 (+https://upmarket.ir)"},
+            headers={"User-Agent": "NMarketing/1.0 (+https://nmarketing.ir)"},
             timeout=TIMEOUT,
         )
         response.raise_for_status()
@@ -183,7 +183,7 @@ def fetch(url: str, out_path) -> "Path":  # noqa: F821 - typing only
     try:
         with requests.get(
             url, stream=True, timeout=60,
-            headers={"User-Agent": "UpMarket/1.0 (+https://upmarket.ir)"},
+            headers={"User-Agent": "NMarketing/1.0 (+https://nmarketing.ir)"},
         ) as response:
             response.raise_for_status()
             kind = response.headers.get("content-type", "")

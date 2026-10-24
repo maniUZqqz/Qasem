@@ -33,7 +33,7 @@ export type Comparison = {
 
 const fa: Comparison[] = [
   {
-    slug: "upmarket-vs-marketing-agency",
+    slug: "nmarketing-vs-marketing-agency",
     icon: "🏢",
     other: "آژانس بازاریابی",
     title: "NMarketing یا آژانس بازاریابی؟",
@@ -66,7 +66,7 @@ const fa: Comparison[] = [
       "اگر مشکل شما «حجم محتوای روزمره و جواب دادن به مشتری» است، NMarketing. اگر مشکل شما «برند ما چه باید بگوید» است، آژانس.",
   },
   {
-    slug: "upmarket-vs-freelancer",
+    slug: "nmarketing-vs-freelancer",
     icon: "🧑‍💻",
     other: "فریلنسر",
     title: "NMarketing یا فریلنسر؟",
@@ -98,7 +98,7 @@ const fa: Comparison[] = [
       "برای کار کم و خاص، فریلنسر. برای کار زیاد و مستمر، NMarketing. خیلی‌ها هر دو را دارند: سیستم برای روزمره، فریلنسر برای کمپین‌های خاص.",
   },
   {
-    slug: "upmarket-vs-doing-it-yourself",
+    slug: "nmarketing-vs-doing-it-yourself",
     icon: "🙋",
     other: "خودتان انجام دهید",
     title: "NMarketing یا خودم انجام بدهم؟",
@@ -132,7 +132,7 @@ const fa: Comparison[] = [
 
 const en: Comparison[] = [
   {
-    slug: "upmarket-vs-marketing-agency",
+    slug: "nmarketing-vs-marketing-agency",
     icon: "🏢",
     other: "a marketing agency",
     title: "NMarketing or a marketing agency?",
@@ -165,7 +165,7 @@ const en: Comparison[] = [
       "If your problem is “daily content volume and answering customers”, NMarketing. If your problem is “what should our brand say”, an agency.",
   },
   {
-    slug: "upmarket-vs-freelancer",
+    slug: "nmarketing-vs-freelancer",
     icon: "🧑‍💻",
     other: "a freelancer",
     title: "NMarketing or a freelancer?",
@@ -197,7 +197,7 @@ const en: Comparison[] = [
       "For small, special work, a freelancer. For high, continuous volume, NMarketing. Plenty of shops run both: the system for daily work, a freelancer for the campaigns that matter.",
   },
   {
-    slug: "upmarket-vs-doing-it-yourself",
+    slug: "nmarketing-vs-doing-it-yourself",
     icon: "🙋",
     other: "doing it yourself",
     title: "NMarketing or do it yourself?",

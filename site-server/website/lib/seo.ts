@@ -22,7 +22,7 @@ type SiteLike = Pick<
   "name" | "nameEn" | "oneLiner" | "email" | "instagram"
 >;
 
-export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://upmarket.ir";
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://nmarketing.ir";
 
 export function abs(path = ""): string {
   return `${SITE_URL}${path}`;

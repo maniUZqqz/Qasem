@@ -129,7 +129,7 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
       NEXT_PUBLIC_PANEL_URL: ${PUBLIC_PANEL_URL:-http://127.0.0.1:5173}
-      NEXT_PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://upmarket.ir}
+      NEXT_PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://nmarketing.ir}
     expose: ["3001"]
 
   nginx:

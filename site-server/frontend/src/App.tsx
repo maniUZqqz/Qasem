@@ -50,6 +50,7 @@ import StoreAgentPage from "./features/stores/StoreAgentPage";
 import StoreBrandPage from "./features/stores/StoreBrandPage";
 import StoreDataPage from "./features/stores/StoreDataPage";
 import StoreVoicePage from "./features/stores/StoreVoicePage";
+import StoreVoiceClonePage from "./features/stores/StoreVoiceClonePage";
 import StoreLayout from "./features/stores/StoreLayout";
 import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
@@ -98,6 +99,8 @@ export default function App() {
                 <Route path="team" element={<PageGate k="team"><StoreTeamPage /></PageGate>} />
                 {/* صدا و گوینده — پروفایل صدا و تلفظ‌ها بک‌اند داشتند و صفحه نداشتند */}
                 <Route path="voice" element={<PageGate k="voice"><StoreVoicePage /></PageGate>} />
+                {/* کلونِ صدا — رضایت، ضبطِ جمله‌ها، ساخت روی سرورِ پردازش، آزمایش و استفاده در محتوا */}
+                <Route path="voice/clone" element={<PageGate k="voice_clone"><StoreVoiceClonePage /></PageGate>} />
                 <Route path="data" element={<PageGate k="data"><StoreDataPage /></PageGate>} />
               </Route>
               <Route path="/stores/:id/chat" element={<PageGate k="chat"><ChatPage /></PageGate>} />

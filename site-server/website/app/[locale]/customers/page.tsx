@@ -19,9 +19,9 @@ export function generateStaticParams() {
 const COPY = {
   fa: {
     eyebrow: "مشتری‌ها",
-    title: "کسب‌وکارهایی که از آپ‌مارکت استفاده می‌کنند",
+    title: "کسب‌وکارهایی که از NMarketing استفاده می‌کنند",
     lead: "هر کدام اجازه‌ی نمایش نامشان را داده‌اند.",
-    metaDesc: "فروشگاه‌ها و کسب‌وکارهایی که از آپ‌مارکت استفاده می‌کنند.",
+    metaDesc: "فروشگاه‌ها و کسب‌وکارهایی که از NMarketing استفاده می‌کنند.",
     caseStudy: "مطالعه‌ی موردی ←",
     ctaTitle: "به این فهرست اضافه شو",
     ctaLead: "فروشگاهت را ثبت کن و ببین خروجی برای محصول خودت چه شکلی است.",
@@ -29,9 +29,9 @@ const COPY = {
   },
   en: {
     eyebrow: "Customers",
-    title: "Businesses using UpMarket",
+    title: "Businesses using NMarketing",
     lead: "Each one agreed to be named here.",
-    metaDesc: "Shops and businesses using UpMarket.",
+    metaDesc: "Shops and businesses using NMarketing.",
     caseStudy: "Case study →",
     ctaTitle: "Join them",
     ctaLead: "Add your shop and see what the output looks like for your own product.",

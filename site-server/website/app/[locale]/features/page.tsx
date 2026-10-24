@@ -22,7 +22,7 @@ export function generateStaticParams() {
 const COPY = {
   fa: {
     eyebrow: "قابلیت‌ها",
-    title: "کاری که آپ‌مارکت انجام می‌دهد",
+    title: "کاری که NMarketing انجام می‌دهد",
     lead: "نه چند ابزار جدا — یک جریان که از محصول شما شروع می‌شود و به فروش می‌رسد.",
     deepEyebrow: "جزئیات هر قابلیت",
     deepTitle: "هرکدام را جداگانه ببینید",
@@ -70,7 +70,7 @@ const COPY = {
   },
   en: {
     eyebrow: "Features",
-    title: "What UpMarket actually does",
+    title: "What NMarketing actually does",
     lead: "Not a set of separate tools — one flow that starts at your product and ends at a sale.",
     deepEyebrow: "Feature detail",
     deepTitle: "Look at each one on its own",

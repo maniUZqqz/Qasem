@@ -165,6 +165,8 @@ npm run build 2>&1 | tail -5
 # standalone به static و public نیاز دارد
 rm -rf .next/standalone/.next/static && cp -r .next/static .next/standalone/.next/static
 rm -rf .next/standalone/public && cp -r public .next/standalone/public
+# فونت‌های تصویرِ اشتراک‌گذاری (opengraph-image) — بی آن /en/opengraph-image خطای 500 می‌داد (۱۴۰۵/۰۸/۰۲)
+[ -d assets ] && { rm -rf .next/standalone/assets && cp -r assets .next/standalone/assets; }
 
 step "systemd"
 for u in nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker; do

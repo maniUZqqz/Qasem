@@ -24,8 +24,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const name = decodeURIComponent(slug);
   return {
-    title: `${name} — مقالات آپ‌مارکت`,
-    description: `همه‌ی مقالات آپ‌مارکت در دسته‌ی ${name}.`,
+    title: `${name} — مقالات NMarketing`,
+    description: `همه‌ی مقالات NMarketing در دسته‌ی ${name}.`,
     alternates: alternatesFor(DEFAULT_LOCALE, `/blog/category/${slug}`, [DEFAULT_LOCALE]),
   };
 }

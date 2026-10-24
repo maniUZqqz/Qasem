@@ -16,9 +16,9 @@ import traceback
 
 import bpy
 
-from . import bake, camera, characters, environments, face, lighting, motions, render
+from . import bake, camera, characters, environments, face, keys, lighting, motions, render
 from .ctx import Context
-from .products import Product
+from .products import Product, build_prop
 from .rig import SIDES, ActorRig
 from .util import info, log, stage
 
@@ -86,8 +86,8 @@ def _localize(c, base):
                                    'motion')
     for a in c['actors']:
         a['character']['folder'] = folder(a['character'], 'character')
-    for p in c['products']:
-        p['folder'] = folder(p, 'product')
+    for p in c['products'] + (c.get('props') or []):
+        p['folder'] = folder(dict(p, id=p.get('asset') or p.get('id', '')), 'product')
         p['label_image'] = rel(p.get('label_image'))
         if p['label_image'] and not os.path.isfile(p['label_image']):
             p['label_image'] = None
@@ -103,12 +103,26 @@ def build_scene(c, out):
     stage('build')
     environments.build(ctx)
     lighting.build(ctx)
+    lighting.build_extra(ctx)        # نورهای ویرایشگرِ آزاد
     for a in c['actors']:
         spec = dict(a['character'])
         built = characters.build(spec, a['id'], ctx.coll('actor.' + a['id']), ctx.quality)
         ctx.rigs[a['id']] = ActorRig(ctx, a, built)
     for p in c['products']:
         ctx.products[p['id']] = Product(ctx, p)
+    for x in c.get('props') or []:
+        try:
+            build_prop(ctx, x)
+        except Exception as e:      # یک شیءِ تزئینیِ خراب کلِ ویدئو را نخواباند
+            traceback.print_exc()
+            ctx.warn('شیءِ %s ساخته نشد: %s' % (x.get('id'), e))
+    # جابه‌جاییِ آدم‌ها با کلیدهای ویرایشگر (ریشهٔ بازیگر؛ پاها همراهش می‌روند)
+    keyed = False
+    for a in c['actors']:
+        if a.get('keys'):
+            base = {'pos': a['mark']['pos'], 'rot': [0.0, 0.0, a['mark'].get('facing', 0.0)]}
+            keys.key_object(ctx, ctx.rigs[a['id']].root, base, a['keys'], upright=True, scale=False)
+            keyed = True
     info(stage='built', seconds=round(time.time() - t0, 1))
 
     stage('animate')
@@ -124,11 +138,15 @@ def build_scene(c, out):
         rig = ctx.rigs.get(act['actor'])
         if not rig:
             continue
+        if keyed:       # بازیگرِ متحرک: حرکت با جای همان لحظهٔ بازیگر حساب شود (گرفتن/گذاشتنِ محصول)
+            bpy.context.scene.frame_set(int(act['f0']))
         try:
             motions.apply(ctx, rig, act)
         except Exception as e:      # یک حرکتِ خراب کلِ ویدئو را نخواباند؛ در گزارش می‌آید
             traceback.print_exc()
             ctx.warn('حرکتِ %s (%s) اجرا نشد: %s' % (act['id'], act['motion'], e))
+    if keyed:
+        bpy.context.scene.frame_set(ctx.f_start)
     for aid, rig in ctx.rigs.items():
         fc = c['face'].get(aid, {})
         peaks = face.head_language(ctx, rig, fc)
@@ -186,7 +204,8 @@ def run(argv):
             print('UP3D:PROGRESS %d %d' % (i + 1, len(picks)), flush=True)
     elif args.mode == 'export':
         from . import export
-        ext = {'glb': '.glb', 'gltf': '.gltf', 'fbx': '.fbx', 'usd': '.usdc', 'blend': '.blend', 'game_pack': '.glb'}[args.format]
+        ext = {'glb': '.glb', 'gltf': '.gltf', 'fbx': '.fbx', 'usd': '.usdc', 'blend': '.blend', 'game_pack': '.glb',
+               'preview_glb': '.glb'}[args.format]
         name = 'scene-game-pack' if args.format == 'game_pack' else 'scene'
         export.export(ctx, args.format, os.path.join(args.out, name + ext))
     render.write_report(ctx, os.path.join(args.out, 'engine_report.json'))

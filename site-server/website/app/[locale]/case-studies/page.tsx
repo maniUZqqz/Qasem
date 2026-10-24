@@ -22,7 +22,7 @@ const COPY = {
     title: "چه کسی از این استفاده کرد، و چه شد",
     lead: "هر کدام یک کسب‌وکار واقعی است، با مسئله‌ای که داشت و چیزی که تغییر کرد.",
     metaDesc:
-      "مطالعات موردی واقعی آپ‌مارکت — مسئله‌ی کسب‌وکار، کاری که انجام شد و نتیجه‌ای که قابل اثبات است.",
+      "مطالعات موردی واقعی NMarketing — مسئله‌ی کسب‌وکار، کاری که انجام شد و نتیجه‌ای که قابل اثبات است.",
     read: "خواندن ←",
     ctaTitle: "نوبت کسب‌وکار خودت",
     ctaLead: "فروشگاهت را ثبت کن و همین جلسه ببین خروجی برای محصول خودت چه شکلی است.",
@@ -33,7 +33,7 @@ const COPY = {
     title: "Who used this, and what happened",
     lead: "Each one is a real business, with the problem it had and what changed.",
     metaDesc:
-      "Real UpMarket case studies — the business problem, the work done, and a result that can be checked.",
+      "Real NMarketing case studies — the business problem, the work done, and a result that can be checked.",
     read: "Read →",
     ctaTitle: "Your business next",
     ctaLead: "Add your shop and see, in this sitting, what the output looks like for your own product.",

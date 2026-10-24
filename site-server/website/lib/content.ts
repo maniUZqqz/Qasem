@@ -28,8 +28,8 @@ type Site = {
 
 const site: Localized<Site> = {
   fa: {
-    name: "آپ‌مارکت",
-    nameEn: "UpMarket",
+    name: "NMarketing",
+    nameEn: "NMarketing",
     tagline: "کارمند فروش و مارکتینگ هوش مصنوعی برای فروشگاه‌های آنلاین",
     oneLiner:
       "اطلاعات محصولت را بده — پوستر، ویدیو، کپشن و پشتیبانی فروشش را تحویل بگیر.",
@@ -49,8 +49,8 @@ const site: Localized<Site> = {
     ],
   },
   en: {
-    name: "UpMarket",
-    nameEn: "UpMarket",
+    name: "NMarketing",
+    nameEn: "NMarketing",
     tagline: "An AI sales and marketing employee for online shops",
     oneLiner:
       "Add your product — get the poster, the video, the caption and the sales replies.",
@@ -339,7 +339,7 @@ const fa: Content = {
 
   about: {
     mission:
-      "بازاریابی حرفه‌ای نباید امتیاز کسب‌وکارهای بزرگ باشد. آپ‌مارکت همان کاری را " +
+      "بازاریابی حرفه‌ای نباید امتیاز کسب‌وکارهای بزرگ باشد. NMarketing همان کاری را " +
       "که یک تیم پنج‌نفره‌ی بازاریابی انجام می‌دهد، برای یک فروشگاه کوچک و با " +
       "کسری از هزینه انجام می‌دهد.",
     story: [
@@ -390,7 +390,7 @@ const fa: Content = {
 
   alternatives: {
     left: {
-      title: "بدون آپ‌مارکت",
+      title: "بدون NMarketing",
       items: [
         "یا تیم پنج‌نفره استخدام می‌کنید",
         "یا به آژانس با هزینه‌ی نامشخص می‌سپارید",
@@ -401,7 +401,7 @@ const fa: Content = {
       ],
     },
     right: {
-      title: "با آپ‌مارکت",
+      title: "با NMarketing",
       items: [
         "یک‌بار محصول را ثبت می‌کنید",
         "بسته‌ی محتوا در چند دقیقه آماده است",
@@ -643,7 +643,7 @@ const en: Content = {
   about: {
     mission:
       "Professional marketing should not be a privilege of large companies. " +
-      "UpMarket does the work of a five-person marketing team for a small shop, " +
+      "NMarketing does the work of a five-person marketing team for a small shop, " +
       "at a fraction of the cost.",
     story: [
       {
@@ -693,7 +693,7 @@ const en: Content = {
 
   alternatives: {
     left: {
-      title: "Without UpMarket",
+      title: "Without NMarketing",
       items: [
         "Hire a team of five",
         "Or hand it to an agency at an unclear cost",
@@ -704,7 +704,7 @@ const en: Content = {
       ],
     },
     right: {
-      title: "With UpMarket",
+      title: "With NMarketing",
       items: [
         "Add each product once",
         "A content pack ready in minutes",

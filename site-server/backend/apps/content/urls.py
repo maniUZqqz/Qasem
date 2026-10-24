@@ -1,5 +1,18 @@
 from django.urls import path
 
+from .views_voice_clone import (
+    ClonedVoiceBuildView,
+    ClonedVoiceClipAudioView,
+    ClonedVoiceClipsView,
+    ClonedVoiceClipView,
+    ClonedVoiceDetailView,
+    ClonedVoiceListView,
+    ClonedVoiceSampleView,
+    ClonedVoiceTestAudioView,
+    ClonedVoiceTestStatusView,
+    ClonedVoiceTestView,
+    ClonedVoiceUseView,
+)
 from .views_sound import (
     SceneSoundView,
     SceneSpeakerView,
@@ -57,6 +70,27 @@ urlpatterns = [
         "stores/<int:store_id>/voice/preview/",
         VoicePreviewView.as_view(), name="store-voice-preview",
     ),
+    # «کلونِ صدا»: consent, recordings and builds here; the voice itself on a processing node.
+    path("stores/<int:store_id>/voice/clones/", ClonedVoiceListView.as_view(), name="voice-clones"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/", ClonedVoiceDetailView.as_view(), name="voice-clone"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/clips/", ClonedVoiceClipsView.as_view(),
+         name="voice-clone-clips"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/clips/<int:index>/", ClonedVoiceClipView.as_view(),
+         name="voice-clone-clip"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/clips/<int:index>/audio/",
+         ClonedVoiceClipAudioView.as_view(), name="voice-clone-clip-audio"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/build/", ClonedVoiceBuildView.as_view(),
+         name="voice-clone-build"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/sample/", ClonedVoiceSampleView.as_view(),
+         name="voice-clone-sample"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/test/", ClonedVoiceTestView.as_view(),
+         name="voice-clone-test"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/test/<uuid:uid>/", ClonedVoiceTestStatusView.as_view(),
+         name="voice-clone-test-status"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/test/<uuid:uid>/audio/",
+         ClonedVoiceTestAudioView.as_view(), name="voice-clone-test-audio"),
+    path("stores/<int:store_id>/voice/clones/<int:pk>/use/", ClonedVoiceUseView.as_view(),
+         name="voice-clone-use"),
     path("audio/sounds/", SoundCatalogueView.as_view(), name="sound-catalogue"),
     # One shoot, every platform (`ایده‌ها.md` §10).
     path("video-scripts/<int:pk>/cuts/", VideoCutsView.as_view(), name="video-cuts"),

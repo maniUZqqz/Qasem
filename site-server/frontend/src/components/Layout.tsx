@@ -195,7 +195,7 @@ export default function Layout() {
         >
           <Icon name="sparkle" size={17} strokeWidth={2} />
         </span>
-        <span className="text-lg font-extrabold">آپ‌مارکت</span>
+        <span className="text-lg font-extrabold">NMarketing</span>
       </Link>
 
       {stores.length > 0 && (

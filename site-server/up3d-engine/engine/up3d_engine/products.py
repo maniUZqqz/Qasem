@@ -10,6 +10,7 @@ import bmesh
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
+from . import keys as K
 from . import materials as M
 from .util import empty, link, log
 
@@ -265,7 +266,15 @@ class Product:
         sp = entry['surface']
         self.root = empty('%s.root' % self.id, sp['pos'], 0.02, coll)
         self.root.rotation_mode = 'QUATERNION'
-        self.root.rotation_quaternion = Quaternion((0, 0, 1), math.radians(sp.get('yaw', 0.0)))
+        if sp.get('rot'):       # جای آزادِ ویرایشگر: چرخشِ کامل
+            self.root.rotation_quaternion = K.matrix((0, 0, 0), sp['rot']).to_quaternion()
+        else:
+            self.root.rotation_quaternion = Quaternion((0, 0, 1), math.radians(sp.get('yaw', 0.0)))
+        if entry.get('scale'):
+            self.root.scale = entry['scale']
+        self.keys = entry.get('keys') or []
+        self.base = {'pos': list(sp['pos']), 'rot': list(sp.get('rot') or (0.0, 0.0, sp.get('yaw', 0.0))),
+                     'scale': list(entry.get('scale') or (1.0, 1.0, 1.0))}
         fn = BUILDERS.get(entry.get('builder'), box_package)
         fn(entry, coll, self.root)
         bpy.context.view_layer.update()
@@ -285,11 +294,33 @@ class Product:
         mat = self.baked.get(frame, self.rest_world) if frame is not None else self.rest_world
         return mat @ Vector((0, 0, self.dims[2] * 0.5))
 
+    def keyed_world(self, frame):
+        """جای محصول از کلیدهای ویرایشگر در این فریم (وقتی در دست نیست)."""
+        pos, rot, scl = K.transform(self.base, self.keys, frame)
+        return K.matrix(pos, rot, scl)
+
     def matrix_at(self, frame):
         if frame in self.baked:
             return self.baked[frame]
         ks = sorted(k for k in self.baked if k <= frame)
         return self.baked[ks[-1]] if ks else self.rest_world
+
+
+def build_prop(ctx, entry):
+    """شیءِ تزئینیِ ویرایشگرِ آزاد: هر شکلِ محصول (یا مدلِ فایل) با جای/چرخش/اندازهٔ دلخواه و کلید."""
+    coll = ctx.coll('prop.' + entry['id'])
+    tr = entry.get('transform') or {}
+    root = empty('%s.root' % entry['id'], tr.get('pos') or (0, 0, 0), 0.02, coll)
+    root.rotation_mode = 'XYZ'
+    root.rotation_euler = [math.radians(a) for a in (tr.get('rot') or (0, 0, 0))]
+    root.scale = tr.get('scale') or (1, 1, 1)
+    entry = dict(entry)
+    entry.setdefault('params', {})
+    fn = BUILDERS.get(entry.get('builder'), box_package)
+    fn(entry, coll, root)
+    K.key_object(ctx, root, tr, entry.get('keys'))
+    log('prop', entry['id'], entry.get('asset'), 'keys=%d' % len(entry.get('keys') or []))
+    return root
 
 
 def grasp_pose(rig, side, product, prod_world=None):

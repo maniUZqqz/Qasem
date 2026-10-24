@@ -113,6 +113,10 @@ class VoiceProfile:
     #: Percent.
     volume: int = 0
     language: str = "fa"
+    #: A ClonedVoice id (this store's): Persian narration in that voice instead of Farid/Dilara.
+    #: Rate/pitch do not apply to it; English narration keeps the gender voice.
+    cloned_voice: int | None = None
+    cloned_voice_name: str = ""
 
     def voice_id(self) -> str:
         catalogue = PERSIAN_VOICES if self.language == "fa" else ENGLISH_VOICES
@@ -160,6 +164,8 @@ class VoiceProfile:
 
     def describe(self) -> str:
         """One line a shop can read back, in words rather than numbers."""
+        if self.cloned_voice and self.language == "fa":
+            return f"صدای کلون‌شدهٔ «{self.cloned_voice_name or self.cloned_voice}» (ساختهٔ ماشین)"
         catalogue = PERSIAN_VOICES if self.language == "fa" else ENGLISH_VOICES
         parts = [catalogue[self.gender]["label"]]
         if self.rate:
@@ -177,6 +183,7 @@ class VoiceProfile:
             "pitch": self.pitch,
             "volume": self.volume,
             "language": self.language,
+            "cloned_voice": self.cloned_voice,
             "voice_id": self.voice_id(),
             "description": self.describe(),
         }
@@ -188,12 +195,24 @@ class VoiceProfile:
             saved = store.profile.voice_profile or {}
         except Exception:  # noqa: BLE001 — no profile row yet
             saved = {}
+        cloned, cloned_name = saved.get("cloned_voice"), ""
+        if cloned:
+            # a voice deleted since is not a choice any more (deleting also clears it; this is the backstop)
+            try:
+                from apps.ai.models import ClonedVoice
+
+                row = ClonedVoice.objects.filter(pk=int(cloned), store=store).only("pk", "name").first()
+            except Exception:  # noqa: BLE001 — no database (engine-level tests) or a bad value
+                row = None
+            cloned, cloned_name = (row.pk, row.name) if row is not None else (None, "")
         return cls(
             gender=str(saved.get("gender", "male")),
             rate=int(saved.get("rate", 0) or 0),
             pitch=int(saved.get("pitch", 0) or 0),
             volume=int(saved.get("volume", 0) or 0),
             language=language,
+            cloned_voice=cloned,
+            cloned_voice_name=cloned_name,
         )
 
 

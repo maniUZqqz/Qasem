@@ -4,6 +4,7 @@
 پس موتورِ اجرا (Blender امروز؛ وب/بازی/Unreal فردا) هیچ تصمیمی نمی‌گیرد و فقط اجرا می‌کند.
 """
 from . import COMPILED_FORMAT
+from . import keys as K
 from . import lipsync
 from . import scene as S
 from .assets import Asset
@@ -82,6 +83,21 @@ def resolution_for(profile, aspect):
     return even(w), even(h)
 
 
+def _ckeys(keys, fps):
+    """کلیدهای ثانیه‌ای ⇐ فریمِ مطلق (عدد اعشاری؛ موتور هر فریم را نمونه می‌گیرد)."""
+    out = []
+    for k in keys or []:
+        c = {kk: vv for kk, vv in k.items() if kk != 't'}
+        c['f'] = round(float(k['t']) * fps + 1, 3)
+        out.append(c)
+    return out
+
+
+def _base(obj):
+    """جای شیء در شروعِ ویدئو (کلیدها یا transform)؛ None اگر جای آزاد ندارد."""
+    return K.transform_at(obj, 0.0)
+
+
 def _asset_block(asset, params, extra=()):
     out = {k: v for k, v in asset.items() if not k.startswith('_') and k not in ('name', 'description', 'thumbnail')}
     out['folder'] = asset.folder
@@ -125,20 +141,59 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, prof
     for a in doc['actors']:
         ch = reg.get('character', a['character'])
         params, _ = reg.resolve_params(ch, a.get('params'))
-        comp['actors'].append({'id': a['id'], 'mark_id': a['mark'], 'mark': env['marks'][a['mark']],
-                               'character': _asset_block(ch, params)})
+        mark = env['marks'].get(a['mark']) or {'pos': [0.0, 0.0, 0.0], 'facing': 0.0}
+        tr = _base(a)
+        if tr:      # ویرایشگرِ آزاد: جای دلخواه + چرخش دورِ محورِ عمودی (آدم همیشه ایستاده است)
+            mark = {'pos': tr['pos'], 'facing': tr['rot'][2]}
+        entry = {'id': a['id'], 'mark_id': a['mark'], 'mark': mark, 'character': _asset_block(ch, params)}
+        if a.get('keys'):
+            entry['keys'] = _ckeys(a['keys'], fps)
+        comp['actors'].append(entry)
         comp['face'][a['id']] = {'visemes': [], 'expressions': [], 'speaking': []}
         comp['gaze'][a['id']] = []
 
+    surf_map = dict(env['surfaces'])         # کپی: سطح‌های ساختگیِ «جای آزاد» به دفترِ دارایی نرسد
+    comp['environment']['surfaces'] = surf_map
     surfaces = list(env['surfaces'])
     for i, p in enumerate(doc['products']):
         pa = reg.get('product', p['asset'])
         params, _ = reg.resolve_params(pa, p.get('params'))
-        sid = p.get('surface') if p.get('surface') in env['surfaces'] else surfaces[min(i, len(surfaces) - 1)]
+        tr = _base(p)
+        if tr:
+            # جای آزاد ⇐ یک «سطحِ» ساختگی به نامِ @<id> (گذاشتنِ دوباره هم همین‌جا برمی‌گردد)
+            sid = '@' + p['id']
+            surf_map[sid] = {'pos': tr['pos'], 'yaw': tr['rot'][2], 'rot': tr['rot']}
+        else:
+            sid = p.get('surface') if p.get('surface') in env['surfaces'] else surfaces[min(i, len(surfaces) - 1)]
         blk = _asset_block(pa, params, ('dimensions', 'grasp'))
-        blk.update({'id': p['id'], 'name': p.get('name', ''), 'surface_id': sid, 'surface': env['surfaces'][sid],
+        blk.update({'id': p['id'], 'name': p.get('name', ''), 'surface_id': sid, 'surface': surf_map[sid],
                     'label_image': label_images.get(p['id']) or params.get('label_image')})
+        if tr:
+            blk['scale'] = tr['scale']
+        if p.get('keys'):
+            blk['keys'] = _ckeys(p['keys'], fps)
         comp['products'].append(blk)
+
+    # ویرایشگرِ آزاد: اشیای صحنه (هر شکلِ محصول، بی‌برچسبِ خودکار)، نورهای اضافه
+    comp['props'] = []
+    for x in doc.get('props') or []:
+        pa = reg.get('product', x.get('asset'))
+        if not pa:
+            continue
+        params, _ = reg.resolve_params(pa, x.get('params'))
+        blk = _asset_block(pa, params, ('dimensions', 'grasp'))
+        blk.update({'id': x['id'], 'asset': pa.id, 'name': x.get('name', ''), 'transform': _base(x),
+                    'label_image': (label_images.get(x['id']) or params.get('label_image')) or None})
+        if x.get('keys'):
+            blk['keys'] = _ckeys(x['keys'], fps)
+        comp['props'].append(blk)
+    comp['lights'] = []
+    for x in doc.get('lights') or []:
+        blk = {k: x.get(k) for k in ('id', 'type', 'color', 'power', 'size', 'cone', 'blend')}
+        blk['transform'] = _base(x)
+        if x.get('keys'):
+            blk['keys'] = _ckeys(x['keys'], fps)
+        comp['lights'].append(blk)
 
     # حرکت‌ها + نگاهِ خودکارِ هر حرکت
     explicit_gaze = {a['id']: [] for a in doc['actors']}
@@ -215,7 +270,17 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, prof
                 env_f = [max(energy[int(i * step):int((i + 1) * step)] or [0]) for i in range(int(len(energy) / step))]
                 face.setdefault('energy', []).append({'f0': entry['f0'], 'values': [round(x, 3) for x in env_f]})
 
+    cams = {c['id']: c for c in doc.get('cameras') or []}
     for sh in doc['shots']:
+        cam = cams.get(sh.get('camera'))
+        if cam and cam.get('keys'):
+            # دوربینِ آزاد: کلیدهای جای دوربین + نقطهٔ نگاه + لنز (موتور فقط اجرا می‌کند)
+            comp['shots'].append({'id': sh['id'], 'free': True, 'camera': cam['id'], 'start': sh['start'],
+                                  'f0': _frame(sh['start'], fps), 'f1': _frame(S.end_of(sh), fps) - 1,
+                                  'lens': cam.get('lens', 35.0), 'fstop': cam.get('fstop', 4.0),
+                                  'keys': _ckeys(cam['keys'], fps), 'subject': {'type': None, 'id': None},
+                                  'move': 'free', 'params': {}})
+            continue
         sa = reg.get('shot', sh['shot'])
         kind = S.subject_kind(doc, sh['subject'])
         params = dict(sa.get('defaults', {}))
@@ -228,4 +293,6 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, prof
         comp['shots'][-1]['f1'] = frame_end
     comp['overlays'] = doc['overlays']
     comp['audio'] = doc['audio']
+    if (doc.get('meta') or {}).get('asset_preview'):
+        comp['preview'] = doc['meta']['asset_preview']     # خروجیِ preview_glb: فقط همین دارایی
     return comp

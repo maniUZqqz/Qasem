@@ -276,6 +276,24 @@ def estimate(request):
     return Response(out)
 
 
+@panel_view(['GET', 'POST'])
+def asset_preview(request, kind, asset_id):
+    """پیش‌نمایشِ سه‌بعدیِ دارایی برای ویرایشگرِ صحنه. GET وضعیت؛ POST ساخت (یک بار، با کش) — {force: true} دوباره."""
+    if request.method == 'POST':
+        return Response(SV.request_preview(kind, asset_id, bool(request.data.get('force'))))
+    return Response(SV.preview_status(kind, asset_id))
+
+
+@panel_view(['GET'])
+def asset_preview_file(request, kind, asset_id):
+    path = SV.preview_file(kind, asset_id)
+    if not path:
+        raise Http404
+    resp = FileResponse(open(path, 'rb'))
+    resp['Cache-Control'] = 'private, max-age=86400' if request.query_params.get('k') else 'no-cache'
+    return resp
+
+
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def asset_file(request, kind, asset_id, name):

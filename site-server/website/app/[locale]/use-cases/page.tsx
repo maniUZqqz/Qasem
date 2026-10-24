@@ -25,7 +25,7 @@ const COPY = {
     ctaTitle: "همه‌ی این‌ها در یک محصول",
     ctaBody:
       "لازم نیست برای هر کار یک ابزار جدا بخرید — داده‌ی محصول یک بار وارد می‌شود و بقیه رویش سوار می‌شوند.",
-    metaTitle: "با آپ‌مارکت چه کارهایی می‌شود کرد",
+    metaTitle: "با NMarketing چه کارهایی می‌شود کرد",
     metaDesc:
       "تولید محتوای شبکه‌های اجتماعی، معرفی محصول جدید، تحلیل رقبا، ساخت ویدیوی تبلیغاتی و جواب دادن به مشتری‌ها — قدم به قدم.",
   },
@@ -37,7 +37,7 @@ const COPY = {
     ctaTitle: "All of it in one product",
     ctaBody:
       "You do not need a separate tool per job — the product data goes in once and everything else builds on it.",
-    metaTitle: "What you can do with UpMarket",
+    metaTitle: "What you can do with NMarketing",
     metaDesc:
       "Social content, product launches, competitor analysis, promotional video and answering customers — step by step.",
   },

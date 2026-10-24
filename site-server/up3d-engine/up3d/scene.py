@@ -8,13 +8,25 @@
   shots       دوربین                               overlays    نوشته/CTA/قیمت روی تصویر
 
 زمان‌ها ثانیه‌اند؛ تبدیل به فریم فقط در compiler.
+
+ویرایشگرِ آزاد (پنل ⇐ «ویرایشگرِ صحنه») فیلدهای اختیاریِ زیر را اضافه می‌کند؛ سندِ بی‌آن‌ها همان رفتارِ قبلی را دارد:
+  actors[i] / products[i] .transform = {pos:[x,y,z] متر، rot:[درجه XYZ]، scale:[..]}   جای آزاد (به‌جای mark/surface)
+  actors[i] / products[i] / props[i] / lights[i] .keys = [{t, pos, rot, scale, ease}]    کلیدهای حرکت
+  props    = [{id, asset (شکلِ محصول), name, params, transform, keys}]                     اشیای تزئینیِ صحنه
+  lights   = [{id, type: point|spot|area|sun, color, power, size, cone, blend, transform, keys}]
+  cameras  = [{id, name, lens, fstop, keys: [{t, pos, target, lens, ease}]}]              دوربینِ آزاد
+  shots[i].camera = "<id ِ دوربینِ آزاد>"  ⇐ این شات با کلیدهای همان دوربین (نه نمای آماده)
+مختصات مثلِ Blender: متر، Z بالا، بازیگر رو به -Y.
 """
 import copy
 import re
 
 from . import SCENE_FORMAT
+from .keys import EASES
 
 ASPECTS = {'9:16': (9, 16), '16:9': (16, 9), '1:1': (1, 1), '4:5': (4, 5)}
+LIGHT_TYPES = ('point', 'spot', 'area', 'sun')
+LIGHT_POWER = {'point': 150.0, 'spot': 300.0, 'area': 120.0, 'sun': 3.0}
 TRACKS = ('actions', 'speech', 'expressions', 'gaze', 'shots', 'overlays')
 TRACK_PREFIX = {'actions': 'a', 'speech': 'd', 'expressions': 'e', 'gaze': 'g', 'shots': 's', 'overlays': 'o'}
 EXPRESSIONS = ('neutral', 'smile', 'big_smile', 'surprised', 'thinking', 'confident', 'warm', 'wink')
@@ -47,6 +59,76 @@ def _num(v, default=0.0):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _vec(v, default):
+    if not isinstance(v, (list, tuple)) or len(v) < 3:
+        return list(default)
+    return [round(_num(x, d), 4) for x, d in zip(v[:3], default)]
+
+
+def norm_transform(tr):
+    """transform ِ ویرایشگر ⇐ شکلِ کامل و عددی؛ None اگر دیکشنری نیست."""
+    if not isinstance(tr, dict):
+        return None
+    return {'pos': _vec(tr.get('pos'), (0.0, 0.0, 0.0)), 'rot': _vec(tr.get('rot'), (0.0, 0.0, 0.0)),
+            'scale': [max(0.001, x) for x in _vec(tr.get('scale'), (1.0, 1.0, 1.0))]}
+
+
+def norm_keys(keys, channels=('pos', 'rot', 'scale')):
+    """کلیدها: مرتب بر حسبِ زمان، یک کلید در هر زمان (آخری برنده)، فقط کانال‌های شناخته، ease ِ مجاز."""
+    out = {}
+    for k in keys or []:
+        if not isinstance(k, dict):
+            continue
+        t = round(max(0.0, _num(k.get('t'))), 3)
+        nk = {'t': t, 'ease': k.get('ease') if k.get('ease') in EASES else 'smooth'}
+        for ch in channels:
+            if k.get(ch) is None:
+                continue
+            if ch == 'lens':
+                nk[ch] = round(min(300.0, max(8.0, _num(k[ch], 35.0))), 2)
+            elif ch == 'scale':
+                nk[ch] = [max(0.001, x) for x in _vec(k[ch], (1.0, 1.0, 1.0))]
+            else:
+                nk[ch] = _vec(k[ch], (0.0, 0.0, 0.0))
+        if len(nk) > 2:
+            out[t] = nk
+    return [out[t] for t in sorted(out)]
+
+
+def _norm_free(obj, channels=('pos', 'rot', 'scale')):
+    if 'transform' in obj:
+        tr = norm_transform(obj.get('transform'))
+        if tr:
+            obj['transform'] = tr
+        else:
+            obj.pop('transform', None)
+    if 'keys' in obj:
+        obj['keys'] = norm_keys(obj.get('keys'), channels)
+        if not obj['keys']:
+            obj.pop('keys')
+
+
+def _unique_ids(items, prefix, used):
+    for i, it in enumerate(items):
+        if not it.get('id') or it['id'] in used:
+            n = i + 1
+            while '%s%d' % (prefix, n) in used:
+                n += 1
+            it['id'] = '%s%d' % (prefix, n)
+        used.add(it['id'])
+
+
+def has_editor_features(doc):
+    """سند از قابلیت‌های ویرایشگرِ آزاد استفاده می‌کند؟ (کارگرِ قدیمی آن‌ها را نمی‌فهمد)"""
+    doc = doc or {}
+    if doc.get('props') or doc.get('lights') or doc.get('cameras'):
+        return True
+    for x in (doc.get('actors') or []) + (doc.get('products') or []):
+        if x.get('transform') or x.get('keys'):
+            return True
+    return any(s.get('camera') for s in doc.get('shots') or [])
 
 
 def estimate_speech_seconds(text):
@@ -106,10 +188,43 @@ def normalize(doc):
         a.setdefault('id', 'actor%d' % (i + 1))
         a.setdefault('mark', 'center')
         a.setdefault('params', {})
+        _norm_free(a)
     for i, p in enumerate(doc['products']):
         p.setdefault('id', 'p%d' % (i + 1))
         p.setdefault('params', {})
         p.setdefault('name', '')
+        _norm_free(p)
+    # ویرایشگرِ آزاد: اشیای تزئینی، نورهای اضافه، دوربین‌های آزاد (فقط اگر در سند هستند)
+    used = {x['id'] for x in doc['actors'] + doc['products']}
+    if doc.get('props') is not None:
+        doc['props'] = [x for x in doc['props'] if isinstance(x, dict) and x.get('asset')]
+        _unique_ids(doc['props'], 'prop', used)
+        for x in doc['props']:
+            x.setdefault('params', {})
+            x.setdefault('name', '')
+            x['transform'] = norm_transform(x.get('transform')) or norm_transform({})
+            _norm_free(x)
+    if doc.get('lights') is not None:
+        doc['lights'] = [x for x in doc['lights'] if isinstance(x, dict)]
+        _unique_ids(doc['lights'], 'light', used)
+        for x in doc['lights']:
+            if x.get('type') not in LIGHT_TYPES:
+                x['type'] = 'point'
+            x['color'] = x.get('color') if isinstance(x.get('color'), str) and x['color'].startswith('#') else '#ffffff'
+            x['power'] = round(max(0.0, _num(x.get('power'), LIGHT_POWER[x['type']])), 3)
+            x['size'] = round(min(20.0, max(0.01, _num(x.get('size'), 0.5))), 3)
+            x['cone'] = round(min(175.0, max(1.0, _num(x.get('cone'), 45.0))), 2)
+            x['blend'] = round(min(1.0, max(0.0, _num(x.get('blend'), 0.3))), 3)
+            x['transform'] = norm_transform(x.get('transform')) or norm_transform({'pos': [0, -1.5, 2.2]})
+            _norm_free(x)
+    if doc.get('cameras') is not None:
+        doc['cameras'] = [x for x in doc['cameras'] if isinstance(x, dict)]
+        _unique_ids(doc['cameras'], 'cam', used)
+        for x in doc['cameras']:
+            x.setdefault('name', '')
+            x['lens'] = round(min(300.0, max(8.0, _num(x.get('lens'), 35.0))), 2)
+            x['fstop'] = round(min(32.0, max(0.7, _num(x.get('fstop'), 4.0))), 2)
+            x['keys'] = norm_keys(x.get('keys'), ('pos', 'target', 'lens'))
     for track in TRACKS:
         items = doc.get(track) or []
         used = set()

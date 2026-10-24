@@ -1,9 +1,9 @@
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import Icon from "../../../components/Icon";
 import { Badge, Button, ErrorBox, Spinner } from "../../../components/ui";
-import { actionFor, clone, errMsg, fa, label, up3d } from "./api";
+import { P, actionFor, clone, errMsg, fa, label, up3d } from "./api";
 import { type AiOut, AiPanel, CodePanel, IssueCount, IssuesPanel, VersionsTable } from "./editor/BottomPanels";
 import Inspector from "./editor/Inspector";
 import { type Sel, OVT, TRACKS, byId, docDuration, newItem, selFromPath, sortTrack } from "./editor/model";
@@ -371,6 +371,19 @@ export default function ProjectPage() {
           {dirty && <Badge tone="warn">تغییرِ ذخیره‌نشده</Badge>}
         </div>
         <div className="flex flex-wrap gap-2">
+          <span className="u-tabs" style={{ margin: 0 }}>
+            <span className="u-tab active">گام‌به‌گام</span>
+            <Link
+              to={P.sceneEditor(pid)}
+              className="u-tab"
+              title="صحنهٔ سه‌بعدی: کشیدن و رها کردن، جا و چرخشِ آزاد، کلیدِ حرکت، دوربینِ آزاد"
+              onClick={(e) => {
+                if (dirtyRef.current && !window.confirm("تغییرهای ذخیره‌نشده از دست می‌رود. ادامه؟")) e.preventDefault();
+              }}
+            >
+              ویرایشگرِ آزاد (سه‌بعدی)
+            </Link>
+          </span>
           <Button variant="secondary" onClick={undo} disabled={!canUndo} title="Ctrl+Z">
             ↶ برگرد
           </Button>

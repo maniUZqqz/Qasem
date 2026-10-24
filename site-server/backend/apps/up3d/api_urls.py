@@ -46,5 +46,7 @@ urlpatterns = [
     path('jobs/<int:pk>/cancel/', api.job_cancel),
     path('jobs/<int:pk>/allow-cpu/', api.job_allow_cpu),
     path('assets/', api.assets),
+    path('asset-preview/<str:kind>/<str:asset_id>/', api.asset_preview),
+    path('asset-preview/<str:kind>/<str:asset_id>/file/', api.asset_preview_file),
     path('estimate/', api.estimate),
 ]

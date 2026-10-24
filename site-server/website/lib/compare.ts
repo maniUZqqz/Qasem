@@ -36,10 +36,10 @@ const fa: Comparison[] = [
     slug: "upmarket-vs-marketing-agency",
     icon: "🏢",
     other: "آژانس بازاریابی",
-    title: "آپ‌مارکت یا آژانس بازاریابی؟",
+    title: "NMarketing یا آژانس بازاریابی؟",
     lead: "کدام برای فروشگاه شما منطقی‌تر است — و کِی آژانس واقعاً بهتر است.",
     metaDesc:
-      "مقایسه‌ی منصفانه‌ی آپ‌مارکت با آژانس بازاریابی: هزینه، سرعت، کنترل و اینکه هرکدام برای چه کسی بهتر است.",
+      "مقایسه‌ی منصفانه‌ی NMarketing با آژانس بازاریابی: هزینه، سرعت، کنترل و اینکه هرکدام برای چه کسی بهتر است.",
     intro:
       "آژانس یعنی سپردن کار به تیمی که این کار را حرفه‌ای انجام می‌دهد. برای کسب‌وکاری که بودجه دارد و می‌خواهد اصلاً درگیر نشود، انتخاب درستی است. مقایسه‌ی زیر برای کسی است که هنوز تصمیم نگرفته.",
     rows: [
@@ -63,16 +63,16 @@ const fa: Comparison[] = [
       "محتوا از عکس واقعی محصول خودتان.",
     ],
     verdict:
-      "اگر مشکل شما «حجم محتوای روزمره و جواب دادن به مشتری» است، آپ‌مارکت. اگر مشکل شما «برند ما چه باید بگوید» است، آژانس.",
+      "اگر مشکل شما «حجم محتوای روزمره و جواب دادن به مشتری» است، NMarketing. اگر مشکل شما «برند ما چه باید بگوید» است، آژانس.",
   },
   {
     slug: "upmarket-vs-freelancer",
     icon: "🧑‍💻",
     other: "فریلنسر",
-    title: "آپ‌مارکت یا فریلنسر؟",
+    title: "NMarketing یا فریلنسر؟",
     lead: "یک نفر که کار را انجام می‌دهد، در برابر سیستمی که همیشه هست.",
     metaDesc:
-      "مقایسه‌ی منصفانه‌ی آپ‌مارکت با استخدام فریلنسر برای تولید محتوا: هزینه، ثبات، کیفیت و مناسب چه کسی.",
+      "مقایسه‌ی منصفانه‌ی NMarketing با استخدام فریلنسر برای تولید محتوا: هزینه، ثبات، کیفیت و مناسب چه کسی.",
     intro:
       "فریلنسر خوب، ترکیبی از مهارت و درک انسانی است که هیچ ابزاری جایش را نمی‌گیرد. ولی در دسترس بودنش، ثباتش و هزینه‌اش با حجم کار بالا می‌رود.",
     rows: [
@@ -95,13 +95,13 @@ const fa: Comparison[] = [
       "پیوستگی: کسی ترک نمی‌کند و دانش برند جایی نمی‌رود.",
     ],
     verdict:
-      "برای کار کم و خاص، فریلنسر. برای کار زیاد و مستمر، آپ‌مارکت. خیلی‌ها هر دو را دارند: سیستم برای روزمره، فریلنسر برای کمپین‌های خاص.",
+      "برای کار کم و خاص، فریلنسر. برای کار زیاد و مستمر، NMarketing. خیلی‌ها هر دو را دارند: سیستم برای روزمره، فریلنسر برای کمپین‌های خاص.",
   },
   {
     slug: "upmarket-vs-doing-it-yourself",
     icon: "🙋",
     other: "خودتان انجام دهید",
-    title: "آپ‌مارکت یا خودم انجام بدهم؟",
+    title: "NMarketing یا خودم انجام بدهم؟",
     lead: "صادقانه: خیلی از فروشگاه‌ها به هیچ ابزاری نیاز ندارند.",
     metaDesc:
       "آیا برای تولید محتوای فروشگاهتان به ابزار نیاز دارید؟ مقایسه‌ی منصفانه با انجام دادن خودتان.",
@@ -135,10 +135,10 @@ const en: Comparison[] = [
     slug: "upmarket-vs-marketing-agency",
     icon: "🏢",
     other: "a marketing agency",
-    title: "UpMarket or a marketing agency?",
+    title: "NMarketing or a marketing agency?",
     lead: "Which makes sense for your shop — and when an agency is genuinely better.",
     metaDesc:
-      "A fair comparison of UpMarket and a marketing agency: cost, speed, control, and who each one suits.",
+      "A fair comparison of NMarketing and a marketing agency: cost, speed, control, and who each one suits.",
     intro:
       "An agency means handing the work to people who do this professionally. For a business with budget that wants no involvement, that is the right call. This comparison is for someone still deciding.",
     rows: [
@@ -162,16 +162,16 @@ const en: Comparison[] = [
       "Content built on your own real product photos.",
     ],
     verdict:
-      "If your problem is “daily content volume and answering customers”, UpMarket. If your problem is “what should our brand say”, an agency.",
+      "If your problem is “daily content volume and answering customers”, NMarketing. If your problem is “what should our brand say”, an agency.",
   },
   {
     slug: "upmarket-vs-freelancer",
     icon: "🧑‍💻",
     other: "a freelancer",
-    title: "UpMarket or a freelancer?",
+    title: "NMarketing or a freelancer?",
     lead: "One person who does the work, against a system that is always there.",
     metaDesc:
-      "A fair comparison of UpMarket and hiring a freelancer for content: cost, consistency, quality and fit.",
+      "A fair comparison of NMarketing and hiring a freelancer for content: cost, consistency, quality and fit.",
     intro:
       "A good freelancer combines craft with human judgement that no tool replaces. But availability, consistency and cost all move with volume.",
     rows: [
@@ -194,13 +194,13 @@ const en: Comparison[] = [
       "Continuity: nobody leaves and takes the brand knowledge with them.",
     ],
     verdict:
-      "For small, special work, a freelancer. For high, continuous volume, UpMarket. Plenty of shops run both: the system for daily work, a freelancer for the campaigns that matter.",
+      "For small, special work, a freelancer. For high, continuous volume, NMarketing. Plenty of shops run both: the system for daily work, a freelancer for the campaigns that matter.",
   },
   {
     slug: "upmarket-vs-doing-it-yourself",
     icon: "🙋",
     other: "doing it yourself",
-    title: "UpMarket or do it yourself?",
+    title: "NMarketing or do it yourself?",
     lead: "Honestly: plenty of shops need no tool at all.",
     metaDesc:
       "Do you need a tool to make content for your shop? An honest comparison with doing it yourself.",

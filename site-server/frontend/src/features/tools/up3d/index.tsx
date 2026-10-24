@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import "./up3d.css";
@@ -14,6 +15,9 @@ import TokenPage from "./TokenPage";
 import ViewerPage from "./ViewerPage";
 import WorkersPage from "./WorkersPage";
 
+// ویرایشگرِ آزاد (three + react-three-fiber) جدا بار می‌شود تا بقیهٔ پنل سنگین نشود
+const SceneEditorPage = lazy(() => import("./scene/SceneEditorPage"));
+
 /**
  * «ویدیوی سه‌بعدی» (UpMarket 3D) داخلِ همین پنل.
  *
@@ -27,6 +31,14 @@ export default function Up3dRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="new" element={<NewProjectPage />} />
         <Route path="p/:id" element={<ProjectPage />} />
+        <Route
+          path="p/:id/editor"
+          element={
+            <Suspense fallback={<div className="py-10 text-center text-sm">در حالِ بار کردنِ ویرایشگرِ سه‌بعدی…</div>}>
+              <SceneEditorPage />
+            </Suspense>
+          }
+        />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="jobs/:id" element={<JobPage />} />
         <Route path="jobs/:id/viewer" element={<ViewerPage />} />

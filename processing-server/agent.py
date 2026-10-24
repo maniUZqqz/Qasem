@@ -31,6 +31,11 @@ Job kinds:
   photo.edit      photo recipe (PersianAiKit.Photo :5670)        photo.analyze   photo analysis
   video.edit      video recipe/export (PersianAiKit.Video :5680)
   voice.tts       text to speech (PersianAiKit.Voice :5600)      voice.asr       speech to text
+                  natural / cloned voice: {voice, clone|strict: true} -> /api/voice/tts, never a Piper fallback;
+                  {restore: {...}} + clips: rebuild the voice first when this node does not have it (VOICE_MISSING)
+  voice.clone     build a cloned voice from read sentences + the owner's consent (/api/voice/clone + /clone/clip);
+                  the Python voice service (Setup-Voice.bat) is installed automatically the first time
+                  (NM_VOICE_AUTOSETUP=0 turns that off)
   ollama.chat     text/vision with Ollama (:11434) — payload is the /api/chat or /api/generate body
   *.http          generic relay to that service: {method, path, json|form, files:{field: input name}}
 """
@@ -54,7 +59,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.5"
+VERSION = "1.6"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -276,11 +281,11 @@ def fetch_pack(name, tick=None):
     return added
 
 
-def run_logged(cmd, logf, tick=None, timeout=2400, label=""):
+def run_logged(cmd, logf, tick=None, timeout=2400, label="", env=None):
     """Run a long command, write its output to logf, keep the job alive with tick(); True on exit code 0."""
     os.makedirs(os.path.dirname(logf), exist_ok=True)
     with open(logf, "w", encoding="utf-8", errors="replace") as fh:
-        p = subprocess.Popen(cmd, cwd=HERE, stdout=fh, stderr=subprocess.STDOUT)
+        p = subprocess.Popen(cmd, cwd=HERE, stdout=fh, stderr=subprocess.STDOUT, env=env)
         t0 = time.time()
         while p.poll() is None:
             if time.time() - t0 > timeout:
@@ -924,6 +929,7 @@ class Capabilities:
         if gpus:
             caps["gpu"] = ", ".join(gpus)
         caps["blender"] = bool(blender_path()) and os.path.isdir(os.path.join(HERE, "up3d"))
+        caps["voice_clone"] = voice_clone_installed()     # natural voices + cloning (else installed on first use)
         total, free = memory_mb()
         if total:
             caps["ram_total_mb"], caps["ram_free_mb"] = total, free
@@ -1059,6 +1065,10 @@ def check(cfg):
     vm = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
     have_voice = os.path.isfile(os.path.join(vm, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(vm, "vosk"))
     row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat brings them from the site (text-to-speech needs them)")
+    vc_ok = voice_clone_installed()
+    row(True if vc_ok else None, "  voice cloning service",
+        "installed (voice\\.venv + Pocket-TTS)" if vc_ok else
+        "not installed - the first voice.clone job installs it (~0.7 GB), or run tools\\PersianAiKit\\Voice\\Setup-Voice.bat")
     pm = os.path.join(HERE, "tools", "PersianAiKit", "Photo", "models", "upscale", "realesr-general-x4v3.onnx")
     row(True if os.path.isfile(pm) else None, "  photo models", pm if os.path.isfile(pm) else "upscaler missing (optional) - Setup-Services.bat downloads it")
     bl = blender_path()
@@ -1285,6 +1295,348 @@ class Job:
                        {"ok": ok, "error": err[:4000], "meta": meta or {}}, timeout=120)
 
 
+# ───────────────────────────────────────────── voice service (natural voices, cloning)
+
+class JobError(RuntimeError):
+    """A failure meant for the panel. retryable=False: the site should not hand the same job out again."""
+
+    def __init__(self, message, retryable=True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+class VoiceMissing(JobError):
+    """The kit does not have the voice the job names (built on another node, or its folder was wiped)."""
+
+    def __init__(self, message):
+        super().__init__(message, retryable=False)
+
+
+VOICE_ROOT = os.path.join(HERE, "tools", "PersianAiKit", "Voice")
+VOICE_GATEWAY_PORT = int(os.environ.get("NM_VOICE_GATEWAY_PORT") or 5620)
+VOICE_SETUP_HINT = (
+    "VOICE_SETUP: the natural-voice / voice-cloning service of PersianAiKit is not installed on this node. "
+    "Run tools\\PersianAiKit\\Voice\\Setup-Voice.bat once (Python 3.10-3.13 x64), then restart START.bat. | "
+    "سرویسِ صدای طبیعی و کلونِ صدا روی این سرورِ پردازش نصب نیست: یک بار "
+    "tools\\PersianAiKit\\Voice\\Setup-Voice.bat را اجرا کنید (پایتونِ ۳٫۱۰ تا ۳٫۱۳) و START.bat را دوباره باز کنید."
+)
+_VOICE_LOCK = threading.Lock()
+_VOICE_GATEWAY = {}
+
+
+def voice_venv_python():
+    sub = ("Scripts", "python.exe") if sys.platform.startswith("win") else ("bin", "python")
+    return os.path.join(VOICE_ROOT, "voice", ".venv", *sub)
+
+
+def pocket_model_ok():
+    return os.path.isfile(os.path.join(VOICE_ROOT, "models", "tts", "pocket-fa", "flow_lm_step.onnx.data"))
+
+
+def voice_clone_installed():
+    return os.path.isfile(voice_venv_python()) and pocket_model_ok()
+
+
+def kit_request(method, path, data=None, headers=None, timeout=600):
+    """Request to the local voice kit -> (status, body, headers). HTTP errors are returned, not raised."""
+    h = {"Accept": "application/json, */*"}
+    body = None
+    if isinstance(data, (dict, list)):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        h["Content-Type"] = "application/json; charset=utf-8"
+    elif data is not None:
+        body = data
+    h.update(headers or {})
+    req = urllib.request.Request(service_url("voice") + path, data=body, headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read(), {k.lower(): v for k, v in r.headers.items()}
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), {k.lower(): v for k, v in (e.headers.items() if e.headers else [])}
+    except (urllib.error.URLError, socket.timeout, OSError) as e:
+        raise JobError("voice service is not reachable at %s: %s" % (service_url("voice"), e))
+
+
+def kit_error(status, body):
+    """The kit's {"error": "..."} (Persian) with the status."""
+    try:
+        msg = json.loads(body.decode("utf-8")).get("error")
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        msg = None
+    return "%s (HTTP %s)" % (msg or (body or b"")[:300].decode("utf-8", "replace").strip() or "no message", status)
+
+
+def voice_engines():
+    """(voice service up?, Pocket-TTS ready?, error) as the kit sees it."""
+    try:
+        status, body, _h = kit_request("GET", "/api/voice/engines", timeout=20)
+    except JobError as e:
+        return False, False, str(e)
+    if status != 200:
+        return False, False, kit_error(status, body)
+    try:
+        r = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return False, False, "unreadable answer from /api/voice/engines"
+    pocket = any(isinstance(e, dict) and e.get("id") == "pocket" and e.get("available") for e in r.get("engines") or [])
+    return bool(r.get("gateway")), pocket, r.get("error") or ""
+
+
+def setup_voice_service(tick=None):
+    """First use on a node: what Setup-Voice.bat does, limited to what speech and cloning need (the voice venv, the
+    Python packages, the Pocket-TTS model ~490 MB). NM_VOICE_AUTOSETUP=0 turns it off. JobError says what to do
+    by hand when it cannot. Interrupted downloads resume on the next try."""
+    if os.environ.get("NM_VOICE_AUTOSETUP", "1").strip() == "0":
+        raise JobError(VOICE_SETUP_HINT + " (automatic setup is off: NM_VOICE_AUTOSETUP=0)", retryable=False)
+    if not ((3, 10) <= sys.version_info[:2] <= (3, 13)):
+        raise JobError(VOICE_SETUP_HINT + " (this agent runs on Python %d.%d; the voice service needs 3.10-3.13)"
+                       % sys.version_info[:2], retryable=False)
+    req = os.path.join(VOICE_ROOT, "voice", "requirements.txt")
+    dl = os.path.join(VOICE_ROOT, "tools", "download_voice_models.py")
+    if not (os.path.isfile(req) and os.path.isfile(dl) and os.path.isfile(os.path.join(VOICE_ROOT, "voice", "gateway.py"))):
+        raise JobError(VOICE_SETUP_HINT + " (voice kit files are missing: update the processing folder with git pull)",
+                       retryable=False)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1")
+    log("voice: installing the natural-voice / cloning service on this node (first time only, about 0.7 GB) "
+        "- logs\\setup-voice-*.log")
+    py = voice_venv_python()
+    if not os.path.isfile(py):
+        logf = os.path.join(LOGS, "setup-voice-venv.log")
+        ok = run_logged([sys.executable, "-m", "venv", os.path.join(VOICE_ROOT, "voice", ".venv")], logf, tick,
+                        timeout=900, label="voice: creating the Python environment", env=env)
+        if not ok or not os.path.isfile(py):
+            raise JobError(VOICE_SETUP_HINT + " (python -m venv failed:\n%s)" % "\n".join(tail_lines(logf, 6)))
+    pip = [py, "-m", "pip", "install", "--disable-pip-version-check", "--retries", "10", "--timeout", "60"]
+    logf = os.path.join(LOGS, "setup-voice-packages.log")
+    if not run_logged(pip + ["-r", req], logf, tick, timeout=3600, label="voice: installing Python packages", env=env):
+        warn("voice: voice\\requirements.txt did not fully install (last lines below); installing only what speech and "
+             "cloning need - sound effects stay off until Setup-Voice.bat\n%s" % "\n".join(tail_lines(logf, 6)))
+        logf = os.path.join(LOGS, "setup-voice-packages-core.log")
+        if not run_logged(pip + ["numpy>=1.24", "onnxruntime>=1.18", "sentencepiece>=0.2"], logf, tick, timeout=3600,
+                          label="voice: installing core packages", env=env):
+            raise JobError(VOICE_SETUP_HINT + " (pip failed:\n%s)" % "\n".join(tail_lines(logf, 6)))
+    if not pocket_model_ok():
+        logf = os.path.join(LOGS, "setup-voice-models.log")
+        ok = run_logged([py, dl, "--only", "pocket-fa"], logf, tick, timeout=5400,
+                        label="voice: downloading Pocket-TTS (490 MB)", env=env)
+        if not ok or not pocket_model_ok():
+            raise JobError(VOICE_SETUP_HINT + " (model download stopped; it resumes on the next try:\n%s)"
+                           % "\n".join(tail_lines(logf, 6)))
+    log("voice: natural-voice / cloning service installed")
+
+
+def start_voice_gateway(tick=None):
+    """The kit starts its Python voice service only when the kit itself starts. If this agent started the kit,
+    restart it; otherwise run the service directly on the kit's address (it stops together with this agent)."""
+    if MANAGER is not None:
+        p = MANAGER.procs.get("voice")
+        if p is not None and p.poll() is None:
+            log("voice: restarting the voice editor so it starts the newly installed voice service")
+            MANAGER.stop("voice")
+            time.sleep(3)
+            if MANAGER.start("voice", tick=tick):
+                return
+    p = _VOICE_GATEWAY.get("proc")
+    if p is not None and p.poll() is None:
+        return
+    gw = os.path.join(VOICE_ROOT, "voice", "gateway.py")
+    cmd = [voice_venv_python(), gw, "--port", str(VOICE_GATEWAY_PORT), "--data", os.path.join(VOICE_ROOT, "data"),
+           "--models", os.path.join(VOICE_ROOT, "models"), "--parent-pid", str(os.getpid())]
+    os.makedirs(LOGS, exist_ok=True)
+    logf = os.path.join(LOGS, "voice-gateway.log")
+    log("voice: starting the voice service on port %d (output: logs\\voice-gateway.log)" % VOICE_GATEWAY_PORT)
+    try:
+        fh = open(logf, "a", encoding="utf-8", errors="replace")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
+        _VOICE_GATEWAY["proc"] = subprocess.Popen(
+            cmd, cwd=os.path.dirname(gw), stdout=fh, stderr=subprocess.STDOUT, creationflags=flags,
+            env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1"))
+    except OSError as e:
+        raise JobError(VOICE_SETUP_HINT + " (could not start the voice service: %s)" % e)
+
+
+def ensure_voice_service(tick=None):
+    """Natural voices and cloning need the kit's Python voice service with Pocket-TTS. Installs it the first time,
+    starts it when it is down; JobError (with the manual fix) when that is not possible."""
+    up, pocket, err = voice_engines()
+    if up and pocket:
+        return True
+    with _VOICE_LOCK:
+        up, pocket, err = voice_engines()
+        if up and pocket:
+            return True
+        if "not reachable" in (err or ""):
+            raise JobError("the PersianAiKit voice editor is not running on this node (%s); start it from the panel "
+                           "(services of this node) or turn auto-switch on | ویرایشگرِ صدا روی این سرورِ پردازش روشن نیست" % err)
+        if not voice_clone_installed():
+            setup_voice_service(tick)
+        if not up:
+            start_voice_gateway(tick)
+        deadline = time.time() + 240             # first start loads Pocket-TTS (10-20 s)
+        while time.time() < deadline:
+            up, pocket, err = voice_engines()
+            if up and pocket:
+                log("voice: natural voices / cloning ready")
+                return True
+            if tick:
+                tick("voice: waiting for the voice service ...")
+            time.sleep(3)
+        extra = "\n".join(tail_lines(os.path.join(LOGS, "voice-gateway.log"), 8)) if _VOICE_GATEWAY.get("proc") else ""
+        raise JobError(VOICE_SETUP_HINT + " (%s)%s" % (
+            err or ("the voice service is up but the Pocket-TTS model is missing" if up else "the voice service did not come up"),
+            ("\n" + extra) if extra else ""))
+
+
+def _job_tick(job, fraction):
+    """Keeps the site's lease on the job alive during long preparations (one progress call per 25 s)."""
+    last = [0.0]
+
+    def tick(msg):
+        if time.time() - last[0] >= 25:
+            last[0] = time.time()
+            job.progress(fraction, str(msg)[:120])
+    return tick
+
+
+def _header(headers, name):
+    return (headers or {}).get(name.lower())
+
+
+def _kit_clone(job, name, person, purpose, clips, lo=0.15, hi=0.8, replace=""):
+    """Create voice `name` in the kit from read sentences [{file, index, text}] -> (voice id, per-clip verdicts).
+    An existing voice with the same id (an earlier build) is deleted first: a rebuild, not a second voice."""
+    for old in [x for x in dict.fromkeys((replace, name)) if x]:
+        status, body, _h = kit_request("DELETE", "/api/voice/voices/" + urllib.parse.quote(old, safe=""), timeout=60)
+        if status not in (200, 404):
+            warn("voice: could not delete the old voice %s: %s" % (old, kit_error(status, body)))
+    status, body, _h = kit_request("POST", "/api/voice/clone",
+                                   {"name": name, "person": person or "", "purpose": purpose or "", "consent": True},
+                                   timeout=60)
+    if status != 200:
+        raise JobError("voice clone: the kit refused to create the voice: %s" % kit_error(status, body))
+    vid = (json.loads(body.decode("utf-8")) or {}).get("id")
+    if not vid:
+        raise JobError("voice clone: the kit returned no voice id")
+    results = []
+    for i, c in enumerate(clips):
+        q = urllib.parse.urlencode({"voice": vid, "index": int(c["index"]), "text": c.get("text") or ""})
+        status, body, _h = kit_request("POST", "/api/voice/clone/clip?" + q, job.input_bytes(c["file"]),
+                                       {"Content-Type": "audio/wav"}, timeout=300)
+        try:
+            r = json.loads(body.decode("utf-8")) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            r = {}
+        if status != 200 or not isinstance(r, dict):
+            r = {"ok": False, "message": (r.get("error") if isinstance(r, dict) else None) or kit_error(status, body)}
+        r["index"] = int(c["index"])
+        results.append(r)
+        job.progress(lo + (hi - lo) * (i + 1) / max(1, len(clips)), "voice clone: clip %d/%d checked" % (i + 1, len(clips)))
+    return vid, results
+
+
+def _save_consent(vid, consent):
+    """The owner's consent next to the recordings on this node too (VOICE-SETUP.md 6.1: consent.json)."""
+    d = os.path.join(VOICE_ROOT, "data", "voices", vid)
+    if os.path.isdir(d) and isinstance(consent, dict):
+        try:
+            with open(os.path.join(d, "consent.json"), "w", encoding="utf-8") as fh:
+                json.dump(consent, fh, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+
+
+def h_voice_clone(job):
+    """Build a cloned voice: consent + read sentences -> kit voice id, per-clip verdicts, reference and a test sentence."""
+    p = job.payload
+    consent = p.get("consent") or {}
+    if consent.get("given") is not True or not consent.get("text"):
+        raise JobError("voice clone refused: the owner's consent is missing from the job", retryable=False)
+    clips = [c for c in (p.get("clips") or []) if isinstance(c, dict) and job.input_path(c.get("file"))]
+    if not clips:
+        raise JobError("voice clone: no recordings in the job package", retryable=False)
+    name = str(p.get("name") or "").strip()
+    if not name:
+        raise JobError("voice clone: the voice name is missing", retryable=False)
+    t0 = time.time()
+    job.progress(0.05, "voice clone: preparing the voice service")
+    ensure_voice_service(_job_tick(job, 0.05))
+    vid, results = _kit_clone(job, name, p.get("person"), p.get("purpose"), clips, replace=str(p.get("replace") or ""))
+    accepted = [r for r in results if r.get("ok")]
+    out = {"ready": False, "voice_id": None, "engine": "pocket", "clips": results, "accepted": len(accepted),
+           "minutes": max([float(r.get("minutes") or 0) for r in accepted] or [0]), "node": CONFIG.get("name")}
+    if not accepted:
+        kit_request("DELETE", "/api/voice/voices/" + urllib.parse.quote(vid, safe=""), timeout=60)
+        with open(job.out("clone.json"), "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False, indent=2)
+        return {"primary": "clone.json", "engine": "voice:clone", "ready": False}
+    _save_consent(vid, consent)
+    status, body, _h = kit_request("GET", "/api/voice/voices/%s/sample" % urllib.parse.quote(vid, safe=""), timeout=60)
+    if status == 200 and body:
+        with open(job.out("ref.wav"), "wb") as fh:
+            fh.write(body)
+    job.progress(0.85, "voice clone: speaking a test sentence in the new voice")
+    sample_text = str(p.get("sample_text") or "سلام! این صدای ساخته شده من است.")
+    status, body, headers = kit_request("POST", "/api/voice/tts", {"text": sample_text, "voice": vid}, timeout=900)
+    if status != 200:
+        raise JobError("voice clone: the voice was made but speaking with it failed: %s" % kit_error(status, body))
+    with open(job.out("sample.wav"), "wb") as fh:
+        fh.write(body)
+    try:
+        check = float(_header(headers, "X-Voice-Check"))
+    except (TypeError, ValueError):
+        check = None
+    out.update(ready=True, voice_id=vid, check=check, sample_text=sample_text, took=round(time.time() - t0, 1))
+    with open(job.out("clone.json"), "w", encoding="utf-8") as fh:
+        json.dump(out, fh, ensure_ascii=False, indent=2)
+    log("voice clone: %s ready (%d of %d clips accepted, check %s)" % (vid, len(accepted), len(results), check))
+    return {"primary": "clone.json", "engine": "voice:clone", "voice_id": vid, "ready": True}
+
+
+def _natural_tts(job, p, text, out, setup=True):
+    """Speech in a natural or cloned voice (/api/voice/tts). Rebuilds a missing cloned voice when the job carries it."""
+    if setup:
+        job.progress(0.05, "preparing the voice service")
+        ensure_voice_service(_job_tick(job, 0.05))
+    body = {"text": text}
+    for k in ("voice", "engine", "seed"):
+        if p.get(k) not in (None, ""):
+            body[k] = str(p[k])
+    restored = None
+    for attempt in (1, 2):
+        status, data, headers = kit_request("POST", "/api/voice/tts", body, timeout=max(600, int(job.timeout_s or 600)))
+        if status == 200:
+            break
+        msg = kit_error(status, data)
+        if status in (404, 409) and attempt == 1 and body.get("voice"):
+            restore = p.get("restore")
+            if not (isinstance(restore, dict) and restore.get("clips") and (restore.get("consent") or {}).get("given")):
+                raise VoiceMissing("VOICE_MISSING: voice '%s' is not on this node: %s" % (body["voice"], msg))
+            job.progress(0.1, "rebuilding the voice on this node from its recordings")
+            clips = [c for c in restore["clips"] if isinstance(c, dict) and job.input_path(c.get("file"))]
+            vid, results = _kit_clone(job, str(restore.get("name") or body["voice"]), restore.get("person"),
+                                      restore.get("purpose"), clips, lo=0.1, hi=0.5)
+            if not any(r.get("ok") for r in results):
+                kit_request("DELETE", "/api/voice/voices/" + urllib.parse.quote(vid, safe=""), timeout=60)
+                raise JobError("could not rebuild voice '%s' on this node: %s" % (
+                    body["voice"], "; ".join(str(r.get("message")) for r in results)[:600]), retryable=False)
+            _save_consent(vid, restore.get("consent"))
+            restored = body["voice"] = vid
+            continue
+        if status == 503:
+            raise JobError(VOICE_SETUP_HINT + " (" + msg + ")")
+        raise JobError("voice: speech failed: %s" % msg, retryable=status >= 500)
+    with open(job.out(out), "wb") as fh:
+        fh.write(data)
+    meta = {"primary": out, "engine": "voice:" + (_header(headers, "X-Voice-Engine") or "pocket")}
+    try:
+        meta["check"] = float(_header(headers, "X-Voice-Check"))
+    except (TypeError, ValueError):
+        pass
+    if restored:
+        meta.update(voice_id=restored, restored=True)
+    return meta
+
+
 # ───────────────────────────────────────────── handlers
 
 def h_echo(job):
@@ -1442,26 +1794,29 @@ def h_voice_tts(job):
     p = job.payload
     text = str(p.get("text", "")).strip()
     if not text:
-        raise RuntimeError("text is empty")
-    body = {"text": text}
-    for k in ("voice", "engine", "speed", "seed"):
-        if p.get(k) not in (None, ""):
-            body[k] = str(p[k])
-    out = p.get("out") or "speech.wav"
+        raise JobError("text is empty", retryable=False)
+    out = os.path.basename(str(p.get("out") or "speech.wav"))
     engine = str(p.get("engine") or "").lower()
-    # natural voices / cloning (/api/voice/tts) need the optional Python voice service (Setup-Voice.bat);
-    # Piper (/api/tts) is always there. Ask for the natural engine only when requested, and fall back to Piper.
-    if engine and engine != "piper":
+    voice = str(p.get("voice") or "")
+    # natural voices / cloning (/api/voice/tts) need the kit's Python voice service; Piper (/api/tts) is always there.
+    # A cloned (or strict) request never falls back: a shop that chose its own voice must not get somebody else's.
+    strict = bool(p.get("clone") or p.get("strict"))
+    natural = strict or (engine and engine != "piper") or bool(voice and not voice.startswith(("fa_IR-", "piper:")))
+    if natural:
+        if strict:
+            return _natural_tts(job, p, text, out)
         try:
-            _obj, name = _relay(job, "voice", "POST", "/api/voice/tts", body, out_name=out, timeout=600)
-            return {"primary": name, "engine": "voice:" + engine}
-        except RuntimeError as e:
-            warn("natural voice engine '%s' unavailable (%s) - using Piper" % (engine, str(e)[:160]))
+            return _natural_tts(job, p, text, out, setup=False)
+        except JobError as e:
+            warn("natural voice '%s' unavailable (%s) - using Piper (send strict=true to fail instead)"
+                 % (voice or engine, str(e)[:160]))
     piper = {"text": text}
     if p.get("speed") not in (None, ""):
         piper["speed"] = str(p["speed"])
-    if p.get("voice") and str(p["voice"]).startswith("fa_IR-"):
-        piper["voice"] = str(p["voice"])
+    if voice.startswith("piper:"):
+        voice = voice[len("piper:"):]
+    if voice.startswith("fa_IR-"):
+        piper["voice"] = voice
     _obj, name = _relay(job, "voice", "POST", "/api/tts", piper, out_name=out, timeout=600)
     return {"primary": name, "engine": "voice:piper"}
 
@@ -1522,6 +1877,7 @@ HANDLERS = {
     "video.edit": h_video_edit,
     "voice.tts": h_voice_tts,
     "voice.asr": h_voice_asr,
+    "voice.clone": h_voice_clone,
     "ollama.chat": h_ollama,
     "ollama.generate": h_ollama,
 }
@@ -1565,8 +1921,11 @@ def run_job(site, data):
         err = "%s: %s" % (type(e).__name__, e)
         error("job %s (%s) failed: %s" % (job.uid[:8], job.kind, err))
         log(traceback.format_exc()[-1500:], "DEBUG")
+        meta = {"node": CONFIG["name"]}
+        if getattr(e, "retryable", True) is False:
+            meta["retryable"] = False          # e.g. VOICE_MISSING: the site re-sends it with the recordings instead
         try:
-            job.finish(False, err, {"node": CONFIG["name"]})
+            job.finish(False, err, meta)
         except JobLost:
             warn("job %s: the site had already put it back in the queue (no news from this node for too long); "
                  "this attempt is discarded" % job.uid[:8])

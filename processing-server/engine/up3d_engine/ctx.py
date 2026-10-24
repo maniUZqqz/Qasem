@@ -39,6 +39,10 @@ class Context:
     # ── محیط
     def surface_matrix(self, sid):
         sp = self.c['environment']['surfaces'][sid]
+        if sp.get('rot'):
+            from mathutils import Euler
+            q = Euler([math.radians(a) for a in sp['rot']], 'XYZ').to_quaternion()
+            return Matrix.LocRotScale(Vector(sp['pos']), q, Vector((1, 1, 1)))
         return Matrix.LocRotScale(Vector(sp['pos']), Quaternion((0, 0, 1), math.radians(sp.get('yaw', 0.0))),
                                   Vector((1, 1, 1)))
 

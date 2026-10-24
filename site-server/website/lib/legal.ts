@@ -89,7 +89,7 @@ const fa: LegalDoc[] = [
   {
     slug: "terms",
     title: "شرایط استفاده",
-    description: "قواعد استفاده از آپ‌مارکت، مسئولیت‌ها و محدودیت‌ها.",
+    description: "قواعد استفاده از NMarketing، مسئولیت‌ها و محدودیت‌ها.",
     updated: UPDATED,
     sections: [
       {
@@ -208,7 +208,7 @@ const fa: LegalDoc[] = [
   {
     slug: "acceptable-use",
     title: "سیاست استفاده‌ی مجاز",
-    description: "چه کارهایی با آپ‌مارکت نباید انجام شود.",
+    description: "چه کارهایی با NMarketing نباید انجام شود.",
     updated: UPDATED,
     sections: [
       {
@@ -303,7 +303,7 @@ const en: LegalDoc[] = [
   {
     slug: "terms",
     title: "Terms of use",
-    description: "The rules for using UpMarket, responsibilities and limits.",
+    description: "The rules for using NMarketing, responsibilities and limits.",
     updated: "2026-09-12",
     sections: [
       {
@@ -422,7 +422,7 @@ const en: LegalDoc[] = [
   {
     slug: "acceptable-use",
     title: "Acceptable use policy",
-    description: "What UpMarket must not be used for.",
+    description: "What NMarketing must not be used for.",
     updated: "2026-09-12",
     sections: [
       {

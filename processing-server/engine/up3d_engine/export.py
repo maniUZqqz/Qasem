@@ -72,8 +72,69 @@ def game_pack(ctx, path):
     return path
 
 
+def preview_glb(ctx, path, max_px=512):
+    """GLB ِ سبکِ یک دارایی برای نمای ویرایشگرِ پنل (بی‌انیمیشن، بی‌اسکلت، بافت ≤ ۵۱۲px):
+    محیط ⇐ مجموعهٔ environment؛ محصول ⇐ product.* (مبدأ = کفِ محصول)؛ آدم ⇐ actor.* در ژستِ ایستادهٔ طبیعی
+    (مش با اسکلت «پخته» می‌شود). مختصاتِ GLB همان Blender است با export_yup (ویرایشگر برمی‌گرداند)."""
+    from mathutils import Matrix
+    sc = bpy.context.scene
+    kind = (ctx.c.get('preview') or {}).get('kind') or 'environment'
+    prefixes = {'environment': ('environment',), 'product': ('product.',), 'character': ('actor.',)}.get(kind, ('environment',))
+    sc.frame_set(min(ctx.f_end, ctx.f_start + 12))
+    dg = bpy.context.evaluated_depsgraph_get()
+    origin = Matrix.Identity(4)
+    if kind == 'product' and ctx.products:
+        origin = next(iter(ctx.products.values())).root.matrix_world.inverted()
+
+    def wanted(o):
+        if o.type not in ('MESH', 'CURVE', 'SURFACE', 'META', 'FONT') or o.hide_render:
+            return False
+        return any(c.name == p or c.name.startswith(p) for c in o.users_collection for p in prefixes)
+    src = [o for o in sc.objects if wanted(o)]
+    out = bpy.data.collections.new('preview_out')
+    sc.collection.children.link(out)
+    made = []
+    for o in src:
+        try:
+            me = bpy.data.meshes.new_from_object(o.evaluated_get(dg), preserve_all_data_layers=False, depsgraph=dg)
+        except RuntimeError:
+            continue
+        if not me or not len(me.vertices):
+            continue
+        n = bpy.data.objects.new(o.name + '.pv', me)
+        n.matrix_world = origin @ o.matrix_world
+        out.objects.link(n)
+        made.append(n)
+    for img in bpy.data.images:
+        try:
+            w, h = img.size[:]
+            if max(w, h) > max_px:
+                k = max_px / float(max(w, h))
+                img.scale(max(1, int(w * k)), max(1, int(h * k)))
+        except Exception:       # noqa: BLE001 — تصویرِ بی‌پیکسل/تولیدی
+            pass
+    bpy.ops.object.select_all(action='DESELECT')
+    for n in made:
+        n.select_set(True)
+    if made:
+        bpy.context.view_layer.objects.active = made[0]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    kw = dict(filepath=path, export_format='GLB', use_selection=True, export_animations=False, export_apply=False,
+              export_cameras=False, export_lights=False, export_yup=True, export_image_format='JPEG',
+              export_skins=False, export_morph=False)
+    try:
+        bpy.ops.export_scene.gltf(**kw)
+    except TypeError:
+        kw.pop('export_skins', None)
+        bpy.ops.export_scene.gltf(**kw)
+    log('preview glb', kind, path, 'objects=%d' % len(made), os.path.getsize(path) if os.path.isfile(path) else '')
+    return path
+
+
 def export(ctx, fmt, path):
     stage('export')
+    if fmt == 'preview_glb':
+        return preview_glb(ctx, path)
     _bake_constraints(ctx)
     _drop_helpers(ctx)
     if fmt == 'game_pack':

@@ -72,7 +72,7 @@ class Worker:
             ud = paths.blender_user_resources()
             mpfb = os.path.isfile(os.path.join(ud, 'extensions', 'user_default', 'mpfb', '__init__.py'))
             self.caps = {'name': self.name, 'version': __version__, 'os': platform.platform(), 'cpu_count': os.cpu_count(),
-                         'profiles': self.profiles or 'auto', 'mpfb': mpfb, 'features': ['ping', 'release', 'packs', 'clips'],
+                         'profiles': self.profiles or 'auto', 'mpfb': mpfb, 'features': ['ping', 'release', 'packs', 'clips', 'editor'],
                          **dev}
             if not mpfb:
                 self.log('هشدار: دادهٔ کاراکترهای MPFB در %s نیست ⇐ کارهای با مجریِ ساخته‌شده به این کارگر داده نمی‌شود' % ud)

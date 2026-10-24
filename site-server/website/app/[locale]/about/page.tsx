@@ -23,7 +23,7 @@ const COPY = {
     values: "اصولی که رعایت می‌کنیم",
     work: "با ما کار کنید",
     numerals: ["۱", "۲", "۳"],
-    metaDesc: "چرا آپ‌مارکت را ساختیم و چه اصولی در محصول رعایت می‌کنیم.",
+    metaDesc: "چرا NMarketing را ساختیم و چه اصولی در محصول رعایت می‌کنیم.",
   },
   en: {
     eyebrow: "About",
@@ -32,7 +32,7 @@ const COPY = {
     values: "What we hold to",
     work: "Work with us",
     numerals: ["1", "2", "3"],
-    metaDesc: "Why we built UpMarket, and the principles the product is held to.",
+    metaDesc: "Why we built NMarketing, and the principles the product is held to.",
   },
 } as const;
 

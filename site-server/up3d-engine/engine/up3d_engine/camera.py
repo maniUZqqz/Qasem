@@ -6,6 +6,7 @@ import bpy
 from mathutils import Vector
 
 from . import anim
+from . import keys as K
 from .util import ease_inout, empty, link, log
 
 MOVES = ('static', 'push_in', 'pull_out', 'orbit_left', 'orbit_right', 'crane_up', 'crane_down', 'handheld',
@@ -14,6 +15,43 @@ MOVES = ('static', 'push_in', 'pull_out', 'orbit_left', 'orbit_right', 'crane_up
 
 def _sensor(w, h):
     return 36.0 if h >= w else 24.0
+
+
+def _free_shot(ctx, shot, coll, sensor, cam_pos):
+    """شاتِ دوربینِ آزادِ ویرایشگر: جای دوربین و نقطهٔ نگاه و لنز از کلیدها، فریم به فریم."""
+    sc = bpy.context.scene
+    keys = shot.get('keys') or []
+    f0, f1 = shot['f0'], shot['f1']
+    cam_data = bpy.data.cameras.new('cam.' + shot['id'])
+    cam_data.lens = float(shot.get('lens') or 35.0)
+    cam_data.sensor_fit = 'VERTICAL'
+    cam_data.sensor_height = sensor
+    cam_data.clip_start = 0.02
+    cam_data.clip_end = 80
+    cam_data.dof.use_dof = ctx.quality.get('dof', True)
+    cam_data.dof.aperture_fstop = float(shot.get('fstop') or 4.0)
+    cam_data.dof.aperture_blades = 7
+    cam = bpy.data.objects.new('cam.' + shot['id'], cam_data)
+    link(cam, coll)
+    frames = anim.frames_range(f0, f1)
+    locs = [list(K.sample(keys, f, 'pos', [0.0, -3.0, 1.5])) for f in frames]
+    aims = [list(K.sample(keys, f, 'target', [0.0, 0.0, 1.2])) for f in frames]
+    aim = empty('aim.' + shot['id'], aims[0], 0.05, coll)
+    tt = cam.constraints.new('TRACK_TO')
+    tt.target = aim
+    tt.track_axis = 'TRACK_NEGATIVE_Z'
+    tt.up_axis = 'UP_Y'
+    cam_data.dof.focus_object = aim         # فوکوس روی نقطهٔ نگاه
+    anim.bulk_keys(cam, 'location', frames, locs)
+    anim.bulk_keys(aim, 'location', frames, aims)
+    if K.has_channel(keys, 'lens'):
+        anim.bulk_keys(cam_data, 'lens', frames, [float(K.sample(keys, f, 'lens', cam_data.lens)) for f in frames])
+    for f, p in zip(frames, locs):
+        cam_pos[f] = Vector(p)
+    m = sc.timeline_markers.new('shot.' + shot['id'], frame=f0)
+    m.camera = cam
+    log('free camera', shot.get('camera'), 'keys=%d frames=%d..%d' % (len(keys), f0, f1))
+    return cam
 
 
 def build(ctx, series):
@@ -25,6 +63,9 @@ def build(ctx, series):
     cam_pos = {}
     cams = []
     for shot in ctx.c['shots']:
+        if shot.get('free'):
+            cams.append(_free_shot(ctx, shot, coll, sensor, cam_pos))
+            continue
         fr = dict(shot['framing'])
         fr.update(shot.get('params') or {})
         f0, f1 = shot['f0'], shot['f1']

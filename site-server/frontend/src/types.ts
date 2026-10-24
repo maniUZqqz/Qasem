@@ -303,6 +303,20 @@ export interface VoiceProfileValues {
   rate: number;
   pitch: number;
   volume: number;
+  /** A ClonedVoice id: Persian narration in that voice (spoken on a processing node). */
+  cloned_voice?: number | null;
+}
+
+/** A cloned voice as a narrator choice (GET /stores/{id}/voice/ → cloned_voices). */
+export interface ClonedVoiceOption {
+  id: number;
+  name: string;
+  person: string;
+  status: string;
+  status_label: string;
+  usable: boolean;
+  license: string;
+  commercial: boolean;
 }
 
 export interface Pronunciation {
@@ -323,6 +337,7 @@ export interface StoreVoice {
   };
   voices_en: { key: string; id: string; label: string; note: string }[];
   speakers: Record<"fa" | "en", { speakers: VoiceSpeaker[]; error: string }>;
+  cloned_voices?: ClonedVoiceOption[];
   local_only: boolean;
   pronunciations: Pronunciation[];
   builtin_pronunciations: Pronunciation[];

@@ -2,7 +2,7 @@
   "name": "upmarket-website",
   "version": "1.0.0",
   "private": true,
-  "description": "سایت عمومی آپ‌مارکت — بازاریابی، قیمت‌گذاری، وبلاگ",
+  "description": "سایت عمومی NMarketing — بازاریابی، قیمت‌گذاری، وبلاگ",
   "scripts": {
     "dev": "next dev --turbopack -p 3001",
     "build": "next build",

@@ -133,12 +133,13 @@ def validate(doc, reg):
         issues.append(_issue('error', 'E_ASSET', 'environment', 'محیطِ «%s» در کتابخانه نیست' % doc['environment'].get('id')))
     if doc['lighting'].get('id') and not reg.get('lighting', doc['lighting']['id']):
         issues.append(_issue('error', 'E_ASSET', 'lighting', 'نورپردازیِ «%s» نیست' % doc['lighting']['id']))
-    if not doc['actors'] and not doc['products']:
+    cams = {c['id']: c for c in doc.get('cameras') or []}
+    if not doc['actors'] and not doc['products'] and not (doc.get('props') and any(c.get('keys') for c in cams.values())):
         issues.append(_issue('error', 'E_EMPTY', 'actors', 'صحنه نه بازیگر دارد نه محصول'))
 
     ids = {}
-    for kind in ('actors', 'products'):
-        for i, it in enumerate(doc[kind]):
+    for kind in ('actors', 'products', 'props', 'lights', 'cameras'):
+        for i, it in enumerate(doc.get(kind) or []):
             if it['id'] in ids:
                 issues.append(_issue('error', 'E_DUP', '%s[%d]' % (kind, i), 'شناسهٔ تکراری «%s»' % it['id']))
             ids[it['id']] = kind
@@ -146,6 +147,8 @@ def validate(doc, reg):
     for i, a in enumerate(doc['actors']):
         if not reg.get('character', a.get('character')):
             issues.append(_issue('error', 'E_ASSET', 'actors[%d]' % i, 'کاراکترِ «%s» نیست' % a.get('character')))
+        if a.get('transform') or a.get('keys'):
+            continue        # جای آزاد (ویرایشگرِ صحنه): جایگاهِ آماده معنی ندارد
         if env and a.get('mark') not in env['marks']:
             issues.append(_issue('error', 'E_MARK', 'actors[%d]' % i, 'جایگاهِ «%s» در محیطِ %s نیست (مجاز: %s)' % (
                 a.get('mark'), env.id, ', '.join(env['marks']))))
@@ -157,6 +160,8 @@ def validate(doc, reg):
         pa = reg.get('product', p.get('asset'))
         if not pa:
             issues.append(_issue('error', 'E_ASSET', 'products[%d]' % i, 'محصولِ «%s» نیست' % p.get('asset')))
+        if p.get('transform') or p.get('keys'):
+            continue        # جای آزاد (ویرایشگرِ صحنه)
         if env:
             if not p.get('surface'):
                 issues.append(_issue('warning', 'W_SURFACE', 'products[%d]' % i, 'جای محصول مشخص نیست؛ اولین سطح استفاده می‌شود'))
@@ -166,6 +171,14 @@ def validate(doc, reg):
             elif p['surface'] in used_surf:
                 issues.append(_issue('warning', 'W_SURFACE', 'products[%d]' % i, 'دو محصول روی یک نقطه'))
             used_surf[p.get('surface')] = p['id']
+
+    # ویرایشگرِ آزاد: اشیا، نورها، دوربین‌ها
+    for i, x in enumerate(doc.get('props') or []):
+        if not reg.get('product', x.get('asset')):
+            issues.append(_issue('error', 'E_ASSET', 'props[%d]' % i, 'شیءِ «%s» در کتابخانه نیست' % x.get('asset')))
+    for i, x in enumerate(doc.get('lights') or []):
+        if x.get('type') not in S.LIGHT_TYPES:
+            issues.append(_issue('warning', 'W_LIGHT', 'lights[%d]' % i, 'نوعِ نورِ «%s» شناخته نیست' % x.get('type')))
 
     # حرکت‌ها
     last_end = {}
@@ -228,6 +241,19 @@ def validate(doc, reg):
     t = 0.0
     for i, sh in enumerate(doc['shots']):
         path = 'shots[%d]' % i
+        if sh.get('camera'):
+            cam = cams.get(sh['camera'])
+            if not cam:
+                issues.append(_issue('error', 'E_REF', path, 'دوربینِ آزادِ «%s» نیست' % sh['camera']))
+            elif not cam.get('keys'):
+                issues.append(_issue('error', 'E_CAMERA_KEYS', path,
+                                     'دوربینِ آزادِ «%s» هنوز کلید ندارد («از همین نما کلید بزن»)' % sh['camera']))
+            if sh['start'] > t + 0.02:
+                issues.append(_issue('warning', 'W_SHOT_GAP', path, 'فاصلهٔ بی‌دوربین از %.2f تا %.2f' % (t, sh['start'])))
+            if sh['start'] < t - 0.02:
+                issues.append(_issue('error', 'E_SHOT_OVERLAP', path, 'شات با قبلی هم‌پوشانی دارد'))
+            t = max(t, S.end_of(sh))
+            continue
         sa = reg.get('shot', sh.get('shot'))
         if not sa:
             issues.append(_issue('error', 'E_ASSET', path, 'نمای دوربینِ «%s» نیست' % sh.get('shot')))
@@ -311,6 +337,8 @@ def _repair_round(doc, reg, rep, changes):
         if not reg.get('character', a.get('character')):
             a['character'] = _default_id(reg, 'character')
             changes.append('کاراکترِ «%s» به‌جای کاراکترِ ناموجود' % a['character'])
+        if a.get('transform') or a.get('keys'):
+            continue
         if a.get('mark') not in marks or a.get('mark') in taken:
             free = [m for m in marks if m not in taken]
             if free:
@@ -322,12 +350,19 @@ def _repair_round(doc, reg, rep, changes):
         if not reg.get('product', p.get('asset')):
             p['asset'] = _default_id(reg, 'product')
             changes.append('شکلِ محصول «%s» شد' % p['asset'])
+        if p.get('transform') or p.get('keys'):
+            continue
         if p.get('surface') not in surfs or p.get('surface') in stake:
             free = [s for s in surfs if s not in stake]
             if free:
                 p['surface'] = free[0]
                 changes.append('محصولِ %s روی «%s»' % (p['id'], p['surface']))
         stake.add(p.get('surface'))
+    if doc.get('props'):
+        keep_props = [x for x in doc['props'] if reg.get('product', x.get('asset'))]
+        if len(keep_props) != len(doc['props']):
+            changes.append('%d شیءِ ناموجود از صحنه برداشته شد' % (len(doc['props']) - len(keep_props)))
+            doc['props'] = keep_props
 
     actors = [a['id'] for a in doc['actors']]
     prods = [p['id'] for p in doc['products']]
@@ -398,12 +433,26 @@ def _repair_round(doc, reg, rep, changes):
 
     # دوربین: پوششِ کامل و بی‌هم‌پوشانی
     subj_default = actors[0] if actors else (prods[0] if prods else None)
+    keyed_cams = [c['id'] for c in doc.get('cameras') or [] if c.get('keys')]
     if not doc['shots']:
-        doc['shots'] = [{'shot': _shot_for(reg, 'actor' if actors else 'product'), 'start': 0.0, 'duration': dur,
-                         'subject': subj_default, 'move': 'push_in', 'params': {}}]
-        changes.append('یک شاتِ پیش‌فرض برای کلِ ویدئو ساخته شد')
+        if keyed_cams:
+            doc['shots'] = [{'camera': keyed_cams[0], 'start': 0.0, 'duration': dur, 'params': {}}]
+            changes.append('شاتِ دوربینِ آزاد برای کلِ ویدئو ساخته شد')
+        elif subj_default is not None:
+            doc['shots'] = [{'shot': _shot_for(reg, 'actor' if actors else 'product'), 'start': 0.0, 'duration': dur,
+                             'subject': subj_default, 'move': 'push_in', 'params': {}}]
+            changes.append('یک شاتِ پیش‌فرض برای کلِ ویدئو ساخته شد')
     shots = []
     for sh in doc['shots']:
+        if sh.get('camera'):
+            if sh['camera'] in keyed_cams:
+                if sh['start'] < dur - 0.3:
+                    shots.append(sh)
+                continue
+            changes.append('شاتِ %s دوربینِ آزادِ کلیددار نداشت؛ نمای آماده شد' % sh.get('id'))
+            sh.pop('camera', None)
+        if subj_default is None:
+            continue        # نه آدم، نه محصول، نه دوربینِ آزاد: نمای آماده سوژه ندارد
         kind = S.subject_kind(doc, sh.get('subject'))
         if not kind:
             sh['subject'] = subj_default

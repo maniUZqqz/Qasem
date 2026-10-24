@@ -42,3 +42,4 @@ class MarketResearchAdmin(admin.ModelAdmin):
     list_filter = ["confidence"]
 from .admin_providers import ModelProviderAdmin  # noqa: F401
 from .admin_audio import AudioEngineAdmin  # noqa: E402,F401
+from .admin_voice_clone import ClonedVoiceAdmin  # noqa: E402,F401

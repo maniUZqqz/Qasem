@@ -41,6 +41,8 @@ export const P = {
   dashboard: () => BASE,
   newProject: () => `${BASE}/new`,
   project: (id: number | string) => `${BASE}/p/${id}`,
+  /** «ویرایشگرِ آزاد» (صحنهٔ سه‌بعدی، کلید، دوربینِ آزاد) — حالتِ دیگرِ همان پروژه */
+  sceneEditor: (id: number | string) => `${BASE}/p/${id}/editor`,
   jobs: () => `${BASE}/jobs`,
   job: (id: number | string) => `${BASE}/jobs/${id}`,
   viewer: (id: number | string) => `${BASE}/jobs/${id}/viewer`,

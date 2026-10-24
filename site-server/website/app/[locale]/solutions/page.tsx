@@ -19,27 +19,27 @@ export function generateStaticParams() {
 const COPY = {
   fa: {
     eyebrow: "راه‌حل‌ها",
-    title: "آپ‌مارکت برای چه کسب‌وکاری ساخته شده؟",
+    title: "NMarketing برای چه کسب‌وکاری ساخته شده؟",
     lead: "ابزار یکسان است، ولی مشکل هر صنف فرق دارد. این صفحه‌ها بر اساس همان تفاوت نوشته شده‌اند.",
     more: "ببینید چطور →",
     ctaTitle: "صنف شما اینجا نیست؟",
     ctaBody:
       "محصول به صنف خاصی وابسته نیست — هر فروشگاهی که محصول و عکس دارد کار می‌کند. این صفحه‌ها فقط برای صنف‌هایی ساخته شده‌اند که حرف مشخصی برایشان داریم.",
     ask: "بپرسید",
-    metaTitle: "آپ‌مارکت برای چه کسب‌وکارهایی",
+    metaTitle: "NMarketing برای چه کسب‌وکارهایی",
     metaDesc:
       "فروشنده‌ی اینستاگرام، فروشگاه اینترنتی، پوشاک، دکوراسیون — هر کدام مشکل متفاوتی دارند و جریان کار متفاوتی می‌خواهند.",
   },
   en: {
     eyebrow: "Solutions",
-    title: "Who is UpMarket built for?",
+    title: "Who is NMarketing built for?",
     lead: "The tool is the same; the problem is not. These pages are written around that difference.",
     more: "See how →",
     ctaTitle: "Your line of work not here?",
     ctaBody:
       "The product is not tied to an industry — any shop with products and photos works. These pages exist only where we have something specific to say.",
     ask: "Ask us",
-    metaTitle: "Who UpMarket is built for",
+    metaTitle: "Who NMarketing is built for",
     metaDesc:
       "Instagram sellers, online shops, clothing, home decor — each has a different problem and a different workflow.",
   },

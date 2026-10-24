@@ -37,7 +37,9 @@ def run(ctx):
             rec[aid]['eyes'][f] = rig.eyes_point()
             rec[aid]['chest'][f] = mw @ pb[r['spine'][-1]].head
             rec[aid]['hips'][f] = mw @ pb[r['hips']].head
-            feet = [rig.foot_world(s) for s in ('R', 'L')]
+            # لغزشِ پا در «فضای بازیگر»: جابه‌جاییِ کل‌بدن با کلیدهای ویرایشگر لغزش نیست
+            inv = rig.root.matrix_world.inverted()
+            feet = [inv @ rig.foot_world(s) for s in ('R', 'L')]
             if rec[aid]['feet0'] is None:
                 rec[aid]['feet0'] = feet
             else:
@@ -52,7 +54,7 @@ def run(ctx):
                         jump = (ang, '%s@%d' % (b, f))
                 rq[aid][b] = q
         for pid, prod in ctx.products.items():
-            resting = prod.rest_world
+            resting = prod.keyed_world(f) if prod.keys else prod.rest_world
             for h in prod.holds:
                 if h['f_release'] is not None and f > h['f_release']:
                     resting = hold_state.get(('released', id(h)), resting)
@@ -110,6 +112,8 @@ def run(ctx):
         prod.root.parent = None
         anim.bulk_keys(prod.root, 'location', frames, locs)
         anim.bulk_keys(prod.root, 'rotation_quaternion', frames, rots)
+        if prod.keys and any(k.get('scale') is not None for k in prod.keys):
+            anim.bulk_keys(prod.root, 'scale', frames, [ser[f].to_scale()[:] for f in frames])
         prod.baked = ser
     ctx.rec = rec
     rep = ctx.report

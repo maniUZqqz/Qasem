@@ -484,3 +484,124 @@ class GpuFirstRoutingTests(TestCase):
             self.assertIn('inputs/label-p1.png', names)
         finally:
             shutil.rmtree(data, ignore_errors=True)
+
+
+# ───────────────────────── ویرایشگرِ آزادِ صحنه (پنل ⇐ «ویرایشگرِ آزاد»)
+
+def _editor_doc():
+    """سندی با همهٔ قابلیت‌های ویرایشگر: جای آزاد، کلید، شیء، نور، دوربینِ آزاد."""
+    doc = _valid_doc()
+    doc['actors'][0]['transform'] = {'pos': [0.4, 0.2, 0], 'rot': [0, 0, 20], 'scale': [1, 1, 1]}
+    doc['actors'][0]['keys'] = [{'t': 0, 'pos': [0.4, 0.2, 0], 'rot': [0, 0, 20]},
+                                {'t': 2, 'pos': [0.9, 0.2, 0], 'rot': [0, 0, 0], 'ease': 'linear'}]
+    doc['products'][0]['transform'] = {'pos': [0.1, -0.5, 0.86], 'rot': [0, 0, 30], 'scale': [1.5, 1.5, 1.5]}
+    doc['props'] = [{'asset': 'box_package', 'transform': {'pos': [-0.6, -0.4, 0], 'rot': [0, 0, 0], 'scale': [3, 3, 3]},
+                     'keys': [{'t': 0, 'pos': [-0.6, -0.4, 0]}, {'t': 1, 'pos': [-0.6, -0.4, 0.5]}]}]
+    doc['lights'] = [{'type': 'spot', 'color': '#ffd0a0', 'power': 400, 'transform': {'pos': [1, -2, 2.5], 'rot': [50, 0, 20]}}]
+    doc['cameras'] = [{'id': 'cam1', 'lens': 40, 'keys': [
+        {'t': 0, 'pos': [0, -3, 1.6], 'target': [0, 0, 1.2], 'lens': 40},
+        {'t': 1.5, 'pos': [1, -2.5, 1.4], 'target': [0, 0, 1.1], 'ease': 'auto'},
+        {'t': 3, 'pos': [1.5, -1.5, 1.5], 'target': [0.1, -0.4, 0.95]}]}]
+    doc['shots'] = [{'camera': 'cam1', 'start': 0, 'duration': doc['output']['duration']}]
+    return doc
+
+
+class SceneEditorTests(TestCase):
+    def test_editor_doc_is_valid_and_compiles_free_placement(self):
+        from up3d import keys as K
+        from up3d.validate import validate
+        r = SV.reg()
+        doc = _editor_doc()
+        rep = validate(doc, r)
+        self.assertTrue(rep.ok, [i['message'] for i in rep.errors])
+        env = r.get('environment', doc['environment']['id'])
+        before = dict(env['surfaces'])
+        comp = compiler.compile_scene(doc, r, 'animatic')
+        self.assertEqual(dict(env['surfaces']), before, 'سطح‌های دفترِ دارایی نباید عوض شود')
+        a = comp['actors'][0]
+        self.assertEqual(a['mark']['pos'], [0.4, 0.2, 0.0])
+        self.assertEqual(a['mark']['facing'], 20.0)
+        self.assertEqual([k['f'] for k in a['keys']], [1.0, 1 + 2 * comp['fps']])
+        p = comp['products'][0]
+        self.assertEqual(p['surface_id'], '@' + doc['products'][0]['id'])
+        self.assertEqual(p['surface']['rot'], [0.0, 0.0, 30.0])
+        self.assertEqual(p['scale'], [1.5, 1.5, 1.5])
+        self.assertEqual(len(comp['props']), 1)
+        self.assertEqual(comp['props'][0]['builder'], 'box_package')
+        self.assertEqual(comp['lights'][0]['type'], 'spot')
+        sh = comp['shots'][0]
+        self.assertTrue(sh['free'])
+        self.assertEqual(sh['f1'], comp['frame_end'])
+        self.assertEqual(len(sh['keys']), 3)
+        # ریاضیِ مشترکِ کلید: دو سرِ بازه همان کلیدها، «پله‌ای» تا کلیدِ بعد ثابت
+        self.assertEqual(K.sample(doc['cameras'][0]['keys'], 0, 'pos'), [0, -3, 1.6])
+        mid = K.sample(doc['actors'][0]['keys'], 1.0, 'pos')
+        self.assertAlmostEqual(mid[0], 0.65, 3)
+        self.assertEqual(K.sample([{'t': 0, 'pos': [0, 0, 0], 'ease': 'step'}, {'t': 1, 'pos': [1, 1, 1]}], 0.9, 'pos'), [0, 0, 0])
+        self.assertAlmostEqual(K.ease('smooth', 0.5), 0.5)
+
+    def test_free_shot_without_keys_is_error_and_repair_falls_back(self):
+        from up3d.validate import repair, validate
+        r = SV.reg()
+        doc = _editor_doc()
+        doc['cameras'][0]['keys'] = []
+        rep = validate(doc, r)
+        self.assertIn('E_CAMERA_KEYS', [i['code'] for i in rep.errors])
+        fixed, changes, rep2 = repair(doc, r)
+        self.assertTrue(rep2.ok, [i['message'] for i in rep2.errors])
+        self.assertFalse(fixed['shots'][0].get('camera'))
+        self.assertTrue(fixed['shots'][0].get('shot'))
+
+    def test_free_actor_skips_mark_checks_and_survives_repair(self):
+        from up3d.validate import repair
+        r = SV.reg()
+        doc = _editor_doc()
+        doc['actors'][0]['mark'] = 'nowhere'
+        fixed, changes, rep = repair(doc, r)
+        self.assertTrue(rep.ok)
+        self.assertEqual(fixed['actors'][0]['transform']['pos'], [0.4, 0.2, 0.0])
+        self.assertEqual(fixed['props'][0]['id'], 'prop1')
+        comp = compiler.compile_scene(fixed, r, 'animatic')
+        self.assertEqual(comp['actors'][0]['mark']['pos'], [0.4, 0.2, 0.0])
+
+    def test_editor_jobs_only_go_to_new_workers(self):
+        now = timezone.now()
+        old = Worker.objects.create(name='old-cpu', last_seen=now, capabilities={'gpu': None, 'version': '1.1.0'})
+        new = Worker.objects.create(name='new-cpu', last_seen=now, capabilities={'gpu': None, 'version': '1.2.0'})
+        project = Project.objects.create(title='editor', brief={})
+        v = SV.new_version(project, _editor_doc(), 'scene-editor', 'x')
+        self.assertTrue(v.valid, v.report)
+        j = Job.objects.create(project=project, version=v, kind='render', profile='animatic', owner='worker',
+                               state='SCENE_BUILDING')
+        self.assertTrue(SV.needs_editor(j))
+        self.assertIsNone(SV.claim(old), 'کارگرِ ۱.۱ فیلدهای ویرایشگر را نمی‌فهمد')
+        self.assertEqual(SV.claim(new)['id'], j.pk)
+
+    def test_asset_preview_queue_and_cache(self):
+        import os
+        st = SV.preview_status('product', 'can_drink')
+        if st['state'] == 'ready':
+            os.remove(SV.preview_path('product', 'can_drink', SV.preview_key(SV.reg().get('product', 'can_drink'))))
+        self.assertEqual(SV.preview_status('product', 'can_drink')['state'], 'none')
+        out = SV.request_preview('product', 'can_drink')
+        self.assertEqual(out['state'], 'building')
+        self.assertEqual(SV.request_preview('product', 'can_drink')['job'], out['job'], 'یک کار برای هر دارایی')
+        j = Job.objects.get(pk=out['job'])
+        self.assertEqual(j.params['format'], 'preview_glb')
+        self.assertEqual(SV.engine_mode(j), ('export', ['--format', 'preview_glb']))
+        # کارگر GLB را فرستاد ⇐ کش
+        d = SV.job_dir(j)
+        with open(os.path.join(d, 'scene.glb'), 'wb') as fh:
+            fh.write(b'glTF-test')
+        j.files = {'scene.glb': os.path.join(j.dir_rel(), 'scene.glb')}
+        j.state = 'QUALITY_CHECK'
+        j.save()
+        SV.process_finish(j)
+        st = SV.preview_status('product', 'can_drink')
+        self.assertEqual(st['state'], 'ready')
+        self.assertEqual(SV.preview_file('product', 'can_drink'),
+                         SV.preview_path('product', 'can_drink', SV.preview_key(SV.reg().get('product', 'can_drink'))))
+        os.remove(SV.preview_file('product', 'can_drink'))
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+        self.assertEqual(SV.preview_status('character', 'nope')['state'], 'unsupported')

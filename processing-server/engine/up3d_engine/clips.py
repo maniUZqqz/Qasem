@@ -365,6 +365,11 @@ def apply(ctx, rig, act):
             feet[s][f] = (M[fb].translation[:], M[fb].to_quaternion()[:])
 
     fade = max(1.0, min(0.3 * ctx.fps, 0.25 * (f1 - f0)))
+    if params.get('blend') not in (None, ''):     # ویرایشگرِ آزاد: «نرمیِ ورود/خروج» به ثانیه
+        try:
+            fade = max(1.0, min(float(params['blend']) * ctx.fps, 0.5 * (f1 - f0)))
+        except (TypeError, ValueError):
+            pass
 
     def weight(f, a=f0, b=f1, fd=fade):
         return anim.smootherstep((f - a) / fd) * anim.smootherstep((b - f) / fd) if b > a else 1.0

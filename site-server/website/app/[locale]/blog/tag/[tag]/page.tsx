@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = decodeURIComponent(tag);
   return {
     title: `مقالات ${name}`,
-    description: `همه‌ی مقالات آپ‌مارکت درباره‌ی ${name}.`,
+    description: `همه‌ی مقالات NMarketing درباره‌ی ${name}.`,
     alternates: alternatesFor(DEFAULT_LOCALE, `/blog/tag/${tag}`, [DEFAULT_LOCALE]),
   };
 }

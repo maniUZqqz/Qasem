@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""پنل ادمین آپ‌مارکت — نام‌ها، توضیح‌ها، و چیدمان فهرست اصلی.
+"""پنل ادمین NMarketing — نام‌ها، توضیح‌ها، و چیدمان فهرست اصلی.
 
 چرا این فایل هست
 ================
@@ -24,8 +24,8 @@ from django.contrib.admin.apps import AdminConfig
 
 
 class UpMarketAdminSite(admin.AdminSite):
-    site_header = "آپ‌مارکت — پنل مدیریت"
-    site_title = "آپ‌مارکت"
+    site_header = "NMarketing — پنل مدیریت"
+    site_title = "NMarketing"
     index_title = "همه‌ی جدول‌ها"
 
     def get_app_list(self, request, app_label=None):

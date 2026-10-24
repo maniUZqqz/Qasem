@@ -1,4 +1,5 @@
 """منطقِ پنل: پروژه، نسخهٔ صحنه، کار، کارگر. وب‌ها و API فقط این‌ها را صدا می‌زنند."""
+import hashlib
 import json
 import os
 import shutil
@@ -145,6 +146,7 @@ def gpu_class(job, prof=None):
 
 
 MIN_WORKER = (1, 1, 0)
+EDITOR_WORKER = (1, 2, 0)     # سندِ ویرایشگرِ آزاد (جای آزاد، کلید، اشیا، نور، دوربینِ آزاد) و preview_glb
 
 
 def worker_version(worker):
@@ -165,12 +167,23 @@ def needs_mpfb(job):
     return False
 
 
+def needs_editor(job):
+    """کار به موتورِ ۱.۲ (ویرایشگرِ آزاد) نیاز دارد؟ کارگرِ قدیمی این فیلدها را بی‌صدا نادیده می‌گرفت."""
+    if (job.params or {}).get('format') == 'preview_glb':
+        return True
+    doc = (job.params or {}).get('document') or (job.version.document if job.version_id else None) or {}
+    return S.has_editor_features(doc)
+
+
 def capable(worker, job=None):
     """این کارگر می‌تواند کار بگیرد؟ کارگرِ قدیمی (پوشهٔ processing ِ به‌روزنشده) کار نمی‌گیرد — بستهٔ کار و
-    پروتکلش عوض شده؛ کارگرِ بی‌دادهٔ MPFB کارِ با مجریِ ساخته‌شده (MPFB) نمی‌گیرد."""
+    پروتکلش عوض شده؛ کارگرِ بی‌دادهٔ MPFB کارِ با مجریِ ساخته‌شده (MPFB) نمی‌گیرد؛
+    کارِ ویرایشگرِ آزاد فقط به کارگرِ ۱.۲ به بالا می‌رسد."""
     if worker_version(worker) < MIN_WORKER:
         return False
     if job is not None and (worker.capabilities or {}).get('mpfb') is False and needs_mpfb(job):
+        return False
+    if job is not None and worker_version(worker) < EDITOR_WORKER and needs_editor(job):
         return False
     return True
 
@@ -525,6 +538,16 @@ def process_finish(job):
         job.progress = 1.0
         msg = {'pass': 'تمام شد؛ کنترلِ کیفیت قبول', 'warn': 'تمام شد؛ با هشدارِ کیفیت', 'fail': 'تمام شد ولی کنترلِ کیفیت رد کرد'}
         job.set_state('COMPLETED', msg[out['qc']['result']])
+    elif job.kind == 'export' and (job.params or {}).get('preview'):
+        pv = job.params['preview']
+        src = (job.files or {}).get('scene.glb')
+        if not src or not os.path.isfile(data_abs(src)):
+            raise RuntimeError('کارگر فایلِ GLB نفرستاد')
+        dst = preview_path(pv['kind'], pv['id'], pv['key'])
+        shutil.copyfile(data_abs(src), dst + '.tmp')
+        os.replace(dst + '.tmp', dst)
+        job.progress = 1.0
+        job.set_state('COMPLETED', 'پیش‌نمایشِ سه‌بعدیِ «%s» آماده شد (%d KB)' % (pv['id'], os.path.getsize(dst) // 1024))
     elif job.kind == 'thumbnail':
         a = reg().get(job.params['asset_kind'], job.params['asset_id'])
         src = None
@@ -637,6 +660,132 @@ def thumbnail_doc(kind, asset_id):
         doc['shots'] = [{'shot': 'medium', 'start': 0, 'duration': doc['output']['duration'], 'subject': 'host', 'move': 'static'}]
     doc, _, rep = repair(doc, r)
     return doc
+
+
+# ───────────────────────── پیش‌نمایشِ سه‌بعدیِ دارایی برای ویرایشگرِ آزاد (GLB ِ سبک، یک بار، با کش)
+
+PREVIEW_KINDS = ('environment', 'product', 'character', 'motion')
+PREVIEW_VERSION = 'pv1'         # با تغییرِ روشِ خروجی (export.preview_glb) بالا برود تا کش نو شود
+MODEL_EXTS = ('.glb', '.gltf', '.fbx', '.obj', '.bvh')
+
+
+def preview_key(asset):
+    pub = {k: v for k, v in asset.items() if not k.startswith('_') and k not in ('thumbnail', 'description', 'name')}
+    raw = json.dumps(pub, sort_keys=True, ensure_ascii=False, default=str) + PREVIEW_VERSION
+    return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:12]
+
+
+def preview_path(kind, asset_id, key):
+    d = data_abs(os.path.join('cache', 'previews', kind))
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, '%s-%s.glb' % (asset_id, key))
+
+
+def model_file_of(asset):
+    """فایلِ مدلِ خودِ دارایی (بستهٔ کاربر): محیطِ model_file، محصولِ file، شخصِ provider=file — اگر مرورگر بخواند."""
+    if asset is None:
+        return None
+    rel = None
+    if asset.kind == 'environment' and asset.get('builder') == 'model_file':
+        rel = asset.get('file')
+    elif asset.kind == 'product' and asset.get('builder') == 'file':
+        rel = asset.get('file')
+    elif asset.kind == 'character' and asset.get('provider') == 'file':
+        rel = asset.get('path') or asset.get('file')
+    elif asset.kind == 'motion' and (asset.get('source') or {}).get('type') == 'clip':
+        rel = (asset.get('source') or {}).get('file')      # کلیپِ BVH/FBX ⇐ «آدمکِ خطی» در ویرایشگر
+    path = asset.path(rel) if rel else None
+    if path and os.path.isfile(path) and os.path.splitext(path)[1].lower() in MODEL_EXTS:
+        return path
+    return None
+
+
+def preview_doc(kind, asset_id):
+    """سندِ کوچکی که فقط همین دارایی را می‌سازد (export.preview_glb بقیه را بیرون می‌گذارد)."""
+    r = reg()
+    doc = S.new_scene('preview', 3.0, '1:1')
+    doc['meta']['asset_preview'] = {'kind': kind, 'id': asset_id}
+    doc['environment'] = {'id': 'studio_warm', 'params': {'decor': False}}
+    doc['lighting'] = {'id': 'soft_beauty', 'params': {}}
+    if kind == 'environment':
+        env = r.get('environment', asset_id)
+        doc['environment'] = {'id': asset_id, 'params': {}}
+        doc['lighting']['id'] = env.get('default_lighting', 'soft_beauty')
+        doc['products'] = [{'id': 'p1', 'asset': 'box_package', 'name': '', 'surface': list(env['surfaces'])[0]}]
+        doc['shots'] = [{'shot': 'product_hero', 'start': 0, 'duration': 3, 'subject': 'p1', 'move': 'static'}]
+    elif kind == 'product':
+        doc['products'] = [{'id': 'p1', 'asset': asset_id, 'name': 'UpMarket', 'surface': 'table_center'}]
+        doc['shots'] = [{'shot': 'product_hero', 'start': 0, 'duration': 3, 'subject': 'p1', 'move': 'static'}]
+    else:
+        doc['actors'] = [{'id': 'host', 'character': asset_id, 'mark': 'center'}]
+        doc['shots'] = [{'shot': 'medium', 'start': 0, 'duration': 3, 'subject': 'host', 'move': 'static'}]
+    doc, _, rep = repair(doc, r)
+    return doc
+
+
+def _preview_job(kind, asset_id, key):
+    for j in Job.objects.filter(kind='export', project__title='__thumbnails__').order_by('-created')[:200]:
+        pv = (j.params or {}).get('preview') or {}
+        if pv.get('kind') == kind and pv.get('id') == asset_id and pv.get('key') == key:
+            return j
+    return None
+
+
+def preview_status(kind, asset_id):
+    """وضعیتِ پیش‌نمایشِ سه‌بعدیِ یک دارایی برای ویرایشگر:
+    file (فایلِ مدلِ خودِ بسته) | ready (GLB ِ ساخته‌شده) | building | failed | none."""
+    a = reg().get(kind, asset_id)
+    if a is None or kind not in PREVIEW_KINDS:
+        return {'state': 'unsupported'}
+    base = '/api/v1/up3d/asset-preview/%s/%s/file/' % (kind, asset_id)
+    mf = model_file_of(a)
+    if mf:
+        out = {'state': 'file', 'url': base, 'format': os.path.splitext(mf)[1].lower().lstrip('.'),
+               'size': os.path.getsize(mf)}
+        if kind == 'environment':
+            out['transform'] = {'scale': a.get('scale', 1.0), 'rotation_deg': a.get('rotation_deg', 0.0),
+                                'offset': a.get('offset') or [0, 0, 0]}
+        if kind == 'character':
+            out['height_m'] = a.get('height_m') or 1.72
+        return out
+    if kind == 'motion':
+        return {'state': 'unsupported'}       # حرکتِ رویه‌ای فقط داخلِ Blender ساخته می‌شود
+    key = preview_key(a)
+    path = preview_path(kind, asset_id, key)
+    if os.path.isfile(path):
+        return {'state': 'ready', 'url': base + '?k=' + key, 'format': 'glb', 'size': os.path.getsize(path)}
+    j = _preview_job(kind, asset_id, key)
+    if j and not j.final:
+        return {'state': 'building', 'job': j.pk, 'message': j.message}
+    if j and j.state in ('FAILED', 'CANCELLED'):
+        return {'state': 'failed', 'job': j.pk, 'message': (j.message or j.error or '')[:300]}
+    return {'state': 'none'}
+
+
+def request_preview(kind, asset_id, force=False):
+    st = preview_status(kind, asset_id)
+    if st['state'] in ('file', 'ready', 'building', 'unsupported') or (st['state'] == 'failed' and not force):
+        return st
+    a = reg().get(kind, asset_id)
+    key = preview_key(a)
+    p, _ = Project.objects.get_or_create(title='__thumbnails__', defaults={'brief': {}})
+    j = Job.objects.create(project=p, kind='export', profile='animatic', state='PLANNED',
+                           params={'document': preview_doc(kind, asset_id), 'format': 'preview_glb',
+                                   'preview': {'kind': kind, 'id': asset_id, 'key': key}})
+    j.add_log('پیش‌نمایشِ سه‌بعدیِ «%s» (%s) برای ویرایشگرِ صحنه' % (asset_id, kind))
+    return {'state': 'building', 'job': j.pk, 'message': 'در صف'}
+
+
+def preview_file(kind, asset_id):
+    """مسیرِ فایلی که ویرایشگر بار می‌کند (مدلِ بسته یا GLB ِ کش‌شده) یا None."""
+    a = reg().get(kind, asset_id)
+    if a is None or kind not in PREVIEW_KINDS:
+        return None
+    mf = model_file_of(a)
+    if mf:
+        return mf
+    path = preview_path(kind, asset_id, preview_key(a))
+    return path if os.path.isfile(path) else None
 
 
 def request_thumbnail(kind, asset_id):

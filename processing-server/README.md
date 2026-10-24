@@ -50,6 +50,17 @@ the agent prepares it while the job waits (the site is told the job is alive, so
 `Setup-Services.bat` (runs `setup_kit.py`) does the same for all three editors ahead of time; `python setup_kit.py --all`
 also fetches all six Persian voices. Natural voices / voice cloning (3.4 GB, optional): `tools\PersianAiKit\Voice\Setup-Voice.bat`.
 
+## Voice cloning (agent 1.6)
+
+The panel's «صدا و گوینده › کلونِ صدا» sends `voice.clone` (the read sentences + the owner's consent) and then
+`voice.tts` jobs that name the cloned voice. They need the kit's Python voice service with Pocket-TTS. If it is not
+installed, the first such job installs it by itself (what `Setup-Voice.bat` does, limited to speech: `voice\.venv`,
+packages, Pocket-TTS ~490 MB; logs in `logs\setup-voice-*.log`; `NM_VOICE_AUTOSETUP=0` turns this off). If that is
+not possible (Python outside 3.10-3.13, no internet), the job fails with the instruction to run
+`tools\PersianAiKit\Voice\Setup-Voice.bat` once. A cloned voice never falls back to Piper; if a node does not have the
+voice (`VOICE_MISSING`), the site sends the job again with the best recordings and the node rebuilds it.
+Tests: `python tests\test_agent_voice.py` (fake kit, no models needed).
+
 Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
 the last lines are sent to the site log (panel → Processing servers → log of this node).
 

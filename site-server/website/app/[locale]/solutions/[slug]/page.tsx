@@ -21,7 +21,7 @@ const COPY = {
   fa: {
     crumb: "راه‌حل‌ها",
     problem: "مشکل چیست",
-    answer: "آپ‌مارکت چه می‌کند",
+    answer: "NMarketing چه می‌کند",
     example: "یک نمونه",
     before: "قبل",
     after: "بعد",
@@ -31,12 +31,12 @@ const COPY = {
     ctaBody: "چند محصول خودتان را وارد کنید و خروجی واقعی بگیرید.",
     seeWork: "اول نمونه‌کار را ببینم",
     all: "← همه‌ی راه‌حل‌ها",
-    forWho: (n: string) => `آپ‌مارکت برای ${n}`,
+    forWho: (n: string) => `NMarketing برای ${n}`,
   },
   en: {
     crumb: "Solutions",
     problem: "The problem",
-    answer: "What UpMarket does",
+    answer: "What NMarketing does",
     example: "An example",
     before: "Before",
     after: "After",
@@ -46,7 +46,7 @@ const COPY = {
     ctaBody: "Add a few of your own products and see real output.",
     seeWork: "Show me real output first",
     all: "← All solutions",
-    forWho: (n: string) => `UpMarket for ${n}`,
+    forWho: (n: string) => `NMarketing for ${n}`,
   },
 } as const;
 

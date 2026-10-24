@@ -12,7 +12,7 @@ export const COPY = {
   fa: {
     metaTitle: "قیمت‌ها",
     metaDesc:
-      "پلن‌های ماهانه آپ‌مارکت با سهمیه‌ی شفاف ویدیو، تصویر و کپشن. دو هفته رایگان، بدون کارت بانکی.",
+      "پلن‌های ماهانه NMarketing با سهمیه‌ی شفاف ویدیو، تصویر و کپشن. دو هفته رایگان، بدون کارت بانکی.",
     eyebrow: "قیمت‌گذاری",
     title: "سهمیه‌ی شفاف، بدون هزینه‌ی پنهان",
     lead: "هر پلن مقدار مشخصی ویدیو، تصویر و کپشن در ماه دارد. مصرفتان را زنده می‌بینید.",
@@ -51,7 +51,7 @@ export const COPY = {
     colItem: "مورد",
     colTeam: "تیم داخلی",
     colAgency: "آژانس",
-    colUs: "آپ‌مارکت",
+    colUs: "NMarketing",
     vsRows: {
       cost: "هزینه ماهانه",
       unclear: "نامشخص",
@@ -128,7 +128,7 @@ export const COPY = {
     colItem: "Item",
     colTeam: "In-house team",
     colAgency: "Agency",
-    colUs: "UpMarket",
+    colUs: "NMarketing",
     vsRows: {
       cost: "Monthly cost",
       unclear: "Unclear",

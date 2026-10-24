@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <h1 className="mb-1 text-center text-2xl font-extrabold text-violet-700">آپ‌مارکت</h1>
+        <h1 className="mb-1 text-center text-2xl font-extrabold text-violet-700">NMarketing</h1>
         <p className="mb-6 text-center text-sm text-slate-500">بازیابی رمز عبور</p>
 
         {sent ? (

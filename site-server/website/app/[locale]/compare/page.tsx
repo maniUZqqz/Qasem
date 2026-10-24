@@ -17,18 +17,18 @@ export function generateStaticParams() {
 const COPY = {
   fa: {
     eyebrow: "مقایسه",
-    title: "آپ‌مارکت در برابر گزینه‌های دیگر",
+    title: "NMarketing در برابر گزینه‌های دیگر",
     lead: "منصفانه — با مواردی که گزینه‌ی دیگر بهتر است.",
-    metaDesc: "مقایسه‌ی منصفانه‌ی آپ‌مارکت با آژانس، فریلنسر و انجام دادن خودتان.",
+    metaDesc: "مقایسه‌ی منصفانه‌ی NMarketing با آژانس، فریلنسر و انجام دادن خودتان.",
     note:
       "هر صفحه مواردی را می‌گوید که گزینه‌ی دیگر واقعاً بهتر است. اگر جایی چنین موردی نداشتیم، آن صفحه را نمی‌ساختیم.",
   },
   en: {
     eyebrow: "Compare",
-    title: "UpMarket against the alternatives",
+    title: "NMarketing against the alternatives",
     lead: "Fairly — including where the alternative is the better answer.",
     metaDesc:
-      "A fair comparison of UpMarket with agencies, freelancers and doing it yourself.",
+      "A fair comparison of NMarketing with agencies, freelancers and doing it yourself.",
     note:
       "Every page names cases where the other option genuinely wins. If we could not name any, we would not have built the page.",
   },

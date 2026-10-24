@@ -584,6 +584,14 @@ def get_tts_provider(language: str | None = None, store=None, *, profile=None) -
         profile = _profile(store, language)
     gender = getattr(profile, "gender", "male") or "male"
 
+    # The shop's own cloned voice (Persian): spoken by a processing node and never swapped for
+    # another voice — with no node on, narration stops and says why (services.audio.voice_clone).
+    clone_id = getattr(profile, "cloned_voice", None)
+    if clone_id and language == "fa":
+        from . import voice_clone
+
+        return voice_clone.provider_for(store, clone_id)
+
     resolution = engine_registry.resolve(engine_registry.VOICE, store)
     if not resolution.engines:
         if engine_registry.local_only(store):

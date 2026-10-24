@@ -47,6 +47,8 @@ export type Asset = {
 
 export type Motion = Asset & {
   category: string;
+  /** procedural | clip (BVH/FBX ِ بستهٔ دارایی) */
+  source?: { type?: string; file?: string; fn?: string };
   duration: { min: number; default: number; max: number };
   layer?: boolean;
   product?: { requires?: string; effect?: string; param?: string };
@@ -57,6 +59,9 @@ export type Environment = Asset & {
   marks: Record<string, unknown>;
   surfaces: Record<string, unknown>;
   default_lighting?: string;
+  builder?: string;
+  /** جای میز/پیشخوان (برای جانشینِ سادهٔ محیط در ویرایشگرِ آزاد) */
+  furniture?: Record<string, { center?: number[]; radius?: number; size?: number[]; height?: number }>;
 };
 
 export type Shot = Asset & {
@@ -65,9 +70,9 @@ export type Shot = Asset & {
   subject: string;
 };
 
-export type ProductAsset = Asset & { dimensions: number[]; grasp: { height: number } };
+export type ProductAsset = Asset & { dimensions: number[]; grasp: { height: number }; builder?: string };
 
-export type Character = Asset & { gender: string; provider: string };
+export type Character = Asset & { gender: string; provider: string; height_m?: number };
 
 export type RenderProfile = Asset & {
   engine: string;
@@ -200,9 +205,41 @@ export type Item = {
   type?: string;
   position?: string;
   params?: Record<string, unknown>;
+  /** shots: شاتِ دوربینِ آزاد (کلیدهای cameras[i]) به‌جای نمای آماده */
+  camera?: string;
 };
 
-export type Actor = { id: string; character: string; mark: string; params?: Record<string, unknown> };
+// ───────────────────────── ویرایشگرِ آزاد (همه اختیاری؛ سندِ بی‌آن‌ها همان رفتارِ قبلی)
+
+/** متر، مختصاتِ Blender: X راست، Y عمق (بازیگر رو به -Y)، Z بالا */
+export type Vec3 = [number, number, number];
+
+/** جای آزاد: pos متر، rot درجه (XYZ اویلر)، scale ضریب */
+export type Transform = { pos: Vec3; rot: Vec3; scale: Vec3 };
+
+export type Ease = "smooth" | "linear" | "ease_in" | "ease_out" | "step" | "auto";
+
+/** کلیدِ ویرایشگر: هر کلید فقط کانال‌هایی را دارد که دارد؛ ease = گذار از همین کلید تا کلیدِ بعد */
+export type KeyFrame = {
+  t: number;
+  pos?: Vec3;
+  rot?: Vec3;
+  scale?: Vec3;
+  /** دوربینِ آزاد: نقطهٔ نگاه + لنز (میلی‌متر) */
+  target?: Vec3;
+  lens?: number;
+  ease?: Ease;
+};
+
+export type Actor = {
+  id: string;
+  character: string;
+  mark: string;
+  params?: Record<string, unknown>;
+  name?: string;
+  transform?: Transform;
+  keys?: KeyFrame[];
+};
 
 export type ProductRef = {
   id: string;
@@ -210,7 +247,37 @@ export type ProductRef = {
   name?: string;
   surface?: string;
   params?: Record<string, unknown>;
+  transform?: Transform;
+  keys?: KeyFrame[];
 };
+
+/** شیءِ تزئینی: هر شکلِ محصول (یا مدلِ فایل) بی‌نقش در حرکت‌ها */
+export type PropRef = {
+  id: string;
+  asset: string;
+  name?: string;
+  params?: Record<string, unknown>;
+  transform: Transform;
+  keys?: KeyFrame[];
+};
+
+export type LightType = "point" | "spot" | "area" | "sun";
+
+export type LightRef = {
+  id: string;
+  name?: string;
+  type: LightType;
+  color: string;
+  /** وات (خورشید: قدرت) */
+  power: number;
+  size?: number;
+  cone?: number;
+  blend?: number;
+  transform: Transform;
+  keys?: KeyFrame[];
+};
+
+export type FreeCamera = { id: string; name?: string; lens: number; fstop?: number; keys: KeyFrame[] };
 
 export type SceneDoc = {
   format: string;
@@ -227,6 +294,10 @@ export type SceneDoc = {
   shots: Item[];
   overlays: Item[];
   audio: { music?: string | null; music_volume?: number; subtitles?: boolean; voice_volume?: number };
+  /** ویرایشگرِ آزاد */
+  props?: PropRef[];
+  lights?: LightRef[];
+  cameras?: FreeCamera[];
 };
 
 // ───────────────────────── کارها و پروژه‌ها

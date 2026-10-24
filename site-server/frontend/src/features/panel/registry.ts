@@ -78,6 +78,7 @@ export const PAGES: PanelPage[] = [
   { key: "analytics", section: "store", label: "آمار", icon: "chart", to: (id) => `/stores/${id}/analytics` },
   { key: "brand", section: "store", label: "پروفایل برند", icon: "sparkle", to: (id) => `/stores/${id}/brand` },
   { key: "voice", section: "store", label: "صدا و گوینده", icon: "mic", to: (id) => `/stores/${id}/voice`, menu: false },
+  { key: "voice_clone", section: "store", label: "کلونِ صدا", icon: "mic", to: (id) => `/stores/${id}/voice/clone`, menu: false },
   { key: "agent", section: "store", label: "ایجنت فروش", icon: "settings", to: (id) => `/stores/${id}/agent` },
   { key: "connections", section: "store", label: "اتصال شبکه‌ها", icon: "link", to: (id) => `/stores/${id}/connections`, menu: false },
   { key: "team", section: "store", label: "اعضا و دسترسی", icon: "users", to: (id) => `/stores/${id}/team` },

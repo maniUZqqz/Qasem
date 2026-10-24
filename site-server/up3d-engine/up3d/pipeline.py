@@ -62,6 +62,15 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
             dst = os.path.join(inputs, 'model-%s%s' % (p['id'], os.path.splitext(mp)[1]))
             shutil.copyfile(mp, dst)
             p['params']['model_path'] = os.path.relpath(dst, job_dir).replace('\\', '/')
+    # اشیای ویرایشگرِ آزاد: مدلِ بارگذاری‌شده و عکسِ برچسب همراهِ کار به کارگر می‌رود
+    for x in doc.get('props') or []:
+        prm = x.get('params') or {}
+        for key, name in (('model_path', 'model'), ('label_image', 'label')):
+            src = prm.get(key)
+            if src and os.path.isabs(src) and os.path.isfile(src):
+                dst = os.path.join(inputs, '%s-%s%s' % (name, x['id'], os.path.splitext(src)[1]))
+                shutil.copyfile(src, dst)
+                prm[key] = os.path.relpath(dst, job_dir).replace('\\', '/')
     # صدا + لب
     audio = {}
     ff = paths.ffmpeg_binary() or 'ffmpeg'
@@ -133,6 +142,8 @@ def ship_pack_assets(comp, job_dir, log=print):
         ship(a['character'], 'characters', a['character'].get('id'))
     for p in comp['products']:
         ship(p, 'products', p.get('asset') or p.get('id'))
+    for x in comp.get('props') or []:
+        ship(x, 'products', x.get('asset') or x.get('id'))
     for act in comp['actions']:
         if (act.get('source') or {}).get('type') == 'clip':
             ship(act, 'motions', act['motion'])

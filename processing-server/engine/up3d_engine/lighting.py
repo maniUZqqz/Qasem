@@ -6,7 +6,7 @@ import os
 import bpy
 from mathutils import Vector
 
-from .util import empty, kelvin_rgb, link, log
+from .util import empty, hex_to_linear, kelvin_rgb, link, log
 
 
 def _hdri_path(name, folder=None):
@@ -119,4 +119,42 @@ def build(ctx):
         obj.visible_camera = False
         made.append(obj)
     log('lighting', lt.get('id'), 'lights=%d' % len(made))
+    return made
+
+
+def build_extra(ctx):
+    """نورهای ویرایشگرِ آزاد: نقطه‌ای، نورافکن، سطحی، خورشید — با جای/چرخشِ دلخواه و کلید.
+    جهتِ تابش = محورِ -Z ِ شیء (همان قراردادِ Blender و پیش‌نمایشِ ویرایشگر)."""
+    from . import keys as K
+    made = []
+    coll = ctx.coll('lighting')
+    kinds = {'point': 'POINT', 'spot': 'SPOT', 'area': 'AREA', 'sun': 'SUN'}
+    for L in ctx.c.get('lights') or []:
+        kind = kinds.get(L.get('type'), 'POINT')
+        data = bpy.data.lights.new('X.%s' % L.get('id'), kind)
+        data.energy = float(L.get('power') or 100.0)
+        data.color = hex_to_linear(L.get('color') or '#ffffff')[:3]
+        size = float(L.get('size') or 0.5)
+        if kind == 'AREA':
+            data.shape = 'SQUARE'
+            data.size = size
+        elif kind == 'SPOT':
+            data.spot_size = math.radians(float(L.get('cone') or 45.0))
+            data.spot_blend = float(L.get('blend') if L.get('blend') is not None else 0.3)
+            data.shadow_soft_size = min(size, 1.0) * 0.2
+        elif kind == 'SUN':
+            data.angle = math.radians(max(0.5, min(20.0, size * 6.0)))
+        else:
+            data.shadow_soft_size = min(size, 2.0) * 0.2
+        obj = bpy.data.objects.new(data.name, data)
+        link(obj, coll)
+        tr = L.get('transform') or {}
+        obj.location = tr.get('pos') or (0, -1.5, 2.2)
+        obj.rotation_mode = 'XYZ'
+        obj.rotation_euler = [math.radians(a) for a in (tr.get('rot') or (0, 0, 0))]
+        obj.visible_camera = False
+        K.key_object(ctx, obj, tr, L.get('keys'), scale=False)
+        made.append(obj)
+    if made:
+        log('editor lights', len(made))
     return made

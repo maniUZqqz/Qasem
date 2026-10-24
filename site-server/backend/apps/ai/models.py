@@ -362,3 +362,7 @@ from .trend_models import Trend, TrendIdea  # noqa: E402,F401
 # text models, but it is switched in the same place (the admin) for the same
 # reason — which engine answers is an operator decision, not a code change.
 from .audio_models import AudioEngine, AudioMix, SoundClip  # noqa: E402,F401
+
+# Cloned voices: consent and recordings live here, the voice itself on a processing node
+# (services.audio.voice_clone).
+from .voice_clone_models import ClonedVoice, ClonedVoiceClip  # noqa: E402,F401

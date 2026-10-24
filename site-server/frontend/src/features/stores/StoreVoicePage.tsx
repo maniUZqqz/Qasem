@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -14,7 +15,9 @@ import {
   fa,
 } from "../../components/ui";
 import { Pronunciation, StoreVoice, VoiceProfileValues, VoiceSpeaker } from "../../types";
+import { useFlags } from "../panel/FlagsContext";
 import { useStore } from "./StoreLayout";
+import VoiceTabs from "./VoiceTabs";
 
 type Preview = {
   url: string;
@@ -45,6 +48,7 @@ export default function StoreVoicePage() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [hearing, setHearing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { pageEnabled } = useFlags();
 
   const load = useCallback(async () => {
     try {
@@ -63,15 +67,21 @@ export default function StoreVoicePage() {
 
   if (!data || !profile) {
     return (
-      <div className="py-10 text-center">
-        <Spinner />
+      <div className="space-y-4">
+        <VoiceTabs storeId={storeId} />
+        <div className="py-10 text-center">
+          <Spinner />
+        </div>
       </div>
     );
   }
 
   const filledRows = rows.filter((r) => r.written.trim() || r.spoken.trim());
+  const clonedVoices = (data.cloned_voices ?? []).filter((v) => v.usable);
+  const clonedChosen = clonedVoices.find((v) => v.id === profile.cloned_voice) ?? null;
+  const norm = (p: VoiceProfileValues) => JSON.stringify({ ...p, cloned_voice: p.cloned_voice ?? null });
   const dirty =
-    JSON.stringify(profile) !== JSON.stringify(data.profile) ||
+    norm(profile) !== norm(data.profile) ||
     JSON.stringify(filledRows) !== JSON.stringify(data.pronunciations);
 
   const save = async () => {
@@ -123,6 +133,7 @@ export default function StoreVoicePage() {
 
   return (
     <div className="space-y-5">
+      <VoiceTabs storeId={storeId} />
       <Alert tone="brand" title="صدای ویدیوهای شما">
         اینجا انتخاب می‌کنید گوینده چطور بخواند: مرد یا زن، تندتر یا آرام‌تر، و اسم برندتان
         چطور تلفظ شود. قبل از ذخیره با «بشنو» گوش بدهید — نمونه با همان موتوری ساخته می‌شود که
@@ -140,12 +151,12 @@ export default function StoreVoicePage() {
         <SectionTitle>گوینده</SectionTitle>
         <div className="grid gap-3 sm:grid-cols-2">
           {data.options.voices.map((voice) => {
-            const active = profile.gender === voice.key;
+            const active = profile.gender === voice.key && !clonedChosen;
             return (
               <button
                 key={voice.key}
                 type="button"
-                onClick={() => setProfile({ ...profile, gender: voice.key })}
+                onClick={() => setProfile({ ...profile, gender: voice.key, cloned_voice: null })}
                 className="rounded-xl p-3 text-right"
                 style={{
                   border: `2px solid ${active ? "var(--brand)" : "var(--line)"}`,
@@ -162,7 +173,54 @@ export default function StoreVoicePage() {
               </button>
             );
           })}
+          {clonedVoices.map((voice) => {
+            const active = clonedChosen?.id === voice.id;
+            return (
+              <button
+                key={`clone-${voice.id}`}
+                type="button"
+                onClick={() => setProfile({ ...profile, cloned_voice: voice.id })}
+                className="rounded-xl p-3 text-right"
+                style={{
+                  border: `2px solid ${active ? "var(--brand)" : "var(--line)"}`,
+                  background: active ? "var(--brand-soft)" : "transparent",
+                }}
+              >
+                <div className="flex flex-wrap items-center gap-2 font-bold" style={{ color: "var(--text)" }}>
+                  <Icon name="mic" size={16} />
+                  {voice.name}
+                  <Badge tone="neutral">کلون‌شده · ساختهٔ ماشین</Badge>
+                </div>
+                <div className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+                  صدای {voice.person} — فقط نریشنِ فارسی، روی سرورِ پردازش.{" "}
+                  {!voice.commercial && <span dir="ltr">{voice.license}</span>}
+                </div>
+              </button>
+            );
+          })}
+          {clonedVoices.length === 0 && pageEnabled("voice_clone") && (
+            <Link
+              to={`/stores/${storeId}/voice/clone`}
+              className="rounded-xl p-3 text-right no-underline"
+              style={{ border: "2px dashed var(--line)", color: "var(--text-2)" }}
+            >
+              <div className="flex items-center gap-2 font-bold" style={{ color: "var(--text)" }}>
+                <Icon name="plus" size={16} />
+                صدای خودتان
+              </div>
+              <div className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+                با «کلونِ صدا» از روی چند جملهٔ خوانده‌شده بسازید.
+              </div>
+            </Link>
+          )}
         </div>
+        {clonedChosen && (
+          <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+            نریشنِ فارسی با صدای کلون‌شدهٔ «{clonedChosen.name}» روی سرورِ پردازش ساخته می‌شود؛ اگر آن سرور خاموش
+            باشد، صداگذاری با پیامِ روشن متوقف می‌شود و صدای دیگری جایش نمی‌خواند. سرعت و زیروبمی روی آن اثر ندارد؛
+            نریشنِ انگلیسی با صدای {profile.gender === "female" ? "زن" : "مرد"}ِ معمولی می‌ماند.
+          </p>
+        )}
 
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           {data.options.sliders.map((slider) => (
@@ -193,7 +251,11 @@ export default function StoreVoicePage() {
           </div>
           <Button variant="secondary" onClick={() => void hear("fa")} disabled={hearing !== null}>
             <Icon name="play" size={14} />
-            {hearing === "fa" ? "در حال ساخت…" : "بشنو (فارسی)"}
+            {hearing === "fa"
+              ? clonedChosen
+                ? "در حال ساخت روی سرورِ پردازش…"
+                : "در حال ساخت…"
+              : "بشنو (فارسی)"}
           </Button>
           <Button variant="secondary" onClick={() => void hear("en")} disabled={hearing !== null}>
             <Icon name="play" size={14} />

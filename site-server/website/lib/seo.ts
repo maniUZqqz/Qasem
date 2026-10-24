@@ -103,7 +103,7 @@ export function howTo(steps: { title: string; desc: string }[]) {
   return {
     "@context": "https://schema.org",
     "@type": "HowTo",
-    name: "چطور با آپ‌مارکت محتوای تبلیغاتی بسازیم",
+    name: "چطور با NMarketing محتوای تبلیغاتی بسازیم",
     description: "از ثبت فروشگاه تا انتشار خودکار در اینستاگرام.",
     step: steps.map((s, i) => ({
       "@type": "HowToStep",

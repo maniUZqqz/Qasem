@@ -1,0 +1,40 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+<p class="acc-intro">بستنِ {{ fy }} ({{ fy.start_jalali }} تا {{ fy.end_jalali }}): ماندهٔ حساب‌های درآمد و هزینه با یک سند به «خلاصهٔ سود و زیان» می‌رود
+و با سندِ دوم، سودِ خالص به نسبتِ درصدِ سهم به حسابِ جاریِ شرکا (اگر شریکی نیست: سود و زیانِ انباشته). بعد سال قفل می‌شود و دیگر هیچ سندی در آن ثبت نمی‌شود. <b>این کار برگشت ندارد.</b></p>
+
+{% if p.problems %}
+<div class="acc-note acc-bad"><b>فعلاً نمی‌شود بست:</b><ul>{% for x in p.problems %}<li>{{ x }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<table class="acc" style="max-width:720px">
+  <thead><tr><th>حساب</th><th class="n">مانده ({{ currency }})</th></tr></thead>
+  <tbody>
+  <tr class="sub"><th colspan="2">درآمدها</th></tr>
+  {% for acc, amt in p.incomes %}<tr class="indent"><td>{{ acc }}</td><td class="n">{{ amt|money }}</td></tr>{% empty %}<tr><td colspan="2" class="acc-muted">—</td></tr>{% endfor %}
+  <tr><th>جمعِ درآمد</th><td class="n">{{ p.total_income|money }}</td></tr>
+  <tr class="sub"><th colspan="2">هزینه‌ها</th></tr>
+  {% for acc, amt in p.expenses %}<tr class="indent"><td>{{ acc }}</td><td class="n">{{ amt|money }}</td></tr>{% empty %}<tr><td colspan="2" class="acc-muted">—</td></tr>{% endfor %}
+  <tr><th>جمعِ هزینه</th><td class="n">{{ p.total_expense|money }}</td></tr>
+  <tr class="tot"><th>{% if p.profit < 0 %}زیانِ خالص{% else %}سودِ خالص{% endif %}</th><td class="n">{{ p.profit|money }}</td></tr>
+  </tbody>
+</table>
+
+{% if p.distribution %}
+<h2>تقسیم بینِ شرکا</h2>
+<table class="acc" style="max-width:520px">
+  <thead><tr><th>شریک</th><th class="n">سهم</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>{% for partner, pct_, amt in p.distribution %}<tr><td>{{ partner.name }}</td><td class="n">{{ pct_|pct }}٪</td><td class="n">{% if p.profit < 0 %}{{ amt|money }} زیان{% else %}{{ amt|money }}{% endif %}</td></tr>{% endfor %}</tbody>
+</table>
+{% elif p.to_retained and p.profit %}
+<p>شریکی تعریف نشده؛ سود به «سود و زیانِ انباشته» می‌رود.</p>
+{% endif %}
+
+{% if not p.problems %}
+<form method="post" onsubmit="return confirm('سال بسته شود؟ این کار برگشت ندارد.');">{% csrf_token %}
+  <div class="acc-btns"><button type="submit" class="acc-btn danger">بستنِ {{ fy }}</button>
+  <a class="sec" href="{% url 'admin:accounting_fiscalyear_changelist' %}">انصراف</a></div>
+</form>
+{% endif %}
+{% endblock %}

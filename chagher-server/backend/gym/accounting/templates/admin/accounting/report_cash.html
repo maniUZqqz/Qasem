@@ -1,0 +1,18 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" with presets=True %}
+<p class="acc-muted">{{ range_label }} — مبلغ‌ها به {{ currency }} — حساب‌هایی که تیکِ «نقد و بانک» دارند.</p>
+<table class="acc" style="max-width:900px">
+  <thead><tr><th>حساب</th><th class="n">ماندهٔ اولِ دوره</th><th class="n">ورودی</th><th class="n">خروجی</th><th class="n">ماندهٔ پایانِ دوره</th></tr></thead>
+  <tbody>
+  {% for x in r.rows %}
+  <tr><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a>{% if not x.account.is_active %} <span class="acc-muted">(غیرفعال)</span>{% endif %}</td>
+      <td class="n">{{ x.open|money }}</td><td class="n">{{ x.in|money }}</td><td class="n">{{ x.out|money }}</td><td class="n"><b>{{ x.close|money }}</b></td></tr>
+  {% empty %}<tr><td colspan="5" class="acc-muted">حسابِ نقد و بانکی نیست.</td></tr>
+  {% endfor %}
+  <tr class="tot"><th>جمع</th><td class="n">{{ r.totals.open|money }}</td><td class="n">{{ r.totals.in|money }}</td><td class="n">{{ r.totals.out|money }}</td><td class="n">{{ r.totals.close|money }}</td></tr>
+  </tbody>
+</table>
+<p class="acc-muted">اگر عددِ صندوق یا بانک با موجودیِ واقعی (صورت‌حسابِ بانک) نمی‌خواند، یعنی سندی جا افتاده یا دوبار ثبت شده؛ «دفترِ حساب» همان حساب را با صورت‌حسابِ بانک ردیف‌به‌ردیف بسنجید.</p>
+{% endblock %}

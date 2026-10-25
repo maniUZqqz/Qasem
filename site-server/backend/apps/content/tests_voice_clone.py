@@ -64,7 +64,8 @@ class VoiceCloneTests(TestCase):
 
     # ------------------------------------------------------------------ helpers
     def create(self, **extra):
-        body = {"name": "صدای علی", "person": "علی رضایی", "purpose": "ویدیوهای محصول", "consent": True, **extra}
+        body = {"name": "صدای علی", "person": "علی رضایی", "purpose": "ویدیوهای محصول", "consent": True,
+                "engine": "pocket", **extra}
         return self.client.post(self.base, body, content_type="application/json")
 
     def upload(self, voice_id, index, audio_bytes, name="take.wav", text=""):
@@ -391,5 +392,87 @@ class VoiceCloneTests(TestCase):
         self.assertGreaterEqual(len(data["script"]), 5)
         self.assertTrue(data["nodes"]["online"])
         self.assertIn("{person}", data["consent_template"])
-        self.assertFalse(data["engine"]["commercial"])
+        self.assertTrue(data["engine"]["commercial"], "new voices default to MOSS (Apache-2.0)")
+        engines = {e["id"]: e for e in data["engines"]}
+        self.assertFalse(engines["pocket"]["commercial"])
+        self.assertEqual(engines["moss-fa"]["license"], "Apache-2.0")
+        self.assertFalse(engines["moss-fa"]["ready"], "this test node has no MOSS models")
         self.assertEqual(data["voices"][0]["status"], "READY")
+
+
+@override_settings(NM_DATA_DIR=Path(TMP), MEDIA_ROOT=TMP, IS_TEST=True)
+class MossCloneTests(TestCase):
+    """The commercially usable engine: the reference is made on the site and travels with every job."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user("moss-owner", password="x")
+        self.store = Store.objects.create(owner=self.owner, name="فروشگاه موس")
+        self.client.force_login(self.owner)
+        self.base = f"/api/v1/stores/{self.store.pk}/voice/clones/"
+        self.node = ComputeNode.objects.create(name="GPU-MOSS", last_seen=timezone.now(), capabilities={
+            "voice": True, "agent": "1.7", "audio": {"moss": True, "sfx": False, "music": False}})
+
+    def voice_with_clips(self, n=4):
+        r = self.client.post(self.base, {"name": "صدای مینا", "person": "مینا", "consent": True},
+                             content_type="application/json")
+        self.assertEqual(r.json()["engine"], "moss-fa")
+        self.assertTrue(r.json()["commercial"])
+        vid = r.json()["id"]
+        for i in range(1, n + 1):
+            self.client.post(f"{self.base}{vid}/clips/", {"index": i, "file": SimpleUploadedFile(
+                "t.wav", wav_bytes(speechlike(3.5, seed=i)), content_type="audio/wav")})
+        return ClonedVoice.objects.get(pk=vid)
+
+    def test_build_sends_a_reference_and_consent(self):
+        voice = self.voice_with_clips()
+        r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
+        self.assertEqual(r.status_code, 202, r.content)
+        job = ComputeJob.objects.get(kind="voice.clone")
+        self.assertEqual(job.payload["engine"], "moss-fa")
+        self.assertEqual(job.node_wanted, "GPU-MOSS")
+        self.assertEqual(list(job.inputs), ["moss_ref.wav"])
+        self.assertTrue(job.payload["consent"]["given"])
+        self.assertTrue(any(c["in_reference"] for c in job.payload["clips"]))
+        ref = vc.moss_reference_path(voice)
+        with wave.open(str(ref)) as w:
+            seconds = w.getnframes() / w.getframerate()
+            self.assertEqual((w.getframerate(), w.getnchannels()), (24000, 1))
+        self.assertTrue(vc.MOSS_REF_MIN <= seconds <= vc.MOSS_REF_MAX + 1, seconds)
+        claimed = SV.claim(self.node)
+        SV.output_path(claimed, "clone.json").write_text(json.dumps({"ready": True, "voice_id": job.payload["name"],
+                                                                       "engine": "moss-fa", "clips": []}))
+        SV.output_path(claimed, "sample.wav").write_bytes(wav_bytes(speechlike(2)))
+        SV.output_path(claimed, "ref.wav").write_bytes(ref.read_bytes())
+        SV.finish(claimed, self.node, True)
+        detail = self.client.get(f"{self.base}{voice.pk}/").json()
+        self.assertEqual(detail["status"], "READY")
+        self.assertEqual(detail["license"], "Apache-2.0")
+
+    def test_speech_in_the_cloned_voice_carries_the_reference(self):
+        voice = self.voice_with_clips()
+        voice.status, voice.revision, voice.node_voice_id = "READY", 1, "nm-x"
+        voice.save()
+        job = vc.enqueue_tts(voice, "سلام")
+        self.assertEqual(job.payload["engine"], "moss-fa")
+        self.assertEqual(job.payload["reference"], "moss_ref.wav")
+        self.assertEqual(list(job.inputs), ["moss_ref.wav"])
+        self.assertEqual(job.node_wanted, "GPU-MOSS")
+
+    def test_missing_models_and_old_agents_are_explained(self):
+        voice = self.voice_with_clips()
+        self.node.capabilities = {"voice": True, "agent": "1.7", "audio": {"moss": False}}
+        self.node.save()
+        r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Download-Models.bat --only moss-tts", r.json()["error"]["message"])
+        self.node.capabilities = {"voice": True, "agent": "1.6"}
+        self.node.save()
+        r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
+        self.assertIn("git pull", r.json()["error"]["message"])
+        self.assertFalse(ComputeJob.objects.filter(kind="voice.clone").exists())
+
+    def test_engine_can_be_switched(self):
+        voice = self.voice_with_clips()
+        r = self.client.patch(f"{self.base}{voice.pk}/", {"engine": "pocket"}, content_type="application/json")
+        self.assertEqual(r.json()["license"], "CC-BY-NC-4.0")
+        self.assertFalse(r.json()["commercial"])

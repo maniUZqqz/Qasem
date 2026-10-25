@@ -17,6 +17,7 @@ export type SectionKey =
   | "market"
   | "sales"
   | "content"
+  | "audio"
   | "settings"
   | "product"
   | "admin"
@@ -55,6 +56,7 @@ export const SECTIONS: PanelSection[] = [
   { key: "market", title: "بازار", storeScoped: true },
   { key: "sales", title: "فروش و پشتیبانی", storeScoped: true },
   { key: "content", title: "محتوا", storeScoped: true },
+  { key: "audio", title: "صدا", storeScoped: true },
   { key: "settings", title: "تنظیمات", storeScoped: true },
   { key: "product", title: "صفحهٔ محصول", menu: false },
   { key: "admin", title: "ادمین", staffOnly: true },
@@ -106,6 +108,14 @@ export const PAGES: PanelPage[] = [
   { key: "performance", section: "content", label: "چه چیزی جواب داد", icon: "target", to: (id) => `/stores/${id}/campaigns/performance` },
   { key: "production_queue", section: "content", label: "صف تولید", icon: "cpu", to: (id) => `/stores/${id}/queue` },
   { key: "editor", section: "content", label: "ادیتور ویدیو", icon: "film", to: (id) => `/stores/${id}/editor` },
+  { key: "piece_regen", section: "content", label: "بازسازیِ یک تکه", icon: "refresh", to: (id) => `/stores/${id}/regen` },
+
+  // ------------------------------------------------------------------ صدا
+  { key: "audio_speech", section: "audio", label: "گفتار", icon: "mic", to: (id) => `/stores/${id}/audio`, end: true },
+  { key: "audio_clone", section: "audio", label: "کلونِ صدا", icon: "sparkle", to: (id) => `/stores/${id}/audio/clone` },
+  { key: "audio_sfx", section: "audio", label: "صدای محیط و افکت", icon: "cloud", to: (id) => `/stores/${id}/audio/sfx` },
+  { key: "audio_music", section: "audio", label: "موسیقیِ زمینه", icon: "music", to: (id) => `/stores/${id}/audio/music` },
+  { key: "audio_library", section: "audio", label: "کتابخانهٔ صداها", icon: "inbox", to: (id) => `/stores/${id}/audio/library` },
 
   // ------------------------------------------------------------- تنظیمات
   { key: "plan", section: "settings", label: "پلن و مصرف", icon: "wallet", to: (id) => `/stores/${id}/plan` },

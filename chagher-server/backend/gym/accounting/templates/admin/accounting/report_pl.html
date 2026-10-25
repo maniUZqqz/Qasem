@@ -1,0 +1,40 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" with presets=True %}
+<p class="acc-muted">{{ range_label }} — مبلغ‌ها به {{ currency }} — فقط سندهای قطعی؛ سندِ بستنِ سال در این گزارش نمی‌آید.</p>
+<table class="acc" style="max-width:820px">
+  <thead><tr><th>حساب</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>
+    <tr class="sub"><th colspan="2">درآمدها</th></tr>
+    {% for sec in r.income %}
+      {% if sec.account %}<tr><td><b>{{ sec.account.code }} — {{ sec.account.name }}</b></td><td></td></tr>{% endif %}
+      {% for x in sec.rows %}
+      <tr class="indent"><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a></td><td class="n">{{ x.amount|money }}</td></tr>
+      {% endfor %}
+    {% empty %}<tr><td colspan="2" class="acc-muted">درآمدی در این بازه ثبت نشده.</td></tr>
+    {% endfor %}
+    <tr class="sub"><th>جمعِ درآمدها</th><td class="n">{{ r.total_income|money }}</td></tr>
+
+    <tr class="sub"><th colspan="2">هزینه‌ها</th></tr>
+    {% for sec in r.expense %}
+      {% if sec.account %}<tr><td><b>{{ sec.account.code }} — {{ sec.account.name }}</b></td><td></td></tr>{% endif %}
+      {% for x in sec.rows %}
+      <tr class="indent"><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a></td><td class="n">{{ x.amount|money }}</td></tr>
+      {% endfor %}
+    {% empty %}<tr><td colspan="2" class="acc-muted">هزینه‌ای در این بازه ثبت نشده.</td></tr>
+    {% endfor %}
+    <tr class="sub"><th>جمعِ هزینه‌ها</th><td class="n">{{ r.total_expense|money }}</td></tr>
+
+    <tr class="tot"><th>{% if r.profit < 0 %}زیانِ خالص{% else %}سودِ خالص{% endif %}</th><td class="n">{{ r.profit|money }}</td></tr>
+  </tbody>
+</table>
+{% if r.shares %}
+<h2>سهمِ هر شریک از این {% if r.profit < 0 %}زیان{% else %}سود{% endif %} (به نسبتِ سهم)</h2>
+<table class="acc" style="max-width:520px">
+  <thead><tr><th>شریک</th><th class="n">سهم</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>{% for s in r.shares %}<tr><td>{{ s.partner.name }}</td><td class="n">{{ s.percent|pct }}٪</td><td class="n">{{ s.amount|money }}</td></tr>{% endfor %}</tbody>
+</table>
+<p class="acc-muted">این فقط نمایش است؛ تقسیمِ واقعیِ سود هنگامِ «بستنِ سالِ مالی» با سند ثبت می‌شود.</p>
+{% endif %}
+{% endblock %}

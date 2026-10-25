@@ -1,0 +1,44 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" %}
+<p class="acc-muted">ماندهٔ حساب‌ها تا {{ as_of }} — مبلغ‌ها به {{ currency }} — فقط سندهای قطعی.</p>
+{% if r.balanced %}
+<div class="acc-note acc-ok">✔ ترازنامه تراز است: جمعِ دارایی‌ها = جمعِ بدهی‌ها + سرمایه.</div>
+{% else %}
+<div class="acc-note acc-bad">✘ ترازنامه تراز نیست ({{ r.total_assets|money }} ≠ {{ r.total_le|money }}). این نباید رخ دهد؛ به پشتیبانی خبر دهید.</div>
+{% endif %}
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+<table class="acc" style="flex:1 1 420px;max-width:560px">
+  <thead><tr><th>دارایی‌ها</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>
+  {% for sec in r.assets %}
+    {% if sec.account %}<tr><td><b>{{ sec.account.name }}</b></td><td class="n"><b>{{ sec.total|money }}</b></td></tr>{% endif %}
+    {% for x in sec.rows %}<tr class="indent"><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a></td><td class="n">{{ x.amount|money }}</td></tr>{% endfor %}
+  {% empty %}<tr><td colspan="2" class="acc-muted">—</td></tr>
+  {% endfor %}
+  <tr class="tot"><th>جمعِ دارایی‌ها</th><td class="n">{{ r.total_assets|money }}</td></tr>
+  </tbody>
+</table>
+<table class="acc" style="flex:1 1 420px;max-width:560px">
+  <thead><tr><th>بدهی‌ها و حقوقِ صاحبانِ سرمایه</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>
+  <tr class="sub"><th colspan="2">بدهی‌ها</th></tr>
+  {% for sec in r.liabilities %}
+    {% for x in sec.rows %}<tr class="indent"><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a></td><td class="n">{{ x.amount|money }}</td></tr>{% endfor %}
+  {% empty %}<tr class="indent"><td colspan="2" class="acc-muted">بدهی‌ای ثبت نشده</td></tr>
+  {% endfor %}
+  <tr><th>جمعِ بدهی‌ها</th><td class="n">{{ r.total_liabilities|money }}</td></tr>
+  <tr class="sub"><th colspan="2">حقوقِ صاحبانِ سرمایه</th></tr>
+  {% for sec in r.equity %}
+    {% if sec.account %}<tr><td><b>{{ sec.account.name }}</b></td><td class="n"><b>{{ sec.total|money }}</b></td></tr>{% endif %}
+    {% for x in sec.rows %}<tr class="indent"><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.code }} — {{ x.account.name }}</a></td><td class="n">{{ x.amount|money }}</td></tr>{% endfor %}
+  {% endfor %}
+  <tr class="indent"><td>سود (زیان)ِ دوره‌های بسته‌نشده</td><td class="n">{{ r.unclosed_profit|money }}</td></tr>
+  <tr><th>جمعِ حقوقِ صاحبانِ سرمایه</th><td class="n">{{ r.total_equity|money }}</td></tr>
+  <tr class="tot"><th>جمعِ بدهی‌ها و سرمایه</th><td class="n">{{ r.total_le|money }}</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="acc-muted">برداشتِ شرکا داخلِ سرمایه با پرانتز (منفی) می‌آید.</p>
+{% endblock %}

@@ -305,6 +305,8 @@ export interface VoiceProfileValues {
   volume: number;
   /** A ClonedVoice id: Persian narration in that voice (spoken on a processing node). */
   cloned_voice?: number | null;
+  /** A MOSS default voice id (processing node; commercial use allowed). */
+  preset?: string;
 }
 
 /** A cloned voice as a narrator choice (GET /stores/{id}/voice/ → cloned_voices). */
@@ -317,6 +319,7 @@ export interface ClonedVoiceOption {
   usable: boolean;
   license: string;
   commercial: boolean;
+  engine?: string;
 }
 
 export interface Pronunciation {
@@ -338,6 +341,12 @@ export interface StoreVoice {
   voices_en: { key: string; id: string; label: string; note: string }[];
   speakers: Record<"fa" | "en", { speakers: VoiceSpeaker[]; error: string }>;
   cloned_voices?: ClonedVoiceOption[];
+  /** MOSS-TTS on the processing node: its default voices and whether a node can speak right now. */
+  moss?: {
+    ready: boolean;
+    why: string;
+    presets: { id: string; name: string; gender: string; note: string; license: string; source: string }[];
+  };
   local_only: boolean;
   pronunciations: Pronunciation[];
   builtin_pronunciations: Pronunciation[];

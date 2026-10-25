@@ -1,0 +1,10 @@
+{% extends "admin/app_index.html" %}
+{% load accounting_tags %}
+{% block extrastyle %}{{ block.super }}{% include "admin/accounting/_style.html" %}{% endblock %}
+{% block content %}
+<div id="content-main">
+  {% accounting_dashboard %}
+  <h2 style="margin-top:18px">جدول‌های حسابداری</h2>
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}

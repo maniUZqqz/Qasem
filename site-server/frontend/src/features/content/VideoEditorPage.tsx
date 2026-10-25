@@ -471,6 +471,12 @@ export default function VideoEditorPage() {
                       >
                         ۵ قالب انتشار
                       </Button>
+                      <Link
+                        to={`/stores/${id}/regen?src=upload:${video.id}${video.edited_url ? ":edited" : ""}`}
+                        className="u-btn u-btn-secondary"
+                      >
+                        بازسازیِ یک تکه
+                      </Link>
                       <Button
                         variant="secondary"
                         onClick={() => loadSubtitles(video)}

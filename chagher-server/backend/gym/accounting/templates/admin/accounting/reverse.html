@@ -1,0 +1,20 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+<p class="acc-intro">سندِ برگشتی همهٔ ردیف‌های <a href="{{ entry.get_admin_url }}">{{ entry }}</a> را با جهتِ وارونه ثبت می‌کند تا اثرش صفر شود.
+خودِ سند دست نمی‌خورد و هر دو در دفترها می‌مانند. بعد اگر لازم است «کپی به پیش‌نویسِ تازه» بزنید و درستش را ثبت کنید.</p>
+<table class="acc" style="max-width:820px">
+  <thead><tr><th>حساب</th><th class="n">بدهکارِ فعلی</th><th class="n">بستانکارِ فعلی</th><th>ردیف</th></tr></thead>
+  <tbody>{% for l in lines %}<tr><td>{{ l.account }}</td><td class="n">{{ l.debit|money0 }}</td><td class="n">{{ l.credit|money0 }}</td><td>{{ l.note }}</td></tr>{% endfor %}</tbody>
+</table>
+<form method="post" class="acc-form">{% csrf_token %}
+  {% if form.non_field_errors %}<ul class="errorlist nonfield">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  <fieldset class="module aligned">
+  {% for field in form %}
+    <div class="form-row{% if field.errors %} errors{% endif %}">{{ field.errors }}
+      <div class="flex-container"><label for="{{ field.id_for_label }}">{{ field.label }}:</label>{{ field }}</div></div>
+  {% endfor %}
+  </fieldset>
+  <div class="submit-row"><input type="submit" class="default" value="ثبتِ سندِ برگشتی"> <a href="{{ entry.get_admin_url }}">انصراف</a></div>
+</form>
+{% endblock %}

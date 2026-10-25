@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'django.contrib.sitemaps',
 
     'app',
+    'accounting',          # حسابداریِ دوطرفه (۱۴۰۵/۰۸/۰۳)
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',

@@ -36,6 +36,8 @@ DENOISE = "DENOISE"
 
 LOCAL_KINDS = {
     "PIPER", "SOUND_LIBRARY", "PROCEDURAL", "DEEPFILTER", "RNNOISE", "SPECTRAL", "AFFTDN",
+    # our own processing node (services.audio.node_audio): the text never leaves the company
+    "NODE_MOSS", "NODE_SFX",
 }
 
 
@@ -134,6 +136,12 @@ def readiness(engine: Engine) -> tuple[bool, str]:
     """Can this engine run right now? (ready, reason when not)."""
     kind = engine.kind
     try:
+        if kind in ("NODE_MOSS", "NODE_SFX"):
+            # ready = a processing node is on and has the models (Download-Models.bat); answered from the
+            # nodes' last heartbeat, so a node that is off costs no waiting
+            from . import node_audio
+
+            return node_audio.moss_ready() if kind == "NODE_MOSS" else node_audio.sfx_ready()
         if kind == "PIPER":
             try:
                 import piper  # noqa: F401

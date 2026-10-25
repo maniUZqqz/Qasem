@@ -106,6 +106,8 @@ INSTALLED_APPS = [
     "apps.marketing",
     "apps.api_platform",
 ]
+# بازسازیِ یک تکه از وسطِ ویدیو (پنل › محتوا)
+INSTALLED_APPS += ["apps.regen"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -428,6 +430,8 @@ CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # AI (Ollama) work and GPU (ComfyUI) work run on dedicated queues so heavy
 # generation can be capped independently (GPU_CONCURRENCY_LIMIT).
+#: task modules that are not an app's tasks.py (autodiscovery only finds tasks.py)
+CELERY_IMPORTS = ("apps.content.tasks_audio",)
 CELERY_TASK_ROUTES = {
     "apps.content.tasks.generate_video_task": {"queue": "gpu"},
     "apps.content.tasks.generate_image_task": {"queue": "gpu"},

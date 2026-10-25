@@ -1,5 +1,12 @@
 from django.urls import path
 
+from .views_audio import (
+    AudioAssetDetailView,
+    AudioAssetFileView,
+    AudioAssetListView,
+    AudioOverviewView,
+    VideoSoundMixView,
+)
 from .views_voice_clone import (
     ClonedVoiceBuildView,
     ClonedVoiceClipAudioView,
@@ -91,6 +98,14 @@ urlpatterns = [
          ClonedVoiceTestAudioView.as_view(), name="voice-clone-test-audio"),
     path("stores/<int:store_id>/voice/clones/<int:pk>/use/", ClonedVoiceUseView.as_view(),
          name="voice-clone-use"),
+    # «صدا»: speech, ambience/effects, music and the library; and the same sounds under a video
+    path("stores/<int:store_id>/audio/", AudioOverviewView.as_view(), name="audio-overview"),
+    path("stores/<int:store_id>/audio/assets/", AudioAssetListView.as_view(), name="audio-assets"),
+    path("stores/<int:store_id>/audio/assets/<int:pk>/", AudioAssetDetailView.as_view(), name="audio-asset"),
+    path("stores/<int:store_id>/audio/assets/<int:pk>/file/", AudioAssetFileView.as_view(),
+         name="audio-asset-file"),
+    path("stores/<int:store_id>/video-scripts/<int:pk>/sound-mix/", VideoSoundMixView.as_view(),
+         name="video-sound-mix"),
     path("audio/sounds/", SoundCatalogueView.as_view(), name="sound-catalogue"),
     # One shoot, every platform (`ایده‌ها.md` §10).
     path("video-scripts/<int:pk>/cuts/", VideoCutsView.as_view(), name="video-cuts"),

@@ -22,6 +22,11 @@ GROUPS = [
       'paymentgatewayconfig', 'ledgerentry', 'accountstatement',
       'uniteconomicsreport', 'aiusagelog']),
 
+    # اپِ جدای accounting (۱۴۰۵/۰۸/۰۳): دفترِ دوطرفه؛ «داشبورد» و «راهنما» را خودِ
+    # accounting/admin.py بالای همین گروه اضافه می‌کند.
+    ('📒 حسابداری (سود، زیان و شرکا)',
+     ['journalentry', 'partner', 'account', 'fiscalyear', 'accountingsettings']),
+
     ('👥 کاربران و باشگاه‌ها',
      ['customuser', 'gymbrand', 'gymclient', 'athleteprofile',
       'programsharecode']),

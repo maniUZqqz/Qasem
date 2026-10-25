@@ -4,6 +4,7 @@ Six engines, one interface (`synthesize(text, out_path) -> Path`):
 
 | engine      | where it runs         | Persian voices                       | cost        |
 |-------------|-----------------------|--------------------------------------|-------------|
+| MOSS-TTS    | processing node (GPU) | default reference voices + cloned    | Apache-2.0  |
 | Piper       | this machine, offline | gyro, ganji, amir, reza (male), mana (female) | free |
 | Edge TTS    | Microsoft, online     | Farid (male), Dilara (female)        | free        |
 | Azure       | Microsoft, API        | the same two, official SLA           | paid        |
@@ -549,6 +550,11 @@ def build_provider(engine: engine_registry.Engine, language: str, profile=None) 
     gender = getattr(profile, "gender", "male") or "male"
     rate = getattr(profile, "rate", 0) or 0
     kind = engine.kind
+    if kind == "NODE_MOSS":
+        from . import node_audio
+
+        chosen = getattr(profile, "preset", "") or ""
+        return node_audio.NodeMossProvider(chosen if node_audio.preset(chosen) else engine.voice(language, gender))
     if kind == "PIPER":
         model = engine.voice(language, gender) or engine.model_name
         if language == "fa" and model and not model.startswith("fa_"):
@@ -612,6 +618,8 @@ def get_tts_provider(language: str | None = None, store=None, *, profile=None) -
     for engine in exact + rest:
         if engine.kind == "GTTS" and language == "fa":
             continue
+        if engine.kind == "NODE_MOSS" and language != "fa":
+            continue          # the Persian LoRA and Persian reference voices: English stays with the other engines
         if engine.kind == "PIPER" and not engine.voice(language, gender) and language == "en":
             continue
         try:

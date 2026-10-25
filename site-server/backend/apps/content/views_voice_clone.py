@@ -60,6 +60,20 @@ def _wav(path) -> FileResponse:
     return response
 
 
+def _engine_options() -> list:
+    """Both cloning engines, with their licence and whether a processing node can run them right now."""
+    from services.audio import node_audio
+    from services.audio import voice_clone as vc
+
+    moss_ok, moss_why = node_audio.moss_ready()
+    pocket = vc.nodes_status()
+    rows = []
+    for key, meta in vc.ENGINES.items():
+        ready, why = (moss_ok, moss_why) if key == "moss-fa" else (pocket["online"], pocket["message"])
+        rows.append({**meta, "ready": ready, "why": why})
+    return rows
+
+
 class ClonedVoiceListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -81,6 +95,7 @@ class ClonedVoiceListView(APIView):
             "default_purpose": vc.DEFAULT_PURPOSE,
             "engine": {"id": vc.ENGINE, "label": vc.ENGINE_LABEL, "license": vc.ENGINE_LICENSE,
                        "commercial": vc.ENGINE_COMMERCIAL},
+            "engines": _engine_options(),
             "in_use": vc.in_use_id(store),
         })
 
@@ -100,11 +115,14 @@ class ClonedVoiceListView(APIView):
             return _error("person_required", "نامِ صاحبِ صدا (کسی که می‌خواند) لازم است.")
         if ClonedVoice.objects.filter(store=store).count() >= 10:
             return _error("too_many", "حداکثر ۱۰ صدای کلون‌شده برای هر فروشگاه — یکی را پاک کنید.")
+        engine = str(request.data.get("engine") or vc.ENGINE)
+        if engine not in vc.ENGINES:
+            return _error("bad_engine", "موتورِ کلونِ ناشناخته.")
         voice = ClonedVoice.objects.create(
             store=store, name=name, person=person, purpose=purpose,
             consent_text=vc.consent_text(person, purpose, store.name), consent_at=timezone.now(),
             consent_by=request.user, consent_ip=_client_ip(request),
-            engine=vc.ENGINE, engine_license=vc.ENGINE_LICENSE,
+            engine=engine, engine_license=vc.ENGINES[engine]["license"],
         )
         return Response(vc.voice_json(voice, with_clips=True), status=status.HTTP_201_CREATED)
 
@@ -129,6 +147,13 @@ class ClonedVoiceDetailView(APIView):
                 return _error("name_required", "نامِ صدا خالی است.")
             voice.name = name
             voice.save(update_fields=["name", "updated_at"])
+        if "engine" in request.data:
+            if voice.status == voice.Status.BUILDING:
+                return _error("building", "صدا در حالِ ساخت است.", status.HTTP_409_CONFLICT)
+            try:
+                vc.set_engine(voice, str(request.data.get("engine")))
+            except vc.VoiceCloneError as exc:
+                return _error("bad_engine", str(exc))
         return Response(vc.voice_json(voice, with_clips=True, job=vc.sync(voice)))
 
     def delete(self, request, store_id, pk):
@@ -195,6 +220,11 @@ class ClonedVoiceBuildView(APIView):
         if request.data.get("consent") is not True:
             return _error("consent_required", "پیش از ساخت، رضایتِ صاحبِ صدا را دوباره تأیید کنید.")
         vc.sync(voice)
+        if request.data.get("engine"):
+            try:
+                vc.set_engine(voice, str(request.data.get("engine")))
+            except vc.VoiceCloneError as exc:
+                return _error("bad_engine", str(exc))
         try:
             job = vc.start_build(voice)
         except vc.NodeOffline as exc:

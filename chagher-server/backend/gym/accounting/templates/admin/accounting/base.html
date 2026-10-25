@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% block extrastyle %}{{ block.super }}{% include "admin/accounting/_style.html" %}{% endblock %}
+{% block bodyclass %}{{ block.super }} acc-page{% endblock %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">خانه</a> ›
+  <a href="{% url 'admin:app_list' app_label='accounting' %}">حسابداری</a> ›
+  {{ title }}
+</div>
+{% endblock %}
+{% block content %}
+<div id="content-main" class="acc-wrap">
+  {% include "admin/accounting/_nav.html" %}
+  {% block acc_content %}{% endblock %}
+</div>
+{% endblock %}

@@ -35,14 +35,16 @@ class AudioEngine(TimeStampedModel):
 
     class Kind(models.TextChoices):
         # ---- voice ------------------------------------------------------
-        PIPER = "PIPER", "Piper — لوکال، آفلاین، رایگان"
-        EDGE = "EDGE", "Edge TTS — آنلاین، رایگان (مایکروسافت)"
+        NODE_MOSS = "NODE_MOSS", "MOSS-TTS فارسی — سرورِ پردازش، تجاری مجاز (Apache-2.0)"
+        PIPER = "PIPER", "Piper — لوکال، آفلاین، رایگان، تجاری مجاز"
+        EDGE = "EDGE", "Edge TTS — آنلاین، غیررسمی (بدونِ مجوزِ تجاریِ مایکروسافت)"
         AZURE = "AZURE", "Azure Speech — API پولی (مایکروسافت)"
         OPENAI_TTS = "OPENAI_TTS", "API گفتار سازگار با OpenAI"
         ELEVENLABS = "ELEVENLABS", "ElevenLabs — API پولی"
-        GTTS = "GTTS", "Google Translate TTS — فقط انگلیسی"
+        GTTS = "GTTS", "Google Translate TTS — فقط انگلیسی، غیررسمی"
         # ---- sound ------------------------------------------------------
         SOUND_LIBRARY = "SOUND_LIBRARY", "کتابخانه‌ی صدای واقعی — لوکال، آفلاین"
+        NODE_SFX = "NODE_SFX", "MOSS-SoundEffect — سرورِ پردازش، تجاری مجاز (Apache-2.0)"
         PROCEDURAL = "PROCEDURAL", "ساخت صدای محیط با کد — لوکال، آفلاین"
         OPENVERSE = "OPENVERSE", "Openverse / Freesound (CC0) — آنلاین، رایگان"
         ELEVENLABS_SFX = "ELEVENLABS_SFX", "ElevenLabs Sound Effects — API پولی"
@@ -54,7 +56,9 @@ class AudioEngine(TimeStampedModel):
 
     #: Which kinds run on our own machine. Everything else sends data out —
     #: the narration text, a search phrase, a customer's recording.
+    #: NODE_* run on our own processing server: nothing leaves the company either.
     LOCAL_KINDS = {
+        Kind.NODE_MOSS, Kind.NODE_SFX,
         Kind.PIPER, Kind.SOUND_LIBRARY, Kind.PROCEDURAL,
         Kind.DEEPFILTER, Kind.RNNOISE, Kind.SPECTRAL, Kind.AFFTDN,
     }
@@ -62,8 +66,8 @@ class AudioEngine(TimeStampedModel):
     #: Which kinds belong to which role. The admin form refuses a mismatch
     #: rather than saving a voice engine that is asked to remove noise.
     ROLE_KINDS = {
-        Role.VOICE: {Kind.PIPER, Kind.EDGE, Kind.AZURE, Kind.OPENAI_TTS, Kind.ELEVENLABS, Kind.GTTS},
-        Role.SOUND: {Kind.SOUND_LIBRARY, Kind.PROCEDURAL, Kind.OPENVERSE, Kind.ELEVENLABS_SFX},
+        Role.VOICE: {Kind.NODE_MOSS, Kind.PIPER, Kind.EDGE, Kind.AZURE, Kind.OPENAI_TTS, Kind.ELEVENLABS, Kind.GTTS},
+        Role.SOUND: {Kind.SOUND_LIBRARY, Kind.NODE_SFX, Kind.PROCEDURAL, Kind.OPENVERSE, Kind.ELEVENLABS_SFX},
         Role.DENOISE: {Kind.DEEPFILTER, Kind.RNNOISE, Kind.SPECTRAL, Kind.AFFTDN},
     }
 
@@ -208,6 +212,7 @@ class SoundClip(TimeStampedModel):
         UPLOAD = "UPLOAD", "آپلود مدیر"
         ELEVENLABS = "ELEVENLABS", "ساخته‌شده با ElevenLabs"
         PROCEDURAL = "PROCEDURAL", "ساخته‌شده با کد"
+        MOSS = "MOSS", "ساخته‌شده با MOSS-SoundEffect"
 
     category = models.CharField("دسته", max_length=40, db_index=True)
     title = models.CharField("عنوان", max_length=200, blank=True)

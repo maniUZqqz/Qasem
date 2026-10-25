@@ -36,6 +36,13 @@ Job kinds:
   voice.clone     build a cloned voice from read sentences + the owner's consent (/api/voice/clone + /clone/clip);
                   the Python voice service (Setup-Voice.bat) is installed automatically the first time
                   (NM_VOICE_AUTOSETUP=0 turns that off)
+                  engine "moss-fa": MOSS-TTS-Realtime + Persian LoRA on the GPU (commercial use allowed); the voice comes
+                  from a reference clip: {voice: "mana"|"arash"|... (kit voices) | reference: <input wav>}; strict, no fallback
+  voice.sfx       ambience / sound effect from an English description (MOSS-SoundEffect v2.0): {prompt, seconds<=30}
+  voice.music     instrumental background music (ACE-Step 1.5): {prompt, seconds, bpm?}
+                  The three GPU audio engines run in their own venvs (Download-Models.bat installs them) and are started
+                  on demand; with auto-switch ComfyUI / Ollama memory is freed first, and an idle engine stops after
+                  NM_AUDIO_IDLE_S seconds (default 900) so the GPU is free for video again.
   ollama.chat     text/vision with Ollama (:11434) — payload is the /api/chat or /api/generate body
   *.http          generic relay to that service: {method, path, json|form, files:{field: input name}}
 """
@@ -59,7 +66,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.6"
+VERSION = "1.7"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -72,6 +79,9 @@ SERVICES = {
     "video": ("NM_VIDEO_URL", "http://127.0.0.1:5680"),
     "voice": ("NM_VOICE_URL", "http://127.0.0.1:5600"),
     "ollama": ("NM_OLLAMA_URL", "http://127.0.0.1:11434"),
+    "moss": ("NM_MOSS_URL", "http://127.0.0.1:5640"),
+    "sfx": ("NM_SFX_URL", "http://127.0.0.1:5641"),
+    "music": ("NM_MUSIC_URL", "http://127.0.0.1:5642"),
 }
 
 #: how to start each service on THIS machine (services.json next to agent.py; created with these defaults).
@@ -83,6 +93,12 @@ DEFAULT_SERVICES = {
     "photo": {"start": "tools\\PersianAiKit\\Photo\\Run-Server.bat --Photo:OpenBrowser=false", "url": "photo", "ready_timeout": 900, "note": "PersianAiKit photo editor (.NET 8; run Setup-Services.bat once)"},
     "video": {"start": "tools\\PersianAiKit\\Video\\Run-Server.bat --Video:OpenBrowser=false", "url": "video", "ready_timeout": 900, "note": "PersianAiKit video editor (.NET 8 + ffmpeg; run Setup-Services.bat once)"},
     "worker3d": {"start": "worker-3d.bat", "url": None, "ready_timeout": 10, "note": "Blender render worker for the 3D section"},
+    "moss": {"start": "venvs\\moss-tts\\Scripts\\python.exe audio\\moss_tts_server.py --port 5640 --parent-pid ${NM_AGENT_PID}",
+             "url": "moss", "ready_timeout": 120, "note": "MOSS-TTS Persian speech + cloning (GPU; Download-Models.bat)"},
+    "sfx": {"start": "venvs\\moss-sfx\\Scripts\\python.exe audio\\moss_sfx_server.py --port 5641 --parent-pid ${NM_AGENT_PID}",
+            "url": "sfx", "ready_timeout": 120, "note": "MOSS-SoundEffect ambience / effects (GPU; Download-Models.bat)"},
+    "music": {"start": "venvs\\acestep\\Scripts\\python.exe audio\\acestep_server.py --port 5642 --parent-pid ${NM_AGENT_PID}",
+              "url": "music", "ready_timeout": 1200, "note": "ACE-Step 1.5 background music (GPU; Download-Models.bat)"},
 }
 SERVICE_KEYS = tuple(DEFAULT_SERVICES)
 
@@ -702,6 +718,8 @@ class ServiceManager:
         return bool(p and p.poll() is None)
 
     def startable(self, key):
+        if key in AUDIO_ENGINES:
+            return audio_installed(key)
         cmd = (self.cfg.get(key, {}).get("start") or "").strip()
         if not cmd:
             return False
@@ -729,6 +747,7 @@ class ServiceManager:
         cmd = (self.cfg.get(key, {}).get("start") or "").strip()
         for var in ("NM_COMFY_BAT",):
             cmd = cmd.replace("${%s}" % var, os.environ.get(var, ""))
+        cmd = cmd.replace("${NM_AGENT_PID}", str(os.getpid()))
         cmd = cmd.strip()
         if not cmd:
             return None
@@ -885,13 +904,18 @@ class ServiceManager:
         if "worker3d" not in (desired or {}) and blender_path() and os.path.isdir(os.path.join(HERE, "up3d")):
             self.start("worker3d", wait=False)
 
-    def prepare_for(self, kind, auto_switch, tick=None):
+    def prepare_for(self, kind, auto_switch, tick=None, payload=None):
         """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
+        audio = audio_engine_for(kind, payload)
+        if audio:
+            return self.prepare_audio(audio, auto_switch, tick)
         family = kind.split(".", 1)[0]
         need = {"comfy": "comfyui", "ollama": "ollama", "voice": "voice", "photo": "photo", "video": "video"}.get(family)
         if not need:
             return
         if auto_switch:
+            if need in ("comfyui", "ollama"):
+                self.stop_audio()                 # a GPU audio engine left loaded would starve ComfyUI / Ollama
             if need == "comfyui":
                 self.unload_ollama()
             elif need == "ollama":
@@ -901,6 +925,46 @@ class ServiceManager:
                 self.start(need, tick=tick)
         elif not self.running(need):
             raise RuntimeError("%s is not running on this node and auto-switch is off (turn it on in the panel or start the service)" % need)
+
+    # ---- GPU audio engines (moss / sfx / music): on demand, one at a time, stopped when idle
+    def prepare_audio(self, key, auto_switch, tick=None):
+        if not audio_installed(key):
+            raise JobError(audio_missing_message(key), retryable=False)
+        AUDIO_USE[key] = time.time()
+        if self.running(key):
+            return
+        others = [k for k in AUDIO_ENGINES if k != key and self.running(k)]
+        if auto_switch:
+            self.unload_ollama()
+            self.free_comfy()
+            for k in others:
+                self.stop(k)
+        else:
+            used, total = vram_mb()
+            need = AUDIO_ENGINES[key]["vram_mb"]
+            if total and total - (used or 0) < need:
+                raise JobError(
+                    "auto-switch is off and the GPU has only %d MB free; %s needs about %d MB. Turn auto-switch on in the "
+                    "panel (services of this node) or stop ComfyUI / Ollama | سوئیچِ خودکار خاموش است و حافظهٔ کارتِ "
+                    "گرافیک کافی نیست؛ سوئیچِ خودکار را در پنل روشن کنید" % (total - (used or 0), AUDIO_ENGINES[key]["label"], need))
+        log("audio: starting %s for this job" % AUDIO_ENGINES[key]["label"])
+        if not self.start(key, tick=tick):
+            raise JobError("%s did not start; last lines of logs\\service-%s.log:\n%s" % (
+                AUDIO_ENGINES[key]["label"], key, "\n".join(tail_lines(self.log_path(key), 8)) or "(empty)"))
+
+    def stop_audio(self, keep=None):
+        for k in AUDIO_ENGINES:
+            if k != keep and k in self.procs and self.procs[k].poll() is None and not AUDIO_BUSY.get(k):
+                self.stop(k)
+
+    def reap_audio(self, idle_s=None):
+        """Stop a GPU audio engine nobody used for a while, so ComfyUI / Ollama get the VRAM back."""
+        idle_s = float(idle_s if idle_s is not None else os.environ.get("NM_AUDIO_IDLE_S") or 900)
+        for k in AUDIO_ENGINES:
+            p = self.procs.get(k)
+            if p and p.poll() is None and not AUDIO_BUSY.get(k) and time.time() - AUDIO_USE.get(k, 0) > idle_s:
+                log("audio: %s idle for %d min - stopping it to free the GPU" % (AUDIO_ENGINES[k]["label"], idle_s // 60))
+                self.stop(k)
 
 
 MANAGER = None
@@ -930,6 +994,7 @@ class Capabilities:
             caps["gpu"] = ", ".join(gpus)
         caps["blender"] = bool(blender_path()) and os.path.isdir(os.path.join(HERE, "up3d"))
         caps["voice_clone"] = voice_clone_installed()     # natural voices + cloning (else installed on first use)
+        caps["audio"] = {k: audio_installed(k) for k in AUDIO_ENGINES}   # MOSS speech / effects / music (Download-Models.bat)
         total, free = memory_mb()
         if total:
             caps["ram_total_mb"], caps["ram_free_mb"] = total, free
@@ -1018,6 +1083,9 @@ def check(cfg):
         if key == "comfy_bridge" and not up:
             row(None, key, "not needed (the agent applies the profiles to ComfyUI itself)")
             continue
+        if key in AUDIO_ENGINES and not up:
+            row(None, key, service_url(key) + " (started by the agent when a job needs it)")
+            continue
         row(up if key == "comfyui" else (True if up else None), key, service_url(key) + (" (listening)" if up else " (not running; the panel can start it)"))
     if listening(service_url("comfyui"), 1.0):
         try:
@@ -1066,6 +1134,11 @@ def check(cfg):
     have_voice = os.path.isfile(os.path.join(vm, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(vm, "vosk"))
     row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat brings them from the site (text-to-speech needs them)")
     vc_ok = voice_clone_installed()
+    for key, eng in AUDIO_ENGINES.items():
+        miss = audio_missing(key)
+        row(True if not miss else None, "  %s" % eng["label"][:26],
+            "installed (venvs\\%s)" % eng["venv"] if not miss else
+            "not installed - Download-Models.bat --only %s (about %s GB)" % (eng["package"], eng["gb"]))
     row(True if vc_ok else None, "  voice cloning service",
         "installed (voice\\.venv + Pocket-TTS)" if vc_ok else
         "not installed - the first voice.clone job installs it (~0.7 GB), or run tools\\PersianAiKit\\Voice\\Setup-Voice.bat")
@@ -1548,6 +1621,8 @@ def _save_consent(vid, consent):
 def h_voice_clone(job):
     """Build a cloned voice: consent + read sentences -> kit voice id, per-clip verdicts, reference and a test sentence."""
     p = job.payload
+    if str(p.get("engine") or "").lower() in MOSS_ENGINES:
+        return h_moss_clone(job)
     consent = p.get("consent") or {}
     if consent.get("given") is not True or not consent.get("text"):
         raise JobError("voice clone refused: the owner's consent is missing from the job", retryable=False)
@@ -1635,6 +1710,279 @@ def _natural_tts(job, p, text, out, setup=True):
     if restored:
         meta.update(voice_id=restored, restored=True)
     return meta
+
+
+# ───────────────────────────────────────────── GPU audio engines (MOSS-TTS, MOSS-SoundEffect, ACE-Step)
+
+MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
+AUDIO_ENGINES = {
+    "moss": {"label": "MOSS-TTS Persian speech", "venv": "moss-tts", "package": "moss-tts", "gb": 15, "vram_mb": 9500,
+             "files": ["models/moss-tts/MOSS-TTS-Realtime/model.safetensors",
+                       "models/moss-tts/MOSS-Audio-Tokenizer/model-00001-of-00002.safetensors",
+                       "models/moss-tts/MOSS-Audio-Tokenizer/model-00002-of-00002.safetensors",
+                       "models/moss-tts/persian-lora/adapter_model.safetensors",
+                       "models/moss-tts/persian-lora/fa_normalize.py",
+                       "vendor/MOSS-TTS/moss_tts_realtime/inferencer.py"]},
+    "sfx": {"label": "MOSS-SoundEffect ambience/effects", "venv": "moss-sfx", "package": "moss-sfx", "gb": 12, "vram_mb": 8000,
+            "files": ["models/moss-sfx/MOSS-SoundEffect-v2.0/transformer/diffusion_pytorch_model.safetensors",
+                      "models/moss-sfx/MOSS-SoundEffect-v2.0/text_encoder/model-00001-of-00002.safetensors",
+                      "models/moss-sfx/MOSS-SoundEffect-v2.0/text_encoder/model-00002-of-00002.safetensors",
+                      "models/moss-sfx/MOSS-SoundEffect-v2.0/vae/vae_128d_48k.pth",
+                      "vendor/MOSS-TTS/moss_soundeffect_v2/pipeline_moss_soundeffect.py"]},
+    "music": {"label": "ACE-Step background music", "venv": "acestep", "package": "acestep", "gb": 12, "vram_mb": 7000,
+              "files": ["models/acestep/checkpoints/acestep-v15-turbo/model.safetensors",
+                        "models/acestep/checkpoints/vae/diffusion_pytorch_model.safetensors",
+                        "models/acestep/checkpoints/Qwen3-Embedding-0.6B/model.safetensors",
+                        "vendor/ACE-Step-1.5/acestep/api_server.py"]},
+}
+AUDIO_USE = {}          # engine -> last time a job needed it (idle reaping)
+AUDIO_BUSY = {}         # engine -> jobs running on it right now
+
+
+def audio_engine_for(kind, payload=None):
+    if kind == "voice.sfx":
+        return "sfx"
+    if kind == "voice.music":
+        return "music"
+    if kind in ("voice.tts", "voice.clone") and str((payload or {}).get("engine") or "").lower() in MOSS_ENGINES:
+        return "moss"
+    return None
+
+
+def audio_venv_python(key):
+    venv = os.path.join(HERE, "venvs", AUDIO_ENGINES[key]["venv"])
+    return os.path.join(venv, "Scripts", "python.exe") if sys.platform.startswith("win") else os.path.join(venv, "bin", "python")
+
+
+def audio_missing(key):
+    """What Download-Models.bat still has to bring for this engine (relative paths); [] = installed."""
+    eng = AUDIO_ENGINES[key]
+    miss = [f for f in eng["files"] if not os.path.isfile(os.path.join(HERE, *f.split("/")))]
+    py = audio_venv_python(key)
+    venv = os.path.dirname(os.path.dirname(py))
+    if not os.path.isfile(py) or not glob.glob(os.path.join(venv, ".nm-pip-venv-%s*.json" % eng["venv"])):
+        miss.append("venvs/%s (Python packages)" % eng["venv"])
+    return miss
+
+
+def audio_installed(key):
+    return not audio_missing(key)
+
+
+def audio_missing_message(key):
+    eng = AUDIO_ENGINES[key]
+    miss = audio_missing(key)
+    return ("MODELS_MISSING: %s is not installed on this node (missing: %s). In the processing folder run "
+            "Download-Models.bat (or only this engine: Download-Models.bat --only %s, about %s GB), then restart START.bat. | "
+            "مدل‌های «%s» روی این سرورِ پردازش نصب نیست. در پوشهٔ پردازش Download-Models.bat را اجرا کنید (فقط همین: "
+            "Download-Models.bat --only %s، حدود %s گیگابایت) و بعد START.bat را دوباره باز کنید."
+            % (eng["label"], ", ".join(miss[:3]) + (" ..." if len(miss) > 3 else ""), eng["package"], eng["gb"],
+               eng["label"], eng["package"], eng["gb"]))
+
+
+def audio_ready(key, job, limit=1500):
+    """Wait until the engine answers /health as ready (the first load reads 5-12 GB from disk). Returns its URL."""
+    url = service_url(key)
+    deadline = time.time() + limit
+    tick = _job_tick(job, 0.05)
+    last = ""
+    while time.time() < deadline:
+        try:
+            h = http("GET", url + "/health", timeout=15)
+        except Exception as e:  # noqa: BLE001 - not listening yet
+            h, last = None, str(e)[:120]
+        if isinstance(h, dict):
+            status = h.get("status") or ((h.get("data") or {}).get("status") if isinstance(h.get("data"), dict) else None)
+            if status in ("ready", "ok"):
+                return url
+            if status == "error":
+                raise JobError("%s could not load its model: %s (logs\\service-%s.log)" % (
+                    AUDIO_ENGINES[key]["label"], h.get("error") or "?", key), retryable=False)
+            last = "loading"
+        tick("loading %s ..." % AUDIO_ENGINES[key]["label"])
+        time.sleep(3)
+    raise JobError("%s did not become ready in %d s (%s); see logs\\service-%s.log" % (
+        AUDIO_ENGINES[key]["label"], limit, last, key))
+
+
+def audio_run(key, url, body, timeout):
+    """POST /run on one of our workers; their errors come back as JobError with the worker's words."""
+    AUDIO_BUSY[key] = AUDIO_BUSY.get(key, 0) + 1
+    AUDIO_USE[key] = time.time()
+    try:
+        return http("POST", url + "/run", body, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode("utf-8")).get("error")
+        except Exception:  # noqa: BLE001
+            msg = None
+        if e.code == 507:
+            raise JobError("%s ran out of GPU memory (%s). Close other GPU programs or turn auto-switch on | حافظهٔ "
+                           "کارتِ گرافیک تمام شد" % (AUDIO_ENGINES[key]["label"], msg or "out of memory"))
+        raise JobError("%s: %s" % (AUDIO_ENGINES[key]["label"], msg or "HTTP %s" % e.code), retryable=e.code >= 500)
+    except (urllib.error.URLError, OSError) as e:
+        raise JobError("%s is not reachable at %s: %s" % (AUDIO_ENGINES[key]["label"], url, e))
+    finally:
+        AUDIO_BUSY[key] -= 1
+        AUDIO_USE[key] = time.time()
+
+
+def kit_reference_voices():
+    """The Persian reference voices shipped with the kit (voices.json: id, name, gender, file, licence)."""
+    folder = os.path.join(VOICE_ROOT, "voice", "voices")
+    try:
+        rows = json.load(open(os.path.join(folder, "voices.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        rows = []
+    out = {r["id"]: os.path.join(folder, r["file"]) for r in rows if isinstance(r, dict) and r.get("id") and r.get("file")}
+    out["lora"] = os.path.join(HERE, "models", "moss-tts", "persian-lora", "ref.wav")
+    return out
+
+
+def moss_reference(job, p):
+    """The clip whose voice MOSS speaks in: an attached reference (a shop's cloned voice) or a named kit voice."""
+    ref = p.get("reference")
+    if ref:
+        path = job.input_path(ref)
+        if not path:
+            raise JobError("reference '%s' is not in the job package" % ref, retryable=False)
+        return path
+    voice = str(p.get("voice") or "mana").replace("preset:", "").replace("kit:", "")
+    path = kit_reference_voices().get(voice)
+    if not path or not os.path.isfile(path):
+        raise JobError("reference voice '%s' is not on this node (tools\\PersianAiKit\\Voice\\voice\\voices); update the "
+                       "processing folder with git pull" % voice, retryable=False)
+    return path
+
+
+def h_moss_tts(job):
+    p = job.payload
+    text = str(p.get("text", "")).strip()
+    if not text:
+        raise JobError("text is empty", retryable=False)
+    out = os.path.basename(str(p.get("out") or "speech.wav"))
+    ref = moss_reference(job, p)
+    url = audio_ready("moss", job)
+    job.progress(0.2, "MOSS-TTS: speaking")
+    r = audio_run("moss", url, {"text": text, "reference": ref, "out": job.out(out), "seed": p.get("seed"),
+                                "temperature": p.get("temperature", 0.8)}, timeout=max(600, int(job.timeout_s or 600)))
+    if not os.path.isfile(job.out(out)):
+        raise JobError("MOSS-TTS returned no audio")
+    return {"primary": out, "engine": "voice:moss-fa", "seconds": (r or {}).get("seconds"),
+            "voice": p.get("voice") or ("clone" if p.get("reference") else "mana"), "license": "Apache-2.0"}
+
+
+def h_moss_clone(job):
+    """A cloned voice for MOSS: nothing to train - the voice is the reference the site made from the accepted clips.
+    The node checks it really speaks: a test sentence in the new voice, plus the reference itself."""
+    p = job.payload
+    consent = p.get("consent") or {}
+    if consent.get("given") is not True or not consent.get("text"):
+        raise JobError("voice clone refused: the owner's consent is missing from the job", retryable=False)
+    ref = p.get("reference")
+    ref_path = job.input_path(ref) if ref else None
+    if not ref_path:
+        raise JobError("voice clone (MOSS): the reference recording is missing from the job package", retryable=False)
+    clips = [c for c in (p.get("clips") or []) if isinstance(c, dict)]
+    url = audio_ready("moss", job)
+    job.progress(0.5, "MOSS-TTS: speaking a test sentence in the new voice")
+    sample_text = str(p.get("sample_text") or "سلام! این صدای ساخته شده من است.")
+    t0 = time.time()
+    audio_run("moss", url, {"text": sample_text, "reference": ref_path, "out": job.out("sample.wav")},
+              timeout=max(600, int(job.timeout_s or 600)))
+    shutil.copyfile(ref_path, job.out("ref.wav"))
+    out = {"ready": True, "voice_id": str(p.get("name") or "moss-voice"), "engine": "moss-fa", "check": None,
+           "sample_text": sample_text, "took": round(time.time() - t0, 1), "node": CONFIG.get("name"),
+           "clips": [{"index": c.get("index"), "ok": True, "message": "در مرجعِ صدای MOSS به کار رفت" if c.get("in_reference")
+                      else "پذیرفته (وارسیِ سایت)", "seconds": c.get("seconds")} for c in clips],
+           "accepted": len(clips)}
+    with open(job.out("clone.json"), "w", encoding="utf-8") as fh:
+        json.dump(out, fh, ensure_ascii=False, indent=2)
+    return {"primary": "clone.json", "engine": "voice:moss-fa", "voice_id": out["voice_id"], "ready": True}
+
+
+def h_voice_sfx(job):
+    p = job.payload
+    prompt = str(p.get("prompt") or "").strip()
+    if not prompt:
+        raise JobError("prompt (an English description of the sound) is empty", retryable=False)
+    try:
+        seconds = min(30.0, max(0.5, float(p.get("seconds") or 10)))
+    except (TypeError, ValueError):
+        raise JobError("seconds must be a number", retryable=False)
+    out = os.path.basename(str(p.get("out") or "sfx.wav"))
+    url = audio_ready("sfx", job)
+    job.progress(0.2, "MOSS-SoundEffect: generating %.1f s" % seconds)
+    r = audio_run("sfx", url, {"prompt": prompt, "seconds": seconds, "out": job.out(out), "steps": p.get("steps"),
+                               "cfg_scale": p.get("cfg_scale"), "seed": p.get("seed") or 0,
+                               "negative_prompt": p.get("negative_prompt") or ""}, timeout=max(600, int(job.timeout_s or 600)))
+    return {"primary": out, "engine": "audio:moss-sfx", "seconds": (r or {}).get("seconds", seconds), "license": "Apache-2.0"}
+
+
+def _ace(url, method, path, body=None, timeout=120):
+    r = http(method, url + path, body, timeout=timeout)
+    if isinstance(r, dict) and "data" in r and ("code" in r or "error" in r):
+        if r.get("code") not in (None, 200) or r.get("error"):
+            raise JobError("ACE-Step: %s" % (r.get("error") or "code %s" % r.get("code")))
+        return r.get("data")
+    return r
+
+
+def h_voice_music(job):
+    p = job.payload
+    prompt = str(p.get("prompt") or "").strip()
+    if not prompt:
+        raise JobError("prompt (style of the music, in English) is empty", retryable=False)
+    try:
+        seconds = min(240.0, max(10.0, float(p.get("seconds") or 30)))
+    except (TypeError, ValueError):
+        raise JobError("seconds must be a number", retryable=False)
+    out = os.path.basename(str(p.get("out") or "music.wav"))
+    url = audio_ready("music", job)
+    seed = p.get("seed")
+    body = {"prompt": prompt, "lyrics": "[Instrumental]", "instrumental": True, "thinking": False,
+            "use_cot_caption": False, "use_cot_language": False, "audio_duration": seconds,
+            "inference_steps": int(p.get("steps") or 8), "batch_size": 1, "audio_format": "wav",
+            "use_random_seed": seed in (None, ""), "seed": int(seed) if seed not in (None, "") else -1}
+    if p.get("bpm"):
+        body["bpm"] = int(p["bpm"])
+    if p.get("key"):
+        body["key_scale"] = str(p["key"])
+    AUDIO_BUSY["music"] = AUDIO_BUSY.get("music", 0) + 1
+    try:
+        task = _ace(url, "POST", "/release_task", body)
+        task_id = (task or {}).get("task_id") if isinstance(task, dict) else None
+        if not task_id:
+            raise JobError("ACE-Step did not accept the task: %s" % str(task)[:300])
+        deadline = time.time() + max(600, int(job.timeout_s or 600))
+        tick = _job_tick(job, 0.3)
+        while time.time() < deadline:
+            rows = _ace(url, "POST", "/query_result", {"task_id_list": [task_id]}) or []
+            row = rows[0] if isinstance(rows, list) and rows else {}
+            status = row.get("status") if isinstance(row, dict) else None
+            if status == 1:
+                items = row.get("result")
+                items = json.loads(items) if isinstance(items, str) else (items or [])
+                file_url = (items[0] or {}).get("file") if items else None
+                if not file_url:
+                    raise JobError("ACE-Step finished without a file: %s" % str(row)[:300])
+                data = http("GET", url + file_url if file_url.startswith("/") else file_url, timeout=600)
+                if not isinstance(data, (bytes, bytearray)) or len(data) < 64:
+                    raise JobError("ACE-Step returned no audio file: %s" % str(data)[:300])
+                with open(job.out(out), "wb") as fh:
+                    fh.write(data)
+                metas = (items[0] or {}).get("metas") or {}
+                return {"primary": out, "engine": "audio:acestep", "seconds": metas.get("duration") or seconds,
+                        "bpm": metas.get("bpm"), "license": "MIT"}
+            if status == 2:
+                raise JobError("ACE-Step failed: %s" % str(row.get("result") or row)[:400])
+            tick("ACE-Step: composing %d s of music" % seconds)
+            AUDIO_USE["music"] = time.time()
+            time.sleep(2)
+        raise JobError("ACE-Step did not finish in time")
+    finally:
+        AUDIO_BUSY["music"] -= 1
+        AUDIO_USE["music"] = time.time()
 
 
 # ───────────────────────────────────────────── handlers
@@ -1792,6 +2140,8 @@ def h_video_edit(job):
 
 def h_voice_tts(job):
     p = job.payload
+    if str(p.get("engine") or "").lower() in MOSS_ENGINES:
+        return h_moss_tts(job)              # never falls back to Piper: the site chose MOSS on purpose
     text = str(p.get("text", "")).strip()
     if not text:
         raise JobError("text is empty", retryable=False)
@@ -1878,6 +2228,8 @@ HANDLERS = {
     "voice.tts": h_voice_tts,
     "voice.asr": h_voice_asr,
     "voice.clone": h_voice_clone,
+    "voice.sfx": h_voice_sfx,
+    "voice.music": h_voice_music,
     "ollama.chat": h_ollama,
     "ollama.generate": h_ollama,
 }
@@ -1903,7 +2255,7 @@ def run_job(site, data):
                     last[0] = time.time()
                     job.progress(0.02, msg[:120])
 
-            MANAGER.prepare_for(job.kind, STATE["auto_switch"], tick)
+            MANAGER.prepare_for(job.kind, STATE["auto_switch"], tick, payload=job.payload)
         meta = handler(job) or {}
         names = job.upload_outputs()
         meta.update({"node": CONFIG["name"], "seconds": round(time.time() - t0, 1), "files": names})
@@ -1981,6 +2333,11 @@ def main():
     comfy_state = None
     while True:
         running = [t for t in running if t.is_alive()]
+        if MANAGER is not None:
+            try:
+                MANAGER.reap_audio()
+            except Exception as e:  # noqa: BLE001 - housekeeping must not stop the node
+                warn("audio idle check failed: %s" % e)
         try:
             now = time.time()
             if now - last_hb > 20:

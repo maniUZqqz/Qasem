@@ -1,0 +1,30 @@
+{% extends "admin/change_form.html" %}
+{% block extrastyle %}{{ block.super }}{% include "admin/accounting/_style.html" %}{% endblock %}
+{% block object-tools-items %}
+  {% if entry and entry.status == 'draft' and can_post %}
+  <li><form method="post" action="{% url 'admin:accounting_journalentry_post' entry.pk %}" style="display:inline">{% csrf_token %}
+      <button type="submit" class="acc-btn" style="padding:4px 12px">✔ ثبتِ قطعی</button></form></li>
+  {% endif %}
+  {% if can_reverse %}
+  <li><a href="{% url 'admin:accounting_journalentry_reverse' entry.pk %}">↶ سندِ برگشتی</a></li>
+  {% endif %}
+  {% if entry and entry.status == 'posted' and can_add_entry %}
+  <li><form method="post" action="{% url 'admin:accounting_journalentry_copy' entry.pk %}" style="display:inline">{% csrf_token %}
+      <button type="submit" class="acc-btn sec" style="padding:4px 12px">⧉ کپی به پیش‌نویسِ تازه</button></form></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}
+{% block form_top %}
+  {% if entry and entry.status == 'posted' %}
+  <div class="acc-note acc-ok">این سند <b>ثبتِ قطعی</b> شده و تغییرناپذیر است. برای اصلاح «سندِ برگشتی» بزنید.</div>
+  {% else %}
+  <div class="acc-note">پیش‌نویس: ردیف‌ها را پر کنید — هر ردیف یا بدهکار یا بستانکار — تا جمعِ دو ستون برابر شود. «ذخیره» پیش‌نویس می‌ماند؛ «ذخیره و ثبتِ قطعی» شماره می‌گیرد و قفل می‌شود.
+  ساده‌ترش: <a href="{% url 'admin:app_list' app_label='accounting' %}">فرم‌های ساده</a>.</div>
+  {% endif %}
+{% endblock %}
+{% block submit_buttons_bottom %}
+  {{ block.super }}
+  {% if can_post and has_change_permission or can_post and add %}
+  <div class="submit-row" style="margin-top:-8px"><input type="submit" name="_post" class="default" value="ذخیره و ثبتِ قطعی"></div>
+  {% endif %}
+{% endblock %}

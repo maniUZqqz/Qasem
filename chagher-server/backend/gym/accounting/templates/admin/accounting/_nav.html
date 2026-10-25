@@ -1,0 +1,25 @@
+{% with p=request.path %}
+<div class="acc-nav">
+  <a href="{% url 'admin:app_list' app_label='accounting' %}">🏠 داشبورد</a>
+  {% if perms.accounting.add_journalentry %}
+  <span class="sep">|</span><b>ثبت:</b>
+  {% url 'admin:accounting_new' 'expense' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>هزینه</a>
+  {% url 'admin:accounting_new' 'income' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>درآمد</a>
+  {% url 'admin:accounting_new' 'contribution' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>آوردهٔ شریک</a>
+  {% url 'admin:accounting_new' 'drawing' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>برداشتِ شریک</a>
+  {% url 'admin:accounting_new' 'transfer' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>انتقال</a>
+  <a href="{% url 'admin:accounting_journalentry_add' %}">سندِ دستی</a>
+  {% endif %}
+  {% if perms.accounting.view_reports %}
+  <span class="sep">|</span><b>گزارش:</b>
+  {% url 'admin:accounting_report_pl' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>سود و زیان</a>
+  {% url 'admin:accounting_report_balance' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>ترازنامه</a>
+  {% url 'admin:accounting_report_trial' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>ترازِ آزمایشی</a>
+  {% url 'admin:accounting_report_ledger' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>دفترِ حساب</a>
+  {% url 'admin:accounting_report_partners' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>شرکا</a>
+  {% url 'admin:accounting_report_cash' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>صندوق و بانک</a>
+  {% endif %}
+  <span class="sep">|</span>
+  {% url 'admin:accounting_help' as u %}<a href="{{ u }}"{% if p == u %} class="on"{% endif %}>❔ راهنما</a>
+</div>
+{% endwith %}

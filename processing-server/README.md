@@ -61,11 +61,55 @@ not possible (Python outside 3.10-3.13, no internet), the job fails with the ins
 voice (`VOICE_MISSING`), the site sends the job again with the best recordings and the node rebuilds it.
 Tests: `python tests\test_agent_voice.py` (fake kit, no models needed).
 
+## Models for speech, cloning, ambience and music (agent 1.7): Download-Models.bat
+
+One downloader for everything this node can run: `Download-Models.bat` reads every manifest in `downloads\*.json`
+(`voice.json`: MOSS-TTS + Persian LoRA, MOSS-SoundEffect v2.0, ACE-Step 1.5; other groups such as `video.json` are
+picked up the same way). Re-runnable: finished files are skipped, broken downloads resume, nothing is deleted.
+
+    Download-Models.bat                    everything (shows disk space needed, asks once)
+    Download-Models.bat --list             what is still missing
+    Download-Models.bat --check            test every link without downloading
+    Download-Models.bat --only voice       one group; or one package: --only moss-tts / moss-sfx / acestep
+    Download-Models.bat --hf-mirror https://hf-mirror.com      if huggingface.co is filtered
+    Download-Models.bat --pip-mirror https://mirror-pypi.runflare.com/simple
+
+`voice.json` (pinned commits, sizes and sha256; every big file also has an identical ModelScope copy as fallback):
+29.4 GB of models + about 9.4 GB of Python packages (torch for CUDA 12.8) in `venvs\moss-tts`, `venvs\moss-sfx`,
+`venvscestep` (Python 3.12, installed per user into `python312\` when missing). Plan about 55 GB of free disk.
+All three engines allow commercial use (Apache-2.0 / MIT). After it finishes, restart START.bat: the node reports the
+engines to the site (`capabilities.audio`) and starts each one on demand (`audio\*_server.py`, ports 5640-5642);
+with auto-switch ComfyUI / Ollama memory is freed first, and an idle engine stops after 15 minutes
+(`NM_AUDIO_IDLE_S`). A job for an engine that is not installed fails with the exact command to run.
+Smoke check without a GPU: `python audio\moss_tts_server.py --fake`. Tests: `python tests	est_download_models.py`,
+`python tests	est_agent_audio.py`.
+
 Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
 the last lines are sent to the site log (panel → Processing servers → log of this node).
 
 **ComfyUI path:** the agent looks for `run_nvidia_gpu.bat` (portable ComfyUI) in the usual folders and writes it into
 `services.json` → `comfyui` → `start`. If it is not found (`agent.py --check` says so), write the path there yourself.
+
+## Regenerate a piece of a video (panel › Content › «بازسازیِ یک تکه»)
+
+The site sends ordinary `comfy.graph` jobs (no new job kind, no agent change): the last frame before the cut and the
+first frame after it go up as PNG, ComfyUI renders the piece with **Wan 2.2 I2V A14B** and the core node
+`WanFirstLastFrameToVideo` (quality) or **Wan 2.1 Fun-InP 1.3B** with `WanFunInpaintToVideo` (fast), and the PNG frames
+come back. Timing, colour, sharpness/grain and seam matching and the final video are done on the site; the full video
+never travels to this machine. Long pieces (> 5 s) are several chained chunks inside ONE graph.
+
+Once on this machine:
+
+1. `Download-Models.bat --only video` — the Wan 2.2 fp8 high/low experts, umT5 and the VAE are the files the existing
+   Wan profiles already use (skipped when they are in `models\diffusion_models`, `models\text_encoders`, `models\vae`);
+   new: the 4-step lightx2v LoRAs (2 × 1.1 GB), Fun-InP 1.3B (2.9 GB) and CLIP-Vision-H (1.2 GB).
+2. ComfyUI must have `WanFirstLastFrameToVideo` (every ComfyUI that runs Wan 2.2 has it). The panel tab shows per model
+   whether this node is ready (from the node list and model folders in the heartbeat).
+3. The rendered frames stay in `ComfyUI\output\nmregen\` (~0.5 MB per frame) — delete that folder now and then.
+
+Rough cost on an RTX 3060 12 GB (estimates until the first real runs; the panel then learns the real numbers):
+A14B 480p, 4 steps ≈ 4–5 s per generated frame + ~2.5 min loading the two 14 GB experts; 720p ≈ 2.5× slower;
+Fun-InP 1.3B ≈ 1.5 s per frame.
 
 ## Services and auto-switch (controlled from the panel)
 

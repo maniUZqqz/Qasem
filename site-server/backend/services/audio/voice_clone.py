@@ -19,9 +19,14 @@ There is no silent fallback: a shop that chose its own voice and gets
 somebody else's has been lied to. When no processing node is on, narration
 stops with a message that says so (`NodeOffline` → `TTSError`).
 
-Engine today: Pocket-TTS-Farsi (zero-shot, ~5 s of reference) — licence
-CC-BY-NC-4.0, i.e. NOT for commercial use. That is shown next to every cloned
-voice; the commercial-grade path is in VOICE-SETUP.md.
+Two engines (`ClonedVoice.engine`), chosen per voice:
+
+* **moss-fa** — MOSS-TTS-Realtime + Persian LoRA, Apache-2.0: **commercial use allowed**. Zero-shot: the
+  "build" is a reference the site makes from the best accepted clips (8-20 s, `moss_ref.wav`) plus a test
+  sentence on the node; every narration job carries that reference, so any node with the model can speak in
+  the voice and nothing has to be kept on a node. Needs the models (Download-Models.bat on the node).
+* **pocket** — Pocket-TTS-Farsi in the voice kit, CC-BY-NC-4.0: NOT for commercial use. The node keeps the
+  voice; if it loses it, the site sends the clips again (VOICE_MISSING → restore).
 """
 from __future__ import annotations
 
@@ -44,10 +49,21 @@ from .tts import BaseTTSProvider, TTSError, _require_output
 
 logger = logging.getLogger(__name__)
 
-ENGINE = "pocket"
-ENGINE_LABEL = "Pocket-TTS فارسی (کلونِ بی‌آموزش، روی سرورِ پردازش)"
-ENGINE_LICENSE = "CC-BY-NC-4.0"
-ENGINE_COMMERCIAL = False
+ENGINES = {
+    "moss-fa": {"id": "moss-fa", "label": "MOSS-TTS فارسی (روی سرورِ پردازش)", "license": "Apache-2.0",
+                "commercial": True, "note": "استفادهٔ تجاری مجاز؛ کیفیتِ بهتر. مدل‌هایش با Download-Models.bat نصب می‌شود."},
+    "pocket": {"id": "pocket", "label": "Pocket-TTS فارسی (کیتِ صدا)", "license": "CC-BY-NC-4.0", "commercial": False,
+               "note": "فقط غیرتجاری؛ مدلِ سبک‌تر (بارِ اول خودکار نصب می‌شود)."},
+}
+ENGINE = "moss-fa"                      # new voices: the commercially usable engine
+ENGINE_LABEL = ENGINES[ENGINE]["label"]
+ENGINE_LICENSE = ENGINES[ENGINE]["license"]
+ENGINE_COMMERCIAL = ENGINES[ENGINE]["commercial"]
+MOSS_REF_MIN, MOSS_REF_MAX = 8.0, 20.0  # seconds of the reference MOSS clones from (the LoRA card: 10-30 s)
+
+
+def engine_meta(voice) -> dict:
+    return ENGINES.get(getattr(voice, "engine", "") or "pocket") or ENGINES["pocket"]
 
 MIN_CLIPS = 3                  # the kit works from one; three gives it a choice of reference
 RECOMMENDED_CLIPS = 20         # ~1.5–2 minutes: the reference is then nearly always a clean one
@@ -145,6 +161,11 @@ def preview_path(voice) -> Path:
 def reference_path(voice) -> Path:
     """The clip the node chose as the reference (its ref.wav)."""
     return voice_dir(voice) / "reference.wav"
+
+
+def moss_reference_path(voice) -> Path:
+    """The reference MOSS speaks from: the best accepted clips, one after another (24 kHz mono)."""
+    return voice_dir(voice) / "moss_ref.wav"
 
 
 def kit_name(voice) -> str:
@@ -437,6 +458,8 @@ def start_build(voice):
     if len(clips) < MIN_CLIPS:
         raise VoiceCloneError(f"دست‌کم {MIN_CLIPS} جملهٔ پذیرفته لازم است (الان {len(clips)}). "
                               f"برای بهترین نتیجه {RECOMMENDED_CLIPS} جمله یا بیشتر بخوانید.")
+    if voice.engine == "moss-fa":
+        return _start_moss_build(voice, clips)
     node = pick_node(voice)
     old_node, old_id = voice.node_name, voice.node_voice_id
     rows, files = _clip_rows(voice, clips)
@@ -451,6 +474,76 @@ def start_build(voice):
                           timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False)
     if old_id and old_node and old_node != node:
         forget_on_node(voice, old_node, old_id)
+    voice.status = voice.Status.BUILDING
+    voice.build_job = job.uid
+    voice.error = ""
+    voice.save(update_fields=["status", "build_job", "error", "updated_at"])
+    return job
+
+
+def _rank(clip):
+    node = clip.node or {}
+    snr = node.get("snr") if node.get("snr") is not None else clip.snr
+    return (bool(node.get("ok", True)), 3.0 <= (clip.seconds or 0) <= 10.0, snr or 0)
+
+
+def build_moss_reference(voice, clips) -> tuple[Path, list]:
+    """The cleanest accepted clips, joined with short pauses until 8-20 s: what MOSS clones the voice from."""
+    import numpy as np
+
+    chosen, total = [], 0.0
+    for clip in sorted(clips, key=_rank, reverse=True):
+        if total >= MOSS_REF_MIN and total + (clip.seconds or 0) > MOSS_REF_MAX:
+            continue
+        chosen.append(clip)
+        total += (clip.seconds or 0) + 0.25
+        if total >= MOSS_REF_MAX - 2:
+            break
+    chosen.sort(key=lambda c: c.index)
+    parts, rate = [], 44100
+    for clip in chosen:
+        audio, rate = read_wav(clip_wav(voice, clip.index))
+        parts += [audio, np.zeros(int(0.25 * rate), dtype=np.float32)]
+    joined = np.concatenate(parts[:-1]) if parts else np.zeros(rate, dtype=np.float32)
+    peak = float(np.max(np.abs(joined))) or 1.0
+    joined = joined * min(1.0, 0.89 / peak)
+    tmp = voice_dir(voice) / "moss_ref.44k.wav"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(tmp), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((np.clip(joined, -1, 1) * 32767).astype("<i2").tobytes())
+    out = moss_reference_path(voice)
+    from services.video.ffmpeg import FFMPEG
+
+    done = subprocess.run([str(FFMPEG), "-nostdin", "-y", "-v", "error", "-i", str(tmp), "-ac", "1", "-ar", "24000",
+                           "-c:a", "pcm_s16le", str(out)], capture_output=True, timeout=120)
+    if done.returncode != 0 or not out.is_file():
+        shutil.copyfile(tmp, out)
+    tmp.unlink(missing_ok=True)
+    return out, chosen
+
+
+def _start_moss_build(voice, clips):
+    from apps.compute import services as compute
+
+    from . import node_audio
+
+    try:
+        node = node_audio.pick_node("moss", prefer=voice.node_name)
+    except node_audio.NodeAudioError as exc:
+        raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
+    ref, chosen = build_moss_reference(voice, clips)
+    used = {c.index for c in chosen}
+    payload = {
+        "engine": "moss-fa", "name": kit_name(voice), "person": voice.person,
+        "purpose": voice.purpose or DEFAULT_PURPOSE, "consent": _consent_payload(voice), "sample_text": SAMPLE_TEXT,
+        "reference": "moss_ref.wav", "nm_voice": voice.pk, "nm_signature": signature(voice),
+        "clips": [{"index": c.index, "text": c.text, "seconds": c.seconds, "in_reference": c.index in used} for c in clips],
+    }
+    job = compute.enqueue("voice.clone", payload, {"moss_ref.wav": str(ref)}, store=voice.store, origin="voice_clone",
+                          priority=50, timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False)
     voice.status = voice.Status.BUILDING
     voice.build_job = job.uid
     voice.error = ""
@@ -570,6 +663,8 @@ def restore_bundle(voice, limit: int = 3) -> tuple[dict, dict]:
 def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", restore: bool = False):
     from apps.compute import services as compute
 
+    if voice.engine == "moss-fa":
+        return _enqueue_moss_tts(voice, text, seed=seed, origin=origin)
     node = pick_node(voice)
     payload = {"text": text, "voice": voice.node_voice_id or kit_name(voice), "engine": voice.engine or ENGINE,
                "clone": True, "strict": True, "out": "speech.wav", "rev": voice.revision, "nm_voice": voice.pk}
@@ -580,6 +675,27 @@ def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", res
         payload["restore"], files = restore_bundle(voice)
     return compute.enqueue("voice.tts", payload, files, store=voice.store, origin=origin, priority=60,
                            timeout_s=TTS_TIMEOUT_S, node=node)
+
+
+def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone"):
+    """MOSS speaks in the voice of the reference that travels with every job: any node with the model will do."""
+    from . import node_audio
+
+    ref = moss_reference_path(voice)
+    if not ref.is_file():
+        clips = usable_clips(voice)
+        if not clips:
+            raise VoiceCloneError("ضبط‌های این صدا روی سایت نیست؛ صدا را دوباره بسازید.")
+        ref, _chosen = build_moss_reference(voice, clips)
+    payload = {"text": text, "engine": "moss-fa", "reference": "moss_ref.wav", "clone": True, "strict": True,
+               "out": "speech.wav", "rev": voice.revision, "nm_voice": voice.pk}
+    if seed is not None:
+        payload["seed"] = int(seed)
+    try:
+        return node_audio.enqueue("moss", "voice.tts", payload, {"moss_ref.wav": str(ref)}, store=voice.store,
+                                  origin=origin, timeout_s=TTS_TIMEOUT_S, prefer=voice.node_name)
+    except node_audio.NodeAudioError as exc:
+        raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
 
 
 def needs_restore(job) -> bool:
@@ -647,7 +763,8 @@ class ClonedVoiceProvider(BaseTTSProvider):
         self.row = voice
         self.voice = f"clone:{voice.name} r{voice.revision}"
         online = any(n["online"] for n in voice_nodes())
-        self.processor = (f"صدای کلون‌شدهٔ «{voice.name}» — سرورِ پردازش (Pocket-TTS)"
+        engine = "MOSS-TTS" if voice.engine == "moss-fa" else "Pocket-TTS"
+        self.processor = (f"صدای کلون‌شدهٔ «{voice.name}» — سرورِ پردازش ({engine})"
                           + ("" if online else " · سرور الان خاموش است"))
         self._takes: dict[str, int] = {}
 
@@ -667,7 +784,8 @@ class ClonedVoiceProvider(BaseTTSProvider):
 
     def describe(self) -> dict:
         out = super().describe()
-        out.update({"cloned_voice": self.row.pk, "license": ENGINE_LICENSE, "commercial": ENGINE_COMMERCIAL})
+        meta = engine_meta(self.row)
+        out.update({"cloned_voice": self.row.pk, "license": meta["license"], "commercial": meta["commercial"]})
         return out
 
 
@@ -741,21 +859,35 @@ def voice_json(voice, *, with_clips: bool = False, job=None) -> dict:
         "id": voice.pk, "name": voice.name, "person": voice.person, "purpose": voice.purpose,
         "status": voice.status, "status_label": voice.get_status_display(), "usable": voice.usable,
         "in_use": in_use_id(voice.store) == voice.pk,
-        "engine": voice.engine, "engine_label": ENGINE_LABEL, "license": voice.engine_license or ENGINE_LICENSE,
-        "commercial": ENGINE_COMMERCIAL,
+        "engine": voice.engine, "engine_label": engine_meta(voice)["label"], "license": engine_meta(voice)["license"],
+        "commercial": engine_meta(voice)["commercial"],
         "consent": {"text": voice.consent_text, "at": voice.consent_at,
                     "by": (voice.consent_by.get_full_name() or voice.consent_by.get_username()) if voice.consent_by_id else ""},
         "node_name": voice.node_name, "revision": voice.revision, "built_at": voice.built_at,
         "error": voice.error, "report": report,
         "clips_ok": len(ok), "clips_total": len(clips), "seconds_ok": round(sum(c.seconds for c in ok), 1),
         "needs_rebuild": bool(voice.revision and report.get("signature") and report.get("signature") != signature(voice)),
-        "has_preview": preview_path(voice).is_file(), "has_reference": reference_path(voice).is_file(),
+        "has_preview": preview_path(voice).is_file(),
+        "has_reference": reference_path(voice).is_file() or moss_reference_path(voice).is_file(),
         "build": job_state(job),
         "created_at": voice.created_at,
     }
     if with_clips:
         data["clips"] = [clip_json(c) for c in clips]
     return data
+
+
+def set_engine(voice, engine: str) -> None:
+    """Switch a voice between MOSS and Pocket; the next «ساختِ صدا» builds it for the new engine."""
+    if engine not in ENGINES:
+        raise VoiceCloneError("موتورِ کلونِ ناشناخته.")
+    if engine == voice.engine:
+        return
+    voice.engine = engine
+    voice.engine_license = ENGINES[engine]["license"]
+    if voice.revision:
+        voice.report = dict(voice.report or {}, signature="engine-changed")   # shows «build again»
+    voice.save(update_fields=["engine", "engine_license", "report", "updated_at"])
 
 
 def limits() -> dict:

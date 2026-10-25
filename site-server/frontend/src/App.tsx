@@ -21,6 +21,7 @@ import PublishQueuePage from "./features/campaigns/PublishQueuePage";
 import ContentStudioPage from "./features/content/ContentStudioPage";
 import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
+import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import ChatPage from "./features/customers/ChatPage";
 import OrdersPage from "./features/customers/OrdersPage";
 import OutreachPage from "./features/customers/OutreachPage";
@@ -51,6 +52,8 @@ import StoreBrandPage from "./features/stores/StoreBrandPage";
 import StoreDataPage from "./features/stores/StoreDataPage";
 import StoreVoicePage from "./features/stores/StoreVoicePage";
 import StoreVoiceClonePage from "./features/stores/StoreVoiceClonePage";
+import AudioLayout from "./features/audio/AudioLayout";
+import { AudioLibraryPage, AudioMusicPage, AudioSfxPage, AudioSpeechPage } from "./features/audio/AudioPages";
 import StoreLayout from "./features/stores/StoreLayout";
 import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
@@ -126,11 +129,21 @@ export default function App() {
               <Route path="/stores/:id/outreach" element={<PageGate k="outreach"><OutreachPage /></PageGate>} />
               <Route path="/stores/:id/api" element={<PageGate k="api_keys"><ApiKeysPage /></PageGate>} />
               <Route path="/stores/:id/editor" element={<PageGate k="editor"><VideoEditorPage /></PageGate>} />
+              {/* بازسازیِ یک تکه از وسطِ ویدیو — بی‌درز، با نسخه‌ها و مقایسهٔ قبل/بعد */}
+              <Route path="/stores/:id/regen" element={<PageGate k="piece_regen"><PieceRegenPage /></PageGate>} />
               <Route path="/stores/:id/queue" element={<PageGate k="production_queue"><ProductionQueuePage /></PageGate>} />
               {/* صفحه ۴ — تولید محتوا. پنل‌های استودیو زیر محصول پخش بودند؛
                   اینجا یک‌جا جمع‌اند و زمان‌بندی هم کنارشان است. */}
               <Route path="/stores/:id/studio" element={<PageGate k="studio"><ContentStudioPage /></PageGate>} />
               <Route path="/stores/:id/trends" element={<PageGate k="trends"><TrendsPage /></PageGate>} />
+              {/* صدا — گفتار، کلونِ صدا، صدای محیط، موسیقیِ زمینه و کتابخانه (مدل‌ها روی سرورِ پردازش) */}
+              <Route path="/stores/:id/audio" element={<AudioLayout />}>
+                <Route index element={<PageGate k="audio_speech"><AudioSpeechPage /></PageGate>} />
+                <Route path="clone" element={<PageGate k="audio_clone"><StoreVoiceClonePage /></PageGate>} />
+                <Route path="sfx" element={<PageGate k="audio_sfx"><AudioSfxPage /></PageGate>} />
+                <Route path="music" element={<PageGate k="audio_music"><AudioMusicPage /></PageGate>} />
+                <Route path="library" element={<PageGate k="audio_library"><AudioLibraryPage /></PageGate>} />
+              </Route>
               {/* یک محصول، هفت زیرصفحه. هرکدام آدرس خودش را دارد، پس
                   لینک‌شدنی است و دکمه‌ی بازگشت مرورگر کار می‌کند — چیزی که
                   در نسخه‌ی تک‌صفحه‌ای ممکن نبود. */}

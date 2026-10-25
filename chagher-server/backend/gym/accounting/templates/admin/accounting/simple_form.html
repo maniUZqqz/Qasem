@@ -1,0 +1,39 @@
+{% extends "admin/accounting/base.html" %}
+{% block acc_content %}
+<p class="acc-intro">{{ intro }}</p>
+{% if no_cash %}<div class="acc-note acc-bad">هیچ حسابِ «نقد و بانک» فعالی نیست؛ در «کدینگِ حساب‌ها» یکی را با تیکِ «نقد و بانک» بسازید.</div>{% endif %}
+{% if no_partner %}<div class="acc-note acc-bad">هنوز شریکی تعریف نشده؛ اول از «<a href="{% url 'admin:accounting_partner_add' %}">شرکا</a>» بسازید.</div>{% endif %}
+{% if not can_post %}<div class="acc-note">شما اجازهٔ «ثبتِ قطعی» ندارید؛ این فرم سند را پیش‌نویس ذخیره می‌کند.</div>{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="acc-form" novalidate>{% csrf_token %}
+  {% if form.non_field_errors %}<ul class="errorlist nonfield">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  <fieldset class="module aligned">
+    {% for field in form %}
+    <div class="form-row{% if field.errors %} errors{% endif %}">
+      {{ field.errors }}
+      <div class="flex-container">
+        <label for="{{ field.id_for_label }}"{% if field.field.required %} class="required"{% endif %}>{{ field.label }}:</label>
+        {{ field }}
+      </div>
+      {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </fieldset>
+  <div class="submit-row">
+    <input type="submit" class="default" value="{% if can_post %}ثبت{% else %}ذخیرهٔ پیش‌نویس{% endif %}">
+  </div>
+</form>
+<p class="acc-muted">مبلغ را با رقمِ فارسی یا لاتین بنویسید؛ جداکنندهٔ هزارگان (۱٬۲۰۰٬۰۰۰ یا 1,200,000) هم قبول است. تاریخ جلالی است: ۱۴۰۵/۰۸/۰۳.</p>
+<script>
+(function(){
+  document.querySelectorAll('input.acc-amount').forEach(function(el){
+    el.addEventListener('input', function(){
+      var fa='۰۱۲۳۴۵۶۷۸۹', ar='٠١٢٣٤٥٦٧٨٩', s='';
+      for (var i=0;i<el.value.length;i++){var c=el.value[i],k=fa.indexOf(c),j=ar.indexOf(c);
+        if(k>=0)c=String(k);else if(j>=0)c=String(j); if(c>='0'&&c<='9')s+=c;}
+      el.value = s ? Number(s).toLocaleString('en-US') : '';
+    });
+  });
+})();
+</script>
+{% endblock %}

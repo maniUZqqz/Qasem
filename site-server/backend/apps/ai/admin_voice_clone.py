@@ -21,3 +21,14 @@ class ClonedVoiceAdmin(admin.ModelAdmin):
     readonly_fields = ("consent_text", "consent_at", "consent_by", "consent_ip", "node_name", "node_voice_id",
                        "build_job", "revision", "report", "built_at", "engine_license")
     inlines = [ClonedVoiceClipInline]
+
+
+from .audio_library_models import AudioAsset  # noqa: E402
+
+
+@admin.register(AudioAsset)
+class AudioAssetAdmin(admin.ModelAdmin):
+    list_display = ("title", "kind", "store", "status", "engine", "duration", "saved", "commercial", "created_at")
+    list_filter = ("kind", "status", "engine", "saved")
+    search_fields = ("title", "text", "store__name")
+    readonly_fields = ("job_uid", "file_name", "size", "duration", "used_in", "params", "prompt")

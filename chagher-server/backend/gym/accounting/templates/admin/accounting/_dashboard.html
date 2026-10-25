@@ -1,0 +1,59 @@
+{% load accounting_tags %}
+<div class="acc-wrap">
+{% if can_add %}
+<div class="acc-btns">
+  <a href="{% url 'admin:accounting_new' 'expense' %}">➖ ثبتِ هزینه</a>
+  <a href="{% url 'admin:accounting_new' 'income' %}">➕ ثبتِ درآمد</a>
+  <a href="{% url 'admin:accounting_new' 'contribution' %}">💰 آوردهٔ شریک</a>
+  <a href="{% url 'admin:accounting_new' 'drawing' %}">👜 برداشتِ شریک</a>
+  <a href="{% url 'admin:accounting_new' 'transfer' %}">⇄ انتقال بینِ صندوق و بانک</a>
+  {% if can_post %}<a class="sec" href="{% url 'admin:accounting_import_payments' %}">⬇ واردکردنِ پرداخت‌های اپ</a>{% endif %}
+  <a class="sec" href="{% url 'admin:accounting_journalentry_add' %}">سندِ دستی</a>
+  <a class="sec" href="{% url 'admin:accounting_help' %}">❔ راهنما</a>
+</div>
+{% endif %}
+{% if show %}
+<div class="acc-cards">
+  <div class="acc-card"><div class="k">درآمدِ {{ d.month_title }}</div><div class="v">{{ d.month.income|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">هزینهٔ {{ d.month_title }}</div><div class="v">{{ d.month.expense|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">سودِ {{ d.month_title }}</div><div class="v {% if d.month.profit < 0 %}acc-neg{% else %}acc-pos{% endif %}">{{ d.month.profit|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">موجودیِ صندوق و بانک</div><div class="v">{{ d.cash|money }}</div><div class="s">تا امروز {{ d.today }}</div></div>
+</div>
+<div class="acc-cards">
+  <div class="acc-card"><div class="k">درآمدِ {{ d.year_title }} (تا امروز)</div><div class="v">{{ d.year.income|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">هزینهٔ {{ d.year_title }}</div><div class="v">{{ d.year.expense|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">سودِ {{ d.year_title }}</div><div class="v {% if d.year.profit < 0 %}acc-neg{% else %}acc-pos{% endif %}">{{ d.year.profit|money }}</div><div class="s">{{ currency }}</div></div>
+  <div class="acc-card"><div class="k">پیش‌نویسِ منتظر</div><div class="v">{{ d.drafts }}</div><div class="s"><a href="{% url 'admin:accounting_journalentry_changelist' %}?status__exact=draft">دیدن</a></div></div>
+</div>
+
+<h2>آوردهٔ هر شریک</h2>
+{% if d.has_partners %}
+<table class="acc" style="max-width:900px">
+  <thead><tr><th>شریک</th><th class="n">سهم</th><th class="n">آوردهٔ سرمایه</th><th class="n">پرداخت از جیب (خالص)</th><th class="n">جمعِ آورده</th><th class="n">برداشت</th><th class="n">ماندهٔ شریک*</th></tr></thead>
+  <tbody>
+  {% for r in d.partners %}
+  <tr><td>{{ r.partner.name }}{% if not r.partner.is_active %} <span class="acc-muted">(غیرفعال)</span>{% endif %}</td>
+      <td class="n">{{ r.partner.share_percent|pct }}٪</td>
+      <td class="n">{{ r.capital|money }}</td><td class="n">{{ r.pocket|money }}</td>
+      <td class="n"><b>{{ r.invested|money }}</b></td><td class="n">{{ r.drawing|money }}</td>
+      <td class="n">{{ r.balance|money }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="acc-muted">* ماندهٔ شریک = سرمایه − برداشت + حسابِ جاری (طلب‌ها و سودهای تقسیم‌شده){% if d.share_ok %} + سهمش از سودِ سالِ هنوز بسته‌نشده{% endif %}. ({{ currency }})</p>
+{% if not d.share_ok %}<div class="acc-note">جمعِ سهمِ شرکای فعال ۱۰۰٪ نیست؛ از «شرکا» درست کنید.</div>{% endif %}
+{% else %}
+<div class="acc-note">هنوز شریکی تعریف نشده. از «<a href="{% url 'admin:accounting_partner_add' %}">شرکا ⇐ افزودن</a>» نام و درصدِ سهمِ هر شریک را وارد کنید؛ حساب‌هایش خودکار ساخته می‌شود.</div>
+{% endif %}
+
+<div class="acc-btns">
+  <a class="sec" href="{% url 'admin:accounting_report_pl' %}">📊 سود و زیان</a>
+  <a class="sec" href="{% url 'admin:accounting_report_balance' %}">⚖ ترازنامه</a>
+  <a class="sec" href="{% url 'admin:accounting_report_trial' %}">🧮 ترازِ آزمایشی</a>
+  <a class="sec" href="{% url 'admin:accounting_report_ledger' %}">📒 دفترِ حساب</a>
+  <a class="sec" href="{% url 'admin:accounting_report_partners' %}">🤝 وضعیتِ شرکا</a>
+  <a class="sec" href="{% url 'admin:accounting_report_cash' %}">🏦 موجودیِ صندوق و بانک</a>
+</div>
+{% if not d.fiscal_year %}<div class="acc-note acc-bad">برای امروز سالِ مالی تعریف نشده؛ از «سال‌های مالی» بسازید.</div>{% endif %}
+{% endif %}
+</div>

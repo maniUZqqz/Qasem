@@ -1,0 +1,25 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" with presets=True keep=keep %}
+{% if not r %}
+<div class="acc-note">یک حساب انتخاب کنید (حسابِ کل یا گروه هم می‌شود؛ آن‌وقت همهٔ زیرحساب‌هایش با هم می‌آید).</div>
+{% else %}
+<p class="acc-muted">{{ range_label }} — مبلغ‌ها به {{ currency }} — مانده به جهتِ {{ r.account.get_normal_side_display }}ِ حساب (منفی = خلافِ جهتِ عادی).</p>
+<table class="acc">
+  <thead><tr><th>تاریخ</th><th>سند</th>{% if r.account.level < 3 %}<th>حساب</th>{% endif %}<th>شرح</th><th class="n">بدهکار</th><th class="n">بستانکار</th><th class="n">مانده</th></tr></thead>
+  <tbody>
+    <tr class="sub"><td colspan="{% if r.account.level < 3 %}6{% else %}5{% endif %}">ماندهٔ اولِ دوره</td><td class="n">{{ r.opening|money }}</td></tr>
+    {% for x in r.rows %}
+    <tr><td class="n">{{ x.jdate }}</td>
+        <td><a href="{{ x.entry.get_admin_url }}">{{ x.entry.number }}</a>{% if x.entry.kind == 'reversal' %} <span class="acc-muted">(برگشتی)</span>{% elif x.entry.kind == 'closing' %} <span class="acc-muted">(بستن)</span>{% endif %}</td>
+        {% if r.account.level < 3 %}<td>{{ x.line.account.code }} — {{ x.line.account.name }}</td>{% endif %}
+        <td>{{ x.entry.description }}{% if x.line.note %} — <span class="acc-muted">{{ x.line.note }}</span>{% endif %}</td>
+        <td class="n">{{ x.debit|money0 }}</td><td class="n">{{ x.credit|money0 }}</td><td class="n">{{ x.balance|money }}</td></tr>
+    {% empty %}<tr><td colspan="7" class="acc-muted">در این بازه گردشی ندارد.</td></tr>
+    {% endfor %}
+    <tr class="tot"><td colspan="{% if r.account.level < 3 %}4{% else %}3{% endif %}">جمع و ماندهٔ پایانِ دوره</td><td class="n">{{ r.total_debit|money }}</td><td class="n">{{ r.total_credit|money }}</td><td class="n">{{ r.closing|money }}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

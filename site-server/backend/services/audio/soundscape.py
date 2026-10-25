@@ -573,6 +573,33 @@ def _elevenlabs(engine, key: str, seconds: float, work: Path) -> Picked | None:
                   licence=clip.licence, loudness=clip.loudness_lufs)
 
 
+def _node_sfx(key: str, seconds: float, work: Path) -> Picked | None:
+    """MOSS-SoundEffect on a processing node, from the category's English caption (no shop data goes in).
+    The result joins the shared library, so the next video that needs this sound finds a real file at once."""
+    from . import node_audio
+
+    kind = CATALOGUE[key]
+    duration = min(20.0, max(1.0, seconds if kind.kind == BED else kind.max_seconds))
+    prompt = kind.queries[0] + (", seamless ambience, no music, no speech" if kind.kind == BED else ", no music")
+    try:
+        raw = node_audio.run_and_wait("sfx", "voice.sfx", {"prompt": prompt, "seconds": duration, "out": "sfx.wav"},
+                                      origin="soundscape", wait_s=900)
+    except node_audio.NodeAudioError as exc:
+        logger.info("MOSS-SoundEffect unavailable for %s: %s", key, exc)
+        return None
+    try:
+        clip = import_clip(raw, key, title=f"MOSS: {kind.queries[0]}", origin="MOSS", licence="Apache-2.0",
+                           work_dir=work)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("MOSS sound import failed: %s", exc)
+        return None
+    path = _local_file(clip.file, work)
+    if path is None:
+        return None
+    return Picked(key=key, path=path, engine="MOSS-SoundEffect", title=clip.title, licence=clip.licence,
+                  loudness=clip.loudness_lufs)
+
+
 def pick(key: str, *, seconds: float, seed: str, work: Path, store=None) -> Picked | None:
     """A recording for this sound, from the admin's engines in order."""
     try:
@@ -589,6 +616,8 @@ def pick(key: str, *, seconds: float, seed: str, work: Path, store=None) -> Pick
                 found = _openverse(key, seed, work)
             elif engine.kind == "ELEVENLABS_SFX":
                 found = _elevenlabs(engine, key, seconds, work)
+            elif engine.kind == "NODE_SFX":
+                found = _node_sfx(key, seconds, work)
             else:
                 found = None
         except Exception as exc:  # noqa: BLE001 — the next engine may still have it

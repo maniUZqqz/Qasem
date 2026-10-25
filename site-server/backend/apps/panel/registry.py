@@ -55,6 +55,15 @@ SECTIONS = [
         ("performance", "چه چیزی جواب داد", "/stores/:id/campaigns/performance", "", []),
         ("production_queue", "صف تولید", "/stores/:id/queue", "", []),
         ("editor", "ادیتور ویدیو", "/stores/:id/editor", "", []),
+        ("piece_regen", "بازسازیِ یک تکه", "/stores/:id/regen",
+         "یک بازه از وسطِ هر ویدیو دوباره ساخته و بی‌درز جایگزین می‌شود (نسخه‌ها، قبل/بعد، نمرهٔ درز)", []),
+    ]),
+    ("audio", "صدا", False, "گفتار، کلونِ صدا، صدای محیط، موسیقیِ زمینه و کتابخانهٔ صداها", [
+        ("audio_speech", "گفتار", "/stores/:id/audio", "متن به گفتار با صداهای آماده یا صدای کلون‌شده", []),
+        ("audio_clone", "کلونِ صدا", "/stores/:id/audio/clone", "صدای اختصاصی، فقط با رضایتِ صاحبِ صدا", []),
+        ("audio_sfx", "صدای محیط و افکت", "/stores/:id/audio/sfx", "صدای محیط و افکت از روی توضیح", []),
+        ("audio_music", "موسیقیِ زمینه", "/stores/:id/audio/music", "موسیقیِ بی‌کلام برای زیرِ ویدیو", []),
+        ("audio_library", "کتابخانهٔ صداها", "/stores/:id/audio/library", "همهٔ صداهای ساخته‌شدهٔ فروشگاه", []),
     ]),
     ("settings", "تنظیمات", False, "پلن و کلیدهای API", [
         ("plan", "پلن و مصرف", "/stores/:id/plan", "", []),

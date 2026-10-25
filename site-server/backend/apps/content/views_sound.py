@@ -70,6 +70,7 @@ def _profile_from(data, language: str):
             volume=int(data.get("volume", 0) or 0),
             language=language,
             cloned_voice=int(cloned) if cloned not in (None, "", 0, "0", False) else None,
+            preset=str(data.get("preset") or "")[:40],
         )
     except (TypeError, ValueError) as exc:
         raise ProfileError("سرعت، زیروبمی و بلندی باید عدد باشند") from exc
@@ -120,19 +121,26 @@ def _voice_payload(store) -> dict:
     )
     from apps.ai.models import ClonedVoice
 
+    from services.audio import node_audio
+    from services.audio.voice_clone import engine_meta
+
     cloned_voices = [
         {"id": v.pk, "name": v.name, "person": v.person, "status": v.status,
-         "status_label": v.get_status_display(), "usable": v.usable, "license": v.engine_license,
-         "commercial": False}
+         "status_label": v.get_status_display(), "usable": v.usable, "license": engine_meta(v)["license"],
+         "commercial": engine_meta(v)["commercial"], "engine": v.engine}
         for v in ClonedVoice.objects.filter(store=store).order_by("-created_at")
     ]
+    moss_ok, moss_why = node_audio.moss_ready()
     return {
         "profile": {
             "gender": saved.gender, "rate": saved.rate,
             "pitch": saved.pitch, "volume": saved.volume,
             "cloned_voice": saved.cloned_voice,
+            "preset": saved.preset,
         },
         "cloned_voices": cloned_voices,
+        # MOSS default voices (processing node, commercial use allowed): who reads when MOSS narrates
+        "moss": {"ready": moss_ok, "why": moss_why, "presets": node_audio.presets()},
         "profile_was_invalid": not valid,
         "description": saved.describe(),
         "options": voice_profile.options("fa"),
@@ -183,10 +191,13 @@ class StoreVoiceView(APIView):
                 row = ClonedVoice.objects.filter(pk=chosen.cloned_voice, store=store).first()
                 if row is None or not row.usable:
                     return _error("bad_profile", "صدای کلون‌شدهٔ انتخاب‌شده آماده نیست — اول آن را در «کلونِ صدا» بسازید.")
+            from services.audio import node_audio
+
             profile_row.voice_profile = {
                 "gender": chosen.gender, "rate": chosen.rate,
                 "pitch": chosen.pitch, "volume": chosen.volume,
                 **({"cloned_voice": chosen.cloned_voice} if chosen.cloned_voice else {}),
+                **({"preset": chosen.preset} if node_audio.preset(chosen.preset) else {}),
             }
             changed.append("voice_profile")
         if "pronunciations" in request.data:

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -16,7 +16,7 @@ import {
   TextArea,
   fa,
 } from "../../components/ui";
-import { useStore } from "./StoreLayout";
+import { useAuthAudio } from "../audio/useAuthAudio";
 import VoiceTabs from "./VoiceTabs";
 
 /**
@@ -116,6 +116,7 @@ type CloneList = {
   consent_template: string;
   default_purpose: string;
   engine: { id: string; label: string; license: string; commercial: boolean };
+  engines?: { id: string; label: string; license: string; commercial: boolean; note: string; ready: boolean; why: string }[];
   in_use: number | null;
 };
 
@@ -306,40 +307,17 @@ function LevelMeter({ level, recording, maxSeconds }: { level: React.MutableRefO
   );
 }
 
-// ───────────────────────────────────────────── audio through the API (recordings are not public files)
-
-function useAuthAudio() {
-  const urls = useRef<string[]>([]);
-  const player = useRef<HTMLAudioElement | null>(null);
-  useEffect(
-    () => () => {
-      player.current?.pause();
-      urls.current.forEach((u) => URL.revokeObjectURL(u));
-    },
-    [],
-  );
-  const load = useCallback(async (path: string): Promise<string> => {
-    const { data } = await api.get<Blob>(path, { responseType: "blob" });
-    const url = URL.createObjectURL(data);
-    urls.current.push(url);
-    return url;
-  }, []);
-  const play = useCallback(
-    async (path: string) => {
-      const url = await load(path);
-      player.current?.pause();
-      player.current = new Audio(url);
-      await player.current.play();
-    },
-    [load],
-  );
-  return useMemo(() => ({ load, play }), [load, play]);
-}
-
 // ───────────────────────────────────────────── page
 
 export default function StoreVoiceClonePage() {
-  const { storeId, store, setError, setNotice } = useStore();
+  // under the store (StoreLayout) or under «صدا» (AudioLayout): both give these four
+  const { storeId, store, setError, setNotice, inAudioSection } = useOutletContext<{
+    storeId: string;
+    store: { name: string };
+    setError: (m: string | null) => void;
+    setNotice: (m: string | null) => void;
+    inAudioSection?: boolean;
+  }>();
   const [params, setParams] = useSearchParams();
   const [list, setList] = useState<CloneList | null>(null);
   const [voice, setVoice] = useState<ClonedVoiceT | null>(null);
@@ -411,7 +389,7 @@ export default function StoreVoiceClonePage() {
   if (!list) {
     return (
       <div className="space-y-4">
-        <VoiceTabs storeId={storeId} />
+        {!inAudioSection && <VoiceTabs storeId={storeId} />}
         <div className="py-10 text-center">
           <Spinner />
         </div>
@@ -421,7 +399,7 @@ export default function StoreVoiceClonePage() {
 
   return (
     <div className="space-y-5">
-      <VoiceTabs storeId={storeId} />
+      {!inAudioSection && <VoiceTabs storeId={storeId} />}
 
       <Alert tone="brand" title="کلونِ صدا: صدای خودتان برای ویدیوها">
         صاحبِ صدا چند جمله را می‌خواند (اینجا ضبط کنید یا فایل بدهید)؛ هر تکه همان لحظه وارسی می‌شود. بعد
@@ -1179,6 +1157,16 @@ function BuildCard({
   const build = voice.build;
   const building = voice.status === "BUILDING";
 
+  const switchEngine = async (engine: string) => {
+    setError(null);
+    try {
+      const { data } = await api.patch<ClonedVoiceT>(url, { engine });
+      setVoice(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+
   const start = async () => {
     setStarting(true);
     setError(null);
@@ -1222,6 +1210,27 @@ function BuildCard({
             <p>
               دست‌کم {fa(list.limits.min_clips)} جملهٔ پذیرفته لازم است (الان {fa(voice.clips_ok)}).
             </p>
+          )}
+          {(list.engines ?? []).length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">موتورِ کلون</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(list.engines ?? []).map((e) => (
+                  <button key={e.id} type="button" onClick={() => void switchEngine(e.id)}
+                    className="rounded-xl p-2 text-right"
+                    style={{ border: `2px solid ${voice.engine === e.id ? "var(--brand)" : "var(--line)"}`,
+                             background: voice.engine === e.id ? "var(--brand-soft)" : "transparent" }}>
+                    <div className="flex flex-wrap items-center gap-2 font-bold" style={{ color: "var(--text)" }}>
+                      {e.label}
+                      <Badge tone={e.commercial ? "ok" : "warn"}>{e.commercial ? "تجاری مجاز" : "فقط غیرتجاری"} · {e.license}</Badge>
+                    </div>
+                    <div className="mt-1 text-xs" style={{ color: e.ready ? "var(--text-3)" : "var(--warn)" }}>
+                      {e.ready ? e.note : e.why}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
           <label className="flex items-start gap-2">
             <input type="checkbox" className="mt-1" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

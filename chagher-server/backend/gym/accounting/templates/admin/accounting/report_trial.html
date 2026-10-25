@@ -1,0 +1,27 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" with presets=True keep=keep %}
+<p class="acc-muted">{{ range_label }} — مبلغ‌ها به {{ currency }} — فقط سندهای قطعی (با سندهای بستنِ سال).</p>
+{% if r.totals.balanced %}<div class="acc-note acc-ok">✔ تراز است: جمعِ بدهکار = جمعِ بستانکار.</div>
+{% else %}<div class="acc-note acc-bad">✘ تراز نیست — این نباید رخ دهد.</div>{% endif %}
+<table class="acc">
+  <thead>
+    <tr><th rowspan="2">کد</th><th rowspan="2">حساب</th><th colspan="2" class="n">ماندهٔ اولِ دوره</th><th colspan="2" class="n">گردشِ دوره</th><th colspan="2" class="n">ماندهٔ پایانِ دوره</th></tr>
+    <tr><th class="n">بدهکار</th><th class="n">بستانکار</th><th class="n">بدهکار</th><th class="n">بستانکار</th><th class="n">بدهکار</th><th class="n">بستانکار</th></tr>
+  </thead>
+  <tbody>
+  {% for x in r.rows %}
+  <tr><td>{{ x.account.code }}</td><td><a href="{% url 'admin:accounting_report_ledger' %}?account={{ x.account.pk }}">{{ x.account.name }}</a></td>
+      <td class="n">{{ x.open_d|money0 }}</td><td class="n">{{ x.open_c|money0 }}</td>
+      <td class="n">{{ x.pd|money0 }}</td><td class="n">{{ x.pc|money0 }}</td>
+      <td class="n">{{ x.cd|money0 }}</td><td class="n">{{ x.cc|money0 }}</td></tr>
+  {% empty %}<tr><td colspan="8" class="acc-muted">در این بازه سندِ قطعی نیست.</td></tr>
+  {% endfor %}
+  <tr class="tot"><th colspan="2">جمع</th>
+      <td class="n">{{ r.totals.open_d|money }}</td><td class="n">{{ r.totals.open_c|money }}</td>
+      <td class="n">{{ r.totals.pd|money }}</td><td class="n">{{ r.totals.pc|money }}</td>
+      <td class="n">{{ r.totals.cd|money }}</td><td class="n">{{ r.totals.cc|money }}</td></tr>
+  </tbody>
+</table>
+{% endblock %}

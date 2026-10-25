@@ -21,6 +21,7 @@ import CutsPanel from "./CutsPanel";
 import RealPhotoPanel from "./RealPhotoPanel";
 import SceneSoundCell from "./SceneSoundCell";
 import SubtitleMusicPanel from "./SubtitleMusicPanel";
+import VideoSoundPanel, { NarratorPicker } from "../audio/VideoSoundPanel";
 
 const TRANSITION_LABEL: Record<string, string> = {
   NEW_SCENE: "صحنه جدید",
@@ -266,7 +267,19 @@ export default function VideoStudioPanel({
         )}
       </div>
 
-      {script?.final_video && voice && (
+      {/* گوینده — صداهای MOSS، صدای کلون‌شدهٔ فروشگاه یا مرد/زن؛ با «صداگذاریِ دوباره» */}
+      {script?.final_video && voice && storeId && (
+        <NarratorPicker
+          storeId={storeId}
+          voice={voice}
+          language={script.narration_language}
+          onChanged={setVoice}
+          onRegenerate={() => void generateVoice()}
+          busy={anyBusy}
+          voiced={Boolean(script.final_video_voiced)}
+        />
+      )}
+      {script?.final_video && voice && !storeId && (
         <NarratorLine voice={voice} language={script.narration_language} storeId={storeId} />
       )}
 
@@ -404,7 +417,17 @@ export default function VideoStudioPanel({
           )}
 
           {script.final_video && (
-            <FinalVideo script={script} voicing={voiceRunner.running} />
+            <>
+              <FinalVideo script={script} voicing={voiceRunner.running} />
+              {storeId && (
+                <Link
+                  to={`/stores/${storeId}/regen?src=script:${script.id}`}
+                  className="u-btn u-btn-secondary u-btn-sm inline-flex"
+                >
+                  بازسازیِ یک تکه از این ویدیو
+                </Link>
+              )}
+            </>
           )}
         </div>
       )}
@@ -413,6 +436,8 @@ export default function VideoStudioPanel({
           own file, because the licence lands on their account. */}
       {script?.id && storeId && script.final_video && (
         <div className="mt-4 space-y-4">
+          {/* صدای پس‌زمینه از کتابخانهٔ «صدا»: موسیقی و صدای محیط زیرِ گوینده */}
+          <VideoSoundPanel storeId={storeId} scriptId={script.id} />
           <SubtitleMusicPanel storeId={storeId} scriptId={script.id} />
           {/* بند ۲۶ — اندپوینتش ساخته بود و دکمه‌ای نداشت */}
           <RealPhotoPanel storeId={storeId} scriptId={script.id} />

@@ -1,0 +1,39 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+<p class="acc-intro">هر خریدِ توکنی که در اپ «پرداخت‌شده» است، این‌جا به یک سندِ درآمد تبدیل می‌شود
+(بدهکار: حسابِ دریافت — درگاه یا کارتِ مقصد، طبقِ «تنظیماتِ حسابداری»؛ بستانکار: درآمدِ فروشِ توکن).
+هر خرید فقط یک بار ثبت می‌شود؛ دوباره زدنِ دکمه بی‌خطر است. تاکنون {{ imported }} خرید ثبت شده.</p>
+
+{% if ready %}
+<form method="post">{% csrf_token %}
+  <div class="acc-btns"><button type="submit" class="acc-btn">ثبتِ {{ ready|length }} پرداخت (جمع {{ ready_total|money }} {{ currency }})</button></div>
+</form>
+<table class="acc">
+  <thead><tr><th>خرید</th><th>تاریخِ پرداخت</th><th>روش</th><th>به حسابِ</th><th class="n">مبلغ</th></tr></thead>
+  <tbody>{% for r in ready %}
+  <tr><td>#{{ r.purchase.pk }} — {{ r.purchase.token_amount }} توکن</td><td class="n">{{ r.jdate }}</td>
+      <td>{{ r.purchase.get_payment_method_display }}</td><td>{{ r.account }}</td><td class="n">{{ r.amount|money }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}
+<div class="acc-note acc-ok">پرداختِ تازه‌ای برای ثبت نیست.</div>
+{% endif %}
+
+{% if blocked %}
+<h2>ثبت نمی‌شوند</h2>
+<table class="acc">
+  <thead><tr><th>خرید</th><th>تاریخ</th><th class="n">مبلغ</th><th>چرا</th></tr></thead>
+  <tbody>{% for r in blocked %}
+  <tr><td>#{{ r.purchase.pk }}</td><td class="n">{{ r.jdate }}</td><td class="n">{{ r.amount|money }}</td><td>{{ r.problem }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% endif %}
+
+{% if stale %}
+<h2>⚠ سند دارند ولی دیگر «پرداخت‌شده» نیستند</h2>
+<p>وضعیتِ این خریدها بعد از ثبتِ سند عوض شده (مثلاً رد یا لغو شده). اگر پول واقعاً برگشته، روی سندش «سندِ برگشتی» بزنید.</p>
+<ul>{% for s in stale %}<li>خریدِ #{{ s.purchase_id }} — <a href="{% url 'admin:accounting_journalentry_change' s.entry_id %}">سند</a></li>{% endfor %}</ul>
+{% endif %}
+<p class="acc-muted">همین کار را با دستورِ <code>manage.py accounting_import_payments</code> (و <code>--dry-run</code> برای پیش‌نمایش) هم می‌شود کرد.</p>
+{% endblock %}

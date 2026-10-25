@@ -1,0 +1,32 @@
+{% extends "admin/accounting/base.html" %}
+{% load accounting_tags %}
+{% block acc_content %}
+{% include "admin/accounting/_filter.html" %}
+<p class="acc-muted">تا {{ as_of }} — مبلغ‌ها به {{ currency }} — فقط سندهای قطعی.</p>
+{% if not r.share_ok %}<div class="acc-note acc-bad">جمعِ سهمِ شرکای فعال {{ share_total|pct }}٪ است؛ باید ۱۰۰٪ باشد (برای بستنِ سال و تخمینِ سهمِ سود).</div>{% endif %}
+<table class="acc">
+  <thead><tr><th>شریک</th><th class="n">سهم</th><th class="n">آوردهٔ سرمایه</th><th class="n">پرداخت از جیب (خالص)</th><th class="n">جمعِ آورده</th><th class="n">برداشت</th><th class="n">سودِ تقسیم‌شده</th><th class="n">سهم از سودِ باز (تخمین)</th><th class="n">ماندهٔ شریک</th><th>دفتر</th></tr></thead>
+  <tbody>
+  {% for x in r.rows %}
+  <tr><td>{{ x.partner.name }}{% if not x.partner.is_active %} <span class="acc-muted">(غیرفعال)</span>{% endif %}</td>
+      <td class="n">{{ x.partner.share_percent|pct }}٪</td>
+      <td class="n">{{ x.capital|money }}</td><td class="n">{{ x.pocket|money }}</td><td class="n"><b>{{ x.invested|money }}</b></td>
+      <td class="n">{{ x.drawing|money }}</td><td class="n">{{ x.profit|money }}</td><td class="n">{{ x.est|money }}</td>
+      <td class="n"><b>{{ x.balance|money }}</b></td>
+      <td>{% for a in x.accounts %}{% if a %}<a href="{% url 'admin:accounting_report_ledger' %}?account={{ a.pk }}">{{ a.code }}</a> {% endif %}{% endfor %}</td></tr>
+  {% empty %}<tr><td colspan="10" class="acc-muted">شریکی تعریف نشده. از «<a href="{% url 'admin:accounting_partner_add' %}">شرکا</a>» بسازید.</td></tr>
+  {% endfor %}
+  {% if r.rows %}
+  <tr class="tot"><th colspan="2">جمع</th><td class="n">{{ r.totals.capital|money }}</td><td class="n">{{ r.totals.pocket|money }}</td><td class="n">{{ r.totals.invested|money }}</td><td class="n">{{ r.totals.drawing|money }}</td><td class="n">{{ r.totals.profit|money }}</td><td class="n">{{ r.totals.est|money }}</td><td class="n">{{ r.totals.balance|money }}</td><td></td></tr>
+  {% endif %}
+  </tbody>
+</table>
+<ul class="acc-muted" style="line-height:1.9">
+  <li><b>آوردهٔ سرمایه</b>: پولی که با فرمِ «آوردهٔ شریک» به صندوق/بانک آورده (ماندهٔ حسابِ سرمایه‌اش).</li>
+  <li><b>پرداخت از جیب (خالص)</b>: هزینه‌هایی که از پولِ خودش داده، منهای درآمدی که به کارتِ شخصی‌اش رسیده (حسابِ جاری، بی‌سود).</li>
+  <li><b>سودِ تقسیم‌شده</b>: سهمش از سودِ سال‌هایی که بسته شده (به حسابِ جاری‌اش رفته).</li>
+  <li><b>سهم از سودِ باز</b>: سودِ سالِ هنوز بسته‌نشده × درصدِ سهم — فقط تخمین، تا روزِ بستنِ سال.</li>
+  <li><b>ماندهٔ شریک</b> = سرمایه − برداشت + جاری + سهم از سودِ باز = آنچه شرکت به او بدهکار است.</li>
+</ul>
+<p class="acc-muted">سودِ بسته‌نشده تا این تاریخ: {{ r.unclosed_profit|money }} {{ currency }}</p>
+{% endblock %}

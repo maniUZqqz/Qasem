@@ -1,0 +1,19 @@
+<form method="get" class="acc-filter">
+  {% for field in form %}
+  <div>
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {{ field.errors }}
+  </div>
+  {% endfor %}
+  <div><input type="submit" value="نمایش" class="acc-btn"></div>
+  {% if presets %}
+  <div class="presets">
+    <a href="?preset=month{{ keep }}">این ماه</a>
+    <a href="?preset=prev_month{{ keep }}">ماهِ قبل</a>
+    <a href="?preset=fy{{ keep }}">سالِ مالیِ جاری</a>
+    <a href="?preset=all{{ keep }}">از آغاز</a>
+  </div>
+  {% endif %}
+  <div class="presets"><a href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}export=csv">⬇ خروجیِ اکسل (CSV)</a></div>
+</form>

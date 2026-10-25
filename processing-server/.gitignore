@@ -1,0 +1,10 @@
+# made on the processing node by Download-Models.bat - never part of the repository
+/models/
+/venvs/
+/vendor/
+/python312/
+/downloads-cache/
+/downloads-local.json
+/logs/
+/work/
+/node.json

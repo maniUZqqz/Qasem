@@ -13,6 +13,15 @@ import type { Job } from "./types";
  * خروجی‌ها (ویدئو/پوستر/فریم‌ها/GLB)، کنترلِ کیفیت، گزارشِ لحظه‌به‌لحظه، اندازه‌گیری‌های موتور و خطا.
  * تا پایانِ کار هر ۳ ثانیه به‌روز می‌شود.
  */
+/** فروشگاهِ فعالِ پنل (همان که سایدبار نگه می‌دارد) — برای پیوندِ «بازسازیِ یک تکه» از خروجیِ سه‌بعدی */
+function lastStore(): string | null {
+  try {
+    return localStorage.getItem("last-store");
+  } catch {
+    return null;
+  }
+}
+
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
@@ -181,6 +190,11 @@ export default function JobPage() {
                     <Icon name="download" size={14} />
                     دانلودِ ویدئو
                   </a>
+                  {lastStore() && (
+                    <Link className="u-btn u-btn-secondary u-btn-sm" to={`/stores/${lastStore()}/regen?src=up3d:${job.id}`}>
+                      بازسازیِ یک تکه
+                    </Link>
+                  )}
                   {f["render.mp4"] && (
                     <a className="u-btn u-btn-secondary u-btn-sm" href={f["render.mp4"]} download>
                       ویدئوی خام (بی‌صدا)

@@ -117,6 +117,9 @@ class VoiceProfile:
     #: Rate/pitch do not apply to it; English narration keeps the gender voice.
     cloned_voice: int | None = None
     cloned_voice_name: str = ""
+    #: A MOSS default voice id (services.audio.node_audio.presets) — used when MOSS on the processing node
+    #: narrates; empty = the admin's default for the gender.
+    preset: str = ""
 
     def voice_id(self) -> str:
         catalogue = PERSIAN_VOICES if self.language == "fa" else ENGLISH_VOICES
@@ -184,6 +187,7 @@ class VoiceProfile:
             "volume": self.volume,
             "language": self.language,
             "cloned_voice": self.cloned_voice,
+            "preset": self.preset,
             "voice_id": self.voice_id(),
             "description": self.describe(),
         }
@@ -213,6 +217,7 @@ class VoiceProfile:
             language=language,
             cloned_voice=cloned,
             cloned_voice_name=cloned_name,
+            preset=str(saved.get("preset") or "")[:40],
         )
 
 

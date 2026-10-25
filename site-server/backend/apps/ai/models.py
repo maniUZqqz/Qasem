@@ -366,3 +366,6 @@ from .audio_models import AudioEngine, AudioMix, SoundClip  # noqa: E402,F401
 # Cloned voices: consent and recordings live here, the voice itself on a processing node
 # (services.audio.voice_clone).
 from .voice_clone_models import ClonedVoice, ClonedVoiceClip  # noqa: E402,F401
+
+# The shop's audio library (speech / ambience / music made in the «صدا» section).
+from .audio_library_models import AudioAsset  # noqa: E402,F401

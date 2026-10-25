@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../api/client";
 import Icon, { type IconName } from "../../components/Icon";
 import { Alert, ErrorBox, Spinner, fa } from "../../components/ui";
 import { Store } from "../../types";
+import { useAuth } from "../auth/AuthContext";
 import { useFlags } from "../panel/FlagsContext";
 import { AudioOverview, loadOverview } from "./api";
 
@@ -41,6 +42,7 @@ const TABS: { key: string; to: string; label: string; icon: IconName; end?: bool
 export default function AudioLayout() {
   const { id: storeId } = useParams<{ id: string }>();
   const { pageEnabled } = useFlags();
+  const { user } = useAuth();
   const [store, setStore] = useState<Store | null>(null);
   const [overview, setOverview] = useState<AudioOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +93,11 @@ export default function AudioLayout() {
           در استودیوی ویدیو زیرِ گوینده می‌نشیند.
           {limit > 0 && ` امروز ${fa(Math.round(used / 60))} از ${fa(Math.round(limit / 60))} دقیقهٔ مجاز ساخته شده.`}
         </p>
+        {user?.is_staff && (
+          <Link to="/tools/compute#voice-models" className="text-xs" style={{ color: "var(--brand)" }}>
+            مدل‌های صدا روی سرورهای پردازش: روشن/خاموش، تست، دانلود ›
+          </Link>
+        )}
       </div>
 
       <nav className="u-tabs">

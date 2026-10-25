@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api
+from . import api, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -24,4 +24,9 @@ urlpatterns = [
     path("nodes/<int:pk>/logs/", api.node_logs),
     path("nodes/<int:pk>/desired/", api.node_desired),
     path("settings/", api.compute_settings),
+    # «مدل‌های صدا» of a node: switches, «تست», status, «دانلود» (staff)
+    path("nodes/<int:pk>/audio/", views_voice.node_audio),
+    path("nodes/<int:pk>/audio/test/", views_voice.node_audio_test),
+    path("nodes/<int:pk>/audio/tests/", views_voice.node_audio_tests),
+    path("nodes/<int:pk>/models/download/", views_voice.node_models_download),
 ]

@@ -675,7 +675,7 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
           {estError && <Alert tone="warn">{estError}</Alert>}
           {engine && engine.ready === false && (
             <Alert tone="warn" title="این مدل روی سرورِ پردازش کامل نیست">
-              {engine.missing.join("، ")} — روی سرورِ پردازش Download-Models.bat را اجرا کنید.
+              {engine.missing.join("، ")} — در «سرورهای پردازش › مدل‌های صدا › بسته‌های دیگر» «دانلود» را بزنید، یا START.bat را روی آن کامپیوتر دوباره باز کنید (بخشِ اصلی را خودش دانلود می‌کند).
             </Alert>
           )}
           <div className="flex flex-wrap items-center gap-3">

@@ -464,7 +464,7 @@ class MossCloneTests(TestCase):
         self.node.save()
         r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
         self.assertEqual(r.status_code, 400)
-        self.assertIn("Download-Models.bat --only moss-tts", r.json()["error"]["message"])
+        self.assertIn("START.bat", r.json()["error"]["message"])
         self.node.capabilities = {"voice": True, "agent": "1.6"}
         self.node.save()
         r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")

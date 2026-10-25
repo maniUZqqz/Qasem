@@ -40,6 +40,14 @@ Job kinds:
                   from a reference clip: {voice: "mana"|"arash"|... (kit voices) | reference: <input wav>}; strict, no fallback
   voice.sfx       ambience / sound effect from an English description (MOSS-SoundEffect v2.0): {prompt, seconds<=30}
   voice.music     instrumental background music (ACE-Step 1.5): {prompt, seconds, bpm?}
+  node.bench      benchmark one voice model: {model: speech|clone|sfx|music} -> load / generation time, real-time
+                  factor, peak VRAM / RAM, GPU use and the audio (bench.json + bench.wav)
+  node.models     {action: "download", packages: [...]} -> runs Download-Models in the background (progress in the panel)
+
+Start-up (agent 1.8): a checklist (Python, git, site, ffmpeg, .NET 8 + NuGet or the prebuilt kit, ComfyUI, GPU,
+models) is printed and sent to the panel; editors that are not built and models that are missing are prepared in the
+background while the node already takes jobs. Each voice model can be switched off from the panel
+(desired["audio"] = {speech, clone, sfx, music: bool, idle_min}).
                   The three GPU audio engines run in their own venvs (Download-Models.bat installs them) and are started
                   on demand; with auto-switch ComfyUI / Ollama memory is freed first, and an idle engine stops after
                   NM_AUDIO_IDLE_S seconds (default 900) so the GPU is free for video again.
@@ -66,7 +74,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.7"
+VERSION = "1.8"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -316,6 +324,22 @@ def run_logged(cmd, logf, tick=None, timeout=2400, label="", env=None):
     return p.returncode == 0
 
 
+_NUGET = {}
+
+
+def nuget_reachable():
+    """Can `dotnet publish` download its NuGet packages? Asked once per run (a blocked nuget.org would otherwise
+    make every build wait for minutes before failing)."""
+    if "ok" not in _NUGET:
+        try:
+            with urllib.request.urlopen(urllib.request.Request("https://api.nuget.org/v3/index.json",
+                                                               headers={"User-Agent": "UpMarket-node"}), timeout=8) as r:
+                _NUGET["ok"] = r.status == 200
+        except Exception:  # noqa: BLE001
+            _NUGET["ok"] = False
+    return _NUGET["ok"]
+
+
 def ensure_editor(key, tick=None):
     """Make a PersianAiKit editor runnable without any manual setup: build it with the local .NET SDK
     (the owner has one), else take the ready build from the site; then fetch what it needs (ffmpeg, voice models)."""
@@ -323,6 +347,9 @@ def ensure_editor(key, tick=None):
     root = os.path.join(HERE, "tools", "PersianAiKit", kit)
     if not editor_published(key):
         dn = find_dotnet()
+        if dn and not nuget_reachable():
+            log("%s: nuget.org is not reachable - taking the ready build from the site instead of building" % key)
+            dn = None
         if dn:
             proj = os.path.join(root, "src", "PersianAiKit.%s.Server" % kit, "PersianAiKit.%s.Server.csproj" % kit)
             logf = os.path.join(LOGS, "build-%s.log" % key)
@@ -897,6 +924,10 @@ class ServiceManager:
                     self.start(key)                       # "on": keep it alive
                 elif want is False and prev.get(key) != want and self.running(key):
                     self.stop(key)                        # "off": stop it when the panel switches it off
+            for key in AUDIO_ENGINES:                     # a voice model switched off in the panel: free its VRAM now
+                if not audio_allowed(key) and key in self.procs and self.procs[key].poll() is None:
+                    log("audio: %s was switched off in the panel - stopping it" % AUDIO_ENGINES[key]["label"])
+                    self.stop(key)
             self.applied = dict(desired)
 
     def default_boot(self, desired):
@@ -908,7 +939,7 @@ class ServiceManager:
         """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
         audio = audio_engine_for(kind, payload)
         if audio:
-            return self.prepare_audio(audio, auto_switch, tick)
+            return self.prepare_audio(audio, auto_switch, tick, purpose=audio_purpose(kind, payload))
         family = kind.split(".", 1)[0]
         need = {"comfy": "comfyui", "ollama": "ollama", "voice": "voice", "photo": "photo", "video": "video"}.get(family)
         if not need:
@@ -927,8 +958,15 @@ class ServiceManager:
             raise RuntimeError("%s is not running on this node and auto-switch is off (turn it on in the panel or start the service)" % need)
 
     # ---- GPU audio engines (moss / sfx / music): on demand, one at a time, stopped when idle
-    def prepare_audio(self, key, auto_switch, tick=None):
+    def prepare_audio(self, key, auto_switch, tick=None, purpose=None):
+        if not audio_allowed(key, purpose):
+            raise JobError(audio_disabled_message(key, purpose), retryable=False)
         if not audio_installed(key):
+            pkg = AUDIO_ENGINES[key]["package"]
+            if DOWNLOADS.downloading(pkg):
+                raise JobError("DOWNLOADING: the models of %s are still being downloaded (%s) - the job is tried again "
+                               "later | مدل‌های «%s» هنوز در حالِ دانلود است" % (
+                                   AUDIO_ENGINES[key]["label"], DOWNLOADS.percent_text(), AUDIO_ENGINES[key]["label"]))
             raise JobError(audio_missing_message(key), retryable=False)
         AUDIO_USE[key] = time.time()
         if self.running(key):
@@ -959,7 +997,9 @@ class ServiceManager:
 
     def reap_audio(self, idle_s=None):
         """Stop a GPU audio engine nobody used for a while, so ComfyUI / Ollama get the VRAM back."""
-        idle_s = float(idle_s if idle_s is not None else os.environ.get("NM_AUDIO_IDLE_S") or 900)
+        if idle_s is None:
+            idle_s = os.environ.get("NM_AUDIO_IDLE_S") or 60 * float(audio_settings()["idle_min"])
+        idle_s = float(idle_s)
         for k in AUDIO_ENGINES:
             p = self.procs.get(k)
             if p and p.poll() is None and not AUDIO_BUSY.get(k) and time.time() - AUDIO_USE.get(k, 0) > idle_s:
@@ -995,6 +1035,9 @@ class Capabilities:
         caps["blender"] = bool(blender_path()) and os.path.isdir(os.path.join(HERE, "up3d"))
         caps["voice_clone"] = voice_clone_installed()     # natural voices + cloning (else installed on first use)
         caps["audio"] = {k: audio_installed(k) for k in AUDIO_ENGINES}   # MOSS speech / effects / music (Download-Models.bat)
+        caps["models"] = DOWNLOADS.caps()                                 # per package installed / downloading (progress)
+        if STATE.get("preflight"):
+            caps["preflight"] = STATE["preflight"]
         total, free = memory_mb()
         if total:
             caps["ram_total_mb"], caps["ram_free_mb"] = total, free
@@ -1722,6 +1765,7 @@ AUDIO_ENGINES = {
                        "models/moss-tts/MOSS-Audio-Tokenizer/model-00002-of-00002.safetensors",
                        "models/moss-tts/persian-lora/adapter_model.safetensors",
                        "models/moss-tts/persian-lora/fa_normalize.py",
+                       "models/moss-tts/persian-lora/ref.wav",
                        "vendor/MOSS-TTS/moss_tts_realtime/inferencer.py"]},
     "sfx": {"label": "MOSS-SoundEffect ambience/effects", "venv": "moss-sfx", "package": "moss-sfx", "gb": 12, "vram_mb": 8000,
             "files": ["models/moss-sfx/MOSS-SoundEffect-v2.0/transformer/diffusion_pytorch_model.safetensors",
@@ -1737,6 +1781,47 @@ AUDIO_ENGINES = {
 }
 AUDIO_USE = {}          # engine -> last time a job needed it (idle reaping)
 AUDIO_BUSY = {}         # engine -> jobs running on it right now
+
+
+AUDIO_ROWS = {"speech": "moss", "clone": "moss", "sfx": "sfx", "music": "music"}
+ROW_LABEL = {"speech": "Persian speech (MOSS-TTS)", "clone": "voice cloning", "sfx": "ambience / effects (MOSS-SoundEffect)",
+             "music": "background music (ACE-Step)"}
+ROW_FA = {"speech": "گفتار", "clone": "کلونِ صدا", "sfx": "صدای محیط", "music": "موسیقی"}
+
+
+def audio_settings():
+    """The panel's switches for the voice models (desired["audio"]); missing = on, idle 15 minutes."""
+    d = (STATE.get("desired") or {}).get("audio") or {}
+    out = {k: d.get(k) is not False for k in AUDIO_ROWS}
+    try:
+        out["idle_min"] = max(1, min(240, int(d.get("idle_min") or 15)))
+    except (TypeError, ValueError):
+        out["idle_min"] = 15
+    return out
+
+
+def audio_allowed(key, purpose=None):
+    s = audio_settings()
+    if purpose in AUDIO_ROWS:
+        return s[purpose]
+    return any(s[row] for row, k in AUDIO_ROWS.items() if k == key)
+
+
+def audio_purpose(kind, payload=None):
+    p = payload or {}
+    if kind == "voice.sfx":
+        return "sfx"
+    if kind == "voice.music":
+        return "music"
+    if kind == "voice.clone" or p.get("clone") or p.get("reference"):
+        return "clone"
+    return "speech"
+
+
+def audio_disabled_message(key, purpose=None):
+    row = purpose if purpose in AUDIO_ROWS else next((r for r, k in AUDIO_ROWS.items() if k == key), "speech")
+    return ("DISABLED: %s is switched off for this node in the panel (Processing servers > voice models) | «%s» برای "
+            "این سرورِ پردازش در پنل خاموش است (سرورهای پردازش › مدل‌های صدا)" % (ROW_LABEL[row], ROW_FA[row]))
 
 
 def audio_engine_for(kind, payload=None):
@@ -1985,6 +2070,396 @@ def h_voice_music(job):
         AUDIO_USE["music"] = time.time()
 
 
+# ───────────────────────────────────────────── models: the downloader in the background
+
+DOWNLOADER = os.path.join(HERE, "download_models.py")
+
+
+class DownloadManager:
+    """Runs download_models.py in the background (one run at a time; more packages queue up) and tells the panel
+    what is installed per package and how far a download is (logs\\download-status.json)."""
+
+    def __init__(self):
+        self.proc = None
+        self.packages = None            # None = the default set
+        self.queue = []
+        self.status = None
+        self.status_at = 0.0
+        self.lock = threading.Lock()
+        self.status_file = os.path.join(LOGS, "download-status.json")
+        self.last_error = ""
+
+    def available(self):
+        return os.path.isfile(DOWNLOADER)
+
+    def refresh(self, force=False):
+        """Per package installed / missing (download_models.py --status: offline, a second or two)."""
+        if not self.available():
+            return None
+        if not force and self.status is not None and time.time() - self.status_at < 120:
+            return self.status
+        try:
+            out = subprocess.run([sys.executable, DOWNLOADER, "--status"], capture_output=True, text=True, timeout=180,
+                                 cwd=HERE, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+            self.status = json.loads(out.stdout.strip().splitlines()[-1]) if out.stdout.strip() else None
+        except Exception as e:  # noqa: BLE001
+            self.last_error = "status: %s" % e
+        self.status_at = time.time()
+        return self.status
+
+    def running(self):
+        if self.proc is not None and self.proc.poll() is None:
+            return True
+        try:   # a Download-Models.bat the owner started by hand holds the same lock
+            pid = json.load(open(os.path.join(LOGS, "download.lock"), encoding="utf-8")).get("pid")
+        except (OSError, ValueError):
+            return False
+        return bool(pid) and _pid_alive(pid)
+
+    def progress(self):
+        try:
+            return json.load(open(self.status_file, encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def percent_text(self):
+        pr = self.progress() or {}
+        total = pr.get("bytes_total") or 0
+        return "%d%%" % (100 * (pr.get("bytes_done") or 0) / total) if total else "starting"
+
+    def downloading(self, package):
+        if not self.running():
+            return False
+        pr = self.progress() or {}
+        return self.packages is None or package in (pr.get("packages") or self.packages or [])
+
+    def missing_default(self):
+        st = self.refresh() or {}
+        return [p for p, row in (st.get("packages") or {}).items() if not row.get("optional") and not row.get("installed")]
+
+    def start(self, packages=None, reason=""):
+        """Start (or queue) a background download. packages=None: the default set (everything not optional)."""
+        with self.lock:
+            if not self.available():
+                return "missing downloader"
+            if self.running():
+                if packages:
+                    self.queue = sorted(set(self.queue) | set(packages))
+                return "queued"
+            os.makedirs(LOGS, exist_ok=True)
+            cmd = [sys.executable, DOWNLOADER, "--yes", "--status-file", self.status_file]
+            if packages:
+                cmd += ["--only", ",".join(sorted(packages))]
+            logf = open(os.path.join(LOGS, "download-models-agent.log"), "a", encoding="utf-8", errors="replace")
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
+            try:
+                self.proc = subprocess.Popen(cmd, cwd=HERE, stdout=logf, stderr=subprocess.STDOUT, creationflags=flags,
+                                             env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1"))
+            except OSError as e:
+                self.last_error = str(e)
+                return "failed: %s" % e
+            self.packages = list(packages) if packages else None
+            log("models: downloading %s in the background%s (progress in the panel; log: logs\\download-models-agent.log)"
+                % (", ".join(packages) if packages else "the default set", (" - " + reason) if reason else ""))
+            return "started"
+
+    def poll(self):
+        """Called by the main loop: a finished run refreshes the status and starts what was queued."""
+        if self.proc is not None and self.proc.poll() is not None:
+            code = self.proc.returncode
+            self.proc = None
+            self.refresh(force=True)
+            if code not in (0, 4):
+                pr = self.progress() or {}
+                self.last_error = "download ended with code %s: %s" % (code, "; ".join(
+                    "%s: %s" % (f.get("id"), f.get("reason")) for f in (pr.get("failed") or [])[:3]))
+                warn("models: %s" % self.last_error)
+            else:
+                log("models: download finished")
+            if self.queue:
+                nxt, self.queue = self.queue, []
+                self.start(nxt, "queued from the panel")
+
+    def caps(self):
+        st = self.status or {}
+        pkgs = {p: {"installed": bool(r.get("installed")), "optional": bool(r.get("optional")), "title": r.get("title", ""),
+                    "missing_mb": int((r.get("bytes_missing") or 0) // 2 ** 20), "total_mb": int((r.get("bytes_total") or 0) // 2 ** 20),
+                    "in_comfyui": r.get("have_in_comfyui", 0)}
+                for p, r in (st.get("packages") or {}).items()}
+        out = {"packages": pkgs, "running": self.running(), "error": self.last_error[:300]}
+        pr = self.progress() if out["running"] else None
+        if pr:
+            cur = pr.get("current") or {}
+            out["progress"] = {"packages": pr.get("packages"), "bytes_done": pr.get("bytes_done"),
+                               "bytes_total": pr.get("bytes_total"), "items_done": pr.get("items_done"),
+                               "items_total": pr.get("items_total"), "current": cur.get("id"),
+                               "current_done": cur.get("done"), "current_total": cur.get("total")}
+        return out
+
+
+def _pid_alive(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if sys.platform.startswith("win"):
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(handle, ctypes.byref(code))
+        k32.CloseHandle(handle)
+        return bool(ok) and code.value == 259
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+DOWNLOADS = DownloadManager()
+
+
+# ───────────────────────────────────────────── start-up checklist (START.bat) + background repair
+
+def _mark(ok):
+    fancy = bool(os.environ.get("WT_SESSION")) or not sys.platform.startswith("win")
+    if ok is True:
+        return "[✓]" if fancy else "[OK]"
+    if ok is False:
+        return "[✗]" if fancy else "[X ]"
+    return "[..]"
+
+
+def nvidia_driver():
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "--query-gpu=driver_version", "--format=csv,noheader"], capture_output=True, text=True,
+                             timeout=15).stdout.strip().splitlines()
+        return out[0].strip() if out else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def preflight(cfg, site=None, out=print):
+    """Everything this node needs, checked in a few seconds; what is missing is said in one line with what happens
+    next. Re-running it when all is in place changes nothing. The same rows go to the panel."""
+    rows = []
+
+    def row(key, ok, label, detail):
+        rows.append({"key": key, "ok": ok, "label": label, "detail": detail})
+        try:
+            out("  %s %-22s %s" % (_mark(ok), label, detail))
+        except UnicodeEncodeError:
+            out("  %s %-22s %s" % ("[OK]" if ok else "[X ]" if ok is False else "[..]", label, detail))
+
+    out("UpMarket processing node %s - start-up checklist" % VERSION)
+    row("python", sys.version_info >= (3, 10), "Python", sys.version.split()[0])
+    git = shutil.which("git")
+    row("git", True if git else None, "git", "installed" if git else "not installed (only needed for 'git pull' updates; "
+        "models come as zip files without it)")
+    if site is not None:
+        try:
+            r = site.post("/api/v1/compute/heartbeat/", {}, timeout=15)
+            row("site", True, "site + registration", "%s, node '%s'" % (cfg["site"], (r or {}).get("name") or cfg["name"]))
+        except SiteError as e:
+            row("site", False, "site + registration", "%s (check the internet connection; a rejected token: delete "
+                "node.json and run START.bat again)" % str(e)[:150])
+    row("ffmpeg", True if ffmpeg_ok() else None, "ffmpeg", "found" if ffmpeg_ok() else "missing - fetched in the background "
+        "with the video editor")
+    dn = find_dotnet()
+    unbuilt = [k for k in KIT_DIRS if not editor_published(k)]
+    row("dotnet", True if dn else None, ".NET 8 SDK", dn or "not installed - the editors come ready-built from the site")
+    if dn and unbuilt:
+        ok = nuget_reachable()
+        row("nuget", ok, "NuGet", "reachable" if ok else "nuget.org not reachable - the ready-built editors come from the site")
+    row("editors", True if not unbuilt else None, "photo/video/voice editors",
+        "built" if not unbuilt else "%s: preparing in the background (build, or the ready build from the site)" % ", ".join(unbuilt))
+    comfy = find_comfy_start()
+    row("comfyui", True if comfy else False, "ComfyUI", comfy.strip('"') if comfy else
+        "run_nvidia_gpu.bat not found - set NM_COMFY_BAT or services.json -> comfyui -> start")
+    gpus = gpu_names()
+    drv = nvidia_driver()
+    drv_ok = None
+    try:
+        drv_ok = float((drv or "0").split(".")[0]) >= 527
+    except ValueError:
+        pass
+    row("gpu", bool(gpus) and drv_ok is not False, "GPU", ("%s, driver %s%s" % (gpus[0], drv or "?", "" if drv_ok is not False
+        else " (CUDA 12 needs 527+; update the NVIDIA driver)")) if gpus else "no NVIDIA GPU found (nvidia-smi)")
+    st = DOWNLOADS.refresh(force=True) if DOWNLOADS.available() else None
+    if st is None:
+        row("models", None, "models", "download_models.py not found (update the folder with git pull)")
+    else:
+        pk = st.get("packages") or {}
+        missing = {p: r for p, r in pk.items() if not r.get("optional") and not r.get("installed")}
+        optional = [p for p, r in pk.items() if r.get("optional") and not r.get("installed")]
+        if missing:
+            gb = sum(r.get("bytes_missing") or 0 for r in missing.values()) / 1e9
+            row("models", None, "models", "%s missing (%.1f GB) - downloading in the background%s" % (
+                ", ".join(sorted(missing)), gb, " (already running)" if st.get("running") else ""))
+        else:
+            row("models", True, "models", "all present%s" % (" (optional, from the panel: %s)" % ", ".join(sorted(optional))
+                                                             if optional else ""))
+        free = shutil.disk_usage(HERE).free / 1e9
+        need = sum(r.get("bytes_missing") or 0 for r in missing.values()) / 1e9
+        row("disk", free > need + 2, "disk", "%.0f GB free%s" % (free, (", %.0f GB needed" % need) if need else ""))
+    STATE["preflight"] = [{"key": r["key"], "ok": r["ok"], "detail": r["detail"][:200]} for r in rows]
+    return rows
+
+
+def background_setup():
+    """After the checklist: build or fetch what is missing, then download the default models - while jobs run."""
+    try:
+        for key in KIT_DIRS:
+            needs = not editor_published(key) or (key == "video" and not ffmpeg_ok()) or (key == "voice" and not voice_models_ok())
+            if needs:
+                try:
+                    ensure_editor(key)
+                except Exception as e:  # noqa: BLE001
+                    warn("could not prepare the %s editor in the background: %s" % (key, e))
+        if DOWNLOADS.available() and DOWNLOADS.missing_default() and not DOWNLOADS.running():
+            DOWNLOADS.start(None, "found missing at start-up")
+    except Exception as e:  # noqa: BLE001
+        warn("background setup: %s" % e)
+
+
+# ───────────────────────────────────────────── benchmark («تست» in the panel)
+
+class Sampler:
+    """Peak VRAM, GPU use and system RAM while a test runs (nvidia-smi every half second)."""
+
+    def __init__(self):
+        self.vram, self.util, self.ram_used = [], [], []
+        self.stop_flag = threading.Event()
+        self.thread = None
+
+    def _gpu(self):
+        exe = shutil.which("nvidia-smi")
+        if not exe:
+            return None, None
+        try:
+            line = subprocess.run([exe, "--query-gpu=memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+                                  capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
+            used, util = [float(x) for x in line.split(",")[:2]]
+            return used, util
+        except Exception:  # noqa: BLE001
+            return None, None
+
+    def _loop(self):
+        while not self.stop_flag.is_set():
+            used, util = self._gpu()
+            if used is not None:
+                self.vram.append(used)
+                self.util.append(util)
+            total, free = memory_mb()
+            if total:
+                self.ram_used.append(total - free)
+            self.stop_flag.wait(0.5)
+
+    def start(self):
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_flag.set()
+        if self.thread:
+            self.thread.join(timeout=15)
+        return {"vram_peak_mb": max(self.vram) if self.vram else None,
+                "gpu_util_peak": max(self.util) if self.util else None,
+                "gpu_util_avg": round(sum(self.util) / len(self.util), 1) if self.util else None,
+                "ram_peak_used_mb": max(self.ram_used) if self.ram_used else None}
+
+
+BENCH = {
+    "speech": {"key": "moss", "payload": {"engine": "moss-fa", "voice": "mana", "out": "bench.wav",
+                                         "text": "سلام! این یک آزمایشِ کوتاه از گفتارِ فارسی است. محصولِ تازهٔ ما امروز با ارسالِ رایگان به دستِ شما می‌رسد."}},
+    "clone": {"key": "moss", "payload": {"engine": "moss-fa", "voice": "lora", "clone": True, "out": "bench.wav",
+                                        "text": "این صدای ساخته‌شده از روی چند جمله است و هر متنی را با همان صدا می‌خواند."}},
+    "sfx": {"key": "sfx", "payload": {"prompt": "light rain on a window, distant thunder", "seconds": 5, "out": "bench.wav"}},
+    "music": {"key": "music", "payload": {"prompt": "calm acoustic guitar and soft piano, warm, instrumental", "seconds": 15,
+                                          "out": "bench.wav", "seed": 42}},
+}
+
+
+def wav_seconds(path):
+    import wave
+
+    try:
+        with wave.open(path, "rb") as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def h_node_bench(job):
+    """«تست»: a standard short job on one voice model, measured: cold model load, generation time, real-time factor,
+    peak VRAM / RAM and GPU use. The engine is stopped first (when the agent runs it and it is idle) so the load is real."""
+    model = str(job.payload.get("model") or "speech")
+    if model not in BENCH:
+        raise JobError("unknown model '%s' (speech, clone, sfx, music)" % model, retryable=False)
+    key = BENCH[model]["key"]
+    if not audio_allowed(key, model):
+        raise JobError(audio_disabled_message(key, model), retryable=False)
+    if not audio_installed(key):
+        raise JobError(audio_missing_message(key), retryable=False)
+    base_used, vram_total = vram_mb()
+    ram_total, _free = memory_mb()
+    cold = True
+    if MANAGER is not None and MANAGER.running(key):
+        if key in MANAGER.procs and not AUDIO_BUSY.get(key):
+            MANAGER.stop(key)
+            time.sleep(2)
+            base_used, vram_total = vram_mb()
+        else:
+            cold = False                      # started outside the agent or busy: measured warm
+    sampler = Sampler()
+    sampler.start()
+    t0 = time.time()
+    try:
+        if MANAGER is not None:
+            MANAGER.prepare_audio(key, STATE["auto_switch"], _job_tick(job, 0.05), purpose=model)
+        audio_ready(key, job)
+        load_s = time.time() - t0
+        job.payload = dict(BENCH[model]["payload"])
+        t1 = time.time()
+        handler = {"moss": h_moss_tts, "sfx": h_voice_sfx, "music": h_voice_music}[key]
+        meta = handler(job) or {}
+        gen_s = time.time() - t1
+    finally:
+        peaks = sampler.stop()
+    audio_s = wav_seconds(job.out("bench.wav")) or float(meta.get("seconds") or 0) or None
+    rtf = round(gen_s / audio_s, 3) if audio_s else None
+    result = {"model": model, "engine": AUDIO_ENGINES[key]["label"], "cold": cold, "load_s": round(load_s, 1),
+              "gen_s": round(gen_s, 1), "audio_s": round(audio_s, 1) if audio_s else None, "rtf": rtf,
+              "vram_base_mb": base_used, "vram_total_mb": vram_total, "ram_total_mb": ram_total,
+              "node": CONFIG.get("name"), "gpu": ", ".join(gpu_names()) or None, "agent": VERSION, **peaks}
+    with open(job.out("bench.json"), "w", encoding="utf-8") as fh:
+        json.dump(result, fh, ensure_ascii=False, indent=2)
+    log("bench %s: load %.1fs, generate %.1fs for %ss of audio (RTF %s), peak VRAM %s MB" % (
+        model, load_s, gen_s, result["audio_s"], rtf, peaks.get("vram_peak_mb")))
+    return {"primary": "bench.wav", "engine": "bench:" + key, "bench": result}
+
+
+def h_node_models(job):
+    """The panel's «دانلود»: run Download-Models in the background for these packages (or the default set)."""
+    p = job.payload
+    pkgs = [str(x) for x in (p.get("packages") or []) if str(x).strip()]
+    if p.get("action") == "refresh":
+        st = DOWNLOADS.refresh(force=True)
+        res = {"refreshed": bool(st)}
+    else:
+        res = {"result": DOWNLOADS.start(pkgs or None, "asked from the panel"), "packages": pkgs or "default"}
+    with open(job.out("models.json"), "w", encoding="utf-8") as fh:
+        json.dump({**res, "status": DOWNLOADS.caps()}, fh, ensure_ascii=False, indent=2)
+    return {"primary": "models.json", "engine": "node", **res}
+
+
 # ───────────────────────────────────────────── handlers
 
 def h_echo(job):
@@ -2230,6 +2705,8 @@ HANDLERS = {
     "voice.clone": h_voice_clone,
     "voice.sfx": h_voice_sfx,
     "voice.music": h_voice_music,
+    "node.bench": h_node_bench,
+    "node.models": h_node_models,
     "ollama.chat": h_ollama,
     "ollama.generate": h_ollama,
 }
@@ -2311,6 +2788,11 @@ def main():
     global MANAGER
     MANAGER = ServiceManager()
     log("processing node '%s' v%s -> %s" % (CONFIG["name"], VERSION, CONFIG["site"]))
+    try:
+        preflight(CONFIG, site)
+    except Exception as e:  # noqa: BLE001 - a checklist problem must not keep the node down
+        warn("start-up checklist failed: %s" % e)
+    threading.Thread(target=background_setup, daemon=True).start()
 
     def take_control(r):
         """desired services / auto-switch come back with every heartbeat and claim."""
@@ -2336,6 +2818,7 @@ def main():
         if MANAGER is not None:
             try:
                 MANAGER.reap_audio()
+                DOWNLOADS.poll()
             except Exception as e:  # noqa: BLE001 - housekeeping must not stop the node
                 warn("audio idle check failed: %s" % e)
         try:

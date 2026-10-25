@@ -187,3 +187,6 @@ class ComputeSettings(models.Model):
     def get(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+# «تست» of the voice models per node (apps.compute.voice_models).
+from .bench_models import AudioBenchmark  # noqa: E402,F401

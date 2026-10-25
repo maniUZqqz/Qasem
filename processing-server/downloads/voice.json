@@ -42,8 +42,7 @@
    "url": "https://github.com/ace-step/ACE-Step-1.5",
    "ref": "ca1e85fe9430179831e6bc6be790c332190a3866",
    "dest": "{NM_HOME}\\vendor\\ACE-Step-1.5",
-   "size": 20000000,
-   "optional": true
+   "size": 20000000
   },
   {
    "id": "moss-tts:MOSS-TTS-Realtime/README.md",
@@ -389,8 +388,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\README.md",
    "size": 3825,
-   "sha256": "eff33e61f5472a0ba33ca42241d546b00b66ec7f37e28b0e0d4ba64718866449",
-   "optional": true
+   "sha256": "eff33e61f5472a0ba33ca42241d546b00b66ec7f37e28b0e0d4ba64718866449"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/model_index.json",
@@ -403,8 +401,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\model_index.json",
    "size": 504,
-   "sha256": "28ed3d19217bf774394bd5992d1a6dfd1ffab2863117423c3fe4945dadabb3be",
-   "optional": true
+   "sha256": "28ed3d19217bf774394bd5992d1a6dfd1ffab2863117423c3fe4945dadabb3be"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/scheduler/scheduler_config.json",
@@ -417,8 +414,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\scheduler\\scheduler_config.json",
    "size": 134,
-   "sha256": "060d9ee9ea73310ff1a47e589a5e37d3e03d99711a6277646b3f679030606977",
-   "optional": true
+   "sha256": "060d9ee9ea73310ff1a47e589a5e37d3e03d99711a6277646b3f679030606977"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/config.json",
@@ -431,8 +427,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\config.json",
    "size": 726,
-   "sha256": "1ddb5b89ebc90dcb417a45c213d818577e65976454d29385c8f6140771d95197",
-   "optional": true
+   "sha256": "1ddb5b89ebc90dcb417a45c213d818577e65976454d29385c8f6140771d95197"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/generation_config.json",
@@ -445,8 +440,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\generation_config.json",
    "size": 239,
-   "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
-   "optional": true
+   "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model-00001-of-00002.safetensors",
@@ -459,8 +453,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model-00001-of-00002.safetensors",
    "size": 3441185608,
-   "sha256": "169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5",
-   "optional": true
+   "sha256": "169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model-00002-of-00002.safetensors",
@@ -473,8 +466,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model-00002-of-00002.safetensors",
    "size": 622329984,
-   "sha256": "912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9",
-   "optional": true
+   "sha256": "912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model.safetensors.index.json",
@@ -487,8 +479,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model.safetensors.index.json",
    "size": 25605,
-   "sha256": "0d660e94b165eb912669a5249dff44b83188c4777a07ddb9611fb78d91b0578d",
-   "optional": true
+   "sha256": "0d660e94b165eb912669a5249dff44b83188c4777a07ddb9611fb78d91b0578d"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/merges.txt",
@@ -501,8 +492,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\merges.txt",
    "size": 1671853,
-   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
-   "optional": true
+   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/tokenizer.json",
@@ -515,8 +505,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\tokenizer.json",
    "size": 11422654,
-   "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-   "optional": true
+   "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/tokenizer_config.json",
@@ -529,8 +518,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\tokenizer_config.json",
    "size": 9732,
-   "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
-   "optional": true
+   "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/vocab.json",
@@ -543,8 +531,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\vocab.json",
    "size": 2776833,
-   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
-   "optional": true
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/transformer/config.json",
@@ -557,8 +544,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\transformer\\config.json",
    "size": 311,
-   "sha256": "168ed701ba50c85d15a4a052a29038b81a8dbde0590cda3c5672b3cb1a263906",
-   "optional": true
+   "sha256": "168ed701ba50c85d15a4a052a29038b81a8dbde0590cda3c5672b3cb1a263906"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/transformer/diffusion_pytorch_model.safetensors",
@@ -571,8 +557,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\transformer\\diffusion_pytorch_model.safetensors",
    "size": 5664274560,
-   "sha256": "bda86e4d6730ff47cea47851d219880191e9d21d4d264b21a6ffe7cb2db9dfb0",
-   "optional": true
+   "sha256": "bda86e4d6730ff47cea47851d219880191e9d21d4d264b21a6ffe7cb2db9dfb0"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/vae/config.json",
@@ -585,8 +570,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\vae\\config.json",
    "size": 169,
-   "sha256": "92cdfc4c26b7f88efc15316e70faa6c53695f933ebaf1300c636b040d8e69d04",
-   "optional": true
+   "sha256": "92cdfc4c26b7f88efc15316e70faa6c53695f933ebaf1300c636b040d8e69d04"
   },
   {
    "id": "moss-sfx:MOSS-SoundEffect-v2.0/vae/vae_128d_48k.pth",
@@ -599,8 +583,7 @@
    ],
    "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\vae\\vae_128d_48k.pth",
    "size": 1486465965,
-   "sha256": "07e6139ff33bd21ba8a7a7f40ed24aab13ac0d100cd686f8a9f3e03dc5251cb1",
-   "optional": true
+   "sha256": "07e6139ff33bd21ba8a7a7f40ed24aab13ac0d100cd686f8a9f3e03dc5251cb1"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/added_tokens.json",
@@ -613,8 +596,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\added_tokens.json",
    "size": 707,
-   "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
-   "optional": true
+   "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/chat_template.jinja",
@@ -627,8 +609,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\chat_template.jinja",
    "size": 4116,
-   "sha256": "87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5",
-   "optional": true
+   "sha256": "87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/config.json",
@@ -641,8 +622,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\config.json",
    "size": 1359,
-   "sha256": "bb23c1607cfe059a58d8f0196cf1cebb52082b1056b8e358a579da80a5759420",
-   "optional": true
+   "sha256": "bb23c1607cfe059a58d8f0196cf1cebb52082b1056b8e358a579da80a5759420"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/merges.txt",
@@ -655,8 +635,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\merges.txt",
    "size": 1671853,
-   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
-   "optional": true
+   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/model.safetensors",
@@ -669,8 +648,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\model.safetensors",
    "size": 1191586416,
-   "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd",
-   "optional": true
+   "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/special_tokens_map.json",
@@ -683,8 +661,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\special_tokens_map.json",
    "size": 613,
-   "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
-   "optional": true
+   "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/tokenizer.json",
@@ -697,8 +674,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\tokenizer.json",
    "size": 11423705,
-   "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a",
-   "optional": true
+   "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/tokenizer_config.json",
@@ -711,8 +687,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\tokenizer_config.json",
    "size": 5404,
-   "sha256": "443bfa629eb16387a12edbf92a76f6a6f10b2af3b53d87ba1550adfcf45f7fa0",
-   "optional": true
+   "sha256": "443bfa629eb16387a12edbf92a76f6a6f10b2af3b53d87ba1550adfcf45f7fa0"
   },
   {
    "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/vocab.json",
@@ -725,8 +700,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\vocab.json",
    "size": 2776833,
-   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
-   "optional": true
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
   },
   {
    "id": "acestep:Ace-Step1.5/README.md",
@@ -739,8 +713,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\README.md",
    "size": 5496,
-   "sha256": "69d69b89e313706b93b420b13aa6232259b207a1cd19b0b70358d166e8e451a0",
-   "optional": true
+   "sha256": "69d69b89e313706b93b420b13aa6232259b207a1cd19b0b70358d166e8e451a0"
   },
   {
    "id": "acestep:Ace-Step1.5/acestep-v15-turbo/config.json",
@@ -753,8 +726,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\config.json",
    "size": 1968,
-   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a",
-   "optional": true
+   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a"
   },
   {
    "id": "acestep:Ace-Step1.5/acestep-v15-turbo/configuration_acestep_v15.py",
@@ -767,8 +739,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\configuration_acestep_v15.py",
    "size": 13130,
-   "sha256": "b89870c5c7a7ce060eb0bcdbb5ffc86b0b1a324ca325a26be552ea1b42496dc5",
-   "optional": true
+   "sha256": "b89870c5c7a7ce060eb0bcdbb5ffc86b0b1a324ca325a26be552ea1b42496dc5"
   },
   {
    "id": "acestep:Ace-Step1.5/acestep-v15-turbo/model.safetensors",
@@ -781,8 +752,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\model.safetensors",
    "size": 4787825604,
-   "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7",
-   "optional": true
+   "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
   },
   {
    "id": "acestep:Ace-Step1.5/acestep-v15-turbo/modeling_acestep_v15_turbo.py",
@@ -795,8 +765,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\modeling_acestep_v15_turbo.py",
    "size": 96036,
-   "sha256": "c1ab0dd547124fee7ada449b2b86eae8201dc7d15889932643bbb67e3c982444",
-   "optional": true
+   "sha256": "c1ab0dd547124fee7ada449b2b86eae8201dc7d15889932643bbb67e3c982444"
   },
   {
    "id": "acestep:Ace-Step1.5/acestep-v15-turbo/silence_latent.pt",
@@ -809,8 +778,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\silence_latent.pt",
    "size": 3841215,
-   "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b",
-   "optional": true
+   "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
   },
   {
    "id": "acestep:Ace-Step1.5/config.json",
@@ -823,8 +791,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\config.json",
    "size": 1968,
-   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a",
-   "optional": true
+   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a"
   },
   {
    "id": "acestep:Ace-Step1.5/vae/config.json",
@@ -837,8 +804,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\vae\\config.json",
    "size": 425,
-   "sha256": "14e019904df567f26df750317a70e2bd08f9f8f3c40ff4a24c97d1cd3f20ccd2",
-   "optional": true
+   "sha256": "14e019904df567f26df750317a70e2bd08f9f8f3c40ff4a24c97d1cd3f20ccd2"
   },
   {
    "id": "acestep:Ace-Step1.5/vae/diffusion_pytorch_model.safetensors",
@@ -851,8 +817,7 @@
    ],
    "dest": "{MODELS}\\acestep\\checkpoints\\vae\\diffusion_pytorch_model.safetensors",
    "size": 337431388,
-   "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0",
-   "optional": true
+   "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
   },
   {
    "id": "venv-moss-tts",
@@ -939,8 +904,7 @@
    ],
    "estimate_mb": 900,
    "install_mb": 6000,
-   "note": "torch comes from pip's cache when venv-moss-tts already downloaded it",
-   "optional": true
+   "note": "torch comes from pip's cache when venv-moss-tts already downloaded it"
   },
   {
    "id": "venv-acestep",
@@ -967,8 +931,7 @@
     "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
    ],
    "estimate_mb": 5200,
-   "install_mb": 9000,
-   "optional": true
+   "install_mb": 9000
   },
   {
    "id": "venv-acestep-nanovllm",
@@ -987,8 +950,7 @@
     "https://mirrors.aliyun.com/pypi/simple"
    ],
    "estimate_mb": 0,
-   "install_mb": 5,
-   "optional": true
+   "install_mb": 5
   }
  ]
 }

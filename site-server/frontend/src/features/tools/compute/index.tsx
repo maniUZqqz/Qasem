@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../../api/client";
+import { NodeAudioSection } from "../../audio/NodeAudioCard";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
   Alert,
@@ -766,6 +767,9 @@ export default function ComputePage() {
         </form>
       </Card>
 
+      {/* مدل‌های صدا: روشن/خاموش، تست، وضعیتِ نصب و دانلودِ هر سرور */}
+      <NodeAudioSection nodes={nodes} />
+
       <RouteCard nodes={nodes} settings={settings} settingsError={settingsError} onSettings={setSettings} onRefresh={loadSettings} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
@@ -1227,6 +1231,12 @@ function EnrollCard({
           <li>۱) پوشهٔ processing را از مخزن/زیپ روی کامپیوترِ گرافیکی بگذارید.</li>
           <li>۲) START.bat را اجرا کنید و این کلید را بدهید — کامپیوتر با نامِ خودش ثبت می‌شود.</li>
           <li>۳) ComfyUI را روشن کنید؛ چند ثانیه بعد این‌جا «آنلاین» می‌شود.</li>
+          <li>
+            ۴) کارِ دیگری لازم نیست: START.bat هر بار همه‌چیز را چک می‌کند (پایتون، git، سایت، ffmpeg، ‎.NET، ComfyUI،
+            کارتِ گرافیک، مدل‌ها، دیسک) و مدل‌های پیش‌فرض (گفتار و کلونِ صدا، صدای محیط، موسیقی، موتورِ اصلیِ ویدیو) را اگر
+            نباشند خودش در پس‌زمینه دانلود می‌کند؛ فایلی که ComfyUI دارد دوباره دانلود نمی‌شود. پیشرفت، «تست» و روشن/خاموشِ
+            هر مدل در «مدل‌های صدا» پایینِ همین صفحه است.
+          </li>
         </ol>
       </div>
     </Card>

@@ -2,12 +2,18 @@
 title UpMarket processing node
 rem ================================================================
 rem  UpMarket - processing node (GPU machine, no public IP needed)
-rem  ONE file for every machine. First run: it asks for the enrollment key
+rem  The ONLY file to run. First run: it asks for the enrollment key
 rem  (panel > Tools > Processing servers > "Register a new server"), registers this
 rem  computer under its own name and saves node.json. Next runs: just start.
+rem  Every start prints a short checklist (Python, git, site, ffmpeg, .NET/NuGet,
+rem  editors, ComfyUI, GPU, models). Whatever is missing is prepared in the
+rem  background while the node already takes jobs: the editors are built (or the
+rem  ready build comes from the site), missing models are downloaded (progress in
+rem  the panel: Processing servers > voice models). Nothing else has to be run.
 rem  The site URL comes from site.json (next to this file).
 rem ================================================================
 cd /d "%~dp0"
+chcp 65001 >nul
 set "PYTHONIOENCODING=utf-8"
 set "PYTHONUNBUFFERED=1"
 
@@ -26,11 +32,6 @@ if not exist "%~dp0node.json" (
     echo [!] Registration failed - check the key / site URL above and run again.
     pause & exit /b 1
   )
-) else (
-  echo.
-  echo ===== Diagnostic =====
-  python "%~dp0agent.py" --check
-  echo ======================
 )
 
 rem ---- optional: start ComfyUI automatically (set NM_COMFY_BAT to run_nvidia_gpu.bat)
@@ -38,15 +39,10 @@ if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" (
   echo Starting ComfyUI: %NM_COMFY_BAT%
   start "ComfyUI" /min cmd /c "%NM_COMFY_BAT%"
 )
-
-rem ---- editors not prepared yet? (optional) one-time Setup-Services.bat builds them and downloads their models
-if not exist "%~dp0tools\PersianAiKit\Photopp\PersianAiKit.Photo.Server.exe" (
-  echo Note: the photo/video/voice editors are not prepared yet. Run Setup-Services.bat once ^(optional^).
-)
-rem ---- services (ComfyUI, Ollama, voice/photo/video editors, 3D worker) are started and stopped by the
-rem ---- agent according to the panel (Processing servers > services of this node); see services.json
+rem ---- services (ComfyUI, Ollama, voice/photo/video editors, 3D worker, voice models) are started and stopped by
+rem ---- the agent according to the panel (Processing servers > services / voice models); see services.json
 echo.
-echo Processing node is running. Keep this window open. (Ctrl+C to stop)
+echo Processing node is starting. Keep this window open. (Ctrl+C to stop)
 echo.
 :loop
 python "%~dp0agent.py"

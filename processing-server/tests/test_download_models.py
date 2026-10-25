@@ -120,7 +120,7 @@ class DownloaderTests(unittest.TestCase):
                             "LOCAL_CFG": os.path.join(self.home, "downloads-local.json"),
                             "CACHE_DIR": os.path.join(self.home, "downloads-cache"),
                             "HF_DEFAULT": self.base + "/hf", "HF_FALLBACK": self.base + "/mirror",
-                            "CODELOAD": self.base + "/codeload"}.items():
+                            "CODELOAD": self.base + "/codeload", "SAFETY_MARGIN": 0}.items():
             p = mock.patch.object(dm, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -252,6 +252,7 @@ class DownloaderTests(unittest.TestCase):
 
         def fake_run(cmd, label="", env=None, cwd=None):
             calls.append(cmd)
+            self.assertTrue(env["PIP_CACHE_DIR"].startswith(self.home), "one shared pip cache under the node folder")
             return 1 if len(calls) == 1 else 0
         it = {"id": "venv-x", "kind": "pip", "python": "{VENV:x}", "python_version": "3.12",
               "packages": ["numpy==2.1.0", "torch==2.9.1+cu128"], "index_urls": ["https://pypi.org/simple"],
@@ -346,7 +347,74 @@ class DownloaderTests(unittest.TestCase):
     def test_list_mode(self):
         self.manifest([self.file_item()])
         self.assertEqual(dm.main(["--list"]), 0)
-        self.assertIn("missing", open(dm.LOG_PATH, encoding="utf-8").read())
+        self.assertIn("will download", open(dm.LOG_PATH, encoding="utf-8").read())
+
+    # ------------------------------------------------------------ 1.1: never twice, status for the panel
+    def comfy(self):
+        comfy = os.path.join(self.home, "ComfyUI")
+        os.makedirs(os.path.join(comfy, "custom_nodes"))
+        os.makedirs(os.path.join(comfy, "models", "unet"))
+        return comfy
+
+    def test_extra_model_paths_yaml(self):
+        comfy = self.comfy()
+        other = os.path.join(self.home, "D_models")
+        os.makedirs(os.path.join(other, "wan"))
+        open(os.path.join(other, "wan", "wan2.2_big.safetensors"), "wb").write(b"x" * 10)
+        yaml = ("# my models\nother:\n    base_path: %s\n    is_default: true\n    diffusion_models: |\n"
+                "        wan\n        unet\n    vae: vae/\n" % other.replace("\\", "/"))
+        with open(os.path.join(comfy, "extra_model_paths.yaml"), "w", encoding="utf-8") as fh:
+            fh.write(yaml)
+        roots = dm.parse_extra_model_paths(os.path.join(comfy, "extra_model_paths.yaml"))
+        self.assertIn(os.path.normpath(os.path.join(other, "wan")), roots)
+        self.assertIn(os.path.normpath(os.path.join(other, "vae")), roots)
+        it = {"id": "v:wan", "package": "wan22-flf", "kind": "file", "urls": [self.base + "/nothing"],
+              "dest": "{COMFYUI}\\models\\diffusion_models\\wan2.2_big.safetensors", "size": 999}
+        with mock.patch.dict(os.environ, {"NM_COMFY_DIR": comfy}):
+            ctx = dm.Context(interactive=False)
+            self.assertEqual(dm.do_file(it, ctx, self.state), "skipped")
+            self.assertEqual(dm.status_of(it, ctx), "have (ComfyUI)")
+        self.assertFalse(any(p == "/nothing" for p, _r in Net.log), "a model ComfyUI can load is never downloaded")
+
+    def test_same_file_for_two_items_is_fetched_once(self):
+        a = self.file_item()
+        b = dict(self.file_item(), id="voice:copy", dest="{MODELS}\\other\\big.bin")
+        self.manifest([a, b])
+        self.assertEqual(dm.main(["--yes"]), 0)
+        hits = [p for p, _r in Net.log if p.endswith("big.bin")]
+        self.assertEqual(len(hits), 1, "the second item is linked, not downloaded")
+        self.assertEqual(open(self.ctx.expand(b["dest"]), "rb").read(), BIG)
+
+    def test_status_json_and_status_file(self):
+        opt = dict(self.file_item("only-mirror.bin", SMALL), id="fx:small", package="fx", optional=True)
+        self.manifest([self.file_item(), opt])
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            self.assertEqual(dm.main(["--status"]), 0)
+        st = json.loads(out.getvalue())
+        self.assertFalse(st["packages"]["moss-tts"]["installed"])
+        self.assertEqual(st["packages"]["moss-tts"]["bytes_missing"], len(BIG))
+        self.assertTrue(st["packages"]["fx"]["optional"])
+        status_file = os.path.join(self.home, "status.json")
+        self.assertEqual(dm.main(["--yes", "--status-file", status_file]), 0)
+        done = json.load(open(status_file, encoding="utf-8"))
+        self.assertEqual(done["state"], "done")
+        self.assertEqual(done["packages"], ["moss-tts"], "an optional package is not in the default set")
+        self.assertEqual(done["bytes_done"], len(BIG))
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            dm.main(["--status"])
+        self.assertTrue(json.loads(out.getvalue())["packages"]["moss-tts"]["installed"])
+        self.assertFalse(os.path.exists(dm.lock_path()), "the lock is released at the end")
+
+    def test_one_download_at_a_time(self):
+        self.manifest([self.file_item()])
+        os.makedirs(dm.LOGS, exist_ok=True)
+        json.dump({"pid": os.getppid()}, open(dm.lock_path(), "w"))
+        self.assertEqual(dm.main(["--yes"]), 4)
+        self.assertFalse(Net.log, "nothing is downloaded while another run holds the lock")
+        json.dump({"pid": 999999}, open(dm.lock_path(), "w"))      # a dead process: the lock is taken over
+        self.assertEqual(dm.main(["--yes"]), 0)
 
 
 if __name__ == "__main__":

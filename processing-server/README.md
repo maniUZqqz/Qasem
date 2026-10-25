@@ -24,8 +24,9 @@ one node and never processes an identical request twice.
 2. Install and run **ComfyUI** with the FLUX / Wan 2.2 models on this machine (port 8188). If you set the
    environment variable `NM_COMFY_BAT` to your `run_nvidia_gpu.bat`, `START.bat` starts it for you.
 3. Run `START.bat`. Paste the **enrollment key** from the panel (Tools → Processing servers → "Register a
-   new server"). The machine registers itself as a node named after the computer (`node.json` is written);
-   a diagnostic is printed (site reachable, ComfyUI, profiles, GPU, Blender …).
+   new server"). The machine registers itself as a node named after the computer (`node.json` is written).
+   Every start prints a short checklist (Python, git, site, ffmpeg, .NET/NuGet, ComfyUI, GPU driver, models, disk)
+   and fetches whatever is missing by itself - the models in the background (see below).
 4. The node shows **online** in the panel within a few seconds, with the services it found.
 5. Optional: Ollama (text/vision models on the GPU) and the PersianAiKit editors — whatever is running is
    detected automatically and reported to the site.
@@ -61,33 +62,71 @@ not possible (Python outside 3.10-3.13, no internet), the job fails with the ins
 voice (`VOICE_MISSING`), the site sends the job again with the best recordings and the node rebuilds it.
 Tests: `python tests\test_agent_voice.py` (fake kit, no models needed).
 
-## Models for speech, cloning, ambience and music (agent 1.7): Download-Models.bat
+## Models for speech, cloning, ambience and music (agent 1.8): nothing to type
 
-One downloader for everything this node can run (model files ComfyUI already has, in any models\ subfolder, are never downloaded again): `Download-Models.bat` reads every manifest in `downloads\*.json`
-(`voice.json`: MOSS-TTS + Persian LoRA, MOSS-SoundEffect v2.0, ACE-Step 1.5; other groups such as `video.json` are
-picked up the same way). Re-runnable: finished files are skipped, broken downloads resume, nothing is deleted.
+`START.bat` checks the machine every time it opens (the checklist below). If a model of the **default set** is missing
+it starts the download by itself, in the background: the node keeps taking other jobs meanwhile, the panel shows the
+progress, and a job that needs a model still downloading waits in the queue (the panel says why) instead of failing.
 
-    Download-Models.bat                    the default set: speech + voice cloning, and whatever the main
-                                           Wan 2.2 video engine still lacks (shows disk space needed, asks once)
-    Download-Models.bat --only moss-sfx    + sound effects / ambience (optional, ~11 GB)
-    Download-Models.bat --only acestep     + background music (optional, ~11 GB)
-    Download-Models.bat --only wan22-4step,fun-inp   + faster video LoRAs / the fast 1.3B engine (optional)
-    Download-Models.bat --all              everything, optional parts included
-    Download-Models.bat --list             what is still missing
-    Download-Models.bat --check            test every link without downloading
-    Download-Models.bat --only voice       one group; or one package: --only moss-tts / moss-sfx / acestep
+Default set (downloaded without asking):
+
+| Package | What | Download (models + Python packages) |
+|---|---|---|
+| `moss-tts` | speech + voice cloning: MOSS-TTS + Persian LoRA | ~15.5 GB |
+| `moss-sfx` | ambience / sound effects: MOSS-SoundEffect v2.0 | ~12.2 GB |
+| `acestep` | background music: ACE-Step 1.5 | ~11.8 GB |
+| `wan22-flf`, `wan-i2v-legacy` | the main Wan 2.2 video engine - only the files ComfyUI does not have yet | up to 36 GB |
+
+Optional (panel > Processing servers > the node's «مدل‌های صدا» card > «بسته‌های دیگر» > «دانلود»): `wan22-4step`
+(4-step lightx2v LoRAs, 2.4 GB) and `fun-inp` (fast Fun-InP 1.3B engine + CLIP-Vision-H, 4.4 GB).
+
+Disk: 29.4 GB of voice models + about 9.4 GB of Python packages in `venvs\moss-tts`, `venvs\moss-sfx`, `venvs\acestep`
+(Python 3.12, installed per user into `python312\` when missing). ACE-Step keeps its own torch 2.7.1 (its requirements pin
+it on Windows, together with torchao / triton-windows), so it does not share MOSS's torch 2.9.1: about 4 GB more download
+and ~6 GB more on disk. Plan about 55 GB free. All engines allow commercial use (Apache-2.0 / MIT).
+
+**Nothing is downloaded twice:**
+
+- a file ComfyUI already has is used where it is (`--list` says `have (ComfyUI)`): any `models\` subfolder of the
+  ComfyUI found on this machine, every folder listed in `extra_model_paths.yaml` (`base_path` and the per-type entries,
+  multi-line `|` lists included) and the base path of ComfyUI Desktop;
+- the same file in two packages (same sha256 or URL) is fetched once and hard-linked (copied on another drive);
+- Python wheels go through one shared cache, `pip-cache\` (torch is downloaded once for both MOSS venvs);
+- a second downloader started while one runs exits at once (`logs\download.lock`); finished files are skipped,
+  broken downloads resume, nothing is deleted.
+
+`Download-Models.bat` with no arguments still works by hand and downloads the whole default set. Options, rarely needed:
+
+    Download-Models.bat --list      what is already here ("already have" / "have (ComfyUI)") and what would be downloaded
+    Download-Models.bat --all       the default set + the optional packages
+    Download-Models.bat --check     test every link without downloading
     Download-Models.bat --hf-mirror https://hf-mirror.com      if huggingface.co is filtered
     Download-Models.bat --pip-mirror https://mirror-pypi.runflare.com/simple
 
-`voice.json` (pinned commits, sizes and sha256; every big file also has an identical ModelScope copy as fallback):
-29.4 GB of models + about 9.4 GB of Python packages (torch for CUDA 12.8) in `venvs\moss-tts`, `venvs\moss-sfx`,
-`venvscestep` (Python 3.12, installed per user into `python312\` when missing). Plan about 55 GB of free disk.
-All three engines allow commercial use (Apache-2.0 / MIT). After it finishes, restart START.bat: the node reports the
-engines to the site (`capabilities.audio`) and starts each one on demand (`audio\*_server.py`, ports 5640-5642);
-with auto-switch ComfyUI / Ollama memory is freed first, and an idle engine stops after 15 minutes
-(`NM_AUDIO_IDLE_S`). A job for an engine that is not installed fails with the exact command to run.
-Smoke check without a GPU: `python audio\moss_tts_server.py --fake`. Tests: `python tests	est_download_models.py`,
-`python tests	est_agent_audio.py`.
+### Panel: Processing servers > «مدل‌های صدا» (one card per node; linked from the «صدا» section)
+
+- Four rows - speech, voice cloning, ambience, music - each with an **on/off switch**. Off: the site never sends that kind
+  of job to this node and the node stops the engine at once (its GPU memory is freed). Speech then falls back to the next
+  voice in the admin's list (Edge, then Piper); ambience to the sound library and procedural sounds; music to the library
+  only (the page says so); cloning answers "voice cloning is off".
+- **«تست»** runs a standard short job cold (about 10 s of Persian speech / 8 s in a cloned voice / 5 s of effect / 15 s of
+  music) and reports model load time, generation time, RTF, peak VRAM, peak system RAM and GPU utilisation (nvidia-smi
+  sampled every 0.5 s), a verdict (سبک / متوسط / سنگین) with what it means for the queue, and the audio to listen to.
+  Results are kept; on an offline node the test waits in the queue and runs when the node is back.
+- Installed / downloading (with %) / missing per model; **«دانلود»** for a missing model or an optional package makes the
+  node run the downloader itself.
+- "Free GPU memory after N minutes idle" (default 15; the variable `NM_AUDIO_IDLE_S` still overrides it).
+
+### The START.bat checklist
+
+Printed on every start (English; `[✓]` / `[✗]` in Windows Terminal, `[OK]` / `[X ]` in the classic console) and sent to the panel (card > "checklist of the last start"):
+Python > git > site reachable and node registered > ffmpeg > .NET 8 SDK + NuGet (the editors are built; without dotnet or
+without NuGet the ready-made editors are downloaded from the site instead) > ComfyUI found > GPU driver (527+ for
+CUDA 12.8) > models (default set missing: background download) > free disk. When everything is in place a re-run takes
+a few seconds and changes nothing.
+
+Smoke check without a GPU: `python audio\moss_tts_server.py --fake`. Tests: `python tests\test_download_models.py`,
+`python tests\test_agent_audio.py`, `python tests\test_agent_setup.py`.
 
 Every service the agent starts writes its console output to `logs\service-<name>.log`; if a service does not come up,
 the last lines are sent to the site log (panel → Processing servers → log of this node).
@@ -105,9 +144,9 @@ never travels to this machine. Long pieces (> 5 s) are several chained chunks in
 
 Once on this machine:
 
-1. `Download-Models.bat --only video` — the Wan 2.2 fp8 high/low experts, umT5 and the VAE are the files the existing
-   Wan profiles already use (skipped when they are in `models\diffusion_models`, `models\text_encoders`, `models\vae`);
-   new: the 4-step lightx2v LoRAs (2 × 1.1 GB), Fun-InP 1.3B (2.9 GB) and CLIP-Vision-H (1.2 GB).
+1. Nothing to type: `START.bat` fetches what the main Wan 2.2 engine still lacks (the fp8 high/low experts, umT5 and
+   the VAE are skipped when ComfyUI already has them). The optional parts - the 4-step lightx2v LoRAs (2 × 1.1 GB) and
+   Fun-InP 1.3B (2.9 GB) + CLIP-Vision-H (1.2 GB) - come from the panel: the node's card > «بسته‌های دیگر» > «دانلود».
 2. ComfyUI must have `WanFirstLastFrameToVideo` (every ComfyUI that runs Wan 2.2 has it). The panel tab shows per model
    whether this node is ready (from the node list and model folders in the heartbeat).
 3. The rendered frames stay in `ComfyUI\output\nmregen\` (~0.5 MB per frame) — delete that folder now and then.

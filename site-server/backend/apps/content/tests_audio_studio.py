@@ -94,7 +94,7 @@ class AudioStudioTests(TestCase):
     def test_node_messages(self):
         self.set_audio(sfx=False)
         msg = self.client.get(self.base).json()["status"]["engines"]["sfx"]["message"]
-        self.assertIn("Download-Models.bat --only moss-sfx", msg)
+        self.assertIn("«دانلود»", msg)  # the owner presses a button; no command line
         r = self.post(kind="sfx", preset="rain", seconds=5)
         self.assertEqual(r.status_code, 503)
         self.assertFalse(AudioAsset.objects.exists(), "nothing is stored for a job no node can run")

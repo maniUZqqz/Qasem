@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 ENGINES = {
     "moss-fa": {"id": "moss-fa", "label": "MOSS-TTS فارسی (روی سرورِ پردازش)", "license": "Apache-2.0",
-                "commercial": True, "note": "استفادهٔ تجاری مجاز؛ کیفیتِ بهتر. مدل‌هایش با Download-Models.bat نصب می‌شود."},
+                "commercial": True, "note": "استفادهٔ تجاری مجاز؛ کیفیتِ بهتر. مدل‌هایش را START.bat روی سرورِ پردازش خودش دانلود می‌کند."},
     "pocket": {"id": "pocket", "label": "Pocket-TTS فارسی (کیتِ صدا)", "license": "CC-BY-NC-4.0", "commercial": False,
                "note": "فقط غیرتجاری؛ مدلِ سبک‌تر (بارِ اول خودکار نصب می‌شود)."},
 }
@@ -358,9 +358,13 @@ def pick_node(voice=None) -> str:
     """The node to use: the one that already holds this voice if it is on, else any node with the voice kit."""
     from apps.compute import services as compute
 
-    names = [n.name for n in compute.online_nodes("voice")]
-    if not names:
+    nodes = compute.online_nodes("voice")
+    if not nodes:
         raise NodeOffline(offline_message(voice))
+    names = [n.name for n in nodes if ((n.desired or {}).get("audio") or {}).get("clone") is not False]
+    if not names:
+        raise VoiceCloneError("کلونِ صدا خاموش است (سرورهای پردازش › مدل‌های صدا) — برای ساختن یا خواندن با صدای "
+                              "کلون‌شده، آن را روشن کنید.")
     if voice is not None and voice.node_name in names:
         return voice.node_name
     return names[0]
@@ -531,7 +535,7 @@ def _start_moss_build(voice, clips):
     from . import node_audio
 
     try:
-        node = node_audio.pick_node("moss", prefer=voice.node_name)
+        node = node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone")
     except node_audio.NodeAudioError as exc:
         raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
     ref, chosen = build_moss_reference(voice, clips)
@@ -681,6 +685,10 @@ def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone"):
     """MOSS speaks in the voice of the reference that travels with every job: any node with the model will do."""
     from . import node_audio
 
+    try:      # the «کلونِ صدا» switch and the node first: no reference is built for a job that cannot run
+        node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone")
+    except node_audio.NodeAudioError as exc:
+        raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
     ref = moss_reference_path(voice)
     if not ref.is_file():
         clips = usable_clips(voice)
@@ -692,7 +700,7 @@ def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone"):
     if seed is not None:
         payload["seed"] = int(seed)
     try:
-        return node_audio.enqueue("moss", "voice.tts", payload, {"moss_ref.wav": str(ref)}, store=voice.store,
+        return node_audio.enqueue("moss", "voice.tts", payload, {"moss_ref.wav": str(ref)}, store=voice.store, purpose="clone",
                                   origin=origin, timeout_s=TTS_TIMEOUT_S, prefer=voice.node_name)
     except node_audio.NodeAudioError as exc:
         raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc

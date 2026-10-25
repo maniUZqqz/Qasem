@@ -83,6 +83,33 @@ def default_preset(gender: str = "male") -> str:
 
 # ───────────────────────────── which node has which engine
 
+#: the four switches of «سرورهای پردازش › مدل‌های صدا» and the engine each one uses
+ROWS = {"speech": "moss", "clone": "moss", "sfx": "sfx", "music": "music"}
+OFF_MESSAGE = {
+    "speech": "گفتارِ MOSS برای سرورِ پردازش خاموش است (سرورهای پردازش › مدل‌های صدا)؛ گویندهٔ بعدیِ فهرست می‌خواند.",
+    "clone": "کلونِ صدا خاموش است (سرورهای پردازش › مدل‌های صدا).",
+    "sfx": "صدای محیطِ ساختهٔ ماشین خاموش است (سرورهای پردازش › مدل‌های صدا)؛ صداهای کتابخانه و صدای ساخته‌شده با کد به "
+           "کار می‌روند.",
+    "music": "موسیقیِ ساختهٔ ماشین خاموش است (سرورهای پردازش › مدل‌های صدا)؛ از کتابخانهٔ صداها یا موسیقیِ خودتان "
+             "استفاده کنید.",
+}
+
+
+def node_settings(desired) -> dict:
+    """The panel's switches for one node (ComputeNode.desired["audio"]); missing = on, unload after 15 minutes."""
+    d = (desired or {}).get("audio") or {}
+    out = {k: d.get(k) is not False for k in ROWS}
+    try:
+        out["idle_min"] = max(1, min(240, int(d.get("idle_min") or 15)))
+    except (TypeError, ValueError):
+        out["idle_min"] = 15
+    return out
+
+
+def _purpose_for(key: str, purpose) -> str:
+    return purpose if purpose in ROWS else next(r for r, k in ROWS.items() if k == key)
+
+
 def node_rows() -> list[dict]:
     from apps.compute.models import ComputeNode
 
@@ -92,8 +119,23 @@ def node_rows() -> list[dict]:
         audio = caps.get("audio") if isinstance(caps.get("audio"), dict) else None
         rows.append({"name": node.name, "online": node.online, "agent": caps.get("agent") or "", "audio": audio,
                      "gpu": caps.get("gpu") or "", "last_seen": node.last_seen,
-                     "running": {k: bool(caps.get(k)) for k in ENGINES}})
+                     "running": {k: bool(caps.get(k)) for k in ENGINES},
+                     "settings": node_settings(node.desired), "models": caps.get("models") or {}})
     return rows
+
+
+def downloading(row: dict, key: str):
+    """None, or how far this node's background download of the engine's models is (0-100)."""
+    models = row.get("models") or {}
+    if not models.get("running"):
+        return None
+    pkg = ENGINES[key]["package"]
+    pr = models.get("progress") or {}
+    in_run = pkg in (pr.get("packages") or []) or not ((models.get("packages") or {}).get(pkg) or {}).get("installed", True)
+    if not in_run:
+        return None
+    total = pr.get("bytes_total") or 0
+    return round(100.0 * (pr.get("bytes_done") or 0) / total, 1) if total else 0.0
 
 
 def status() -> dict:
@@ -102,14 +144,18 @@ def status() -> dict:
     out = {}
     for key, eng in ENGINES.items():
         installed = [r["name"] for r in rows if (r["audio"] or {}).get(key)]
-        online = [r["name"] for r in rows if r["online"] and (r["audio"] or {}).get(key)]
+        purpose = _purpose_for(key, None)
+        online = [r["name"] for r in rows if r["online"] and (r["audio"] or {}).get(key) and r["settings"][purpose]]
+        code = ""
         try:
-            pick_node(key, rows=rows)
+            pick_node(key, rows=rows, purpose=purpose)
             message = ""
         except NodeAudioError as exc:
-            message = str(exc)
+            message, code = str(exc), exc.code
+        pct = next((d for d in (downloading(r, key) for r in rows if r["online"]) if d is not None), None)
         out[key] = {**{k: v for k, v in eng.items() if k != "kinds"}, "ready": bool(online), "installed_on": installed,
-                    "online_on": online, "message": message}
+                    "online_on": online, "message": message, "code": code, "downloading": pct,
+                    "enabled": any(r["settings"][purpose] for r in rows) if rows else True}
     return {"engines": out, "nodes": [{k: v for k, v in r.items() if k != "last_seen"} | {
         "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None} for r in rows]}
 
@@ -118,15 +164,27 @@ def _gb(key):
     return ENGINES[key]["gb"]
 
 
-def pick_node(key: str, prefer: str = "", rows=None) -> str:
-    """A node that is online and has this engine installed. Raises NodeAudioError saying what to do."""
+def pick_node(key: str, prefer: str = "", rows=None, purpose=None, allow_pending: bool = False) -> str:
+    """A node that is online, has this engine installed and switched on (for this purpose). Raises NodeAudioError
+    saying what to do. allow_pending: a node still downloading the models is good enough (the job waits in the queue
+    until the model is there - compute.claim keeps it back)."""
     rows = rows if rows is not None else node_rows()
     eng = ENGINES[key]
-    ready = [r for r in rows if r["online"] and (r["audio"] or {}).get(key)]
+    purpose = _purpose_for(key, purpose)
+    ready = [r for r in rows if r["online"] and (r["audio"] or {}).get(key) and r["settings"][purpose]]
     if ready:
         names = [r["name"] for r in ready]
         return prefer if prefer in names else names[0]
     online = [r for r in rows if r["online"]]
+    if online and not any(r["settings"][purpose] for r in online):
+        raise NodeAudioError(OFF_MESSAGE[purpose], "disabled")
+    pending = [r for r in online if r["settings"][purpose] and downloading(r, key) is not None]
+    if pending:
+        if allow_pending:
+            return pending[0]["name"]
+        raise NodeAudioError(
+            f"مدل‌های {eng['label']} روی سرورِ پردازش ({pending[0]['name']}) در حالِ دانلود است "
+            f"({downloading(pending[0], key):.0f}٪) و بعد از پایانِ دانلود آماده می‌شود.", "downloading")
     if not online:
         seen = "، ".join(f"«{r['name']}»" for r in rows[:2]) or "هیچ سروری ثبت نشده"
         raise NodeAudioError(
@@ -138,9 +196,9 @@ def pick_node(key: str, prefer: str = "", rows=None) -> str:
             f"نسخهٔ عاملِ سرورِ پردازش ({old[0]['agent'] or '?'}) هنوز {eng['label']} را نمی‌شناسد. روی آن کامپیوتر پوشهٔ "
             "پردازش را به‌روز کنید (git pull) و START.bat را دوباره باز کنید.", "old_agent")
     raise NodeAudioError(
-        f"مدل‌های {eng['label']} ({eng['what']}) روی سرورِ پردازش ({online[0]['name']}) نصب نیست. روی آن کامپیوتر در "
-        f"پوشهٔ پردازش Download-Models.bat را اجرا کنید (فقط همین: Download-Models.bat --only {eng['package']}، حدود "
-        f"{_gb(key)} گیگابایت) و بعد START.bat را دوباره باز کنید.", "missing")
+        f"مدل‌های {eng['label']} ({eng['what']}) روی سرورِ پردازش ({online[0]['name']}) نصب نیست. در «سرورهای پردازش › "
+        f"مدل‌های صدا» دکمهٔ «دانلود» را بزنید، یا START.bat را روی آن کامپیوتر دوباره باز کنید تا خودش دانلود کند "
+        f"(حدود {_gb(key)} گیگابایت).", "missing")
 
 
 def friendly(error: str) -> str:
@@ -155,10 +213,11 @@ def friendly(error: str) -> str:
 # ───────────────────────────── jobs
 
 def enqueue(key: str, kind: str, payload: dict, files: dict | None = None, *, store=None, origin: str = "audio",
-            timeout_s: int = 1200, prefer: str = "", dedupe: bool = True, priority: int = 60):
+            timeout_s: int = 1200, prefer: str = "", dedupe: bool = True, priority: int = 60, purpose=None,
+            allow_pending: bool = False):
     from apps.compute import services as compute
 
-    node = pick_node(key, prefer)
+    node = pick_node(key, prefer, purpose=purpose, allow_pending=allow_pending)
     try:
         return compute.enqueue(kind, payload, files or {}, store=store, origin=origin, priority=priority,
                                timeout_s=timeout_s, node=node, dedupe=dedupe)
@@ -178,11 +237,11 @@ def output_file(job, suffix: str = ".wav") -> Path | None:
 
 
 def run_and_wait(key: str, kind: str, payload: dict, files: dict | None = None, *, store=None, origin="audio",
-                 wait_s: int = 1200, prefer: str = "") -> Path:
+                 wait_s: int = 1200, prefer: str = "", purpose=None) -> Path:
     """Enqueue on a node with the engine and wait (Celery tasks, short web requests). Raises NodeAudioError."""
     from apps.compute import services as compute
 
-    job = enqueue(key, kind, payload, files, store=store, origin=origin, timeout_s=wait_s, prefer=prefer)
+    job = enqueue(key, kind, payload, files, store=store, origin=origin, timeout_s=wait_s, prefer=prefer, purpose=purpose)
     try:
         job = compute.wait(job, wait_s)
     except compute.ComputeError as exc:
@@ -219,7 +278,7 @@ class NodeMossProvider(BaseTTSProvider):
         if takes:
             payload["seed"] = 7919 * takes + len(text)      # a retake must be a different take
         try:
-            path = run_and_wait("moss", "voice.tts", payload, origin="narration", wait_s=self.wait_s)
+            path = run_and_wait("moss", "voice.tts", payload, origin="narration", wait_s=self.wait_s, purpose="speech")
         except NodeAudioError as exc:
             raise TTSError(str(exc)) from exc
         shutil.copyfile(path, out)
@@ -234,7 +293,7 @@ class NodeMossProvider(BaseTTSProvider):
 def moss_ready() -> tuple[bool, str]:
     """Readiness of the NODE_MOSS / NODE_SFX engine rows: a node is on and has the models."""
     try:
-        pick_node("moss")
+        pick_node("moss", purpose="speech")
         return True, ""
     except NodeAudioError as exc:
         return False, str(exc)
@@ -242,7 +301,7 @@ def moss_ready() -> tuple[bool, str]:
 
 def sfx_ready() -> tuple[bool, str]:
     try:
-        pick_node("sfx")
+        pick_node("sfx", purpose="sfx")
         return True, ""
     except NodeAudioError as exc:
         return False, str(exc)

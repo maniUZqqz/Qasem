@@ -583,6 +583,7 @@ def _node_sfx(key: str, seconds: float, work: Path) -> Picked | None:
     prompt = kind.queries[0] + (", seamless ambience, no music, no speech" if kind.kind == BED else ", no music")
     try:
         raw = node_audio.run_and_wait("sfx", "voice.sfx", {"prompt": prompt, "seconds": duration, "out": "sfx.wav"},
+                                      purpose="sfx",
                                       origin="soundscape", wait_s=900)
     except node_audio.NodeAudioError as exc:
         logger.info("MOSS-SoundEffect unavailable for %s: %s", key, exc)

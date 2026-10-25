@@ -340,7 +340,7 @@ def create_sfx(store, user, *, description="", preset="", seconds=8, seed=None, 
             raise StudioError("بنویسید چه صدایی می‌خواهید، یا یکی از پیشنهادها را بردارید.")
         prompt = to_english(description, store, "sfx")
         label = _clean(description)[:60]
-    node_audio.pick_node("sfx")            # fail early, with the exact fix, before anything is stored
+    _node_or_error("sfx")                  # fail early, with the exact fix, before anything is stored
     check_allowance(store, seconds)
     payload = {"prompt": prompt, "seconds": seconds, "out": "sfx.wav", "seed": int(seed) if seed is not None else 0}
     asset = _asset(store, user, AudioAsset.Kind.SFX, text=_clean(description) or label, prompt=prompt,
@@ -371,7 +371,7 @@ def create_music(store, user, *, description="", style="", seconds=30, bpm=None,
         bpm = (chosen or {}).get("bpm")
     if bpm is not None and not 50 <= int(bpm) <= 200:
         raise StudioError("ضرب‌آهنگ باید بین ۵۰ و ۲۰۰ باشد.")
-    node_audio.pick_node("music")
+    _node_or_error("music")
     check_allowance(store, seconds)
     payload = {"prompt": prompt, "seconds": seconds, "out": "music.wav"}
     if bpm:
@@ -385,12 +385,21 @@ def create_music(store, user, *, description="", style="", seconds=30, bpm=None,
     return _queue(asset, "music", "voice.music", payload, timeout_s=1800)
 
 
+def _node_or_error(key):
+    """A node can make this (or will, once its download ends) - else a StudioError: 409 when switched off."""
+    try:
+        return node_audio.pick_node(key, purpose=key, allow_pending=True)
+    except node_audio.NodeAudioError as exc:
+        raise StudioError(str(exc), 409 if exc.code == "disabled" else 503, "node_" + exc.code) from exc
+
+
 def _queue(asset, key, kind, payload, timeout_s=1200):
     try:
-        job = node_audio.enqueue(key, kind, payload, store=asset.store, origin="audio_studio", timeout_s=timeout_s)
+        job = node_audio.enqueue(key, kind, payload, store=asset.store, origin="audio_studio", timeout_s=timeout_s,
+                                 purpose={"voice.sfx": "sfx", "voice.music": "music"}.get(kind, "speech"), allow_pending=True)
     except node_audio.NodeAudioError as exc:
         asset.delete()
-        raise StudioError(str(exc), 503, "node_" + exc.code) from exc
+        raise StudioError(str(exc), 409 if exc.code == "disabled" else 503, "node_" + exc.code) from exc
     asset.job_uid = job.uid
     asset.save(update_fields=["job_uid", "updated_at"])
     return sync(asset)
@@ -453,8 +462,17 @@ def job_progress(asset) -> dict | None:
         return None
     from .voice_clone import progress_fa
 
+    message = progress_fa(job.message)
+    if job.state == "QUEUED":
+        # a job kept in the queue while its model downloads on the node: say so instead of a bare «در صف»
+        key = {"voice.sfx": "sfx", "voice.music": "music"}.get(job.kind, "moss")
+        for row in node_audio.node_rows():
+            pct = node_audio.downloading(row, key) if row["online"] else None
+            if pct is not None:
+                message = f"در صف — مدل روی «{row['name']}» در حالِ دانلود است ({pct:.0f}٪)؛ بعد از دانلود ساخته می‌شود."
+                break
     return {"state": job.state, "label": job.get_state_display(), "progress": round(job.progress, 3),
-            "message": progress_fa(job.message), "node": job.node.name if job.node_id else None}
+            "message": message, "node": job.node.name if job.node_id else None}
 
 
 def sweep_drafts(store) -> int:

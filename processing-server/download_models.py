@@ -13,7 +13,13 @@ Nothing you put on this computer is ever deleted (a file that fails verification
     Download-Models.bat --check            test every link (no download) and print reachability + total size
     Download-Models.bat --only voice       one group (or package / item id); comma separated, repeatable
     Download-Models.bat --skip acestep     leave out a package or item id
-    Download-Models.bat --all              also the optional packages (sound effects, music, fast video model)
+    Download-Models.bat --all              also the optional packages (4-step video LoRA, fast video model)
+    Download-Models.bat --status           what is installed / missing per package, as JSON (no network)
+
+Nothing is downloaded twice: a model ComfyUI can already load (its models\\ folder, the folders in
+extra_model_paths.yaml, ComfyUI Desktop's own folder) counts as installed; a file two items share is fetched once
+and linked; all virtual environments share one pip cache (pip-cache\\). The agent (agent.py) runs this in the
+background and shows the progress in the panel (--status-file); only one run at a time (logs\\download.lock).
     Download-Models.bat --hf-mirror https://hf-mirror.com     Hugging Face mirror (also: HF_ENDPOINT)
     Download-Models.bat --pip-mirror https://mirror-pypi.runflare.com/simple   extra pip index to try
     Download-Models.bat --yes              do not ask before starting
@@ -40,7 +46,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-VERSION = "1.0"
+VERSION = "1.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 NM_HOME = os.environ.get("NM_HOME") or HERE
 MANIFEST_DIR = os.path.join(NM_HOME, "downloads")
@@ -109,6 +115,7 @@ class Progress:
 
     def add(self, n):
         self.done += n
+        STATUS.progress(self.done, self.total)
         now = time.time()
         if now - self.last >= (0.5 if self.tty else 15):
             self.last = now
@@ -128,6 +135,136 @@ class Progress:
             sys.stdout.flush()
         else:
             print(text, flush=True)
+
+
+# ───────────────────────────────────────────── live status (for the agent and the panel)
+
+class Status:
+    """--status-file: what this run is doing, rewritten every few seconds (the agent sends it to the panel)."""
+
+    def __init__(self):
+        self.path = None
+        self.data = {}
+        self.last = 0.0
+        self.base = 0
+
+    def start(self, path, packages, items_total, bytes_total):
+        self.path = path
+        self.data = {"state": "running", "pid": os.getpid(), "started": time.time(), "packages": packages,
+                     "items_total": items_total, "items_done": 0, "bytes_total": bytes_total, "bytes_done": 0,
+                     "current": None, "failed": [], "message": ""}
+        self.write(force=True)
+
+    def item(self, item, total):
+        if not self.path:
+            return
+        self.data["current"] = {"id": item["id"], "package": item.get("package") or "", "kind": item["kind"],
+                                "title": item.get("title") or "", "done": 0, "total": total}
+        self.base = self.data["bytes_done"]
+        self.write(force=True)
+
+    def progress(self, done, total):
+        if not self.path or not self.data.get("current"):
+            return
+        cur = self.data["current"]
+        delta = max(0, done - cur.get("done", 0)) if cur.get("total") == total else 0
+        cur["done"], cur["total"] = done, total
+        self.data["bytes_done"] += delta
+        self.write()
+
+    def item_done(self, item, status, reason=""):
+        if not self.path:
+            return
+        self.data["items_done"] += 1
+        if status == "FAILED":
+            self.data["failed"].append({"id": item["id"], "package": item.get("package") or "", "reason": reason[:300]})
+        self.data["current"] = None
+        self.write(force=True)
+
+    def finish(self, state, message=""):
+        if not self.path:
+            return
+        self.data.update(state=state, message=message, current=None, finished=time.time())
+        self.write(force=True)
+
+    def write(self, force=False):
+        if not self.path or (not force and time.time() - self.last < 2):
+            return
+        self.last = time.time()
+        self.data["updated"] = self.last
+        try:
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self.data, fh)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+
+STATUS = Status()
+
+
+def pid_alive(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if IS_WIN:
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(handle, ctypes.byref(code))
+        k32.CloseHandle(handle)
+        return bool(ok) and code.value == 259
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def lock_path():
+    return os.path.join(LOGS, "download.lock")
+
+
+def take_lock():
+    """One download at a time (the agent's background run and a double-clicked Download-Models.bat)."""
+    path = lock_path()
+    try:
+        other = json.load(open(path, encoding="utf-8")).get("pid")
+    except (OSError, ValueError):
+        other = None
+    if other and int(other) != os.getpid() and pid_alive(other):
+        return other
+    os.makedirs(LOGS, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"pid": os.getpid(), "since": time.time()}, fh)
+    return None
+
+
+def drop_lock():
+    try:
+        if json.load(open(lock_path(), encoding="utf-8")).get("pid") == os.getpid():
+            os.remove(lock_path())
+    except (OSError, ValueError):
+        pass
+
+
+def link_or_copy(src, dest):
+    """The same file for a second item: a hard link (no extra disk) or, across drives, a copy."""
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    tmp = dest + ".part"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    try:
+        os.link(src, tmp)
+    except OSError:
+        shutil.copyfile(src, tmp)
+    os.replace(tmp, dest)
 
 
 # ───────────────────────────────────────────── state (what was verified already)
@@ -271,6 +408,8 @@ class Context:
         self.local = load_local()
         self._comfy = None
         self._comfy_index = None
+        #: sha256 -> a complete, verified file this run already has (so a second item links it)
+        self.known = {}
 
     # ---- simple ones
     def site(self):
@@ -350,6 +489,36 @@ class Context:
         raise Unresolved("{COMFYUI}: ComfyUI folder not found",
                          "set NM_COMFY_DIR to your ComfyUI folder (the one with custom_nodes) or run this once in a console window")
 
+    def comfy_model_roots(self):
+        """Every folder ComfyUI loads models from: its models\\, the folders in extra_model_paths.yaml (portable /
+        manual install) and in ComfyUI Desktop's extra_models_config.yaml, and Desktop's own basePath\\models."""
+        roots, yamls = [], []
+        try:
+            comfy = self.comfyui()
+        except Unresolved:
+            comfy = None
+        if comfy:
+            roots.append(os.path.join(comfy, "models"))
+            yamls.append(os.path.join(comfy, "extra_model_paths.yaml"))
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            yamls.append(os.path.join(appdata, "ComfyUI", "extra_models_config.yaml"))
+            try:
+                base = json.load(open(os.path.join(appdata, "ComfyUI", "config.json"), encoding="utf-8")).get("basePath")
+            except (OSError, ValueError):
+                base = None
+            if base:
+                roots.append(os.path.join(base, "models"))
+        for y in yamls:
+            roots += parse_extra_model_paths(y)
+        seen, out = set(), []
+        for r in roots:
+            key = os.path.normcase(os.path.abspath(r))
+            if key not in seen and os.path.isdir(r):
+                seen.add(key)
+                out.append(r)
+        return out
+
     def comfy_has(self, item):
         """A model file ComfyUI already has under ANY models\\ subfolder (unet or diffusion_models, a subfolder of
         its own, another name of the same folder) counts as installed: ComfyUI finds it by its file name, so it is
@@ -357,20 +526,17 @@ class Context:
         dest = item.get("dest") or ""
         if item.get("kind") != "file" or not dest.startswith("{COMFYUI}") or "models" not in dest.replace("/", "\\").split("\\"):
             return None
-        try:
-            root = os.path.join(self.comfyui(), "models")
-        except Unresolved:
-            return None
         if self._comfy_index is None:
             self._comfy_index = {}
-            for d, _dirs, files in os.walk(root, followlinks=True):
-                for f in files:
-                    p = os.path.join(d, f)
-                    try:
-                        if os.path.getsize(p) > 0:
-                            self._comfy_index.setdefault(f.lower(), p)
-                    except OSError:
-                        pass
+            for root in self.comfy_model_roots():
+                for d, _dirs, files in os.walk(root, followlinks=True):
+                    for f in files:
+                        p = os.path.join(d, f)
+                        try:
+                            if os.path.getsize(p) > 0:
+                                self._comfy_index.setdefault(f.lower(), p)
+                        except OSError:
+                            pass
         name = dest.replace("/", "\\").rsplit("\\", 1)[-1].lower()
         return self._comfy_index.get(name)
 
@@ -421,6 +587,56 @@ class Context:
 
 
 # ───────────────────────────────────────────── HTTP
+
+def parse_extra_model_paths(path):
+    """The model folders listed in a ComfyUI extra_model_paths.yaml (no YAML library on the node):
+    sections with base_path + "kind: folder" lines and multi-line "kind: |" lists. Relative paths are relative to
+    base_path (or to the yaml's folder)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    sections, cur, block = [], None, None
+    for raw in lines:
+        line = raw.split(" #", 1)[0].rstrip() if not raw.lstrip().startswith("#") else ""
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        text = line.strip()
+        if indent == 0:
+            cur, block = {"base": None, "paths": []}, None
+            sections.append(cur)
+            continue
+        if cur is None:
+            continue
+        if block is not None and indent > block:
+            cur["paths"].append(text.strip("'\""))
+            continue
+        block = None
+        key, sep, val = text.partition(":")
+        if not sep:
+            continue
+        key, val = key.strip(), val.strip().strip("'\"")
+        if key == "base_path":
+            cur["base"] = val
+        elif key in ("is_default", "download_model_base"):
+            continue
+        elif val in ("|", ">", "|-", ">-", "|+"):
+            block = indent
+        elif val:
+            cur["paths"].append(val)
+    here = os.path.dirname(os.path.abspath(path))
+    out = []
+    for sec in sections:
+        base = os.path.expandvars(os.path.expanduser(sec["base"])) if sec["base"] else None
+        if base and not os.path.isabs(base):
+            base = os.path.join(here, base)
+        for p in sec["paths"]:
+            p = os.path.expandvars(os.path.expanduser(p))
+            out.append(os.path.normpath(p if os.path.isabs(p) else os.path.join(base or here, p)))
+    return out
+
 
 class _Redirects(urllib.request.HTTPRedirectHandler):
     """Python < 3.11 does not follow HTTP 308 (hf-mirror.com answers with it); treat it like 307."""
@@ -618,17 +834,33 @@ def run_cmd(cmd, label="", env=None, cwd=None):
     return p.wait()
 
 
+def same_key(item):
+    return (item.get("sha256") or "").lower() or None
+
+
 def do_file(item, ctx, state):
     have = ctx.comfy_has(item)
     if have:
         say("  ComfyUI already has it: %s" % have)
         return "skipped"
+    dest = ctx.expand(item["dest"])
+    key = same_key(item)
+    twin = ctx.known.get(key) if key else None
+    if twin and os.path.normcase(os.path.abspath(twin)) != os.path.normcase(os.path.abspath(dest)) \
+            and os.path.isfile(twin) and os.path.getsize(twin) == item.get("size") \
+            and not (os.path.isfile(dest) and os.path.getsize(dest) == item.get("size")):
+        link_or_copy(twin, dest)
+        state.mark(dest, key)
+        say("  same file as %s - linked, not downloaded again" % twin)
+        return "linked"
     urls = []
     for u in item.get("urls") or ([item["url"]] if item.get("url") else []):
         urls += ctx.url_variants(u)
     urls = list(dict.fromkeys(urls))
-    dest = ctx.expand(item["dest"])
-    return fetch(urls, dest, item.get("size"), item.get("sha256"), item["id"], state)
+    res = fetch(urls, dest, item.get("size"), item.get("sha256"), item["id"], state)
+    if key:
+        ctx.known[key] = dest
+    return res
 
 
 def hf_listing(ctx, repo, revision):
@@ -842,7 +1074,8 @@ def do_pip(item, ctx, state, mirrors=()):
         return "skipped"
     if item.get("no_deps"):
         args.insert(0, "--no-deps")
-    env = dict(os.environ, PIP_DISABLE_PIP_VERSION_CHECK="1", PYTHONIOENCODING="utf-8")
+    env = dict(os.environ, PIP_DISABLE_PIP_VERSION_CHECK="1", PYTHONIOENCODING="utf-8",
+               PIP_CACHE_DIR=os.path.join(NM_HOME, "pip-cache"))     # one cache: the same wheel is fetched once
     last = None
     for idx, extra, flinks in pip_attempts(item, ctx, mirrors):
         cmd = [py, "-m", "pip", "install", "--timeout", "60", "--retries", "5", "--progress-bar", "off",
@@ -994,6 +1227,8 @@ def remaining_bytes(item, ctx):
 def disk_report(rows, ctx):
     need, total_dl = {}, 0
     for _g, it in rows:
+        if _no_comfy(it, ctx):
+            continue
         dl, disk, where = remaining_bytes(it, ctx)
         total_dl += dl
         d = drive_of(where)
@@ -1017,20 +1252,69 @@ def disk_report(rows, ctx):
 # ───────────────────────────────────────────── --list / --check
 
 def status_of(item, ctx):
+    """'have' / 'have (ComfyUI)' / 'partial' / 'download' - what this computer still needs for the item."""
+    if ctx.comfy_has(item):
+        return "have (ComfyUI)"
+    return _status_of(item, ctx)
+
+
+def _no_comfy(item, ctx):
+    """A ComfyUI model file on a computer where ComfyUI was not found: it is never downloaded anywhere."""
+    if not str(item.get("dest") or "").startswith("{COMFYUI}"):
+        return False
+    try:
+        ctx.comfyui()
+        return False
+    except Unresolved:
+        return True
+
+
+def _status_of(item, ctx):
+    if _no_comfy(item, ctx):
+        return "no ComfyUI"
     try:
         dl, _disk, _w = remaining_bytes(item, ctx)
     except Exception:  # noqa: BLE001
         return "?"
     if dl == 0:
-        return "done"
+        return "have"
     if item["kind"] == "file":
         try:
             dest = ctx.expand(item["dest"])
         except Unresolved:
-            return "missing"
+            return "download"
         if os.path.exists(dest + ".part"):
             return "partial"
-    return "missing"
+    return "download"
+
+
+def package_status(groups, ctx):
+    """Per package: how much is on this computer and how much would still be downloaded - offline and fast
+    (sizes and markers only, no hashing). What the agent reports to the panel."""
+    out = {}
+    for g in groups:
+        titles = g.get("packages") or {}
+        for it in g["items"]:
+            pk = it.get("package") or it["id"]
+            row = out.setdefault(pk, {"group": g["group"], "title": titles.get(pk, ""), "optional": False, "items": 0,
+                                      "missing": 0, "bytes_missing": 0, "bytes_total": 0, "have_in_comfyui": 0})
+            row["optional"] = row["optional"] or bool(it.get("optional"))
+            size = it.get("size") if it["kind"] != "pip" else (it.get("estimate_mb") or 0) * 1024 ** 2
+            row["items"] += 1
+            row["bytes_total"] += size or 0
+            st = status_of(it, ctx)
+            if st == "have (ComfyUI)":
+                row["have_in_comfyui"] += 1
+            elif st not in ("have",):
+                row["missing"] += 1
+                try:
+                    dl, _d, _w = remaining_bytes(it, ctx)
+                except Exception:  # noqa: BLE001
+                    dl = size or 0
+                row["bytes_missing"] += dl
+    for row in out.values():
+        row["installed"] = row["missing"] == 0
+    return out
 
 
 def cmd_list(groups, rows, ctx):
@@ -1046,9 +1330,11 @@ def cmd_list(groups, rows, ctx):
         for it in mine:
             st = status_of(it, ctx)
             size = it.get("size") if it["kind"] != "pip" else (it.get("estimate_mb") or 0) * 1024 ** 2
-            if st != "done":
+            if not st.startswith("have") and st != "no ComfyUI":
                 total += size or 0
-            say("  %-8s %-11s %10s  %s" % (st, it["kind"], human(size) if size else "-", it["id"]))
+            say("  %-15s %-11s %10s  %s" % ("already have" if st == "have" else "skip: no ComfyUI" if st == "no ComfyUI"
+                                           else st if st != "download" else "will download",
+                                           it["kind"], human(size) if size else "-", it["id"]))
         chosen = {id(it) for _g, it in rows}
         extra = [it for it in g["items"] if it.get("optional") and id(it) not in chosen]
         if extra:
@@ -1229,8 +1515,20 @@ def main(argv=None):
     ap.add_argument("--pip-mirror", action="append", default=[], help="extra pip index to try after the official ones")
     ap.add_argument("--yes", "-y", action="store_true", help="do not ask before starting")
     ap.add_argument("--force", action="store_true", help="start even when the disk check says there is not enough space")
+    ap.add_argument("--status", action="store_true", help="JSON: installed / missing per package (no network)")
+    ap.add_argument("--status-file", default=None, help="keep a JSON progress file up to date (used by the agent)")
     ap.add_argument("--manifests", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
+    if args.status:
+        groups = load_manifests(args.manifests)
+        ctx = Context(hf=args.hf_mirror, interactive=False, check=True)
+        try:
+            other = json.load(open(lock_path(), encoding="utf-8")).get("pid")
+        except (OSError, ValueError):
+            other = None
+        print(json.dumps({"version": VERSION, "packages": package_status(groups, ctx),
+                          "running": bool(other and pid_alive(other))}))
+        return 0
     Log.open()
     say("UpMarket model downloader %s - %s" % (VERSION, NM_HOME))
     groups = load_manifests(args.manifests)
@@ -1265,32 +1563,60 @@ def main(argv=None):
                 return 0
         except EOFError:
             pass
+    other = take_lock()
+    if other:
+        say("Another download is already running (process %s) - its progress is shown in the panel" % other)
+        say("(Processing servers > voice models). Nothing was started twice.")
+        return 4
     state = State()
     results = []
     t0 = time.time()
+    for _g, it in rows:                       # files this computer already has, verified: a twin item links them
+        if it["kind"] == "file" and same_key(it):
+            try:
+                dest = ctx.expand(it["dest"])
+            except Unresolved:
+                continue
+            if state.verified(dest, it.get("size"), same_key(it)):
+                ctx.known.setdefault(same_key(it), dest)
+    if args.status_file:
+        STATUS.start(args.status_file, sorted({it.get("package") or it["id"] for _g, it in rows}), len(rows), total_dl)
     try:
         for n, (g, it) in enumerate(rows, 1):
             say("")
+            try:
+                left, _disk, _w = remaining_bytes(it, ctx)
+            except Exception:  # noqa: BLE001
+                left = 0
+            STATUS.item(it, left)
             say("[%d/%d] %s  (%s, %s)" % (n, len(rows), it["id"], g["group"], it["kind"]))
             if it.get("title") and (n == 1 or rows[n - 2][1].get("title") != it.get("title")):
                 say("  %s" % it["title"])
             try:
                 handler = HANDLERS[it["kind"]]
                 res = handler(it, ctx, state, mirrors) if it["kind"] == "pip" else handler(it, ctx, state)
-                results.append((it, "OK" if res == "downloaded" else "SKIPPED", "" if res == "downloaded" else "already complete", ""))
-                say("  %s" % ("done" if res == "downloaded" else "already complete - skipped"))
+                results.append((it, "OK" if res in ("downloaded", "linked") else "SKIPPED",
+                                "" if res in ("downloaded", "linked") else "already complete", ""))
+                say("  %s" % {"downloaded": "done", "linked": "done (linked)"}.get(res, "already complete - skipped"))
+                STATUS.item_done(it, "OK")
             except Fail as e:
                 results.append((it, "FAILED", e.reason, e.hint))
                 say("  FAILED: %s" % e.reason)
                 if e.hint:
                     say("  what to do: %s" % e.hint)
+                STATUS.item_done(it, "FAILED", e.reason)
             except Exception as e:  # noqa: BLE001 - one broken item must not stop the others
                 results.append((it, "FAILED", "%s: %s" % (type(e).__name__, e), "see logs\\download-models.log"))
                 say("  FAILED: %s: %s" % (type(e).__name__, e))
+                STATUS.item_done(it, "FAILED", "%s: %s" % (type(e).__name__, e))
     except KeyboardInterrupt:
         say("")
         say("Stopped. Partial files are kept - run Download-Models.bat again to continue.")
+        STATUS.finish("stopped", "stopped by the user")
+        drop_lock()
         return 130
+    finally:
+        drop_lock()
     say("")
     say("=" * 78)
     say("Summary (%d min):" % ((time.time() - t0) // 60))
@@ -1309,6 +1635,8 @@ def main(argv=None):
     else:
         say("Everything is in place. Restart START.bat so the node reports the new models to the site.")
     say("Log: %s" % LOG_PATH)
+    STATUS.finish("failed" if counts["FAILED"] else "done",
+                  "%d failed" % counts["FAILED"] if counts["FAILED"] else "everything is in place")
     return 2 if counts["FAILED"] else 0
 
 

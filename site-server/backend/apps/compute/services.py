@@ -162,7 +162,7 @@ def run(kind: str, payload: dict | None = None, files: dict | None = None, **kw)
 
 def _kinds_q(node: ComputeNode) -> Q:
     """کدام نوعِ کار به این گره برسد: سرویسش بالاست، یا با سوئیچِ خودکار عاملش می‌تواند روشنش کند (ComputeNode.has)."""
-    q = Q(kind__startswith="echo")
+    q = Q(kind__startswith="echo") | Q(kind__startswith="node.")   # node.* always names its node (node_wanted)
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
             q |= Q(kind__startswith=prefix)
@@ -172,14 +172,40 @@ def _kinds_q(node: ComputeNode) -> Q:
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama"}
 
 
+MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
+
+
+def audio_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """An audio job this node must not take now: its model is switched off for the node in the panel
+    («مدل‌های صدا»), or not installed yet (still downloading) - the job waits in the queue instead of failing."""
+    p = job.payload or {}
+    if job.kind == "voice.sfx":
+        key, purpose = "sfx", "sfx"
+    elif job.kind == "voice.music":
+        key, purpose = "music", "music"
+    elif job.kind in ("voice.tts", "voice.clone") and str(p.get("engine") or "").lower() in MOSS_ENGINES:
+        key = "moss"
+        purpose = "clone" if job.kind == "voice.clone" or p.get("clone") or p.get("reference") else "speech"
+    elif job.kind == "voice.clone" or (job.kind == "voice.tts" and p.get("clone")):
+        key, purpose = None, "clone"                     # the kit's Pocket cloning
+    else:
+        return False
+    if ((node.desired or {}).get("audio") or {}).get(purpose) is False:
+        return True
+    audio = (node.capabilities or {}).get("audio")
+    return bool(key and isinstance(audio, dict) and not audio.get(key))
+
+
 def claim(node: ComputeNode) -> ComputeJob | None:
     """یک کار به این گره می‌دهد — اتمی، تا دو گره یک کار را نگیرند."""
     requeue_stale()
     candidates = (ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, node__isnull=True)
                   .filter(Q(node_wanted="") | Q(node_wanted=node.name))
-                  .filter(_kinds_q(node)).order_by("priority", "created_at")[:10])
+                  .filter(_kinds_q(node)).order_by("priority", "created_at")[:50])
     now = timezone.now()
     for job in candidates:
+        if audio_blocked(node, job):
+            continue
         updated = ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED, node__isnull=True).update(
             state=ComputeJob.State.CLAIMED, node=node, claimed_at=now, heartbeat_at=now, attempts=F("attempts") + 1,
             message="گرفته شد توسطِ " + node.name)

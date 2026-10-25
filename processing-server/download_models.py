@@ -13,6 +13,7 @@ Nothing you put on this computer is ever deleted (a file that fails verification
     Download-Models.bat --check            test every link (no download) and print reachability + total size
     Download-Models.bat --only voice       one group (or package / item id); comma separated, repeatable
     Download-Models.bat --skip acestep     leave out a package or item id
+    Download-Models.bat --all              also the optional packages (sound effects, music, fast video model)
     Download-Models.bat --hf-mirror https://hf-mirror.com     Hugging Face mirror (also: HF_ENDPOINT)
     Download-Models.bat --pip-mirror https://mirror-pypi.runflare.com/simple   extra pip index to try
     Download-Models.bat --yes              do not ask before starting
@@ -269,6 +270,7 @@ class Context:
         self.check = check
         self.local = load_local()
         self._comfy = None
+        self._comfy_index = None
 
     # ---- simple ones
     def site(self):
@@ -347,6 +349,30 @@ class Context:
             return self._comfy
         raise Unresolved("{COMFYUI}: ComfyUI folder not found",
                          "set NM_COMFY_DIR to your ComfyUI folder (the one with custom_nodes) or run this once in a console window")
+
+    def comfy_has(self, item):
+        """A model file ComfyUI already has under ANY models\\ subfolder (unet or diffusion_models, a subfolder of
+        its own, another name of the same folder) counts as installed: ComfyUI finds it by its file name, so it is
+        never downloaded a second time. Returns that path or None."""
+        dest = item.get("dest") or ""
+        if item.get("kind") != "file" or not dest.startswith("{COMFYUI}") or "models" not in dest.replace("/", "\\").split("\\"):
+            return None
+        try:
+            root = os.path.join(self.comfyui(), "models")
+        except Unresolved:
+            return None
+        if self._comfy_index is None:
+            self._comfy_index = {}
+            for d, _dirs, files in os.walk(root, followlinks=True):
+                for f in files:
+                    p = os.path.join(d, f)
+                    try:
+                        if os.path.getsize(p) > 0:
+                            self._comfy_index.setdefault(f.lower(), p)
+                    except OSError:
+                        pass
+        name = dest.replace("/", "\\").rsplit("\\", 1)[-1].lower()
+        return self._comfy_index.get(name)
 
     def comfyui_python(self):
         if self.local.get("comfyui_python") and os.path.isfile(self.local["comfyui_python"]):
@@ -593,6 +619,10 @@ def run_cmd(cmd, label="", env=None, cwd=None):
 
 
 def do_file(item, ctx, state):
+    have = ctx.comfy_has(item)
+    if have:
+        say("  ComfyUI already has it: %s" % have)
+        return "skipped"
     urls = []
     for u in item.get("urls") or ([item["url"]] if item.get("url") else []):
         urls += ctx.url_variants(u)
@@ -866,21 +896,25 @@ def _tokens(values):
     return out
 
 
-def selected(item, group, only, skip):
+def selected(item, group, only, skip, everything=False):
     keys = {group, item.get("package") or "", item["id"]}
 
     def hit(tok):
         return tok in keys or item["id"].startswith(tok + ":") or item["id"].startswith(tok + "/")
     if any(hit(t) for t in skip):
         return False
+    if item.get("optional") and not everything:
+        # an optional item comes only when named by its package / id (a group name alone is not enough)
+        named = {item.get("package") or "", item["id"]}
+        return any(t in named or item["id"].startswith(t + ":") for t in only)
     return not only or any(hit(t) for t in only)
 
 
-def plan(groups, only, skip):
+def plan(groups, only, skip, everything=False):
     rows = []
     for g in groups:
         for it in g["items"]:
-            if selected(it, g["group"], only, skip):
+            if selected(it, g["group"], only, skip, everything):
                 rows.append((g, it))
     rows.sort(key=lambda r: KIND_ORDER.get(r[1]["kind"], 9))
     return rows
@@ -921,6 +955,8 @@ def remaining_bytes(item, ctx):
     kind = item["kind"]
     try:
         if kind == "file":
+            if ctx.comfy_has(item):
+                return 0, 0, NM_HOME
             dest = ctx.expand(item["dest"])
             size = item.get("size") or 0
             if os.path.isfile(dest) and os.path.getsize(dest) == size:
@@ -1013,6 +1049,12 @@ def cmd_list(groups, rows, ctx):
             if st != "done":
                 total += size or 0
             say("  %-8s %-11s %10s  %s" % (st, it["kind"], human(size) if size else "-", it["id"]))
+        chosen = {id(it) for _g, it in rows}
+        extra = [it for it in g["items"] if it.get("optional") and id(it) not in chosen]
+        if extra:
+            pk = sorted({it.get("package") or it["id"] for it in extra})
+            sz = sum(it.get("size") or (it.get("estimate_mb") or 0) * 1024 ** 2 for it in extra)
+            say("  optional, not downloaded unless asked (%s): --only %s" % (human(sz), ",".join(pk)))
     say("")
     say("Still to download: about %s" % human(total))
 
@@ -1182,6 +1224,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="test every link, download nothing")
     ap.add_argument("--only", action="append", default=[], help="group / package / item id (comma separated)")
     ap.add_argument("--skip", action="append", default=[], help="package / item id to leave out")
+    ap.add_argument("--all", action="store_true", help="also the optional packages")
     ap.add_argument("--hf-mirror", default=None, help="Hugging Face endpoint, e.g. https://hf-mirror.com")
     ap.add_argument("--pip-mirror", action="append", default=[], help="extra pip index to try after the official ones")
     ap.add_argument("--yes", "-y", action="store_true", help="do not ask before starting")
@@ -1195,7 +1238,7 @@ def main(argv=None):
         say("No manifests in %s - nothing to do." % (args.manifests or MANIFEST_DIR))
         return 1
     only, skip = _tokens(args.only), _tokens(args.skip)
-    rows = plan(groups, only, skip)
+    rows = plan(groups, only, skip, args.all)
     say("Manifests: %s" % ", ".join("%s (%d items)" % (g["_file"], len(g["items"])) for g in groups))
     if not rows:
         say("Nothing selected (check --only / --skip).")

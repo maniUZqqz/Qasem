@@ -1,0 +1,956 @@
+{
+ "group": "voice",
+ "title": "Voice: Persian speech + voice cloning (MOSS-TTS-Realtime + Persian LoRA), ambience/effects (MOSS-SoundEffect v2.0), background music (ACE-Step 1.5)",
+ "license_note": "Commercial use allowed: MOSS-TTS-Realtime, MOSS-Audio-Tokenizer, MOSS-SoundEffect v2.0 and the Persian LoRA are Apache-2.0 (the LoRA was trained partly on Thomcles/Persian-Farsi-Speech, CC BY 4.0 - keep the credit); ACE-Step 1.5 is MIT and its output may be used commercially. A cloned voice may only be made with the speaker's consent.",
+ "generated": "2026-10-25",
+ "packages": {
+  "python": "Python 3.12 (installed only when missing)",
+  "moss-code": "MOSS-TTS repository code (needed by moss-tts and moss-sfx)",
+  "moss-tts": "Persian speech and voice cloning",
+  "moss-sfx": "ambience and sound effects",
+  "acestep": "background music"
+ },
+ "items": [
+  {
+   "id": "python312",
+   "package": "python",
+   "kind": "python",
+   "version": "3.12",
+   "title": "Python 3.12.10 (only installed when no Python 3.12 is found; per-user, into {NM_HOME}\\python312)",
+   "urls": [
+    "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+   ],
+   "size": 26964224,
+   "sha256": "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb",
+   "dest": "{NM_HOME}\\python312"
+  },
+  {
+   "id": "moss-code",
+   "package": "moss-code",
+   "kind": "git",
+   "title": "MOSS-TTS inference code (Apache-2.0)",
+   "url": "https://github.com/OpenMOSS/MOSS-TTS",
+   "ref": "934d6826b084c46a0d033402174d5f8ac4ed2519",
+   "dest": "{NM_HOME}\\vendor\\MOSS-TTS",
+   "size": 16000000
+  },
+  {
+   "id": "acestep-code",
+   "package": "acestep",
+   "kind": "git",
+   "title": "ACE-Step 1.5 code (MIT)",
+   "url": "https://github.com/ace-step/ACE-Step-1.5",
+   "ref": "ca1e85fe9430179831e6bc6be790c332190a3866",
+   "dest": "{NM_HOME}\\vendor\\ACE-Step-1.5",
+   "size": 20000000
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/README.md",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/README.md",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/README.md"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\README.md",
+   "size": 9895,
+   "sha256": "597dd930b42f22bbc5329015eb6f6ba404a392050e59acf23b27cb4643ac89e6"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/__init__.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/__init__.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/__init__.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\__init__.py",
+   "size": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/config.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/config.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\config.json",
+   "size": 2668,
+   "sha256": "31585d9a34edb827bdbb37e91f266e6d0963e0731cde4a51e870dc8869eedf36"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/configuration_mossttsrealtime.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/configuration_mossttsrealtime.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/configuration_mossttsrealtime.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\configuration_mossttsrealtime.py",
+   "size": 4192,
+   "sha256": "80295056d1580d24c92ff938650c8c373e05bb836d17896c535a5b6e38380e46"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/merges.txt",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/merges.txt",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/merges.txt"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\merges.txt",
+   "size": 1671839,
+   "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/model.safetensors",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/model.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/model.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\model.safetensors",
+   "size": 4663931664,
+   "sha256": "13a7a2a0322fe63984ff982a042373a41f707d95df5963233eff40e068a070d4"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/modeling_mossttsrealtime.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/modeling_mossttsrealtime.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/modeling_mossttsrealtime.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\modeling_mossttsrealtime.py",
+   "size": 8139,
+   "sha256": "0f217cfbceb18d75fb4aeb9561f7a941a72b126c0c18b2e0fccb923ed4dd5b6e"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/modeling_mossttsrealtime_local.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/modeling_mossttsrealtime_local.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/modeling_mossttsrealtime_local.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\modeling_mossttsrealtime_local.py",
+   "size": 21349,
+   "sha256": "1dc4f7d330ada764e1a38a82a4ee5e81c519c4061780c33466c7977dec778b50"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/processing_mossttsrealtime.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/processing_mossttsrealtime.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/processing_mossttsrealtime.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\processing_mossttsrealtime.py",
+   "size": 8370,
+   "sha256": "3724d05d9d651395d8fd02be518dd7886ca21f510b6c44fa6f7ff45183554505"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/streaming_mossttsrealtime.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/streaming_mossttsrealtime.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/streaming_mossttsrealtime.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\streaming_mossttsrealtime.py",
+   "size": 39045,
+   "sha256": "77c61521ebbf8db7c33913fc035866d2ba1329db32d4c1c8505f0713ee1507cb"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/tokenizer.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/tokenizer.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/tokenizer.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\tokenizer.json",
+   "size": 11422650,
+   "sha256": "a474913a182c0ad6297e47244a990659638b3093121fa92a4701fd45bd95c921"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/tokenizer_config.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/tokenizer_config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/tokenizer_config.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\tokenizer_config.json",
+   "size": 5542,
+   "sha256": "ca4f983f22128b12d47ef3e17d7f8e067920d85ebca8bc4755125f5403a40bcf"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime/vocab.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-TTS-Realtime 1.7B (speech + zero-shot cloning, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-TTS-Realtime/resolve/75682787d8e2fcc73faca37ba2931453ca9c4022/vocab.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-TTS-Realtime/resolve/master/vocab.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-TTS-Realtime\\vocab.json",
+   "size": 2776833,
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime-Persian-lora/README.md",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "Persian LoRA for MOSS-TTS-Realtime (Apache-2.0)",
+   "urls": [
+    "{HF}/hamidfzm/MOSS-TTS-Realtime-Persian-lora/resolve/ce599478b31ae792bb450e839fb0072062ebec2a/README.md"
+   ],
+   "dest": "{MODELS}\\moss-tts\\persian-lora\\README.md",
+   "size": 4511,
+   "sha256": "fbbda216420b5d1ad79a9287e9cf7638d38c5be14a57c3b8e57bd4cdc4c8daf0"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime-Persian-lora/adapter_config.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "Persian LoRA for MOSS-TTS-Realtime (Apache-2.0)",
+   "urls": [
+    "{HF}/hamidfzm/MOSS-TTS-Realtime-Persian-lora/resolve/ce599478b31ae792bb450e839fb0072062ebec2a/adapter_config.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\persian-lora\\adapter_config.json",
+   "size": 1206,
+   "sha256": "d4e28e2d08add4be6c82bc4e2ba183e481b5a867f62ff19a011d77d38afb1a32"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime-Persian-lora/adapter_model.safetensors",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "Persian LoRA for MOSS-TTS-Realtime (Apache-2.0)",
+   "urls": [
+    "{HF}/hamidfzm/MOSS-TTS-Realtime-Persian-lora/resolve/ce599478b31ae792bb450e839fb0072062ebec2a/adapter_model.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-tts\\persian-lora\\adapter_model.safetensors",
+   "size": 50358680,
+   "sha256": "4ac69eab08f47efa2c46b7f0cd24beedb8db3e8fd2b53d2b34ac3ef5b54461b3"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime-Persian-lora/fa_normalize.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "Persian LoRA for MOSS-TTS-Realtime (Apache-2.0)",
+   "urls": [
+    "{HF}/hamidfzm/MOSS-TTS-Realtime-Persian-lora/resolve/ce599478b31ae792bb450e839fb0072062ebec2a/fa_normalize.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\persian-lora\\fa_normalize.py",
+   "size": 5265,
+   "sha256": "a669320786acf0e130ded46553aee849f7fd513c1f3fe1595610195fc0e6d930"
+  },
+  {
+   "id": "moss-tts:MOSS-TTS-Realtime-Persian-lora/ref.wav",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "Persian LoRA for MOSS-TTS-Realtime (Apache-2.0)",
+   "urls": [
+    "{HF}/hamidfzm/MOSS-TTS-Realtime-Persian-lora/resolve/ce599478b31ae792bb450e839fb0072062ebec2a/ref.wav"
+   ],
+   "dest": "{MODELS}\\moss-tts\\persian-lora\\ref.wav",
+   "size": 334126,
+   "sha256": "04acbddaa3a5d56eafaffedbacc9821a289ed7b1849408dc72d7e210eb99b410"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/README.md",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/README.md",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/README.md"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\README.md",
+   "size": 10778,
+   "sha256": "795c97ec27b38994d4bee033dc3f6f0ad56763510deec3e04a5c1de385139223"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/__init__.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/__init__.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/__init__.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\__init__.py",
+   "size": 52,
+   "sha256": "ed0b4910a5e53b1dfc3234cfcf96e2c6890d339f9134a3dfed8481d01b3768fd"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/config.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/config.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\config.json",
+   "size": 6601,
+   "sha256": "0f669e288d39c9c0ffae4e39babe5167b57e89d3132f0785655d1096a8da8e45"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/configuration_moss_audio_tokenizer.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/configuration_moss_audio_tokenizer.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/configuration_moss_audio_tokenizer.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\configuration_moss_audio_tokenizer.py",
+   "size": 12933,
+   "sha256": "349b7ff7e1b3f160f9c80df9a0311672b326b8b73e90459122fb39e6878962bf"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/model-00001-of-00002.safetensors",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/model-00001-of-00002.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/model-00001-of-00002.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\model-00001-of-00002.safetensors",
+   "size": 4998259168,
+   "sha256": "037f441ed30a0ab59f6049de83b824a1b3bd6feb7dbd46c3fbca41fc2f649f28"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/model-00002-of-00002.safetensors",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/model-00002-of-00002.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/model-00002-of-00002.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\model-00002-of-00002.safetensors",
+   "size": 2100202560,
+   "sha256": "a187d73d2cda1c2d0676586d9d03c09c0a5813450266af32029c871493fc9582"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/model.safetensors.index.json",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/model.safetensors.index.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/model.safetensors.index.json"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\model.safetensors.index.json",
+   "size": 148113,
+   "sha256": "e107e83fee64adc3ccdb993975290cecb00fcf7d72cdaa388011abad16bcc82d"
+  },
+  {
+   "id": "moss-tts:MOSS-Audio-Tokenizer/modeling_moss_audio_tokenizer.py",
+   "package": "moss-tts",
+   "kind": "file",
+   "title": "MOSS-Audio-Tokenizer (codec for MOSS-TTS, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-Audio-Tokenizer/resolve/3cd226ba2947efa357ef453bcad111b6eafba782/modeling_moss_audio_tokenizer.py",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-Audio-Tokenizer/resolve/master/modeling_moss_audio_tokenizer.py"
+   ],
+   "dest": "{MODELS}\\moss-tts\\MOSS-Audio-Tokenizer\\modeling_moss_audio_tokenizer.py",
+   "size": 70906,
+   "sha256": "65cae7744845f1b8ac65957e918cea508efe331a38e87b882b7530b6c8d7caa5"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/README.md",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/README.md",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/README.md"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\README.md",
+   "size": 3825,
+   "sha256": "eff33e61f5472a0ba33ca42241d546b00b66ec7f37e28b0e0d4ba64718866449"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/model_index.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/model_index.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/model_index.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\model_index.json",
+   "size": 504,
+   "sha256": "28ed3d19217bf774394bd5992d1a6dfd1ffab2863117423c3fe4945dadabb3be"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/scheduler/scheduler_config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/scheduler/scheduler_config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/scheduler/scheduler_config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\scheduler\\scheduler_config.json",
+   "size": 134,
+   "sha256": "060d9ee9ea73310ff1a47e589a5e37d3e03d99711a6277646b3f679030606977"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/text_encoder/config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/text_encoder/config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\config.json",
+   "size": 726,
+   "sha256": "1ddb5b89ebc90dcb417a45c213d818577e65976454d29385c8f6140771d95197"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/generation_config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/text_encoder/generation_config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/text_encoder/generation_config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\generation_config.json",
+   "size": 239,
+   "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model-00001-of-00002.safetensors",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/text_encoder/model-00001-of-00002.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/text_encoder/model-00001-of-00002.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model-00001-of-00002.safetensors",
+   "size": 3441185608,
+   "sha256": "169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model-00002-of-00002.safetensors",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/text_encoder/model-00002-of-00002.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/text_encoder/model-00002-of-00002.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model-00002-of-00002.safetensors",
+   "size": 622329984,
+   "sha256": "912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/text_encoder/model.safetensors.index.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/text_encoder/model.safetensors.index.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/text_encoder/model.safetensors.index.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\text_encoder\\model.safetensors.index.json",
+   "size": 25605,
+   "sha256": "0d660e94b165eb912669a5249dff44b83188c4777a07ddb9611fb78d91b0578d"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/merges.txt",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/tokenizer/merges.txt",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/tokenizer/merges.txt"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\merges.txt",
+   "size": 1671853,
+   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/tokenizer.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/tokenizer/tokenizer.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/tokenizer/tokenizer.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\tokenizer.json",
+   "size": 11422654,
+   "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/tokenizer_config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/tokenizer/tokenizer_config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/tokenizer/tokenizer_config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\tokenizer_config.json",
+   "size": 9732,
+   "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/tokenizer/vocab.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/tokenizer/vocab.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/tokenizer/vocab.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\tokenizer\\vocab.json",
+   "size": 2776833,
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/transformer/config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/transformer/config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/transformer/config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\transformer\\config.json",
+   "size": 311,
+   "sha256": "168ed701ba50c85d15a4a052a29038b81a8dbde0590cda3c5672b3cb1a263906"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/transformer/diffusion_pytorch_model.safetensors",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/transformer/diffusion_pytorch_model.safetensors",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/transformer/diffusion_pytorch_model.safetensors"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\transformer\\diffusion_pytorch_model.safetensors",
+   "size": 5664274560,
+   "sha256": "bda86e4d6730ff47cea47851d219880191e9d21d4d264b21a6ffe7cb2db9dfb0"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/vae/config.json",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/vae/config.json",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/vae/config.json"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\vae\\config.json",
+   "size": 169,
+   "sha256": "92cdfc4c26b7f88efc15316e70faa6c53695f933ebaf1300c636b040d8e69d04"
+  },
+  {
+   "id": "moss-sfx:MOSS-SoundEffect-v2.0/vae/vae_128d_48k.pth",
+   "package": "moss-sfx",
+   "kind": "file",
+   "title": "MOSS-SoundEffect v2.0 (ambience / sound effects, Apache-2.0)",
+   "urls": [
+    "{HF}/OpenMOSS-Team/MOSS-SoundEffect-v2.0/resolve/e35df4d82fbe87fcd5d14e5d100e349c0c3c076d/vae/vae_128d_48k.pth",
+    "https://modelscope.cn/models/OpenMOSS/MOSS-SoundEffect-v2.0/resolve/master/vae/vae_128d_48k.pth"
+   ],
+   "dest": "{MODELS}\\moss-sfx\\MOSS-SoundEffect-v2.0\\vae\\vae_128d_48k.pth",
+   "size": 1486465965,
+   "sha256": "07e6139ff33bd21ba8a7a7f40ed24aab13ac0d100cd686f8a9f3e03dc5251cb1"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/added_tokens.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/added_tokens.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/added_tokens.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\added_tokens.json",
+   "size": 707,
+   "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/chat_template.jinja",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/chat_template.jinja",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/chat_template.jinja"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\chat_template.jinja",
+   "size": 4116,
+   "sha256": "87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/config.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/config.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/config.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\config.json",
+   "size": 1359,
+   "sha256": "bb23c1607cfe059a58d8f0196cf1cebb52082b1056b8e358a579da80a5759420"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/merges.txt",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/merges.txt",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/merges.txt"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\merges.txt",
+   "size": 1671853,
+   "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/model.safetensors",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/model.safetensors",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/model.safetensors"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\model.safetensors",
+   "size": 1191586416,
+   "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/special_tokens_map.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/special_tokens_map.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/special_tokens_map.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\special_tokens_map.json",
+   "size": 613,
+   "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/tokenizer.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/tokenizer.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/tokenizer.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\tokenizer.json",
+   "size": 11423705,
+   "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/tokenizer_config.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/tokenizer_config.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/tokenizer_config.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\tokenizer_config.json",
+   "size": 5404,
+   "sha256": "443bfa629eb16387a12edbf92a76f6a6f10b2af3b53d87ba1550adfcf45f7fa0"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/Qwen3-Embedding-0.6B/vocab.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/Qwen3-Embedding-0.6B/vocab.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/Qwen3-Embedding-0.6B/vocab.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\Qwen3-Embedding-0.6B\\vocab.json",
+   "size": 2776833,
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/README.md",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/README.md",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/README.md"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\README.md",
+   "size": 5496,
+   "sha256": "69d69b89e313706b93b420b13aa6232259b207a1cd19b0b70358d166e8e451a0"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/acestep-v15-turbo/config.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/acestep-v15-turbo/config.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/acestep-v15-turbo/config.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\config.json",
+   "size": 1968,
+   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/acestep-v15-turbo/configuration_acestep_v15.py",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/acestep-v15-turbo/configuration_acestep_v15.py",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/acestep-v15-turbo/configuration_acestep_v15.py"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\configuration_acestep_v15.py",
+   "size": 13130,
+   "sha256": "b89870c5c7a7ce060eb0bcdbb5ffc86b0b1a324ca325a26be552ea1b42496dc5"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/acestep-v15-turbo/model.safetensors",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/acestep-v15-turbo/model.safetensors",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/acestep-v15-turbo/model.safetensors"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\model.safetensors",
+   "size": 4787825604,
+   "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/acestep-v15-turbo/modeling_acestep_v15_turbo.py",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/acestep-v15-turbo/modeling_acestep_v15_turbo.py",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/acestep-v15-turbo/modeling_acestep_v15_turbo.py"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\modeling_acestep_v15_turbo.py",
+   "size": 96036,
+   "sha256": "c1ab0dd547124fee7ada449b2b86eae8201dc7d15889932643bbb67e3c982444"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/acestep-v15-turbo/silence_latent.pt",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/acestep-v15-turbo/silence_latent.pt",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/acestep-v15-turbo/silence_latent.pt"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\acestep-v15-turbo\\silence_latent.pt",
+   "size": 3841215,
+   "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/config.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/config.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/config.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\config.json",
+   "size": 1968,
+   "sha256": "74745ff704ea49164c3d2d1c99fc0670f3fc635a869f0aec2d1311e6a52d400a"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/vae/config.json",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/vae/config.json",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/vae/config.json"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\vae\\config.json",
+   "size": 425,
+   "sha256": "14e019904df567f26df750317a70e2bd08f9f8f3c40ff4a24c97d1cd3f20ccd2"
+  },
+  {
+   "id": "acestep:Ace-Step1.5/vae/diffusion_pytorch_model.safetensors",
+   "package": "acestep",
+   "kind": "file",
+   "title": "ACE-Step 1.5 turbo DiT + VAE + text encoder (background music, MIT; the 5Hz LM is not needed)",
+   "urls": [
+    "{HF}/ACE-Step/Ace-Step1.5/resolve/19671f406d603126926c1b7e2adc169acbcade22/vae/diffusion_pytorch_model.safetensors",
+    "https://modelscope.cn/models/ACE-Step/Ace-Step1.5/resolve/master/vae/diffusion_pytorch_model.safetensors"
+   ],
+   "dest": "{MODELS}\\acestep\\checkpoints\\vae\\diffusion_pytorch_model.safetensors",
+   "size": 337431388,
+   "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
+  },
+  {
+   "id": "venv-moss-tts",
+   "package": "moss-tts",
+   "kind": "pip",
+   "python": "{VENV:moss-tts}",
+   "python_version": "3.12",
+   "title": "Python packages for MOSS-TTS (torch 2.9.1 CUDA 12.8, transformers 5.0.0, peft 0.20.0)",
+   "packages": [
+    "torch==2.9.1+cu128",
+    "torchaudio==2.9.1+cu128",
+    "transformers==5.0.0",
+    "peft==0.20.0",
+    "accelerate==1.12.0",
+    "safetensors==0.6.2",
+    "numpy==2.1.0",
+    "soundfile==0.13.1",
+    "einops==0.8.1",
+    "scipy==1.16.2",
+    "librosa==0.11.0",
+    "tiktoken==0.12.0",
+    "PyYAML==6.0.3",
+    "tqdm==4.67.1",
+    "orjson==3.11.4",
+    "psutil",
+    "packaging"
+   ],
+   "index_urls": [
+    "https://pypi.org/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://mirrors.aliyun.com/pypi/simple"
+   ],
+   "extra_index_urls": [
+    "https://download.pytorch.org/whl/cu128"
+   ],
+   "mirror_extra_index_urls": [
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "find_links_mirrors": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "estimate_mb": 3500,
+   "install_mb": 6500
+  },
+  {
+   "id": "venv-moss-sfx",
+   "package": "moss-sfx",
+   "kind": "pip",
+   "python": "{VENV:moss-sfx}",
+   "python_version": "3.12",
+   "title": "Python packages for MOSS-SoundEffect (torch 2.9.1, diffusers 0.37.1, transformers 4.57.1)",
+   "packages": [
+    "torch==2.9.1+cu128",
+    "torchaudio==2.9.1+cu128",
+    "numpy==1.26.4",
+    "einops==0.8.2",
+    "pillow==12.2.0",
+    "tqdm==4.67.3",
+    "safetensors==0.7.0",
+    "transformers==4.57.1",
+    "diffusers==0.37.1",
+    "ftfy==6.3.1",
+    "regex==2026.4.4",
+    "soundfile==0.13.1",
+    "imageio==2.37.3",
+    "typing-extensions>=4.10",
+    "descript-audiotools==0.7.2",
+    "accelerate==1.13.0",
+    "huggingface_hub"
+   ],
+   "index_urls": [
+    "https://pypi.org/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://mirrors.aliyun.com/pypi/simple"
+   ],
+   "extra_index_urls": [
+    "https://download.pytorch.org/whl/cu128"
+   ],
+   "mirror_extra_index_urls": [
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "find_links_mirrors": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "estimate_mb": 900,
+   "install_mb": 6000,
+   "note": "torch comes from pip's cache when venv-moss-tts already downloaded it"
+  },
+  {
+   "id": "venv-acestep",
+   "package": "acestep",
+   "kind": "pip",
+   "python": "{VENV:acestep}",
+   "python_version": "3.12",
+   "title": "Python packages for ACE-Step 1.5 (its own requirements.txt: torch 2.7.1 CUDA 12.8)",
+   "requirements": [
+    "{NM_HOME}\\vendor\\ACE-Step-1.5\\requirements.txt"
+   ],
+   "index_urls": [
+    "https://pypi.org/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://mirrors.aliyun.com/pypi/simple"
+   ],
+   "extra_index_urls": [
+    "https://download.pytorch.org/whl/cu128"
+   ],
+   "mirror_extra_index_urls": [
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "find_links_mirrors": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "estimate_mb": 5200,
+   "install_mb": 9000
+  },
+  {
+   "id": "venv-acestep-nanovllm",
+   "package": "acestep",
+   "kind": "pip",
+   "python": "{VENV:acestep}",
+   "python_version": "3.12",
+   "title": "ACE-Step's bundled nano-vllm (local package, no extra downloads)",
+   "packages": [
+    "{NM_HOME}\\vendor\\ACE-Step-1.5\\acestep\\third_parts\\nano-vllm"
+   ],
+   "no_deps": true,
+   "index_urls": [
+    "https://pypi.org/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://mirrors.aliyun.com/pypi/simple"
+   ],
+   "estimate_mb": 0,
+   "install_mb": 5
+  }
+ ]
+}

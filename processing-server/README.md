@@ -63,11 +63,16 @@ Tests: `python tests\test_agent_voice.py` (fake kit, no models needed).
 
 ## Models for speech, cloning, ambience and music (agent 1.7): Download-Models.bat
 
-One downloader for everything this node can run: `Download-Models.bat` reads every manifest in `downloads\*.json`
+One downloader for everything this node can run (model files ComfyUI already has, in any models\ subfolder, are never downloaded again): `Download-Models.bat` reads every manifest in `downloads\*.json`
 (`voice.json`: MOSS-TTS + Persian LoRA, MOSS-SoundEffect v2.0, ACE-Step 1.5; other groups such as `video.json` are
 picked up the same way). Re-runnable: finished files are skipped, broken downloads resume, nothing is deleted.
 
-    Download-Models.bat                    everything (shows disk space needed, asks once)
+    Download-Models.bat                    the default set: speech + voice cloning, and whatever the main
+                                           Wan 2.2 video engine still lacks (shows disk space needed, asks once)
+    Download-Models.bat --only moss-sfx    + sound effects / ambience (optional, ~11 GB)
+    Download-Models.bat --only acestep     + background music (optional, ~11 GB)
+    Download-Models.bat --only wan22-4step,fun-inp   + faster video LoRAs / the fast 1.3B engine (optional)
+    Download-Models.bat --all              everything, optional parts included
     Download-Models.bat --list             what is still missing
     Download-Models.bat --check            test every link without downloading
     Download-Models.bat --only voice       one group; or one package: --only moss-tts / moss-sfx / acestep

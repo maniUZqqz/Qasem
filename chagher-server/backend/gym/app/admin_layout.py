@@ -40,7 +40,8 @@ GROUPS = [
       'equipmentscan', 'formchecksession', 'meal']),
 
     ('🌐 سایت و محتوا',
-     ['homepage', 'blogpost', 'teammember', 'feature', 'contactmessage']),
+     ['homepage', 'blogpost', 'teammember', 'portfolioproject', 'portfoliocategory',
+      'feature', 'contactmessage']),
 
     ('⚙️ تنظیمات سامانه',
      ['platformsettings', 'apiconfig', 'smsconfig', 'smsoutbox']),

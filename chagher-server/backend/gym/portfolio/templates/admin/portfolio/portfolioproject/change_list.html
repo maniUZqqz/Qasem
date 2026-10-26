@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+<div style="background:#EDF3FF;border:1px solid #C9D8F2;border-radius:8px;padding:10px 14px;margin:0 0 14px;line-height:2;max-width:900px">
+  <b>نمونه‌کارها:</b> «افزودن» ⇐ عنوان، دسته، کاور، شرح، ویدئو؛ پایینِ همان صفحه اعضای پروژه (با نقش) و گالری.
+  دسته‌ها در <a href="{% url 'admin:portfolio_portfoliocategory_changelist' %}">دسته‌های نمونه‌کار</a>.
+  رزومهٔ اعضا در <a href="{% url 'admin:app_teammember_changelist' %}">اعضای تیم و رزومه</a>.
+  صفحهٔ عمومی: <a href="{% url 'portfolio-list' %}" target="_blank">/portfolio/</a>.
+</div>
+{{ block.super }}
+{% endblock %}

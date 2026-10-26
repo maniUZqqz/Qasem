@@ -1,0 +1,47 @@
+{% extends 'app/base.html' %}
+{% load portfolio_tags %}
+{% block title %}{% if member %}نمونه‌کارهای {{ member.name }}{% else %}نمونه‌کارها{% endif %}{% if active_cat %} — {{ active_cat.name }}{% endif %} | چغر{% endblock %}
+{% block meta_description %}{% if member %}پروژه‌ها و نمونه‌کارهای {{ member.name }}، {{ member.display_headline }} در تیمِ چغر.{% else %}نمونه‌کارها و پروژه‌های تیمِ چغر{% if active_cat %} در دستهٔ {{ active_cat.name }}{% endif %}.{% endif %}{% endblock %}
+{% block canonical_url %}{{ canonical }}{% endblock %}
+{% block meta_robots %}{% if projects %}index,follow,max-image-preview:large{% else %}noindex,follow{% endif %}{% endblock %}
+{% block og_title %}{% if member %}نمونه‌کارهای {{ member.name }}{% else %}نمونه‌کارهای تیمِ چغر{% endif %}{% endblock %}
+{% block twitter_title %}{% if member %}نمونه‌کارهای {{ member.name }}{% else %}نمونه‌کارهای تیمِ چغر{% endif %}{% endblock %}
+{% block structured_data %}{{ jsonld }}{% endblock %}
+{% block app_bar_title %}نمونه‌کارها{% endblock %}
+
+{% block content %}
+{% include 'portfolio/_style.html' %}
+<div class="pf">
+  <nav class="pf-crumbs" aria-label="مسیر"><a href="{% url 'home' %}">خانه</a><span aria-hidden="true">‹</span>{% if member %}<a href="{% url 'team-list' %}">تیم</a><span aria-hidden="true">‹</span><a href="{{ member.get_absolute_url }}">{{ member.name }}</a><span aria-hidden="true">‹</span>{% endif %}<span aria-current="page">نمونه‌کارها</span></nav>
+
+  {% if member %}
+  <div class="pf-card pf-mini">
+    {% if member.photo %}<img class="pf-avatar" src="{% thumb member.photo 128 128 True %}" alt="" width="64" height="64">{% else %}<span class="pf-avatar pf-avatar-ph"><i class="bi bi-{{ member.icon|default:'person-fill' }}"></i></span>{% endif %}
+    <div>
+      <h1>نمونه‌کارهای {{ member.name }}</h1>
+      <span class="pf-role">{{ member.display_headline }}</span> · <a href="{{ member.get_absolute_url }}">مشاهدهٔ رزومه</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="pf-hero">
+    <h1>نمونه‌کارها</h1>
+    <p>پروژه‌هایی که اعضای تیمِ چغر ساخته‌اند.</p>
+  </div>
+  {% endif %}
+
+  {% if categories|length > 1 or active %}
+  <nav class="pf-filter" aria-label="دسته‌ها">
+    <a class="pf-pill{% if not active %} on{% endif %}" href="{{ base_path }}"{% if not active %} aria-current="true"{% endif %}>همه</a>
+    {% for c in categories %}<a class="pf-pill{% if c.slug == active %} on{% endif %}" href="{{ base_path }}?category={{ c.slug|urlencode }}"{% if c.slug == active %} aria-current="true"{% endif %}>{{ c.name }} <small>{{ c.n|fa }}</small></a>{% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if projects %}
+  <div class="pf-grid">
+    {% for p in projects %}{% if member %}{% include 'portfolio/_project_card.html' with p=p role=p.member_role show_people=False %}{% else %}{% include 'portfolio/_project_card.html' with p=p show_people=True %}{% endif %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="pf-card pf-empty"><i class="bi bi-grid-3x3-gap"></i>{% if active %}در این دسته هنوز نمونه‌کاری منتشر نشده است. <a href="{{ base_path }}">همهٔ نمونه‌کارها</a>{% else %}هنوز نمونه‌کاری منتشر نشده است.{% if member %} <a href="{{ member.get_absolute_url }}">بازگشت به رزومه</a>{% else %} <a href="{% url 'team-list' %}">آشنایی با تیم</a>{% endif %}{% endif %}</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends 'app/base.html' %}
+{% load portfolio_tags %}
+{% block title %}{{ project.title }} | نمونه‌کار — چغر{% endblock %}
+{% block meta_description %}{{ meta_desc }}{% endblock %}
+{% block meta_robots %}{% if is_preview %}noindex,nofollow{% else %}index,follow,max-image-preview:large{% endif %}{% endblock %}
+{% block canonical_url %}{{ canonical }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ project.title }}{% endblock %}
+{% block og_description %}{{ meta_desc }}{% endblock %}
+{% block twitter_title %}{{ project.title }}{% endblock %}
+{% block twitter_description %}{{ meta_desc }}{% endblock %}
+{% block og_image_meta %}{% if og_image %}<meta property="og:image" content="{{ og_image }}"><meta property="og:image:alt" content="{{ project.title }}">{% endif %}{% endblock %}
+{% block twitter_image_meta %}{% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}{% endblock %}
+{% block structured_data %}{{ jsonld }}{% endblock %}
+{% block app_bar_title %}نمونه‌کار{% endblock %}
+
+{% block content %}
+{% include 'portfolio/_style.html' %}
+<div class="pf">
+  {% if is_preview %}<div class="pf-preview"><i class="bi bi-eye"></i> پیش‌نمایشِ مدیر — این نمونه‌کار منتشر نشده است.</div>{% endif %}
+  <nav class="pf-crumbs" aria-label="مسیر"><a href="{% url 'home' %}">خانه</a><span aria-hidden="true">‹</span><a href="{% url 'portfolio-list' %}">نمونه‌کارها</a>{% if project.category %}<span aria-hidden="true">‹</span><a href="{% url 'portfolio-list' %}?category={{ project.category.slug|urlencode }}">{{ project.category.name }}</a>{% endif %}<span aria-hidden="true">‹</span><span aria-current="page">{{ project.title }}</span></nav>
+
+  <div class="pf-cols">
+    <div class="pf-stack">
+      <section class="pf-card pf-section">
+        <h1 class="pf-proj-title">{{ project.title }}</h1>
+        {% if project.short_description %}<p class="pf-lead">{{ project.short_description }}</p>{% endif %}
+        <div class="pf-facts">
+          {% if project.category %}<span class="pf-fact"><i class="bi bi-folder2"></i>{{ project.category.name }}</span>{% endif %}
+          {% if project.date_label %}<span class="pf-fact"><i class="bi bi-calendar3"></i>{{ project.date_label }}</span>{% endif %}
+          {% if project.client %}<span class="pf-fact"><i class="bi bi-building"></i>کارفرما: {{ project.client }}</span>{% endif %}
+          {% if project.is_featured %}<span class="pf-fact"><i class="bi bi-star-fill"></i>ویژه</span>{% endif %}
+        </div>
+        {% if project.external_url %}<p style="margin-top:16px"><a class="pf-btn" href="{{ project.external_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-left"></i> مشاهدهٔ پروژه</a></p>{% endif %}
+      </section>
+
+      {% if project.cover %}<figure class="pf-media pf-card"><img src="{% thumb project.cover 1400 %}" alt="{{ project.title }}" fetchpriority="high" decoding="async"></figure>{% endif %}
+
+      {% if project.video_embed or project.video_file or project.video_url %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-play-btn"></i>ویدئو</h2>
+        {% if project.video_embed %}<div class="pf-video"><iframe src="{{ project.video_embed }}" title="{{ project.title }}" loading="lazy" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+        {% elif project.video_file %}<div class="pf-video"><video controls preload="none" playsinline{% if project.cover %} poster="{% thumb project.cover 1280 %}"{% endif %}><source src="{{ project.video_file.url }}"></video></div>
+        {% else %}<a class="pf-btn ghost" href="{{ project.video_url }}" target="_blank" rel="noopener"><i class="bi bi-play-circle"></i> تماشای ویدئو</a>{% endif %}
+      </section>
+      {% endif %}
+
+      {% if project.paragraphs %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-file-text"></i>دربارهٔ پروژه</h2>
+        <div class="pf-prose">{% for para in project.paragraphs %}<p>{{ para|linebreaksbr }}</p>{% endfor %}</div>
+      </section>
+      {% endif %}
+
+      {% if gallery %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-images"></i>گالری</h2>
+        <div class="pf-gallery" id="pfGallery">
+          {% for g in gallery %}<button type="button" data-large="{{ g.large }}" data-caption="{{ g.caption }}" aria-label="بزرگ‌نمایی {{ g.caption|default:'تصویر' }}"><img src="{{ g.thumb }}" alt="{{ g.caption|default:project.title }}" width="320" height="240" loading="lazy" decoding="async"></button>{% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    <aside class="pf-stack">
+      {% if credits %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-people"></i>تیمِ پروژه</h2>
+        {% for c in credits %}
+        <a class="pf-credit" href="{{ c.member.get_absolute_url }}">
+          {% if c.member.photo %}<img class="pf-avatar" src="{% thumb c.member.photo 96 96 True %}" alt="" width="48" height="48" loading="lazy">{% else %}<span class="pf-avatar pf-avatar-ph"><i class="bi bi-person-fill"></i></span>{% endif %}
+          <span><b>{{ c.member.name }}</b><small>{{ c.role|default:c.member.display_headline }}</small></span>
+        </a>
+        {% endfor %}
+      </section>
+      {% endif %}
+      {% if project.tag_list %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-tags"></i>برچسب‌ها</h2>
+        <div class="pf-tags">{% for t in project.tag_list %}<span class="pf-tag">{{ t }}</span>{% endfor %}</div>
+      </section>
+      {% endif %}
+      <a class="pf-btn ghost" href="{% url 'portfolio-list' %}" style="width:100%"><i class="bi bi-grid-3x3-gap"></i> همهٔ نمونه‌کارها</a>
+    </aside>
+  </div>
+
+  {% if related %}
+  <section style="margin-top:28px">
+    <h2 class="pf-h"><i class="bi bi-collection"></i>نمونه‌کارهای مرتبط</h2>
+    <div class="pf-grid">{% for p in related %}{% include 'portfolio/_project_card.html' with p=p show_people=True %}{% endfor %}</div>
+  </section>
+  {% endif %}
+</div>
+
+{% if gallery %}
+<div class="pf-lb" id="pfLb" role="dialog" aria-modal="true" aria-label="گالری" hidden>
+  <span class="count" id="pfLbCount"></span>
+  <button type="button" class="x" data-act="close" aria-label="بستن"><i class="bi bi-x-lg"></i></button>
+  <button type="button" class="prev" data-act="prev" aria-label="قبلی"><i class="bi bi-chevron-right"></i></button>
+  <figure style="display:flex;flex-direction:column;align-items:center;max-width:100%"><img id="pfLbImg" alt=""><figcaption id="pfLbCap"></figcaption></figure>
+  <button type="button" class="next" data-act="next" aria-label="بعدی"><i class="bi bi-chevron-left"></i></button>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}{% if gallery %}
+<script>
+(function () {
+  var items = Array.prototype.slice.call(document.querySelectorAll('#pfGallery button'));
+  var lb = document.getElementById('pfLb'), img = document.getElementById('pfLbImg'),
+      cap = document.getElementById('pfLbCap'), cnt = document.getElementById('pfLbCount');
+  var idx = 0, last = null, x0 = null;
+  function fa(n) { return String(n).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[d]; }); }
+  function show(i) {
+    idx = (i + items.length) % items.length;
+    var b = items[idx];
+    img.src = b.getAttribute('data-large');
+    img.alt = b.getAttribute('data-caption') || '';
+    cap.textContent = b.getAttribute('data-caption') || '';
+    cnt.textContent = fa(idx + 1) + ' از ' + fa(items.length);
+  }
+  function open(i) { last = document.activeElement; lb.hidden = false; lb.classList.add('open'); document.body.style.overflow = 'hidden'; show(i); lb.querySelector('.x').focus(); }
+  function close() { lb.classList.remove('open'); lb.hidden = true; document.body.style.overflow = ''; img.removeAttribute('src'); if (last) last.focus(); }
+  items.forEach(function (b, i) { b.addEventListener('click', function () { open(i); }); });
+  lb.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]');
+    if (t) { var a = t.getAttribute('data-act'); if (a === 'close') close(); else show(idx + (a === 'next' ? 1 : -1)); }
+    else if (e.target === lb) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (lb.hidden) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(idx + 1);     /* راست‌به‌چپ: چپ = بعدی */
+    else if (e.key === 'ArrowRight') show(idx - 1);
+  });
+  lb.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, {passive: true});
+  lb.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 40) show(idx + (dx > 0 ? 1 : -1));
+  });
+  if (items.length < 2) { lb.querySelector('.prev').style.display = 'none'; lb.querySelector('.next').style.display = 'none'; }
+})();
+</script>
+{% endif %}{% endblock %}

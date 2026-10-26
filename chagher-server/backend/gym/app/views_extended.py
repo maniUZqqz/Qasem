@@ -1298,7 +1298,7 @@ class TeamMemberListView(APIView):
         description="دریافت لیست اعضای تیم"
     )
     def get(self, request):
-        members = TeamMember.objects.all()
+        members = TeamMember.objects.filter(is_published=True)
         return Response(TeamMemberSerializer(members, many=True).data)
 
 

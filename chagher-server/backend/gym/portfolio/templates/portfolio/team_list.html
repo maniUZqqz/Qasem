@@ -1,0 +1,45 @@
+{% extends 'app/base.html' %}
+{% load portfolio_tags %}
+{% block title %}تیمِ چغر | رزومه و نمونه‌کارِ اعضا{% endblock %}
+{% block meta_description %}با اعضای تیمِ چغر آشنا شوید: رزومهٔ حرفه‌ای، سوابق، مهارت‌ها و نمونه‌کارهای هر نفر.{% endblock %}
+{% block canonical_url %}{{ canonical }}{% endblock %}
+{% block og_title %}تیمِ چغر{% endblock %}
+{% block og_description %}رزومه و نمونه‌کارِ اعضای تیمِ چغر.{% endblock %}
+{% block twitter_title %}تیمِ چغر{% endblock %}
+{% block twitter_description %}رزومه و نمونه‌کارِ اعضای تیمِ چغر.{% endblock %}
+{% block structured_data %}{{ jsonld }}{% endblock %}
+{% block app_bar_title %}تیم{% endblock %}
+
+{% block content %}
+{% include 'portfolio/_style.html' %}
+<div class="pf">
+  <nav class="pf-crumbs" aria-label="مسیر"><a href="{% url 'home' %}">خانه</a><span aria-hidden="true">‹</span><span aria-current="page">تیم</span></nav>
+  <div class="pf-hero">
+    <h1>تیمِ چغر</h1>
+    <p>آدم‌هایی که چغر را می‌سازند؛ رزومه و نمونه‌کارِ هر نفر را از کارتش ببینید.</p>
+    {% if has_projects %}<p><a class="pf-btn ghost" href="{% url 'portfolio-list' %}"><i class="bi bi-grid-3x3-gap"></i> همهٔ نمونه‌کارها</a></p>{% endif %}
+  </div>
+
+  {% if members %}
+  <div class="pf-team">
+    {% for m in members %}
+    <article class="pf-card pf-member">
+      <a href="{{ m.get_absolute_url }}" tabindex="-1" aria-hidden="true">
+        {% if m.photo %}<img class="pf-avatar" src="{% thumb m.photo 240 240 True %}" alt="" width="120" height="120" loading="lazy">
+        {% else %}<span class="pf-avatar pf-avatar-ph"><i class="bi bi-{{ m.icon|default:'person-fill' }}"></i></span>{% endif %}
+      </a>
+      <h2><a href="{{ m.get_absolute_url }}">{{ m.name }}</a></h2>
+      <span class="pf-role">{{ m.display_headline }}</span>
+      {% if m.bio %}<p>{{ m.bio|truncatewords:28 }}</p>{% endif %}
+      <div class="pf-actions">
+        <a class="pf-btn" href="{{ m.get_absolute_url }}"><i class="bi bi-person-vcard"></i> رزومه</a>
+        {% if m.project_count %}<a class="pf-btn ghost" href="{% url 'team-portfolio' m.slug %}"><i class="bi bi-grid-3x3-gap"></i> نمونه‌کارها ({{ m.project_count|fa }})</a>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pf-card pf-empty"><i class="bi bi-people"></i>هنوز عضوی برای نمایش منتشر نشده است.<br><a href="{% url 'about' %}">درباره ما</a></div>
+  {% endif %}
+</div>
+{% endblock %}

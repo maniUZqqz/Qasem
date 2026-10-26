@@ -1,0 +1,154 @@
+{% extends 'app/base.html' %}
+{% load portfolio_tags %}
+{% block title %}{{ member.name }} | {{ member.display_headline }} — رزومه | چغر{% endblock %}
+{% block meta_description %}{{ meta_desc }}{% endblock %}
+{% block meta_robots %}{% if is_preview %}noindex,nofollow{% else %}index,follow,max-image-preview:large{% endif %}{% endblock %}
+{% block canonical_url %}{{ canonical }}{% endblock %}
+{% block og_type %}profile{% endblock %}
+{% block og_title %}{{ member.name }} — {{ member.display_headline }}{% endblock %}
+{% block og_description %}{{ meta_desc }}{% endblock %}
+{% block twitter_title %}{{ member.name }} — {{ member.display_headline }}{% endblock %}
+{% block twitter_description %}{{ meta_desc }}{% endblock %}
+{% block og_image_meta %}{% if og_image %}<meta property="og:image" content="{{ og_image }}"><meta property="og:image:alt" content="{{ member.name }}">{% endif %}{% endblock %}
+{% block twitter_image_meta %}{% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}{% endblock %}
+{% block structured_data %}{{ jsonld }}{% endblock %}
+{% block app_bar_title %}رزومه{% endblock %}
+
+{% block content %}
+{% include 'portfolio/_style.html' %}
+<div class="pf">
+  {% if is_preview %}<div class="pf-preview"><i class="bi bi-eye"></i> پیش‌نمایشِ مدیر — این رزومه منتشر نشده و بازدیدکننده‌ها آن را نمی‌بینند.</div>{% endif %}
+  <nav class="pf-crumbs" aria-label="مسیر"><a href="{% url 'home' %}">خانه</a><span aria-hidden="true">‹</span><a href="{% url 'team-list' %}">تیم</a><span aria-hidden="true">‹</span><span aria-current="page">{{ member.name }}</span></nav>
+
+  <section class="pf-card pf-resume-head" aria-label="معرفی">
+    {% if member.photo %}<img class="pf-avatar" src="{% thumb member.photo 320 320 True %}" alt="{{ member.name }}" width="160" height="160" fetchpriority="high">
+    {% else %}<span class="pf-avatar pf-avatar-ph" aria-hidden="true"><i class="bi bi-{{ member.icon|default:'person-fill' }}"></i></span>{% endif %}
+    <div>
+      <h1 class="pf-name">{{ member.name }}</h1>
+      <p class="pf-headline">{{ member.display_headline }}</p>
+      {% if member.bio %}<p class="pf-bio">{{ member.bio }}</p>{% endif %}
+      {% if contact %}<ul class="pf-contact">
+        {% for c in contact %}<li>{% if c.href %}<a href="{{ c.href }}" title="{{ c.label }}"><i class="bi bi-{{ c.icon }}"></i><span{% if c.ltr %} dir="ltr"{% endif %}>{{ c.value }}</span></a>{% else %}<span title="{{ c.label }}"><i class="bi bi-{{ c.icon }}"></i>{{ c.value }}</span>{% endif %}</li>{% endfor %}
+      </ul>{% endif %}
+      {% if socials %}<div class="pf-social">
+        {% for s in socials %}<a href="{{ s.url }}" target="_blank" rel="noopener me" title="{{ s.title }}" aria-label="{{ s.title }}" data-print="{{ s.short }}"><i class="bi bi-{{ s.icon }}"></i></a>{% endfor %}
+      </div>{% endif %}
+      <div class="pf-toolbar">
+        <a class="pf-btn" href="{% url 'team-pdf' member.slug %}" rel="nofollow"><i class="bi bi-file-earmark-pdf"></i> دانلود PDF</a>
+        <button type="button" class="pf-btn ghost" onclick="window.print()"><i class="bi bi-printer"></i> چاپ</button>
+        {% if project_count %}<a class="pf-btn ghost" href="{% url 'team-portfolio' member.slug %}"><i class="bi bi-grid-3x3-gap"></i> نمونه‌کارها ({{ project_count|fa }})</a>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  {% if has_main or has_side %}
+  <div class="pf-cols{% if not has_main or not has_side %} single{% endif %}">
+    {% if has_main %}<div class="pf-stack">
+      {% if member.summary %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-person-lines-fill"></i>درباره من</h2>
+        <div class="pf-prose">{{ member.summary|linebreaks }}</div>
+      </section>
+      {% endif %}
+
+      {% if experiences %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-briefcase"></i>سوابقِ کاری</h2>
+        <ol class="pf-tl">
+          {% for e in experiences %}
+          <li{% if e.is_current %} class="current"{% endif %}>
+            <h3>{{ e.role }}</h3>
+            <div class="pf-meta"><span>{{ e.organisation }}</span>{% if e.city %}<span>· {{ e.city }}</span>{% endif %}{% if e.employment_type %}<span>· {{ e.get_employment_type_display }}</span>{% endif %}</div>
+            {% if e.period %}<span class="pf-date">{{ e.period }}</span>{% endif %}
+            {% if e.bullets %}<ul class="pf-bullets">{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </section>
+      {% endif %}
+
+      {% if educations %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-mortarboard"></i>تحصیلات</h2>
+        <ol class="pf-tl">
+          {% for ed in educations %}
+          <li{% if ed.is_current %} class="current"{% endif %}>
+            <h3>{{ ed.degree }}{% if ed.field %} {{ ed.field }}{% endif %}</h3>
+            <div class="pf-meta"><span>{{ ed.institution }}</span>{% if ed.city %}<span>· {{ ed.city }}</span>{% endif %}</div>
+            {% if ed.period %}<span class="pf-date">{{ ed.period }}</span>{% endif %}
+            {% if ed.bullets %}<ul class="pf-bullets">{% for b in ed.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </section>
+      {% endif %}
+
+      {% if certifications %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-patch-check"></i>مدارک و دوره‌ها</h2>
+        <ul class="pf-list">
+          {% for c in certifications %}
+          <li>
+            {% if c.link %}<a href="{{ c.link }}" target="_blank" rel="noopener"><b>{{ c.title }}</b> <i class="bi bi-box-arrow-up-left"></i></a>{% else %}<b>{{ c.title }}</b>{% endif %}
+            <div class="pf-meta">{% if c.issuer %}<span>{{ c.issuer }}</span>{% endif %}{% if c.date_label %}<span>· {{ c.date_label }}</span>{% endif %}{% if c.credential_id %}<span>· شمارهٔ گواهی: <span dir="ltr">{{ c.credential_id }}</span></span>{% endif %}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if featured %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-grid-3x3-gap"></i>نمونه‌کارهای برگزیده{% if project_count > featured|length %}<a href="{% url 'team-portfolio' member.slug %}">همه ({{ project_count|fa }}) ‹</a>{% endif %}</h2>
+        <div class="pf-grid">
+          {% for c in featured %}{% include 'portfolio/_project_card.html' with p=c.project role=c.role show_people=False %}{% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>{% endif %}
+
+    {% if has_side %}<aside class="pf-stack">
+      {% if skill_groups %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-stars"></i>مهارت‌ها</h2>
+        {% for group, skills in skill_groups %}
+        <div class="pf-group">
+          {% if group %}<h3>{{ group }}</h3>{% endif %}
+          {% for s in skills %}
+          <div class="pf-skill"><span>{{ s.name }}</span><span class="pf-dots" role="img" aria-label="سطح: {{ s.get_level_display }}" title="{{ s.get_level_display }}">{% for i in "12345" %}<i class="{% if forloop.counter <= s.level %}on{% endif %}"></i>{% endfor %}</span></div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      {% if languages %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-translate"></i>زبان‌ها</h2>
+        {% for l in languages %}
+        <div class="pf-lang"><div><span>{{ l.language }}</span><small>{{ l.get_level_display }}</small></div><div class="pf-bar" aria-hidden="true"><span style="width:{{ l.percent }}%"></span></div></div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      {% if awards %}
+      <section class="pf-card pf-section">
+        <h2 class="pf-h"><i class="bi bi-award"></i>افتخارات</h2>
+        <ul class="pf-list">
+          {% for a in awards %}
+          <li>
+            {% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener"><b>{{ a.title }}</b></a>{% else %}<b>{{ a.title }}</b>{% endif %}
+            <div class="pf-meta">{% if a.issuer %}<span>{{ a.issuer }}</span>{% endif %}{% if a.year %}<span>· {{ a.year|fa }}</span>{% endif %}</div>
+            {% if a.description %}<p class="pf-meta">{{ a.description }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+    </aside>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}{% if print_now %}<script>window.addEventListener('load',function(){window.print()});</script>{% endif %}{% endblock %}

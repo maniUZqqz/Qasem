@@ -1,0 +1,16 @@
+{% load portfolio_tags %}<a class="pf-card pf-project" href="{{ p.get_absolute_url }}">
+  <div class="pf-cover">
+    {% if p.cover %}<img src="{% thumb p.cover 640 400 True %}" alt="{{ p.title }}" width="640" height="400" loading="lazy" decoding="async">{% else %}<span class="pf-cover-ph" aria-hidden="true"><i class="bi bi-image"></i></span>{% endif %}
+    {% if p.category %}<span class="pf-badge">{{ p.category.name }}</span>{% endif %}
+    {% if p.is_featured %}<span class="pf-star"><i class="bi bi-star-fill"></i> ویژه</span>{% endif %}
+  </div>
+  <div class="pf-body">
+    <h3>{{ p.title }}</h3>
+    {% if role %}<span class="pf-chip">{{ role }}</span>{% endif %}
+    {% if p.short_description %}<p>{{ p.short_description|truncatechars:150 }}</p>{% endif %}
+    {% if show_people or p.date_label %}<div class="pf-foot">
+      {% if show_people %}{% with credits=p.credits.all %}{% if credits %}<span class="pf-people">{% for c in credits|slice:":4" %}{% if c.member.photo %}<img src="{% thumb c.member.photo 64 64 True %}" alt="" width="26" height="26" loading="lazy">{% endif %}{% endfor %}<span>{% for c in credits|slice:":3" %}{{ c.member.name }}{% if not forloop.last %}، {% endif %}{% endfor %}</span></span>{% endif %}{% endwith %}{% endif %}
+      {% if p.date_label %}<span class="pf-when">{{ p.date_label }}</span>{% endif %}
+    </div>{% endif %}
+  </div>
+</a>

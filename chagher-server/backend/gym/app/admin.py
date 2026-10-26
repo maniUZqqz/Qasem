@@ -1207,12 +1207,8 @@ class ContactMessageAdmin(admin.ModelAdmin):
     readonly_fields = ['created_at']
 
 
-@admin.register(TeamMember)
-class TeamMemberAdmin(admin.ModelAdmin):
-    """مدیریت اعضای تیم"""
-    list_display = ['name', 'role', 'icon', 'order']
-    search_fields = ['name', 'role']
-    list_editable = ['order']
+# TeamMember: ادمینِ کاملِ رزومه (با سوابق، مهارت‌ها و نمونه‌کارها) در portfolio/admin.py
+# ثبت می‌شود — ۱۴۰۵/۰۸/۰۴.
 
 
 @admin.register(Feature)

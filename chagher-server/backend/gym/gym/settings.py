@@ -70,6 +70,7 @@ INSTALLED_APPS = [
 
     'app',
     'accounting',          # حسابداریِ دوطرفه (۱۴۰۵/۰۸/۰۳)
+    'portfolio',           # رزومه و نمونه‌کارِ تیم (۱۴۰۵/۰۸/۰۴)
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',

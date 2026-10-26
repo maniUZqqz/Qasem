@@ -9,10 +9,14 @@ from app import views_panel as panel_views
 from app.views import (home_page, blog_list, blog_detail, contact_page, about_page,
                        features_page, exercise_detail_page, exercise_list_page)
 from app.sitemaps import StaticViewSitemap, BlogPostSitemap
+from portfolio.sitemaps import TeamPagesSitemap, TeamMemberSitemap, PortfolioProjectSitemap
 
 sitemaps = {
     'static': StaticViewSitemap,
     'blog': BlogPostSitemap,
+    'team': TeamPagesSitemap,
+    'team-members': TeamMemberSitemap,
+    'portfolio': PortfolioProjectSitemap,
 }
 
 urlpatterns = [
@@ -50,6 +54,8 @@ urlpatterns = [
     path('panel/', panel_views.panel_home, name='panel-home'),
     path('about/', about_page, name='about'),
     path('features/', features_page, name='features'),
+    # رزومه و نمونه‌کارِ تیم: /team/ ، /team/<نامک>/ (+pdf/ ، portfolio/) ، /portfolio/
+    path('', include('portfolio.urls')),
     path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='sitemap'),
     path(
         'robots.txt',

@@ -1,0 +1,104 @@
+{% load portfolio_tags %}<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>رزومهٔ {{ member.name }}</title>
+<style>
+@page { size: A4; margin: 14mm 13mm 16mm;
+  @bottom-center { content: string(person) " — صفحهٔ " counter(page, persian) " از " counter(pages, persian);
+                   font-family: Vazirmatn, sans-serif; font-size: 7.5pt; color: #5A6B85; } }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Vazirmatn, sans-serif; font-size: 9.4pt; line-height: 1.75; color: #1B2B45; direction: rtl; }
+.head { width: 100%; border-collapse: collapse; border-bottom: 2.4pt solid #126F85; margin-bottom: 4pt; }
+.head td { vertical-align: middle; padding: 0 0 8pt; }
+.head .ph { width: 31mm; }
+.head .ph img { width: 26mm; height: 26mm; border-radius: 13mm; object-fit: cover; border: 1.5pt solid #DBE6FF; }
+h1 { font-size: 19pt; color: #163F75; margin: 0; line-height: 1.35; string-set: person content(); }
+.hl { color: #126F85; font-weight: 600; font-size: 10.5pt; margin: 1pt 0 0; }
+.bio { color: #33415C; margin: 3pt 0 0; font-size: 9pt; }
+.contacts { margin-top: 4pt; font-size: 8.4pt; color: #33415C; }
+.contacts span.c { display: inline-block; margin-left: 12pt; }
+.contacts b { color: #126F85; font-weight: 600; }
+.ltr { direction: ltr; }
+h2 { font-size: 11pt; color: #163F75; margin: 12pt 0 5pt; padding-bottom: 2pt; border-bottom: 0.8pt solid #C9D8F2; page-break-after: avoid; }
+.item { margin-bottom: 7pt; page-break-inside: avoid; }
+.item .row { overflow: hidden; }
+.item .t { font-weight: 700; font-size: 9.8pt; }
+.item .d { float: left; color: #126F85; font-size: 8.4pt; font-weight: 600; }
+.item .m { color: #5A6B85; font-size: 8.6pt; }
+ul { margin: 2pt 0 0; padding: 0 12pt 0 0; }
+li { margin: 0 0 1pt; }
+p { margin: 0 0 4pt; }
+.skills { width: 100%; border-collapse: collapse; }
+.skills td { vertical-align: top; width: 50%; padding: 0 0 4pt 10pt; }
+.g { font-weight: 700; color: #5A6B85; font-size: 8.4pt; margin: 2pt 0 1pt; }
+.s { font-size: 9pt; }
+.dots { color: #126F85; font-size: 7pt; letter-spacing: 1pt; margin-right: 4pt; }
+.dots .off { color: #DBE6FF; }
+.chip { display: inline-block; border: 0.6pt solid #C9D8F2; border-radius: 6pt; padding: 0 6pt; margin: 0 0 3pt 4pt; font-size: 8.6pt; }
+.foot { margin-top: 14pt; padding-top: 4pt; border-top: 0.6pt solid #C9D8F2; color: #5A6B85; font-size: 7.8pt; }
+</style>
+</head>
+<body>
+<table class="head"><tr>
+  {% if photo_data %}<td class="ph"><img src="{{ photo_data }}" alt=""></td>{% endif %}
+  <td>
+    <h1>{{ member.name }}</h1>
+    <p class="hl">{{ member.display_headline }}</p>
+    {% if member.bio %}<p class="bio">{{ member.bio }}</p>{% endif %}
+    {% if contact or socials %}<div class="contacts">
+      {% for c in contact %}<span class="c"><b>{{ c.label }}:</b> <span{% if c.ltr %} class="ltr"{% endif %}>{{ c.value }}</span></span>{% endfor %}
+      {% for s in socials %}<span class="c"><b>{{ s.title }}:</b> <span class="ltr">{{ s.short }}</span></span>{% endfor %}
+    </div>{% endif %}
+  </td>
+</tr></table>
+
+{% if member.summary %}<h2>درباره من</h2>{{ member.summary|linebreaks }}{% endif %}
+
+{% if experiences %}<h2>سوابقِ کاری</h2>
+{% for e in experiences %}<div class="item">
+  <div class="row">{% if e.period %}<span class="d">{{ e.period }}</span>{% endif %}<span class="t">{{ e.role }}</span></div>
+  <div class="m">{{ e.organisation }}{% if e.city %} · {{ e.city }}{% endif %}{% if e.employment_type %} · {{ e.get_employment_type_display }}{% endif %}</div>
+  {% if e.bullets %}<ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endfor %}{% endif %}
+
+{% if educations %}<h2>تحصیلات</h2>
+{% for ed in educations %}<div class="item">
+  <div class="row">{% if ed.period %}<span class="d">{{ ed.period }}</span>{% endif %}<span class="t">{{ ed.degree }}{% if ed.field %} {{ ed.field }}{% endif %}</span></div>
+  <div class="m">{{ ed.institution }}{% if ed.city %} · {{ ed.city }}{% endif %}</div>
+  {% if ed.bullets %}<ul>{% for b in ed.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endfor %}{% endif %}
+
+{% if skill_groups %}<h2>مهارت‌ها</h2>
+<table class="skills"><tr>
+  {% for group, skills in skill_groups %}<td>
+    {% if group %}<div class="g">{{ group }}</div>{% endif %}
+    {% for s in skills %}<div class="s">{{ s.name }}<span class="dots">{% for i in "12345" %}{% if forloop.counter <= s.level %}●{% else %}<span class="off">●</span>{% endif %}{% endfor %}</span></div>{% endfor %}
+  </td>{% if forloop.counter|divisibleby:2 and not forloop.last %}</tr><tr>{% endif %}{% endfor %}
+</tr></table>{% endif %}
+
+{% if languages %}<h2>زبان‌ها</h2>
+<div>{% for l in languages %}<span class="chip">{{ l.language }} — {{ l.get_level_display }}</span>{% endfor %}</div>{% endif %}
+
+{% if certifications %}<h2>مدارک و دوره‌ها</h2>
+{% for c in certifications %}<div class="item">
+  <div class="row">{% if c.date_label %}<span class="d">{{ c.date_label }}</span>{% endif %}<span class="t">{{ c.title }}</span></div>
+  {% if c.issuer or c.credential_id %}<div class="m">{{ c.issuer }}{% if c.credential_id %}{% if c.issuer %} · {% endif %}شمارهٔ گواهی: <span class="ltr">{{ c.credential_id }}</span>{% endif %}</div>{% endif %}
+</div>{% endfor %}{% endif %}
+
+{% if awards %}<h2>افتخارات</h2>
+{% for a in awards %}<div class="item">
+  <div class="row">{% if a.year %}<span class="d">{{ a.year|fa }}</span>{% endif %}<span class="t">{{ a.title }}</span></div>
+  {% if a.issuer or a.description %}<div class="m">{{ a.issuer }}{% if a.issuer and a.description %} · {% endif %}{{ a.description }}</div>{% endif %}
+</div>{% endfor %}{% endif %}
+
+{% if featured %}<h2>نمونه‌کارهای برگزیده</h2>
+{% for c in featured %}<div class="item">
+  <div class="row">{% if c.project.date_label %}<span class="d">{{ c.project.date_label }}</span>{% endif %}<span class="t">{{ c.project.title }}</span></div>
+  <div class="m">{% if c.role %}{{ c.role }}{% endif %}{% if c.role and c.project.category %} · {% endif %}{% if c.project.category %}{{ c.project.category.name }}{% endif %}</div>
+  {% if c.project.short_description %}<p>{{ c.project.short_description }}</p>{% endif %}
+</div>{% endfor %}{% endif %}
+
+<div class="foot">نسخهٔ آنلاینِ این رزومه: <span class="ltr">{{ page_url }}</span></div>
+</body>
+</html>

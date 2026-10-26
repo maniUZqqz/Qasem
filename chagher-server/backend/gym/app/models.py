@@ -3,7 +3,7 @@ from django.core.files.storage import FileSystemStorage
 from django.db import models, transaction
 from django.db.models import F
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
@@ -2117,7 +2117,12 @@ class ContactMessage(models.Model):
 
 
 class TeamMember(models.Model):
-    """اعضای تیم"""
+    """اعضای تیم — همین مدل پایهٔ صفحهٔ رزومه هم هست (۱۴۰۵/۰۸/۰۴).
+
+    سوابق، تحصیلات، مهارت‌ها و نمونه‌کارها در اپِ `portfolio` با کلیدِ خارجی
+    به همین مدل وصل‌اند؛ مدلِ دوم ساخته نشد تا API ِ `api/team-members/` و
+    کارت‌های «درباره ما» همان داده را بخوانند.
+    """
     name = models.CharField(max_length=100, verbose_name='نام')
     role = models.CharField(max_length=100, verbose_name='نقش')
     photo = models.ImageField(upload_to='team/', blank=True, null=True, verbose_name='عکس')
@@ -2129,18 +2134,64 @@ class TeamMember(models.Model):
         help_text='آیکون Bootstrap Icons بدون پیشوند bi- (مثال: code-slash، clipboard-pulse، headset). '
                   'وقتی عکس آپلود نشده باشد، همین آیکون روی کارت تیم نمایش داده می‌شود.'
     )
-    bio = models.TextField(blank=True, null=True, verbose_name='بیوگرافی')
+    bio = models.TextField(blank=True, null=True, verbose_name='بیوگرافیِ کوتاه',
+                           help_text='دو سه جمله؛ روی کارتِ تیم و بالای رزومه می‌آید.')
     linkedin = models.URLField(blank=True, null=True, verbose_name='لینکدین')
     email = models.EmailField(blank=True, null=True, verbose_name='ایمیل')
     order = models.IntegerField(default=0, verbose_name='ترتیب نمایش')
 
+    # ---- رزومه (۱۴۰۵/۰۸/۰۴) ----
+    slug = models.SlugField(
+        'نامک (آدرسِ صفحه)', max_length=80, unique=True, allow_unicode=True, blank=True,
+        help_text='آخرِ آدرسِ رزومه: chagher.ir/team/<b>نامک</b>/ — ترجیحاً انگلیسی، مثل mani-akbari. '
+                  'خالی بماند، از روی نام ساخته می‌شود.')
+    headline = models.CharField(
+        'عنوانِ حرفه‌ای', max_length=160, blank=True,
+        help_text='یک خط زیرِ نام در رزومه، مثل «توسعه‌دهندهٔ پایتون و هوش مصنوعی». خالی = همان «نقش».')
+    summary = models.TextField(
+        'خلاصهٔ حرفه‌ای (درباره من)', blank=True,
+        help_text='متنِ کامل‌ترِ معرفی برای رزومه. پاراگراف‌ها را با یک خطِ خالی جدا کنید.')
+    phone = models.CharField('تلفن', max_length=30, blank=True)
+    city = models.CharField('شهر', max_length=80, blank=True)
+    show_email = models.BooleanField('ایمیل در سایت دیده شود', default=True)
+    show_phone = models.BooleanField('تلفن در سایت دیده شود', default=False)
+    show_city = models.BooleanField('شهر در سایت دیده شود', default=True)
+    cv_file = models.FileField(
+        'فایلِ رزومهٔ آماده (اختیاری)', upload_to='team/cv/', blank=True,
+        validators=[FileExtensionValidator(['pdf'])],
+        help_text='اگر PDF ِ آماده بگذارید، دکمهٔ «دانلود PDF» همین فایل را می‌دهد؛ '
+                  'وگرنه PDF از روی اطلاعاتِ همین صفحه ساخته می‌شود.')
+    is_published = models.BooleanField(
+        'منتشر شود', default=True,
+        help_text='خاموش = این عضو در «درباره ما»، صفحهٔ تیم و API دیده نمی‌شود و صفحهٔ رزومه‌اش ۴۰۴ است '
+                  '(مدیر هنوز می‌تواند پیش‌نمایش ببیند).')
+    updated_at = models.DateTimeField('آخرین تغییر', auto_now=True, null=True)
+
     class Meta:
         verbose_name = 'عضو تیم'
-        verbose_name_plural = 'اعضای تیم'
+        verbose_name_plural = 'اعضای تیم و رزومه'
         ordering = ['order', 'name']
 
     def __str__(self):
         return f"{self.name} - {self.role}"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base = slugify(self.name or '', allow_unicode=True)[:70] or 'member'
+            slug, n = base, 2
+            while TeamMember.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug, n = f'{base}-{n}', n + 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('team-detail', kwargs={'slug': self.slug})
+
+    @property
+    def display_headline(self):
+        return self.headline or self.role
 
 
 class Feature(models.Model):

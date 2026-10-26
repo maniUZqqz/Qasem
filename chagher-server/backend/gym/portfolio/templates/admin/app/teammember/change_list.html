@@ -1,0 +1,9 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+<div style="background:#EDF3FF;border:1px solid #C9D8F2;border-radius:8px;padding:10px 14px;margin:0 0 14px;line-height:2;max-width:900px">
+  <b>رزومهٔ اعضا:</b> روی نامِ هر عضو بزنید؛ همه‌چیزِ رزومه (معرفی، تماس، سوابق، تحصیلات، مدارک، مهارت‌ها، زبان‌ها، افتخارات) در همان صفحه پر می‌شود.
+  نمونه‌کارها (پروژه با عکس و ویدئو) در <a href="{% url 'admin:portfolio_portfolioproject_changelist' %}">نمونه‌کارها (پروژه‌ها)</a>.
+  صفحهٔ عمومی: <a href="{% url 'team-list' %}" target="_blank">/team/</a> و <a href="{% url 'portfolio-list' %}" target="_blank">/portfolio/</a>.
+</div>
+{{ block.super }}
+{% endblock %}

@@ -1466,7 +1466,7 @@ def contact_page(request):
 
 def about_page(request):
     """صفحه درباره ما"""
-    team_members = TeamMember.objects.all().order_by('order')
+    team_members = TeamMember.objects.filter(is_published=True).order_by('order', 'name')
 
     context = {
         'team_members': team_members,

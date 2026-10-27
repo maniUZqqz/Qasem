@@ -34,6 +34,9 @@ def start_version_task(version_id: int) -> None:
     if version is None:
         return
     services.start_version(version)
+    if version.state == RegenVersion.State.STITCHING:      # صدا / برش: همین کار، همین حالا
+        services.stitch_version(version)
+        return
     if version.state == RegenVersion.State.GENERATING and not _eager():
         poll_version_task.apply_async((version_id, 0), countdown=POLL_SECONDS)
 

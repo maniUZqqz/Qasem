@@ -108,6 +108,7 @@ export const PAGES: PanelPage[] = [
   { key: "performance", section: "content", label: "چه چیزی جواب داد", icon: "target", to: (id) => `/stores/${id}/campaigns/performance` },
   { key: "production_queue", section: "content", label: "صف تولید", icon: "cpu", to: (id) => `/stores/${id}/queue` },
   { key: "editor", section: "content", label: "ادیتور ویدیو", icon: "film", to: (id) => `/stores/${id}/editor` },
+  { key: "photo_editor", section: "content", label: "ادیتور عکس", icon: "image", to: (id) => `/stores/${id}/photo-editor` },
   { key: "piece_regen", section: "content", label: "بازسازیِ یک تکه", icon: "refresh", to: (id) => `/stores/${id}/regen` },
 
   // ------------------------------------------------------------------ صدا

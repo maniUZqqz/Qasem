@@ -1,0 +1,2352 @@
+from django.contrib import admin, messages
+from django.contrib.auth.admin import UserAdmin
+from django.db import transaction
+from django.db.models import Count, Sum, Q
+from django.utils import timezone
+from django.utils.html import format_html
+from decimal import Decimal
+import markdown
+from django.utils.safestring import mark_safe
+from .models import (
+    CustomUser, Equipment, EquipmentCategory, Meal, ClientProgram, APIConfig,
+    TokenPackage, DiscountCode, DiscountCodeUsage, TokenPurchase, GymBrand,
+    GymClient, TokenRequest, HomePage, BlogPost, ContactMessage, TeamMember, Feature,
+    PaymentGatewayConfig, SMSConfig, SMSOutbox, PlatformSettings,
+    CardPaymentAccount, LedgerEntry, AccountStatement, ProgramShareCode,
+    AIUsageLog, UnitEconomicsReport, ExerciseLibrary,
+    EquipmentScan, EquipmentScanPhoto, EquipmentScanItem, AthleteProfile,
+    EquipmentCatalog, FormCheckSession, FormCheckFrame, AIJob,
+    ExerciseAlias, UnmatchedExercise, PricingRule
+)
+
+
+def _toman(value):
+    """نمایش مبلغ به تومان با جداکننده هزارگان."""
+    try:
+        return f"{Decimal(value or 0):,.0f}"
+    except Exception:
+        return '0'
+
+
+class ReadOnlyAdminMixin:
+    """پنل کاملاً فقط خواندنی.
+
+    برای بخش‌های حسابداری لازم است: هیچ‌کس — حتی سوپریوزر — نباید بتواند از
+    پنل ادمین یک عدد مالی را دستی جابه‌جا کند، وگرنه گزارش ورودی/خروجی دیگر
+    قابل استناد نیست.
+    """
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop('delete_selected', None)
+        return actions
+
+
+@admin.register(CustomUser)
+class CustomUserAdmin(UserAdmin):
+    """مدیریت کاربران در پنل ادمین"""
+    list_display = ['phone_number', 'account_type', 'gym_name', 'token_balance', 'is_staff', 'date_joined']
+    list_filter = ['account_type', 'is_staff', 'is_superuser', 'is_active']
+    search_fields = ['phone_number', 'gym_name']
+    ordering = ['-date_joined']
+
+    fieldsets = (
+        ('اطلاعات اصلی', {
+            'fields': ('phone_number', 'password', 'account_type'),
+            'description': 'نوع حساب مرز دسترسی را تعیین می‌کند: مربی به مدیریت باشگاه، '
+                           'ورزشکار باشگاه به پروفایل مشتری، و کاربر شخصی فقط به برنامه‌های خودش.'
+        }),
+        ('اطلاعات باشگاه', {
+            'fields': ('gym_name', 'token_balance'),
+            'description': 'اگر کاربر «برند باشگاه» داشته باشد، مرجع موجودی همان کیف پول برند است؛ '
+                           'تغییر این عدد به‌طور خودکار کیف پول برند را هم به‌روز می‌کند.'
+        }),
+        ('دسترسی‌ها', {
+            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('last_login', 'date_joined')
+        }),
+    )
+
+    add_fieldsets = (
+        ('ایجاد کاربر جدید', {
+            'classes': ('wide',),
+            'fields': ('phone_number', 'password1', 'password2', 'account_type', 'gym_name', 'token_balance'),
+        }),
+    )
+
+    readonly_fields = ['date_joined', 'last_login']
+
+    def get_readonly_fields(self, request, obj=None):
+        """فقط در ویرایش، تاریخ‌ها read-only باشند"""
+        if obj:
+            return self.readonly_fields
+        return []
+
+    def save_model(self, request, obj, form, change):
+        """اگر ادمین موجودی را عمداً تغییر داد، کیف پول برند (مرجع) را هم به‌روز کن.
+        بدون این، ذخیره کامل مدل، مقدار را دوباره از کیف پول برند می‌خواند و تغییر ادمین بی‌اثر می‌شد.
+
+        هر تغییر دستی موجودی یک سطر در دفتر حساب ثبت می‌کند تا صورت‌حساب
+        کاربر با واقعیت بخواند و هیچ شارژ دستی بی‌ردپا نماند."""
+        previous = None
+        if change and 'token_balance' in form.changed_data:
+            previous = CustomUser.objects.filter(pk=obj.pk).values_list(
+                'token_balance', flat=True
+            ).first()
+            GymBrand.objects.filter(user=obj).update(
+                token_balance=obj.token_balance, updated_at=timezone.now()
+            )
+
+        super().save_model(request, obj, form, change)
+
+        if previous is not None and previous != obj.token_balance:
+            delta = obj.token_balance - previous
+            actor = getattr(getattr(request, 'user', None), 'phone_number', 'system')
+            LedgerEntry.record(
+                LedgerEntry.TYPE_TOKEN_GRANT if delta > 0 else LedgerEntry.TYPE_TOKEN_SPEND,
+                user=obj,
+                tokens=delta,
+                reference=f'admin:{actor}',
+                description=(
+                    f'تغییر دستی موجودی از {previous:,} به {obj.token_balance:,} '
+                    f'توسط {actor}'
+                ),
+            )
+
+
+@admin.register(EquipmentCategory)
+class EquipmentCategoryAdmin(admin.ModelAdmin):
+    """مدیریت دسته‌بندی دستگاه‌ها"""
+    list_display = ['name', 'description']
+    search_fields = ['name']
+
+
+@admin.register(Equipment)
+class EquipmentAdmin(admin.ModelAdmin):
+    """مدیریت دستگاه‌های ورزشی"""
+    list_display = ['thumb_tag', 'name', 'user', 'category', 'muscle_group', 'created_at']
+    list_filter = ['category', 'muscle_group', 'created_at']
+    search_fields = ['name', 'user__phone_number', 'user__gym_name']
+    autocomplete_fields = ['user', 'category', 'catalog']
+    readonly_fields = ['created_at', 'updated_at', 'thumb_tag']
+    list_per_page = 30
+
+    @admin.display(description='عکس')
+    def thumb_tag(self, obj):
+        url = obj.image.url if obj.image else (
+            obj.catalog.display_image_url() if obj.catalog_id and obj.catalog else None)
+        if not url:
+            return '—'
+        return format_html('<img src="{}" style="height:46px;border-radius:6px">', url)
+    list_per_page = 25
+
+
+@admin.register(Meal)
+class MealAdmin(admin.ModelAdmin):
+    """مدیریت غذاها"""
+    list_display = ['name', 'user', 'calories', 'protein', 'carbs', 'fat', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['name', 'user__phone_number', 'user__gym_name']
+    autocomplete_fields = ['user']
+    readonly_fields = ['created_at', 'updated_at']
+    list_per_page = 25
+
+
+@admin.register(ClientProgram)
+class ClientProgramAdmin(admin.ModelAdmin):
+    """مدیریت برنامه‌های مشتریان"""
+    list_display = [
+        'name', 'user', 'source', 'program_type', 'program_days', 'tokens_consumed',
+        'ai_cost_display', 'ai_tokens_display', 'has_workout', 'has_meal_plan', 'created_at'
+    ]
+    list_filter = ['source', 'program_type', 'program_days', 'gender', 'ai_model_name', 'created_at']
+    search_fields = ['name', 'user__phone_number', 'user__gym_name']
+    autocomplete_fields = ['user']
+    readonly_fields = [
+        'generated_workout_display', 'generated_meal_plan_display', 'tokens_consumed',
+        'ai_model_name', 'ai_input_tokens', 'ai_output_tokens', 'ai_cost',
+        'created_at', 'updated_at'
+    ]
+    list_per_page = 25
+
+    @admin.display(description='هزینه هوش مصنوعی', ordering='ai_cost')
+    def ai_cost_display(self, obj):
+        if not obj.ai_cost:
+            return '— تعرفه ثبت نشده'
+        return f"{_toman(obj.ai_cost)} تومان"
+
+    @admin.display(description='توکن مدل (ورودی/خروجی)')
+    def ai_tokens_display(self, obj):
+        if not obj.ai_input_tokens and not obj.ai_output_tokens:
+            return '-'
+        return f"{obj.ai_input_tokens:,} / {obj.ai_output_tokens:,}" 
+
+    fieldsets = (
+        ('کاربر', {
+            'fields': ('user',)
+        }),
+        ('اطلاعات مشتری', {
+            'fields': ('name', 'age', 'gender', 'height', 'weight')
+        }),
+        ('اطلاعات پزشکی', {
+            'fields': ('injuries', 'food_allergies', 'body_issues', 'chronic_diseases', 'extra_notes')
+        }),
+        ('تنظیمات برنامه', {
+            'fields': ('program_type', 'program_days', 'training_place'),
+            'description': 'نوع برنامه هزینه توکن را تعیین می‌کند: ورزشی و غذایی ۵۰ توکن، فقط ورزشی یا فقط غذایی ۲۵ توکن (ویرایش هم ۲۵ توکن).'
+        }),
+        ('🏋️ برنامه ورزشی', {
+            'fields': ('generated_workout_display',),
+            'classes': ('collapse',)
+        }),
+        ('🍽️ برنامه غذایی', {
+            'fields': ('generated_meal_plan_display',),
+            'classes': ('collapse',)
+        }),
+        ('📊 آمار پلتفرم', {
+            'fields': ('tokens_consumed',)
+        }),
+        ('💰 هزینه واقعی هوش مصنوعی', {
+            'fields': ('ai_model_name', 'ai_input_tokens', 'ai_output_tokens', 'ai_cost'),
+            'description': 'توکن واقعی مصرف‌شده روی مدل و هزینه آن بر اساس تعرفه ثبت‌شده '
+                           'در «تنظیمات API» در لحظه تولید. این اعداد فقط خواندنی‌اند.'
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(boolean=True, description='برنامه ورزشی')
+    def has_workout(self, obj):
+        return bool(obj.generated_workout)
+
+    @admin.display(boolean=True, description='برنامه غذایی')
+    def has_meal_plan(self, obj):
+        return bool(obj.generated_meal_plan)
+
+    @admin.display(description='برنامه ورزشی تولید شده')
+    def generated_workout_display(self, obj):
+        if obj.generated_workout:
+            html = markdown.markdown(
+                obj.generated_workout,
+                extensions=['extra', 'fenced_code', 'tables', 'nl2br', 'sane_lists']
+            )
+            return mark_safe(
+                '<div style="direction: rtl; text-align: right; font-family: Tahoma, sans-serif; background: #f8f9fa; '
+                'padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto; line-height:1.9;">'
+                f'{html}'
+                '</div>'
+            )
+        return '❌ هنوز تولید نشده'
+
+    @admin.display(description='برنامه غذایی تولید شده')
+    def generated_meal_plan_display(self, obj):
+        if obj.generated_meal_plan:
+            html = markdown.markdown(
+                obj.generated_meal_plan,
+                extensions=['extra', 'fenced_code', 'tables', 'nl2br', 'sane_lists']
+            )
+            return mark_safe(
+                '<div style="direction: rtl; text-align: right; font-family: Tahoma, sans-serif; background: #f0fff4; '
+                'padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto; line-height:1.9;">'
+                f'{html}'
+                '</div>'
+            )
+        return '❌ هنوز تولید نشده'
+
+
+@admin.register(APIConfig)
+class APIConfigAdmin(admin.ModelAdmin):
+    """زنجیره‌ی ارائه‌دهنده‌های هوش مصنوعی.
+
+    ترتیب فهرست همان ترتیب واقعی امتحان‌کردن است: اولویت ۱ اول، و اگر پاسخ
+    نداد، اولویت بعدی.
+    """
+    list_display = [
+        'priority', 'name', 'type_badge', 'effective_model', 'endpoint_display',
+        'price_summary', 'listener_status', 'health_display', 'is_active',
+    ]
+    list_display_links = ['name']
+    list_editable = ['priority', 'is_active']
+    list_filter = ['is_active', 'provider_type']
+    search_fields = ['name', 'base_url', 'model_name']
+    ordering = ['priority', 'id']
+    list_per_page = 20
+    actions = [
+        'activate_selected', 'deactivate_selected',
+        'test_connection', 'discover_models',
+    ]
+
+    @admin.display(description='نوع', ordering='provider_type')
+    def type_badge(self, obj):
+        # ⚠ پیش از این فقط دو حالت را می‌شناخت و «شنونده» را «ابری» نشان می‌داد
+        if obj.provider_type == obj.PROVIDER_TYPE_LISTENER:
+            return '📡 شنونده'
+        if obj.is_local:
+            return '🖥 محلی'
+        return '☁ ابری'
+
+    @admin.display(description='مدل')
+    def effective_model(self, obj):
+        explicit = (obj.model_name or '').strip()
+        if explicit:
+            return explicit
+        if obj.discovered_model:
+            return format_html(
+                '<span title="خودکار از سرور خوانده شد">{} <small>(خودکار)</small></span>',
+                obj.discovered_model,
+            )
+        if obj.is_local:
+            return format_html('<small style="color:#6b7280;">هنگام اولین استفاده خوانده می‌شود</small>')
+        return format_html('<span style="color:#b91c1c;">— وارد نشده</span>')
+
+    @admin.display(description='آدرس')
+    def endpoint_display(self, obj):
+        url = obj.base_url or '-'
+        return url if len(url) <= 44 else f'{url[:44]}…'
+
+    @admin.display(description='تعرفه (ورودی / خروجی به ازای ۱M توکن)')
+    def price_summary(self, obj):
+        if not obj.input_price_per_million and not obj.output_price_per_million:
+            return '— رایگان/ثبت نشده' if obj.is_local else '— ثبت نشده'
+        return (
+            f"{_toman(obj.input_price_per_million)} / "
+            f"{_toman(obj.output_price_per_million)} تومان"
+        )
+
+    @admin.display(description='وضعیت آخرین اتصال')
+    def health_display(self, obj):
+        if obj.last_error and (
+            not obj.last_success_at
+            or (obj.last_failure_at and obj.last_failure_at > obj.last_success_at)
+        ):
+            return format_html(
+                '<span style="color:#b91c1c;">✗ {}</span>',
+                obj.last_error[:60],
+            )
+        if obj.last_success_at:
+            return format_html(
+                '<span style="color:#15803d;">✓ {}</span>',
+                obj.last_success_at.strftime('%Y-%m-%d %H:%M'),
+            )
+        return '— هنوز استفاده نشده'
+
+    # ═════════════════ سرورِ شنونده (حالتِ سوم) ═════════════════
+    # ⚠ ایرادی که مالک گزارش کرد: ادمین هیچ‌جا نمی‌گفت کارگر باید به کدام
+    #   آدرس وصل شود و کلیدش چیست — پس عملاً نمی‌شد شنونده را تنظیم کرد.
+    #   این بخش همان را، با وضعیتِ زنده و اسکریپتِ آماده، نشان می‌دهد.
+
+    @staticmethod
+    def _bridge_base():
+        from django.conf import settings
+        base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').rstrip('/')
+        return (base or 'https://chagher.ir') + '/api/ai-bridge'
+
+    @admin.display(description='شنونده')
+    def listener_status(self, obj):
+        if obj.provider_type != obj.PROVIDER_TYPE_LISTENER:
+            return '—'
+        if not (obj.api_key or '').strip():
+            return format_html('<span style="color:#b91c1c;">کلید خالی</span>')
+        if obj.listener_is_online():
+            return format_html(
+                '<span style="color:#15803d;font-weight:700;">● روشن</span>'
+                '<br><small style="color:#6b7280;">{}</small>',
+                obj.listener_worker_name or 'کارگر',
+            )
+        if obj.listener_last_seen_at:
+            return format_html(
+                '<span style="color:#b45309;">خاموش</span>'
+                '<br><small style="color:#6b7280;">آخرین بار: {}</small>',
+                timezone.localtime(obj.listener_last_seen_at).strftime('%Y-%m-%d %H:%M'),
+            )
+        return format_html('<span style="color:#6b7280;">هنوز وصل نشده</span>')
+
+    @admin.display(description='راهنمای راه‌اندازیِ شنونده')
+    def listener_setup(self, obj):
+        from django.utils.html import escape
+        from django.utils.safestring import mark_safe
+        from .models import AIJob
+
+        base = self._bridge_base()
+        key = (obj.api_key or '').strip()
+
+        if key:
+            key_html = (
+                '<code style="background:#eef2ff;padding:3px 8px;border-radius:6px;'
+                'user-select:all;">%s</code>' % escape(key)
+            )
+        else:
+            key_html = (
+                '<b style="color:#b91c1c;">خالی است — تا پرش نکنید هیچ کارگری '
+                'نمی‌تواند وصل شود.</b> یک رشتهٔ تصادفیِ بلند در «کلید API» بالا '
+                'بنویسید و ذخیره کنید؛ همان می‌شود رمزِ کارگر.'
+            )
+
+        # وضعیتِ زنده
+        if not obj.is_active:
+            state = ('<span style="color:#b91c1c;font-weight:700;">این ردیف فعال نیست</span>'
+                     ' — تا تیکِ «فعال» بالا را نزنید، کارگر خطای ۴۰۳ می‌گیرد.')
+        elif not key:
+            state = '<span style="color:#b91c1c;">کلید تنظیم نشده</span>'
+        elif obj.listener_is_online():
+            state = ('<span style="color:#15803d;font-weight:700;">● روشن است</span> '
+                     '(کارگر: %s)' % escape(obj.listener_worker_name or 'نامشخص'))
+        elif obj.listener_last_seen_at:
+            state = ('<span style="color:#b45309;">خاموش است</span> — آخرین بار %s'
+                     % escape(timezone.localtime(obj.listener_last_seen_at)
+                              .strftime('%Y-%m-%d %H:%M')))
+        else:
+            state = '<span style="color:#6b7280;">تا حالا هیچ کارگری وصل نشده</span>'
+
+        try:
+            queued = AIJob.objects.filter(provider_id=obj.id,
+                                          status=AIJob.STATUS_QUEUED).count()
+            running = AIJob.objects.filter(provider_id=obj.id,
+                                           status=AIJob.STATUS_LEASED).count()
+            jobs = 'در صف: %d · در حالِ اجرا: %d' % (queued, running)
+        except Exception:
+            jobs = ''
+
+        window = obj.listener_online_window or 90
+
+        script = """import time, requests
+
+BASE = "{base}"
+KEY  = "{key}"              # همان کلیدی که در جنگو ادمین گذاشتید
+H    = {{"X-Worker-Key": KEY}}
+
+def ask_model(messages, max_tokens):
+    \"\"\"این تابع را به مدلِ خودتان وصل کنید (Ollama، LM Studio، vLLM …).\"\"\"
+    r = requests.post("http://127.0.0.1:11434/v1/chat/completions",
+                      json={{"model": "llama3",
+                            "messages": messages,
+                            "max_tokens": max_tokens or 2048}},
+                      timeout=600)
+    r.raise_for_status()
+    d = r.json()
+    return d["choices"][0]["message"]["content"], d.get("usage", {{}})
+
+while True:
+    try:
+        r = requests.post(BASE + "/claim/", headers=H,
+                          json={{"worker": "pc-1"}}, timeout=30)
+        if r.status_code == 204:      # فعلاً کاری نیست
+            time.sleep(3)
+            continue
+        r.raise_for_status()
+        job = r.json()
+        try:
+            text, usage = ask_model(job["messages"], job.get("max_tokens"))
+            requests.post(BASE + "/%s/result/" % job["job_id"], headers=H,
+                          json={{"text": text, "usage": usage}}, timeout=60)
+        except Exception as e:
+            requests.post(BASE + "/%s/fail/" % job["job_id"], headers=H,
+                          json={{"error": str(e)[:400]}}, timeout=30)
+    except Exception:
+        time.sleep(5)             # اینترنت قطع بود؛ بعداً دوباره
+""".format(base=base, key=key or 'کلید-را-این‌جا-بگذارید')
+
+        html = """
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+            padding:16px;line-height:2;max-width:860px">
+
+  <p style="margin:0 0 12px">
+    این حالت برای سرورِ هوش مصنوعیِ خودتان است که <b>آی‌پیِ ثابت ندارد</b>.
+    سایت هیچ‌وقت به آن وصل نمی‌شود؛ برعکس، خودِ آن سرور هر چند ثانیه به
+    آدرس‌های زیر سر می‌زند و می‌پرسد «کاری هست؟».
+  </p>
+
+  <p style="margin:0 0 6px"><b>۱) کلیدِ کارگر</b></p>
+  <p style="margin:0 0 14px">{key_html}</p>
+
+  <p style="margin:0 0 6px"><b>۲) آدرس‌هایی که کارگر صدا می‌زند</b>
+     <small style="color:#6b7280">(هدرِ <code>X-Worker-Key</code> در همه لازم است)</small></p>
+  <table style="border-collapse:collapse;margin:0 0 14px;font-size:13px">
+    <tr><td style="padding:3px 10px 3px 0">گرفتنِ کار</td>
+        <td><code style="user-select:all">POST {base}/claim/</code></td></tr>
+    <tr><td style="padding:3px 10px 3px 0">تحویلِ جواب</td>
+        <td><code style="user-select:all">POST {base}/&lt;job_id&gt;/result/</code></td></tr>
+    <tr><td style="padding:3px 10px 3px 0">اعلامِ شکست</td>
+        <td><code style="user-select:all">POST {base}/&lt;job_id&gt;/fail/</code></td></tr>
+    <tr><td style="padding:3px 10px 3px 0">ضربانِ زنده</td>
+        <td><code style="user-select:all">POST {base}/heartbeat/</code></td></tr>
+  </table>
+
+  <p style="margin:0 0 6px"><b>۳) وضعیتِ همین حالا</b></p>
+  <p style="margin:0 0 14px">{state}{jobs_html}</p>
+
+  <p style="margin:0 0 6px"><b>۴) اسکریپتِ آماده</b>
+     <small style="color:#6b7280">— روی سرورِ خودتان اجرا کنید
+     (<code>pip install requests</code>)</small></p>
+  <pre style="background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;
+              overflow:auto;direction:ltr;text-align:left;font-size:12px;
+              line-height:1.7;max-height:380px">{script}</pre>
+
+  <p style="margin:12px 0 0;color:#475569;font-size:12.5px">
+    <b>نکته‌ها:</b>
+    هر بار که کارگر «گرفتنِ کار» را صدا بزند، همان لحظه «روشن» حساب می‌شود؛
+    پس اگر هر {window} ثانیه یک‌بار سر بزند کافی است و نیازی به ضربانِ جدا نیست.
+    اگر کارگر خاموش باشد، سایت <b>اصلاً کاری نمی‌سازد</b> و مستقیم سراغِ
+    ارائه‌دهندهٔ بعدیِ زنجیره می‌رود — کاربر معطل نمی‌ماند.
+    جوابی که دیرتر از مهلت برسد <b>پذیرفته نمی‌شود</b>، تا یک درخواست دو بار
+    هزینه نشود.
+  </p>
+</div>
+""".format(
+            key_html=key_html,
+            base=escape(base),
+            state=state,
+            jobs_html=(' · <small style="color:#6b7280">%s</small>' % escape(jobs)) if jobs else '',
+            script=escape(script),
+            window=window,
+        )
+        return mark_safe(html)
+
+    def get_readonly_fields(self, request, obj=None):
+        # این فیلدها را خود سامانه پر می‌کند (کشف مدل، پارامترهای قابل‌قبول،
+        # نتیجه‌ی آخرین اتصال)؛ ویرایش دستی‌شان فقط وضعیت واقعی را خراب می‌کند.
+        base = ['discovered_model', 'discovered_at',
+                'token_param', 'supports_temperature',
+                'last_success_at', 'last_failure_at', 'last_error',
+                'listener_setup', 'listener_last_seen_at', 'listener_worker_name']
+        if obj:
+            return base + ['created_at', 'updated_at']
+        return base
+
+    def get_fieldsets(self, request, obj=None):
+        base_fieldsets = [
+            ('جایگاه در زنجیره', {
+                'fields': ('name', 'priority', 'is_active'),
+                'description': 'اولویت ۱ اول از همه امتحان می‌شود. اگر آن ارائه‌دهنده '
+                               'در دسترس نباشد (سرور خاموش، اینترنت قطع، اعتبار تمام‌شده)، '
+                               'سامانه خودکار سراغ اولویت بعدی می‌رود و کاربر خطایی نمی‌بیند.'
+            }),
+            ('نوع و اتصال', {
+                'fields': ('provider_type', 'base_url', 'api_key', 'model_name',
+                           'timeout_seconds'),
+                'description': (
+                    '<b>🖥 مدل محلی / سرور خودم:</b> فقط لینک سرور را بگذارید — '
+                    'مثل <code>http://192.168.1.50:11434</code>. '
+                    'کلید API و نام مدل لازم نیست: مسیر <code>/v1</code> خودکار '
+                    'اضافه می‌شود و نام مدل از خود سرور خوانده می‌شود. '
+                    '(اگر چند مدل روی سرور دارید و یکی خاص را می‌خواهید، فقط آن '
+                    'وقت نامش را در «نام مدل» بنویسید.)<br><br>'
+                    '<b>☁ سرویس ابری:</b> آدرس کامل مثل '
+                    '<code>https://api.openai.com/v1</code> یا '
+                    '<code>https://api.metisai.ir/openai/v1</code>؛ کلید API و '
+                    'نام مدل هر دو الزامی‌اند.<br><br>'
+                    '<b>📡 سرورِ خودم بدونِ آی‌پی (شنونده):</b> «آدرس سرور» را '
+                    'خالی بگذارید. فقط یک رشتهٔ تصادفیِ بلند در «کلید API» بنویسید '
+                    'و ذخیره کنید؛ بعد از ذخیره، بخشِ «📡 سرورِ شنونده» پایینِ همین '
+                    'صفحه باز می‌شود و آدرس‌ها و اسکریپتِ آماده را به شما می‌دهد.'
+                    '<br><br>'
+                    '<b>مهلت پاسخ:</b> مدل محلی روی سخت‌افزار ضعیف کند است؛ '
+                    'عدد بزرگ‌تری بگذارید (مثلاً ۳۰۰).'
+                )
+            }),
+            ('تعرفه توکن این مدل', {
+                'fields': ('input_price_per_million', 'output_price_per_million'),
+                'description': 'قیمتی که سرویس‌دهنده برای همین مدل اعلام کرده، بر حسب '
+                               'تومان به ازای یک میلیون توکن. با همین عدد هزینه واقعی هر '
+                               'برنامه محاسبه می‌شود. برای مدل محلی معمولاً صفر می‌ماند.'
+            }),
+        ]
+        if obj and obj.provider_type == obj.PROVIDER_TYPE_LISTENER:
+            base_fieldsets.append(
+                ('📡 سرورِ شنونده — راه‌اندازی و وضعیت', {
+                    'fields': ('listener_setup', 'listener_online_window',
+                               'listener_last_seen_at', 'listener_worker_name'),
+                    'description': 'برای این نوع، «آدرس سرور» و «نام مدل» لازم نیست؛ '
+                                   'فقط «کلید API» را پر کنید — همان کلیدِ کارگر است.'
+                })
+            )
+        if obj:
+            base_fieldsets.append(
+                ('سلامت اتصال (فقط گزارشی)', {
+                    'fields': ('discovered_model', 'discovered_at',
+                               'token_param', 'supports_temperature',
+                               'last_success_at', 'last_failure_at', 'last_error'),
+                    'description': 'آخرین نتیجه‌ی واقعی استفاده از این ارائه‌دهنده. '
+                                   '«مدل کشف‌شده» نامی است که خودکار از سرور خوانده شد و '
+                                   '«پارامتر سقف توکن» نامی است که این مدل می‌پذیرد '
+                                   '(مدل‌های استدلالی به‌جای max_tokens فقط '
+                                   'max_completion_tokens را قبول می‌کنند). هر دو خودکار '
+                                   'کشف می‌شوند و با تغییر آدرس یا نام مدل پاک می‌شوند.'
+                })
+            )
+            base_fieldsets.append(
+                ('تاریخ‌ها', {'fields': ('created_at', 'updated_at')})
+            )
+        return base_fieldsets
+
+    @admin.action(description='فعال‌کردن در زنجیره')
+    def activate_selected(self, request, queryset):
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'{updated} ارائه‌دهنده فعال شد.')
+
+    @admin.action(description='غیرفعال‌کردن')
+    def deactivate_selected(self, request, queryset):
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'{updated} ارائه‌دهنده غیرفعال شد.')
+
+    @admin.action(description='🔌 تست اتصال ارائه‌دهنده‌های انتخاب‌شده')
+    def test_connection(self, request, queryset):
+        """یک درخواست کوچک واقعی می‌فرستد تا پیش از استقرار معلوم شود
+        آدرس، کلید و نام مدل درست‌اند — نه اینکه اولین کاربر متوجه شود."""
+        from ai_engine.ai_generator import ping_model
+
+        ok, failed = [], []
+        for provider in queryset:
+            try:
+                # دقیقاً همان مسیری که هنگام تولید برنامه طی می‌شود: کشف
+                # خودکار نام مدل و سازگارکردن پارامترها. نتیجه ذخیره می‌شود،
+                # پس اولین کاربر واقعی دیگر هزینه‌ی کشف را نمی‌دهد.
+                model = ping_model(provider)
+                provider.mark_success()
+                ok.append(f'{provider.name} → {model}')
+            except Exception as exc:
+                provider.mark_failure(exc)
+                failed.append(f'{provider.name} ({type(exc).__name__}: {exc})')
+
+        if ok:
+            self.message_user(request, f"✓ متصل شد: {'، '.join(ok)}")
+        if failed:
+            self.message_user(
+                request, f"✗ ناموفق: {'، '.join(failed)}", level=messages.ERROR
+            )
+
+    @admin.action(description='🔍 خواندن فهرست مدل‌های سرور')
+    def discover_models(self, request, queryset):
+        """نشان می‌دهد روی هر سرور چه مدل‌هایی نصب است.
+
+        برای وقتی که چند مدل روی سرور دارید و می‌خواهید بدانید نام دقیقشان
+        چیست تا یکی را صریح انتخاب کنید.
+        """
+        from ai_engine.ai_generator import build_client
+
+        for provider in queryset:
+            try:
+                client = build_client(provider.as_config())
+                models_found = provider.available_models(client)
+            except Exception as exc:
+                provider.mark_failure(exc)
+                self.message_user(
+                    request,
+                    f'{provider.name}: خطا در خواندن فهرست مدل‌ها ({exc})',
+                    level=messages.ERROR,
+                )
+                continue
+
+            if not models_found:
+                self.message_user(
+                    request,
+                    f'{provider.name}: سرور هیچ مدلی معرفی نکرد.',
+                    level=messages.WARNING,
+                )
+                continue
+
+            self.message_user(
+                request,
+                f"{provider.name} → {'، '.join(models_found)}"
+                + ('' if provider.model_name else f' (خودکار: {models_found[0]})'),
+            )
+
+
+@admin.register(TokenPackage)
+class TokenPackageAdmin(admin.ModelAdmin):
+    """مدیریت بسته‌های توکن"""
+    list_display = ['name', 'token_amount', 'price_per_50_tokens', 'package_price_display', 'is_active', 'created_at']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['name']
+    readonly_fields = ['created_at', 'updated_at']
+    list_editable = ['price_per_50_tokens', 'is_active']
+    actions = ['activate_selected', 'deactivate_selected']
+
+    fieldsets = (
+        ('تعرفه', {
+            'fields': ('name', 'token_amount', 'price_per_50_tokens', 'is_active'),
+            'description': 'تعداد توکن باید مضربی از 50 باشد. صفحه خرید توکن از همین تعرفه‌ها برای محاسبه قیمت استفاده می‌کند.'
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description='قیمت این بسته (تومان)')
+    def package_price_display(self, obj):
+        return obj.calculate_price()
+
+    def save_model(self, request, obj, form, change):
+        if obj.token_amount % 50 != 0:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('تعداد توکن باید مضربی از 50 باشد.')
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='فعال‌کردن تعرفه‌های انتخاب‌شده')
+    def activate_selected(self, request, queryset):
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'{updated} تعرفه فعال شد.')
+
+    @admin.action(description='غیرفعال‌کردن تعرفه‌های انتخاب‌شده')
+    def deactivate_selected(self, request, queryset):
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'{updated} تعرفه غیرفعال شد.')
+
+
+@admin.register(DiscountCode)
+class DiscountCodeAdmin(admin.ModelAdmin):
+    """مدیریت کدهای تخفیف"""
+    list_display = ['code', 'discount_percent', 'creator', 'commission_percent', 'is_active', 'single_use_per_user', 'used_count', 'created_at']
+    list_filter = ['is_active', 'single_use_per_user', 'created_at']
+    search_fields = ['code', 'creator__phone_number', 'creator__gym_name']
+    autocomplete_fields = ['creator']
+    readonly_fields = ['used_count', 'created_at', 'updated_at']
+    list_editable = ['is_active', 'single_use_per_user', 'commission_percent']
+    actions = ['activate_codes', 'deactivate_codes']
+
+    fieldsets = (
+        ('اطلاعات کد', {
+            'fields': ('code', 'discount_percent', 'is_active', 'single_use_per_user')
+        }),
+        ('کمیسیون', {
+            'fields': ('creator', 'commission_percent')
+        }),
+        ('آمار', {
+            'fields': ('used_count', 'created_at', 'updated_at')
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        obj.code = obj.code.strip().upper()
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='فعال‌کردن کدهای تخفیف انتخاب‌شده')
+    def activate_codes(self, request, queryset):
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'{updated} کد تخفیف فعال شد.')
+
+    @admin.action(description='غیرفعال‌کردن کدهای تخفیف انتخاب‌شده')
+    def deactivate_codes(self, request, queryset):
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'{updated} کد تخفیف غیرفعال شد.')
+
+
+@admin.register(CardPaymentAccount)
+class CardPaymentAccountAdmin(admin.ModelAdmin):
+    """شماره کارت مقصد پرداخت کارت‌به‌کارت"""
+    list_display = ['title', 'masked_card_display', 'card_holder', 'bank_name', 'is_active', 'updated_at']
+    list_filter = ['is_active']
+    search_fields = ['title', 'card_holder', 'card_number', 'bank_name']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('حساب', {
+            'fields': ('title', 'is_active'),
+            'description': 'فقط یک حساب می‌تواند فعال باشد و همان به کاربر نمایش داده '
+                           'می‌شود. اگر هیچ حسابی فعال نباشد، گزینه کارت‌به‌کارت برای '
+                           'کاربر ظاهر نمی‌شود.'
+        }),
+        ('اطلاعات کارت', {
+            'fields': ('card_number', 'card_holder', 'bank_name', 'sheba'),
+            'description': 'شماره کارت را بدون فاصله وارد کنید؛ سامانه خودش قالب‌بندی می‌کند.'
+        }),
+        ('راهنمای کاربر', {
+            'fields': ('instructions',)
+        }),
+        ('تاریخ‌ها', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    @admin.display(description='شماره کارت')
+    def masked_card_display(self, obj):
+        return obj.masked_card_number
+
+
+@admin.register(TokenPurchase)
+class TokenPurchaseAdmin(admin.ModelAdmin):
+    """مدیریت خریدهای توکن — شامل تایید رسیدهای کارت‌به‌کارت"""
+    list_display = [
+        'user', 'payment_method', 'token_amount', 'final_price_display', 'status',
+        'receipt_link', 'receipt_reference', 'discount_code', 'reviewed_by', 'created_at'
+    ]
+    list_filter = ['status', 'payment_method', 'created_at']
+    search_fields = ['user__phone_number', 'payment_ref_id', 'receipt_reference']
+    autocomplete_fields = ['user', 'discount_code']
+    # receipt_image عمداً فقط‌خواندنی است: فایل در فضای خصوصی بدون base_url
+    # ذخیره می‌شود، پس ویجت آپلود جنگو که برای لینک دادن .url را صدا می‌زند
+    # صفحه را می‌شکند. نمایش رسید از receipt_preview و مسیر محافظت‌شده انجام
+    # می‌شود؛ رسید را هم فقط خود کاربر باید بارگذاری کند، نه مدیر.
+    readonly_fields = [
+        'created_at', 'updated_at', 'receipt_image_display', 'receipt_preview',
+        'receipt_uploaded_at', 'reviewed_by', 'reviewed_at',
+    ]
+    actions = [
+        'approve_card_receipts', 'reject_card_receipts',
+        'mark_as_paid_and_charge_tokens', 'charge_missing_tokens',
+        'mark_as_failed', 'mark_as_cancelled',
+    ]
+
+    fieldsets = (
+        ('اطلاعات خرید', {
+            'fields': ('user', 'token_amount', 'status', 'payment_method',
+                       'payment_authority', 'payment_ref_id')
+        }),
+        ('مالی', {
+            'fields': ('original_price', 'discount_code', 'discount_amount', 'final_price')
+        }),
+        ('رسید کارت‌به‌کارت', {
+            'fields': ('card_account', 'receipt_image_display', 'receipt_preview',
+                       'receipt_reference', 'receipt_note', 'receipt_uploaded_at'),
+            'description': 'برای آزاد کردن توکن یا سفارش را از فهرست انتخاب کنید و اکشن '
+                           '«تایید رسید کارت‌به‌کارت» را بزنید، یا همین‌جا وضعیت را روی '
+                           '«پرداخت شده» بگذارید و ذخیره کنید — هر دو مسیر توکن را شارژ '
+                           'می‌کنند و در دفتر حساب ثبت می‌شوند.'
+        }),
+        ('بررسی', {
+            'fields': ('reviewed_by', 'reviewed_at', 'review_note')
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description='مبلغ نهایی', ordering='final_price')
+    def final_price_display(self, obj):
+        return f"{_toman(obj.final_price)} تومان"
+
+    @admin.display(description='فایل رسید')
+    def receipt_image_display(self, obj):
+        if not obj.receipt_image:
+            return 'رسیدی بارگذاری نشده است.'
+        return obj.receipt_image.name
+
+    @admin.display(description='رسید')
+    def receipt_link(self, obj):
+        # آدرس مستقیم فایل عمداً استفاده نمی‌شود: رسیدها در فضای خصوصی‌اند
+        # و فقط از مسیر محافظت‌شده (با بررسی دسترسی) سرو می‌شوند.
+        if not obj.receipt_image:
+            return '—'
+        return format_html('<a href="{}" target="_blank">مشاهده</a>', obj.receipt_url)
+
+    @admin.display(description='پیش‌نمایش رسید')
+    def receipt_preview(self, obj):
+        if not obj.receipt_image:
+            return 'رسیدی بارگذاری نشده است.'
+        return format_html(
+            '<a href="{0}" target="_blank">'
+            '<img src="{0}" style="max-width:420px;max-height:520px;'
+            'border:1px solid #ddd;border-radius:8px;" /></a>',
+            obj.receipt_url,
+        )
+
+    @admin.action(description='✅ تایید رسید کارت‌به‌کارت و آزادسازی توکن')
+    def approve_card_receipts(self, request, queryset):
+        from .views_extended import _complete_purchase
+
+        approved = 0
+        skipped = 0
+        for purchase in queryset.select_related('user', 'discount_code'):
+            if purchase.payment_method != TokenPurchase.METHOD_CARD:
+                skipped += 1
+                continue
+            if purchase.status == 'paid' or not purchase.receipt_image:
+                skipped += 1
+                continue
+
+            ref = purchase.payment_ref_id or f'CARD-{purchase.id}'
+            if _complete_purchase(purchase, ref_id=ref):
+                TokenPurchase.objects.filter(pk=purchase.pk).update(
+                    reviewed_by=request.user,
+                    reviewed_at=timezone.now(),
+                    updated_at=timezone.now(),
+                )
+                approved += 1
+            else:
+                skipped += 1
+
+        self.message_user(
+            request,
+            f'{approved} رسید تایید و توکن آزاد شد. {skipped} مورد نادیده گرفته شد '
+            f'(بدون رسید، غیرکارتی، یا قبلاً تاییدشده).'
+        )
+
+    @admin.action(description='❌ رد رسید کارت‌به‌کارت')
+    def reject_card_receipts(self, request, queryset):
+        rejected = queryset.exclude(status='paid').filter(
+            payment_method=TokenPurchase.METHOD_CARD
+        ).update(
+            status='rejected',
+            reviewed_by=request.user,
+            reviewed_at=timezone.now(),
+            updated_at=timezone.now(),
+        )
+        self.message_user(
+            request,
+            f'{rejected} رسید رد شد. کاربر می‌تواند رسید جدیدی بارگذاری کند.'
+        )
+
+    def save_model(self, request, obj, form, change):
+        """تغییرِ وضعیت به «پرداخت شده» در همین فرم، توکن را هم شارژ می‌کند.
+
+        باگِ قبلی: شارژ فقط در اکشن‌های فهرست انجام می‌شد. اگر مدیر در فرمِ خودِ خرید
+        وضعیت را روی «پرداخت شده» می‌گذاشت و ذخیره می‌کرد، خرید «تاییدشده» دیده
+        می‌شد ولی کیف پولِ صاحبِ حساب پر نمی‌شد و دفتر حساب هم سطری نمی‌گرفت.
+
+        کار از همان مسیرِ idempotentِ _complete_purchase می‌گذرد تا شارژ، کد تخفیف و
+        دفتر حساب دقیقاً مثلِ مسیرِ درگاه ثبت شوند. چون آن تابع روی خریدِ paid کاری
+        نمی‌کند، وضعیتِ قبلی نگه داشته می‌شود و خودِ تابع آن را paid می‌کند.
+        """
+        from .views_extended import _complete_purchase
+
+        previous_status = None
+        if change and obj.pk:
+            previous_status = (TokenPurchase.objects
+                               .filter(pk=obj.pk).values_list('status', flat=True).first())
+
+        if obj.status == 'paid' and previous_status != 'paid':
+            obj.status = previous_status or 'under_review'
+            super().save_model(request, obj, form, change)
+            ref = obj.payment_ref_id or f'ADMIN-{obj.pk}'
+            if _complete_purchase(obj, ref_id=ref):
+                TokenPurchase.objects.filter(pk=obj.pk).update(
+                    reviewed_by=request.user,
+                    reviewed_at=timezone.now(),
+                    updated_at=timezone.now(),
+                )
+                obj.refresh_from_db()
+                obj.user.refresh_from_db()
+                self.message_user(
+                    request,
+                    f'{obj.token_amount} توکن به حساب {obj.user.phone_number} اضافه شد '
+                    f'(موجودی: {obj.user.get_effective_token_balance()}).',
+                    level=messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request, 'این خرید از قبل پرداخت‌شده بود؛ توکن دوباره شارژ نشد.',
+                    level=messages.WARNING,
+                )
+            return
+
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='🩹 شارژِ توکنِ خریدهای «پرداخت‌شده»ی شارژنشده')
+    def charge_missing_tokens(self, request, queryset):
+        """جبرانِ خریدهایی که قبلاً دستی paid شدند و توکنشان هرگز اضافه نشد.
+
+        ملاکِ «شارژ شده» سطرِ دفترِ حساب است (token_grant با شناسهٔ همان خرید)، نه
+        وضعیت؛ چون _complete_purchase روی خریدِ paid عمداً کاری نمی‌کند.
+        """
+        fixed = 0
+        skipped = 0
+        for purchase in queryset.select_related('user'):
+            ref = f'purchase#{purchase.id}'
+            already = LedgerEntry.objects.filter(
+                entry_type=LedgerEntry.TYPE_TOKEN_GRANT, reference=ref
+            ).exists()
+            if purchase.status != 'paid' or already:
+                skipped += 1
+                continue
+            purchase.user.add_tokens(purchase.token_amount)
+            LedgerEntry.record(
+                LedgerEntry.TYPE_TOKEN_GRANT,
+                user=purchase.user,
+                tokens=purchase.token_amount,
+                reference=ref,
+                description='جبرانِ شارژِ توکنِ خریدِ پرداخت‌شده (از پنل ادمین)',
+            )
+            TokenPurchase.objects.filter(pk=purchase.pk).update(
+                reviewed_by=request.user, reviewed_at=timezone.now(), updated_at=timezone.now(),
+            )
+            fixed += 1
+        self.message_user(
+            request,
+            f'{fixed} خرید شارژ شد. {skipped} مورد رد شد (پرداخت‌شده نبود یا قبلاً شارژ شده بود).'
+        )
+
+    @admin.action(description='تغییر وضعیت به پرداخت‌شده + شارژ توکن')
+    def mark_as_paid_and_charge_tokens(self, request, queryset):
+        """همان مسیرِ تاییدِ رسید، ولی بدونِ شرطِ کارت‌به‌کارت و رسید.
+
+        عمداً از _complete_purchase استفاده می‌کند تا دفتر حساب و کد تخفیف هم مثلِ
+        بقیهٔ مسیرها ثبت شوند (نسخهٔ قبلی توکن را شارژ می‌کرد ولی دفتر را نمی‌نوشت).
+        """
+        from .views_extended import _complete_purchase
+
+        charged_count = 0
+        skipped_count = 0
+        for purchase in queryset.select_related('user', 'discount_code'):
+            ref = purchase.payment_ref_id or f'ADMIN-{purchase.id}'
+            if _complete_purchase(purchase, ref_id=ref):
+                TokenPurchase.objects.filter(pk=purchase.pk).update(
+                    reviewed_by=request.user,
+                    reviewed_at=timezone.now(),
+                    updated_at=timezone.now(),
+                )
+                charged_count += 1
+            else:
+                skipped_count += 1
+
+        self.message_user(
+            request,
+            f'{charged_count} خرید پرداخت‌شده و شارژ شد. {skipped_count} مورد قبلاً paid بود.'
+        )
+
+    @admin.action(description='تغییر وضعیت خریدهای انتخاب‌شده به ناموفق')
+    def mark_as_failed(self, request, queryset):
+        updated = queryset.exclude(status='paid').update(status='failed')
+        self.message_user(request, f'{updated} خرید به ناموفق تغییر وضعیت یافت.')
+
+    @admin.action(description='تغییر وضعیت خریدهای انتخاب‌شده به لغوشده')
+    def mark_as_cancelled(self, request, queryset):
+        updated = queryset.exclude(status='paid').update(status='cancelled')
+        self.message_user(request, f'{updated} خرید به لغوشده تغییر وضعیت یافت.')
+
+
+@admin.register(GymBrand)
+class GymBrandAdmin(admin.ModelAdmin):
+    """مدیریت برندسازی باشگاه"""
+    list_display = ['gym_name', 'user', 'token_balance', 'phone', 'email', 'created_at']
+    search_fields = ['gym_name', 'user__phone_number', 'phone', 'email']
+    autocomplete_fields = ['user']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('کاربر', {
+            'fields': ('user',)
+        }),
+        ('کیف پول توکن', {
+            'fields': ('token_balance',),
+            'description': 'مرجع اصلی موجودی توکن باشگاه — موجودی کاربر مالک به‌طور خودکار با این عدد هماهنگ می‌شود.'
+        }),
+        ('اطلاعات اصلی', {
+            'fields': ('gym_name', 'description')
+        }),
+        ('تم رنگی', {
+            'fields': ('primary_color', 'secondary_color', 'accent_color'),
+            'description': 'رنگ‌ها را به صورت HEX وارد کنید (مثال: #1976d2)'
+        }),
+        ('تصاویر', {
+            'fields': ('logo',)
+        }),
+        ('اطلاعات تماس', {
+            'fields': ('address', 'phone', 'email', 'instagram')
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+
+@admin.register(GymClient)
+class GymClientAdmin(admin.ModelAdmin):
+    actions = ['reclaim_tokens_action']
+
+    @admin.action(description='بازگرداندن توکن‌های رزروشده به مربی')
+    def reclaim_tokens_action(self, request, queryset):
+        total = 0
+        count = 0
+        for client in queryset:
+            returned = client.reclaim_pending_tokens(reason='admin')
+            if returned:
+                total += returned
+                count += 1
+        if total:
+            self.message_user(request, f'{total} توکن از {count} کد به مربیان بازگردانده شد.')
+        else:
+            self.message_user(request, 'هیچ توکن رزروشده‌ای برای بازگرداندن نبود.')
+
+    """مدیریت مشتریان باشگاه"""
+    list_display = ['name', 'access_code', 'access_code_status', 'gym_owner_name', 'gym_owner_phone', 'pending_tokens', 'is_used', 'client_user', 'created_at']
+    list_filter = ['is_used', 'gender', 'created_at']
+    search_fields = ['name', 'access_code', 'gym_owner__phone_number', 'gym_owner__gym_name']
+    autocomplete_fields = ['gym_owner', 'client_user']
+    readonly_fields = ['access_code', 'created_at', 'updated_at']
+
+    @admin.display(description='وضعیت کد')
+    def access_code_status(self, obj):
+        if obj.access_code_expires_at is None:
+            return 'دائمی'
+        if obj.access_code_is_expired:
+            return '✗ منقضی'
+        return f"تا {obj.access_code_expires_at.strftime('%Y-%m-%d %H:%M')}"
+
+    fieldsets = (
+        ('باشگاه', {
+            'fields': ('gym_owner',)
+        }),
+        ('کد دسترسی', {
+            'fields': ('access_code', 'access_code_expires_at', 'pending_tokens', 'is_used', 'client_user'),
+            'description': 'انقضای کد خالی = کد دائمی. کد منقضی‌شده نه فعال می‌شود و نه ورود مجدد می‌دهد.'
+        }),
+        ('اطلاعات مشتری', {
+            'fields': ('name', 'age', 'gender', 'height', 'weight', 'goal')
+        }),
+        ('اطلاعات پزشکی', {
+            'fields': ('injuries', 'food_allergies')
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description='نام باشگاه')
+    def gym_owner_name(self, obj):
+        return obj.gym_owner.gym_name or '-'
+
+    @admin.display(description='شماره مربی')
+    def gym_owner_phone(self, obj):
+        return obj.gym_owner.phone_number
+
+
+@admin.register(TokenRequest)
+class TokenRequestAdmin(admin.ModelAdmin):
+    """مدیریت درخواست‌های توکن"""
+    list_display = ['client', 'gym_owner', 'requested_tokens', 'status', 'created_at']
+    list_filter = ['status', 'created_at']
+    search_fields = ['client__name', 'gym_owner__phone_number', 'gym_owner__gym_name']
+    autocomplete_fields = ['client', 'gym_owner']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('درخواست', {
+            'fields': ('client', 'gym_owner', 'requested_tokens', 'status')
+        }),
+        ('پیام‌ها', {
+            'fields': ('message', 'response_message')
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+
+@admin.register(ProgramShareCode)
+class ProgramShareCodeAdmin(admin.ModelAdmin):
+    """کدهای یکبارمصرف دانلود برنامه.
+
+    فقط برای رصد است: کد را مربی از پنل خودش می‌سازد و مصرفش هم از سمت
+    ورزشکار اتفاق می‌افتد. ساخت یا «مصرف‌نشده کردن» دستی از اینجا مجاز
+    نیست، وگرنه قاعده‌ی یک‌بارمصرف بودن بی‌معنا می‌شود.
+    """
+    list_display = [
+        'code', 'program_link', 'coach', 'section', 'state_display',
+        'expires_at', 'created_at',
+    ]
+    list_filter = ['is_used', 'section', 'created_at']
+    search_fields = [
+        'code', 'program__name', 'created_by__phone_number', 'created_by__gym_name',
+    ]
+    autocomplete_fields = ['program', 'created_by']
+    readonly_fields = [
+        'code', 'program', 'created_by', 'section', 'expires_at',
+        'is_used', 'used_at', 'created_at',
+    ]
+    list_per_page = 30
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description='برنامه')
+    def program_link(self, obj):
+        return f'#{obj.program_id} — {obj.program.name}'
+
+    @admin.display(description='مربی')
+    def coach(self, obj):
+        return obj.created_by.gym_name or obj.created_by.phone_number
+
+    @admin.display(description='وضعیت')
+    def state_display(self, obj):
+        if obj.is_used:
+            when = obj.used_at.strftime('%Y-%m-%d %H:%M') if obj.used_at else ''
+            return format_html('<span style="color:#6b7280;">✓ مصرف‌شده {}</span>', when)
+        if obj.is_expired:
+            return format_html('<span style="color:#b91c1c;">✗ منقضی</span>')
+        return format_html('<span style="color:#15803d;">آماده استفاده</span>')
+
+
+@admin.register(HomePage)
+class HomePageAdmin(admin.ModelAdmin):
+    """مدیریت صفحه اصلی"""
+    list_display = ['title', 'is_active', 'created_at']
+    list_filter = ['is_active', 'created_at']
+    readonly_fields = ['created_at', 'updated_at']
+
+
+@admin.register(BlogPost)
+class BlogPostAdmin(admin.ModelAdmin):
+    """مدیریت پست‌های وبلاگ"""
+    list_display = ['title', 'author', 'is_published', 'created_at']
+    list_filter = ['is_published', 'created_at']
+    search_fields = ['title', 'content', 'author__phone_number']
+    autocomplete_fields = ['author']
+    readonly_fields = ['created_at', 'updated_at']
+    prepopulated_fields = {'slug': ('title',)}
+
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    """مدیریت پیام‌های تماس"""
+    list_display = ['name', 'email', 'subject', 'is_read', 'created_at']
+    list_filter = ['is_read', 'created_at']
+    search_fields = ['name', 'email', 'subject', 'message']
+    readonly_fields = ['created_at']
+
+
+# TeamMember: ادمینِ کاملِ رزومه (با سوابق، مهارت‌ها و نمونه‌کارها) در portfolio/admin.py
+# ثبت می‌شود — ۱۴۰۵/۰۸/۰۴.
+
+
+@admin.register(Feature)
+class FeatureAdmin(admin.ModelAdmin):
+    """مدیریت امکانات"""
+    list_display = ['title', 'icon', 'order', 'is_active']
+    list_filter = ['is_active']
+    search_fields = ['title', 'description']
+    list_editable = ['order', 'is_active']
+
+
+@admin.register(PaymentGatewayConfig)
+class PaymentGatewayConfigAdmin(admin.ModelAdmin):
+    """مدیریت تنظیمات درگاه پرداخت"""
+    list_display = ['gateway_type', 'merchant_id_display', 'is_sandbox', 'is_active', 'updated_at']
+    list_filter = ['gateway_type', 'is_sandbox', 'is_active']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('نوع درگاه', {
+            'fields': ('gateway_type', 'is_active', 'is_sandbox'),
+            'description': 'برای تست بدون پول واقعی، نوع درگاه را روی «درگاه تستی» بگذارید و '
+                           'فقط Callback URL را پر کنید؛ کاربر به یک صفحه شبیه‌ساز داخلی می‌رود و '
+                           'با زدن «پرداخت موفق» همان مسیر کال‌بک و verify واقعی طی می‌شود. '
+                           'برای واقعی‌کردن، کافی است بعداً یک درگاه واقعی را فعال کنید.'
+        }),
+        ('اطلاعات احراز هویت', {
+            'fields': ('merchant_id', 'api_key'),
+            'description': 'اطلاعات دریافتی از سایت درگاه پرداخت (برای درگاه تستی لازم نیست)'
+        }),
+        ('تنظیمات', {
+            'fields': ('callback_url',),
+            'description': 'آدرس بازگشت باید به صورت کامل باشد '
+                           '(توسعه: http://localhost:8000/api/payment-callback/ — '
+                           'production: https://yourdomain.com/api/payment-callback/)'
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description='Merchant ID')
+    def merchant_id_display(self, obj):
+        """نمایش کوتاه شده Merchant ID"""
+        if obj.gateway_type == 'mock':
+            return '— (درگاه تستی)'
+        if len(obj.merchant_id) > 20:
+            return f"{obj.merchant_id[:20]}..."
+        return obj.merchant_id
+
+
+@admin.register(SMSConfig)
+class SMSConfigAdmin(admin.ModelAdmin):
+    """مدیریت تنظیمات SMS"""
+    list_display = ['provider', 'sender_number', 'is_active', 'updated_at']
+    list_filter = ['provider', 'is_active']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('سرویس دهنده', {
+            'fields': ('provider', 'is_active')
+        }),
+        ('اطلاعات احراز هویت', {
+            'fields': ('api_key', 'sender_number'),
+            'description': 'API Key و شماره ارسال‌کننده از پنل سرویس SMS دریافت می‌شود'
+        }),
+        ('قالب‌های پیامک', {
+            'fields': ('access_code_template', 'token_approved_template', 'token_rejected_template', 'password_reset_template'),
+            'description': 'از متغیرهای مشخص شده در help text استفاده کنید'
+        }),
+        ('تاریخ‌ها', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+
+@admin.register(SMSOutbox)
+class SMSOutboxAdmin(admin.ModelAdmin):
+    """صف پیامکِ گیت‌وی — گوشی از /api/next-otp برمی‌دارد و با /api/mark-sent تایید می‌کند.
+
+    برای تستِ گوشی، از «افزودن» یک شماره و کد بساز تا در صف برود.
+    """
+    list_display = ['phone', 'code', 'purpose', 'status_badge', 'created_at', 'sent_at']
+    list_filter = ['sent', 'purpose']
+    search_fields = ['phone']
+    readonly_fields = ['created_at', 'sent_at']
+    fields = ['phone', 'code', 'purpose', 'sent', 'expires_at', 'created_at', 'sent_at']
+
+    @admin.display(description='وضعیت')
+    def status_badge(self, obj):
+        if obj.sent:
+            return format_html('<span style="color:green">{}</span>', 'ارسال شد ✓')
+        if obj.is_expired:
+            return format_html('<span style="color:gray">{}</span>', 'منقضی شد')
+        return format_html('<span style="color:orange">{}</span>', 'در انتظار ارسال...')
+
+
+def _price_cross_check(obj):
+    """«تعرفه» و «تنظیماتِ سامانه» با هم می‌خوانند؟ — همین‌جا نشان بده.
+
+    بدونِ این، مالک در یک صفحه قیمت می‌گذارد و در صفحهٔ دیگر عددِ دیگری
+    می‌ماند و هیچ‌کس متوجه نمی‌شود.
+    """
+    try:
+        from .pricing import toman_per_token, program_price_toman
+        from .views import live_token_costs
+    except Exception:
+        return '—'
+    rate = toman_per_token()
+    if rate is None:
+        return format_html(
+            '<b style="color:#b02a2a">هیچ تعرفهٔ فعالی نیست</b> — '
+            'خریدِ توکن کار نمی‌کند. در «بسته توکن» یکی را فعال کن.')
+    rows = []
+    for key, label in (('generate_program', 'برنامهٔ کامل (ورزشی+غذایی)'),
+                       ('generate_workout_only', 'فقط ورزشی'),
+                       ('generate_meal_only', 'فقط غذایی'),
+                       ('edit_program', 'ویرایش')):
+        tk = live_token_costs()[key]
+        rows.append('<tr><td>%s</td><td>%d توکن</td><td><b>%s تومان</b></td></tr>'
+                    % (label, tk, '{:,}'.format(program_price_toman(tk) or 0)))
+    admin_val = int(obj.ai_program_price or 0)
+    real = program_price_toman(live_token_costs()['generate_program']) or 0
+    if not admin_val:
+        verdict = ('<div style="color:#15803d">عددِ بالا خالی است، پس همین '
+                   'قیمتِ محاسبه‌شده به اپ می‌رود. ✓</div>')
+    elif admin_val == real:
+        verdict = '<div style="color:#15803d">با تعرفه می‌خواند. ✓</div>'
+    else:
+        verdict = ('<div style="color:#b02a2a"><b>⚠ نمی‌خواند:</b> در اپ '
+                   '%s تومان نشان داده می‌شود ولی مشتری عملاً %s تومان '
+                   'توکن می‌خرد. یا این عدد را درست کن یا خالی بگذار تا '
+                   'خودکار حساب شود.</div>'
+                   % ('{:,}'.format(admin_val), '{:,}'.format(real)))
+    return format_html(
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;'
+        'padding:12px;max-width:620px;line-height:1.9">'
+        '<b style="color:#163F75">قیمتِ واقعی از روی «بسته توکن»</b> '
+        '(هر توکن {} تومان):'
+        '<table style="margin:8px 0;border-collapse:collapse" border="1" '
+        'cellpadding="6">{}</table>{}</div>',
+        '{:,.0f}'.format(rate), mark_safe(''.join(rows)), mark_safe(verdict))
+
+
+class _PlatformSettingsPriceMixin:
+    """⚠ عمداً **بیرون و بالای** دکوراتور. اگر بینِ @admin.register و کلاسِ
+    ادمین بنشیند، دکوراتور همین میکسین را می‌گیرد و جنگو می‌گوید
+    «Wrapped class must subclass ModelAdmin»."""
+
+    @admin.display(description='سنجش با تعرفه')
+    def price_cross_check(self, obj):
+        return _price_cross_check(obj)
+
+
+@admin.register(PlatformSettings)
+class PlatformSettingsAdmin(_PlatformSettingsPriceMixin, admin.ModelAdmin):
+    """تنظیمات سراسری سامانه"""
+    list_display = ['name', 'pending_token_expiry_days', 'access_code_length',
+                    'manual_program_free_quota', 'manual_program_token_cost', 'is_active', 'updated_at']
+    list_filter = ['is_active']
+    readonly_fields = ['created_at', 'updated_at', 'price_cross_check']
+
+    fieldsets = (
+        ('عمومی', {'fields': ('name', 'is_active')}),
+        ('توکن', {
+            'fields': ('pending_token_expiry_days',),
+            'description': 'توکن‌هایی که مربی روی یک کد دسترسی رزرو می‌کند، اگر مشتری تا این '
+                           'تعداد روز کد را فعال نکند، خودکار به حساب مربی برمی‌گردند. '
+                           'اجرای دوره‌ای با دستور: python manage.py reclaim_expired_tokens'
+        }),
+        ('کد دسترسی مشتریان', {
+            'fields': ('access_code_length',),
+            'description': 'تعداد رقم کدهای دسترسی جدید (پیش‌فرض ۴). کدهای قبلی تغییر نمی‌کنند. '
+                           'اگر همه ترکیب‌های این طول مصرف شده باشد، سامانه خودکار یک رقم اضافه می‌کند.'
+        }),
+        ('نشانی، تماس و نقشه', {
+            'fields': ('contact_address', 'contact_phone', 'contact_email',
+                       'map_lat', 'map_lng', 'map_zoom'),
+            'description': 'این‌ها در فوتر همهٔ صفحه‌ها و در «تماس با ما» دیده '
+                           'می‌شوند. برای نقشه، در گوگل‌مپ روی نقطهٔ درست '
+                           'راست‌کلیک کن؛ دو عددی که نشان می‌دهد را این‌جا بگذار.'
+        }),
+        ('جداییِ ورزشکار (B2C) روی ساب‌دامین', {
+            'fields': ('b2c_split_active',),
+            'description': 'ترتیبِ بی‌خطر: ۱) در کلادفلر رکوردِ A برای app '
+                           'بسازید · ۲) گواهی را با دستورِ '
+                           'chagher-enable-app-ssl.sh بگیرید · ۳) این تیک را '
+                           'بزنید. تا قبل از آن، خاموش بماند تا کسی به آدرسی که '
+                           'هنوز باز نشده هدایت نشود.'
+        }),
+        ('دکمهٔ ابزارها داخلِ اپ', {
+            'fields': ('app_bridge_enabled',),
+            'description': 'این دکمه پلِ موقتِ اپِ فلاتر به صفحه‌های جنگو است. با '
+                           'برداشتنِ تیک، دکمه از اپ ناپدید می‌شود (API سرِ جایش می‌ماند).'
+        }),
+        ('بررسیِ درستیِ حرکت با دوربین', {
+            'fields': ('form_check_enabled', 'form_check_token_cost',
+                       'form_check_max_frames', 'form_check_store_frames'),
+            'description': 'ورزشکار در صفحهٔ آموزشِ هر حرکت دکمه‌ای می‌بیند، دوربین باز '
+                           'می‌شود و سامانه می‌گوید درست می‌زند یا نه. اگر تیکِ «فعال باشد» '
+                           'را بردارید، دکمه هم ناپدید می‌شود و مسیرهایش ۴۰۴ می‌دهند.'
+        }),
+        ('اسکنِ دستگاه با دوربین', {
+            'fields': ('equipment_scan_token_cost', 'equipment_scan_max_photos'),
+            'description': 'کاربر با گوشی در باشگاه می‌چرخد، عکس می‌گیرد و سامانه دستگاه‌ها '
+                           'را تشخیص می‌دهد. تا تأییدِ کاربر چیزی ثبت نمی‌شود.'
+        }),
+        ('نرخِ مصرفِ توکن — هوش مصنوعی', {
+            'fields': ('ai_tokens_both', 'ai_tokens_workout',
+                       'ai_tokens_meal', 'ai_tokens_edit'),
+            'description': 'هر بار ساختِ برنامه چند توکن از مربی کم شود. '
+                           'پیش از این در کد ثابت بود (۵۰/۲۵/۲۵/۲۵) و از ادمین '
+                           'عوض نمی‌شد. ⚠ اگر در «قاعده‌های قیمت» قاعده‌ای '
+                           'نوشته باشی، آن قاعده بر این عددها مقدم است.'
+        }),
+        ('تعرفه و سهمیهٔ رایگان', {
+            'fields': ('manual_trial_days', 'ai_free_programs',
+                       'manual_plan_annual_price', 'ai_program_price',
+                       'price_cross_check'),
+            'description': 'هر مربی پس از ثبت‌نام، این تعداد **روز** برنامهٔ دستیِ رایگان '
+                           'و این تعداد برنامهٔ رایگانِ هوش مصنوعی دارد. بعد از آن، '
+                           'اشتراکِ سالانه (قیمتش همین‌جا) یا توکن لازم است. '
+                           'اشتراکِ هر مربی را در صفحهٔ «کاربران» می‌شود دستی تمدید کرد.'
+        }),
+        ('برنامهٔ دستیِ مربی (بدونِ هوش مصنوعی)', {
+            'fields': ('manual_billing_mode', 'manual_program_free_quota',
+                       'manual_program_token_cost'),
+            'description': '⚠ اول «چطور حساب شود» را انتخاب کن، وگرنه دو عددِ '
+                           'زیرش بی‌اثر می‌مانند:<br>'
+                           '· <b>با توکن</b> — تا «سهمِ رایگان» مجانی، بعدش '
+                           '«هزینهٔ توکن» کم می‌شود. دورهٔ آزمایشی و اشتراک '
+                           'دخالت نمی‌کنند. (اگر می‌خواهی توکن کم شود، همین.)<br>'
+                           '· <b>دورهٔ آزمایشی، بعد اشتراک</b> — رفتارِ قبلی: تا '
+                           'پایانِ دورهٔ آزمایشی رایگان، بعدش «اشتراکِ سالانه '
+                           'لازم است».<br>'
+                           '· <b>همیشه رایگان</b> — هیچ‌وقت توکن کم نمی‌شود.'
+        }),
+        ('تاریخ‌ها', {'fields': ('created_at', 'updated_at')}),
+    )
+
+
+# ============================================================================
+# حسابداری — کاملاً فقط خواندنی
+#
+# این بخش عمداً با بقیه پنل ادمین فرق دارد: هیچ افزودن، ویرایش یا حذفی
+# ندارد. دلیلش این است که دو شریک باید بتوانند به همین اعداد استناد کنند و
+# هیچ‌کس نتواند دستی عددی را جابه‌جا کند.
+# ============================================================================
+
+@admin.register(LedgerEntry)
+class LedgerEntryAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """دفتر حساب — سطرها فقط افزوده می‌شوند و هرگز ویرایش/حذف نمی‌شوند."""
+    list_display = [
+        'created_at', 'entry_type', 'user', 'counterparty',
+        'tokens_display', 'amount_display', 'reference', 'description',
+    ]
+    list_filter = ['entry_type', 'created_at']
+    search_fields = [
+        'user__phone_number', 'user__gym_name', 'reference', 'description',
+        'counterparty__phone_number',
+    ]
+    date_hierarchy = 'created_at'
+    list_per_page = 50
+    list_select_related = ['user', 'counterparty']
+
+    @admin.display(description='توکن', ordering='tokens')
+    def tokens_display(self, obj):
+        if not obj.tokens:
+            return '-'
+        color = '#15803d' if obj.tokens > 0 else '#b91c1c'
+        # ⚠ قالبِ عددی ({:+,}) را نباید به format_html داد: آرگومان‌ها را اول
+        #   به رشته تبدیل می‌کند و بعد «,» روی رشته می‌شکند
+        #   (ValueError: Cannot specify ',' with 's') ⇒ صفحه ۵۰۰ می‌داد.
+        return format_html(
+            '<span style="color:{};font-weight:700">{}</span>',
+            color, '{:+,}'.format(obj.tokens)
+        )
+
+    @admin.display(description='مبلغ (تومان)', ordering='amount')
+    def amount_display(self, obj):
+        if not obj.amount:
+            return '-'
+        color = '#15803d' if obj.amount > 0 else '#b91c1c'
+        sign = '+' if obj.amount > 0 else '-'
+        return format_html(
+            '<span style="color:{};font-weight:700">{}{}</span>',
+            color, sign, _toman(abs(obj.amount)),
+        )
+
+
+@admin.register(AccountStatement)
+class AccountStatementAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """صورت‌حساب هر کاربر: چقدر خریده، چقدر مصرف کرده، چقدر مانده."""
+    list_display = [
+        'phone_number', 'gym_name', 'account_type',
+        'paid_amount_display', 'tokens_bought_display', 'tokens_spent_display',
+        'programs_count', 'ai_cost_display', 'current_balance_display',
+    ]
+    list_filter = ['account_type']
+    search_fields = ['phone_number', 'gym_name']
+    list_per_page = 40
+
+    fieldsets = (
+        ('کاربر', {'fields': ('phone_number', 'gym_name', 'account_type')}),
+        ('خلاصه حساب', {'fields': ('statement_summary',)}),
+    )
+    readonly_fields = ['phone_number', 'gym_name', 'account_type', 'statement_summary']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            _paid_amount=Sum(
+                'token_purchases__final_price',
+                filter=Q(token_purchases__status='paid'),
+            ),
+            _tokens_bought=Sum(
+                'token_purchases__token_amount',
+                filter=Q(token_purchases__status='paid'),
+            ),
+            _tokens_spent=Sum('programs__tokens_consumed'),
+            _programs=Count('programs', distinct=True),
+            _ai_cost=Sum('programs__ai_cost'),
+        )
+
+    @admin.display(description='مبلغ پرداختی (تومان)', ordering='_paid_amount')
+    def paid_amount_display(self, obj):
+        return _toman(getattr(obj, '_paid_amount', 0))
+
+    @admin.display(description='توکن خریداری‌شده', ordering='_tokens_bought')
+    def tokens_bought_display(self, obj):
+        return f"{getattr(obj, '_tokens_bought', 0) or 0:,}"
+
+    @admin.display(description='توکن مصرف‌شده', ordering='_tokens_spent')
+    def tokens_spent_display(self, obj):
+        return f"{getattr(obj, '_tokens_spent', 0) or 0:,}"
+
+    @admin.display(description='تعداد برنامه', ordering='_programs')
+    def programs_count(self, obj):
+        return getattr(obj, '_programs', 0) or 0
+
+    @admin.display(description='هزینه هوش مصنوعی (تومان)', ordering='_ai_cost')
+    def ai_cost_display(self, obj):
+        return _toman(getattr(obj, '_ai_cost', 0))
+
+    @admin.display(description='موجودی فعلی')
+    def current_balance_display(self, obj):
+        return f"{obj.get_effective_token_balance():,}"
+
+    @admin.display(description='خلاصه')
+    def statement_summary(self, obj):
+        paid = TokenPurchase.objects.filter(user=obj, status='paid')
+        total_paid = paid.aggregate(v=Sum('final_price'))['v'] or Decimal('0')
+        tokens_bought = paid.aggregate(v=Sum('token_amount'))['v'] or 0
+        programs = ClientProgram.objects.filter(user=obj)
+        tokens_spent = programs.aggregate(v=Sum('tokens_consumed'))['v'] or 0
+        ai_cost = programs.aggregate(v=Sum('ai_cost'))['v'] or Decimal('0')
+        commission = DiscountCodeUsage.objects.filter(
+            discount_code__creator=obj
+        ).aggregate(v=Sum('commission_amount'))['v'] or Decimal('0')
+
+        rows = [
+            ('مبلغ پرداختی (تومان)', _toman(total_paid)),
+            ('توکن خریداری‌شده', f"{tokens_bought:,}"),
+            ('توکن مصرف‌شده', f"{tokens_spent:,}"),
+            ('موجودی فعلی توکن', f"{obj.get_effective_token_balance():,}"),
+            ('تعداد برنامه ساخته‌شده', f"{programs.count():,}"),
+            ('هزینه واقعی هوش مصنوعی (تومان)', _toman(ai_cost)),
+            ('کمیسیون دریافتی از کدهای تخفیف (تومان)', _toman(commission)),
+            ('سود ناخالص این کاربر (تومان)', _toman(total_paid - ai_cost)),
+        ]
+        body = ''.join(
+            '<tr><th style="text-align:right;padding:6px 12px;background:#f3f6fb;'
+            'border:1px solid #e2e8f0;">{}</th>'
+            '<td style="padding:6px 12px;border:1px solid #e2e8f0;">{}</td></tr>'.format(k, v)
+            for k, v in rows
+        )
+        return mark_safe(
+            '<table style="border-collapse:collapse;direction:rtl;font-family:Tahoma;'
+            'font-size:13px;">' + body + '</table>'
+        )
+
+
+# ============================================================================
+# بهای تمام‌شده — چقدر توکن مدل خرج می‌کنیم و در برابرش چقدر می‌فروشیم
+# ============================================================================
+
+def _tokens(value):
+    """نمایش تعداد توکن با جداکننده هزارگان."""
+    try:
+        return f"{int(value or 0):,}"
+    except (TypeError, ValueError):
+        return '0'
+
+
+@admin.register(AIUsageLog)
+class AIUsageLogAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """هر فراخوانی مدل، یک سطر — منبع خام گزارش بهای تمام‌شده."""
+
+    list_display = [
+        'created_at', 'operation', 'program_type', 'model_name',
+        'input_tokens_display', 'output_tokens_display', 'cost_display',
+        'tokens_charged', 'revenue_display', 'margin_display',
+    ]
+    list_filter = ['operation', 'program_type', 'model_name', 'provider_name', 'created_at']
+    search_fields = ['model_name', 'provider_name', 'user__phone_number']
+    date_hierarchy = 'created_at'
+    list_per_page = 50
+
+    @admin.display(description='توکن ورودی', ordering='input_tokens')
+    def input_tokens_display(self, obj):
+        return _tokens(obj.input_tokens)
+
+    @admin.display(description='توکن خروجی', ordering='output_tokens')
+    def output_tokens_display(self, obj):
+        return _tokens(obj.output_tokens)
+
+    @admin.display(description='هزینه (تومان)', ordering='cost')
+    def cost_display(self, obj):
+        return _toman(obj.cost)
+
+    @admin.display(description='درآمد معادل (تومان)', ordering='revenue')
+    def revenue_display(self, obj):
+        return _toman(obj.revenue)
+
+    @admin.display(description='سود ناخالص (تومان)')
+    def margin_display(self, obj):
+        return _toman(obj.margin)
+
+
+@admin.register(UnitEconomicsReport)
+class UnitEconomicsReportAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """گزارش «هر برنامه چقدر برایمان تمام می‌شود».
+
+    همان داده‌ی AIUsageLog است، ولی با یک جدول جمع‌بندی بالای صفحه که به
+    تفکیک نوع عملیات نشان می‌دهد: میانگین توکن ورودی/خروجی، بهای تمام‌شده،
+    قیمت فروش، و سود هر برنامه.
+    """
+
+    change_list_template = 'admin/app/uniteconomicsreport/change_list.html'
+    list_display = [
+        'created_at', 'operation', 'program_type', 'model_name',
+        'input_tokens', 'output_tokens', 'cost', 'tokens_charged', 'revenue',
+    ]
+    list_filter = ['operation', 'program_type', 'model_name', 'created_at']
+    date_hierarchy = 'created_at'
+    list_per_page = 30
+
+    # برچسب‌های خوانا برای ترکیب «عملیات + نوع برنامه»
+    BUCKETS = [
+        ('generate', 'both', 'برنامه ورزشی + غذایی'),
+        ('generate', 'workout', 'فقط برنامه ورزشی'),
+        ('generate', 'meal', 'فقط برنامه غذایی'),
+        ('edit', None, 'ویرایش برنامه'),
+    ]
+
+    def changelist_view(self, request, extra_context=None):
+        response = super().changelist_view(request, extra_context)
+
+        # از همان queryset فیلترشده‌ی صفحه استفاده می‌کنیم تا جمع‌بندی با
+        # فیلترهای کاربر (تاریخ، مدل، ...) هم‌خوان بماند.
+        try:
+            queryset = response.context_data['cl'].queryset
+        except (AttributeError, KeyError):
+            return response
+
+        rows = []
+        for operation, program_type, label in self.BUCKETS:
+            bucket = queryset.filter(operation=operation)
+            if program_type is not None:
+                bucket = bucket.filter(program_type=program_type)
+            agg = bucket.aggregate(
+                n=Count('id'),
+                tin=Sum('input_tokens'),
+                tout=Sum('output_tokens'),
+                cost=Sum('cost'),
+                revenue=Sum('revenue'),
+                charged=Sum('tokens_charged'),
+            )
+            count = agg['n'] or 0
+            if not count:
+                continue
+
+            cost = agg['cost'] or Decimal('0')
+            revenue = agg['revenue'] or Decimal('0')
+            rows.append({
+                'label': label,
+                'count': f"{count:,}",
+                'avg_in': _tokens((agg['tin'] or 0) / count),
+                'avg_out': _tokens((agg['tout'] or 0) / count),
+                'avg_cost': _toman(cost / count),
+                'avg_tokens': _tokens((agg['charged'] or 0) / count),
+                'avg_revenue': _toman(revenue / count),
+                'avg_margin': _toman((revenue - cost) / count),
+                'total_cost': _toman(cost),
+                'total_revenue': _toman(revenue),
+                'negative': revenue < cost,
+            })
+
+        totals = queryset.aggregate(
+            n=Count('id'), cost=Sum('cost'), revenue=Sum('revenue'),
+            tin=Sum('input_tokens'), tout=Sum('output_tokens'),
+        )
+        total_cost = totals['cost'] or Decimal('0')
+        total_revenue = totals['revenue'] or Decimal('0')
+
+        unit_price = AIUsageLog.current_token_unit_price()
+        pricing_missing = not APIConfig.objects.filter(is_active=True).exclude(
+            input_price_per_million=0, output_price_per_million=0
+        ).exists()
+
+        response.context_data['economics'] = {
+            'rows': rows,
+            'total_calls': f"{totals['n'] or 0:,}",
+            'total_input': _tokens(totals['tin']),
+            'total_output': _tokens(totals['tout']),
+            'total_cost': _toman(total_cost),
+            'total_revenue': _toman(total_revenue),
+            'total_margin': _toman(total_revenue - total_cost),
+            'token_unit_price': _toman(unit_price),
+            'pricing_missing': pricing_missing,
+        }
+        return response
+
+
+@admin.register(DiscountCodeUsage)
+class DiscountCodeUsageAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """کمیسیون کدهای تخفیف — فقط خواندنی، برای حساب‌کتاب سهم شرکا."""
+    list_display = [
+        'used_at', 'discount_code', 'code_creator', 'user',
+        'purchase_amount_display', 'discount_amount_display', 'commission_display',
+    ]
+    list_filter = ['used_at', 'discount_code']
+    search_fields = [
+        'discount_code__code', 'user__phone_number',
+        'discount_code__creator__phone_number',
+    ]
+    date_hierarchy = 'used_at'
+    list_select_related = ['discount_code', 'user', 'discount_code__creator']
+
+    @admin.display(description='سازنده کد (دریافت‌کننده کمیسیون)')
+    def code_creator(self, obj):
+        creator = obj.discount_code.creator
+        return creator.gym_name or creator.phone_number
+
+    @admin.display(description='مبلغ خرید', ordering='purchase_amount')
+    def purchase_amount_display(self, obj):
+        return _toman(obj.purchase_amount)
+
+    @admin.display(description='تخفیف', ordering='discount_amount')
+    def discount_amount_display(self, obj):
+        return _toman(obj.discount_amount)
+
+    @admin.display(description='کمیسیون سازنده', ordering='commission_amount')
+    def commission_display(self, obj):
+        return format_html(
+            '<span style="color:#b45309;font-weight:700">{}</span>',
+            _toman(obj.commission_amount),
+        )
+
+
+class BrandStampMixin:
+    """مهرِ لوگو و نامِ چغر روی فایلِ تصویریِ تازه‌آپلودشده.
+
+    خواستِ مالک: «وقتی آموزشِ حرکت آپلود می‌کنم، خودش لوگو و اسم را مثلِ بقیه
+    روی تصویر بیندازد.»
+
+    ⚠ فقط روی فیلدی که در همین فرم **عوض شده** اعمال می‌شود. اگر روی هر ذخیره
+    اجرا می‌شد، هر بار یک مهرِ تازه روی مهرِ قبلی می‌نشست.
+    """
+    stamp_fields = ()
+
+    def _stamp_changed_files(self, request, obj, form):
+        from .branding import stamp_field
+        changed = set(getattr(form, 'changed_data', []) or [])
+        done = []
+        for name in self.stamp_fields:
+            if name not in changed:
+                continue
+            field = getattr(obj, name, None)
+            if field and stamp_field(field):
+                done.append(name)
+        if done:
+            obj.save(update_fields=done)
+            self.message_user(request, 'لوگو و نامِ چغر روی %s گذاشته شد.' % '، '.join(done))
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        self._stamp_changed_files(request, obj, form)
+
+
+@admin.register(ExerciseLibrary)
+class ExerciseLibraryAdmin(BrandStampMixin, admin.ModelAdmin):
+    """کتابخانهٔ حرکت‌ها — فقط نمایش و ویرایشِ متن؛ ورودِ داده با API انجام می‌شود."""
+    stamp_fields = ('thumb', 'gif')
+    list_display = ['external_id', 'name_fa', 'name', 'owner', 'equipment_fa',
+                    'target_fa', 'has_media', 'is_public', 'is_active']
+    list_filter = ['is_active', 'is_public', 'equipment', 'body_part', 'category']
+    actions = ['make_public']
+
+    @admin.action(description='سراسری‌کردن (برای همهٔ مربی‌ها)')
+    def make_public(self, request, queryset):
+        n = queryset.update(is_public=True, owner=None)
+        self.message_user(request, '%d حرکت سراسری شد.' % n)
+    search_fields = ['external_id', 'name', 'name_fa', 'equipment_fa', 'target_fa']
+    readonly_fields = ['created_at', 'updated_at', 'media_preview']
+    list_per_page = 50
+
+    @admin.display(description='مدیا', boolean=True)
+    def has_media(self, obj):
+        return bool(obj.gif)
+
+    @admin.display(description='پیش‌نمایش')
+    def media_preview(self, obj):
+        if not obj.gif:
+            return 'گیفی آپلود نشده است.'
+        try:
+            return format_html('<img src="{}" style="max-width:360px;border-radius:8px" />', obj.gif.url)
+        except Exception:
+            return obj.gif.name
+
+
+# ── اسکنِ دستگاه‌ها با دوربین ──
+
+class EquipmentScanItemInline(admin.TabularInline):
+    model = EquipmentScanItem
+    extra = 0
+    fields = ['name', 'muscle_group', 'confidence', 'in_library',
+              'already_exists', 'is_confirmed', 'is_rejected', 'equipment']
+    readonly_fields = ['name', 'confidence', 'in_library', 'already_exists', 'equipment']
+    can_delete = False
+
+
+class EquipmentScanPhotoInline(admin.TabularInline):
+    model = EquipmentScanPhoto
+    extra = 0
+    fields = ['image', 'created_at']
+    readonly_fields = ['created_at']
+
+
+@admin.register(EquipmentScan)
+class EquipmentScanAdmin(admin.ModelAdmin):
+    """اسکن‌های باشگاه — برای وارسیِ کیفیتِ تشخیص.
+
+    پاسخِ خامِ مدل عمداً نمایش داده می‌شود: اگر تشخیص غلط بود، تنها راهِ فهمیدنِ
+    این‌که اشکال از عکس بوده یا از مدل، همین متن است.
+    """
+    list_display = ['id', 'user', 'gym_name', 'status', 'item_count',
+                    'confirmed_count', 'model_name', 'tokens_charged', 'created_at']
+    list_filter = ['status', 'created_at']
+    search_fields = ['user__phone_number', 'gym_name']
+    readonly_fields = ['user', 'model_name', 'tokens_charged', 'raw_answer',
+                       'error', 'created_at', 'confirmed_at']
+    inlines = [EquipmentScanItemInline, EquipmentScanPhotoInline]
+
+    @admin.display(description='تشخیص‌ها')
+    def item_count(self, obj):
+        return obj.items.count()
+
+    @admin.display(description='تأییدشده')
+    def confirmed_count(self, obj):
+        return obj.items.filter(is_confirmed=True).count()
+
+
+@admin.register(AthleteProfile)
+class AthleteProfileAdmin(admin.ModelAdmin):
+    """پروفایلِ ورزشکارانِ شخصی (B2C)."""
+    list_display = ['__str__', 'user', 'age', 'gender', 'height', 'weight',
+                    'program_days', 'training_place', 'gym_name', 'updated_at']
+    list_filter = ['gender', 'training_place', 'program_days']
+    search_fields = ['full_name', 'user__phone_number', 'gym_name']
+    autocomplete_fields = ['user']
+    readonly_fields = ['created_at', 'updated_at']
+
+
+# ── کاتالوگِ دستگاه‌ها (قابلِ ویرایش، با عکسِ مرجع) ──
+
+@admin.register(EquipmentCatalog)
+class EquipmentCatalogAdmin(BrandStampMixin, admin.ModelAdmin):
+    """فهرستی که اسکنِ دوربین از آن گزینه می‌گیرد.
+
+    هر چه این‌جا دقیق‌تر باشد، تشخیص بهتر و نام‌ها یکدست‌تر می‌شوند. «نام‌های
+    دیگر» را جدی بگیرید: مدل ممکن است «باترفلای» بگوید و منظورش «قفسهٔ سینه» باشد.
+    """
+    stamp_fields = ('image',)
+    list_display = ['thumb_tag', 'name', 'muscle_group', 'alias_preview',
+                    'has_image', 'is_active', 'sort_order']
+    list_editable = ['muscle_group', 'is_active', 'sort_order']
+    list_filter = ['is_active', 'muscle_group']
+    search_fields = ['name', 'aliases', 'muscle_group']
+    autocomplete_fields = ['exercise']
+    readonly_fields = ['thumb_tag', 'created_at', 'updated_at']
+    list_per_page = 50
+    actions = ['activate', 'deactivate', 'fill_images_from_library']
+
+    fieldsets = (
+        ('دستگاه', {'fields': ('name', 'aliases', 'muscle_group', 'is_active', 'sort_order')}),
+        ('عکس و آموزش', {
+            'fields': ('image', 'exercise', 'thumb_tag'),
+            'description': 'اگر عکسِ خودتان را بگذارید همان نشان داده می‌شود؛ وگرنه '
+                           'عکسِ حرکتِ نمونه از کتابخانه استفاده می‌شود.'
+        }),
+        ('دیگر', {'fields': ('notes', 'created_at', 'updated_at')}),
+    )
+
+    @admin.display(description='عکس')
+    def thumb_tag(self, obj):
+        url = obj.display_image_url()
+        if not url:
+            return '—'
+        return format_html('<img src="{}" style="height:52px;border-radius:6px">', url)
+
+    @admin.display(description='نام‌های دیگر')
+    def alias_preview(self, obj):
+        items = obj.alias_list()
+        return '، '.join(items[:3]) + ('…' if len(items) > 3 else '') if items else '—'
+
+    @admin.display(description='عکس دارد', boolean=True)
+    def has_image(self, obj):
+        return bool(obj.display_image_url())
+
+    @admin.action(description='فعال‌کردن')
+    def activate(self, request, queryset):
+        n = queryset.update(is_active=True)
+        self.message_user(request, '%d دستگاه فعال شد.' % n)
+
+    @admin.action(description='غیرفعال‌کردن')
+    def deactivate(self, request, queryset):
+        n = queryset.update(is_active=False)
+        self.message_user(request, '%d دستگاه غیرفعال شد.' % n)
+
+    @admin.action(description='پرکردنِ عکس از کتابخانهٔ حرکت‌ها')
+    def fill_images_from_library(self, request, queryset):
+        from .equipment_catalog import attach_exercise
+        done = 0
+        for row in queryset:
+            if attach_exercise(row):
+                done += 1
+        self.message_user(request, '%d دستگاه عکس گرفت.' % done)
+
+
+# ── بررسیِ درستیِ حرکت ──
+
+class FormCheckFrameInline(admin.TabularInline):
+    model = FormCheckFrame
+    extra = 0
+    fields = ['verdict', 'message', 'confidence', 'image', 'created_at']
+    readonly_fields = ['verdict', 'message', 'confidence', 'image', 'created_at']
+    can_delete = False
+    max_num = 0
+
+
+@admin.register(FormCheckSession)
+class FormCheckSessionAdmin(admin.ModelAdmin):
+    """دورهای بررسی — برای سنجیدنِ این‌که تشخیص چقدر درست بوده است."""
+    list_display = ['id', 'user', 'exercise', 'camera', 'frames_checked',
+                    'ok_count', 'bad_count', 'tokens_charged', 'ai_cost', 'created_at']
+    list_filter = ['camera', 'created_at']
+    search_fields = ['user__phone_number', 'exercise__name_fa']
+    readonly_fields = ['user', 'exercise', 'camera', 'frames_checked', 'ok_count',
+                       'bad_count', 'tokens_charged', 'ai_cost', 'ledger_written',
+                       'model_name', 'created_at', 'updated_at']
+    inlines = [FormCheckFrameInline]
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(AIJob)
+class AIJobAdmin(admin.ModelAdmin):
+    """صفِ کارهای سرورِ هوش مصنوعیِ بی‌آی‌پی — برای دیدنِ این‌که کار کرده یا نه."""
+    list_display = ['id', 'provider', 'status', 'worker_name', 'attempts',
+                    'waited_seconds', 'created_at', 'finished_at']
+    list_filter = ['status', 'provider', 'created_at']
+    readonly_fields = ['provider', 'kind', 'payload', 'result', 'usage', 'status',
+                       'worker_name', 'attempts', 'error', 'created_at',
+                       'leased_at', 'lease_until', 'finished_at']
+    search_fields = ['worker_name', 'error']
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.display(description='انتظار (ثانیه)')
+    def waited_seconds(self, obj):
+        return obj.waited_seconds()
+
+
+
+@admin.register(PricingRule)
+class PricingRuleAdmin(admin.ModelAdmin):
+    """قاعده‌های قیمت — «تا این تاریخ رایگان»، «تا این تعداد رایگان»، «بعدش N توکن».
+
+    ⚠ ترتیب مهم است: اولین قاعده‌ای که شرطش بخورد برنده است. با «آزمونِ قیمت»
+    (دکمهٔ بالای همین صفحه) می‌توانی پیش از اینکه کسی پول بدهد ببینی برای یک
+    کاربرِ مشخص کدام قاعده برنده می‌شود و چرا.
+    """
+    list_display = ['priority', 'title', 'feature', 'verdict', 'human_short',
+                    'is_active']
+    list_display_links = ['title']
+    list_editable = ['priority', 'is_active']
+    list_filter = ['is_active', 'feature', 'mode', 'audience']
+    search_fields = ['title', 'note']
+    autocomplete_fields = ['user']
+    readonly_fields = ['guide', 'created_at', 'updated_at']
+    save_on_top = True
+
+    fieldsets = [
+        ('راهنما', {'fields': ('guide',)}),
+        ('شناسه', {'fields': ('title', 'is_active', 'priority', 'feature')}),
+        ('برای چه کسانی', {'fields': ('audience', 'user')}),
+        ('شرطِ زمان', {
+            'fields': ('starts_at', 'ends_at', 'signup_days_from', 'signup_days_to'),
+            'description': 'دو جور زمان: تاریخِ تقویمی (کمپین) یا روزِ چندمِ '
+                           'ثبت‌نامِ خودِ کاربر (دورهٔ آزمایشی). هر کدام را '
+                           'خالی بگذاری یعنی بی‌قید.'}),
+        ('شرطِ تعداد', {
+            'fields': ('count_scope', 'count_from', 'count_to'),
+            'description': 'مثلاً «چندمین برنامهٔ هوش مصنوعیِ این کاربر» با '
+                           'بازهٔ «از ۰ تا ۵» یعنی پنج تای اول.'}),
+        ('حکم', {'fields': ('mode', 'token_cost', 'blocked_message')}),
+        ('یادداشت', {'fields': ('note', 'created_at', 'updated_at')}),
+    ]
+
+    @admin.display(description='حکم', ordering='mode')
+    def verdict(self, obj):
+        color = {'free': '#15803d', 'tokens': '#126F85', 'blocked': '#b02a2a'}
+        txt = obj.get_mode_display()
+        if obj.mode == 'tokens':
+            txt = '%d توکن' % obj.token_cost
+        return format_html('<b style="color:{}">{}</b>', color.get(obj.mode, '#000'), txt)
+
+    @admin.display(description='شرح')
+    def human_short(self, obj):
+        return obj.human()
+
+    @admin.display(description='چطور کار می‌کند')
+    def guide(self, obj):
+        return format_html(
+            '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;'
+            'padding:14px;line-height:2.1;max-width:760px">'
+            '<b style="color:#163F75">قاعده‌ها از بالا به پایین سنجیده می‌شوند و '
+            '«اولین قاعده‌ای که شرطش بخورد» حکم می‌دهد.</b><br>'
+            'هر شرطی که خالی بگذاری یعنی «بی‌قید». پس قاعده‌ای بدونِ هیچ شرطی، '
+            'همیشه می‌خورد — آن را با اولویتِ بزرگ (مثلاً ۹۰۰) آخر بگذار تا '
+            'نقشِ «قیمتِ پایه» را بازی کند.<br><br>'
+            '<b>چهار نمونه:</b><br>'
+            '۱) <i>تا آخرِ مهر همه‌چیز رایگان</i> — «تا تاریخ» را ۱ آبان بگذار، '
+            'حکم «رایگان»، اولویت ۱۰.<br>'
+            '۲) <i>۵ برنامهٔ اولِ هر مربی رایگان</i> — شمارش «چندمین برنامهٔ هوش '
+            'مصنوعیِ این کاربر»، از ۰ تا ۵، حکم «رایگان».<br>'
+            '۳) <i>از ششم به بعد ۶۰ توکن</i> — همان شمارش، «از ۵»، «تا» خالی، '
+            'حکم «با توکن» و عدد ۶۰.<br>'
+            '۴) <i>۱۰ روزِ اولِ ثبت‌نام رایگان</i> — «تا روزِ چندمِ ثبت‌نام» = ۱۰.'
+            '<br><br>'
+            '<b style="color:#b02a2a">اگر هیچ قاعده‌ای نخورد</b>، سامانه همان '
+            'رفتارِ قدیمی را ادامه می‌دهد (۵ برنامهٔ رایگان، ۵۰/۲۵ توکن، دورهٔ '
+            'آزمایشیِ دستی). پس تا قاعده ننویسی چیزی عوض نمی‌شود.<br>'
+            '<b>پیش از اینکه زنده‌اش کنی، حتماً «آزمونِ قیمت» را بزن.</b>'
+            '</div>')
+
+    # ── آزمونِ قیمت ──
+    def get_urls(self):
+        from django.urls import path as _p
+        return [_p('simulate/', self.admin_site.admin_view(self.simulate),
+                   name='pricing-simulate')] + super().get_urls()
+
+    def changelist_view(self, request, extra_context=None):
+        from django.urls import reverse
+        extra_context = extra_context or {}
+        extra_context['title'] = 'قاعده‌های قیمت'
+        resp = super().changelist_view(request, extra_context)
+        try:
+            resp.context_data['subtitle'] = mark_safe(
+                '<a href="%s" style="font-weight:700;color:#126F85">آزمونِ قیمت ↗</a>'
+                % reverse('admin:pricing-simulate'))
+        except Exception:
+            pass
+        return resp
+
+    def simulate(self, request):
+        """صفحهٔ «اگر این کاربر الان بزند، چقدر می‌شود و چرا»."""
+        from django.http import HttpResponse
+        from .pricing import FEATURE_CHOICES, explain, usage_count, F_ANY
+        from .models import CustomUser
+
+        uid = request.GET.get('user') or ''
+        feat = request.GET.get('feature') or 'ai_both'
+        athlete = request.GET.get('athlete') or ''
+
+        opts = ''.join(
+            '<option value="%s"%s>%s %s</option>'
+            % (u.id, ' selected' if str(u.id) == uid else '',
+               u.phone_number, (u.gym_name or ''))
+            for u in CustomUser.objects.all().order_by('id'))
+        fopts = ''.join(
+            '<option value="%s"%s>%s</option>'
+            % (k, ' selected' if k == feat else '', v)
+            for k, v in FEATURE_CHOICES if k != F_ANY)
+
+        body = ''
+        user = CustomUser.objects.filter(pk=uid).first() if uid else None
+        if user:
+            key = int(athlete) if athlete.isdigit() else (athlete or None)
+            winner, rows = explain(user, feat, key)
+            if winner is None:
+                head = ('<div style="background:#fff7e6;border:1px solid #f0c36d;'
+                        'padding:12px;border-radius:10px"><b>هیچ قاعده‌ای نخورد</b>'
+                        ' — سامانه رفتارِ پیش‌فرضِ قدیمی را اجرا می‌کند.</div>')
+            else:
+                txt = ('رایگان' if winner.mode == 'free'
+                       else ('%d توکن' % winner.cost if winner.mode == 'tokens'
+                             else 'بسته'))
+                head = ('<div style="background:#eaf7ee;border:1px solid #9ad3ab;'
+                        'padding:12px;border-radius:10px"><b>نتیجه: %s</b><br>'
+                        'برندهٔ قاعده: «%s» (اولویت %s) — %s</div>'
+                        % (txt, winner.rule.title, winner.rule.priority, winner.reason))
+            tr = ''.join(
+                '<tr style="background:%s"><td>%s</td><td>%s</td><td>%s</td>'
+                '<td>%s</td><td>%s</td></tr>'
+                % ('#eaf7ee' if win else ('#fff' if hit else '#fafafa'),
+                   r.priority, r.title, r.human(),
+                   ('✓ می‌خورد' if hit else '✗'), why)
+                for r, hit, why, win in rows)
+            counts = ''.join(
+                '<li>%s: <b>%s</b></li>' % (lbl, usage_count(user, sc, feat, key))
+                for sc, lbl in [
+                    ('user_ai', 'برنامه‌های هوش مصنوعیِ این کاربر'),
+                    ('user_ai_type', 'از همین نوع'),
+                    ('user_manual', 'برنامه‌های دستیِ این کاربر'),
+                    ('user_all', 'همهٔ برنامه‌ها')])
+            body = (head + '<ul style="line-height:2">' + counts + '</ul>'
+                    + '<table border=1 cellpadding=7 style="border-collapse:collapse;'
+                      'width:100%;font-size:13px"><tr style="background:#eef2f8">'
+                      '<th>اولویت</th><th>نام</th><th>شرط ⇒ حکم</th><th>سنجش</th>'
+                      '<th>چرا</th></tr>' + tr + '</table>')
+
+        return HttpResponse(
+            '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">'
+            '<title>آزمونِ قیمت</title><style>'
+            'body{font-family:Tahoma,sans-serif;background:#f4f6fb;padding:22px;color:#1b2b45}'
+            'h2{color:#163F75} select,button{padding:8px 10px;border-radius:8px;'
+            'border:1px solid #cbd5e1;font-family:inherit}'
+            'button{background:#126F85;color:#fff;border:0;font-weight:700;cursor:pointer}'
+            'th,td{text-align:right}</style></head><body>'
+            '<h2>آزمونِ قیمت — بدونِ اینکه چیزی ثبت شود</h2>'
+            '<p>یک کاربر و یک مورد انتخاب کن تا ببینی همین الان چقدر برایش '
+            'حساب می‌شود و <b>کدام قاعده</b> برنده شده است.</p>'
+            '<form method="get" style="margin-bottom:18px;display:flex;gap:8px;flex-wrap:wrap">'
+            '<select name="user"><option value="">— کاربر —</option>' + opts + '</select>'
+            '<select name="feature">' + fopts + '</select>'
+            '<input name="athlete" placeholder="نام یا شناسهٔ ورزشکار (برای برنامهٔ دستی)" '
+            'value="' + athlete + '" style="padding:8px;border-radius:8px;border:1px solid #cbd5e1">'
+            '<button type="submit">بسنج</button></form>' + body +
+            '<p style="margin-top:18px"><a href="../">بازگشت به قاعده‌ها</a></p>'
+            '</body></html>')
+
+
+@admin.register(ExerciseAlias)
+class ExerciseAliasAdmin(admin.ModelAdmin):
+    """نام‌های دومِ حرکت‌ها.
+
+    هر نامی که این‌جا ثبت شود، در تطبیقِ متنِ برنامه دقیقاً مثلِ نامِ اصلی عمل
+    می‌کند. این سریع‌ترین راهِ بالا بردنِ نرخِ لینک است: الگوریتم تا جایی حدس
+    می‌زند، از آن به بعد شما می‌گویید «این همان است».
+    """
+    list_display = ['name', 'target_name', 'note', 'created_at']
+    search_fields = ['name', 'exercise__name_fa', 'exercise__name', 'exercise__external_id']
+    autocomplete_fields = ['exercise']
+    list_per_page = 50
+
+    @admin.display(description='حرکتِ اصلی', ordering='exercise__name_fa')
+    def target_name(self, obj):
+        return obj.exercise.name_fa or obj.exercise.name
+
+
+@admin.register(UnmatchedExercise)
+class UnmatchedExerciseAdmin(BrandStampMixin, admin.ModelAdmin):
+    """نام‌هایی که در برنامه‌ها آمده‌اند ولی به کتابخانه وصل نشدند.
+
+    خودکار پر می‌شود (هنگامِ ساختِ PDF). دو راهِ بستنِ هر ردیف:
+      ۱) حرکت را داریم، اسمش فرق دارد ⇒ «وصل‌شده به» را پر کن و ذخیره؛
+         خودش «نامِ دیگر» می‌سازد و از این به بعد لینک می‌خورد.
+      ۲) اصلاً نداریم ⇒ کنشِ «ساختِ حرکتِ تازه از روی این نام».
+    """
+    list_display = ['name', 'seen_count', 'status_badge', 'linked_exercise',
+                    'sample_line', 'last_seen']
+    list_filter = ['status']
+    search_fields = ['name', 'sample_line']
+    autocomplete_fields = ['linked_exercise']
+    readonly_fields = ['seen_count', 'first_seen', 'last_seen', 'sample_line',
+                       'how_to', 'source_badge', 'gif_preview']
+    stamp_fields = ('new_gif',)
+    list_filter = ['status', 'source']
+    ordering = ['-seen_count']
+    list_per_page = 50
+    actions = ['act_create_exercise', 'act_ignore', 'act_reopen']
+
+    fieldsets = [
+        ('نام', {'fields': ('name', 'source_badge', 'sample_line', 'seen_count', 'how_to')}),
+        ('راهِ ۱ — این حرکت را با نامِ دیگری داریم',
+         {'fields': ('linked_exercise',),
+          'description': 'حرکتِ درست را انتخاب کن و ذخیره بزن — بقیه‌اش خودکار است.'}),
+        ('راهِ ۲ — اصلاً نداریم، همین‌جا بسازش',
+         {'fields': ('new_name_en', 'new_gif', 'gif_preview', 'create_now'),
+          'description': 'گیفِ آموزش را آپلود کن، تیکِ «با ذخیره، حرکتِ تازه بساز» '
+                         'را بزن و ذخیره کن. حرکت ساخته می‌شود، گیف رویش می‌نشیند '
+                         'و لوگوی چغر هم خودکار روی گیف می‌افتد.'}),
+        ('وضعیت و تاریخ', {'fields': ('status', 'first_seen', 'last_seen')}),
+    ]
+
+    @admin.display(description='از کجا آمده', ordering='source')
+    def source_badge(self, obj):
+        return obj.get_source_display() if obj.pk else '—'
+
+    @admin.display(description='پیش‌نمایشِ گیف')
+    def gif_preview(self, obj):
+        if not (obj.pk and obj.new_gif):
+            return 'هنوز گیفی آپلود نشده.'
+        try:
+            return format_html(
+                '<img src="{}" style="max-width:320px;border-radius:10px" />',
+                obj.new_gif.url)
+        except Exception:
+            return 'فایل هست ولی نمایش نشد.'
+
+    def _spawn_exercise(self, row, request=None):
+        """یک حرکتِ تازه از روی این نام می‌سازد و گیفش را منتقل می‌کند."""
+        from .models import ExerciseLibrary
+        # شناسه‌ای که با دیتاستِ اصلی (۰۰۰۱…) قاطی نشود
+        n = ExerciseLibrary.objects.filter(external_id__startswith='n').count() + 1
+        ext = 'n%04d' % n
+        while ExerciseLibrary.objects.filter(external_id=ext).exists():
+            n += 1
+            ext = 'n%04d' % n
+        ex = ExerciseLibrary.objects.create(
+            external_id=ext,
+            name=(row.new_name_en or row.name),
+            name_fa=row.name,
+            is_public=True, is_active=True,
+        )
+        if row.new_gif:
+            # همان فایل را به حرکت می‌دهیم (کپیِ تازه، تا حذفِ این ردیف فایل را نبرد)
+            from django.core.files.base import ContentFile
+            row.new_gif.open('rb')
+            data = row.new_gif.read()
+            row.new_gif.close()
+            fname = (row.new_gif.name or 'exercise.gif').rsplit('/', 1)[-1]
+            ex.gif.save(fname, ContentFile(data), save=True)
+        row.linked_exercise = ex
+        row.status = UnmatchedExercise.STATUS_ADDED
+        row.create_now = False
+        row.save(update_fields=['linked_exercise', 'status', 'create_now'])
+        ExerciseAlias.objects.get_or_create(
+            name=row.name, defaults={'exercise': ex, 'note': 'از نامِ بی‌تطبیق'})
+        return ex
+
+    @admin.display(description='وضعیت', ordering='status')
+    def status_badge(self, obj):
+        colors = {'new': '#b45309', 'linked': '#15803d', 'added': '#126F85', 'ignored': '#6b7280'}
+        return format_html('<b style="color:{}">{}</b>',
+                           colors.get(obj.status, '#000'), obj.get_status_display())
+
+    @admin.display(description='راهنما')
+    def how_to(self, obj):
+        return format_html(
+            '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+            'padding:12px;line-height:2;max-width:620px">'
+            '<b>۱) این حرکت را داریم، فقط اسمش فرق دارد:</b> در «وصل‌شده به» '
+            'حرکتِ درست را انتخاب کن و ذخیره بزن. خودش یک «نامِ دیگر» می‌سازد و '
+            'از همان لحظه این نام لینک می‌خورد.<br>'
+            '<b>۲) اصلاً نداریم:</b> از فهرست انتخابش کن و کنشِ '
+            '«ساختِ حرکتِ تازه از روی این نام» را بزن.<br>'
+            '<b>۳) بی‌ربط است</b> (مثلِ «تردمیل ۱۰ دقیقه»): کنشِ «نادیده بگیر».'
+            '</div>')
+
+    def save_model(self, request, obj, form, change):
+        """دو راه: وصل‌کردن به حرکتِ موجود، یا ساختنِ حرکتِ تازه با گیف."""
+        super().save_model(request, obj, form, change)
+        # ⚠ اول مهرِ لوگو روی گیفِ تازه، بعد انتقالش به حرکت — وگرنه حرکت
+        #   نسخهٔ بی‌مهر را می‌گیرد.
+        self._stamp_changed_files(request, obj, form)
+
+        if obj.create_now and not obj.linked_exercise:
+            try:
+                ex = self._spawn_exercise(obj, request)
+            except Exception as exc:
+                self.message_user(request, 'ساختِ حرکت نشد: %s' % exc, level=messages.ERROR)
+                return
+            from .exercise_match import reset_cache
+            try:
+                reset_cache()
+            except Exception:
+                pass
+            self.message_user(
+                request,
+                'حرکتِ «%s» (کدِ %s) ساخته شد%s و این نام از حالا به آن وصل است.'
+                % (ex.name_fa or ex.name, ex.external_id,
+                   ' با گیف' if ex.gif else ' — هنوز گیف ندارد'))
+            return
+
+        if obj.linked_exercise and obj.status != UnmatchedExercise.STATUS_LINKED:
+            alias, created = ExerciseAlias.objects.get_or_create(
+                name=obj.name, defaults={'exercise': obj.linked_exercise,
+                                         'note': 'از نامِ بی‌تطبیق'})
+            if not created and alias.exercise_id != obj.linked_exercise_id:
+                alias.exercise = obj.linked_exercise
+                alias.save()
+            obj.status = UnmatchedExercise.STATUS_LINKED
+            obj.save(update_fields=['status'])
+            self.message_user(request, 'نامِ «%s» به «%s» وصل شد و از حالا لینک می‌خورد.'
+                              % (obj.name, obj.linked_exercise.name_fa or obj.linked_exercise.name))
+
+    @admin.action(description='ساختِ حرکتِ تازه از روی این نام (بی‌گیف)')
+    def act_create_exercise(self, request, queryset):
+        made = 0
+        for row in queryset.filter(linked_exercise__isnull=True):
+            self._spawn_exercise(row, request)
+            made += 1
+        try:
+            from .exercise_match import reset_cache
+            reset_cache()
+        except Exception:
+            pass
+        self.message_user(request, '%d حرکتِ تازه ساخته شد. یادت باشد تصویر و '
+                                   'آموزششان را در «کتابخانهٔ حرکت‌ها» اضافه کنی.' % made)
+
+    @admin.action(description='نادیده بگیر (بی‌ربط است)')
+    def act_ignore(self, request, queryset):
+        n = queryset.update(status=UnmatchedExercise.STATUS_IGNORED)
+        self.message_user(request, '%d ردیف نادیده گرفته شد.' % n)
+
+    @admin.action(description='برگرداندن به «بررسی نشده»')
+    def act_reopen(self, request, queryset):
+        n = queryset.update(status=UnmatchedExercise.STATUS_NEW)
+        self.message_user(request, '%d ردیف باز شد.' % n)
+
+
+# ── چیدمانِ صفحهٔ اولِ ادمین ──
+# ⚠ باید **ته** این فایل باشد: تا همهٔ @admin.register بالا اجرا نشده باشند،
+#   فهرستِ مدل‌ها کامل نیست.
+from .admin_layout import install as _install_admin_layout  # noqa: E402
+_install_admin_layout()

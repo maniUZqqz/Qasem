@@ -59,7 +59,17 @@ class RegenVersion(TimeStampedModel):
 
     ACTIVE = ("QUEUED", "PREPARING", "GENERATING", "STITCHING")
 
+    class Mode(models.TextChoices):
+        PICTURE = "picture", "تصویرِ تازه (و اگر خواسته شد صدا)"
+        AUDIO = "audio", "فقط صدای بازه"
+        CUT = "cut", "حذفِ بازه (برش)"
+
     session = models.ForeignKey(RegenSession, on_delete=models.CASCADE, related_name="versions")
+    #: picture = تکه با مدل دوباره ساخته می‌شود؛ audio = فقط صدای بازه عوض می‌شود (تصویر copy)؛ cut = بازه حذف
+    mode = models.CharField(max_length=8, choices=Mode.choices, default=Mode.PICTURE)
+    #: عملِ صدا روی بازه: {"op": keep|mute|volume|replace, "gain_db", "source": "upload:x"|"asset:12", "offset",
+    #: "clip_gain_db", "mix": replace|mix, "bed_db", "fade_ms"} (برای cut خالی)
+    audio = models.JSONField(default=dict, blank=True)
     number = models.PositiveIntegerField(default=1)
     #: ویدیوی ورودیِ این نسخه: خالی = اصل، وگرنه نتیجهٔ آن نسخهٔ قبول‌شده
     base = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")

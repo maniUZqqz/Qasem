@@ -29,6 +29,7 @@ urlpatterns = [
     path("api/v1/", include("apps.marketing.urls")),
     path("api/v1/", include("apps.api_platform.urls")),
     path("api/v1/", include("apps.regen.urls")),            # بازسازیِ یک تکه از وسطِ ویدیو
+    path("api/v1/", include("apps.photoedit.urls")),        # ادیتورِ عکس
     # NMarketing: ابزارهای ادغام‌شده
     path("api/v1/compute/", include("apps.compute.urls")),   # سرورهای پردازش (گره‌ها + پنل)
     path("api/v1/panel/", include("apps.panel.urls")),       # دفترِ صفحه‌ها/قابلیت‌های پنل (خاموش/روشن از ادمین)

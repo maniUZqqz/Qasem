@@ -63,6 +63,9 @@ def version_dict(v: RegenVersion) -> dict:
         "stitch": st.get("stitch") or {}, "warnings": st.get("warnings") or [],
         "gen_seconds": st.get("gen_seconds"), "node": st.get("node"), "prompt_source": st.get("prompt_source"),
         "result_pruned": bool(st.get("result_pruned")), "editor_upload": st.get("editor_upload"),
+        "mode": v.mode, "mode_label": v.get_mode_display(), "audio": v.audio or {},
+        "audio_report": st.get("audio") or {}, "audio_edges_db": st.get("audio_edges_db") or {},
+        "removed_frames": (st.get("assemble") or {}).get("removed_frames") or 0,
         "created_at": v.created_at,
     }
 
@@ -71,7 +74,8 @@ def session_dict(s: RegenSession, *, versions: bool = True) -> dict:
     cur = s.current
     base_url = services.media_url(cur.files.get("result")) if cur and cur.files.get("result") else \
         services.media_url(s.original)
-    info = s.info or {}
+    # پایهٔ فعلی (اصل، یا نسخهٔ قبول‌شده — بعد از برش تعدادِ فریم‌ها فرق دارد)
+    info = (cur.stats or {}).get("result_info") if cur and (cur.stats or {}).get("result_info") else (s.info or {})
     out = {
         "id": s.id, "title": s.title, "state": s.state, "error": s.error, "source_kind": s.source_kind,
         "source_label": services.KIND_LABELS.get(s.source_kind, s.source_kind), "source_ref": s.source_ref,
@@ -269,3 +273,44 @@ class VersionView(APIView):
             return _err(str(exc))
         v.refresh_from_db()
         return Response({"version": version_dict(v), "session": session_dict(v.session, versions=False)})
+
+
+class AudioUploadView(APIView):
+    """یک فایلِ صدا برای «صدای تازه» ِ همین جلسه (multipart: file) ⇐ {source: "upload:…", duration, url}."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, store_id, pk):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        s = RegenSession.objects.filter(pk=pk, store=store).first()
+        if s is None:
+            return _err("پیدا نشد.", "not_found", status.HTTP_404_NOT_FOUND)
+        upload = request.FILES.get("file")
+        if upload is None:
+            return _err("فایلی فرستاده نشد.")
+        try:
+            return Response(services.save_audio_upload(s, upload), status=status.HTTP_201_CREATED)
+        except services.RegenError as exc:
+            return _err(str(exc))
+
+
+class WaveformView(APIView):
+    """شکلِ موجِ صدای پایهٔ فعلی: ?from&to (ثانیه، خالی = کلِ ویدیو)&n (تعدادِ ستون)&version"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, pk):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        s = RegenSession.objects.filter(pk=pk, store=store, state=RegenSession.State.READY).first()
+        if s is None:
+            return _err("پیدا نشد.", "not_found", status.HTTP_404_NOT_FOUND)
+        q = request.query_params
+        try:
+            t_from = float(q["from"]) if q.get("from") not in (None, "") else None
+            t_to = float(q["to"]) if q.get("to") not in (None, "") else None
+            n = max(10, min(4000, int(q.get("n") or 800)))
+        except ValueError:
+            return _err("from/to/n باید عدد باشند.")
+        version = s.versions.filter(pk=q.get("version")).first() if q.get("version") else None
+        return Response(services.waveform(s, t_from, t_to, n, version=version))

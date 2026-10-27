@@ -410,7 +410,98 @@ def _models_on_nodes() -> dict:
     return {}
 
 
+# ───────────────────────────── صدای بازه (بماند / بی‌صدا / آرام‌تر / صدای تازه) و برش
+
+AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm", ".mp4", ".mov", ".mkv")
+MAX_AUDIO_MB = 100
+
+
+def _num(data: dict, key: str, default: float, lo: float, hi: float) -> float:
+    try:
+        v = float(data.get(key, default))
+    except (TypeError, ValueError):
+        raise RegenError(f"مقدارِ «{key}» عدد نیست.")
+    if not math.isfinite(v):
+        raise RegenError(f"مقدارِ «{key}» نامعتبر است.")
+    return max(lo, min(hi, v))
+
+
+def audio_spec(session: RegenSession, data: dict | None) -> dict:
+    """خواستهٔ صدا ⇐ شکلِ استاندارد (و وارسیِ منبعِ صدای تازه)."""
+    data = dict(data or {})
+    op = str(data.get("op") or "keep")
+    if op not in ("keep", "mute", "volume", "replace"):
+        raise RegenError("عملِ صدا یکی از «بماند، بی‌صدا، آرام‌تر، صدای تازه» است.")
+    spec: dict = {"op": op}
+    if op == "keep":
+        return spec
+    spec["fade_ms"] = int(_num(data, "fade_ms", 80, 0, 500))
+    if op == "volume":
+        spec["gain_db"] = round(_num(data, "gain_db", -12, -40, -1), 1)
+    if op == "replace":
+        src = str(data.get("source") or "")
+        audio_source_path(session, src)          # وجود و اجازه همین حالا وارسی می‌شود
+        spec.update({"source": src, "offset": round(_num(data, "offset", 0, 0, 3600), 3),
+                     "clip_gain_db": round(_num(data, "clip_gain_db", 0, -30, 12), 1),
+                     "mix": "mix" if data.get("mix") == "mix" else "replace",
+                     "bed_db": round(_num(data, "bed_db", -14, -40, -1), 1)})
+    return spec
+
+
+def audio_source_path(session: RegenSession, src: str) -> Path:
+    """«upload:<نام>» (فایلی که در همین جلسه بالا رفت) یا «asset:<id>» (کتابخانهٔ صداهای فروشگاه، آماده)."""
+    kind, _, ref = (src or "").partition(":")
+    if kind == "upload" and re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", ref or ""):
+        p = abs_path(session.dir_rel) / "audio_in" / ref
+        if p.is_file():
+            return p
+    elif kind == "asset" and ref.isdigit():
+        from apps.ai.audio_library_models import AudioAsset
+        from services.audio import studio
+
+        asset = AudioAsset.objects.filter(pk=int(ref), store=session.store, status=AudioAsset.Status.READY).first()
+        p = studio.asset_path(asset) if asset else None
+        if p:
+            return Path(p)
+    raise RegenError("صدای تازه پیدا نشد (فایل را دوباره بالا بفرستید یا از کتابخانه انتخاب کنید).")
+
+
+def save_audio_upload(session: RegenSession, upload) -> dict:
+    from services.video.regen import audio as audiomod
+
+    name = str(getattr(upload, "name", "audio.wav"))
+    suffix = Path(name).suffix.lower()
+    if suffix not in AUDIO_SUFFIXES:
+        raise RegenError("فرمت‌های قابلِ قبول: " + "، ".join(AUDIO_SUFFIXES))
+    if upload.size > MAX_AUDIO_MB * 1024 * 1024:
+        raise RegenError(f"حداکثر اندازه {MAX_AUDIO_MB} مگابایت است.")
+    d = abs_path(session.dir_rel) / "audio_in"
+    d.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", Path(name).stem)[:40] or "audio"
+    fname = f"{random.randint(0, 16 ** 6):06x}_{safe}{suffix}"
+    path = d / fname
+    with open(path, "wb") as fh:
+        for chunk in upload.chunks():
+            fh.write(chunk)
+    duration = audiomod.probe_clip(path)
+    if duration <= 0:
+        path.unlink(missing_ok=True)
+        raise RegenError("در این فایل صدایی پیدا نشد.")
+    return {"source": f"upload:{fname}", "name": name, "duration": round(duration, 3),
+            "url": media_url(str(path.relative_to(media_root())).replace("\\", "/"))}
+
+
+def _check_range(info: dict, start: int, end: int, mode: str) -> None:
+    n = info["n_frames"]
+    if not (0 <= start <= end < n):
+        raise RegenError("بازه باید داخلِ ویدیو باشد (فریمِ ۰ تا %d)." % (n - 1))
+    if mode == "cut" and start == 0 and end == n - 1:
+        raise RegenError("کلِ ویدیو انتخاب شده؛ برش باید چیزی از ویدیو باقی بگذارد.")
+
+
 def create_version(session: RegenSession, user, data: dict) -> RegenVersion:
+    """نسخهٔ تازه. mode=picture: تکه با مدل (و اگر audio داده شد، صدای بازه هم)؛ audio: فقط صدای بازه، همین سرور،
+    بی سرورِ پردازش؛ cut: بازه از تصویر و صدا حذف و دو طرف به هم چسبانده می‌شود."""
     from apps.billing import services as billing
     from apps.billing.models import Usage
 
@@ -423,6 +514,21 @@ def create_version(session: RegenSession, user, data: dict) -> RegenVersion:
         start, end = int(data.get("start")), int(data.get("end"))
     except (TypeError, ValueError):
         raise RegenError("شروع و پایانِ بازه (شمارهٔ فریم) لازم است.")
+    mode = str(data.get("mode") or "picture")
+    if mode not in ("picture", "audio", "cut"):
+        raise RegenError("نوعِ کار نامعتبر است.")
+    spec = audio_spec(session, data.get("audio")) if mode != "cut" else {}
+    if mode == "audio" and spec.get("op", "keep") == "keep":
+        raise RegenError("برای «فقط صدا» یکی از «بی‌صدا، آرام‌تر، صدای تازه» را انتخاب کنید.")
+    if mode in ("audio", "cut"):
+        _check_range(info, start, end, mode)
+        with transaction.atomic():
+            number = (session.versions.order_by("-number").values_list("number", flat=True).first() or 0) + 1
+            return RegenVersion.objects.create(
+                session=session, number=number, base=base_version, created_by=user, start_frame=start,
+                end_frame=end, mode=mode, audio=spec, prompt="", engine="", quality="", seed=0,
+                plan={"start": start, "end": end, "count": end - start + 1, "fps": info["fps"]}, message="در صف")
+
     engine = str(data.get("engine") or "wan22_flf")
     quality = str(data.get("quality") or "480p")
     context = 5 if int(data.get("context") or 1) >= 5 else 1
@@ -446,6 +552,7 @@ def create_version(session: RegenSession, user, data: dict) -> RegenVersion:
             raise RegenError(f"سهمیهٔ ثانیهٔ ویدیو کافی نیست ({exc}).")
         version = RegenVersion.objects.create(
             session=session, number=number, base=base_version, created_by=user, start_frame=start, end_frame=end,
+            mode="picture", audio=spec,
             prompt=str(data.get("prompt") or "")[:4000], engine=engine, quality=plan["quality"], seed=seed,
             context=context, blend=blend, plan=plan_summary(plan), usage_id=getattr(usage, "pk", None),
             negative_prompt=planmod.NEGATIVE, message="در صف")
@@ -487,6 +594,12 @@ def start_version(version: RegenVersion) -> RegenVersion:
     from services.comfyui.remote import node_name
 
     if version.state != RegenVersion.State.QUEUED:
+        return version
+    if version.mode in ("audio", "cut"):
+        # صدا و برش همین‌جا روی سرورِ سایت انجام می‌شوند (کارِ GPU ندارند)
+        RegenVersion.objects.filter(pk=version.pk, state=RegenVersion.State.QUEUED).update(
+            state=RegenVersion.State.STITCHING, progress=0.1, message="روی همین سرور", updated_at=timezone.now())
+        version.refresh_from_db()
         return version
     _set(version, state=RegenVersion.State.PREPARING, progress=0.02, message="برداشتنِ فریم‌های مرزی")
     session = version.session
@@ -563,16 +676,149 @@ def refresh(version: RegenVersion) -> bool:
     return False
 
 
-def stitch_version(version: RegenVersion, on_progress=None) -> RegenVersion:
-    """فریم‌های مدل ⇐ تکه ⇐ ویدیوی کامل ⇐ پیش‌نمایش‌ها ⇐ نمرهٔ درز."""
-    from apps.compute import services as compute
-    from apps.compute.models import ComputeJob
+def _ticker(version: RegenVersion):
+    def tick(lo, hi, msg):
+        def f(x):
+            p = lo + (hi - lo) * x
+            if p - version.progress >= 0.01 or x >= 1:
+                RegenVersion.objects.filter(pk=version.pk).update(progress=round(p, 3), message=msg)
+                version.progress = p
+        return f
+    return tick
 
+
+def _apply_audio(version: RegenVersion, video_in: Path, info: dict, out_path: Path, work: Path) -> dict:
+    """صدای بازه روی video_in (که همان خطِ زمانیِ base را دارد) ⇐ out_path؛ تصویر copy."""
+    from services.video.regen import audio as audiomod
+
+    spec = dict(version.audio or {})
+    clip = audio_source_path(version.session, spec["source"]) if spec.get("op") == "replace" else None
+    rep = audiomod.apply(video_in, info, spec, version.start_frame, version.end_frame, out_path, work / "audio",
+                         clip_path=clip)
+    shutil.rmtree(work / "audio", ignore_errors=True)
+    return rep
+
+
+def _audio_checks(base: Path, info: dict, result: Path, out_info: dict, *, removed: int = 0, t0: float = 0.0,
+                  t1: float = 0.0, cut: bool = False) -> dict:
+    """تصویر دست نخورده (md5 ِ بسته‌ها، جز در برش)، تعدادِ فریم، طول، و بلندیِ صدا در دو لبه (dBFS)."""
+    from services.video.regen import audio as audiomod
+
+    checks = {}
+    n_out = media.count_frames(result)
+    checks["frames"] = {"ok": n_out == info["n_frames"] - removed, "out": n_out,
+                        "expected": info["n_frames"] - removed}
+    want = info["duration"] - (t1 - t0 if cut else 0.0)
+    checks["duration"] = {"ok": abs(out_info["duration"] - want) <= max(1.5 / info["fps"], 0.05),
+                          "out": round(out_info["duration"], 4), "expected": round(want, 4)}
+    a_src, a_out = audiomod.stream_info(base), audiomod.stream_info(result)
+    if a_out:
+        checks["audio_start"] = {"ok": abs(a_out["start"] - (a_src or a_out)["start"]) <= 0.025,
+                                 "out": round(a_out["start"], 4), "source": round((a_src or a_out)["start"], 4)}
+        checks["audio_length"] = {"ok": abs(a_out["duration"] - out_info["duration"]) <= 0.1,
+                                  "audio": round(a_out["duration"], 4), "video": round(out_info["duration"], 4)}
+    if not cut:
+        same = audiomod.video_md5(base) == audiomod.video_md5(result)
+        checks["picture_untouched"] = {"ok": same}
+    return checks
+
+
+def stitch_version(version: RegenVersion, on_progress=None) -> RegenVersion:
     if version.state != RegenVersion.State.STITCHING:
         return version
+    if version.mode in ("audio", "cut"):
+        return _process_edit(version)
+    return _stitch_picture(version)
+
+
+def _previews(version: RegenVersion, base_path: Path, info: dict, result: Path, out_info: dict, *, cut: bool) -> tuple:
+    vdir = abs_path(version.dir_rel)
+    pad = int(round(PREVIEW_PAD_SECONDS * info["fps"]))
+    start, end = version.start_frame, version.end_frame
+    lo, hi = max(0, start - pad), min(info["n_frames"] - 1, end + pad)
+    media.encode_window(base_path, info, vdir / "before.mp4", lo, hi)
+    if cut:
+        # بعد از برش: همان دو ثانیه قبل از جای خالی و دو ثانیه بعد از آن، پشتِ هم
+        a_lo, a_hi = lo, min(out_info["n_frames"] - 1, start + pad - 1)
+        if a_hi < a_lo:
+            a_lo, a_hi = max(0, out_info["n_frames"] - 2 * pad), out_info["n_frames"] - 1
+        media.encode_window(result, out_info, vdir / "after.mp4", a_lo, a_hi)
+    else:
+        media.encode_window(result, out_info, vdir / "after.mp4", lo, hi)
+        media.encode_window(result, out_info, vdir / "piece.mp4", start, end)
+    files = dict(version.files)
+    for key, name in (("result", result.name), ("after", "after.mp4"), ("before", "before.mp4")) + (
+            () if cut else (("piece", "piece.mp4"),)):
+        files[key] = f"{version.dir_rel}/{name}"
+    return files, [lo, hi]
+
+
+def _process_edit(version: RegenVersion) -> RegenVersion:
+    """فقط صدا، یا برش — همین سرور، بی سرورِ پردازش. تصویر یا copy می‌شود (صدا) یا فقط GOPهای دورِ جای خالی
+    دوباره ساخته می‌شود (برش)."""
+    from services.video.regen import audio as audiomod
+
     session = version.session
     vdir = abs_path(version.dir_rel)
     work = vdir / "work"
+    tick = _ticker(version)
+    try:
+        base_path, info = base_of(session, version)
+        work.mkdir(parents=True, exist_ok=True)
+        result = vdir / ("result" + asm.container_for(info))
+        t0, t1 = audiomod.range_seconds(info, version.start_frame, version.end_frame)
+        if version.mode == "cut":
+            RegenVersion.objects.filter(pk=version.pk).update(progress=0.2, message="برداشتنِ بازه از تصویر")
+            vonly = work / ("video_only" + result.suffix)
+            res = asm.assemble(base_path, info, None, version.start_frame, version.end_frame, vonly, work,
+                               on_progress=tick(0.2, 0.7, "چسباندنِ دو طرفِ جای خالی"), with_audio=False)
+            RegenVersion.objects.filter(pk=version.pk).update(progress=0.75, message="برداشتنِ بازه از صدا")
+            arep = audiomod.cut(vonly, base_path, info, version.start_frame, version.end_frame, result, work / "audio")
+            vonly.unlink(missing_ok=True)
+            removed = version.end_frame - version.start_frame + 1
+        else:
+            RegenVersion.objects.filter(pk=version.pk).update(progress=0.2, message="تغییرِ صدای بازه")
+            res = {"method": "audio", "reencoded_frames": 0}
+            arep = _apply_audio(version, base_path, info, result, work)
+            removed = 0
+        RegenVersion.objects.filter(pk=version.pk).update(progress=0.85, message="وارسی و پیش‌نمایش")
+        out_info = media.probe(result)
+        media.save_index(out_info, vdir / "index.json")
+        checks = _audio_checks(base_path, info, result, out_info, removed=removed, t0=t0, t1=t1,
+                               cut=version.mode == "cut")
+        if not all(c.get("ok") for c in checks.values()):
+            bad = [k for k, c in checks.items() if not c.get("ok")]
+            raise RegenError("نتیجه وارسی را رد کرد: " + "، ".join(bad) + f" {checks}")
+        files, window = _previews(version, base_path, info, result, out_info, cut=version.mode == "cut")
+        edges = {}
+        if version.mode != "cut":
+            for name, (a, b) in (("before_start", (t0 - 0.25, t0)), ("in_start", (t0, t0 + 0.25)),
+                                 ("in_end", (t1 - 0.25, t1)), ("after_end", (t1, t1 + 0.25))):
+                edges[name] = audiomod.level_db(result, a, b)
+        stats = dict(version.stats)
+        stats.update({"assemble": res | {"checks": checks}, "audio": arep, "audio_edges_db": edges,
+                      "result_info": media.summary(out_info), "window": window,
+                      "result_size": result.stat().st_size, "warnings": []})
+        _set(version, state=RegenVersion.State.READY, progress=1.0, message="آماده", files=files, stats=stats,
+             error="")
+        shutil.rmtree(work, ignore_errors=True)
+        prune_results(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("regen: audio/cut version %s failed", version.pk)
+        shutil.rmtree(work, ignore_errors=True)
+        fail(version, f"ناموفق بود: {exc}")
+    return version
+
+
+def _stitch_picture(version: RegenVersion) -> RegenVersion:
+    """فریم‌های مدل ⇐ تکه ⇐ ویدیوی کامل ⇐ (صدای بازه، اگر خواسته شده) ⇐ پیش‌نمایش‌ها ⇐ نمرهٔ درز."""
+    from apps.compute import services as compute
+    from apps.compute.models import ComputeJob
+
+    session = version.session
+    vdir = abs_path(version.dir_rel)
+    work = vdir / "work"
+    tick = _ticker(version)
     try:
         job = ComputeJob.objects.get(uid=version.compute_job)
         base_path, info = base_of(session, version)
@@ -586,39 +832,31 @@ def stitch_version(version: RegenVersion, on_progress=None) -> RegenVersion:
             if m:
                 by_chunk.setdefault(int(m.group(1)), []).append(p)
         gen = stitch.GenFrames(stitch.gen_index_files(plan, by_chunk), plan)
-
-        def tick(lo, hi, msg):
-            def f(x):
-                p = lo + (hi - lo) * x
-                if p - version.progress >= 0.01 or x >= 1:
-                    RegenVersion.objects.filter(pk=version.pk).update(progress=round(p, 3), message=msg)
-                    version.progress = p
-            return f
-
         work.mkdir(parents=True, exist_ok=True)
         piece = work / "piece.mkv"
         st = stitch.build_piece(plan, gen, info, base_path, piece, seed=version.seed,
                                 on_progress=tick(0.8, 0.86, "تطبیقِ رنگ، زمان و جزئیاتِ تکه"))
         result = vdir / ("result" + asm.container_for(info))
-        res = asm.assemble(base_path, info, piece, plan["start"], plan["end"], result, work,
-                           on_progress=tick(0.86, 0.95, "چسباندنِ تکه در ویدیو"))
+        with_audio_op = (version.audio or {}).get("op", "keep") != "keep"
+        target = work / ("picture" + result.suffix) if with_audio_op else result
+        res = asm.assemble(base_path, info, piece, plan["start"], plan["end"], target, work,
+                           on_progress=tick(0.86, 0.94, "چسباندنِ تکه در ویدیو"))
+        arep = None
+        if with_audio_op:
+            RegenVersion.objects.filter(pk=version.pk).update(progress=0.94, message="تغییرِ صدای بازه")
+            arep = _apply_audio(version, target, info, result, work)
+            target.unlink(missing_ok=True)
         RegenVersion.objects.filter(pk=version.pk).update(progress=0.95, message="وارسیِ درزها و پیش‌نمایش")
         out_info = media.probe(result)
         media.save_index(out_info, vdir / "index.json")
         sm = seams.measure(base_path, info, result, out_info, plan["start"], plan["end"])
-        pad = int(round(PREVIEW_PAD_SECONDS * info["fps"]))
-        lo, hi = max(0, plan["start"] - pad), min(info["n_frames"] - 1, plan["end"] + pad)
-        media.encode_window(result, out_info, vdir / "after.mp4", lo, hi)
-        media.encode_window(base_path, info, vdir / "before.mp4", lo, hi)
-        media.encode_window(result, out_info, vdir / "piece.mp4", plan["start"], plan["end"])
-        files = dict(version.files)
-        for key, name in (("result", result.name), ("after", "after.mp4"), ("before", "before.mp4"),
-                          ("piece", "piece.mp4")):
-            files[key] = f"{version.dir_rel}/{name}"
+        files, window = _previews(version, base_path, info, result, out_info, cut=False)
         stats = dict(version.stats)
         stats.update({"stitch": st, "assemble": res, "result_info": media.summary(out_info),
-                      "window": [lo, hi], "result_size": result.stat().st_size,
+                      "window": window, "result_size": result.stat().st_size,
                       "warnings": warnings_for(info, res, sm)})
+        if arep is not None:
+            stats["audio"] = arep
         _set(version, state=RegenVersion.State.READY, progress=1.0, message="آماده", files=files, seams=sm,
              stats=stats, error="")
         _commit(version)
@@ -631,6 +869,35 @@ def stitch_version(version: RegenVersion, on_progress=None) -> RegenVersion:
         shutil.rmtree(work, ignore_errors=True)
         fail(version, f"چسباندن ناموفق بود: {exc}")
     return version
+
+
+def waveform(session: RegenSession, t_from: float | None = None, t_to: float | None = None, buckets: int = 800,
+             version: RegenVersion | None = None) -> dict:
+    """شکلِ موجِ صدای پایهٔ فعلی (یا یک نسخه) در [t_from, t_to] — کلِ ویدیو یک بار ساخته و نگه داشته می‌شود."""
+    import json
+
+    from services.video.regen import audio as audiomod
+
+    if version is not None and version.files.get("result"):
+        path = abs_path(version.files["result"])
+        info = version.stats.get("result_info") or {}
+        key = f"v{version.number}"
+    else:
+        cur, path, info = current_base(session)
+        key = f"v{cur.number}" if cur else "orig"
+    duration = float(info.get("duration") or 0)
+    whole = t_from is None and t_to is None
+    t_from = max(0.0, float(t_from or 0))
+    t_to = min(duration, float(t_to if t_to is not None else duration)) if duration else float(t_to or 0)
+    cache = abs_path(session.dir_rel) / f"wave_{key}_{int(buckets)}.json"
+    if whole and cache.is_file():
+        return json.loads(cache.read_text("utf-8"))
+    has_audio = bool(info.get("audio"))
+    data = {"from": round(t_from, 4), "to": round(t_to, 4), "has_audio": has_audio,
+            "peaks": audiomod.peaks(path, t_from, t_to, buckets) if has_audio and t_to > t_from else []}
+    if whole:
+        cache.write_text(json.dumps(data), "utf-8")
+    return data
 
 
 def warnings_for(info: dict, res: dict, sm: dict) -> list[str]:
@@ -677,7 +944,22 @@ def accept(version: RegenVersion) -> RegenVersion:
     session = version.session
     session.current = version
     session.save(update_fields=["current", "updated_at"])
+    refresh_strip(session)
     return version
+
+
+def refresh_strip(session: RegenSession) -> None:
+    """نوارِ کوچک‌نماییِ خطِ زمانی از پایهٔ فعلی (بعد از قبول/دور انداختن؛ بعد از برش تعدادِ فریم‌ها فرق دارد)."""
+    try:
+        cur, path, info = current_base(session)
+        name = f"filmstrip_v{cur.number}.jpg" if cur else "filmstrip.jpg"
+        sprite, frames = media.filmstrip(path, info, count=min(30, info["n_frames"]))
+        strip = abs_path(session.dir_rel) / name
+        strip.write_bytes(sprite)
+        session.filmstrip = {"path": str(strip.relative_to(media_root())).replace("\\", "/"), "frames": frames}
+        session.save(update_fields=["filmstrip", "updated_at"])
+    except (media.MediaError, OSError, KeyError) as exc:
+        logger.warning("regen: filmstrip of session %s not refreshed: %s", session.pk, exc)
 
 
 def discard(version: RegenVersion) -> RegenVersion:
@@ -690,6 +972,7 @@ def discard(version: RegenVersion) -> RegenVersion:
                 .order_by("-accepted_at").first())
         session.current = prev
         session.save(update_fields=["current", "updated_at"])
+        refresh_strip(session)
     for key in ("result", "after", "piece"):
         rel = version.files.get(key)
         if rel:

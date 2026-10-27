@@ -21,6 +21,7 @@ import PublishQueuePage from "./features/campaigns/PublishQueuePage";
 import ContentStudioPage from "./features/content/ContentStudioPage";
 import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
+import PhotoEditorPage from "./features/content/photo/PhotoEditorPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import ChatPage from "./features/customers/ChatPage";
 import OrdersPage from "./features/customers/OrdersPage";
@@ -129,6 +130,7 @@ export default function App() {
               <Route path="/stores/:id/outreach" element={<PageGate k="outreach"><OutreachPage /></PageGate>} />
               <Route path="/stores/:id/api" element={<PageGate k="api_keys"><ApiKeysPage /></PageGate>} />
               <Route path="/stores/:id/editor" element={<PageGate k="editor"><VideoEditorPage /></PageGate>} />
+              <Route path="/stores/:id/photo-editor" element={<PageGate k="photo_editor"><PhotoEditorPage /></PageGate>} />
               {/* بازسازیِ یک تکه از وسطِ ویدیو — بی‌درز، با نسخه‌ها و مقایسهٔ قبل/بعد */}
               <Route path="/stores/:id/regen" element={<PageGate k="piece_regen"><PieceRegenPage /></PageGate>} />
               <Route path="/stores/:id/queue" element={<PageGate k="production_queue"><ProductionQueuePage /></PageGate>} />

@@ -126,8 +126,8 @@ def _psnr(a: np.ndarray, b: np.ndarray) -> float:
     return 99.0 if mse < 1e-6 else float(10 * np.log10(255 ** 2 / mse))
 
 
-def _filter(total: int, start: int, end: int, *, offset: float = 0.0) -> str:
-    """[0:v] = ویدیوی پایه (فریم ۰…total-1)، [1:v] = تکه (start…end) ⇐ [v]."""
+def _filter(total: int, start: int, end: int, *, offset: float = 0.0, piece: bool = True) -> str:
+    """[0:v] = ویدیوی پایه (فریم ۰…total-1)، [1:v] = تکه (start…end) ⇐ [v]. piece=False: بازه حذف می‌شود (برش)."""
     parts, labels = [], []
     use_a, use_c = start > 0, end < total - 1
     n_split = int(use_a) + int(use_c)
@@ -139,8 +139,9 @@ def _filter(total: int, start: int, end: int, *, offset: float = 0.0) -> str:
     if use_a:
         parts.append(f"{src_a}trim=end_frame={start},setpts=PTS-STARTPTS[a]")
         labels.append("[a]")
-    parts.append("[1:v]setpts=PTS-STARTPTS[p]")
-    labels.append("[p]")
+    if piece:
+        parts.append("[1:v]setpts=PTS-STARTPTS[p]")
+        labels.append("[p]")
     if use_c:
         parts.append(f"{src_c}trim=start_frame={end + 1},setpts=PTS-STARTPTS[c]")
         labels.append("[c]")
@@ -218,15 +219,23 @@ def smart_possible(info: dict) -> str:
     return ""
 
 
-def _verify(out: Path, base: Path, info: dict, *, window: tuple[int, int] | None = None) -> dict:
+def _verify(out: Path, base: Path, info: dict, *, window: tuple[int, int] | None = None, removed: int = 0,
+            with_audio: bool = True) -> dict:
     checks = {}
     n_out = media.count_frames(out)
-    checks["frames"] = {"ok": n_out == info["n_frames"], "out": n_out, "source": info["n_frames"]}
-    a0, a1 = media.audio_md5(base), media.audio_md5(out)
-    checks["audio_untouched"] = {"ok": (a0 == a1) if info.get("audio") else True, "has_audio": bool(info.get("audio"))}
+    want = info["n_frames"] - removed
+    checks["frames"] = {"ok": n_out == want, "out": n_out, "source": info["n_frames"], "expected": want}
+    if with_audio:
+        a0, a1 = media.audio_md5(base), media.audio_md5(out)
+        checks["audio_untouched"] = {"ok": (a0 == a1) if info.get("audio") else True,
+                                     "has_audio": bool(info.get("audio"))}
     out_info = media.probe(out)
-    checks["duration"] = {"ok": abs(out_info["duration"] - info["duration"]) <= 1.5 / info["fps"],
-                          "out": round(out_info["duration"], 4), "source": round(info["duration"], 4)}
+    want_d = info["duration"] - removed / info["fps"]
+    # بی صدا، طولِ فایل همان طولِ تصویر است (منبع ممکن است صدایش کمی بلندتر بوده باشد)
+    tol = 1.5 / info["fps"] if with_audio else max(1.5 / info["fps"], 0.15)
+    checks["duration"] = {"ok": abs(out_info["duration"] - want_d) <= tol,
+                          "out": round(out_info["duration"], 4), "source": round(info["duration"], 4),
+                          "expected": round(want_d, 4)}
     if window is not None:
         lo, hi = window
         t = max(0.0, media.frame_time(info, lo) - 0.01)
@@ -241,16 +250,17 @@ def _verify(out: Path, base: Path, info: dict, *, window: tuple[int, int] | None
 
 
 def assemble(base, info: dict, piece, start: int, end: int, out_path, work: Path, *, prefer_smart: bool = True,
-             on_progress=None) -> dict:
-    """ویدیوی کامل با تکهٔ تازه در out_path. برمی‌گرداند {method, reencoded_frames, seconds, checks, …}."""
-    base, piece, out_path = Path(base), Path(piece), Path(out_path)
+             on_progress=None, with_audio: bool = True) -> dict:
+    """ویدیوی کامل با تکهٔ تازه در out_path. piece=None یعنی «برش»: فریم‌های start…end حذف می‌شوند و دو طرف به
+    هم می‌رسند. with_audio=False: فقط تصویر (صدا را audio.cut جدا می‌سازد). برمی‌گرداند {method, …, checks}."""
+    base, out_path = Path(base), Path(out_path)
+    piece = Path(piece) if piece else None
     work.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
-    n = info["n_frames"]
     why = smart_possible(info) if prefer_smart else "خاموش"
     if not why:
         try:
-            res = _smart(base, info, piece, start, end, out_path, work, on_progress)
+            res = _smart(base, info, piece, start, end, out_path, work, on_progress, with_audio)
             if res.get("ok"):
                 res["seconds"] = round(time.monotonic() - t0, 1)
                 return res
@@ -258,7 +268,7 @@ def assemble(base, info: dict, piece, start: int, end: int, out_path, work: Path
         except (MediaError, subprocess.TimeoutExpired, AssembleError) as exc:
             why = f"خطا: {str(exc)[:200]}"
         logger.info("regen: smart splice not used (%s) — full re-encode", why)
-    res = _full(base, info, piece, start, end, out_path, on_progress)
+    res = _full(base, info, piece, start, end, out_path, on_progress, with_audio)
     res["smart_skipped"] = why
     res["seconds"] = round(time.monotonic() - t0, 1)
     if not all(c.get("ok") for c in res["checks"].values()):
@@ -267,17 +277,30 @@ def assemble(base, info: dict, piece, start: int, end: int, out_path, work: Path
     return res
 
 
-def _smart(base: Path, info: dict, piece: Path, start: int, end: int, out_path: Path, work: Path, on_progress) -> dict:
+def expected_pts(info: dict, start: int, end: int, cut: bool) -> list:
+    pts = info["frame_pts"]
+    if not cut:
+        return pts
+    n = len(pts)
+    if end + 1 >= n:
+        return pts[:start]
+    shift = pts[end + 1] - pts[start]
+    return pts[:start] + [p - shift for p in pts[end + 1:]]
+
+
+def _smart(base: Path, info: dict, piece: Path | None, start: int, end: int, out_path: Path, work: Path, on_progress,
+           with_audio: bool = True) -> dict:
     n = info["n_frames"]
+    cut = piece is None
+    removed = (end - start + 1) if cut else 0
     keys = info["keyframes"]
-    k1 = max(k for k in keys if k <= start)
+    k1 = max([k for k in keys if k <= start] or [0])
     later = [k for k in keys if k > end]
     k2 = later[0] if later else n
     seg_dir = work / "seg"
     shutil.rmtree(seg_dir, ignore_errors=True)
     seg_dir.mkdir(parents=True)
     cuts = [c for c in (k1, k2) if 0 < c < n]
-    names = []
     if cuts:
         media.run([FFMPEG, "-v", "error", "-y", "-i", base, "-map", "0:v:0", "-c", "copy", "-f", "segment",
                    "-segment_frames", ",".join(str(c) for c in cuts), "-reset_timestamps", "1",
@@ -300,69 +323,88 @@ def _smart(base: Path, info: dict, piece: Path, start: int, end: int, out_path: 
             return {"ok": False, "why": f"قطعهٔ {role}: {got} فریم به‌جای {count}"}
         segs[role] = path
 
-    mid_out = work / "mid.mp4"
     xp = x264_params(info["x264"], info)
-    fps = media.fps_of(info)
-    local_start, local_end = start - k1, end - k1
-    cmd = [FFMPEG, "-v", "error", "-y", "-i", segs["mid"], "-i", piece,
-           "-filter_complex", _filter(k2 - k1, local_start, local_end), "-map", "[v]", "-an",
-           "-c:v", "libx264", *profile_args(info), "-x264-params", xp, "-pix_fmt", media.target_pix_fmt(info),
-           *media.color_tags(info, present_only=True), "-r", f"{fps.numerator}/{fps.denominator}",
-           "-video_track_timescale", str(info["timescale"]), str(mid_out)]
-    media.run_with_progress(cmd, total_frames=k2 - k1, on_progress=on_progress)
-    if media.count_frames(mid_out) != k2 - k1:
-        return {"ok": False, "why": "تعدادِ فریمِ قطعهٔ میانی جور نیست"}
-    ps_src = _parameter_sets(segs["mid"])
-    ps_new = _parameter_sets(mid_out)
-    if not ps_src or ps_src != ps_new:
-        return {"ok": False, "why": "SPS/PPS ِ قطعهٔ تازه با منبع یکی نشد"}
+    mid_count = (k2 - k1) - removed
+    mid_out = None
+    if mid_count > 0:
+        mid_out = work / "mid.mp4"
+        fps = media.fps_of(info)
+        inputs = ["-i", segs["mid"]] + ([] if cut else ["-i", piece])
+        cmd = [FFMPEG, "-v", "error", "-y", *inputs,
+               "-filter_complex", _filter(k2 - k1, start - k1, end - k1, piece=not cut), "-map", "[v]", "-an",
+               "-c:v", "libx264", *profile_args(info), "-x264-params", xp, "-pix_fmt", media.target_pix_fmt(info),
+               *media.color_tags(info, present_only=True), "-r", f"{fps.numerator}/{fps.denominator}",
+               "-video_track_timescale", str(info["timescale"]), str(mid_out)]
+        media.run_with_progress(cmd, total_frames=mid_count, on_progress=on_progress)
+        if media.count_frames(mid_out) != mid_count:
+            return {"ok": False, "why": "تعدادِ فریمِ قطعهٔ میانی جور نیست"}
+        ps_src = _parameter_sets(segs["mid"])
+        ps_new = _parameter_sets(mid_out)
+        if not ps_src or ps_src != ps_new:
+            return {"ok": False, "why": "SPS/PPS ِ قطعهٔ تازه با منبع یکی نشد"}
 
+    order = [p for p in (segs.get("before"), mid_out, segs.get("after")) if p]
+    if not order:
+        return {"ok": False, "why": "چیزی از ویدیو نمی‌ماند"}
     lst = work / "list.txt"
-    order = [segs.get("before"), mid_out, segs.get("after")]
-    lst.write_text("".join(f"file '{Path(p).as_posix()}'\n" for p in order if p), "utf-8")
+    lst.write_text("".join(f"file '{Path(p).as_posix()}'\n" for p in order), "utf-8")
     vonly = work / "vonly.mp4"
     media.run([FFMPEG, "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-map", "0:v", "-c", "copy",
                vonly], timeout=1800)
-    media.run([FFMPEG, "-v", "error", "-y", "-i", vonly, "-i", base, "-map", "0:v", "-map", "1:a?", "-c", "copy",
-               "-map_metadata", "1", "-movflags", "+faststart", out_path], timeout=1800)
+    if with_audio:
+        media.run([FFMPEG, "-v", "error", "-y", "-i", vonly, "-i", base, "-map", "0:v", "-map", "1:a?", "-c", "copy",
+                   "-map_metadata", "1", "-movflags", "+faststart", out_path], timeout=1800)
+    else:
+        media.run([FFMPEG, "-v", "error", "-y", "-i", vonly, "-i", base, "-map", "0:v", "-c", "copy",
+                   "-map_metadata", "1", "-movflags", "+faststart", out_path], timeout=1800)
 
+    out_index = (lambda i: i if i < start else i - removed) if cut else (lambda i: i)
     lo = max([k for k in info["keyframes"] if k < k1] or [0])
-    hi = min(n - 1, k2 + 30)
-    checks, out_info = _verify(out_path, base, info, window=(lo, hi))
-    # زمانِ تک‌تکِ فریم‌ها همان منبع: concat گاهی چند tick (زیرِ یک میلی‌ثانیه) جابه‌جا می‌کند — بی‌اثر؛
-    # بیش از ۵٪ ِ یک فریم یعنی ترتیب/طول خراب شده
+    hi = min(n - 1 - removed, out_index(min(n - 1, k2 + 30)))
+    checks, out_info = _verify(out_path, base, info, window=(min(lo, hi), hi), removed=removed, with_audio=with_audio)
+    # زمانِ تک‌تکِ فریم‌ها همان منبع (برش: بعد از جای خالی به اندازهٔ همان بازه جلوتر): concat گاهی چند tick
+    # (زیرِ یک میلی‌ثانیه) جابه‌جا می‌کند — بی‌اثر؛ بیش از ۵٪ ِ یک فریم یعنی ترتیب/طول خراب شده
+    want = expected_pts(info, start, end, cut)
     out_pts = media.stream_pts(out_path)
     tb = float(Fraction(info["time_base"]))
     tol = max(1.0, 0.05 / info["fps"] / tb)
-    dev = max((abs(a - b) for a, b in zip(out_pts, info["frame_pts"])), default=0) if len(out_pts) == len(
-        info["frame_pts"]) else float("inf")
+    dev = max((abs(a - b) for a, b in zip(out_pts, want)), default=0) if len(out_pts) == len(want) else float("inf")
     checks["timestamps"] = {"ok": dev <= tol, "max_ms": round(dev * tb * 1000, 3) if dev != float("inf") else None}
     # همان فریم‌ها سرِ جایشان؟ فریمِ اول و آخرِ قطعهٔ بازسازی‌شده (اگر جزءِ تکه نیستند) باید تقریباً همان منبع باشند
-    probes = [i for i in (k1, k2 - 1) if not (start <= i <= end)]
+    probes = [i for i in (k1, k2 - 1) if not (start <= i <= end) and i < n]
     psnr = {}
     for i in probes:
-        psnr[str(i)] = round(_psnr(media.read_frame(out_path, info, i), media.read_frame(base, info, i)), 1)
+        psnr[str(i)] = round(_psnr(media.read_frame(out_path, out_info, out_index(i)),
+                                   media.read_frame(base, info, i)), 1)
     checks["alignment"] = {"ok": all(v >= 30 for v in psnr.values()), "psnr": psnr}
     ok = all(c.get("ok") for c in checks.values())
     for p in seg_dir.glob("*"):
         p.unlink(missing_ok=True)
     return {"ok": ok, "why": "" if ok else "وارسی: " + "، ".join(k for k, c in checks.items() if not c.get("ok")),
-            "method": "smart", "reencoded_frames": k2 - k1, "range": [k1, k2 - 1], "checks": checks,
-            "x264_params": xp}
+            "method": "smart", "reencoded_frames": max(0, mid_count), "range": [k1, k2 - 1], "checks": checks,
+            "x264_params": xp, "removed_frames": removed}
 
 
-def _full(base: Path, info: dict, piece: Path, start: int, end: int, out_path: Path, on_progress) -> dict:
+def _full(base: Path, info: dict, piece: Path | None, start: int, end: int, out_path: Path, on_progress,
+          with_audio: bool = True) -> dict:
     n = info["n_frames"]
+    cut = piece is None
+    removed = (end - start + 1) if cut else 0
     fps = media.fps_of(info)
     offset = max(0.0, info["video_start"] - info["format_start"])
-    cmd = [FFMPEG, "-v", "error", "-y", "-i", base, "-i", piece, "-filter_complex", _filter(n, start, end, offset=offset),
-           "-map", "[v]", "-map", "0:a?", "-c:a", "copy", *_encoder_args(info, total_frames=n),
-           "-r", f"{fps.numerator}/{fps.denominator}", "-map_metadata", "0"]
+    inputs = ["-i", base] + ([] if cut else ["-i", piece])
+    cmd = [FFMPEG, "-v", "error", "-y", *inputs,
+           "-filter_complex", _filter(n, start, end, offset=offset, piece=not cut), "-map", "[v]"]
+    if with_audio:
+        cmd += ["-map", "0:a?", "-c:a", "copy"]
+    cmd += [*_encoder_args(info, total_frames=n - removed), "-r", f"{fps.numerator}/{fps.denominator}",
+            "-map_metadata", "0"]
     if out_path.suffix == ".mp4":
         cmd += ["-movflags", "+faststart"]
         if info.get("timescale"):
             cmd += ["-video_track_timescale", str(info["timescale"])]
     cmd.append(out_path)
-    media.run_with_progress(cmd, total_frames=n, on_progress=on_progress)
-    checks, _ = _verify(out_path, base, info)
-    return {"ok": True, "method": "full", "reencoded_frames": n, "range": [0, n - 1], "checks": checks}
+    media.run_with_progress(cmd, total_frames=n - removed, on_progress=on_progress)
+    checks, _ = _verify(out_path, base, info, removed=removed, with_audio=with_audio)
+    return {"ok": True, "method": "full", "reencoded_frames": n - removed, "range": [0, n - 1], "checks": checks,
+            "removed_frames": removed}

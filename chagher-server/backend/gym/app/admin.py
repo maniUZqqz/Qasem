@@ -1285,6 +1285,52 @@ class SMSConfigAdmin(admin.ModelAdmin):
     )
 
 
+def _ago(iso):
+    from datetime import datetime
+    try:
+        sec = int((timezone.now() - datetime.fromisoformat(iso)).total_seconds())
+    except (TypeError, ValueError):
+        return None, '—'
+    if sec < 90:
+        return sec, '%d ثانیه پیش' % max(sec, 0)
+    if sec < 5400:
+        return sec, '%d دقیقه پیش' % (sec // 60)
+    if sec < 172800:
+        return sec, '%d ساعت پیش' % (sec // 3600)
+    return sec, '%d روز پیش' % (sec // 86400)
+
+
+def _sms_gateway_banner(request):
+    """بالای «صف پیامک»: گوشیِ پیامک وصل است یا نه، و چه چیزی در صف مانده."""
+    from django.contrib import messages
+    from .sms_gateway import gateway_status
+    seen = gateway_status()
+    pending = SMSOutbox.pending().count()
+    poll = seen.get('poll_phone')
+    mark = seen.get('mark_phone')
+    url = 'http://chagher.ir/chagher/api/next-otp/'
+    if poll:
+        sec, ago = _ago(poll.get('at'))
+        line = 'گوشیِ پیامک آخرین بار %s کدها را خواند (IP %s).' % (ago, poll.get('ip', '?'))
+        if mark:
+            line += ' آخرین «ارسال شد» از گوشی: %s%s.' % (_ago(mark.get('at'))[1], '' if mark.get('ok') else ' (شناسه پیدا نشد)')
+        if sec is not None and sec <= 120:
+            messages.success(request, 'گوشیِ پیامک وصل است. ' + line + ' کدهای در انتظار: %d' % pending)
+        else:
+            messages.error(request, 'گوشیِ پیامک الان وصل نیست. ' + line +
+                           ' برنامهٔ پیامک را روی گوشی باز کنید و اینترنتش را ببینید. نشانیِ درست: ' + url +
+                           ' — کدهای در انتظار: %d' % pending)
+    else:
+        messages.error(request, 'از وقتی این وضعیت ساخته شده (۱۴۰۵/۰۸/۰۵)، گوشیِ پیامک هنوز یک بار هم سر نزده است. '
+                       'برنامهٔ پیامک را روی گوشی باز کنید؛ نشانی: ' + url + ' — کدهای در انتظار: %d' % pending)
+    other = seen.get('poll_other')
+    if other:
+        messages.info(request, 'آخرین بازدیدِ next-otp با مرورگر/برنامهٔ دیگر: %s (IP %s) — این گوشیِ پیامک نیست.'
+                      % (_ago(other.get('at'))[1], other.get('ip', '?')))
+    messages.info(request, 'برای آزمون: «افزودن» ⇐ شمارهٔ خودتان و یک کدِ دلخواه ⇐ ذخیره. اگر گوشی وصل باشد، چند ثانیه '
+                  'بعد پیامک می‌رسد و وضعیتِ همین ردیف «ارسال شد ✓» می‌شود.')
+
+
 @admin.register(SMSOutbox)
 class SMSOutboxAdmin(admin.ModelAdmin):
     """صف پیامکِ گیت‌وی — گوشی از /api/next-otp برمی‌دارد و با /api/mark-sent تایید می‌کند.
@@ -1296,6 +1342,10 @@ class SMSOutboxAdmin(admin.ModelAdmin):
     search_fields = ['phone']
     readonly_fields = ['created_at', 'sent_at']
     fields = ['phone', 'code', 'purpose', 'sent', 'expires_at', 'created_at', 'sent_at']
+
+    def changelist_view(self, request, extra_context=None):
+        _sms_gateway_banner(request)
+        return super().changelist_view(request, extra_context)
 
     @admin.display(description='وضعیت')
     def status_badge(self, obj):

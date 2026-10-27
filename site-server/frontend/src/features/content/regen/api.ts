@@ -123,8 +123,29 @@ export type Version = {
   prompt_source: string | null;
   result_pruned: boolean;
   editor_upload: number | null;
+  /** picture = تکهٔ تازهٔ تصویر (و شاید صدا)، audio = فقط صدای بازه، cut = بازه حذف شد */
+  mode: "picture" | "audio" | "cut";
+  mode_label: string;
+  audio: AudioSpec | Record<string, never>;
+  audio_report: { op?: string; mix?: string; gain_db?: number; fade_samples?: number; peak?: number; clip_shorter_by?: number; xfade_ms?: number };
+  audio_edges_db: Record<string, number | null>;
+  removed_frames: number;
   created_at: string;
 };
+
+/** عملِ صدا روی بازه — همان شکلِ backend/apps/regen/services.audio_spec */
+export type AudioSpec = {
+  op: "keep" | "mute" | "volume" | "replace";
+  gain_db?: number;
+  source?: string;
+  offset?: number;
+  clip_gain_db?: number;
+  mix?: "replace" | "mix";
+  bed_db?: number;
+  fade_ms?: number;
+};
+
+export type Waveform = { from: number; to: number; has_audio: boolean; peaks: number[] };
 
 export type Session = {
   id: number;
@@ -204,6 +225,17 @@ export const regenApi = {
     api.get<Estimate>(`${base(storeId)}/sessions/${id}/estimate/`, { params }).then((r) => r.data),
   create: (storeId: string, id: number, body: Record<string, unknown>) =>
     api.post<{ version: Version }>(`${base(storeId)}/sessions/${id}/versions/`, body).then((r) => r.data.version),
+  uploadAudio: (storeId: string, id: number, file: File, onProgress?: (fraction: number) => void) => {
+    const body = new FormData();
+    body.append("file", file);
+    return api
+      .post<{ source: string; name: string; duration: number; url: string }>(`${base(storeId)}/sessions/${id}/audio/`, body, {
+        onUploadProgress: (e) => onProgress?.(e.total ? e.loaded / e.total : 0),
+      })
+      .then((r) => r.data);
+  },
+  waveform: (storeId: string, id: number, params: { from?: number; to?: number; n?: number }) =>
+    api.get<Waveform>(`${base(storeId)}/sessions/${id}/waveform/`, { params }).then((r) => r.data),
   action: (storeId: string, versionId: number, action: "accept" | "discard" | "cancel" | "editor") =>
     api
       .post<{ version: Version; upload_id?: number }>(`${base(storeId)}/versions/${versionId}/${action}/`)
@@ -222,4 +254,27 @@ export function clock(seconds: number): string {
 export function minutes(seconds: number): string {
   if (seconds < 90) return `${Math.max(1, Math.round(seconds))} ثانیه`.replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
   return `${Math.round(seconds / 60)} دقیقه`.replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+}
+
+/** ۳۰٫۵ ثانیه ⇐ «0:30.500» (دقیقه:ثانیه.هزارم، با ارقامِ فارسی) */
+export function mmss(seconds: number): string {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const f = ms % 1000;
+  const txt = `${m}:${String(s).padStart(2, "0")}.${String(f).padStart(3, "0")}`;
+  return txt.replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+}
+
+/** «۳۰٫۵» / «1:05.25» / «۰:۳۰.۵۰۰» ⇐ ثانیه (null اگر عدد نیست) */
+export function parseSeconds(text: string): number | null {
+  const t = text
+    .trim()
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[٫,]/g, ".");
+  if (!t) return null;
+  const parts = t.split(":");
+  if (parts.length > 3 || parts.some((p) => p === "" || isNaN(Number(p)))) return null;
+  return parts.reduce((acc, p) => acc * 60 + Number(p), 0);
 }

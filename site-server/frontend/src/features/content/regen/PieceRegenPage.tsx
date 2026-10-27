@@ -19,9 +19,12 @@ import {
   TextArea,
   fa,
 } from "../../../components/ui";
-import { clock, Engine, Estimate, minutes, regenApi, Session, Source, Version } from "./api";
+import { clock, Engine, Estimate, minutes, mmss, regenApi, Session, Source, Version, Waveform as Wave } from "./api";
+import AudioPanel, { AudioForm, DEFAULT_AUDIO, specOf } from "./AudioPanel";
 import RangePicker from "./RangePicker";
+import TimeInput from "./TimeInput";
 import VersionCard from "./VersionCard";
+import Waveform from "./Waveform";
 
 /**
  * «بازسازیِ یک تکه» — یک بازه از وسطِ هر ویدیو (ساختهٔ AI، خروجیِ ادیتور، رندرِ سه‌بعدی، آپلود) دوباره ساخته
@@ -171,7 +174,9 @@ function Picker({ storeId, onOpen }: { storeId: string; onOpen: (s: Session) => 
                 disabled={busy !== null}
                 className="u-card u-card-hover flex flex-col gap-2 p-3 text-start"
               >
-                <video src={s.url} preload="metadata" muted playsInline className="aspect-video w-full rounded-lg object-cover" style={{ background: "#000" }} />
+                {/* preload="none": ده‌ها ویدیو با metadata هر شش اتصالِ مرورگر به سایت را می‌گرفتند و درخواست‌های پنل
+                    (پاک کردن، وضعیت) پشتشان می‌ماندند */}
+                <video src={s.url} preload="none" muted playsInline className="aspect-video w-full rounded-lg object-cover" style={{ background: "#000" }} />
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-bold" style={{ color: "var(--text)" }}>
                     {s.title}
@@ -269,6 +274,11 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
   const [form, setForm] = useState<Form>({ prompt: "", engine: "wan22_flf", quality: "480p", seed: "", context: 1, blend: "auto" });
   const [est, setEst] = useState<Estimate | null>(null);
   const [estError, setEstError] = useState<string | null>(null);
+  const [active, setActive] = useState<"start" | "end">("start");
+  const [picture, setPicture] = useState(true);
+  const [audioForm, setAudioForm] = useState<AudioForm>(DEFAULT_AUDIO);
+  const [wave, setWave] = useState<Wave | null>(null);
+  const [zoom, setZoom] = useState<Wave | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -289,18 +299,19 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
     load();
   }, [load]);
 
-  const active = session?.state === "PREPARING" || (session?.versions ?? []).some((v) => v.active);
+  const polling = session?.state === "PREPARING" || (session?.versions ?? []).some((v) => v.active);
   useEffect(() => {
-    if (!active) return;
+    if (!polling) return;
     const t = window.setInterval(load, 3000);
     return () => window.clearInterval(t);
-  }, [active, load]);
+  }, [polling, load]);
 
   // تا بررسیِ ویدیو تمام نشده، info خالی است (همهٔ کلیدها null)
   const info = session?.state === "READY" && session.info?.n_frames ? session.info : undefined;
   const fps = info?.fps || 30;
   const n = info?.n_frames || 0;
-  const maxCount = Math.max(1, Math.floor((session?.max_seconds ?? 20) * fps));
+  // سقفِ طول فقط برای ساختِ تصویر با مدل است؛ صدا و برش هر طولی را می‌پذیرند
+  const maxCount = picture ? Math.max(1, Math.floor((session?.max_seconds ?? 20) * fps)) : Math.max(1, n);
 
   // بازهٔ پیش‌فرض: یک ثانیه از وسطِ ویدیو
   useEffect(() => {
@@ -346,6 +357,91 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
   );
 
   const [start, end] = range ?? [0, 0];
+
+  // شکلِ موجِ کلِ ویدیو (یک بار برای هر پایه) و نزدیک‌نمای بازه (یک ثانیه قبل و بعد، با تأخیر)
+  useEffect(() => {
+    if (!session || session.state !== "READY") return;
+    let off = false;
+    setWave(null);
+    regenApi
+      .waveform(storeId, session.id, { n: 800 })
+      .then((w) => !off && setWave(w))
+      .catch(() => !off && setWave({ from: 0, to: 0, has_audio: false, peaks: [] }));
+    return () => {
+      off = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, session?.id, session?.state, session?.base_url]);
+
+  const zoomFrom = Math.max(0, start / fps - 1);
+  const zoomTo = Math.min(n / fps, (end + 1) / fps + 1);
+  useEffect(() => {
+    if (!session || session.state !== "READY" || !range || !info?.audio?.length) return;
+    let off = false;
+    const t = window.setTimeout(() => {
+      regenApi
+        .waveform(storeId, session.id, { from: zoomFrom, to: zoomTo, n: 400 })
+        .then((w) => !off && setZoom(w))
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      off = true;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, session?.id, session?.state, session?.base_url, zoomFrom, zoomTo]);
+
+  // کلیدها: ← → دستهٔ فعال یک فریم عقب/جلو (Shift: یک ثانیه، Ctrl/Alt: ده فریم)، Home/End: اول/آخرِ ویدیو،
+  // [ و ]: دستهٔ شروع/پایان، فاصله: پخش/توقف. وقتی در کادری تایپ می‌شود کاری نمی‌کند.
+  // ← همیشه «عقب» است: خطِ زمانی و دکمه‌های فریم هم در این صفحه چپ‌به‌راست‌اند.
+  useEffect(() => {
+    if (!range || !n) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.metaKey || (t && (t.isContentEditable || t.closest("input, textarea, select")))) return;
+      const moveTo = (frame: number) => {
+        if (active === "start") {
+          const s = Math.max(0, Math.min(end, frame));
+          setRange([s, end]);
+          seek(s);
+        } else {
+          const en = Math.min(n - 1, Math.max(start, frame));
+          setRange([start, en]);
+          seek(en);
+        }
+      };
+      const cur = active === "start" ? start : end;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const step = e.shiftKey ? Math.max(1, Math.round(fps)) : e.ctrlKey || e.altKey ? 10 : 1;
+        moveTo(cur + (e.key === "ArrowRight" ? step : -step));
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        moveTo(0);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        moveTo(n - 1);
+      } else if (e.code === "BracketLeft") {
+        e.preventDefault();
+        setActive("start");
+        seek(start);
+      } else if (e.code === "BracketRight") {
+        e.preventDefault();
+        setActive("end");
+        seek(end);
+      } else if (e.code === "Space") {
+        if (t && (t.tagName === "VIDEO" || t.tagName === "BUTTON" || t.tagName === "A" || t.tagName === "AUDIO")) return;
+        e.preventDefault();
+        const el = video.current;
+        if (el) {
+          if (el.paused) el.play().catch(() => undefined);
+          else el.pause();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [range, n, fps, active, start, end, seek]);
   const before = useFrameUrl(storeId, session?.state === "READY" ? session.id : null, range ? start - 1 : null);
   const after = useFrameUrl(storeId, session?.state === "READY" ? session.id : null, range && end + 1 < n ? end + 1 : null);
 
@@ -375,13 +471,16 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
   const versions = session?.versions ?? [];
   const running = versions.some((v) => v.active);
 
-  async function build(override?: Partial<Form> & { start?: number; end?: number }) {
+  async function build(override?: Partial<Form> & { start?: number; end?: number; picture?: boolean; audio?: AudioForm }) {
     if (!session || !range) return;
     setBusy(true);
     setError(null);
     const f = { ...form, ...override };
+    const pic = override?.picture ?? picture;
     try {
       await regenApi.create(storeId, session.id, {
+        mode: pic ? "picture" : "audio",
+        audio: specOf(override?.audio ?? audioForm),
         start: override?.start ?? start,
         end: override?.end ?? end,
         prompt: f.prompt,
@@ -391,6 +490,21 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
         context: f.context,
         blend: f.blend === "auto" ? undefined : Number(f.blend),
       });
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cutRange() {
+    if (!session || !range) return;
+    if (!window.confirm(`فریمِ ${start} تا ${end} (${(count / fps).toFixed(2)} ثانیه) از تصویر و صدا حذف شود؟ اصلِ ویدیو می‌ماند؛ نتیجه یک نسخهٔ تازه است.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await regenApi.create(storeId, session.id, { mode: "cut", start, end });
       await load();
     } catch (e) {
       setError(errorMessage(e));
@@ -413,15 +527,24 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
     }
   }
 
+  const audioOf = (v: Version): AudioForm => ({ ...DEFAULT_AUDIO, ...(v.audio as Partial<AudioForm>),
+    sourceLabel: (v.audio as { source?: string }).source ? "همان صدای نسخهٔ " + v.number : "", sourceSeconds: 0 });
+
   function again(v: Version) {
     setRange([v.start, v.end]);
-    build({ prompt: v.prompt, engine: v.engine, quality: v.quality, seed: "", context: v.context,
-            blend: v.blend === null ? "auto" : String(v.blend), start: v.start, end: v.end });
+    if (v.mode === "cut") return;
+    build({ prompt: v.prompt, engine: v.engine || "wan22_flf", quality: v.quality || "480p", seed: "", context: v.context || 1,
+            blend: v.blend === null ? "auto" : String(v.blend), start: v.start, end: v.end,
+            picture: v.mode === "picture", audio: audioOf(v) });
   }
 
   function edit(v: Version) {
     setRange([v.start, v.end]);
-    setForm({ prompt: v.prompt, engine: v.engine, quality: v.quality, seed: "", context: v.context, blend: v.blend === null ? "auto" : String(v.blend) });
+    setPicture(v.mode === "picture");
+    setAudioForm(audioOf(v));
+    if (v.mode === "picture") {
+      setForm({ prompt: v.prompt, engine: v.engine, quality: v.quality, seed: "", context: v.context, blend: v.blend === null ? "auto" : String(v.blend) });
+    }
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -446,6 +569,9 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
   const count = end - start + 1;
   const tooLong = count > maxCount;
   const whole = start === 0 && end === n - 1;
+  const hasAudio = !!info?.audio?.length;
+  const audioOnlyEmpty = !picture && audioForm.op === "keep";
+  const replaceMissing = audioForm.op === "replace" && !audioForm.source;
 
   const chips = useMemo(() => {
     if (!info) return [];
@@ -500,7 +626,7 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
           src={session.base_url ?? undefined}
           controls
           playsInline
-          preload="auto"
+          preload="metadata"
           data-testid="regen-player"
           className="mx-auto w-full rounded-lg"
           style={{ background: "#000", maxHeight: 420 }}
@@ -511,16 +637,18 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
             جای پخش: فریمِ <b style={{ color: "var(--text)" }}>{fa(playhead)}</b> · {clock(playhead / fps)}
           </span>
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="ghost" onClick={() => seek(playhead - 1)} title="یک فریم عقب">
-              ⏴ فریم
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => seek(playhead + 1)} title="یک فریم جلو">
-              فریم ⏵
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setStart(playhead)} data-testid="regen-set-start">
+            <span dir="ltr" className="inline-flex gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => seek(playhead - 1)} title="یک فریم عقب (←)" data-testid="regen-step-back">
+                ⏴ فریم
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => seek(playhead + 1)} title="یک فریم جلو (→)" data-testid="regen-step-fwd">
+                فریم ⏵
+              </Button>
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => { setStart(playhead); setActive("start"); }} data-testid="regen-set-start">
               شروع = همین فریم
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setEnd(playhead)} data-testid="regen-set-end">
+            <Button size="sm" variant="secondary" onClick={() => { setEnd(playhead); setActive("end"); }} data-testid="regen-set-end">
               پایان = همین فریم
             </Button>
           </div>
@@ -535,9 +663,31 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
             end={end}
             playhead={playhead}
             maxCount={maxCount}
+            active={active}
+            wave={wave}
             onChange={(s, e) => setRange([s, e])}
             onSeek={seek}
+            onActivate={setActive}
           />
+        )}
+
+        {range && hasAudio && (
+          <div className="space-y-1">
+            <div className="text-xs" style={{ color: "var(--text-3)" }}>
+              صدای بازه از نزدیک (یک ثانیه قبل و بعد) — جای گفتار را ببینید؛ کلیک = جای پخش
+            </div>
+            <Waveform
+              peaks={zoom ? zoom.peaks : null}
+              from={zoom?.from ?? zoomFrom}
+              to={zoom && zoom.to > zoom.from ? zoom.to : zoomTo}
+              selStart={start / fps}
+              selEnd={(end + 1) / fps}
+              playhead={(playhead + 0.5) / fps}
+              height={56}
+              testid="regen-zoom-wave"
+              onSeek={(t) => seek(Math.floor(t * fps))}
+            />
+          </div>
         )}
 
         {range && (
@@ -548,24 +698,33 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
               const img = which === "start" ? before : after;
               const boundary = which === "start" ? start - 1 : end + 1;
               return (
-                <div key={which} className="space-y-2">
+                <div
+                  key={which}
+                  className="space-y-2 rounded-xl p-2"
+                  data-testid={`regen-box-${which}`}
+                  onClick={() => setActive(which)}
+                  style={{ border: `1px solid ${active === which ? "var(--brand)" : "transparent"}`, background: active === which ? "var(--brand-soft)" : undefined }}
+                >
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-sm font-bold" style={{ color: "var(--text)" }}>
                       {which === "start" ? "اولین فریمِ تکه" : "آخرین فریمِ تکه"}
                     </span>
-                    <Button size="sm" variant="ghost" onClick={() => { set(value - 1); seek(value - 1); }}>−۱</Button>
-                    <Input
-                      type="number"
-                      value={value}
-                      min={0}
-                      max={n - 1}
-                      data-testid={`regen-${which}`}
-                      onChange={(e) => set(Number(e.target.value))}
-                      className="text-center"
-                      style={{ width: 96 }}
-                      dir="ltr"
-                    />
-                    <Button size="sm" variant="ghost" onClick={() => { set(value + 1); seek(value + 1); }}>+۱</Button>
+                    {active === which && <Badge tone="brand">فعال برای ← →</Badge>}
+                    <span dir="ltr" className="inline-flex items-center gap-1.5">
+                      <Button size="sm" variant="ghost" onClick={() => { set(value - 1); seek(value - 1); }}>−۱</Button>
+                      <Input
+                        type="number"
+                        value={value}
+                        min={0}
+                        max={n - 1}
+                        data-testid={`regen-${which}`}
+                        onChange={(e) => set(Number(e.target.value))}
+                        className="text-center"
+                        style={{ width: 96 }}
+                        dir="ltr"
+                      />
+                      <Button size="sm" variant="ghost" onClick={() => { set(value + 1); seek(value + 1); }}>+۱</Button>
+                    </span>
                     <span className="text-xs" style={{ color: "var(--text-3)" }}>{clock(value / fps)}</span>
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-3)" }}>
@@ -593,6 +752,40 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
         )}
 
         {range && (
+          <div className="flex flex-wrap items-end gap-4" data-testid="regen-seconds">
+            <TimeInput
+              label="شروع (ثانیه)"
+              testid="regen-start-sec"
+              seconds={start / fps}
+              note={`فریمِ ${start}`}
+              onCommit={(t) => { const f = Math.max(0, Math.min(end, Math.round(t * fps))); setStart(f); setActive("start"); seek(f); }}
+            />
+            <TimeInput
+              label="پایان (ثانیه)"
+              testid="regen-end-sec"
+              seconds={(end + 1) / fps}
+              note={`تا آخرِ فریمِ ${end}`}
+              onCommit={(t) => { const f = Math.min(n - 1, Math.max(start, Math.round(t * fps) - 1)); setEnd(f); setActive("end"); seek(f); }}
+            />
+            <TimeInput
+              label="طول (ثانیه)"
+              testid="regen-len-sec"
+              seconds={count / fps}
+              note={`${count} فریم`}
+              onCommit={(t) => { const f = Math.min(n - 1, Math.max(start, start + Math.max(1, Math.round(t * fps)) - 1)); setEnd(f); seek(f); }}
+            />
+          </div>
+        )}
+
+        {range && (
+          <p className="text-xs leading-6" style={{ color: "var(--text-3)" }} data-testid="regen-keys-hint">
+            کلیدها: <b dir="ltr">← →</b> دستهٔ فعال یک فریم عقب/جلو · <b>Shift</b> یک ثانیه · <b>Ctrl</b> ده فریم ·{" "}
+            <b>Home / End</b> اول/آخرِ ویدیو · <b dir="ltr">[ ]</b> شروع/پایان را فعال کن (یا روی کادرش بزنید) ·{" "}
+            <b>فاصله</b> پخش/توقف. ← همیشه «عقب» است، مثلِ خطِ زمانی و دکمهٔ ⏴. ({mmss(start / fps)} ← {mmss((end + 1) / fps)})
+          </p>
+        )}
+
+        {range && (
           <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
             <Badge tone={tooLong || whole ? "bad" : "brand"}>
               {fa(count)} فریم · {fa((count / fps).toFixed(2))} ثانیه
@@ -611,6 +804,12 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
       <div ref={formRef}>
         <Card className="space-y-4">
           <SectionTitle>در این تکه چه اتفاقی بیفتد؟</SectionTitle>
+          <label className="flex items-center gap-2 text-sm font-bold" style={{ color: "var(--text)" }}>
+            <input type="checkbox" checked={picture} data-testid="regen-picture" onChange={(e) => setPicture(e.target.checked)} />
+            تصویرِ این بازه هم با مدل دوباره ساخته شود
+            {!picture && <Badge tone="info">فقط صدا — روی همین سرور، چند ثانیه</Badge>}
+          </label>
+          {picture && (<>
           <TextArea
             rows={3}
             value={form.prompt}
@@ -659,8 +858,25 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
             <input type="checkbox" checked={form.context === 5} onChange={(e) => setForm({ ...form, context: e.target.checked ? 5 : 1 })} />
             پیوستگیِ حرکت (آزمایشی): به‌جای یک فریم، پنج فریم از هر طرف به مدل داده شود تا جهت و سرعتِ حرکت را هم ببیند
           </label>
+          </>)}
 
-          {est && !estError && (
+          <div className="space-y-2 rounded-xl p-3" style={{ background: "var(--surface-2)" }}>
+            <b className="text-sm" style={{ color: "var(--text)" }}>
+              <Icon name="music" size={14} /> صدای همین بازه
+            </b>
+            {session && (
+              <AudioPanel
+                storeId={storeId}
+                sessionId={session.id}
+                value={audioForm}
+                onChange={setAudioForm}
+                rangeSeconds={count / fps}
+                hasAudio={hasAudio}
+              />
+            )}
+          </div>
+
+          {picture && est && !estError && (
             <div className="rounded-xl p-3 text-sm leading-7" style={{ background: "var(--surface-2)", color: "var(--text-2)" }} data-testid="regen-estimate">
               زمانِ تقریبی: <b style={{ color: "var(--text)" }}>{minutes(est.estimate.total_seconds)}</b> (ساخت روی سرورِ پردازش ≈{" "}
               {minutes(est.estimate.generate_seconds)}، چسباندن ≈ {minutes(est.estimate.stitch_seconds)}) · مدل{" "}
@@ -672,20 +888,37 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
                 : `کلِ ویدیو دوباره رمزگذاری می‌شود (${est.estimate.smart_reason}).`}
             </div>
           )}
-          {estError && <Alert tone="warn">{estError}</Alert>}
-          {engine && engine.ready === false && (
+          {picture && estError && <Alert tone="warn">{estError}</Alert>}
+          {picture && engine && engine.ready === false && (
             <Alert tone="warn" title="این مدل روی سرورِ پردازش کامل نیست">
               {engine.missing.join("، ")} — در «سرورهای پردازش › مدل‌های صدا › بسته‌های دیگر» «دانلود» را بزنید، یا START.bat را روی آن کامپیوتر دوباره باز کنید (بخشِ اصلی را خودش دانلود می‌کند).
             </Alert>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            <Button disabled={busy || running || !range || tooLong || whole} onClick={() => build()} data-testid="regen-build">
-              <Icon name="sparkle" size={15} /> بساز
+            <Button disabled={busy || running || !range || tooLong || (picture && whole) || audioOnlyEmpty || replaceMissing}
+              onClick={() => build()} data-testid="regen-build">
+              <Icon name={picture ? "sparkle" : "music"} size={15} /> {picture ? "بساز" : "اعمالِ صدا"}
             </Button>
+            {audioOnlyEmpty && <span className="text-sm" style={{ color: "var(--text-3)" }}>بی ساختِ تصویر، یکی از گزینه‌های صدا را انتخاب کنید.</span>}
+            {replaceMissing && <span className="text-sm" style={{ color: "var(--text-3)" }}>صدای تازه را انتخاب کنید.</span>}
             {running && <span className="text-sm" style={{ color: "var(--text-3)" }}>یک نسخه در حالِ ساخت است…</span>}
           </div>
         </Card>
       </div>
+
+      {range && (
+        <Card className="space-y-2">
+          <SectionTitle>حذفِ این بازه (برش)</SectionTitle>
+          <p className="text-sm leading-7" style={{ color: "var(--text-2)" }}>
+            تصویر و صدای فریمِ {fa(start)} تا {fa(end)} ({fa((count / fps).toFixed(2))} ثانیه) برداشته می‌شود و دو طرف به هم
+            می‌رسند؛ صدا در جای چسب ۳۰ میلی‌ثانیه نرم می‌شود و طولِ ویدیو دقیقاً همین‌قدر کوتاه‌تر. فقط چند ثانیهٔ دورِ جای
+            چسب دوباره رمزگذاری می‌شود (اگر ویدیو با x264 ساخته شده باشد). پیش‌نمایشِ جداگانه دارد و مثلِ بقیه قبول/دور انداختن.
+          </p>
+          <Button variant="danger" disabled={busy || running || whole} onClick={cutRange} data-testid="regen-cut">
+            <Icon name="trash" size={14} /> برش بزن
+          </Button>
+        </Card>
+      )}
 
       {versions.length > 0 && (
         <div className="space-y-3">

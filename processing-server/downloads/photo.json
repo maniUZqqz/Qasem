@@ -1,0 +1,17 @@
+{
+ "group": "photo",
+ "title": "Photo editor: AI background removal (BiRefNet-lite ONNX) for the .NET photo kit",
+ "license_note": "BiRefNet-lite ONNX (onnx-community) is MIT - commercial use allowed. ~224 MB; needs ~6.5 GB free RAM per photo on CPU. The upscaler (Real-ESRGAN) still comes with kit-models-photo.zip.",
+ "items": [
+  {
+   "id": "photo:birefnet-lite",
+   "package": "photo-background",
+   "kind": "file",
+   "title": "BiRefNet-lite (AI background removal for «ادیتور عکس»)",
+   "urls": ["{HF}/onnx-community/BiRefNet_lite-ONNX/resolve/de15b22ba131738a16dff04aab8bdf8dc32e3ac1/onnx/model.onnx"],
+   "dest": "{NM_HOME}\\tools\\PersianAiKit\\Photo\\models\\background\\birefnet-lite.onnx",
+   "size": 224005088,
+   "sha256": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333"
+  }
+ ]
+}

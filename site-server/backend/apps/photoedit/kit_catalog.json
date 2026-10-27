@@ -1,0 +1,1016 @@
+{
+ "source": "processing/tools/PersianAiKit/Photo (ToolCatalog.cs, Presets.cs)",
+ "groups": [
+  {
+   "key": "light",
+   "title": "نور",
+   "help": "نوردهی، کنتراست، روشنی‌ها و سایه‌ها — بیشترِ بهتر شدنِ یک عکس از همین‌جاست."
+  },
+  {
+   "key": "color",
+   "title": "رنگ",
+   "help": "تعادلِ سفیدی (ته‌رنگ) و شدتِ رنگ‌ها."
+  },
+  {
+   "key": "hsl",
+   "title": "رنگ‌به‌رنگ (HSL)",
+   "help": "فام، اشباع و روشنیِ هر خانوادهٔ رنگ جداگانه."
+  },
+  {
+   "key": "grading",
+   "title": "رنگ‌دهیِ سایه و روشنی",
+   "help": "رنگِ دلخواه در سایه‌ها و روشنی‌ها (حال‌وهوای سینمایی)."
+  },
+  {
+   "key": "levels",
+   "title": "سطوح (Levels)",
+   "help": "نقطهٔ سیاه، نقطهٔ سفید و گامای میانه‌ها."
+  },
+  {
+   "key": "presence",
+   "title": "وضوح و مه",
+   "help": "بافت، وضوح (کنتراستِ محلی) و مه‌زدایی."
+  },
+  {
+   "key": "detail",
+   "title": "جزئیات",
+   "help": "شارپ و نویزگیری."
+  },
+  {
+   "key": "effects",
+   "title": "افکت",
+   "help": "وینیت و دانه."
+  },
+  {
+   "key": "geometry",
+   "title": "لنز",
+   "help": "اصلاحِ اعوجاجِ لنز. برش و چرخش در ابزارِ برش است."
+  }
+ ],
+ "params": [
+  {
+   "key": "exposure",
+   "group": "light",
+   "title": "نوردهی",
+   "help": "روشنیِ کلی به واحدِ «استاپ» مثلِ دوربین؛ +۱ یعنی نورِ دو برابر.",
+   "min": -4.0,
+   "max": 4.0,
+   "default": 0.0,
+   "step": 0.05,
+   "unit": "EV",
+   "photoshop": "Exposure"
+  },
+  {
+   "key": "contrast",
+   "group": "light",
+   "title": "کنتراست",
+   "help": "فاصلهٔ تیره‌ها و روشن‌ها (منحنیِ S).",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Brightness/Contrast، Exposure & Contrast"
+  },
+  {
+   "key": "highlights",
+   "group": "light",
+   "title": "روشنی‌ها",
+   "help": "منفی ⇒ برگرداندنِ جزئیاتِ آسمان و بخش‌های سوخته (محلی و لبه‌آگاه).",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Highlights، Shadows/Highlights"
+  },
+  {
+   "key": "shadows",
+   "group": "light",
+   "title": "سایه‌ها",
+   "help": "مثبت ⇒ باز کردنِ سایه‌های تیره (مثلاً صورت در ضدنور) بی هاله.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Shadows، Shadows/Highlights"
+  },
+  {
+   "key": "whites",
+   "group": "light",
+   "title": "سفیدها",
+   "help": "نقطهٔ سفید: مثبت ⇒ روشن‌ترین بخش‌ها سفیدتر.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Whites"
+  },
+  {
+   "key": "blacks",
+   "group": "light",
+   "title": "سیاه‌ها",
+   "help": "نقطهٔ سیاه: منفی ⇒ سیاه‌ترها عمیق‌تر؛ مثبت ⇒ ظاهرِ مات.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Blacks"
+  },
+  {
+   "key": "brightness",
+   "group": "light",
+   "title": "روشنیِ میانه",
+   "help": "روشن یا تیره کردنِ میانه‌ها بی دست زدن به سیاه و سفیدِ کامل.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Brightness، Levels (gamma)"
+  },
+  {
+   "key": "temperature",
+   "group": "color",
+   "title": "دما",
+   "help": "منفی ⇒ آبی‌تر (سردتر)، مثبت ⇒ زردتر (گرم‌تر). رفعِ زردیِ نورِ لامپ یا آبیِ هوای ابری.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "White Balance (Temp)"
+  },
+  {
+   "key": "tint",
+   "group": "color",
+   "title": "ته‌رنگ",
+   "help": "منفی ⇒ سبزتر، مثبت ⇒ ارغوانی‌تر. رفعِ سبزیِ نورِ مهتابی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "White Balance (Tint)"
+  },
+  {
+   "key": "vibrance",
+   "group": "color",
+   "title": "وایبرنس",
+   "help": "افزایشِ هوشمندِ رنگ: رنگ‌های کم‌رنگ بیشتر، رنگِ پوست کمتر.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Vibrance"
+  },
+  {
+   "key": "saturation",
+   "group": "color",
+   "title": "اشباع",
+   "help": "شدتِ همهٔ رنگ‌ها به یک اندازه؛ −۱۰۰ ⇒ سیاه‌وسفید.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Saturation، Hue/Saturation، Desaturate"
+  },
+  {
+   "key": "shadowsHue",
+   "group": "grading",
+   "title": "فامِ سایه‌ها",
+   "help": "رنگی که به سایه‌ها افزوده می‌شود (درجه روی دایرهٔ رنگ).",
+   "min": 0.0,
+   "max": 360.0,
+   "default": 220.0,
+   "step": 1.0,
+   "unit": "°",
+   "photoshop": "Color Grading، Color Balance"
+  },
+  {
+   "key": "shadowsSat",
+   "group": "grading",
+   "title": "شدتِ رنگِ سایه‌ها",
+   "help": "۰ ⇒ بی‌اثر.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Color Grading"
+  },
+  {
+   "key": "highlightsHue",
+   "group": "grading",
+   "title": "فامِ روشنی‌ها",
+   "help": "رنگی که به روشنی‌ها افزوده می‌شود.",
+   "min": 0.0,
+   "max": 360.0,
+   "default": 40.0,
+   "step": 1.0,
+   "unit": "°",
+   "photoshop": "Color Grading"
+  },
+  {
+   "key": "highlightsSat",
+   "group": "grading",
+   "title": "شدتِ رنگِ روشنی‌ها",
+   "help": "۰ ⇒ بی‌اثر.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Color Grading"
+  },
+  {
+   "key": "gradingBalance",
+   "group": "grading",
+   "title": "تعادل",
+   "help": "منفی ⇒ سهمِ سایه‌ها بیشتر، مثبت ⇒ سهمِ روشنی‌ها بیشتر.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Color Grading (Balance)"
+  },
+  {
+   "key": "levelsBlack",
+   "group": "levels",
+   "title": "سیاهِ ورودی",
+   "help": "هر چه تیره‌تر از این است سیاهِ کامل می‌شود.",
+   "min": 0.0,
+   "max": 250.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Levels"
+  },
+  {
+   "key": "levelsWhite",
+   "group": "levels",
+   "title": "سفیدِ ورودی",
+   "help": "هر چه روشن‌تر از این است سفیدِ کامل می‌شود.",
+   "min": 5.0,
+   "max": 255.0,
+   "default": 255.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Levels"
+  },
+  {
+   "key": "levelsGamma",
+   "group": "levels",
+   "title": "گامای میانه",
+   "help": "بیشتر از ۱ ⇒ میانه‌ها روشن‌تر.",
+   "min": 0.2,
+   "max": 5.0,
+   "default": 1.0,
+   "step": 0.01,
+   "unit": "",
+   "photoshop": "Levels"
+  },
+  {
+   "key": "texture",
+   "group": "presence",
+   "title": "بافت",
+   "help": "جزئیاتِ ریز تا متوسط (پوست، برگ، پارچه): مثبت ⇒ پررنگ‌تر، منفی ⇒ نرم‌تر.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Texture"
+  },
+  {
+   "key": "clarity",
+   "group": "presence",
+   "title": "وضوح",
+   "help": "کنتراستِ محلیِ میانه‌ها و حسِ عمق؛ منفی ⇒ نرم و رؤیایی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Clarity، High Pass"
+  },
+  {
+   "key": "dehaze",
+   "group": "presence",
+   "title": "مه‌زدایی",
+   "help": "برداشتنِ مه و غبار (منفی ⇒ مه افزودن).",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Dehaze"
+  },
+  {
+   "key": "sharpen",
+   "group": "detail",
+   "title": "شارپ",
+   "help": "تیز کردنِ لبه‌ها (ماسکِ غیرشارپ روی روشنایی، بی رنگ‌پریدگی).",
+   "min": 0.0,
+   "max": 150.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Sharpening، Unsharp Mask، Smart Sharpen"
+  },
+  {
+   "key": "sharpenRadius",
+   "group": "detail",
+   "title": "شعاعِ شارپ",
+   "help": "اندازهٔ لبه‌هایی که تیز می‌شوند (پیکسل در اندازهٔ اصلی).",
+   "min": 0.5,
+   "max": 3.0,
+   "default": 1.0,
+   "step": 0.1,
+   "unit": "px",
+   "photoshop": "Sharpening (Radius)"
+  },
+  {
+   "key": "sharpenMasking",
+   "group": "detail",
+   "title": "ماسکِ شارپ",
+   "help": "بیشتر ⇒ فقط لبه‌های قوی تیز می‌شوند؛ پوست و آسمان دست نمی‌خورد.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Sharpening (Masking)، Sharpen Edges"
+  },
+  {
+   "key": "noiseLuma",
+   "group": "detail",
+   "title": "نویزگیریِ روشنایی",
+   "help": "دانه‌های ریزِ روشن و تیره (عکسِ شب و ISO بالا).",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Noise Reduction، Reduce Noise، Despeckle"
+  },
+  {
+   "key": "noiseColor",
+   "group": "detail",
+   "title": "نویزگیریِ رنگ",
+   "help": "لکه‌های رنگیِ ریز در سایه‌ها.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Noise Reduction (Color)"
+  },
+  {
+   "key": "vignette",
+   "group": "effects",
+   "title": "وینیت",
+   "help": "منفی ⇒ گوشه‌ها تیره‌تر (تمرکز روی سوژه)، مثبت ⇒ روشن‌تر.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Vignette"
+  },
+  {
+   "key": "vignetteMidpoint",
+   "group": "effects",
+   "title": "اندازهٔ وینیت",
+   "help": "کمتر ⇒ وینیت به وسط نزدیک‌تر.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 50.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Vignette (Midpoint)"
+  },
+  {
+   "key": "vignetteFeather",
+   "group": "effects",
+   "title": "نرمیِ وینیت",
+   "help": "بیشتر ⇒ گذارِ نرم‌تر.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 50.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Vignette (Feather)"
+  },
+  {
+   "key": "grain",
+   "group": "effects",
+   "title": "دانه",
+   "help": "دانهٔ فیلمی.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Grain، Add Noise"
+  },
+  {
+   "key": "grainSize",
+   "group": "effects",
+   "title": "اندازهٔ دانه",
+   "help": "درشتیِ دانه.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 25.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Grain (Size)"
+  },
+  {
+   "key": "distortion",
+   "group": "geometry",
+   "title": "اعوجاجِ لنز",
+   "help": "مثبت ⇒ رفعِ حالتِ بشکه‌ای (لنزِ واید)، منفی ⇒ رفعِ حالتِ بالشتکی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Lens Corrections (Distortion)"
+  },
+  {
+   "key": "lensVignette",
+   "group": "geometry",
+   "title": "تاریکیِ گوشه‌های لنز",
+   "help": "مثبت ⇒ روشن کردنِ گوشه‌هایی که لنز تیره کرده.",
+   "min": 0.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "Lens Corrections (Vignetting)"
+  },
+  {
+   "key": "redHue",
+   "group": "hsl",
+   "title": "فامِ قرمز",
+   "help": "چرخاندنِ رنگِ قرمز به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "redSat",
+   "group": "hsl",
+   "title": "اشباعِ قرمز",
+   "help": "شدتِ رنگِ قرمز.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "redLum",
+   "group": "hsl",
+   "title": "روشنیِ قرمز",
+   "help": "روشن یا تیره کردنِ قرمز.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "orangeHue",
+   "group": "hsl",
+   "title": "فامِ نارنجی",
+   "help": "چرخاندنِ رنگِ نارنجی به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "orangeSat",
+   "group": "hsl",
+   "title": "اشباعِ نارنجی",
+   "help": "شدتِ رنگِ نارنجی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "orangeLum",
+   "group": "hsl",
+   "title": "روشنیِ نارنجی",
+   "help": "روشن یا تیره کردنِ نارنجی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "yellowHue",
+   "group": "hsl",
+   "title": "فامِ زرد",
+   "help": "چرخاندنِ رنگِ زرد به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "yellowSat",
+   "group": "hsl",
+   "title": "اشباعِ زرد",
+   "help": "شدتِ رنگِ زرد.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "yellowLum",
+   "group": "hsl",
+   "title": "روشنیِ زرد",
+   "help": "روشن یا تیره کردنِ زرد.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "greenHue",
+   "group": "hsl",
+   "title": "فامِ سبز",
+   "help": "چرخاندنِ رنگِ سبز به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "greenSat",
+   "group": "hsl",
+   "title": "اشباعِ سبز",
+   "help": "شدتِ رنگِ سبز.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "greenLum",
+   "group": "hsl",
+   "title": "روشنیِ سبز",
+   "help": "روشن یا تیره کردنِ سبز.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "aquaHue",
+   "group": "hsl",
+   "title": "فامِ فیروزه‌ای",
+   "help": "چرخاندنِ رنگِ فیروزه‌ای به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "aquaSat",
+   "group": "hsl",
+   "title": "اشباعِ فیروزه‌ای",
+   "help": "شدتِ رنگِ فیروزه‌ای.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "aquaLum",
+   "group": "hsl",
+   "title": "روشنیِ فیروزه‌ای",
+   "help": "روشن یا تیره کردنِ فیروزه‌ای.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "blueHue",
+   "group": "hsl",
+   "title": "فامِ آبی",
+   "help": "چرخاندنِ رنگِ آبی به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "blueSat",
+   "group": "hsl",
+   "title": "اشباعِ آبی",
+   "help": "شدتِ رنگِ آبی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "blueLum",
+   "group": "hsl",
+   "title": "روشنیِ آبی",
+   "help": "روشن یا تیره کردنِ آبی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "purpleHue",
+   "group": "hsl",
+   "title": "فامِ بنفش",
+   "help": "چرخاندنِ رنگِ بنفش به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "purpleSat",
+   "group": "hsl",
+   "title": "اشباعِ بنفش",
+   "help": "شدتِ رنگِ بنفش.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "purpleLum",
+   "group": "hsl",
+   "title": "روشنیِ بنفش",
+   "help": "روشن یا تیره کردنِ بنفش.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  },
+  {
+   "key": "magentaHue",
+   "group": "hsl",
+   "title": "فامِ ارغوانی",
+   "help": "چرخاندنِ رنگِ ارغوانی به سمتِ رنگ‌های همسایه.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Hue)"
+  },
+  {
+   "key": "magentaSat",
+   "group": "hsl",
+   "title": "اشباعِ ارغوانی",
+   "help": "شدتِ رنگِ ارغوانی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Saturation)"
+  },
+  {
+   "key": "magentaLum",
+   "group": "hsl",
+   "title": "روشنیِ ارغوانی",
+   "help": "روشن یا تیره کردنِ ارغوانی.",
+   "min": -100.0,
+   "max": 100.0,
+   "default": 0.0,
+   "step": 1.0,
+   "unit": "",
+   "photoshop": "HSL (Luminance)"
+  }
+ ],
+ "presets": [
+  {
+   "key": "clean",
+   "title": "روشن و تمیز",
+   "help": "کمی روشن‌تر، سایه‌ها باز، رنگ کمی زنده‌تر — مناسبِ بیشترِ عکس‌ها.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "exposure": 0.15,
+     "highlights": -20,
+     "shadows": 25,
+     "whites": 10,
+     "vibrance": 15,
+     "clarity": 8
+    }
+   }
+  },
+  {
+   "key": "vivid",
+   "title": "پرجلوه",
+   "help": "رنگ و کنتراستِ بیشتر، بی آن‌که پوست نارنجی شود.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "vibrance": 35,
+     "saturation": 8,
+     "contrast": 18,
+     "clarity": 15,
+     "dehaze": 8
+    }
+   }
+  },
+  {
+   "key": "warm",
+   "title": "گرم",
+   "help": "نورِ عصرگاهی: زردتر و دلنشین‌تر.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "temperature": 18,
+     "tint": 3,
+     "vibrance": 10,
+     "highlightsHue": 40,
+     "highlightsSat": 15
+    }
+   }
+  },
+  {
+   "key": "cool",
+   "title": "سرد",
+   "help": "آبی‌تر و تمیزتر، سایه‌های کمی آبی.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "temperature": -15,
+     "vibrance": 5,
+     "shadowsHue": 220,
+     "shadowsSat": 15
+    }
+   }
+  },
+  {
+   "key": "bw",
+   "title": "سیاه‌وسفید",
+   "help": "سیاه‌وسفیدِ نرم با کمی کنتراست.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "saturation": -100,
+     "contrast": 20,
+     "clarity": 10
+    }
+   }
+  },
+  {
+   "key": "bwContrast",
+   "title": "سیاه‌وسفیدِ پرکنتراست",
+   "help": "سیاه‌های عمیق، سفیدهای درخشان، دانهٔ فیلم.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "saturation": -100,
+     "contrast": 45,
+     "blacks": -15,
+     "whites": 15,
+     "clarity": 25,
+     "redLum": 15,
+     "blueLum": -20,
+     "grain": 15
+    }
+   }
+  },
+  {
+   "key": "matte",
+   "title": "فیلمیِ مات",
+   "help": "سیاه‌های شسته، رنگِ ملایم و دانه — حالِ عکسِ فیلم.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "saturation": -15,
+     "grain": 20,
+     "shadowsHue": 200,
+     "shadowsSat": 10,
+     "highlightsHue": 45,
+     "highlightsSat": 10
+    },
+    "curve": {
+     "rgb": [
+      [
+       0,
+       30
+      ],
+      [
+       64,
+       70
+      ],
+      [
+       192,
+       190
+      ],
+      [
+       255,
+       242
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "key": "vintage",
+   "title": "قدیمی",
+   "help": "گرم، کم‌رنگ، با گوشه‌های تیره و دانه.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "temperature": 15,
+     "saturation": -25,
+     "contrast": -10,
+     "vignette": -25,
+     "grain": 25
+    },
+    "curve": {
+     "rgb": [
+      [
+       0,
+       25
+      ],
+      [
+       255,
+       235
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "key": "cinematic",
+   "title": "سینمایی",
+   "help": "سایه‌های فیروزه‌ای، روشنی‌های نارنجی (تیل و نارنجی).",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "contrast": 15,
+     "saturation": -10,
+     "shadowsHue": 190,
+     "shadowsSat": 25,
+     "highlightsHue": 35,
+     "highlightsSat": 20,
+     "vignette": -15
+    }
+   }
+  },
+  {
+   "key": "portrait",
+   "title": "پرتره",
+   "help": "پوستِ نرم‌تر، سایه‌های صورت باز، رنگِ طبیعی.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "texture": -20,
+     "clarity": -5,
+     "shadows": 15,
+     "vibrance": 10,
+     "orangeLum": 10,
+     "orangeSat": -5
+    }
+   }
+  },
+  {
+   "key": "landscape",
+   "title": "منظره",
+   "help": "آسمانِ پررنگ، مه کمتر، جزئیاتِ بیشتر.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "dehaze": 15,
+     "vibrance": 30,
+     "clarity": 20,
+     "blueSat": 15,
+     "greenSat": 10,
+     "highlights": -30,
+     "shadows": 20
+    }
+   }
+  },
+  {
+   "key": "food",
+   "title": "غذا",
+   "help": "گرم و اشتهاآور، جزئیاتِ تیز.",
+   "kind": "look",
+   "recipe": {
+    "adjust": {
+     "temperature": 10,
+     "vibrance": 25,
+     "clarity": 10,
+     "shadows": 15,
+     "sharpen": 40,
+     "sharpenMasking": 30
+    }
+   }
+  },
+  {
+   "key": "store",
+   "title": "عکسِ فروشگاهی",
+   "help": "پس‌زمینهٔ سفید، قابِ مربعِ ۲۰۰۰ با حاشیهٔ ۶٪، سفیدهای تمیز و شارپ — برای دیجی‌کالا، باسلام، اینستاگرام.",
+   "kind": "store",
+   "recipe": {
+    "adjust": {
+     "whites": 15,
+     "clarity": 10,
+     "vibrance": 10,
+     "sharpen": 40,
+     "sharpenMasking": 40
+    },
+    "background": {
+     "remove": true,
+     "color": "#ffffff",
+     "shadow": 25
+    },
+    "output": {
+     "square": true,
+     "padding": 0.06,
+     "longEdge": 2000,
+     "format": "jpeg",
+     "quality": 92
+    }
+   }
+  },
+  {
+   "key": "storeTransparent",
+   "title": "کالا بی‌پس‌زمینه (PNG)",
+   "help": "کالا روی زمینهٔ شفاف، برای طراحی و بنر.",
+   "kind": "store",
+   "recipe": {
+    "adjust": {
+     "clarity": 10,
+     "sharpen": 35
+    },
+    "background": {
+     "remove": true,
+     "color": "transparent"
+    },
+    "output": {
+     "format": "png"
+    }
+   }
+  }
+ ]
+}

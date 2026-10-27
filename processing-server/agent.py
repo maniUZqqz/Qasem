@@ -29,6 +29,7 @@ Job kinds:
   comfy.graph     raw ComfyUI API graph (payload.graph) + input files referenced by name
   comfy.profile   ready profile (upmarket_comfyui_flask/profiles.json): prompt, profile, controls, image
   photo.edit      photo recipe (PersianAiKit.Photo :5670)        photo.analyze   photo analysis
+                  {auto: true} the kit's automatic edit; {goal: "..."} smart edit by the vision model (Ollama)
   video.edit      video recipe/export (PersianAiKit.Video :5680)
   voice.tts       text to speech (PersianAiKit.Voice :5600)      voice.asr       speech to text
                   natural / cloned voice: {voice, clone|strict: true} -> /api/voice/tts, never a Piper fallback;
@@ -74,7 +75,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.8"
+VERSION = "1.9"
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, "work")
 LOGS = os.path.join(HERE, "logs")
@@ -816,6 +817,8 @@ class ServiceManager:
                 return False
         os.makedirs(LOGS, exist_ok=True)
         env = dict(os.environ)
+        if key == "photo":
+            env.update(photo_ai_env(env))   # «smart edit» of the photo kit -> this node's Ollama vision model
         dn = find_dotnet() if key in KIT_DIRS else None
         if dn and not shutil.which("dotnet"):
             env["PATH"] = os.path.dirname(dn) + os.pathsep + env.get("PATH", "")
@@ -2506,8 +2509,10 @@ def h_comfy_profile(job):
     return {"primary": primary, "engine": "comfyui", "profile": profile["id"]}
 
 
-def _relay(job, service, method, path, body=None, files=None, headers=None, out_name=None, timeout=1800):
-    """Request to a local service; JSON answer -> .json output file, binary answer -> file named out_name."""
+def _relay(job, service, method, path, body=None, files=None, headers=None, out_name=None, timeout=1800,
+           resp_headers=None):
+    """Request to a local service; JSON answer -> .json output file, binary answer -> file named out_name.
+    resp_headers (a dict) receives the response headers."""
     url = service_url(service) + path
     data = body
     h = dict(headers or {})
@@ -2518,6 +2523,8 @@ def _relay(job, service, method, path, body=None, files=None, headers=None, out_
         h["Content-Type"] = ctype
     try:
         payload, rh = http(method, url, data, h, timeout=timeout, raw=True)
+        if resp_headers is not None:
+            resp_headers.update(rh or {})
     except urllib.error.HTTPError as e:
         raise RuntimeError("%s -> HTTP %s %s" % (path, e.code, e.read()[:400].decode("utf-8", "replace")))
     except (urllib.error.URLError, OSError) as e:
@@ -2537,20 +2544,127 @@ def _relay(job, service, method, path, body=None, files=None, headers=None, out_
     return None, name
 
 
+def photo_ai_env(env):
+    """Environment for the photo editor's «smart edit» (POST /api/docs/{id}/ai-edit = an OpenAI-compatible vision model).
+    Default: this node's own Ollama (no key, no internet) with the vision models it has. NM_PHOTO_AI=off keeps the kit's
+    appsettings.json; Photo__Ai__BaseUrl already in the environment wins. Without a vision model the kit falls back to
+    its free automatic edit and says so (usedAi=false)."""
+    if str(env.get("NM_PHOTO_AI", "")).strip().lower() in ("0", "off", "false", "no") or env.get("Photo__Ai__BaseUrl"):
+        return {}
+    models = (env.get("NM_PHOTO_AI_MODELS") or "").strip() or ",".join(ollama_vision_models()) or \
+        "qwen3-vl:30b,qwen2.5vl:7b,llava:7b"
+    return {"Photo__Ai__BaseUrl": service_url("ollama") + "/v1", "Photo__Ai__Models": models,
+            "Photo__Ai__TimeoutSeconds": str(env.get("NM_PHOTO_AI_TIMEOUT") or 900)}
+
+
+VISION_HINTS = ("-vl", "vl:", "vl-", "vision", "llava", "minicpm-v", "moondream", "gemma3", "llama4", "mistral-small3")
+
+
+def ollama_vision_models():
+    """Ollama models on this node that can see images (by their names)."""
+    try:
+        tags = http("GET", service_url("ollama") + "/api/tags", timeout=5)
+    except Exception:  # noqa: BLE001 - Ollama is not running: the kit falls back to its free automatic edit
+        return []
+    names = [str(m.get("name") or "") for m in (tags or {}).get("models") or [] if isinstance(m, dict)]
+    return [n for n in names if any(h in n.lower() for h in VISION_HINTS)]
+
+
+def _header(rh, name):
+    for k, v in (rh or {}).items():
+        if k.lower() == name.lower():
+            return v
+    return None
+
+
+PHOTO_EXT = {"image/png": ".png", "image/webp": ".webp", "image/jpeg": ".jpg"}
+
+
+def _photo_sidecar(job, info):
+    """photo-edit.json next to the photo: the recipe the kit really used (auto / smart edit), notes, whether AI ran."""
+    with open(job.out("photo-edit.json"), "w", encoding="utf-8") as fh:
+        json.dump(info, fh, ensure_ascii=False, indent=2)
+
+
 def h_photo_edit(job):
+    """photo.edit: one photo + the kit's recipe (sliders, preset, curve, crop, spots, background, output) -> edited photo.
+    auto: the kit's free automatic edit under the recipe. goal: «smart edit» - the vision model behind the kit's
+    /api/docs/{id}/ai-edit sets the sliders; the site's frame/background/crop/spots stay as asked."""
     p = job.payload
     img = p.get("image") or (p.get("files") or {}).get("image")
     if not img or not job.input_path(img):
         raise RuntimeError("input image (image) is required")
-    fields = {}
-    if p.get("recipe"):
-        fields["recipe"] = p["recipe"]
-    q = "?auto=1" if p.get("auto") else ""
+    recipe = p.get("recipe") or {}
     stem = os.path.splitext(os.path.basename(img))[0]
-    fmt = ((p.get("recipe") or {}).get("output") or {}).get("format") or "jpeg"
+    goal = str(p.get("goal") or "").strip()
+    if goal:
+        return _photo_smart_edit(job, img, recipe, goal, stem)
+    fields = {}
+    if recipe:
+        fields["recipe"] = recipe
+    q = "?auto=1" if p.get("auto") else ""
+    fmt = (recipe.get("output") or {}).get("format") or "jpeg"
     ext = {"jpeg": ".jpg", "jpg": ".jpg", "png": ".png", "webp": ".webp"}.get(str(fmt).lower(), ".jpg")
-    _obj, name = _relay(job, "photo", "POST", "/api/edit" + q, fields, {"file": img}, out_name=stem + "-edited" + ext)
+    rh = {}
+    _obj, name = _relay(job, "photo", "POST", "/api/edit" + q, fields, {"file": img}, out_name=stem + "-edited" + ext,
+                        resp_headers=rh)
+    real = PHOTO_EXT.get((_header(rh, "Content-Type") or "").split(";")[0].strip().lower())
+    if real and not name.endswith(real):   # a transparent photo asked as JPEG comes back as PNG
+        fixed = stem + "-edited" + real
+        os.replace(job.out(name), job.out(fixed))
+        name = fixed
+    info = {"auto": bool(p.get("auto"))}
+    used = _header(rh, "X-Recipe")
+    if used:
+        try:
+            info["recipe"] = json.loads(urllib.parse.unquote(used))
+        except ValueError:
+            pass
+    _photo_sidecar(job, info)
     return {"primary": name, "engine": "photo"}
+
+
+def _photo_smart_edit(job, img, recipe, goal, stem):
+    base = service_url("photo")
+
+    def call(method, path, data=None, headers=None, timeout=1800):
+        try:
+            return http(method, base + path, data, headers, timeout=timeout, raw=True)
+        except urllib.error.HTTPError as e:
+            raise RuntimeError("%s -> HTTP %s %s" % (path, e.code, e.read()[:400].decode("utf-8", "replace")))
+        except (urllib.error.URLError, OSError) as e:
+            raise RuntimeError("photo service is not reachable at %s: %s" % (base, e))
+
+    body, ctype = multipart({}, {"file": (os.path.basename(img), job.input_bytes(img))})
+    raw, _h = call("POST", "/api/docs?name=" + urllib.parse.quote("nm-" + job.uid[:8]), body,
+                   {"Content-Type": ctype}, timeout=300)
+    doc_id = (json.loads(raw.decode("utf-8") or "{}") or {}).get("id")
+    if not doc_id:
+        raise RuntimeError("the photo service did not return a document id")
+    try:
+        job.progress(0.15, "smart edit: the vision model looks at the photo")
+        raw, _h = call("POST", "/api/docs/%s/ai-edit" % doc_id, {"goal": goal, "recipe": recipe})
+        res = json.loads(raw.decode("utf-8") or "{}") or {}
+        final = dict(res.get("recipe") or {})
+        for key in ("output", "background", "crop", "spots"):   # the frame and the background are the site's choice
+            if recipe.get(key) is not None:
+                final[key] = recipe[key]
+            else:
+                final.pop(key, None)
+        job.progress(0.7, "smart edit: rendering the full-size photo")
+        data, rh = call("POST", "/api/docs/%s/export" % doc_id, final)
+        ext = PHOTO_EXT.get((_header(rh, "Content-Type") or "").split(";")[0].strip().lower(), ".jpg")
+        name = stem + "-edited" + ext
+        with open(job.out(name), "wb") as fh:
+            fh.write(data)
+        _photo_sidecar(job, {"goal": goal, "recipe": final, "notes": res.get("notes"), "usedAi": res.get("usedAi"),
+                             "error": res.get("error"), "steps": res.get("steps")})
+    finally:
+        try:
+            http("DELETE", base + "/api/docs/%s" % doc_id, timeout=30)
+        except Exception:  # noqa: BLE001 - a leftover document only costs disk on the node
+            pass
+    return {"primary": name, "engine": "photo", "smart": True}
 
 
 def h_photo_analyze(job):

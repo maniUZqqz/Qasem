@@ -108,6 +108,8 @@ INSTALLED_APPS = [
 ]
 # بازسازیِ یک تکه از وسطِ ویدیو (پنل › محتوا)
 INSTALLED_APPS += ["apps.regen"]
+# ادیتورِ عکس (پنل › محتوا): کتابخانهٔ عکس، نسخه‌ها، کیتِ PersianAiKit.Photo روی سرورِ پردازش
+INSTALLED_APPS += ["apps.photoedit"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

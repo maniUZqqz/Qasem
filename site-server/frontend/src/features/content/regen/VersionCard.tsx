@@ -15,6 +15,22 @@ const TONE: Record<string, "ok" | "warn" | "bad" | "info" | "neutral"> = {
 
 const VERDICT_TONE = { invisible: "ok", slight: "warn", visible: "bad" } as const;
 
+const CHECK_LABEL: Record<string, string> = {
+  frames: "تعدادِ فریم", duration: "طولِ ویدیو", audio_start: "شروعِ صدا", audio_length: "طولِ صدا = طولِ تصویر",
+  picture_untouched: "تصویر دست‌نخورده", decode: "پخشِ بی‌خطا", timestamps: "زمانِ فریم‌ها", alignment: "جای فریم‌ها",
+  audio_untouched: "صدای اصلی دست‌نخورده",
+};
+
+/** خلاصهٔ فارسیِ عملِ صدا */
+export function audioText(a: Version["audio"]): string {
+  const x = a as { op?: string; gain_db?: number; mix?: string; source?: string; offset?: number };
+  if (!x.op || x.op === "keep") return "صدای اصلی ماند";
+  if (x.op === "mute") return "صدای بازه برداشته شد (بی‌صدا)";
+  if (x.op === "volume") return `صدای بازه ${fa(Math.abs(x.gain_db ?? 0))} دسی‌بل آرام‌تر شد`;
+  const src = (x.source || "").startsWith("asset:") ? "از کتابخانهٔ صداها" : "از فایلِ آپلودی";
+  return `صدای تازه ${src}${x.offset ? ` (از ثانیهٔ ${fa(x.offset)})` : ""} — ${x.mix === "mix" ? "روی صدای اصلیِ آرام‌شده" : "به‌جای صدای اصلی"}`;
+}
+
 function SeamRow({ name, s }: { name: string; s: SeamInfo }) {
   return (
     <tr style={{ borderTop: "1px solid var(--line)" }}>
@@ -61,6 +77,7 @@ export default function VersionCard({
         <div className="flex flex-wrap items-center gap-2">
           <b style={{ color: "var(--text)" }}>نسخهٔ {fa(v.number)}</b>
           <Badge tone={TONE[v.state] ?? "neutral"}>{v.state_label}</Badge>
+          {v.mode !== "picture" && <Badge tone="info">{v.mode_label}</Badge>}
           {isCurrent && <Badge tone="brand">قبول‌شده — پایهٔ ویرایش‌های بعدی</Badge>}
           {v.discarded && <Badge tone="neutral">دور انداخته شد</Badge>}
           {ready && seams.label && (
@@ -80,6 +97,16 @@ export default function VersionCard({
           «{v.prompt}»
         </p>
       )}
+      {v.mode === "cut" ? (
+        <p className="text-sm" style={{ color: "var(--text-2)" }} data-testid="regen-version-summary">
+          برش: {fa(v.removed_frames || v.end - v.start + 1)} فریم ({fa(v.seconds.toFixed(2))} ثانیه) از تصویر و صدا حذف شد؛
+          ویدیو همین‌قدر کوتاه‌تر است و صدا و تصویرِ بعد از جای چسب هنوز با هم‌اند.
+        </p>
+      ) : (v.audio as { op?: string }).op && (v.audio as { op?: string }).op !== "keep" ? (
+        <p className="text-sm" style={{ color: "var(--text-2)" }} data-testid="regen-version-summary">
+          صدا: {audioText(v.audio)}{v.mode === "audio" ? " · تصویر دست نخورد" : ""}
+        </p>
+      ) : null}
 
       {v.active && (
         <div className="space-y-1.5">
@@ -108,13 +135,28 @@ export default function VersionCard({
           compact
           beforeUrl={v.urls.before}
           afterUrl={v.urls.after}
-          beforeLabel="قبل (اصل)"
-          afterLabel={`بعد (نسخهٔ ${fa(v.number)})`}
-          note="دو ثانیه قبل و بعد از تکه هم در هر دو پخش می‌شود تا درزها را در جای خودشان ببینید."
+          beforeLabel={v.mode === "cut" ? "قبل (با بازه)" : "قبل (اصل)"}
+          afterLabel={v.mode === "cut" ? `بعد (بازه حذف شد)` : `بعد (نسخهٔ ${fa(v.number)})`}
+          note={v.mode === "cut"
+            ? "هر دو با صدا: «قبل» دو ثانیه پیش و پس از بازه را دارد و «بعد» همان دو ثانیه را بی بازه، پشتِ هم."
+            : "دو ثانیه قبل و بعد از تکه هم در هر دو پخش می‌شود (با صدا) تا درزها را در جای خودشان ببینید."}
         />
       )}
 
-      {ready && (
+      {ready && v.mode !== "picture" && v.assemble.checks && (
+        <div className="flex flex-wrap gap-1.5 text-xs" data-testid="regen-audio-checks">
+          {Object.entries(v.assemble.checks).map(([k, c]) => (
+            <Badge key={k} tone={c.ok ? "ok" : "bad"}>
+              {c.ok ? "✓" : "✗"} {CHECK_LABEL[k] ?? k}
+            </Badge>
+          ))}
+          {v.mode === "audio" && v.urls.piece && (
+            <audio src={v.urls.piece} controls className="w-full" style={{ maxWidth: 360 }} />
+          )}
+        </div>
+      )}
+
+      {ready && v.mode === "picture" && (
         <div className="grid gap-3 md:grid-cols-2">
           {v.urls.piece && (
             <div className="space-y-1">
@@ -199,12 +241,16 @@ export default function VersionCard({
               <Icon name="download" size={14} /> دانلودِ ویدیوی کامل
             </a>
           )}
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAgain(v)} data-testid="regen-again">
-            <Icon name="refresh" size={14} /> دوباره با seed ِ دیگر
-          </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onEdit(v)}>
-            ویرایشِ خواسته و دوباره
-          </Button>
+          {v.mode === "picture" && (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAgain(v)} data-testid="regen-again">
+              <Icon name="refresh" size={14} /> دوباره با seed ِ دیگر
+            </Button>
+          )}
+          {v.mode !== "cut" && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onEdit(v)}>
+              ویرایشِ خواسته و دوباره
+            </Button>
+          )}
           {!v.discarded && (ready || v.state === "FAILED") && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction(v, "discard")}>
               <Icon name="trash" size={14} /> دور بینداز

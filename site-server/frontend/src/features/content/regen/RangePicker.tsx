@@ -1,9 +1,13 @@
 import { useRef } from "react";
 
+import type { Waveform as Wave } from "./api";
+import Waveform from "./Waveform";
+
 /**
- * خطِ زمانیِ انتخابِ بازه روی نوارِ کوچک‌نمایی‌ها. همیشه چپ‌به‌راست (مثلِ نوارِ پخشِ خودِ ویدیو).
- * دو دسته (شروع/پایان) کشیدنی‌اند، بدنهٔ بازه جابه‌جا می‌شود، کلیک روی نوار جای پخش را عوض می‌کند،
- * و هر دسته با کلیدهای ← → یک فریم (با Shift یک ثانیه) جلو/عقب می‌رود.
+ * خطِ زمانیِ انتخابِ بازه روی نوارِ کوچک‌نمایی‌ها و شکلِ موجِ صدا. همیشه چپ‌به‌راست (مثلِ نوارِ پخشِ خودِ ویدیو،
+ * و مثلِ کلیدهای ← → که در این صفحه «عقب/جلو» هستند). دو دسته (شروع/پایان) کشیدنی‌اند و دستهٔ «فعال» پررنگ است
+ * (کلیک روی دسته فعالش می‌کند؛ کلیدها را صفحه می‌گیرد)؛ بدنهٔ بازه جابه‌جا می‌شود و کلیک روی نوار جای پخش را عوض
+ * می‌کند.
  */
 export default function RangePicker({
   frames,
@@ -13,8 +17,11 @@ export default function RangePicker({
   end,
   playhead,
   maxCount,
+  active,
+  wave,
   onChange,
   onSeek,
+  onActivate,
 }: {
   frames: number;
   fps: number;
@@ -23,8 +30,12 @@ export default function RangePicker({
   end: number;
   playhead: number;
   maxCount: number;
+  active: "start" | "end";
+  /** شکلِ موجِ کلِ ویدیو (null = در حالِ آمدن؛ peaks خالی = صدا ندارد) */
+  wave: Wave | null;
   onChange: (start: number, end: number) => void;
   onSeek: (frame: number) => void;
+  onActivate: (which: "start" | "end") => void;
 }) {
   const bar = useRef<HTMLDivElement>(null);
   const drag = useRef<{ mode: "start" | "end" | "move"; grab: number; s: number; e: number } | null>(null);
@@ -58,6 +69,7 @@ export default function RangePicker({
   function down(mode: "start" | "end" | "move", ev: React.PointerEvent) {
     ev.stopPropagation();
     (ev.target as HTMLElement).setPointerCapture(ev.pointerId);
+    if (mode !== "move") onActivate(mode);
     drag.current = { mode, grab: frameAt(ev.clientX), s: start, e: end };
   }
 
@@ -65,9 +77,15 @@ export default function RangePicker({
     const d = drag.current;
     if (!d) return;
     const f = frameAt(ev.clientX);
-    if (d.mode === "start") onChange(...clampRange(f, d.e, "start"));
-    else if (d.mode === "end") onChange(...clampRange(d.s, f, "end"));
-    else {
+    if (d.mode === "start") {
+      const [s, e] = clampRange(f, d.e, "start");
+      onChange(s, e);
+      onSeek(s);
+    } else if (d.mode === "end") {
+      const [s, e] = clampRange(d.s, f, "end");
+      onChange(s, e);
+      onSeek(e);
+    } else {
       const len = d.e - d.s;
       let s = d.s + (f - d.grab);
       s = Math.max(0, Math.min(last - len, s));
@@ -79,45 +97,42 @@ export default function RangePicker({
     drag.current = null;
   }
 
-  function key(which: "start" | "end", ev: React.KeyboardEvent) {
-    const step = ev.shiftKey ? Math.max(1, Math.round(fps)) : 1;
-    let delta = 0;
-    if (ev.key === "ArrowRight") delta = step;
-    else if (ev.key === "ArrowLeft") delta = -step;
-    else return;
-    ev.preventDefault();
-    if (which === "start") onChange(...clampRange(start + delta, end, "start"));
-    else onChange(...clampRange(start, end + delta, "end"));
-  }
-
-  const handle = (which: "start" | "end") => (
-    <div
-      role="slider"
-      tabIndex={0}
-      aria-label={which === "start" ? "شروعِ بازه" : "پایانِ بازه"}
-      aria-valuemin={0}
-      aria-valuemax={last}
-      aria-valuenow={which === "start" ? start : end}
-      data-testid={`regen-handle-${which}`}
-      onPointerDown={(ev) => down(which, ev)}
-      onPointerMove={move}
-      onPointerUp={up}
-      onKeyDown={(ev) => key(which, ev)}
-      className="absolute top-0 bottom-0 z-20 flex w-4 cursor-ew-resize items-center justify-center"
-      style={{
-        left: which === "start" ? `calc(${pct(start)} - 8px)` : `calc(${pct(end + 1)} - 8px)`,
-        touchAction: "none",
-      }}
-    >
-      <span
-        className="block h-full w-1.5 rounded"
-        style={{ background: "var(--brand)", boxShadow: "0 0 0 2px rgb(0 0 0 / .35)" }}
-      />
-    </div>
-  );
+  const handle = (which: "start" | "end") => {
+    const on = active === which;
+    return (
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label={which === "start" ? "شروعِ بازه" : "پایانِ بازه"}
+        aria-valuemin={0}
+        aria-valuemax={last}
+        aria-valuenow={which === "start" ? start : end}
+        data-testid={`regen-handle-${which}`}
+        data-active={on ? "1" : "0"}
+        onPointerDown={(ev) => down(which, ev)}
+        onPointerMove={move}
+        onPointerUp={up}
+        onFocus={() => onActivate(which)}
+        className="absolute top-0 bottom-0 z-20 flex w-4 cursor-ew-resize items-center justify-center"
+        style={{
+          left: which === "start" ? `calc(${pct(start)} - 8px)` : `calc(${pct(end + 1)} - 8px)`,
+          touchAction: "none",
+        }}
+      >
+        <span
+          className="block h-full rounded"
+          style={{
+            width: on ? 8 : 5,
+            background: on ? "#fff" : "var(--brand)",
+            boxShadow: on ? "0 0 0 2px var(--brand), 0 0 8px var(--brand)" : "0 0 0 2px rgb(0 0 0 / .35)",
+          }}
+        />
+      </div>
+    );
+  };
 
   return (
-    <div dir="ltr" className="select-none">
+    <div dir="ltr" className="select-none space-y-1">
       <div
         ref={bar}
         data-testid="regen-timeline"
@@ -154,6 +169,17 @@ export default function RangePicker({
           style={{ left: pct(playhead + 0.5), background: "#fff", boxShadow: "0 0 4px #000" }}
         />
       </div>
+      <Waveform
+        peaks={wave ? wave.peaks : null}
+        from={wave?.from ?? 0}
+        to={wave && wave.to > wave.from ? wave.to : frames / fps}
+        selStart={start / fps}
+        selEnd={(end + 1) / fps}
+        playhead={(playhead + 0.5) / fps}
+        height={36}
+        testid="regen-wave"
+        onSeek={(t) => onSeek(Math.max(0, Math.min(last, Math.floor(t * fps))))}
+      />
     </div>
   );
 }

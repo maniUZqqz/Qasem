@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { FormEvent, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -23,6 +23,10 @@ import { useStore } from "./StoreLayout";
 export default function StoreProductsPage() {
   const { products, storeId, reload, setError } = useStore();
   const canAdd = useFeature("products.add");
+  const canCamera = useFeature("products.camera");
+  const navigate = useNavigate();
+  // «ساخت و عکس‌برداری با دوربین»: بعد از ساخت، صفحهٔ محصول با دوربینِ باز
+  const thenCamera = useRef(false);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -36,7 +40,7 @@ export default function StoreProductsPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/products/", {
+      const created = await api.post<{ id: number }>("/products/", {
         store: Number(storeId),
         name,
         price: price || "0",
@@ -49,6 +53,7 @@ export default function StoreProductsPage() {
       setDescription("");
       setShowForm(false);
       await reload();
+      if (thenCamera.current) navigate(`/products/${created.data.id}?camera=1`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -134,11 +139,23 @@ export default function StoreProductsPage() {
                 />
               </Field>
             </div>
-            <div>
-              <Button type="submit" disabled={busy || !name}>
+            <div className="flex flex-wrap gap-2 sm:col-span-3">
+              <Button type="submit" disabled={busy || !name} onClick={() => (thenCamera.current = false)}>
                 <Icon name="check" size={15} />
                 {busy ? "در حال ساخت…" : "ساخت محصول"}
               </Button>
+              {canCamera && (
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  disabled={busy || !name}
+                  onClick={() => (thenCamera.current = true)}
+                  data-testid="create-and-camera"
+                >
+                  <Icon name="camera" size={15} />
+                  ساخت و عکس‌برداری با دوربین
+                </Button>
+              )}
             </div>
           </form>
         </Card>

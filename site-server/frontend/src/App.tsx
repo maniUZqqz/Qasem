@@ -23,6 +23,7 @@ import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
 import PhotoEditorPage from "./features/content/photo/PhotoEditorPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
+import GuidedShootPage from "./features/shoot/GuidedShootPage";
 import ChatPage from "./features/customers/ChatPage";
 import OrdersPage from "./features/customers/OrdersPage";
 import OutreachPage from "./features/customers/OutreachPage";
@@ -131,6 +132,8 @@ export default function App() {
               <Route path="/stores/:id/api" element={<PageGate k="api_keys"><ApiKeysPage /></PageGate>} />
               <Route path="/stores/:id/editor" element={<PageGate k="editor"><VideoEditorPage /></PageGate>} />
               <Route path="/stores/:id/photo-editor" element={<PageGate k="photo_editor"><PhotoEditorPage /></PageGate>} />
+              {/* فیلم‌برداریِ هدایت‌شده: تحلیل ⇐ برنامهٔ زاویه‌ها ⇐ عکاسی/فیلم‌برداری با راهنما ⇐ تدوین ⇐ پوستر و ویدیو */}
+              <Route path="/stores/:id/shoot" element={<PageGate k="guided_shoot"><GuidedShootPage /></PageGate>} />
               {/* بازسازیِ یک تکه از وسطِ ویدیو — بی‌درز، با نسخه‌ها و مقایسهٔ قبل/بعد */}
               <Route path="/stores/:id/regen" element={<PageGate k="piece_regen"><PieceRegenPage /></PageGate>} />
               <Route path="/stores/:id/queue" element={<PageGate k="production_queue"><ProductionQueuePage /></PageGate>} />

@@ -13,11 +13,15 @@ import {
   fa,
 } from "../../components/ui";
 import { useProduct } from "./ProductLayout";
+import { useSearchParams } from "react-router-dom";
+import { Feature } from "../panel/FlagsContext";
+import ProductCameraButton from "../shoot/ProductCameraButton";
 
 /** مشخصات، عکس‌ها و ویژگی‌های محصول — همان چیزهایی که کاربر خودش وارد
  *  می‌کند. هرچه AI می‌سازد، در تب‌های دیگر است. */
 export default function ProductDetailsPage() {
   const { product, reload } = useProduct();
+  const [params] = useSearchParams();
   const [draft, setDraft] = useState(product);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -158,13 +162,19 @@ export default function ProductDetailsPage() {
       </Card>
 
       <Card>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <SectionTitle>تصاویر محصول</SectionTitle>
-          <label className="u-btn u-btn-primary u-btn-sm cursor-pointer">
-            <Icon name="upload" size={15} />
-            آپلود تصویر
-            <input type="file" accept="image/*" className="hidden" onChange={uploadImage} />
-          </label>
+          <div className="flex flex-wrap gap-2">
+            {/* عکس‌برداریِ هدایت‌شده: زاویه‌به‌زاویه با راهنما، بررسیِ کیفیت و ثبت به ترتیب */}
+            <Feature k="product.camera">
+              <ProductCameraButton product={product} onSaved={reload} autoOpen={params.get("camera") === "1"} />
+            </Feature>
+            <label className="u-btn u-btn-primary u-btn-sm cursor-pointer">
+              <Icon name="upload" size={15} />
+              آپلود تصویر
+              <input type="file" accept="image/*" className="hidden" onChange={uploadImage} />
+            </label>
+          </div>
         </div>
         {product.images.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-3)" }}>

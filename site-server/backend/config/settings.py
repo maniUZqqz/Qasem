@@ -110,6 +110,8 @@ INSTALLED_APPS = [
 INSTALLED_APPS += ["apps.regen"]
 # ادیتورِ عکس (پنل › محتوا): کتابخانهٔ عکس، نسخه‌ها، کیتِ PersianAiKit.Photo روی سرورِ پردازش
 INSTALLED_APPS += ["apps.photoedit"]
+# فیلم‌برداری و عکاسیِ هدایت‌شده (پنل › محتوا، و «عکس‌برداری با دوربین» در تعریفِ محصول)
+INSTALLED_APPS += ["apps.shoot"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

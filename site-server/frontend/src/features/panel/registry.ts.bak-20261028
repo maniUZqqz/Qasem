@@ -1,0 +1,150 @@
+import type { IconName } from "../../components/Icon";
+
+/**
+ * فهرستِ منوی پنل — تنها منبعِ حقیقت.
+ *
+ * کلیدِ دسته‌ها و صفحه‌ها با `backend/apps/panel/registry.py` یکی است؛ سرور با
+ * همین کلیدها می‌گوید کدام صفحه روشن است (`GET /panel/flags/`) و اینجا
+ * می‌گوییم هر کلید کجای منو، با چه برچسب و آیکونی، و به کدام آدرس می‌رود.
+ *
+ * سایدبار از همین فهرست ساخته می‌شود؛ زبانه‌های درونِ قاب‌ها (فروشگاه، محصول،
+ * فروش، کمپین‌ها) فهرستِ خودشان را دارند و فقط کلید را از اینجا قرض می‌گیرند.
+ */
+
+export type SectionKey =
+  | "home"
+  | "store"
+  | "market"
+  | "sales"
+  | "content"
+  | "audio"
+  | "settings"
+  | "product"
+  | "admin"
+  | "tools";
+
+export type PanelSection = {
+  key: SectionKey;
+  /** سرِ گروه در سایدبار — و کلیدِ ذخیره‌ی باز/بسته در localStorage «nav-groups». */
+  title: string;
+  /** صفحه‌هایش به فروشگاهِ فعال نیاز دارند (`to(storeId)`). */
+  storeScoped?: boolean;
+  /** فقط برای کارکنان کشیده می‌شود؛ سرور هم جداگانه چک می‌کند. */
+  staffOnly?: boolean;
+  /** گروهی در سایدبار ندارد (داشبورد جداگانه می‌آید؛ صفحه‌ی محصول فقط زبانه است). */
+  menu?: false;
+};
+
+export type PanelPage = {
+  key: string;
+  section: SectionKey;
+  label: string;
+  icon: IconName;
+  /** آدرسِ مطلق، یا تابعی از شناسه (فروشگاه — یا محصول برای صفحه‌ی محصول). */
+  to: string | ((id: string) => string);
+  end?: boolean;
+  staffOnly?: boolean;
+  /** در سایدبار نیاید (فقط زبانه‌ی درونِ قاب است). */
+  menu?: false;
+  /** صفحه‌ی جنگو: با پلِ ورود در زبانه‌ی تازه باز می‌شود، نه با NavLink. */
+  external?: true;
+};
+
+export const SECTIONS: PanelSection[] = [
+  { key: "home", title: "خانه", menu: false },
+  { key: "store", title: "فروشگاه", storeScoped: true },
+  { key: "market", title: "بازار", storeScoped: true },
+  { key: "sales", title: "فروش و پشتیبانی", storeScoped: true },
+  { key: "content", title: "محتوا", storeScoped: true },
+  { key: "audio", title: "صدا", storeScoped: true },
+  { key: "settings", title: "تنظیمات", storeScoped: true },
+  { key: "product", title: "صفحهٔ محصول", menu: false },
+  { key: "admin", title: "ادمین", staffOnly: true },
+  { key: "tools", title: "ابزارها", staffOnly: true },
+];
+
+export const DASHBOARD: PanelPage = {
+  key: "dashboard",
+  section: "home",
+  label: "داشبورد",
+  icon: "dashboard",
+  to: "/",
+  end: true,
+};
+
+export const PAGES: PanelPage[] = [
+  DASHBOARD,
+
+  // ------------------------------------------------------------- فروشگاه
+  { key: "products", section: "store", label: "محصولات", icon: "box", to: (id) => `/stores/${id}`, end: true },
+  { key: "analytics", section: "store", label: "آمار", icon: "chart", to: (id) => `/stores/${id}/analytics` },
+  { key: "brand", section: "store", label: "پروفایل برند", icon: "sparkle", to: (id) => `/stores/${id}/brand` },
+  { key: "voice", section: "store", label: "صدا و گوینده", icon: "mic", to: (id) => `/stores/${id}/voice`, menu: false },
+  { key: "voice_clone", section: "store", label: "کلونِ صدا", icon: "mic", to: (id) => `/stores/${id}/voice/clone`, menu: false },
+  { key: "agent", section: "store", label: "ایجنت فروش", icon: "settings", to: (id) => `/stores/${id}/agent` },
+  { key: "connections", section: "store", label: "اتصال شبکه‌ها", icon: "link", to: (id) => `/stores/${id}/connections`, menu: false },
+  { key: "team", section: "store", label: "اعضا و دسترسی", icon: "users", to: (id) => `/stores/${id}/team` },
+  { key: "data", section: "store", label: "سیاست داده", icon: "shield", to: (id) => `/stores/${id}/data` },
+
+  // --------------------------------------------------------------- بازار
+  { key: "competitors", section: "market", label: "رقبا", icon: "swords", to: (id) => `/stores/${id}/competitors` },
+  { key: "opportunities", section: "market", label: "فرصت‌های فروش", icon: "target", to: (id) => `/stores/${id}/opportunities` },
+  { key: "trends", section: "market", label: "ترندها", icon: "trending", to: (id) => `/stores/${id}/trends` },
+
+  // ------------------------------------------------------ فروش و پشتیبانی
+  { key: "sales", section: "sales", label: "نمای فروش", icon: "chart", to: (id) => `/stores/${id}/sales`, end: true },
+  { key: "orders", section: "sales", label: "سفارش‌ها", icon: "receipt", to: (id) => `/stores/${id}/sales/orders` },
+  { key: "receipts", section: "sales", label: "رسیدها", icon: "wallet", to: (id) => `/stores/${id}/sales/receipts` },
+  { key: "tickets", section: "sales", label: "تیکت‌ها", icon: "ticket", to: (id) => `/stores/${id}/sales/tickets` },
+  { key: "inbox", section: "sales", label: "صندوق پیام", icon: "inbox", to: (id) => `/stores/${id}/inbox` },
+  { key: "chat", section: "sales", label: "چت آزمایشی", icon: "chat", to: (id) => `/stores/${id}/chat` },
+  { key: "outreach", section: "sales", label: "بازاریابی تلفنی", icon: "mic", to: (id) => `/stores/${id}/outreach` },
+
+  // --------------------------------------------------------------- محتوا
+  { key: "studio", section: "content", label: "تولید محتوا", icon: "sparkle", to: (id) => `/stores/${id}/studio` },
+  { key: "campaigns", section: "content", label: "کمپین‌ها", icon: "rocket", to: (id) => `/stores/${id}/campaigns`, end: true },
+  { key: "calendar", section: "content", label: "تقویم انتشار", icon: "clock", to: (id) => `/stores/${id}/campaigns/calendar` },
+  { key: "publish_queue", section: "content", label: "صف انتشار", icon: "upload", to: (id) => `/stores/${id}/campaigns/queue` },
+  { key: "performance", section: "content", label: "چه چیزی جواب داد", icon: "target", to: (id) => `/stores/${id}/campaigns/performance` },
+  { key: "production_queue", section: "content", label: "صف تولید", icon: "cpu", to: (id) => `/stores/${id}/queue` },
+  { key: "editor", section: "content", label: "ادیتور ویدیو", icon: "film", to: (id) => `/stores/${id}/editor` },
+  { key: "photo_editor", section: "content", label: "ادیتور عکس", icon: "image", to: (id) => `/stores/${id}/photo-editor` },
+  { key: "piece_regen", section: "content", label: "بازسازیِ یک تکه", icon: "refresh", to: (id) => `/stores/${id}/regen` },
+
+  // ------------------------------------------------------------------ صدا
+  { key: "audio_speech", section: "audio", label: "گفتار", icon: "mic", to: (id) => `/stores/${id}/audio`, end: true },
+  { key: "audio_clone", section: "audio", label: "کلونِ صدا", icon: "sparkle", to: (id) => `/stores/${id}/audio/clone` },
+  { key: "audio_sfx", section: "audio", label: "صدای محیط و افکت", icon: "cloud", to: (id) => `/stores/${id}/audio/sfx` },
+  { key: "audio_music", section: "audio", label: "موسیقیِ زمینه", icon: "music", to: (id) => `/stores/${id}/audio/music` },
+  { key: "audio_library", section: "audio", label: "کتابخانهٔ صداها", icon: "inbox", to: (id) => `/stores/${id}/audio/library` },
+
+  // ------------------------------------------------------------- تنظیمات
+  { key: "plan", section: "settings", label: "پلن و مصرف", icon: "wallet", to: (id) => `/stores/${id}/plan` },
+  { key: "api_keys", section: "settings", label: "کلیدهای API", icon: "key", to: (id) => `/stores/${id}/api` },
+
+  // ------------------------------------------- صفحه‌ی محصول (فقط زبانه)
+  { key: "product", section: "product", label: "مشخصات", icon: "box", to: (id) => `/products/${id}`, end: true, menu: false },
+  { key: "product_intelligence", section: "product", label: "هوش محصول", icon: "sparkle", to: (id) => `/products/${id}/intelligence`, menu: false },
+  { key: "product_market", section: "product", label: "تحلیل بازار", icon: "swords", to: (id) => `/products/${id}/market`, menu: false },
+  { key: "product_images", section: "product", label: "استودیو تصویر", icon: "image", to: (id) => `/products/${id}/images`, menu: false },
+  { key: "product_captions", section: "product", label: "کپشن", icon: "subtitles", to: (id) => `/products/${id}/captions`, menu: false },
+  { key: "product_video", section: "product", label: "استودیو ویدیو", icon: "film", to: (id) => `/products/${id}/video`, menu: false },
+  { key: "product_advanced", section: "product", label: "حالت پیشرفته", icon: "settings", to: (id) => `/products/${id}/advanced`, menu: false },
+
+  // ---------------------------------------------------------------- ادمین
+  { key: "crm", section: "admin", label: "CRM", icon: "users", to: "/admin", end: true, staffOnly: true },
+  { key: "marketing_report", section: "admin", label: "گزارش بازاریابی", icon: "trending", to: "/admin/marketing", staffOnly: true },
+  { key: "rewards", section: "admin", label: "پاداش‌ها", icon: "wallet", to: "/admin/rewards", staffOnly: true },
+  { key: "providers", section: "admin", label: "موتورهای AI", icon: "cpu", to: "/admin/providers", staffOnly: true },
+
+  // -------------------------------------------------------------- ابزارها
+  { key: "studio_builder", section: "tools", label: "سایت‌ساز", icon: "box", to: "/tools/studio", staffOnly: true },
+  { key: "video3d", section: "tools", label: "ویدیوی سه‌بعدی", icon: "film", to: "/tools/3d", staffOnly: true },
+  { key: "compute", section: "tools", label: "سرورهای پردازش", icon: "cpu", to: "/tools/compute", end: true, staffOnly: true },
+  { key: "django_admin", section: "tools", label: "ادمینِ جنگو", icon: "settings", to: "/admin/", staffOnly: true, external: true },
+];
+
+/** آدرسِ نهایی یک صفحه؛ برای صفحه‌های وابسته به فروشگاه، شناسه‌ی فروشگاهِ فعال را می‌گیرد. */
+export function pageHref(page: PanelPage, id: string | null): string {
+  return typeof page.to === "function" ? page.to(id ?? "") : page.to;
+}

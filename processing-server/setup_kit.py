@@ -18,6 +18,7 @@ import agent  # noqa: E402
 
 def main():
     ok = True
+    agent.prepare_data()          # the data folder (agent 2.0): an older copy's editors are moved there, not fetched again
     for key in ("photo", "video", "voice"):
         print("[%s]" % key, flush=True)
         try:

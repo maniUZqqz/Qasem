@@ -95,6 +95,12 @@ type Node = {
   /** گزارشِ خودِ سرور: هر سرویس را عامل روشن کرده، چیزی بیرونی، یا خاموش است (کلیدها همان MANAGED_KEYS) */
   managed: Partial<Record<string, ManagedState>>;
   resources: Resources;
+  /** نسخهٔ بستهٔ کدِ پردازش روی همین سایت (GET /compute/update/)؛ null = بسته‌ای نیست */
+  agent_latest?: string | null;
+  /** روی این سرور کدِ قدیمی‌تر از بستهٔ سایت است (START.bat بعدی یا دکمهٔ «به‌روزرسانی» تازه‌اش می‌کند) */
+  update_waiting?: boolean;
+  /** عاملِ ۲٫۰ به بالا: به‌روزرسانی از راهِ دور (کارِ node.update) */
+  can_remote_update?: boolean;
 };
 
 /** پاسخِ POST …/desired/ همان ردیفِ سرور است ولی بی‌توکن؛ روی ردیفِ موجود merge می‌شود */
@@ -111,6 +117,8 @@ type RouteSettings = {
   enroll_key: string;
   /** نشانیِ کاملِ همین سایت؛ کامپیوتر به آن وصل می‌شود */
   site: string;
+  /** بستهٔ کدِ سرورِ پردازش که گره‌ها خودشان را با آن به‌روز می‌کنند */
+  package?: { version?: string; id?: string; size?: number; built?: string };
 };
 
 /** همان شکلِ /ai/status/ که صفحهٔ «موتورهای هوش مصنوعی» می‌خواند */
@@ -521,6 +529,20 @@ export default function ComputePage() {
     }
   };
 
+  /** «به‌روزرسانی» ِ یک سرور: کارِ node.update در صفِ همان سرور؛ وقتی بی‌کار شد کدِ تازه را می‌گیرد و دوباره روشن می‌شود */
+  const [updateAsked, setUpdateAsked] = useState<Record<number, string>>({});
+  const updateNode = async (node: Node) => {
+    try {
+      await api.post(`/compute/nodes/${node.id}/update/`);
+      setUpdateAsked((prev) => ({
+        ...prev,
+        [node.id]: node.online ? "در صف؛ بعد از کارِ جاری به‌روز و دوباره روشن می‌شود" : "در صف؛ وقتی سرور روشن شد",
+      }));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+
   const cancelJob = async (job: Job) => {
     try {
       await api.delete(`/compute/jobs/${job.uid}/`);
@@ -625,6 +647,25 @@ export default function ComputePage() {
                         {n.agent && (
                           <span title="نسخهٔ عاملِ پردازش روی آن دستگاه">
                             عامل <span dir="ltr">{n.agent}</span>
+                          </span>
+                        )}
+                        {n.update_waiting && n.agent_latest && (
+                          <span
+                            className="inline-flex flex-wrap items-center gap-1"
+                            title="روی سایت بستهٔ تازه‌تری از کدِ سرورِ پردازش هست. START.bat هر بار خودش به‌روز می‌کند؛ Update.bat یا این دکمه همین حالا."
+                          >
+                            <Badge tone="warn">
+                              نسخهٔ تازه <span dir="ltr">{n.agent_latest}</span>
+                            </Badge>
+                            {updateAsked[n.id] ? (
+                              <span>{updateAsked[n.id]}</span>
+                            ) : n.can_remote_update ? (
+                              <Button size="sm" variant="ghost" onClick={() => void updateNode(n)}>
+                                <Icon name="refresh" size={12} /> به‌روزرسانی
+                              </Button>
+                            ) : (
+                              <span>یک بار بستهٔ تازه را دانلود و START.bat را بزنید</span>
+                            )}
                           </span>
                         )}
                         {n.hostname && (
@@ -1158,6 +1199,19 @@ function EnrollCard({
   }, [copied]);
 
   const key = settings?.enroll_key ?? "";
+  const pkg = settings?.package;
+  const [dl, setDl] = useState(false);
+  const downloadPackage = async () => {
+    setDl(true);
+    try {
+      await downloadBlob("/api/v1/compute/update/package/", `processing-server-${pkg?.version ?? ""}.zip`);
+      if (alive.current) setErr(null);
+    } catch (e) {
+      if (alive.current) setErr(errorMessage(e));
+    } finally {
+      if (alive.current) setDl(false);
+    }
+  };
 
   const copy = async () => {
     if (!key) return;
@@ -1226,9 +1280,20 @@ function EnrollCard({
           <div className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
             «کلیدِ تازه» فقط برای ثبت‌های بعدی لازم است؛ کامپیوترهای ثبت‌شده با توکنِ خودشان کار می‌کنند و قطع نمی‌شوند.
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" disabled={!pkg?.version || dl} onClick={() => void downloadPackage()}>
+              {dl ? <Spinner size={13} /> : <Icon name="download" size={13} />} دانلودِ بستهٔ سرورِ پردازش (zip)
+            </Button>
+            {pkg?.version && (
+              <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                نسخهٔ <span dir="ltr">{pkg.version}</span>
+                {pkg.size ? <> · {fa(Math.round(pkg.size / 1048576))} مگابایت</> : null} — بی GitHub، از همین سایت
+              </span>
+            )}
+          </div>
         </div>
         <ol className="space-y-1.5 text-sm leading-7" style={{ color: "var(--text-2)" }}>
-          <li>۱) پوشهٔ processing را از مخزن/زیپ روی کامپیوترِ گرافیکی بگذارید.</li>
+          <li>۱) بستهٔ سرورِ پردازش را (دکمهٔ کنارِ کلید، یا از مخزن) روی کامپیوترِ گرافیکی باز کنید.</li>
           <li>۲) START.bat را اجرا کنید و این کلید را بدهید — کامپیوتر با نامِ خودش ثبت می‌شود.</li>
           <li>۳) ComfyUI را روشن کنید؛ چند ثانیه بعد این‌جا «آنلاین» می‌شود.</li>
           <li>
@@ -1236,6 +1301,11 @@ function EnrollCard({
             کارتِ گرافیک، مدل‌ها، دیسک) و مدل‌های پیش‌فرض (گفتار و کلونِ صدا، صدای محیط، موسیقی، موتورِ اصلیِ ویدیو) را اگر
             نباشند خودش در پس‌زمینه دانلود می‌کند؛ فایلی که ComfyUI دارد دوباره دانلود نمی‌شود. پیشرفت، «تست» و روشن/خاموشِ
             هر مدل در «مدل‌های صدا» پایینِ همین صفحه است.
+          </li>
+          <li>
+            ۵) به‌روزرسانی: START.bat هر بار خودش کدِ تازه را از همین سایت می‌گیرد (یا Update.bat، یا دکمهٔ «به‌روزرسانی»
+            کنارِ سرور). مدل‌ها، محیط‌های پایتون و شناسنامهٔ سرور در پوشهٔ دادهٔ جدا (NMarketing-data) می‌مانند و با نسخهٔ
+            تازه دوباره دانلود نمی‌شوند؛ بارِ اول، پوشهٔ قدیمی را خودش پیدا و منتقل می‌کند.
           </li>
         </ol>
       </div>

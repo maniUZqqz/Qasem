@@ -5,7 +5,9 @@ rem
 rem  How the libraries get here: "dotnet restore" downloads every NuGet package the editors list in
 rem  their .csproj files (OpenCvSharp, ONNX Runtime, Vosk, NAudio, ...) from https://api.nuget.org
 rem  into %USERPROFILE%\.nuget\packages (once; later builds reuse them). "dotnet publish" then puts
-rem  the finished editor in tools\PersianAiKit\<Editor>\app\ - Run-Server.bat starts that exe.
+rem  the finished editor in <data folder>\tools\PersianAiKit\<Editor>\app\ - Run-Server.bat starts that exe.
+rem  (Agent 2.0: the editors live in the data folder, %USERPROFILE%\NMarketing-data unless chosen otherwise,
+rem  so a new copy of the code never builds them again.)
 rem
 rem  The agent does the same thing by itself the first time a job needs an editor, so this file is
 rem  only for doing it ahead of time and SEEING every step. If nuget.org is blocked on this line,
@@ -15,6 +17,13 @@ rem ============================================================================
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
 cd /d "%~dp0"
+rem ---- the data folder (the editors' source is copied there by nm_data.py; builds stay there)
+set "NM_DATA="
+for /f "usebackq delims=" %%a in (`python "%~dp0nm_data.py" --print`) do set "NM_DATA=%%a"
+if not defined NM_DATA set "NM_DATA=%~dp0."
+python "%~dp0nm_data.py" >nul
+cd /d "%NM_DATA%"
+echo Editors are built in: %NM_DATA%\tools\PersianAiKit
 
 rem ---- find a .NET SDK 8+ (also when it is not on PATH)
 set "DOTNET="

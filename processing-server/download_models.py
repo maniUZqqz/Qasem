@@ -24,32 +24,48 @@ background and shows the progress in the panel (--status-file); only one run at 
     Download-Models.bat --pip-mirror https://mirror-pypi.runflare.com/simple   extra pip index to try
     Download-Models.bat --yes              do not ask before starting
 
-Python 3.10+ standard library only. Console text is English on purpose (the Windows console garbles Persian).
-Log: logs\\download-models.log
+1.2: everything is written into the node's DATA folder (nm_data.py: %USERPROFILE%\\NMarketing-data unless chosen
+otherwise), not into this code folder, so a new copy of the code downloads nothing again; the downloads of older
+copies are moved there first. Python packages are installed in two steps that never mix their sources: the CUDA
+build of torch / torchaudio / torchvision from a PyTorch source only (--no-deps), then everything else from ONE PyPI
+mirror only (no PyTorch extra index: that one lists numpy etc. with links to files.pythonhosted.org, which some
+networks cannot resolve). Every source is checked first (name resolves, the package is listed, one of its files
+answers); sources that fail are skipped, and a failed item is tried again on the next start.
+
+Python 3.8+ standard library only. Console text is English on purpose (the Windows console garbles Persian).
+Log: logs\\download-models.log in the data folder
 """
 import argparse
 import fnmatch
 import glob
 import hashlib
+import html
 import http.client
 import json
 import os
+import platform
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 
-VERSION = "1.1"
+VERSION = "1.2"
 HERE = os.path.dirname(os.path.abspath(__file__))
-NM_HOME = os.environ.get("NM_HOME") or HERE
-MANIFEST_DIR = os.path.join(NM_HOME, "downloads")
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import nm_data  # noqa: E402
+
+#: the data folder (models, venvs, python312, pip-cache ...); NM_HOME still overrides it as before
+NM_HOME = os.environ.get("NM_HOME") or nm_data.data_root(HERE)
+MANIFEST_DIR = os.path.join(HERE, "downloads")           # the manifests ship with the code
 LOGS = os.path.join(NM_HOME, "logs")
 LOG_PATH = os.path.join(LOGS, "download-models.log")
 STATE_PATH = os.path.join(LOGS, "download-state.json")
@@ -413,9 +429,9 @@ class Context:
 
     # ---- simple ones
     def site(self):
-        for name in ("node.json", "site.json"):
+        for path in (os.path.join(NM_HOME, "node.json"), os.path.join(NM_HOME, "site.json"), os.path.join(HERE, "site.json")):
             try:
-                v = json.load(open(os.path.join(NM_HOME, name), encoding="utf-8")).get("site")
+                v = json.load(open(path, encoding="utf-8")).get("site")
                 if v:
                     return v.rstrip("/")
             except (OSError, ValueError):
@@ -1039,20 +1055,245 @@ def resolve_python(item, ctx):
     say("  creating virtual environment %s (Python from %s)" % (venv, base))
     if run_cmd([base, "-m", "venv", venv]) != 0 or not os.path.isfile(py):
         raise Fail("python -m venv failed for %s" % venv, "see the log above")
-    run_cmd([py, "-m", "pip", "install", "--disable-pip-version-check", "-q", "--upgrade", "pip"])
-    return py
+    return py                       # the pip that comes with Python 3.12 is recent enough; no upgrade (one less source)
 
 
-def pip_attempts(item, ctx, mirrors):
-    """Index sets to try, official first: [(index_url, [extra_index...], [find_links...]), ...]"""
-    indexes = list(item.get("index_urls") or ["https://pypi.org/simple"]) + list(mirrors)
-    extra = list(item.get("extra_index_urls") or [])
-    mextra = list(item.get("mirror_extra_index_urls") or []) + extra
-    flinks = list(item.get("find_links_mirrors") or [])
-    out = []
-    for i, idx in enumerate(dict.fromkeys(indexes)):
-        out.append((idx, extra if i == 0 else mextra, [] if i == 0 else flinks))
-    return out
+# ---- pip in two steps that never mix their sources (1.2)
+#
+# Why: download.pytorch.org also lists numpy, sympy, filelock ... but links them to files.pythonhosted.org. With it as
+# an extra index pip may take numpy from there - and on a network that cannot resolve files.pythonhosted.org the whole
+# install fails although the PyPI mirror has the very same file (seen 1405/08/03, numpy==2.1.0).
+# So: 1) the CUDA build of torch / torchaudio / torchvision from ONE PyTorch source, --no-deps; 2) everything else
+# (and torch's own dependencies) from ONE PyPI index, with the torch pins repeated so pip keeps the CUDA build.
+# Before each step the source is checked (name resolves, the package is listed, a file answers); bad ones are skipped.
+
+TORCH_FAMILY = ("torch", "torchaudio", "torchvision")
+DEFAULT_PYPI = ["https://pypi.org/simple"]
+INDEX_OPTIONS = ("--index-url", "-i", "--extra-index-url", "--find-links", "-f", "--no-index", "--trusted-host")
+_DNS = {}
+_PROBES = {}
+_PAGES = {}
+
+
+def norm_name(name):
+    return re.sub(r"[-_.]+", "-", str(name)).lower()
+
+
+def req_name(spec):
+    m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)", spec or "")
+    return norm_name(m.group(1)) if m else None
+
+
+def exact_pin(spec):
+    """'torch==2.9.1+cu128' -> ('torch', '2.9.1+cu128'); anything else -> (name, None)."""
+    m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)(?:\[[^\]]*\])?\s*==\s*([^\s,;]+)\s*$", spec or "")
+    return (norm_name(m.group(1)), m.group(2)) if m else (req_name(spec), None)
+
+
+def marker_env(item):
+    return {"sys_platform": "win32" if IS_WIN else sys.platform, "platform_system": platform.system(),
+            "platform_machine": platform.machine() or ("AMD64" if IS_WIN else "x86_64"), "os_name": os.name,
+            "python_version": wanted_versions(item.get("python_version"))[0]}
+
+
+def torch_sources(item):
+    """Where the CUDA torch family comes from, in order: the item's PyTorch indexes, then flat find-links pages."""
+    idx = list(item.get("torch_index_urls") or (list(item.get("extra_index_urls") or [])
+                                                 + list(item.get("mirror_extra_index_urls") or [])))
+    flinks = list(item.get("torch_find_links") or item.get("find_links_mirrors") or [])
+    return [("index", u.rstrip("/")) for u in dict.fromkeys(idx)] + [("find-links", u) for u in dict.fromkeys(flinks)]
+
+
+def pypi_sources(item, mirrors=()):
+    return list(dict.fromkeys(u.rstrip("/") for u in list(item.get("index_urls") or DEFAULT_PYPI) + list(mirrors)))
+
+
+def split_requirements(item, ctx):
+    """(torch_specs, other_args). Requirements files are copied without their index options (the sources are chosen
+    here, never by the file) and without the torch lines; markers are evaluated for this node. Without a PyTorch
+    source in the manifest nothing is split (torch then comes from the PyPI index like everything else)."""
+    split = bool(torch_sources(item))
+    env = marker_env(item)
+    torch, other = [], []
+    for r in item.get("requirements") or []:
+        path = ctx.expand(r)
+        if not os.path.isfile(path):
+            raise Fail("requirements file missing: %s" % path, "the code item it belongs to has to succeed first")
+        base = os.path.dirname(os.path.abspath(path))
+        kept = []
+        for raw in open(path, encoding="utf-8", errors="replace").read().splitlines():
+            line = "" if raw.lstrip().startswith("#") else re.split(r"\s+#", raw, 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("-"):
+                m = re.match(r"^(-{1,2}[A-Za-z-]+)(?:[ =]\s*(.*))?$", line)
+                opt, arg = (m.group(1), (m.group(2) or "").strip()) if m else (line, "")
+                if opt in INDEX_OPTIONS:
+                    continue                                   # e.g. --extra-index-url https://download.pytorch.org/...
+                if opt in ("-r", "--requirement", "-c", "--constraint", "-e", "--editable") and arg \
+                        and not re.match(r"^[A-Za-z+]+://", arg) and not os.path.isabs(arg):
+                    arg = os.path.join(base, arg)
+                kept.append(("%s %s" % (opt, arg)).strip())
+                continue
+            req, _sep, marker = line.partition(";")
+            if split and req_name(req) in TORCH_FAMILY and "@" not in req:
+                if not marker.strip() or marker_ok(marker, env):
+                    torch.append(re.sub(r"\s+", "", req))
+                continue
+            kept.append(line)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        filtered = os.path.join(CACHE_DIR, "requirements-%s.txt" % re.sub(r"[^A-Za-z0-9_.-]", "_", item["id"]))
+        with open(filtered, "w", encoding="utf-8") as fh:
+            fh.write("# %s without index options and torch lines (download_models.py %s)\n" % (path, VERSION))
+            fh.write("\n".join(kept) + "\n")
+        other += ["-r", filtered]
+    for p in item.get("packages") or []:
+        p = ctx.expand(p)
+        if split and req_name(p) in TORCH_FAMILY and not os.path.exists(p):
+            torch.append(re.sub(r"\s+", "", p))
+        else:
+            other.append(p)
+    return torch, other
+
+
+def pins_of(args):
+    """Exact pins among pip arguments, also inside the (filtered) requirements files."""
+    out, it = [], iter(args)
+    for a in it:
+        if a in ("-r", "--requirement"):
+            try:
+                lines = open(next(it), encoding="utf-8", errors="replace").read().splitlines()
+            except (OSError, StopIteration):
+                continue
+            out += [exact_pin(ln.split(";")[0]) for ln in lines if ln.strip() and not ln.startswith(("#", "-"))]
+        elif not a.startswith("-"):
+            out.append(exact_pin(a))
+    return [(n, v) for n, v in out if n and v]
+
+
+def resolves(host, timeout=8.0):
+    """(ok, why): does this name resolve here? (getaddrinfo has no timeout of its own)"""
+    if host in _DNS:
+        return _DNS[host]
+    box = {}
+
+    def run():
+        try:
+            socket.getaddrinfo(host, 443)
+            box["ok"] = True
+        except OSError as e:
+            box["err"] = str(e)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout)
+    _DNS[host] = (bool(box.get("ok")), box.get("err") or ("no answer in %ds" % timeout))
+    return _DNS[host]
+
+
+def page_links(url, timeout=60):
+    if url not in _PAGES:
+        with request(url, timeout=timeout) as r:
+            final, body = r.geturl(), r.read().decode("utf-8", "replace")
+        _PAGES[url] = [urllib.parse.urljoin(final, html.unescape(m.group(1)))
+                       for m in re.finditer(r"href\s*=\s*[\"']([^\"']+)[\"']", body, re.I)]
+    return _PAGES[url]
+
+
+def file_name(url):
+    return urllib.parse.unquote(url.split("#", 1)[0].split("?", 1)[0].rsplit("/", 1)[-1])
+
+
+def file_matches(fname, name, version=None):
+    """numpy-2.1.0-cp312-cp312-win_amd64.whl / torch-2.9.1+cu128-... / descript-audiotools-0.7.2.tar.gz"""
+    f, want = norm_name(fname), norm_name(name + "-" + (version or ""))
+    if not f.startswith(want):
+        return False
+    rest = f[len(want):]
+    return (not version and bool(rest)) or rest == "" or rest.startswith("-")
+
+
+def probe_source(kind, url, wants):
+    """Can pip really install from this source? wants = [(name, version or None), ...]. The host must resolve, each
+    wanted file must be listed (package page, or the flat find-links page) and the host the files live on must
+    resolve and answer (one byte). (ok, detail); remembered for the run."""
+    key = (kind, url, tuple(wants))
+    if key not in _PROBES:
+        _PROBES[key] = _probe(kind, url, wants)
+    return _PROBES[key]
+
+
+def _probe(kind, url, wants):
+    host = _host(url)
+    ok, why = resolves(host)
+    if not ok:
+        return False, "%s does not resolve (%s)" % (host, why)
+    sample = None
+    for name, ver in wants or [("six", None)]:
+        page = url if kind == "find-links" else "%s/%s/" % (url.rstrip("/"), norm_name(name))
+        try:
+            files = [u for u in page_links(page) if file_matches(file_name(u), name, ver)]
+        except urllib.error.HTTPError as e:
+            return False, "%s answers HTTP %s for %s" % (host, e.code, name)
+        except (urllib.error.URLError, socket.timeout, OSError, http.client.HTTPException, ValueError) as e:
+            return False, "%s not reachable (%s)" % (host, str(getattr(e, "reason", e))[:80])
+        if not files:
+            return False, "%s does not list %s%s" % (host, name, ("==" + ver) if ver else "")
+        sample = files[-1]
+    fhost = _host(sample)
+    ok, why = resolves(fhost)
+    if not ok:
+        return False, "its files are on %s, which does not resolve here (%s)" % (fhost, why)
+    good, _size, detail = probe(sample, timeout=25)
+    if not good:
+        return False, "its files on %s do not answer (%s)" % (fhost, detail)
+    return True, "ok (files on %s)" % fhost
+
+
+def pip_env():
+    """Our sources only: no pip.ini / PIP_INDEX_URL of this computer can add another index; one shared cache."""
+    env = {k: v for k, v in os.environ.items()
+           if k.upper() not in ("PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_FIND_LINKS", "PIP_NO_INDEX",
+                                "PIP_TRUSTED_HOST", "PIP_CONFIG_FILE", "PIP_REQUIRE_VIRTUALENV")}
+    env.update(PIP_CONFIG_FILE=os.devnull, PIP_DISABLE_PIP_VERSION_CHECK="1", PYTHONIOENCODING="utf-8",
+               PIP_NO_INPUT="1", PIP_CACHE_DIR=os.path.join(NM_HOME, "pip-cache"))
+    return env
+
+
+def pip_base(py):
+    return [py, "-m", "pip", "install", "--disable-pip-version-check", "--timeout", "60", "--retries", "3",
+            "--progress-bar", "off"]
+
+
+def installed_version(py, name, env=None):
+    try:
+        out = subprocess.run([py, "-c", "import importlib.metadata as m, sys; print(m.version(sys.argv[1]))", name],
+                             capture_output=True, text=True, timeout=120, env=env)
+        return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+RETRY_HINT = ("nothing to do by hand: the next START.bat tries again by itself (or run Download-Models.bat). If every "
+              "source is blocked on this line, add a reachable PyPI mirror with --pip-mirror <index url>")
+
+
+def pip_phase(label, sources, py, args, wants, env):
+    """Run pip with ONE source at a time (the first that passes the check); returns the source used."""
+    tried = []
+    for kind, url in sources:
+        ok, why = probe_source(kind, url, wants)
+        if not ok:
+            say("  skip %s for %s: %s" % (_host(url), label, why))
+            tried.append("%s: %s" % (_host(url), why))
+            continue
+        src = ["--index-url", url] if kind == "index" else ["--no-index", "--find-links", url]
+        say("  pip %s via %s only" % (label, _host(url)))
+        code = run_cmd(pip_base(py) + src + args, env=env)
+        if code == 0:
+            return url
+        tried.append("%s: pip exit code %s" % (_host(url), code))
+        say("  pip failed with code %s; trying the next source" % code)
+    raise Fail("%s: no package source worked (%s)" % (label, "; ".join(tried) or "none listed"), RETRY_HINT)
 
 
 def do_pip(item, ctx, state, mirrors=()):
@@ -1063,36 +1304,26 @@ def do_pip(item, ctx, state, mirrors=()):
             return "skipped"
     except (OSError, ValueError):
         pass
-    args = []
-    for r in item.get("requirements") or []:
-        path = ctx.expand(r)
-        if not os.path.isfile(path):
-            raise Fail("requirements file missing: %s" % path, "the code item it belongs to has to succeed first")
-        args += ["-r", path]
-    args += [ctx.expand(p) for p in item.get("packages") or []]
-    if not args:
+    torch, rest = split_requirements(item, ctx)
+    if not torch and not rest:
         return "skipped"
-    if item.get("no_deps"):
-        args.insert(0, "--no-deps")
-    env = dict(os.environ, PIP_DISABLE_PIP_VERSION_CHECK="1", PYTHONIOENCODING="utf-8",
-               PIP_CACHE_DIR=os.path.join(NM_HOME, "pip-cache"))     # one cache: the same wheel is fetched once
-    last = None
-    for idx, extra, flinks in pip_attempts(item, ctx, mirrors):
-        cmd = [py, "-m", "pip", "install", "--timeout", "60", "--retries", "5", "--progress-bar", "off",
-               "--index-url", idx]
-        for e in extra:
-            cmd += ["--extra-index-url", e]
-        for f in flinks:
-            cmd += ["--find-links", f]
-        say("  pip via %s%s" % (_host(idx), (" + " + ", ".join(_host(e) for e in extra)) if extra else ""))
-        last = run_cmd(cmd + args, env=env)
-        if last == 0:
-            json.dump({"spec": key, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "index": idx},
-                      open(marker, "w", encoding="utf-8"))
-            return "downloaded"
-        say("  pip failed with code %s; trying the next package index" % last)
-    raise Fail("pip install failed on every index (last exit code %s)" % last,
-               "see logs\\download-models.log; behind a filter add --pip-mirror <index url>")
+    env = pip_env()                                       # one cache: the same wheel is fetched once
+    done = {"spec": key}
+    if torch:
+        done["torch_source"] = pip_phase("torch (CUDA build)", torch_sources(item), py, ["--no-deps"] + torch,
+                                         [exact_pin(t) for t in torch], env)
+    done["index"] = pip_phase("packages", [("index", u) for u in pypi_sources(item, mirrors)], py,
+                              (["--no-deps"] if item.get("no_deps") else []) + torch + rest, pins_of(rest)[:1], env)
+    for t in torch:
+        name, ver = exact_pin(t)
+        have = installed_version(py, name, env) if ver else None
+        if ver and have and have != ver:
+            raise Fail("%s %s is installed, not the CUDA build %s" % (name, have, ver),
+                       "run Download-Models.bat again; if it repeats, delete %s yourself"
+                       % os.path.dirname(os.path.dirname(py)))
+    done["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    json.dump(done, open(marker, "w", encoding="utf-8"))
+    return "downloaded"
 
 
 HANDLERS = {"file": do_file, "hf_snapshot": do_snapshot, "git": do_git, "python": do_python, "pip": do_pip}
@@ -1235,7 +1466,7 @@ def disk_report(rows, ctx):
         need.setdefault(d, [0, where])
         need[d][0] += disk
         if it["kind"] == "pip" and dl:
-            cache = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "pip")
+            cache = os.path.join(NM_HOME, "pip-cache")
             c = drive_of(cache)
             need.setdefault(c, [0, cache])
             need[c][0] += dl
@@ -1360,71 +1591,55 @@ def marker_ok(marker, env):
         return True
 
 
+def _listed(kind, url, name, ver):
+    """None = the source is not reachable; else True / False."""
+    page = url if kind == "find-links" else "%s/%s/" % (url.rstrip("/"), norm_name(name))
+    try:
+        return any(file_matches(file_name(u), name, ver) for u in page_links(page))
+    except urllib.error.HTTPError as e:
+        return False if e.code == 404 else None
+    except (urllib.error.URLError, socket.timeout, OSError, http.client.HTTPException, ValueError):
+        return None
+
+
 def check_pip_item(item, ctx, mirrors):
-    """Each index: reachable? Each pinned package: is that version listed?"""
+    """The two steps as do_pip runs them: the torch family on the PyTorch sources, everything else on the PyPI
+    indexes - each source checked (resolves, lists every pinned package, its file host answers)."""
     lines = []
-    pkgs = list(item.get("packages") or [])
-    for r in item.get("requirements") or []:
-        try:
-            path = ctx.expand(r)
-        except Unresolved:
-            path = None
-        if path and os.path.isfile(path):
-            env = {"sys_platform": "win32", "platform_machine": "AMD64", "platform_system": "Windows",
-                   "python_version": wanted_versions(item.get("python_version"))[0]}
-            for line in open(path, encoding="utf-8", errors="replace"):
-                line = line.split("#", 1)[0].strip()
-                if line and not line.startswith("-") and "@" not in line:
-                    req, _sep, marker = line.partition(";")
-                    if not marker or marker_ok(marker, env):
-                        pkgs.append(req.strip())
-        else:
-            lines.append("    requirements %s: not downloaded yet (read after its code item)" % os.path.basename(r))
-    reqs = []
-    for p in pkgs:
-        if os.sep in p or "\\" in p or "/" in p or p.startswith("{"):
-            continue
-        m = re.match(r"^([A-Za-z0-9_.\-\[\]]+)\s*(==\s*([^\s,;]+))?", p)
-        if m:
-            reqs.append((re.sub(r"\[.*\]", "", m.group(1)), m.group(3)))
+    try:
+        torch, rest = split_requirements(item, ctx)
+    except (Fail, Unresolved) as e:
+        lines.append("    requirements: not downloaded yet (read after its code item): %s" % e.reason)
+        torch, rest = [], [ctx.expand(p) for p in item.get("packages") or [] if "{" not in p or "{VENV" in p]
+    rest_pins = [(n, v) for n, v in pins_of(rest)]
+    rest_pins += [exact_pin(a) for a in rest if not a.startswith("-") and exact_pin(a)[1] is None
+                  and os.sep not in a and "/" not in a and "\\" not in a and not os.path.exists(a)]
     ok_all = True
-    attempts = pip_attempts(item, ctx, mirrors)
-    for idx, extra, flinks in attempts[:1] + attempts[1:]:
-        sources = [idx] + list(extra)
-        cache = {}
-        missing = []
-        for name, ver in reqs:
-            norm = re.sub(r"[-_.]+", "-", name).lower()
-            found = False
-            reached = False
-            for src in sources:
-                key = (src, norm)
-                if key not in cache:
-                    try:
-                        with request("%s/%s/" % (src.rstrip("/"), norm), timeout=40) as r:
-                            cache[key] = r.read().decode("utf-8", "replace")
-                    except urllib.error.HTTPError as e:
-                        cache[key] = "" if e.code == 404 else None
-                    except (urllib.error.URLError, socket.timeout, OSError):
-                        cache[key] = None
-                page = cache[key]
-                if page is None:
-                    continue
-                reached = True
-                if not ver:
-                    found = found or bool(page)
-                else:
-                    v = ver.replace("+", "%2B")
-                    found = found or ("-%s-" % ver in page or "-%s-" % v in page or "-%s.tar" % ver in page
-                                      or "-%s.zip" % ver in page or ver.replace("+", "&#43;") in page)
-            if not found:
-                missing.append("%s%s%s" % (name, "==" if ver else "", ver or "") + ("" if reached else " (index unreachable)"))
-        verdict = "all %d packages listed" % len(reqs) if not missing else "missing: %s" % ", ".join(missing[:6])
-        lines.append("    %-40s %s" % (_host(idx) + ("+" + ",".join(_host(e) for e in extra) if extra else ""), verdict))
-        if not missing:
-            break
-        ok_all = False
-    return ok_all or not missing, lines
+    steps = []
+    if torch:
+        steps.append(("torch", torch_sources(item), [exact_pin(t) for t in torch]))
+    steps.append(("pypi", [("index", u) for u in pypi_sources(item, mirrors)], rest_pins))
+    for label, sources, wants in steps:
+        if not wants:
+            continue
+        good = False
+        for kind, url in sources:
+            ok, why = probe_source(kind, url, [w for w in wants if w[1]][:1] or wants[:1])
+            if not ok:
+                lines.append("    %-5s %-34s skipped: %s" % (label, _host(url), why))
+                continue
+            missing = []
+            for name, ver in wants:
+                hit = _listed(kind, url, name, ver)
+                if not hit:
+                    missing.append("%s%s%s%s" % (name, "==" if ver else "", ver or "", "" if hit is not None else " (?)"))
+            verdict = "all %d packages listed" % len(wants) if not missing else "missing: %s" % ", ".join(missing[:6])
+            lines.append("    %-5s %-34s %s" % (label, _host(url) + (" (find-links)" if kind == "find-links" else ""), verdict))
+            if not missing:
+                good = True
+                break
+        ok_all = ok_all and good
+    return ok_all, lines
 
 
 def cmd_check(groups, rows, ctx, mirrors):
@@ -1527,10 +1742,16 @@ def main(argv=None):
         except (OSError, ValueError):
             other = None
         print(json.dumps({"version": VERSION, "packages": package_status(groups, ctx),
-                          "running": bool(other and pid_alive(other))}))
+                          "running": bool(other and pid_alive(other)), "home": NM_HOME}))
         return 0
+    if not args.check and not os.environ.get("NM_NO_MIGRATE") and \
+            os.path.normcase(os.path.abspath(NM_HOME)) == os.path.normcase(os.path.abspath(nm_data.data_root(HERE))):
+        try:   # the downloads of older copies of the code are moved here before anything is downloaded again
+            nm_data.prepare(HERE, out=print)
+        except Exception as e:  # noqa: BLE001 - never stop a download because of it
+            print("note: older copies were not checked (%s)" % e)
     Log.open()
-    say("UpMarket model downloader %s - %s" % (VERSION, NM_HOME))
+    say("UpMarket model downloader %s - data folder %s" % (VERSION, NM_HOME))
     groups = load_manifests(args.manifests)
     if not groups:
         say("No manifests in %s - nothing to do." % (args.manifests or MANIFEST_DIR))

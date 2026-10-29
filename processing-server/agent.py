@@ -54,6 +54,14 @@ background while the node already takes jobs. Each voice model can be switched o
                   NM_AUDIO_IDLE_S seconds (default 900) so the GPU is free for video again.
   ollama.chat     text/vision with Ollama (:11434) — payload is the /api/chat or /api/generate body
   *.http          generic relay to that service: {method, path, json|form, files:{field: input name}}
+  node.update     update this folder's code from the site (update.py) and restart when idle
+
+Agent 2.0 - code and data apart: this folder is only code. Models, Python environments, the editors (with your cloned
+voices), node.json, services.json and the logs live in ONE data folder that every new copy of the code finds again
+(nm_data.py: %USERPROFILE%\\NMarketing-data unless chosen otherwise). The first start moves the downloads of older
+copies there instead of downloading them again. Update.bat (update.py) refreshes the code in place from the site;
+a running node notices new code and restarts by itself when idle.
+    python agent.py --prepare   data folder + moving older copies' downloads + registration (START.bat does this)
 """
 import glob
 import hashlib
@@ -75,11 +83,30 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "1.9"
-HERE = os.path.dirname(os.path.abspath(__file__))
-WORK = os.path.join(HERE, "work")
-LOGS = os.path.join(HERE, "logs")
+VERSION = "2.0"
+HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import nm_data  # noqa: E402
+
+DATA = nm_data.data_root(HERE)                                     # models, venvs, node.json ... (survives updates)
+WORK = os.path.join(DATA, "work")
+LOGS = os.path.join(DATA, "logs")
 BRIDGE_DIR = os.path.join(HERE, "upmarket_comfyui_flask")
+
+
+def kit_dir(*parts):
+    """The PersianAiKit editors run from the data folder: their builds, models, Python env and recordings stay there."""
+    return os.path.join(DATA, "tools", "PersianAiKit", *parts)
+
+
+def resolve_here(rel):
+    """A relative path of services.json: the data folder first (venvs, the kit), then the code folder."""
+    for base in (DATA, HERE):
+        cand = os.path.join(base, rel)
+        if os.path.exists(cand):
+            return cand
+    return None
 
 SERVICES = {
     "comfyui": ("NM_COMFYUI_URL", "http://127.0.0.1:8188"),
@@ -93,8 +120,10 @@ SERVICES = {
     "music": ("NM_MUSIC_URL", "http://127.0.0.1:5642"),
 }
 
-#: how to start each service on THIS machine (services.json next to agent.py; created with these defaults).
-#: "${NM_COMFY_BAT}" expands from the environment; relative paths are relative to this folder.
+#: how to start each service on THIS machine (services.json in the data folder; created with these defaults).
+#: "${NM_COMFY_BAT}" / "${NM_DATA}" expand from the environment; a relative program path is looked up in the data
+#: folder first (venvs\, tools\PersianAiKit\), then in this code folder (worker-3d.bat); the working folder is the code
+#: folder (audio\*.py). The audio workers find models\ and vendor\ through NM_DATA.
 DEFAULT_SERVICES = {
     "ollama": {"start": "ollama serve", "url": "ollama", "ready_timeout": 60, "note": "Ollama server (models load on demand)"},
     "comfyui": {"start": "${NM_COMFY_BAT}", "url": "comfyui", "ready_timeout": 240, "note": "set NM_COMFY_BAT or put the path of run_nvidia_gpu.bat here"},
@@ -144,7 +173,7 @@ def find_comfy_start():
 
 
 def load_services_cfg():
-    path = os.path.join(HERE, "services.json")
+    path = os.path.join(DATA, "services.json")
     cfg = {k: dict(v) for k, v in DEFAULT_SERVICES.items()}
     existed = os.path.isfile(path)
     if existed:
@@ -165,6 +194,7 @@ def load_services_cfg():
             print("ComfyUI found: %s (saved in services.json)" % found, flush=True)
     if changed:
         try:
+            os.makedirs(DATA, exist_ok=True)
             json.dump(cfg, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
         except OSError:
             pass
@@ -174,7 +204,7 @@ def load_services_cfg():
 def editor_published(key):
     """The PersianAiKit editor has a published build (starts in seconds); otherwise the first start builds from source."""
     kit = {"voice": "Voice", "photo": "Photo", "video": "Video"}.get(key)
-    return bool(kit) and os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", kit, "app", "PersianAiKit.%s.Server.exe" % kit))
+    return bool(kit) and os.path.isfile(kit_dir(kit, "app", "PersianAiKit.%s.Server.exe" % kit))
 
 
 KIT_DIRS = {"voice": "Voice", "photo": "Photo", "video": "Video"}
@@ -183,9 +213,9 @@ KIT_APP_PACK = {"voice": "kit-app-voice.zip", "photo": "kit-app-photo.zip", "vid
 
 
 def site_base():
-    for name in ("node.json", "site.json"):
+    for path in (os.path.join(DATA, "node.json"), os.path.join(HERE, "site.json")):
         try:
-            v = json.load(open(os.path.join(HERE, name), encoding="utf-8")).get("site")
+            v = json.load(open(path, encoding="utf-8")).get("site")
             if v:
                 return v.rstrip("/")
         except (OSError, ValueError):
@@ -218,11 +248,11 @@ def find_dotnet():
 
 
 def ffmpeg_ok():
-    return bool(shutil.which("ffmpeg")) or os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe"))
+    return bool(shutil.which("ffmpeg")) or os.path.isfile(kit_dir("Video", "tools", "ffmpeg", "bin", "ffmpeg.exe"))
 
 
 def voice_models_ok():
-    m = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
+    m = kit_dir("Voice", "models")
     v = os.path.join(m, "piper", "voices")
     return (os.path.isfile(os.path.join(m, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(m, "vosk"))
             and os.path.isdir(v) and any(f.endswith(".onnx") for f in os.listdir(v)))
@@ -277,12 +307,12 @@ def download_resumable(url, dest, tick=None, attempts=10):
 
 
 def fetch_pack(name, tick=None):
-    """Download one package from the site and unpack only missing files into tools/PersianAiKit."""
+    """Download one package from the site and unpack only missing files into <data>/tools/PersianAiKit."""
     base = site_base()
     if not base:
         raise RuntimeError("site URL unknown (site.json)")
-    kit = os.path.join(HERE, "tools", "PersianAiKit")
-    tmp = os.path.join(HERE, "work", name)
+    kit = kit_dir()
+    tmp = os.path.join(WORK, name)
     os.makedirs(os.path.dirname(tmp), exist_ok=True)
     log("fetching %s from the site" % name)
     download_resumable("%s/3d/files/downloads/%s" % (base, name), tmp, tick)
@@ -345,7 +375,12 @@ def ensure_editor(key, tick=None):
     """Make a PersianAiKit editor runnable without any manual setup: build it with the local .NET SDK
     (the owner has one), else take the ready build from the site; then fetch what it needs (ffmpeg, voice models)."""
     kit = KIT_DIRS[key]
-    root = os.path.join(HERE, "tools", "PersianAiKit", kit)
+    root = kit_dir(kit)
+    if not os.path.isdir(os.path.join(root, "src")):
+        try:                                       # the kit's source comes from the code folder (first start, or new code)
+            nm_data.sync_kit(DATA, HERE)
+        except Exception as e:  # noqa: BLE001
+            warn("could not copy the editors' source into the data folder: %s" % e)
     if not editor_published(key):
         dn = find_dotnet()
         if dn and not nuget_reachable():
@@ -452,11 +487,12 @@ def error(msg):
 # ───────────────────────────────────────────── config & helpers
 
 def save_node_json(cfg):
-    path = os.path.join(HERE, "node.json")
+    path = os.path.join(DATA, "node.json")
     try:
+        os.makedirs(DATA, exist_ok=True)
         json.dump({"site": cfg["site"], "token": cfg["token"], "name": cfg["name"]},
                   open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        log("Saved node.json (site, token, name) next to agent.py")
+        log("Saved node.json (site, token, name) in the data folder %s" % DATA)
     except OSError as e:
         warn("could not write node.json: %s" % e)
 
@@ -479,9 +515,12 @@ def enroll(cfg, key):
 
 
 def load_config(interactive=False):
-    """node.json next to agent.py (saved after the first run) > environment variables > site.json (site URL only)."""
+    """node.json in the data folder (saved after the first run; an older layout kept it next to agent.py) >
+    environment variables > site.json next to agent.py (site URL only)."""
     cfg = {}
-    path = os.path.join(HERE, "node.json")
+    path = os.path.join(DATA, "node.json")
+    if not os.path.isfile(path) and os.path.isfile(os.path.join(HERE, "node.json")):
+        path = os.path.join(HERE, "node.json")
     if os.path.isfile(path):
         try:
             cfg = json.load(open(path, encoding="utf-8"))
@@ -504,18 +543,25 @@ def load_config(interactive=False):
         cfg["slots"] = max(1, int(cfg.get("slots") or 1))
     except ValueError:
         cfg["slots"] = 1
+    def ask(question):
+        try:
+            return input(question).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return ""
     if interactive and sys.stdin and sys.stdin.isatty():
         if not cfg["site"]:
-            cfg["site"] = input("Site URL (e.g. http://87.107.160.17:8040): ").strip().rstrip("/")
+            cfg["site"] = ask("Site URL (e.g. http://87.107.160.17:8040): ").rstrip("/")
         if cfg["site"] and not cfg["token"] and not cfg.get("enroll_key"):
-            cfg["enroll_key"] = input("Enrollment key (panel > Processing servers > Register a new server): ").strip()
+            print("This computer is not registered yet.", flush=True)
+            cfg["enroll_key"] = ask("Enrollment key (panel > Processing servers > Register a new server): ")
     if cfg["site"] and not cfg["token"] and cfg.get("enroll_key"):
         try:
             enroll(cfg, cfg["enroll_key"])
         except SiteError as e:
             error(str(e))
-    elif cfg["site"] and cfg["token"] and not os.path.isfile(path):
-        save_node_json(cfg)
+    elif cfg["site"] and cfg["token"] and not os.path.isfile(os.path.join(DATA, "node.json")):
+        save_node_json(cfg)                       # NM_TOKEN given, or node.json of an older layout: keep it in the data folder
     return cfg
 
 
@@ -590,7 +636,8 @@ class Site:
                 raise JobLost("the site gave this job to another attempt: %s" % detail) from e
             if e.code in (401, 403):
                 raise SiteError("site rejected the node token (HTTP %s). The token was rotated or the node was deleted: "
-                                "delete node.json and run START.bat again with the enrollment key. %s" % (e.code, detail)) from e
+                                "delete node.json in the data folder (%s) and run START.bat again with the enrollment "
+                                "key. %s" % (e.code, DATA, detail)) from e
             raise SiteError("%s %s -> HTTP %s %s" % (method, path, e.code, detail)) from e
         except (urllib.error.URLError, socket.timeout, OSError) as e:
             raise SiteError("site unreachable (%s): %s" % (self.base, e)) from e
@@ -665,8 +712,8 @@ def gpu_names():
 
 
 def blender_path():
-    cands = [os.environ.get("UP3D_BLENDER", ""), os.path.join(HERE, "vendor", "blender", "blender.exe"),
-             os.path.join(HERE, "vendor", "blender", "blender")]
+    cands = [os.environ.get("UP3D_BLENDER", ""), os.path.join(DATA, "vendor", "blender", "blender.exe"),
+             os.path.join(DATA, "vendor", "blender", "blender")]
     pf = os.environ.get("ProgramFiles", r"C:\Program Files")
     base = os.path.join(pf, "Blender Foundation")
     if os.path.isdir(base):
@@ -775,15 +822,18 @@ class ServiceManager:
         cmd = (self.cfg.get(key, {}).get("start") or "").strip()
         for var in ("NM_COMFY_BAT",):
             cmd = cmd.replace("${%s}" % var, os.environ.get(var, ""))
-        cmd = cmd.replace("${NM_AGENT_PID}", str(os.getpid()))
+        cmd = cmd.replace("${NM_AGENT_PID}", str(os.getpid())).replace("${NM_DATA}", DATA)
         cmd = cmd.strip()
         if not cmd:
             return None
         first = cmd.split('"')[1] if cmd.startswith('"') else cmd.split(" ")[0]
         if first.lower().endswith((".bat", ".cmd", ".exe")) and not os.path.isabs(first):
-            cand = os.path.join(HERE, first)
-            if os.path.isfile(cand):
-                cmd = cmd.replace(first, '"%s"' % cand, 1)
+            cand = resolve_here(first)                    # venvs\..\python.exe, tools\PersianAiKit\..: data folder
+            if cand and os.path.isfile(cand):
+                if cmd.startswith('"'):
+                    cmd = '"%s"%s' % (cand, cmd[len(first) + 2:])
+                else:
+                    cmd = '"%s"%s' % (cand, cmd[len(first):])
         return cmd
 
     def log_path(self, key):
@@ -816,7 +866,7 @@ class ServiceManager:
                 error("cannot prepare the %s editor: %s" % (key, e))
                 return False
         os.makedirs(LOGS, exist_ok=True)
-        env = dict(os.environ)
+        env = dict(os.environ, NM_DATA=DATA)              # the audio workers / worker-3d.bat find models\ vendor\ there
         if key == "photo":
             env.update(photo_ai_env(env))   # «smart edit» of the photo kit -> this node's Ollama vision model
         dn = find_dotnet() if key in KIT_DIRS else None
@@ -1024,7 +1074,13 @@ class Capabilities:
         self.last_hash = ""
 
     def probe(self):
-        caps = {"agent": VERSION, "hostname": socket.gethostname(), "platform": platform.platform(), "slots": self.slots}
+        caps = {"agent": VERSION, "hostname": socket.gethostname(), "platform": platform.platform(), "slots": self.slots,
+                "data_dir": DATA}
+        try:                       # which package of the code this folder has (Update.bat writes it); none = a zip copy
+            ver = json.load(open(os.path.join(HERE, ".nm-version.json"), encoding="utf-8"))
+            caps["code"] = {"version": ver.get("version"), "id": str(ver.get("id") or "")[:16]}
+        except (OSError, ValueError):
+            pass
         # closed ports on Windows can each take up to a second => probe them in parallel
         threads = {key: threading.Thread(target=lambda k=key: caps.__setitem__(k, listening(service_url(k), 0.8)))
                    for key in SERVICES}
@@ -1103,8 +1159,9 @@ def check(cfg):
         mark = "OK " if ok else ("-- " if ok is None else "!! ")
         print("  %s %-28s %s" % (mark, label, detail))
 
-    print("UpMarket processing node %s — diagnostic" % VERSION)
-    print("  folder: %s" % HERE)
+    print("UpMarket processing node %s - diagnostic" % VERSION)
+    print("  code folder: %s" % HERE)
+    print("  data folder: %s (%s)" % (DATA, nm_data.configured(HERE)[1] or "default"))
     row(sys.version_info >= (3, 10), "Python", sys.version.split()[0] + (" (3.10+ required)" if sys.version_info < (3, 10) else ""))
     row(bool(cfg["site"]), "site URL", cfg["site"] or "missing (site.json / NM_SITE / node.json)")
     row(bool(cfg["token"]), "node token", (cfg["token"][:6] + "...") if cfg["token"]
@@ -1173,10 +1230,10 @@ def check(cfg):
         pub = editor_published(key)
         row(True if pub else None, "  %s editor build" % key,
             "published (starts in seconds)" if pub else "not prepared - run Setup-Services.bat once (downloads it from the site)")
-    ff = shutil.which("ffmpeg") or (os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")
-                                    if os.path.isfile(os.path.join(HERE, "tools", "PersianAiKit", "Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")) else None)
+    kit_ff = kit_dir("Video", "tools", "ffmpeg", "bin", "ffmpeg.exe")
+    ff = shutil.which("ffmpeg") or (kit_ff if os.path.isfile(kit_ff) else None)
     row(True if ff else None, "  ffmpeg (video editor)", ff or "not found - Setup-Services.bat brings it from the site")
-    vm = os.path.join(HERE, "tools", "PersianAiKit", "Voice", "models")
+    vm = kit_dir("Voice", "models")
     have_voice = os.path.isfile(os.path.join(vm, "piper", "piper", "piper.exe")) and os.path.isdir(os.path.join(vm, "vosk"))
     row(True if have_voice else None, "  voice models", vm if have_voice else "Piper/Vosk missing - Setup-Services.bat brings them from the site (text-to-speech needs them)")
     vc_ok = voice_clone_installed()
@@ -1187,16 +1244,16 @@ def check(cfg):
             "not installed - Download-Models.bat --only %s (about %s GB)" % (eng["package"], eng["gb"]))
     row(True if vc_ok else None, "  voice cloning service",
         "installed (voice\\.venv + Pocket-TTS)" if vc_ok else
-        "not installed - the first voice.clone job installs it (~0.7 GB), or run tools\\PersianAiKit\\Voice\\Setup-Voice.bat")
-    pm = os.path.join(HERE, "tools", "PersianAiKit", "Photo", "models", "upscale", "realesr-general-x4v3.onnx")
+        "not installed - the first voice.clone job installs it (~0.7 GB), or run Setup-Voice.bat in %s" % kit_dir("Voice"))
+    pm = kit_dir("Photo", "models", "upscale", "realesr-general-x4v3.onnx")
     row(True if os.path.isfile(pm) else None, "  photo models", pm if os.path.isfile(pm) else "upscaler missing (optional) - Setup-Services.bat downloads it")
     bl = blender_path()
     row(True if bl else None, "Blender (3D worker)", bl or "not found: install Blender 4.5 or let worker-3d.bat download it")
     for d in ("up3d", "engine", "assets"):
         row(os.path.isdir(os.path.join(HERE, d)), "  3D folder " + d, os.path.join(HERE, d))
     try:
-        free = shutil.disk_usage(HERE).free // (1024 ** 3)
-        row(free > 5, "free disk", "%d GB" % free)
+        free = shutil.disk_usage(DATA if os.path.isdir(DATA) else HERE).free // (1024 ** 3)
+        row(free > 5, "free disk (data folder)", "%d GB" % free)
     except OSError:
         pass
     print("RESULT: %s" % ("all good" if ok_all else "some items need attention (see !! lines)"))
@@ -1431,13 +1488,13 @@ class VoiceMissing(JobError):
         super().__init__(message, retryable=False)
 
 
-VOICE_ROOT = os.path.join(HERE, "tools", "PersianAiKit", "Voice")
+VOICE_ROOT = kit_dir("Voice")
 VOICE_GATEWAY_PORT = int(os.environ.get("NM_VOICE_GATEWAY_PORT") or 5620)
 VOICE_SETUP_HINT = (
     "VOICE_SETUP: the natural-voice / voice-cloning service of PersianAiKit is not installed on this node. "
-    "Run tools\\PersianAiKit\\Voice\\Setup-Voice.bat once (Python 3.10-3.13 x64), then restart START.bat. | "
+    "Run Setup-Voice.bat once (in the data folder: %s; Python 3.10-3.13 x64), then restart START.bat. | "
     "سرویسِ صدای طبیعی و کلونِ صدا روی این سرورِ پردازش نصب نیست: یک بار "
-    "tools\\PersianAiKit\\Voice\\Setup-Voice.bat را اجرا کنید (پایتونِ ۳٫۱۰ تا ۳٫۱۳) و START.bat را دوباره باز کنید."
+    "Setup-Voice.bat را در %s اجرا کنید (پایتونِ ۳٫۱۰ تا ۳٫۱۳) و START.bat را دوباره باز کنید." % (VOICE_ROOT, VOICE_ROOT)
 )
 _VOICE_LOCK = threading.Lock()
 _VOICE_GATEWAY = {}
@@ -1513,8 +1570,8 @@ def setup_voice_service(tick=None):
     req = os.path.join(VOICE_ROOT, "voice", "requirements.txt")
     dl = os.path.join(VOICE_ROOT, "tools", "download_voice_models.py")
     if not (os.path.isfile(req) and os.path.isfile(dl) and os.path.isfile(os.path.join(VOICE_ROOT, "voice", "gateway.py"))):
-        raise JobError(VOICE_SETUP_HINT + " (voice kit files are missing: update the processing folder with git pull)",
-                       retryable=False)
+        raise JobError(VOICE_SETUP_HINT + " (voice kit files are missing: update the processing folder with Update.bat "
+                       "or git pull)", retryable=False)
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1")
     log("voice: installing the natural-voice / cloning service on this node (first time only, about 0.7 GB) "
         "- logs\\setup-voice-*.log")
@@ -1838,14 +1895,14 @@ def audio_engine_for(kind, payload=None):
 
 
 def audio_venv_python(key):
-    venv = os.path.join(HERE, "venvs", AUDIO_ENGINES[key]["venv"])
+    venv = os.path.join(DATA, "venvs", AUDIO_ENGINES[key]["venv"])
     return os.path.join(venv, "Scripts", "python.exe") if sys.platform.startswith("win") else os.path.join(venv, "bin", "python")
 
 
 def audio_missing(key):
     """What Download-Models.bat still has to bring for this engine (relative paths); [] = installed."""
     eng = AUDIO_ENGINES[key]
-    miss = [f for f in eng["files"] if not os.path.isfile(os.path.join(HERE, *f.split("/")))]
+    miss = [f for f in eng["files"] if not os.path.isfile(os.path.join(DATA, *f.split("/")))]
     py = audio_venv_python(key)
     venv = os.path.dirname(os.path.dirname(py))
     if not os.path.isfile(py) or not glob.glob(os.path.join(venv, ".nm-pip-venv-%s*.json" % eng["venv"])):
@@ -1923,7 +1980,7 @@ def kit_reference_voices():
     except (OSError, ValueError):
         rows = []
     out = {r["id"]: os.path.join(folder, r["file"]) for r in rows if isinstance(r, dict) and r.get("id") and r.get("file")}
-    out["lora"] = os.path.join(HERE, "models", "moss-tts", "persian-lora", "ref.wav")
+    out["lora"] = os.path.join(DATA, "models", "moss-tts", "persian-lora", "ref.wav")
     return out
 
 
@@ -1939,7 +1996,7 @@ def moss_reference(job, p):
     path = kit_reference_voices().get(voice)
     if not path or not os.path.isfile(path):
         raise JobError("reference voice '%s' is not on this node (tools\\PersianAiKit\\Voice\\voice\\voices); update the "
-                       "processing folder with git pull" % voice, retryable=False)
+                       "processing folder with Update.bat (or git pull)" % voice, retryable=False)
     return path
 
 
@@ -2091,6 +2148,8 @@ class DownloadManager:
         self.lock = threading.Lock()
         self.status_file = os.path.join(LOGS, "download-status.json")
         self.last_error = ""
+        self.retry_at = 0.0             # a failed default download is tried again by itself (pip source down, ...)
+        self.retry_s = float(os.environ.get("NM_DOWNLOAD_RETRY_S") or 3600)
 
     def available(self):
         return os.path.isfile(DOWNLOADER)
@@ -2176,12 +2235,18 @@ class DownloadManager:
                 pr = self.progress() or {}
                 self.last_error = "download ended with code %s: %s" % (code, "; ".join(
                     "%s: %s" % (f.get("id"), f.get("reason")) for f in (pr.get("failed") or [])[:3]))
-                warn("models: %s" % self.last_error)
+                self.retry_at = time.time() + self.retry_s
+                warn("models: %s - tried again in %d min (and on every START.bat)" % (self.last_error, self.retry_s // 60))
             else:
+                self.retry_at = 0.0
                 log("models: download finished")
             if self.queue:
                 nxt, self.queue = self.queue, []
                 self.start(nxt, "queued from the panel")
+        elif self.proc is None and self.retry_at and time.time() > self.retry_at:
+            self.retry_at = 0.0
+            if self.missing_default() and not self.running():
+                self.start(None, "retrying the download that failed earlier")
 
     def caps(self):
         st = self.status or {}
@@ -2263,16 +2328,17 @@ def preflight(cfg, site=None, out=print):
 
     out("UpMarket processing node %s - start-up checklist" % VERSION)
     row("python", sys.version_info >= (3, 10), "Python", sys.version.split()[0])
+    row("data", os.path.isdir(DATA), "data folder", "%s (models, environments, node.json; kept across updates)" % DATA)
     git = shutil.which("git")
-    row("git", True if git else None, "git", "installed" if git else "not installed (only needed for 'git pull' updates; "
-        "models come as zip files without it)")
+    row("git", True if git else None, "git", "installed" if git else "not installed (not needed: Update.bat updates the "
+        "code from the site, models come as zip files)")
     if site is not None:
         try:
             r = site.post("/api/v1/compute/heartbeat/", {}, timeout=15)
             row("site", True, "site + registration", "%s, node '%s'" % (cfg["site"], (r or {}).get("name") or cfg["name"]))
         except SiteError as e:
             row("site", False, "site + registration", "%s (check the internet connection; a rejected token: delete "
-                "node.json and run START.bat again)" % str(e)[:150])
+                "node.json in the data folder and run START.bat again)" % str(e)[:150])
     row("ffmpeg", True if ffmpeg_ok() else None, "ffmpeg", "found" if ffmpeg_ok() else "missing - fetched in the background "
         "with the video editor")
     dn = find_dotnet()
@@ -2297,7 +2363,7 @@ def preflight(cfg, site=None, out=print):
         else " (CUDA 12 needs 527+; update the NVIDIA driver)")) if gpus else "no NVIDIA GPU found (nvidia-smi)")
     st = DOWNLOADS.refresh(force=True) if DOWNLOADS.available() else None
     if st is None:
-        row("models", None, "models", "download_models.py not found (update the folder with git pull)")
+        row("models", None, "models", "download_models.py not found (update the folder with Update.bat)")
     else:
         pk = st.get("packages") or {}
         missing = {p: r for p, r in pk.items() if not r.get("optional") and not r.get("installed")}
@@ -2309,7 +2375,7 @@ def preflight(cfg, site=None, out=print):
         else:
             row("models", True, "models", "all present%s" % (" (optional, from the panel: %s)" % ", ".join(sorted(optional))
                                                              if optional else ""))
-        free = shutil.disk_usage(HERE).free / 1e9
+        free = shutil.disk_usage(DATA if os.path.isdir(DATA) else HERE).free / 1e9
         need = sum(r.get("bytes_missing") or 0 for r in missing.values()) / 1e9
         row("disk", free > need + 2, "disk", "%.0f GB free%s" % (free, (", %.0f GB needed" % need) if need else ""))
     STATE["preflight"] = [{"key": r["key"], "ok": r["ok"], "detail": r["detail"][:200]} for r in rows]
@@ -2461,6 +2527,45 @@ def h_node_models(job):
     with open(job.out("models.json"), "w", encoding="utf-8") as fh:
         json.dump({**res, "status": DOWNLOADS.caps()}, fh, ensure_ascii=False, indent=2)
     return {"primary": "models.json", "engine": "node", **res}
+
+
+# ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
+
+CODE_FILES = ("agent.py", "nm_data.py", "update.py", "download_models.py", ".nm-version.json")
+
+
+def code_stamp():
+    """Size + time of the code files: when Update.bat (or git pull) changes them, the node restarts on the new code."""
+    out = []
+    for name in CODE_FILES:
+        try:
+            st = os.stat(os.path.join(HERE, name))
+            out.append((name, st.st_size, int(st.st_mtime)))
+        except OSError:
+            out.append((name, None, None))
+    return tuple(out)
+
+
+def _updater():
+    import importlib
+    import update as upd                                 # update.py next to this file
+    return importlib.reload(upd)
+
+
+def h_node_update(job):
+    """The panel's «به‌روزرسانی»: update this folder's code from the site; the node restarts on it when idle."""
+    lines = []
+    try:
+        rc = _updater().run(auto=False, check_only=bool(job.payload.get("check")), out=lines.append)
+    except Exception as e:  # noqa: BLE001
+        raise JobError("update failed: %s" % e, retryable=False)
+    for ln in lines:
+        log("update: %s" % ln)
+    with open(job.out("update.json"), "w", encoding="utf-8") as fh:
+        json.dump({"rc": rc, "lines": lines, "from": VERSION}, fh, ensure_ascii=False, indent=2)
+    if rc != 0:
+        raise JobError("update failed: %s" % (lines[-1] if lines else "?"), retryable=False)
+    return {"primary": "update.json", "engine": "node", "lines": lines[-5:], "from": VERSION}
 
 
 # ───────────────────────────────────────────── handlers
@@ -2821,6 +2926,7 @@ HANDLERS = {
     "voice.music": h_voice_music,
     "node.bench": h_node_bench,
     "node.models": h_node_models,
+    "node.update": h_node_update,
     "ollama.chat": h_ollama,
     "ollama.generate": h_ollama,
 }
@@ -2881,13 +2987,58 @@ def run_job(site, data):
 # ───────────────────────────────────────────── main loop
 
 CONFIG = {}
+RESTART_CODE = 75            # "restart me on the new code" (START.bat restarts the agent either way)
+
+
+def set_data_root(root):
+    """Point every data path at this folder (the first start chooses it; normally the same as at import)."""
+    global DATA, WORK, LOGS, VOICE_ROOT
+    DATA = root
+    WORK = os.path.join(DATA, "work")
+    LOGS = os.path.join(DATA, "logs")
+    VOICE_ROOT = kit_dir("Voice")
+    DOWNLOADS.status_file = os.path.join(LOGS, "download-status.json")
+    os.environ["NM_DATA"] = DATA          # download_models.py, update.py, the audio workers, worker-3d.bat agree
+
+
+def prepare_data():
+    """The data folder, the downloads of older copies moved into it, the editors' source - on every start (fast when
+    there is nothing to do)."""
+    try:
+        root, _summary = nm_data.prepare(HERE, out=lambda m: print(m, flush=True))
+    except Exception as e:  # noqa: BLE001 - never keep the node down because of it
+        print("note: the data folder could not be prepared fully (%s)" % e, flush=True)
+        root = DATA
+    set_data_root(root)
+    return root
+
+
+def _confirm_update():
+    try:
+        if _updater().confirm():
+            log("update confirmed: agent v%s reached the site" % VERSION)
+    except Exception as e:  # noqa: BLE001
+        warn("could not record the update as good: %s" % e)
+    return True
 
 
 def main():
     global CONFIG
+    if "--prepare" in sys.argv:                   # START.bat, before the loop: data folder + registration
+        prepare_data()
+        CONFIG = load_config(interactive=True)
+        if CONFIG["site"] and CONFIG["token"]:
+            print("Node '%s' -> %s   (data folder: %s)" % (CONFIG["name"], CONFIG["site"], DATA), flush=True)
+            return 0
+        print("[!] This computer is not registered: no site URL (site.json) or no enrollment key.", flush=True)
+        return 2
+    if "--print-config" in sys.argv or "--check" in sys.argv:
+        os.environ["NM_DATA"] = DATA
+    else:
+        prepare_data()
     CONFIG = load_config(interactive="--print-config" not in sys.argv and "--check" not in sys.argv)
     if "--print-config" in sys.argv:
-        print("NM_SITE=%s\nNM_TOKEN=%s\nNM_NODE=%s" % (CONFIG["site"], CONFIG["token"], CONFIG["name"]))
+        print("NM_SITE=%s\nNM_TOKEN=%s\nNM_NODE=%s\nNM_DATA=%s" % (CONFIG["site"], CONFIG["token"], CONFIG["name"], DATA))
         return 0
     if "--check" in sys.argv:
         return check(CONFIG)
@@ -2927,8 +3078,27 @@ def main():
     backoff = 5
     announced = False
     comfy_state = None
+    stamp = code_stamp()
+    started = time.time()
+    confirmed = False
+    draining = False
     while True:
         running = [t for t in running if t.is_alive()]
+        if not draining and code_stamp() != stamp:
+            draining = True
+            log("the code of this folder was updated - restarting on it %s" % (
+                "when the running job(s) end" if running else "now"))
+        if draining and not running:
+            SITE_LOG.add("INFO", "agent v%s on %s restarts on the updated code" % (VERSION, socket.gethostname()))
+            SITE_LOG.flush(force=True)
+            try:
+                MANAGER.stop_audio()
+                _updater().request_restart("code updated while running")
+            except Exception as e:  # noqa: BLE001
+                warn("restart preparation: %s" % e)
+            return RESTART_CODE
+        if not confirmed and time.time() - started > 120:
+            confirmed = _confirm_update()             # ran two minutes without stopping: the update is good
         if MANAGER is not None:
             try:
                 MANAGER.reap_audio()
@@ -2942,6 +3112,8 @@ def main():
                 full = caps.changed() or now - last_full > 300
                 r = site.post("/api/v1/compute/heartbeat/", c if full else {})
                 take_control(r)
+                if not confirmed:
+                    confirmed = _confirm_update()     # this version reached the site: an update is good
                 if not booted:
                     booted = True
                     MANAGER.default_boot(STATE["desired"])
@@ -2971,7 +3143,7 @@ def main():
                         announced = True
                 last_hb = now
                 SITE_LOG.flush()
-            if len(running) < CONFIG["slots"]:
+            if len(running) < CONFIG["slots"] and not draining:
                 r = site.post("/api/v1/compute/claim/", {})
                 take_control(r)
                 job = r.get("job") if isinstance(r, dict) else None

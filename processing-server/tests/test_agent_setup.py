@@ -17,6 +17,9 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
+os.environ.setdefault("NM_DATA", tempfile.mkdtemp(prefix="nm-test-data-"))   # never the real data folder
+os.environ.setdefault("NM_DATA_POINTER", os.path.join(os.environ["NM_DATA"], "pointer.txt"))
+os.environ.setdefault("NM_NO_MIGRATE", "1")
 import agent  # noqa: E402
 from test_agent_audio import AceHandler, AgentAudioTests, FakeSite, Proc, wav  # noqa: E402,F401
 

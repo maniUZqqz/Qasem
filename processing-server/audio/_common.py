@@ -157,8 +157,8 @@ def serve(worker_cls, default_port, extra_args=None):
     ap = argparse.ArgumentParser(description="UpMarket GPU audio worker: %s" % worker_cls.name)
     ap.add_argument("--port", type=int, default=default_port)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--home", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    help="the processing folder (models\\ and vendor\\ live there)")
+    ap.add_argument("--home", default=os.environ.get("NM_DATA") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    help="the node's data folder, where models\\ and vendor\\ live (default: NM_DATA, set by the agent)")
     ap.add_argument("--parent-pid", type=int, default=0)
     ap.add_argument("--fake", action="store_true", help="no models: answer with a test tone (tests, smoke check)")
     for args, kwargs in extra_args or []:

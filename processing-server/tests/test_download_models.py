@@ -16,9 +16,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("NM_DATA", tempfile.mkdtemp(prefix="nm-test-data-"))   # never the real data folder
+os.environ.setdefault("NM_DATA_POINTER", os.path.join(os.environ["NM_DATA"], "pointer.txt"))
+os.environ.setdefault("NM_NO_MIGRATE", "1")
 import download_models as dm  # noqa: E402
 
 BIG = os.urandom(300_000)
+BAD_HOST = "http://files.nm-test.invalid/packages/"
 SMALL = b"hello model"
 
 
@@ -54,12 +58,27 @@ class Handler(BaseHTTPRequestHandler):
                 {"rfilename": "cfg/config.json", "size": len(SMALL)},
                 {"rfilename": "skip.md", "size": 3}]}).encode()
             return self._send(200, body, "application/json")
-        if path.startswith("/simple/"):
-            name = path.strip("/").split("/")[-1]
-            page = {"numpy": "numpy-2.1.0-cp312-cp312-win_amd64.whl", "torch": "torch-2.9.1+cu128-cp312-cp312-win_amd64.whl"}
-            if name in page:
-                return self._send(200, ("<a>%s</a>" % page[name]).encode(), "text/html")
-            return self._send(404, b"", "text/html")
+        for prefix, files_at in (("/simple/", "/files/"), ("/torchidx/", "/files/"), ("/badfiles/", BAD_HOST)):
+            if path.startswith(prefix):
+                name = path.strip("/").split("/")[-1]
+                page = {"numpy": "numpy-2.1.0-cp312-cp312-win_amd64.whl", "torch": "torch-2.9.1+cu128-cp312-cp312-win_amd64.whl",
+                        "torchaudio": "torchaudio-2.9.1+cu128-cp312-cp312-win_amd64.whl",
+                        "six": "six-1.17.0-py2.py3-none-any.whl"}
+                if name in page and not (prefix == "/simple/" and name.startswith("torchaudio")):
+                    return self._send(200, ('<a href="%s%s">%s</a>' % (files_at, page[name], page[name])).encode(), "text/html")
+                return self._send(404, b"", "text/html")
+        if path == "/flat/":
+            return self._send(200, b'<a href="/files/torch-2.9.1+cu128-cp312-cp312-win_amd64.whl">t</a>'
+                                   b'<a href="/files/torchaudio-2.9.1+cu128-cp312-cp312-win_amd64.whl">a</a>', "text/html")
+        if path.startswith("/files/"):
+            data = b"wheel bytes"
+            self.send_response(206 if self.headers.get("Range") else 200)
+            self.send_header("Content-Length", str(len(data[:1]) if self.headers.get("Range") else len(data)))
+            if self.headers.get("Range"):
+                self.send_header("Content-Range", "bytes 0-0/%d" % len(data))
+            self.end_headers()
+            self.wfile.write(data[:1] if self.headers.get("Range") else data)
+            return
         data = Net.files.get(path)
         if data is None:
             return self._send(404, b"nope", "text/plain")
@@ -132,6 +151,9 @@ class DownloaderTests(unittest.TestCase):
                      "/hf/org/snap/resolve/rev1/a.bin": BIG, "/hf/org/snap/resolve/rev1/cfg/config.json": SMALL,
                      "/codeload/o/repo/zip/abc123": zip_bytes(), "/empty": b""}
         Net.flaky, Net.log, Net.hits = set(), [], {}
+        dm._PROBES.clear()
+        dm._PAGES.clear()
+        dm._DNS.clear()
         self.ctx = dm.Context(interactive=False)
         self.state = dm.State()
 
@@ -243,31 +265,130 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(open(os.path.join(dest, "mine.txt")).read(), "keep")
 
     # ------------------------------------------------------------ pip
-    def test_pip_tries_mirrors_and_remembers_success(self):
-        venv = os.path.join(self.home, "venvs", "x")
+    def fake_venv(self, name="x"):
+        venv = os.path.join(self.home, "venvs", name)
         py = os.path.join(venv, "Scripts" if dm.IS_WIN else "bin", "python.exe" if dm.IS_WIN else "python")
         os.makedirs(os.path.dirname(py))
         open(py, "w").close()
+        return py
+
+    def test_pip_two_steps_never_mix_sources(self):
+        """1.2: torch (CUDA) from ONE PyTorch source with --no-deps; everything else from ONE PyPI index - never a
+        PyTorch index next to it (it lists numpy with links to files.pythonhosted.org: the owner's failure)."""
+        self.fake_venv()
         calls = []
 
         def fake_run(cmd, label="", env=None, cwd=None):
             calls.append(cmd)
-            self.assertTrue(env["PIP_CACHE_DIR"].startswith(self.home), "one shared pip cache under the node folder")
-            return 1 if len(calls) == 1 else 0
+            self.assertTrue(env["PIP_CACHE_DIR"].startswith(self.home), "one shared pip cache in the data folder")
+            self.assertEqual(env["PIP_CONFIG_FILE"], os.devnull, "no pip.ini of this computer can add an index")
+            return 1 if len(calls) == 1 else 0          # the first PyTorch source fails once
+        probes = {"https://pypi.org/simple": (False, "its files are on files.pythonhosted.org, which does not resolve here")}
         it = {"id": "venv-x", "kind": "pip", "python": "{VENV:x}", "python_version": "3.12",
-              "packages": ["numpy==2.1.0", "torch==2.9.1+cu128"], "index_urls": ["https://pypi.org/simple"],
-              "extra_index_urls": ["https://download.pytorch.org/whl/cu128"],
-              "mirror_extra_index_urls": ["https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"],
-              "find_links_mirrors": ["https://mirrors.aliyun.com/pytorch-wheels/cu128/"]}
-        with mock.patch.object(dm, "run_cmd", fake_run), mock.patch.object(dm, "python_version_of", lambda exe: ("3.12", exe)):
-            self.assertEqual(dm.do_pip(it, self.ctx, self.state, ["https://mirror-pypi.runflare.com/simple"]), "downloaded")
-            self.assertEqual(len(calls), 2)
-            self.assertIn("https://pypi.org/simple", calls[0])
-            self.assertIn("https://mirror-pypi.runflare.com/simple", calls[1])
-            self.assertIn("https://mirror.sjtu.edu.cn/pytorch-wheels/cu128", calls[1])
-            self.assertIn("--find-links", calls[1])
+              "packages": ["torch==2.9.1+cu128", "torchaudio==2.9.1+cu128", "numpy==2.1.0", "peft==0.20.0"],
+              "index_urls": ["https://pypi.org/simple", "https://mirror-pypi.runflare.com/simple"],
+              "torch_index_urls": ["https://download.pytorch.org/whl/cu128", "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"],
+              "torch_find_links": ["https://mirrors.aliyun.com/pytorch-wheels/cu128/"]}
+        with mock.patch.object(dm, "run_cmd", fake_run), mock.patch.object(dm, "python_version_of", lambda exe: ("3.12", exe)), \
+                mock.patch.object(dm, "probe_source", lambda kind, url, wants: probes.get(url, (True, "ok"))), \
+                mock.patch.object(dm, "installed_version", lambda py, name, env=None: "2.9.1+cu128"):
+            self.assertEqual(dm.do_pip(it, self.ctx, self.state, ["https://mirrors.aliyun.com/pypi/simple"]), "downloaded")
+            self.assertEqual(len(calls), 3)
+            t1, t2, rest = calls
+            for c in (t1, t2):
+                self.assertIn("--no-deps", c)
+                self.assertNotIn("numpy==2.1.0", c)
+                self.assertEqual([a for a in c if a.startswith("torch")], ["torch==2.9.1+cu128", "torchaudio==2.9.1+cu128"])
+                self.assertEqual(sum(1 for a in c if a.startswith("http")), 1, "exactly one source per pip run")
+            self.assertIn("https://download.pytorch.org/whl/cu128", t1)
+            self.assertIn("https://mirror.sjtu.edu.cn/pytorch-wheels/cu128", t2, "the next PyTorch source after a failure")
+            self.assertEqual(rest[rest.index("--index-url") + 1], "https://mirror-pypi.runflare.com/simple",
+                             "pypi.org is skipped: its file host does not resolve")
+            self.assertNotIn("--extra-index-url", rest)
+            self.assertNotIn("--find-links", rest)
+            self.assertFalse([a for a in rest if "pytorch" in a or "pythonhosted" in a], rest)
+            self.assertIn("numpy==2.1.0", rest)
+            self.assertIn("torch==2.9.1+cu128", rest, "the CUDA pin is repeated so pip keeps that build")
+            self.assertNotIn("--no-deps", rest)
             self.assertEqual(dm.do_pip(it, self.ctx, self.state), "skipped")
-            self.assertEqual(len(calls), 2, "a finished pip item is not run again")
+            self.assertEqual(len(calls), 3, "a finished pip item is not run again")
+
+    def test_pip_with_real_source_checks(self):
+        """The check itself (fake internet): an index whose files sit on a host that does not resolve is skipped;
+        a flat find-links page works for torch when the PyTorch index is down."""
+        self.fake_venv()
+        calls = []
+        it = {"id": "venv-y", "kind": "pip", "python": "{VENV:x}", "python_version": "3.12",
+              "packages": ["torch==2.9.1+cu128", "torchaudio==2.9.1+cu128", "numpy==2.1.0"],
+              "index_urls": [self.base + "/badfiles", self.base + "/simple"],
+              "torch_index_urls": [self.base + "/nothing-here"], "torch_find_links": [self.base + "/flat/"]}
+        lines = []
+        with mock.patch.object(dm, "run_cmd", lambda cmd, label="", env=None, cwd=None: calls.append(cmd) or 0), \
+                mock.patch.object(dm, "python_version_of", lambda exe: ("3.12", exe)), \
+                mock.patch.object(dm, "installed_version", lambda py, name, env=None: None), \
+                mock.patch.object(dm, "say", lines.append):
+            self.assertEqual(dm.do_pip(it, self.ctx, self.state), "downloaded")
+        torch_cmd, rest = calls
+        self.assertEqual(torch_cmd[torch_cmd.index("--find-links") + 1], self.base + "/flat/")
+        self.assertIn("--no-index", torch_cmd)
+        self.assertEqual(rest[rest.index("--index-url") + 1], self.base + "/simple")
+        text = "\n".join(lines)
+        self.assertIn("files.nm-test.invalid", text, "the reason a source was skipped is said")
+        self.assertIn("HTTP 404 for torch", text, "the PyTorch index that does not answer is skipped, with the reason")
+        self.assertIn("which does not resolve here", text)
+
+    def test_requirements_file_loses_index_options_and_torch_lines(self):
+        self.fake_venv("ace")
+        req = os.path.join(self.home, "vendor", "ACE", "requirements.txt")
+        os.makedirs(os.path.dirname(req))
+        with open(req, "w", encoding="utf-8") as fh:
+            fh.write("# PyTorch\nsafetensors==0.7.0\n--extra-index-url https://download.pytorch.org/whl/cu128\n"
+                     "--extra-index-url https://download.pytorch.org/whl/cu130\n"
+                     "torch==2.7.1+cu128; sys_platform == 'win32'\n"
+                     "torchvision==0.22.1+cu128; sys_platform == 'win32'\n"
+                     "torchaudio==2.7.1+cu128; sys_platform == 'win32'\n"
+                     "torch>=2.9.1; sys_platform == 'darwin' and platform_machine == 'arm64'\n"
+                     "torch==2.10.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'\n"
+                     "transformers>=4.51.0,<4.58.0\ntorchao>=0.16.0,<0.17.0; platform_machine != 'aarch64'\n"
+                     "-r extra.txt\nflash-attn @ https://x/flash.whl ; sys_platform == 'win32' and python_version == '3.11'\n")
+        it = {"id": "venv-ace", "kind": "pip", "python": "{VENV:ace}", "python_version": "3.12",
+              "requirements": ["{NM_HOME}\\vendor\\ACE\\requirements.txt"],
+              "index_urls": ["https://mirror-pypi.runflare.com/simple"],
+              "torch_index_urls": ["https://download.pytorch.org/whl/cu128"]}
+        win = {"sys_platform": "win32", "platform_machine": "AMD64", "platform_system": "Windows", "os_name": "nt",
+               "python_version": "3.12"}
+        with mock.patch.object(dm, "marker_env", lambda item: win):          # the node is Windows, the test may not be
+            torch, rest = dm.split_requirements(it, self.ctx)
+        self.assertEqual(torch, ["torch==2.7.1+cu128", "torchvision==0.22.1+cu128", "torchaudio==2.7.1+cu128"],
+                         "only the Windows torch lines, for the CUDA step")
+        self.assertEqual(rest[0], "-r")
+        text = open(rest[1], encoding="utf-8").read()
+        self.assertNotIn("index-url", text)
+        self.assertNotIn("torch==", text)
+        self.assertNotIn("torch>=", text)
+        self.assertIn("transformers>=4.51.0,<4.58.0", text)
+        self.assertIn("torchao>=0.16.0,<0.17.0; platform_machine != 'aarch64'", text, "torchao is not torch itself")
+        self.assertIn("-r " + os.path.join(os.path.dirname(req), "extra.txt"), text, "nested files keep working")
+        self.assertIn("flash-attn @", text)
+        self.assertEqual(dm.pins_of(rest), [("safetensors", "0.7.0")])
+        no_split = dict(it, torch_index_urls=[])
+        torch2, _rest2 = dm.split_requirements(no_split, self.ctx)
+        self.assertEqual(torch2, [], "no PyTorch source in the manifest: nothing is split off")
+
+    def test_voice_manifest_sources(self):
+        """The shipped voice.json: every pip item has PyPI mirrors; torch items name PyTorch sources and no
+        PyTorch index can reach the PyPI step."""
+        doc = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "downloads",
+                                          "voice.json"), encoding="utf-8"))
+        pips = [i for i in doc["items"] if i["kind"] == "pip"]
+        self.assertEqual(len(pips), 4)
+        for i in pips:
+            self.assertTrue(any("runflare" in u for u in i["index_urls"]), i["id"])
+            self.assertFalse([u for u in dm.pypi_sources(i) if "pytorch" in u], i["id"])
+            for k in ("extra_index_urls", "mirror_extra_index_urls", "find_links_mirrors"):
+                self.assertNotIn(k, i, i["id"])
+        for i in pips[:3]:
+            self.assertEqual([k for k, _u in dm.torch_sources(i)], ["index", "index", "find-links"], i["id"])
 
     def test_pip_venv_needs_a_matching_python(self):
         it = {"id": "venv-y", "kind": "pip", "python": "{VENV:y}", "python_version": "3.12", "packages": ["numpy"]}

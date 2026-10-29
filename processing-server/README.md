@@ -6,13 +6,63 @@ sends the results back. Any number of machines can run the **same folder**: on t
 registers itself under its own computer name and gets its own token. The site gives every job to exactly
 one node and never processes an identical request twice.
 
+## Code and data apart, one-click update (agent 2.0)
+
+This folder is **only code**. Everything that is downloaded, built or personal lives in **one data folder** that
+every copy of the code finds again - so a new version never downloads anything twice:
+
+    %USERPROFILE%\NMarketing-data\     python312\  venvs\  models\  vendor\ (MOSS-TTS, ACE-Step, Blender)
+                                       pip-cache\  downloads-cache\  logs\  work\  data\  updates\
+                                       tools\PersianAiKit\   the editors: builds, models, Python env, YOUR cloned voices
+                                       node.json (this computer's name + token)  services.json  downloads-local.json
+
+* **Which folder** (`nm_data.py`): `NM_DATA` > `nm-data.txt` next to `START.bat` (one line: the folder) > the folder
+  chosen the first time (remembered in `%LOCALAPPDATA%\NMarketing\data-root.txt`) > `%USERPROFILE%\NMarketing-data`
+  (or `<drive>:\NMarketing-data` when the downloads of an older copy sit on another drive). `python nm_data.py --scan`
+  shows the folder and the older copies it sees.
+* **Moving from older copies** (first start, also from `Download-Models.bat`): older processing-server folders (this
+  folder, its neighbours, Desktop / Downloads / Documents up to 3 levels, the top of drives C-G) are recognised by
+  their `agent.py`; their `python312\`, `venvs\`, `models\`, `vendor\`, `pip-cache\`, `logs\`, `node.json`,
+  `services.json` and everything their `tools\PersianAiKit` made (builds, models, `.venv`, recordings) are **moved**
+  (a rename: instant on one drive) into the data folder - the newest copy first, what only an older copy has after it.
+  Never copied, never deleted: a folder on another drive or in use (an old START.bat still open) stays where it is and
+  the console says so; what the data folder already has stays in the older copy (delete that copy yourself). Moved
+  Python environments are re-pointed (`pyvenv.cfg`, `.pth`), `logs\download-state.json` keeps its sha256 checks.
+  The node keeps its identity (`node.json`).
+* **Update.bat** updates this folder in place from the site (`update.py`; no git, no GitHub, no questions): the site
+  serves the current package (`GET /api/v1/compute/update/` with the node token: every file with size + sha256; the
+  zip is checked by size + sha256 and every file again before anything is written). Replaced files go to
+  `<data>\updates\backup-<time>\`; files the package no longer has are moved there too. `START.bat` does the same check
+  quietly on every start (`NM_AUTO_UPDATE=0` turns it off); a running node notices new code and restarts on it when its
+  current job is done. If the updated node stops twice before it ever reached the site, START.bat puts the previous code
+  back and does not apply that version again by itself (`Update.bat` still can; `Update.bat --rollback` by hand). A git
+  checkout is updated with `git pull --ff-only` instead. The panel shows "نسخهٔ تازه" next to a node that is behind and
+  can start the update remotely (`node.update` job); the enrollment card offers the whole package as a zip.
+* **Python packages without files.pythonhosted.org** (downloader 1.2): `download.pytorch.org/whl/cu128` also lists numpy,
+  sympy, filelock ... with links to `files.pythonhosted.org`; as an extra index next to a PyPI mirror pip could take
+  numpy from there, and on a line that cannot resolve that host the whole install failed. Now every pip item runs in
+  two steps that never mix sources: (1) `torch` / `torchaudio` / `torchvision` (CUDA 12.8 build) from ONE PyTorch
+  source, `--no-deps` (`torch_index_urls`: download.pytorch.org, sjtu; `torch_find_links`: aliyun); (2) everything
+  else from ONE PyPI index (`index_urls`: aliyun, runflare, pypi.org), with the torch pins repeated so pip keeps the
+  CUDA build. Index options inside a requirements file (ACE-Step's `--extra-index-url`) are dropped, its torch lines go
+  to step 1. Before each step the source is checked: the name resolves, the package is listed, one of its files
+  answers; sources that fail are skipped with the reason. Local pip configuration cannot add sources
+  (`PIP_CONFIG_FILE=nul`). A failed download is tried again an hour later and on every START.bat.
+  Checked from Iran on 1405/08/07: every pinned package of moss-tts / moss-sfx / acestep has a cp312 win_amd64 wheel on
+  aliyun and runflare (numpy 2.1.0 included), and a pip dry run for Windows / CPython 3.12 resolves each environment
+  completely from aliyun alone (moss-tts 66, moss-sfx 107, acestep 124 packages; argbind and randomname are pure-Python
+  sources built on the node); torch 2.9.1 / 2.7.1 (+cu128), torchaudio and torchvision 0.22.1 are on download.pytorch.org
+  and aliyun's pytorch-wheels. runflare answered "402 Insufficient credit" for files that day, so it is second.
+
 ## What is in the folder
 
 | Item | Purpose |
 |---|---|
-| `START.bat` | the only file you run. First time it asks for the **enrollment key** (panel → Tools → Processing servers → "Register a new server") and saves `node.json`; afterwards it just starts |
+| `START.bat` | the only file you run. First time it asks for the **enrollment key** (panel → Tools → Processing servers → "Register a new server") and saves `node.json` in the data folder; afterwards it just starts (and updates the code quietly) |
+| `Update.bat` | update this folder's code from the site now (see above); `--check`, `--rollback` |
 | `agent.py` | the node (Python standard library only, nothing to install) |
-| `site.json` | the site URL (edit it if the site moves) |
+| `nm_data.py`, `update.py` | the data folder + moving older copies; the in-place update |
+| `site.json` | the site URL (edit it if the site moves; an update never overwrites your copy) |
 | `worker-3d.bat` | Blender render worker for the 3D video section (same registration); started by the agent (panel: services -> 3D render, or automatically while 3D jobs wait). First run downloads Blender 4.5 (~400 MB) and the MPFB character data (~430 MB) from the site, resumable |
 | `upmarket_comfyui_flask\` | ComfyUI profiles (FLUX / Wan) and workflow graphs. `agent.py` reads `profiles.json` + `workflows\*.json` directly; running the Flask bridge itself is optional |
 | `up3d\`, `engine\`, `assets\` | 3D engine + assets (shipped; nothing else to download except Blender) |
@@ -34,8 +84,8 @@ one node and never processes an identical request twice.
    from the site (about 400 + 430 MB) into `vendor\blender\`. Or install Blender 4.5 LTS yourself, or set
    `UP3D_BLENDER` to the path of `blender.exe`.
 
-Second machine: copy the same folder (without `node.json`) and run `START.bat` again — it registers under
-its own name.
+Second machine: copy the same folder and run `START.bat` again — it registers under its own name (`node.json` is in
+each machine's own data folder, never in this folder).
 
 ## The editors prepare themselves (agent 1.5)
 
@@ -80,8 +130,8 @@ Default set (downloaded without asking):
 Optional (panel > Processing servers > the node's «مدل‌های صدا» card > «بسته‌های دیگر» > «دانلود»): `wan22-4step`
 (4-step lightx2v LoRAs, 2.4 GB) and `fun-inp` (fast Fun-InP 1.3B engine + CLIP-Vision-H, 4.4 GB).
 
-Disk: 29.4 GB of voice models + about 9.4 GB of Python packages in `venvs\moss-tts`, `venvs\moss-sfx`, `venvs\acestep`
-(Python 3.12, installed per user into `python312\` when missing). ACE-Step keeps its own torch 2.7.1 (its requirements pin
+Disk (all in the data folder): 29.4 GB of voice models + about 9.4 GB of Python packages in `venvs\moss-tts`,
+`venvs\moss-sfx`, `venvs\acestep` (Python 3.12, installed per user into `python312\` when missing). ACE-Step keeps its own torch 2.7.1 (its requirements pin
 it on Windows, together with torchao / triton-windows), so it does not share MOSS's torch 2.9.1: about 4 GB more download
 and ~6 GB more on disk. Plan about 55 GB free. All engines allow commercial use (Apache-2.0 / MIT).
 
@@ -177,7 +227,7 @@ Lines starting with `!!` need attention, `--` are optional services that are not
 
 ## Logs
 
-Console + `logs\agent.log`. Warnings and errors are also sent to the site and are visible in the panel
+Console + `logs\agent.log` in the data folder. Warnings and errors are also sent to the site and are visible in the panel
 (**Processing servers → the node's "Log" button**), so you can see what went wrong without opening this
 machine.
 
@@ -185,6 +235,8 @@ machine.
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `NM_DATA` | `%USERPROFILE%\NMarketing-data` | the data folder (or put it in `nm-data.txt`) |
+| `NM_AUTO_UPDATE` | on | `0`: START.bat does not update the code by itself |
 | `NM_ENROLL_KEY` | asked once | enrollment key (skips the prompt) |
 | `NM_NODE` | computer name | node name used at registration |
 | `NM_COMFYUI_URL` | `http://127.0.0.1:8188` | ComfyUI somewhere else |
@@ -198,8 +250,10 @@ machine.
 ## Troubleshooting
 
 - **Offline in the panel** → the START window was closed, or the site URL/key is wrong (`python agent.py --check`).
-- **Token rejected (401)** → the node was deleted or its token rotated in the panel: delete `node.json` and
-  run `START.bat` again with the enrollment key.
+- **Token rejected (401)** → the node was deleted or its token rotated in the panel: delete `node.json` in the data
+  folder and run `START.bat` again with the enrollment key.
+- **"IN USE" / "OTHER DRIVE" at start** → an older copy's folder could not be moved: close the older START.bat window
+  (and what it started), or write the drive's folder (e.g. `D:\NMarketing-data`) into `nm-data.txt`, then start again.
 - **Image/video job "failed" with a ComfyUI message** → ComfyUI itself reported it (missing model or node);
   the same text is shown in the panel and in ComfyUI's own window.
 - **Ollama job "model not found"** → that model is not pulled on this machine (`ollama pull <model>`), or

@@ -21,6 +21,9 @@ from unittest import mock
 
 PROC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROC)
+os.environ.setdefault("NM_DATA", tempfile.mkdtemp(prefix="nm-test-data-"))   # never the real data folder
+os.environ.setdefault("NM_DATA_POINTER", os.path.join(os.environ["NM_DATA"], "pointer.txt"))
+os.environ.setdefault("NM_NO_MIGRATE", "1")
 import agent  # noqa: E402
 
 
@@ -159,7 +162,7 @@ class AgentAudioTests(unittest.TestCase):
                        {"id": "arash", "file": "piper-ganji.wav", "gender": "مرد"}], fh)
         open(os.path.join(voices, "mana-cc0.wav"), "wb").write(wav(3))
         open(os.path.join(voices, "piper-ganji.wav"), "wb").write(wav(3))
-        for name, value in {"HERE": self.home, "WORK": os.path.join(self.home, "work"),
+        for name, value in {"HERE": self.home, "DATA": self.home, "WORK": os.path.join(self.home, "work"),
                             "LOGS": os.path.join(self.home, "logs"),
                             "VOICE_ROOT": os.path.join(self.home, "tools", "PersianAiKit", "Voice")}.items():
             p = mock.patch.object(agent, name, value)

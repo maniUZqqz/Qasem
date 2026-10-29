@@ -4,6 +4,9 @@ rem ================================================================
 rem  UpMarket processing node - download every model the node can run.
 rem  Reads downloads\*.json (voice.json, video.json, ...). Safe to run again:
 rem  finished files are skipped, broken downloads continue where they stopped.
+rem  Everything goes into the node's DATA folder (%USERPROFILE%\NMarketing-data unless chosen otherwise),
+rem  not into this code folder; downloads of older copies of this folder are moved there first.
+rem  Normally not needed: START.bat downloads what is missing in the background by itself.
 rem
 rem    Download-Models.bat                 everything (asks once before starting)
 rem    Download-Models.bat --list          what is still missing, with sizes
@@ -11,7 +14,7 @@ rem    Download-Models.bat --check         test every link without downloading
 rem    Download-Models.bat --only voice    only one group / package
 rem    Download-Models.bat --skip acestep  leave a package out
 rem    Download-Models.bat --hf-mirror https://hf-mirror.com
-rem  Log: logs\download-models.log
+rem  Log: logs\download-models.log in the data folder
 rem ================================================================
 cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
@@ -30,7 +33,7 @@ echo.
 if "%RC%"=="0" (
   echo Finished. Restart START.bat so the site sees the new models.
 ) else (
-  echo Finished with problems - read the summary above, or logs\download-models.log
+  echo Finished with problems - read the summary above, or logs\download-models.log in the data folder
 )
 pause
 exit /b %RC%

@@ -1,10 +1,18 @@
-# made on the processing node by Download-Models.bat - never part of the repository
+# made on the processing node - never part of the repository (agent 2.0 keeps them in the data folder,
+# %USERPROFILE%\NMarketing-data; these lines cover older copies and NM_DATA pointing here)
 /models/
 /venvs/
 /vendor/
 /python312/
+/pip-cache/
 /downloads-cache/
 /downloads-local.json
 /logs/
 /work/
+/data/
+/updates/
 /node.json
+/services.json
+/nm-data.txt
+/.nm-version.json
+/.nm-moved-to-data.json

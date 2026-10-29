@@ -2,7 +2,7 @@
  "group": "voice",
  "title": "Voice: Persian speech + voice cloning (MOSS-TTS-Realtime + Persian LoRA), ambience/effects (MOSS-SoundEffect v2.0), background music (ACE-Step 1.5)",
  "license_note": "Commercial use allowed: MOSS-TTS-Realtime, MOSS-Audio-Tokenizer, MOSS-SoundEffect v2.0 and the Persian LoRA are Apache-2.0 (the LoRA was trained partly on Thomcles/Persian-Farsi-Speech, CC BY 4.0 - keep the credit); ACE-Step 1.5 is MIT and its output may be used commercially. A cloned voice may only be made with the speaker's consent. By default only speech + voice cloning (MOSS-TTS) is installed. Optional: --only moss-sfx (sound effects, ~11 GB) and --only acestep (background music, ~11 GB).",
- "generated": "2026-10-25",
+ "generated": "2026-10-29",
  "packages": {
   "python": "Python 3.12 (installed only when missing)",
   "moss-code": "MOSS-TTS repository code (needed by moss-tts and moss-sfx)",
@@ -846,21 +846,20 @@
     "packaging"
    ],
    "index_urls": [
-    "https://pypi.org/simple",
+    "https://mirrors.aliyun.com/pypi/simple",
     "https://mirror-pypi.runflare.com/simple",
-    "https://mirrors.aliyun.com/pypi/simple"
-   ],
-   "extra_index_urls": [
-    "https://download.pytorch.org/whl/cu128"
-   ],
-   "mirror_extra_index_urls": [
-    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
-   ],
-   "find_links_mirrors": [
-    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+    "https://pypi.org/simple"
    ],
    "estimate_mb": 3500,
-   "install_mb": 6500
+   "install_mb": 6500,
+   "torch_index_urls": [
+    "https://download.pytorch.org/whl/cu128",
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "torch_find_links": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "sources_note": "torch/torchaudio/torchvision (CUDA 12.8 build) come ONLY from torch_index_urls / torch_find_links (--no-deps); everything else ONLY from one of index_urls (first that passes the check). Checked 1405/08/07 from Iran: aliyun alone resolves every environment completely (runflare too for moss-tts, but it now answers 402 Insufficient credit for files)."
   },
   {
    "id": "venv-moss-sfx",
@@ -889,22 +888,21 @@
     "huggingface_hub"
    ],
    "index_urls": [
-    "https://pypi.org/simple",
+    "https://mirrors.aliyun.com/pypi/simple",
     "https://mirror-pypi.runflare.com/simple",
-    "https://mirrors.aliyun.com/pypi/simple"
-   ],
-   "extra_index_urls": [
-    "https://download.pytorch.org/whl/cu128"
-   ],
-   "mirror_extra_index_urls": [
-    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
-   ],
-   "find_links_mirrors": [
-    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+    "https://pypi.org/simple"
    ],
    "estimate_mb": 900,
    "install_mb": 6000,
-   "note": "torch comes from pip's cache when venv-moss-tts already downloaded it"
+   "note": "torch comes from pip's cache when venv-moss-tts already downloaded it",
+   "torch_index_urls": [
+    "https://download.pytorch.org/whl/cu128",
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "torch_find_links": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "sources_note": "torch/torchaudio/torchvision (CUDA 12.8 build) come ONLY from torch_index_urls / torch_find_links (--no-deps); everything else ONLY from one of index_urls (first that passes the check). Checked 1405/08/07 from Iran: aliyun alone resolves every environment completely (runflare too for moss-tts, but it now answers 402 Insufficient credit for files)."
   },
   {
    "id": "venv-acestep",
@@ -917,21 +915,20 @@
     "{NM_HOME}\\vendor\\ACE-Step-1.5\\requirements.txt"
    ],
    "index_urls": [
-    "https://pypi.org/simple",
+    "https://mirrors.aliyun.com/pypi/simple",
     "https://mirror-pypi.runflare.com/simple",
-    "https://mirrors.aliyun.com/pypi/simple"
-   ],
-   "extra_index_urls": [
-    "https://download.pytorch.org/whl/cu128"
-   ],
-   "mirror_extra_index_urls": [
-    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
-   ],
-   "find_links_mirrors": [
-    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+    "https://pypi.org/simple"
    ],
    "estimate_mb": 5200,
-   "install_mb": 9000
+   "install_mb": 9000,
+   "torch_index_urls": [
+    "https://download.pytorch.org/whl/cu128",
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
+   ],
+   "torch_find_links": [
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+   ],
+   "sources_note": "torch/torchaudio/torchvision (CUDA 12.8 build) come ONLY from torch_index_urls / torch_find_links (--no-deps); everything else ONLY from one of index_urls (first that passes the check). Checked 1405/08/07 from Iran: aliyun alone resolves every environment completely (runflare too for moss-tts, but it now answers 402 Insufficient credit for files)."
   },
   {
    "id": "venv-acestep-nanovllm",
@@ -945,12 +942,13 @@
    ],
    "no_deps": true,
    "index_urls": [
-    "https://pypi.org/simple",
+    "https://mirrors.aliyun.com/pypi/simple",
     "https://mirror-pypi.runflare.com/simple",
-    "https://mirrors.aliyun.com/pypi/simple"
+    "https://pypi.org/simple"
    ],
    "estimate_mb": 0,
-   "install_mb": 5
+   "install_mb": 5,
+   "sources_note": "torch/torchaudio/torchvision (CUDA 12.8 build) come ONLY from torch_index_urls / torch_find_links (--no-deps); everything else ONLY from one of index_urls (first that passes the check). Checked 1405/08/07 from Iran: aliyun alone resolves every environment completely (runflare too for moss-tts, but it now answers 402 Insufficient credit for files)."
   }
  ]
 }

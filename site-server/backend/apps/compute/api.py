@@ -80,6 +80,8 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
          "desired": n.desired or {}, "auto_switch": n.auto_switch,
          "managed": caps.get("managed") or {},
          "resources": {k: caps.get(k) for k in ("ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb") if caps.get(k) is not None}}
+    from .updates import update_state
+    d.update(update_state(caps))          # agent_latest / update_waiting / can_remote_update (بستهٔ کدِ روی سایت)
     if with_token:
         d["token"] = n.token
     return d
@@ -367,9 +369,11 @@ def compute_settings(request):
                 raise exceptions.ValidationError({"image_video_node": "سروری با این نام نیست"})
             cfg.image_video_node = name
         cfg.save()
+    from .updates import latest
     return Response({"image_video_node": cfg.image_video_node, "updated_at": cfg.updated_at,
                      "enroll_key": cfg.enroll_key, "site": request.build_absolute_uri("/").rstrip("/"),
-                     "nodes": list(ComputeNode.objects.filter(enabled=True).values_list("name", flat=True))})
+                     "nodes": list(ComputeNode.objects.filter(enabled=True).values_list("name", flat=True)),
+                     "package": latest()})
 
 
 @api_view(["POST"])

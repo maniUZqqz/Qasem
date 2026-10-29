@@ -2,15 +2,19 @@
 title UpMarket processing node
 rem ================================================================
 rem  UpMarket - processing node (GPU machine, no public IP needed)
-rem  The ONLY file to run. First run: it asks for the enrollment key
-rem  (panel > Tools > Processing servers > "Register a new server"), registers this
-rem  computer under its own name and saves node.json. Next runs: just start.
-rem  Every start prints a short checklist (Python, git, site, ffmpeg, .NET/NuGet,
-rem  editors, ComfyUI, GPU, models). Whatever is missing is prepared in the
-rem  background while the node already takes jobs: the editors are built (or the
-rem  ready build comes from the site), missing models are downloaded (progress in
-rem  the panel: Processing servers > voice models). Nothing else has to be run.
+rem  The ONLY file to run. Every start:
+rem   1. the data folder (models, Python environments, this computer's identity) - outside this code folder,
+rem      %USERPROFILE%\NMarketing-data unless chosen otherwise; the first time the downloads of OLDER copies
+rem      of this folder are MOVED there (nothing is downloaded again, nothing is deleted);
+rem   2. registration the first time: it asks for the enrollment key (panel > Tools > Processing servers >
+rem      "Register a new server");
+rem   3. a quiet update check: newer code from the site is applied here (Update.bat does the same by hand;
+rem      set NM_AUTO_UPDATE=0 to turn it off);
+rem   4. the node runs; it restarts by itself after an update, and a broken update is rolled back.
 rem  The site URL comes from site.json (next to this file).
+rem
+rem  NOTE for whoever edits this file: the blocks in ( ) are read in one go and the labels :prepare and :loop
+rem  must stay - an update may replace this file while it runs, and only that keeps the window working.
 rem ================================================================
 cd /d "%~dp0"
 chcp 65001 >nul
@@ -20,33 +24,34 @@ set "PYTHONUNBUFFERED=1"
 where python >nul 2>nul
 if errorlevel 1 (
   echo [!] Python was not found. Install Python 3.10+ from python.org and tick "Add python to PATH".
-  pause & exit /b 1
+  pause
+  exit /b 1
 )
 
-if not exist "%~dp0node.json" (
-  echo This computer is not registered yet.
-  if "%NM_ENROLL_KEY%"=="" set /p NM_ENROLL_KEY=Enrollment key from the panel:
-  if "%NM_NODE%"=="" set "NM_NODE=%COMPUTERNAME%"
-  python "%~dp0agent.py" --check
-  if not exist "%~dp0node.json" (
-    echo [!] Registration failed - check the key / site URL above and run again.
-    pause & exit /b 1
+rem ---- optional: start ComfyUI automatically (set NM_COMFY_BAT to run_nvidia_gpu.bat); normally the agent does it
+if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" start "ComfyUI" /min cmd /c "%NM_COMFY_BAT%"
+
+:prepare
+(
+  python "%~dp0agent.py" --prepare
+  if errorlevel 1 (
+    echo [!] Registration failed - check the key / site URL above and run START.bat again.
+    pause
+    exit /b 1
   )
+  if not "%NM_AUTO_UPDATE%"=="0" python "%~dp0update.py" --auto
+  echo.
+  echo Processing node is starting. Keep this window open. ^(Ctrl+C to stop^)
+  echo.
+  goto loop
 )
 
-rem ---- optional: start ComfyUI automatically (set NM_COMFY_BAT to run_nvidia_gpu.bat)
-if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" (
-  echo Starting ComfyUI: %NM_COMFY_BAT%
-  start "ComfyUI" /min cmd /c "%NM_COMFY_BAT%"
-)
-rem ---- services (ComfyUI, Ollama, voice/photo/video editors, 3D worker, voice models) are started and stopped by
-rem ---- the agent according to the panel (Processing servers > services / voice models); see services.json
-echo.
-echo Processing node is starting. Keep this window open. (Ctrl+C to stop)
-echo.
 :loop
-python "%~dp0agent.py"
-echo.
-echo Agent stopped; restarting in 10 seconds ... (close this window to quit)
-timeout /t 10 >nul
-goto loop
+(
+  python "%~dp0agent.py"
+  python "%~dp0update.py" --agent-exited
+  echo.
+  echo Agent stopped; restarting in 10 seconds ... ^(close this window to quit^)
+  timeout /t 10 >nul
+  goto loop
+)

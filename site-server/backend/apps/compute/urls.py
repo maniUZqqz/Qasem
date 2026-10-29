@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, views_voice
+from . import api, views_update, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -14,6 +14,9 @@ urlpatterns = [
     path("jobs/<uuid:uid>/outputs/<str:name>", api.output_file),
     path("log/", api.node_log),
     path("enroll/", api.enroll),
+    # به‌روزرسانیِ کدِ گره از خودِ سایت (توکنِ گره یا کارمند) — updates.py
+    path("update/", views_update.manifest),
+    path("update/package/", views_update.package),
     # پنل (کارکنان، JWT)
     path("nodes/", api.nodes),
     path("nodes/<int:pk>/", api.node_action),
@@ -29,4 +32,5 @@ urlpatterns = [
     path("nodes/<int:pk>/audio/test/", views_voice.node_audio_test),
     path("nodes/<int:pk>/audio/tests/", views_voice.node_audio_tests),
     path("nodes/<int:pk>/models/download/", views_voice.node_models_download),
+    path("nodes/<int:pk>/update/", views_update.node_update),
 ]

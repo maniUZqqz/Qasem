@@ -1,6 +1,8 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { BASE } from "./api";
+import { Loading } from "./common";
 import AiHomePage from "./AiHomePage";
 import AiProposalPage from "./AiProposalPage";
 import AiSettingsPage from "./AiSettingsPage";
@@ -25,6 +27,10 @@ import SharedEditPage from "./SharedEditPage";
 import StudioShell, { ProjectShell } from "./shell";
 import ViewEditPage from "./ViewEditPage";
 
+// ویرایشگرِ دیداری جدا بارگذاری می‌شود تا بقیهٔ پنل سنگین نشود
+const Builder = lazy(() => import("./builder/Builder"));
+const StartPage = lazy(() => import("./builder/StartPage"));
+
 /**
  * سایت‌ساز — در App.tsx زیرِ `/tools/studio/*` و داخلِ Layout سوار می‌شود:
  *   <Route path="/tools/studio/*" element={<StudioRoutes />} />
@@ -33,6 +39,8 @@ import ViewEditPage from "./ViewEditPage";
 export default function StudioRoutes() {
   return (
     <Routes>
+      <Route path="p/:slug/builder/:target/:pk?" element={<Suspense fallback={<Loading />}><Builder /></Suspense>} />
+      <Route path="p/:slug/start" element={<Suspense fallback={<Loading />}><StartPage /></Suspense>} />
       <Route element={<StudioShell />}>
         <Route index element={<ProjectListPage />} />
         <Route path="new" element={<ProjectCreatePage />} />

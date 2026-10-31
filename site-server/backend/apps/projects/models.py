@@ -614,6 +614,108 @@ class SharedPart(models.Model):
         return '%s — %s' % (self.project.slug, self.get_kind_display())
 
 
+class Design(models.Model):
+    """سندِ بلوک‌های ویرایشگرِ دیداری برای یک صفحه یا سربرگ/پابرگ.
+
+    موتورِ تولید این جدول را نمی‌بیند؛ انتشار نتیجهٔ رندر را در Page.body_html/css یا SharedPart می‌نویسد.
+    """
+    TARGETS = [('page', 'صفحه'), ('header', 'سربرگ'), ('footer', 'پابرگ')]
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='designs', verbose_name='پروژه')
+    target = models.CharField(max_length=8, choices=TARGETS, default='page', verbose_name='بخش')
+    page = models.OneToOneField(Page, on_delete=models.CASCADE, null=True, blank=True, related_name='design', verbose_name='صفحه')
+    draft = models.JSONField(default=dict, blank=True, verbose_name='پیش‌نویس')
+    published = models.JSONField(null=True, blank=True, verbose_name='منتشرشده')
+    published_css = models.TextField(blank=True, verbose_name='CSSِ سربرگ/پابرگ')
+    synced_hash = models.CharField(max_length=40, blank=True, verbose_name='اثرِ انگشتِ محتوای همخوان')
+    rev = models.PositiveIntegerField(default=1, verbose_name='شمارهٔ بازنگری')
+    keep_out_of_menu = models.BooleanField(default=False, verbose_name='خودکار به منو نرود')
+    published_at = models.DateTimeField(null=True, blank=True, verbose_name='آخرین انتشار')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'طراحیِ دیداری'
+        verbose_name_plural = 'طراحی‌های دیداری'
+        constraints = [models.UniqueConstraint(fields=['project', 'target'], condition=models.Q(page__isnull=True),
+                                               name='projects_design_one_shared_per_target')]
+
+    def __str__(self):
+        return '%s — %s' % (self.project.slug, self.page.title if self.page_id else self.get_target_display())
+
+
+class DesignVersion(models.Model):
+    """نسخه‌های قبلیِ یک طراحی: هر انتشار و هر پیش‌نویسی که قرار بود روی آن نوشته شود."""
+    KINDS = [('publish', 'انتشار'), ('draft', 'پیش‌نویس'), ('external', 'تغییرِ بیرونی')]
+    design = models.ForeignKey(Design, on_delete=models.CASCADE, related_name='versions')
+    doc = models.JSONField(default=dict)
+    rendered_hash = models.CharField(max_length=40, blank=True, db_index=True)
+    label = models.CharField(max_length=160, blank=True)
+    kind = models.CharField(max_length=10, choices=KINDS, default='publish')
+    user = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'نسخهٔ طراحی'
+        verbose_name_plural = 'نسخه‌های طراحی'
+        ordering = ['-created_at', '-id']
+
+
+class SiteTheme(models.Model):
+    """پوسته و منوی سایت. `active` یعنی این پروژه از ویرایشگرِ دیداری منتشر کرده؛ تا پیش از آن خروجی دست نمی‌خورد."""
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='site_theme')
+    active = models.BooleanField(default=False, verbose_name='ویرایشگرِ دیداری فعال است')
+    draft = models.JSONField(default=dict, blank=True)
+    published = models.JSONField(default=dict, blank=True)
+    menu = models.JSONField(default=list, blank=True)
+    menu_published = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'پوستهٔ سایت'
+        verbose_name_plural = 'پوسته‌های سایت'
+
+    def __str__(self):
+        return self.project.slug
+
+
+class MediaAsset(models.Model):
+    """یک فایل در کتابخانهٔ رسانهٔ پروژه؛ خودِ فایل در static/site-media ِ همان پروژه است."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='media_assets')
+    kind = models.CharField(max_length=8, default='image')
+    name = models.CharField(max_length=120, blank=True, verbose_name='نام')
+    alt = models.CharField(max_length=200, blank=True, verbose_name='توضیحِ تصویر')
+    rel_path = models.CharField(max_length=200)
+    variants = models.JSONField(default=dict, blank=True)
+    width = models.PositiveIntegerField(default=0)
+    height = models.PositiveIntegerField(default=0)
+    size = models.PositiveIntegerField(default=0)
+    sha = models.CharField(max_length=32, db_index=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'فایلِ رسانه'
+        verbose_name_plural = 'فایل‌های رسانه'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return self.name
+
+
+class SavedSection(models.Model):
+    """بخشی که کاربر برای استفادهٔ دوباره ذخیره کرده."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='saved_sections')
+    title = models.CharField(max_length=120)
+    doc = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'بخشِ ذخیره‌شده'
+        verbose_name_plural = 'بخش‌های ذخیره‌شده'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return self.title
+
+
 class BuildLog(models.Model):
     """هر بار تولیدِ کد یک ردیف — تا معلوم باشد چه وقت چه چیزی نوشته شد."""
     project = models.ForeignKey(Project, on_delete=models.CASCADE,

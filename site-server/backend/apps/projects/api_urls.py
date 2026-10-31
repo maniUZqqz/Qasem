@@ -7,6 +7,7 @@ from django.urls import path
 from apps.ai_engine import api as ai
 from apps.project_importer import api as imp
 from . import api
+from .builder import api as vb
 
 urlpatterns = [
     # پروژه‌ها
@@ -39,6 +40,27 @@ urlpatterns = [
     path('projects/<slug:slug>/pages/<int:pk>/', api.page_detail),            # GET · POST/PUT · DELETE
     path('projects/<slug:slug>/pages/<int:pk>/reload/', imp.page_reload),     # POST (واردشده)
     path('projects/<slug:slug>/shared/<str:kind>/', api.shared_detail),       # GET · POST/PUT
+
+    # ویرایشگرِ دیداری
+    path('projects/<slug:slug>/builder/catalog/', vb.catalog),                # GET کتابخانهٔ بلوک‌ها و قالب‌ها
+    path('projects/<slug:slug>/builder/bootstrap/', vb.bootstrap),            # GET ?target=page&page=<id>
+    path('projects/<slug:slug>/builder/design/', vb.design_save),             # PUT پیش‌نویس
+    path('projects/<slug:slug>/builder/render/', vb.render_canvas),           # POST رندرِ بوم
+    path('projects/<slug:slug>/builder/publish/', vb.publish),                # POST انتشار
+    path('projects/<slug:slug>/builder/versions/<int:pk>/', vb.version_detail),  # GET · POST بازگشت
+    path('projects/<slug:slug>/builder/pages/', vb.page_create),              # POST از قالبِ آماده
+    path('projects/<slug:slug>/builder/pages/<int:pk>/starter/', vb.page_starter),
+    path('projects/<slug:slug>/builder/pages/<int:pk>/meta/', vb.page_meta),
+    path('projects/<slug:slug>/builder/pages/<int:pk>/roundtrip-check/', vb.roundtrip_check),
+    path('projects/<slug:slug>/builder/theme/', vb.theme_detail),             # GET · PUT پوسته و منو
+    path('projects/<slug:slug>/builder/media/', vb.media_list),               # GET · POST آپلود
+    path('projects/<slug:slug>/builder/media/<int:pk>/', vb.media_detail),    # PUT · DELETE
+    path('projects/<slug:slug>/builder/sections/', vb.section_list),          # GET · POST
+    path('projects/<slug:slug>/builder/sections/<int:pk>/', vb.section_detail),
+    path('projects/<slug:slug>/builder/models/<int:pk>/seed/', vb.model_seed),  # POST دادهٔ نمونه
+    path('builder-media/<slug:slug>/u/<path:rel>', vb.public_user_media),
+    path('builder-media/<slug:slug>/<str:name>', vb.public_media),
+    path('builder-fonts/<str:name>', vb.public_font),
 
     # فایل، تاریخچه، پیش‌نمایش
     path('projects/<slug:slug>/files/', api.file_browser),

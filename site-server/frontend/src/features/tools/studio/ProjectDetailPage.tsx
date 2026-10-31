@@ -6,6 +6,7 @@ import { Badge, Button, Card, Chip, EmptyState, Table } from "../../../component
 import { api, BASE, downloadZip, fa, fmtDate, pUrl, studioError, truncate } from "./api";
 import { Help, KV, Loading, Mono, Pre, proposalTone, SectionHead } from "./common";
 import { useProject } from "./shell";
+import { VisualCta } from "./visualEntry";
 import type { BuildResp, ProjectDetailResp } from "./types";
 
 /** نمای کلیِ پروژه */
@@ -81,6 +82,7 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-5">
+      {!data.project.is_imported && <VisualCta slug={slug} />}
       <div className="u-stat-row grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {stats.map(([value, label, sub], i) => (
           <Link key={i} to={pUrl(slug, sub)} className="no-underline">

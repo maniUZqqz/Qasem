@@ -75,8 +75,9 @@ def preview_url(request, port):
 def shared_parts(p):
     """هدر/فوتر/CSSِ مؤثرِ این پروژه — برای پیش‌نمایشِ سمتِ مرورگر."""
     parts = {s.kind: s.content for s in p.shared_parts.all()}
+    from .builder import genhook
     return {
-        'base_css': parts.get('base_css') or generator.BASE_CSS % {'brand': p.brand_color},
+        'base_css': (parts.get('base_css') or generator.BASE_CSS % {'brand': p.brand_color}) + genhook.preview_css(p),
         'header': parts.get('header') or generator.DEFAULT_HEADER,
         'footer': parts.get('footer') or generator.DEFAULT_FOOTER,
     }
@@ -388,6 +389,7 @@ def page_json(pg, body=False):
         'in_menu': pg.in_menu, 'file_path': pg.file_path, 'order': pg.order, 'is_imported': pg.is_imported,
         'template_path': pg.template_path, 'css_name': pg.css_name, 'view_name': pg.view_name,
         'url_pattern': pg.url_pattern, 'body_length': len(pg.body_html or ''), 'has_css': bool(pg.css),
+        'has_design': hasattr(pg, 'design'),
     }
     if body:
         d['body_html'] = pg.body_html

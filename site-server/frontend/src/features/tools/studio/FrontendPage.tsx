@@ -5,6 +5,7 @@ import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, Chip, EmptyState, ErrorBox, Field, Input, Select, Table } from "../../../components/ui";
 import { api, fa, pUrl, studioError } from "./api";
 import { confirmDo, Loading, Mono, SectionHead } from "./common";
+import { openVisual } from "./visualEntry";
 import { useProject } from "./shell";
 import type { FrontendResp, PageT, SharedKind } from "./types";
 
@@ -123,12 +124,37 @@ export default function FrontendPage() {
         <div className="flex flex-wrap items-center gap-4">
           <div className="min-w-0 flex-1">
             <h2 className="flex items-center gap-2 text-lg font-extrabold" style={{ color: "var(--text)" }}>
-              <Icon name="sparkle" size={18} />
-              فرانت را با هوشِ مصنوعی بساز
+              <Icon name="image" size={18} />
+              سایت را با کشیدن و زدن بساز
             </h2>
             <p className="mt-1 text-sm leading-7" style={{ color: "var(--text-2)" }}>
-              توضیحِ فروشگاه را بده؛ هدر، فوتر، CSS و بدنهٔ همهٔ صفحه‌ها ساخته می‌شود — بعد هر صفحه را جدا ویرایش کن.
-              هیچ‌چیز بدونِ دیدنِ Diff و تأییدِ تو اعمال نمی‌شود.
+              بی‌هیچ کدی: بلوک‌ها را روی صفحه بینداز، متن را همان‌جا بنویس، رنگ‌ها را عوض کن و منتشر کن.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to={pUrl(slug, "start")} className="no-underline" data-testid="visual-new">
+              <Button>صفحهٔ تازه از روی قالب</Button>
+            </Link>
+            <Link to={pUrl(slug, "builder/header")} className="no-underline">
+              <Button variant="secondary">سربرگ و منو</Button>
+            </Link>
+            <Link to={pUrl(slug, "builder/footer")} className="no-underline">
+              <Button variant="secondary">پابرگ</Button>
+            </Link>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-2 text-lg font-extrabold" style={{ color: "var(--text)" }}>
+              <Icon name="sparkle" size={18} />
+              ظاهرِ سایت را با هوشِ مصنوعی بساز
+            </h2>
+            <p className="mt-1 text-sm leading-7" style={{ color: "var(--text-2)" }}>
+              بگو سایتت چیست؛ سربرگ، پابرگ و صفحه‌ها پیشنهاد می‌شوند و بعد هر صفحه را جدا ویرایش می‌کنی.
+              هیچ‌چیز بدونِ دیدنِ تغییرها و تأییدِ تو اعمال نمی‌شود.
             </p>
           </div>
           <Link to={pUrl(slug, "ai")} className="no-underline">
@@ -140,29 +166,28 @@ export default function FrontendPage() {
       <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card>
-            <SectionHead title="معماریِ سه‌بخشی" />
+            <SectionHead title="هر صفحه سه قسمت دارد" />
             <div className="space-y-1.5 text-center text-sm font-bold">
               <div className="rounded-lg p-2" style={{ background: "var(--brand-soft)", color: "var(--brand-strong)" }}>
-                هدر — مشترکِ همهٔ صفحه‌ها
+                سربرگ — در همهٔ صفحه‌ها یکی است
               </div>
               <div className="rounded-lg p-5" style={{ border: "1px dashed var(--line-strong)", color: "var(--text)" }}>
-                بدنهٔ هر صفحه
+                محتوای هر صفحه
                 <br />
                 <small className="font-normal" style={{ color: "var(--text-3)" }}>
                   جداگانه ویرایش می‌شود
                 </small>
               </div>
               <div className="rounded-lg p-2" style={{ background: "var(--brand-soft)", color: "var(--brand-strong)" }}>
-                فوتر — مشترک
+                پابرگ — در همهٔ صفحه‌ها یکی است
               </div>
             </div>
             <p className="mt-3 text-sm leading-6" style={{ color: "var(--text-3)" }}>
-              ویرایشِ بدنهٔ یک صفحه هیچ صفحهٔ دیگری و هدر/فوتر را دست نمی‌زند — همین مرز است که به AI اجازه می‌دهد فقط
-              همان صفحه را عوض کند.
+              ویرایشِ یک صفحه روی صفحه‌های دیگر و سربرگ و پابرگ اثری ندارد؛ هوشِ مصنوعی هم فقط همان صفحه را عوض می‌کند.
             </p>
           </Card>
           <Card>
-            <SectionHead title="بخش‌های مشترک" />
+            <SectionHead title="کدِ بخش‌های مشترک (پیشرفته)" />
             <div className="space-y-2">
               {SHARED.map((s) => (
                 <Link key={s.kind} to={pUrl(slug, `shared/${s.kind}`)} className="no-underline">
@@ -201,9 +226,12 @@ export default function FrontendPage() {
                       {pg.has_css && " · CSS دارد"}
                       {pg.in_menu && " · در منو"}
                     </div>
-                    <div className="flex gap-2">
-                      <Link to={pUrl(slug, `page/${pg.id}`)} className="no-underline">
+                    <div className="flex flex-wrap gap-2">
+                      <Link to={openVisual(slug, pg.id)} className="no-underline" data-visual={pg.id}>
                         <Button size="sm">ویرایش</Button>
+                      </Link>
+                      <Link to={pUrl(slug, `page/${pg.id}`)} className="no-underline" title="حالتِ پیشرفته: ویرایشِ کدِ این صفحه">
+                        <Button size="sm" variant="ghost">کد (پیشرفته)</Button>
                       </Link>
                       <Button size="sm" variant="danger" onClick={() => removePage(pg)}>
                         حذف
@@ -217,7 +245,7 @@ export default function FrontendPage() {
 
           <Card>
             <form onSubmit={addPage} className="space-y-3">
-              <SectionHead title="+ صفحهٔ تازه" />
+              <SectionHead title="+ صفحهٔ کدی (پیشرفته)" hint="برای برنامه‌نویس؛ صفحهٔ عادی را از «صفحهٔ تازه از روی قالب» بساز" />
               <ErrorBox message={formError} />
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
                 <Field label="عنوان">

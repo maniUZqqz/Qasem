@@ -81,7 +81,7 @@ def _css_defined(css):
 
 
 def _css_classes(css):
-    return sorted({m for m in re.findall(r'\.([a-zA-Z][\w-]*)', css or '')})[:120]
+    return sorted({m for m in re.findall(r'\.([a-zA-Z][\w-]*)', css or '') if not m.startswith('b-')})[:200]
 
 
 def _shared(project):
@@ -112,7 +112,7 @@ _engine = None
 def _tpl_engine():
     global _engine
     if _engine is None:
-        _engine = Engine(libraries={}, builtins=['django.templatetags.static'])
+        _engine = Engine(libraries={'static': 'django.templatetags.static'}, builtins=['django.templatetags.static'])
     return _engine
 
 
@@ -511,6 +511,10 @@ def _do_edit_page(proposal, page, instruction, section):
     }
     if section:
         payload['focus_section'] = section
+    if hasattr(page, 'design'):
+        # صفحه با ویرایشگرِ دیداری ساخته شده: کلاس‌های b-xxxx نشانهٔ بلوک‌اند؛ اگر بمانند صفحه بعد از AI هم با کلیک ویرایش می‌شود
+        payload['visual_editor_note'] = ('این صفحه بلوک‌بندی شده است. ساختار و کلاس‌های nb-* و b-* را حفظ کن، '
+                                         'و تا می‌توانی فقط متن‌ها را عوض کن یا بخشِ تازه با <section> اضافه کن.')
     data = _call(provider, proposal, SYSTEM_EDIT_PAGE, payload)
     url_names = set(ctx['url_names'])
     if data.get('body_html'):

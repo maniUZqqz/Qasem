@@ -196,6 +196,11 @@ export default function AiProposalPage() {
               <Button variant="ghost" onClick={() => post("revert")} disabled={busy !== null}>
                 {busy === "revert" ? "…" : "بازگردانی (برگشت به قبل)"}
               </Button>
+              {data.changes.some((c) => c.page) && (
+                <Link to={pUrl(slug, `builder/page/${data.changes.find((c) => c.page)?.page}`)} className="no-underline" data-testid="back-to-visual">
+                  <Button variant="secondary">بازگشت به ویرایشگرِ دیداری</Button>
+                </Link>
+              )}
               <Link to={pUrl(slug, "preview")} className="no-underline">
                 <Button variant="ghost">پیش‌نمایشِ زنده</Button>
               </Link>

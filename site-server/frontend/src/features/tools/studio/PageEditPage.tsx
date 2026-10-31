@@ -50,6 +50,21 @@ export default function PageEditPage() {
     setBusy(true);
     setError(null);
     try {
+      if (page.has_design && !page.is_imported) {
+        const { data: chk } = await api.post<{ has_design: boolean; custom: number; new_custom: number; dirty: boolean }>(
+          `/studio/projects/${slug}/builder/pages/${pk}/roundtrip-check/`,
+          { body_html: body, css },
+        );
+        const parts: string[] = [];
+        if (chk.new_custom > 0) {
+          parts.push(`با این تغییر ${chk.new_custom} بخش در ویرایشگرِ دیداری به «کدِ سفارشی» تبدیل می‌شود: چیزی از دست نمی‌رود ولی آن بخش دیگر با کلیک و تنظیمات ویرایش نمی‌شود.`);
+        }
+        if (chk.dirty) parts.push("این صفحه در ویرایشگرِ دیداری پیش‌نویسِ منتشرنشده دارد؛ با این ذخیره آن پیش‌نویس به «نسخه‌ها» می‌رود.");
+        if (parts.length && !window.confirm(`${parts.join("\n\n")}\n\nذخیره شود؟`)) {
+          setBusy(false);
+          return;
+        }
+      }
       const { data: d } = await api.put<{ page: PageT; message: string }>(`/studio/projects/${slug}/pages/${pk}/`, {
         title,
         body_html: body,
@@ -98,6 +113,21 @@ export default function PageEditPage() {
         >
           این فایل بیرون از استودیو (روی دیسک) عوض شده و با نسخهٔ این‌جا فرق دارد. اگر همین‌جا ویرایش کنی، «تولیدِ کد» برای
           امنیت رویش نمی‌نویسد.
+        </Alert>
+      )}
+
+      {!page.is_imported && (
+        <Alert
+          tone={page.has_design ? "warn" : "info"}
+          action={
+            <Link to={pUrl(slug, `builder/page/${page.id}`)} className="no-underline">
+              <Button type="button" size="sm">بازکردن در ویرایشگرِ دیداری</Button>
+            </Link>
+          }
+        >
+          {page.has_design
+            ? "حالتِ پیشرفته: این صفحه با ویرایشگرِ دیداری ساخته شده. اگر کد را این‌جا عوض کنی، بخش‌هایی که قابلِ تشخیص نباشند در ویرایشگر به «کدِ سفارشی» تبدیل می‌شوند."
+            : "حالتِ پیشرفته: ویرایشِ مستقیمِ کدِ این صفحه. اگر با کد کار نداری، از ویرایشگرِ دیداری استفاده کن."}
         </Alert>
       )}
 

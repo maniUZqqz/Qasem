@@ -579,6 +579,8 @@ class ProjectGenerator:
         self._templates()
         self._static()
         self._meta()
+        from apps.projects.builder import genhook
+        genhook.after_run(self)
         return self.written
 
     # ---------------------------------------------------------
@@ -589,7 +591,9 @@ class ProjectGenerator:
         apps = list(self.p.apps.all())
         local = '\n'.join('    %s,' % _q(a.package) for a in apps)
         third = '\n'.join('    %s,' % _q(x) for x in self.p.extra_app_list)
+        from apps.projects.builder import genhook
         extra_cp = "        'apps.cart.context_processors.cart',\n" if self.has_cart else ''
+        extra_cp += genhook.extra_context_processor(self.p)
         custom = (self.p.custom_settings or '').strip()
         return SETTINGS_TPL % {
             'local_apps': local, 'third_party': third,
@@ -597,7 +601,7 @@ class ProjectGenerator:
             'extra_cp': extra_cp,
             'lang': self.p.language_code or 'fa', 'tz': self.p.time_zone or 'Asia/Tehran',
             'hosts': ','.join(self.p.allowed_host_list),
-        } + ('\n\n# ── تنظیماتِ دستی (از استودیو) ──\n%s\n' % custom if custom else '')
+        } + ('\n\n# ── تنظیماتِ دستی (از استودیو) ──\n%s\n' % custom if custom else '') + genhook.settings_tail(self.p)
 
     def _config(self):
         apps = list(self.p.apps.all())
@@ -634,8 +638,11 @@ class ProjectGenerator:
             'aliases': ('\n'.join(aliases) + '\n') if aliases else '',
         })
         self._safe_write('config/wsgi.py', WSGI_TPL)
+        from apps.projects.builder import genhook
+        menu = genhook.menu_code(self.p, _q)
         self._safe_write('config/context.py', CONTEXT_TPL % {
-            'menu': ', '.join('(%s, %s)' % (_q(pg.title), _q('/%s' % pg.slug)) for pg in pages if pg.in_menu),
+            'menu': menu if menu is not None else
+            ', '.join('(%s, %s)' % (_q(pg.title), _q('/%s' % pg.slug)) for pg in pages if pg.in_menu),
         })
         self._write_managed('config/views.py', self._views_code(pages))
 
@@ -744,7 +751,8 @@ class ProjectGenerator:
         parts = {s.kind: s.content for s in self.p.shared_parts.all()}
         header = (parts.get('header') or '').strip() or DEFAULT_HEADER
         footer = (parts.get('footer') or '').strip() or DEFAULT_FOOTER
-        self._safe_write('templates/base.html', BASE_TPL % {'title': self.p.site_title or self.p.name})
+        from apps.projects.builder import genhook
+        self._safe_write('templates/base.html', genhook.patch_base(self.p, BASE_TPL % {'title': self.p.site_title or self.p.name}))
         self._safe_write('templates/components/header.html', header)
         self._safe_write('templates/components/footer.html', footer)
         self._safe_write('templates/components/product_card.html', PRODUCT_CARD_TPL)

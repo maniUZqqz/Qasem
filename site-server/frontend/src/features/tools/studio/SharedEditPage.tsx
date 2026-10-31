@@ -81,8 +81,18 @@ export default function SharedEditPage() {
         <b style={{ color: "var(--text)" }}>{part.kind_display}</b>
       </div>
 
-      <Alert tone="warn">
-        این بخش روی <b>همهٔ</b> صفحه‌ها اثر می‌گذارد. خالی بگذاری، پیش‌فرضِ استودیو استفاده می‌شود.
+      <Alert
+        tone="warn"
+        action={
+          kind === "header" || kind === "footer" ? (
+            <Link to={pUrl(slug, `builder/${kind}`)} className="no-underline">
+              <Button type="button" size="sm">ویرایشِ دیداری</Button>
+            </Link>
+          ) : undefined
+        }
+      >
+        حالتِ پیشرفته: این بخش روی <b>همهٔ</b> صفحه‌ها اثر می‌گذارد. خالی بگذاری، پیش‌فرضِ استودیو استفاده می‌شود.
+        {(kind === "header" || kind === "footer") && " اگر این بخش را در ویرایشگرِ دیداری ساخته‌ای و این‌جا کدش را عوض کنی، قسمت‌هایی که قابلِ تشخیص نباشند در ویرایشگر به «کدِ سفارشی» تبدیل می‌شوند؛ چیزی از دست نمی‌رود."}
       </Alert>
 
       <AiBox

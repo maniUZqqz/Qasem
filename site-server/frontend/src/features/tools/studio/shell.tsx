@@ -88,7 +88,7 @@ const PROJECT_TABS: { sub: string; label: string; icon: IconName; also?: string[
   { sub: "settings", label: "تنظیمات", icon: "settings" },
   { sub: "backend", label: "اپ‌ها و مدل‌ها", icon: "box", also: ["app", "model", "field"] },
   { sub: "urls", label: "نشانی‌ها و ویوها", icon: "link", also: ["view"] },
-  { sub: "frontend", label: "فرانت · صفحه‌ها", icon: "image", also: ["page", "shared"] },
+  { sub: "frontend", label: "صفحه‌ها و ظاهر", icon: "image", also: ["page", "shared"] },
   { sub: "ai", label: "هوشِ مصنوعی", icon: "sparkle" },
   { sub: "files", label: "فایل‌ها (کدِ واقعی)", icon: "receipt" },
   { sub: "history", label: "تاریخچهٔ نسخه‌ها", icon: "clock" },

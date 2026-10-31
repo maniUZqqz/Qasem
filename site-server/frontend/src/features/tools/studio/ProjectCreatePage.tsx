@@ -32,8 +32,79 @@ const STEPS: [string, string][] = [
   ["پیش‌نمایش و ZIP", "سایت را همین‌جا ببین و خروجیِ مستقل بگیر."],
 ];
 
+/** سادهٔ پیش‌فرض: فقط نام و نوعِ سایت؛ بقیه را ویرایشگرِ دیداری می‌پرسد */
+function SimpleCreate({ onAdvanced }: { onAdvanced: () => void }) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"site" | "shop">("site");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await api.post<CreateResp>("/studio/projects/", { name, slug: "", description: "", scaffold: kind === "shop", then_ai: false });
+      navigate(pUrl(data.project.slug, "start"));
+    } catch (err) {
+      setError(studioError(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-xl">
+      <Card>
+        <SectionHead title="سایتِ تازه" />
+        <form onSubmit={submit} className="space-y-4" data-testid="simple-create">
+          <ErrorBox message={error} />
+          <Field label="نامِ سایت">
+            <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="مثلاً کافه آرام" data-testid="site-name" />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([["site", "سایتِ معرفی", "شرکتی، شخصی، خدماتی؛ چند صفحه و فرمِ تماس"], ["shop", "فروشگاه", "با محصول، سبدِ خرید و ثبتِ سفارش"]] as const).map(([k, title, text]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                data-kind={k}
+                className="rounded-xl p-4 text-start"
+                style={{
+                  border: `2px solid ${kind === k ? "var(--brand)" : "var(--line)"}`,
+                  background: kind === k ? "var(--brand-soft)" : "transparent",
+                  color: "var(--text)",
+                }}
+              >
+                <b className="block">{title}</b>
+                <span className="text-xs leading-6" style={{ color: "var(--text-3)" }}>{text}</span>
+              </button>
+            ))}
+          </div>
+          <Button type="submit" disabled={busy || !name.trim()} data-testid="site-create">
+            <Icon name="play" size={15} />
+            {busy ? "در حالِ ساخت…" : "بساز و شروع کن"}
+          </Button>
+          {busy && kind === "shop" && <Help>چند ثانیه طول می‌کشد…</Help>}
+        </form>
+      </Card>
+      <p className="mt-3 text-center text-sm" style={{ color: "var(--text-3)" }}>
+        برنامه‌نویس هستی؟{" "}
+        <button type="button" className="underline" onClick={onAdvanced} style={{ color: "var(--brand-strong)" }} data-testid="advanced-create">
+          حالتِ پیشرفته
+        </button>
+      </p>
+    </div>
+  );
+}
+
 /** پروژهٔ تازه */
 export default function ProjectCreatePage() {
+  const [advanced, setAdvanced] = useState(false);
+  return advanced ? <AdvancedCreate /> : <SimpleCreate onAdvanced={() => setAdvanced(true)} />;
+}
+
+function AdvancedCreate() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");

@@ -187,6 +187,7 @@ export type PageT = {
   body_length: number;
   has_css: boolean;
   body_html?: string;
+  has_design?: boolean;
   css?: string;
 };
 

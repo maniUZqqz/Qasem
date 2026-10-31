@@ -34,7 +34,7 @@ from apps.projects.models import App, Field, Model, SharedPart, View
 from .models import AiChange, AiProposal, AiSettings
 from .providers import AiError, extract_json, get_provider
 
-STALE_AFTER = datetime.timedelta(minutes=15)
+STALE_AFTER = datetime.timedelta(minutes=45)      # کارِ چندمرحله‌ای روی سرورِ پردازش می‌تواند طولانی باشد
 
 # ──────────────────────────────────────────────── قراردادهای مشترک
 RULES_FA = """قراردادهای قالب:
@@ -112,7 +112,7 @@ _engine = None
 def _tpl_engine():
     global _engine
     if _engine is None:
-        _engine = Engine(libraries={'static': 'django.templatetags.static'}, builtins=['django.templatetags.static'])
+        _engine = Engine(libraries={'static': 'django.templatetags.static'}, builtins=['django.templatetags.static', 'apps.projects.builder.nb_filters'])
     return _engine
 
 
@@ -208,11 +208,25 @@ def _add_change(proposal, target, label, old, new, page=None, view=None, url_nam
         valid=ok, issues='\n'.join(issues), order=order)
 
 
+def _note_route(provider, proposal):
+    """کدام مدل جواب داد؛ در صفحهٔ پیشنهاد صریح نشان داده می‌شود."""
+    who = getattr(provider, 'answered_by', '')
+    if not who:
+        return
+    proposal.answered_by = who[:120]
+    proposal.fallback_note = (getattr(provider, 'fallback_reason', '') or '')[:400] if getattr(provider, 'fell_back', False) else ''
+    proposal.save(update_fields=['answered_by', 'fallback_note'])
+
+
 def _call(provider, proposal, system, payload):
     """یک فراخوانی: JSON می‌فرستد، JSON می‌گیرد، شمارنده را بالا می‌برد."""
     proposal.calls += 1
     proposal.save(update_fields=['calls'])
-    raw = provider.complete(system, json.dumps(payload, ensure_ascii=False))
+    try:
+        raw = provider.complete(system, json.dumps(payload, ensure_ascii=False))
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise AiError('سرویس جواب نداد: %s' % str(exc)[:300])
+    _note_route(provider, proposal)
     data = extract_json(raw)
     if not isinstance(data, dict):
         raise AiError('پاسخِ مدل شیءِ JSON نبود.')
@@ -286,6 +300,7 @@ SYSTEM_SHELL = """تو طراحِ ارشدِ فرانت‌اندِ یک فروش
   <a class="cart-link" href="/cart/">سبد{%% if cart|length %%}<span class="badge">{{ cart|length }}</span>{%% endif %%}</a></div></header>
 - footer با همین ساختار: <footer class="site-footer"><div class="wrap"><div class="cols">سه ستون: معرفیِ کوتاهِ فروشگاه، دسترسیِ سریع با {%% for title, href in MENU %%}، تماس</div><p class="copy">…</p></div></footer>
 - theme_css: فقط بازنویسی‌ها و افزوده‌ها (۴۰ تا ۱۲۰ خط)، شاملِ :root.
+- --ink و --ink-2 و --ink-3 رنگِ متن روی --bg و --card هستند؛ پس روی پس‌زمینهٔ روشن باید تیره بمانند (سفید نکن).
 - خوانایی اجباری است: اگر پس‌زمینهٔ هدر یا فوتر را تیره می‌کنی، رنگِ .site-header .brand، .main-nav a، .main-nav a.on، .cart-link
   و .site-footer a و .site-footer b را روشن (مثلاً کرم یا سفید) بگذار؛ هیچ متنی هم‌رنگِ پس‌زمینه‌اش نباشد.""" % RULES_FA
 
@@ -296,7 +311,8 @@ SYSTEM_PAGE = """تو طراحِ فرانت‌اندِ یک فروشگاهِ ا�
 - body_html: HTML/قالبِ جنگو با متغیرهای داده‌شده. بخش‌ها را با <section class="section"><div class="wrap">…</div></section> بساز.
   از کلاس‌های موجود (project.css_classes) استفاده کن: hero, section-h, grid, card, btn, btn lg, cats, cat-chip, muted, price…
   برای فهرستِ محصول همیشه از {%% include "components/product_card.html" %%} داخلِ {%% for p in products %%} استفاده کن و برای خالی بودن {%% empty %%} بگذار.
-- css: CSSِ مخصوصِ همین صفحه برای کلاس‌های تازه‌ای که خودت ساخته‌ای (می‌تواند خالی باشد).""" % RULES_FA
+- css: CSSِ مخصوصِ همین صفحه برای کلاس‌های تازه‌ای که خودت ساخته‌ای (می‌تواند خالی باشد).
+- اگر current_body کلاس‌هایی با پیشوندِ nb- و b- دارد (بلوک‌های ویرایشگرِ دیداری)، همان ساختار و همان کلاس‌ها را دقیقاً نگه دار و فقط متن‌ها را متناسب با توضیح عوض کن؛ کلاس‌ها را حذف یا بازنویسی نکن تا صفحه با کلیک قابلِ ویرایش بماند.""" % RULES_FA
 
 
 THEME_MARK = '/* ── پوستهٔ هوشِ مصنوعی'
@@ -359,9 +375,33 @@ def _base_root(css):
     return m.group(0) if m else ''
 
 
+_VAR_DECL = r'--%s\s*:\s*(#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?)\b'
+# متن روی پس‌زمینه: اگر مدل این جفت‌ها را نخوانا بسازد، رنگِ متن به مقدارِ پایه برمی‌گردد
+_THEME_PAIRS = (('ink', 'bg', 3.0), ('ink', 'card', 3.0), ('ink-2', 'bg', 3.0), ('ink-2', 'card', 3.0), ('ink-3', 'bg', 2.0), ('brand-ink', 'brand', 2.0))
+
+
+def fix_theme_contrast(theme, base):
+    """مدلِ واقعی روی صفحهٔ روشن --ink را سفید کرد و همهٔ متن‌ها نامرئی شدند. ⇒ (پوستهٔ اصلاح‌شده، نام‌های برگشته)"""
+    from apps.projects.builder.render import contrast
+
+    def value(name):
+        found = re.findall(_VAR_DECL % name, theme) or re.findall(_VAR_DECL % name, base)
+        return found[-1] if found else None
+    dropped = []
+    for fg, bg, minimum in _THEME_PAIRS:
+        a, b = value(fg), value(bg)
+        if not a or not b or fg in dropped or not re.search(_VAR_DECL % fg, theme):
+            continue
+        if contrast(a, b) < minimum:
+            theme = re.sub(_VAR_DECL % fg + r'\s*;?', '', theme)
+            dropped.append(fg)
+    return theme, dropped
+
+
 def _with_theme(base_now, theme, label):
     """پوستهٔ تازه بعد از CSSِ پایه؛ پوستهٔ قبلیِ AI (اگر بود) کنار می‌رود تا روی هم انباشته نشوند."""
     base = base_now.split(THEME_MARK)[0].rstrip()
+    theme, _dropped = fix_theme_contrast(theme, base)
     return '%s\n\n%s: %s ── */\n%s\n' % (base, THEME_MARK, label[:60].replace('*/', ''), theme.strip())
 
 
@@ -421,6 +461,8 @@ def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samp
         summaries.append(data.get('summary', ''))
         for key, target, label in (('header', 'shared_header', 'هدر'), ('footer', 'shared_footer', 'فوتر')):
             new = data.get(key)
+            if 'nb-header' in (sh[key] or '') or 'nb-footer' in (sh[key] or ''):
+                continue       # سربرگ و پابرگِ دیداری با کلیک ویرایش می‌شوند؛ کد جایشان را نمی‌گیرد
             if new and str(new).strip():
                 _add_change(proposal, target, label, sh[key], new, url_names=url_names, order=order)
                 order += 1
@@ -441,12 +483,23 @@ def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samp
     if page_ids:
         pages = pages.filter(pk__in=page_ids)
     for pg in pages:
-        data = _call(provider, proposal, SYSTEM_PAGE, {
-            'task': 'page', 'brief': brief, 'project': ctx,
-            'slug': pg.slug, 'title': pg.title, 'kind': pg.kind,
-            'available_variables': PAGE_VARS.get(pg.kind, PAGE_VARS['static']),
-            'current_body': pg.body_html, 'current_css': pg.css,
-        })
+        if 'class="nb-' in (pg.body_html or ''):
+            # صفحهٔ دیداری: بازنویسیِ کامل کلاس‌ها را می‌برد و صفحه یک بلوکِ کد می‌شود؛ فقط متن‌ها عوض می‌شوند
+            data = _call(provider, proposal, SYSTEM_EDIT_PAGE, {
+                'task': 'edit_page', 'project': ctx,
+                'instruction': 'متن‌های این صفحه را مناسبِ این کسب‌وکار بازنویسی کن: %s' % brief,
+                'page': {'slug': pg.slug, 'title': pg.title, 'kind': pg.kind},
+                'available_variables': PAGE_VARS.get(pg.kind, PAGE_VARS['static']),
+                'current_body': pg.body_html, 'current_css': pg.css,
+                'visual_editor_note': 'این صفحه بلوک‌بندی شده است. ساختار و کلاس‌های nb-* و b-* را دقیقاً نگه دار و فقط متن‌ها را عوض کن. css را null بگذار.',
+            })
+        else:
+            data = _call(provider, proposal, SYSTEM_PAGE, {
+                'task': 'page', 'brief': brief, 'project': ctx,
+                'slug': pg.slug, 'title': pg.title, 'kind': pg.kind,
+                'available_variables': PAGE_VARS.get(pg.kind, PAGE_VARS['static']),
+                'current_body': pg.body_html, 'current_css': pg.css,
+            })
         summaries.append('/%s: %s' % (pg.slug, data.get('summary', '')))
         if data.get('body_html'):
             _add_change(proposal, 'page_body', '%s  (/%s)' % (pg.title, pg.slug), pg.body_html, data['body_html'],

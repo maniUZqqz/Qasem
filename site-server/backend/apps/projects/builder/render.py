@@ -6,6 +6,7 @@ data-* برای انتخاب و ویرایشِ متن اضافه می‌کند �
 وابستگی‌ای به جاوااسکریپتِ ویرایشگر ندارد.
 """
 import json
+import math
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -55,6 +56,9 @@ class Ctx:
         self.css_prefix = css_prefix
         self.mark = False            # فقط برای مقایسهٔ متن در importer
         self.chrome_only = False     # سربرگ/پابرگ در بوم: نشانیِ مستقیم ولی بی‌انتخاب
+        self.has_submenu = False     # منو زیرمنو دارد؟ اگر نه، خروجیِ منو همان متنِ قدیمی می‌ماند
+        lang = (getattr(project, 'language_code', '') or 'fa').lower()
+        self.digits = 'fa' if lang.startswith('fa') else 'en'
 
 
 def build_ctx(project, canvas=False, target='page', theme=None):
@@ -65,10 +69,14 @@ def build_ctx(project, canvas=False, target='page', theme=None):
     for r in Route.objects.filter(project=project, view__kind='detail').select_related('view__model__app'):
         if r.name and r.view.model_id:
             routes['%s.%s' % (r.view.model.app.name, r.view.model.name)] = r.name
-    return Ctx(project, canvas=canvas, media=media, pages=pages, models=model_index(project),
-               has_cart=project.apps.filter(name='cart').exists() and project.apps.filter(name='catalog').exists(),
-               routes=routes, theme=theme or {}, target=target,
-               css_prefix='../../' if target == 'page' else '../')
+    ctx = Ctx(project, canvas=canvas, media=media, pages=pages, models=model_index(project),
+              has_cart=project.apps.filter(name='cart').exists() and project.apps.filter(name='catalog').exists(),
+              routes=routes, theme=theme or {}, target=target,
+              css_prefix='../../' if target == 'page' else '../')
+    from apps.projects.models import SiteTheme
+    row = SiteTheme.objects.filter(project=project).first()
+    ctx.has_submenu = bool(row and any(r.get('children') for r in (row.menu or []) if isinstance(r, dict)))
+    return ctx
 
 
 def model_index(project):
@@ -94,6 +102,11 @@ def model_index(project):
 TEXT_TYPES = ('CharField', 'EmailField', 'URLField')
 LONG_TYPES = ('TextField',)
 NUM_TYPES = ('IntegerField', 'PositiveIntegerField', 'BigIntegerField', 'FloatField', 'DecimalField')
+# منوی دوسطحی. روی دسکتاپ با hover و focus باز می‌شود و روی گوشی همیشه باز است؛ پس بی‌اسکریپت و با صفحه‌کلید هم کار می‌کند.
+NAV_TREE = ('{% for m in MENU_TREE %}{% if m.children %}<div class="nb-sub"><a href="{{ m.href }}" aria-haspopup="true" class="{% if CURRENT_PATH == m.href %}on{% endif %}">{{ m.title }}<i class="nb-caret" aria-hidden="true"></i></a>'
+            '<div class="nb-sub-menu">{% for c in m.children %}<a href="{{ c.href }}" class="{% if CURRENT_PATH == c.href %}on{% endif %}">{{ c.title }}</a>{% endfor %}</div></div>'
+            '{% else %}<a href="{{ m.href }}" class="{% if CURRENT_PATH == m.href %}on{% endif %}">{{ m.title }}</a>{% endif %}{% endfor %}')
+TILE_URL = 'https://tile.openstreetmap.org/%d/%d/%d.png'
 
 
 def default_fields(model):
@@ -582,21 +595,30 @@ class Renderer:
         return '<div class="nb-head">%s</div>' % ''.join(parts) if parts else ''
 
     def r_map(self, b):
+        """پایه: نشانی و دکمه‌های مسیریابیِ نشان و بلد؛ این‌ها همیشه کار می‌کنند.
+        نقشه چند کاشیِ تصویری است، نه iframe: اگر کاشی‌ها باز نشوند پس‌زمینه و پیام و سنجاق سرِ جایشان‌اند و جعبهٔ خالی نداریم."""
         p = b['props']
         lat, lng = p.get('lat'), p.get('lng')
         h = p.get('map_height') or 380
-        self.rule_at(None, '.b-%s .nb-map-frame' % b['id'], ['height:%dpx' % h])
-        frame = ''
-        link = ''
+        self.rule_at(None, '.b-%s .nb-map-box' % b['id'], ['height:%dpx' % h])
+        box = ''
+        links = []
+        address = str(p.get('address') or '').strip()
         if lat is not None and lng is not None:
-            d = 0.008
-            src = ('https://www.openstreetmap.org/export/embed.html?bbox=%.5f%%2C%.5f%%2C%.5f%%2C%.5f&amp;layer=mapnik&amp;marker=%.5f%%2C%.5f'
-                   % (lng - d, lat - d, lng + d, lat + d, lat, lng))
-            frame = '<iframe class="nb-map-frame" src="%s" title="نقشه" loading="lazy"></iframe>' % src
-            link = '<a class="nb-map-link" href="https://neshan.org/maps/@%.5f,%.5f,16z" target="_blank" rel="noopener">دیدن در نقشه و مسیریابی</a>' % (lat, lng)
+            box = map_tiles(float(lat), float(lng), h)
+            links = [('مسیریابی با نشان', 'https://neshan.org/maps/@%.5f,%.5f,16z' % (lat, lng), True),
+                     ('مسیریابی با بلد', 'https://balad.ir/location?latitude=%.5f&amp;longitude=%.5f&amp;zoom=16' % (lat, lng), False),
+                     ('گوگل‌مپ', 'https://www.google.com/maps?q=%.5f,%.5f' % (lat, lng), False)]
         else:
-            self.warn(b, 'موقعیتِ نقشه هنوز وارد نشده.')
-        inner = ''.join(x for x in (self.txt(b, 'title', 'h2', 'nb-title'), self.txt(b, 'address', 'p', 'nb-sub', multi=True), frame, link) if x)
+            self.warn(b, 'موقعیتِ نقشه هنوز وارد نشده؛ فعلاً فقط نشانی و جست‌وجو در نقشه نشان داده می‌شود.')
+            if address:
+                from urllib.parse import quote
+                links = [('پیدا کردن در گوگل‌مپ', 'https://www.google.com/maps/search/?api=1&amp;query=%s' % quote(address), True)]
+        buttons = ''.join('<a class="nb-btn %s is-sm" href="%s" target="_blank" rel="noopener">%s</a>' % ('is-filled' if main else 'is-outline', href, label)
+                          for label, href, main in links)
+        hint = '<p class="nb-map-empty">اگر نقشه باز نشد، با این دکمه‌ها مسیر را ببین.</p>' if box else ''
+        actions = '<div class="nb-map-actions">%s%s</div>' % (buttons, hint) if buttons else ''
+        inner = ''.join(x for x in (self.txt(b, 'title', 'h2', 'nb-title'), self.txt(b, 'address', 'p', 'nb-sub', multi=True), box, actions) if x)
         return self.shell(b, 'nb-map', inner)
 
     # ── دادهٔ سایت ──
@@ -624,20 +646,21 @@ class Renderer:
         return var
 
     @staticmethod
-    def field_value(f, v, long=False):
+    def field_value(f, v, long=False, digits='fa'):
         t = f['type']
         if f.get('choices'):
             return '{{ %s_display }}' % v
         if t == 'BooleanField':
             return '{%% if %s %%}بله{%% else %%}خیر{%% endif %%}' % v
         if t in NUM_TYPES:
-            return '{{ %s|floatformat:"-2g" }}' % v
+            return ('{{ %s|nb_num }}' % v) if digits == 'fa' else ('{{ %s|floatformat:"-2g" }}' % v)
+        tail = '|nb_digits' if digits == 'fa' else ''
         if t == 'DateField':
-            return '{{ %s|date:"Y/m/d" }}' % v
+            return '{{ %s|date:"Y/m/d"%s }}' % (v, tail)
         if t == 'DateTimeField':
-            return '{{ %s|date:"Y/m/d H:i" }}' % v
+            return '{{ %s|date:"Y/m/d H:i"%s }}' % (v, tail)
         if t == 'TimeField':
-            return '{{ %s|time:"H:i" }}' % v
+            return '{{ %s|time:"H:i"%s }}' % (v, tail)
         if t == 'ManyToManyField':
             return '{%% for x in %s.all %%}{{ x }}{%% if not forloop.last %%}، {%% endif %%}{%% endfor %%}' % v
         if t == 'URLField':
@@ -682,7 +705,7 @@ class Renderer:
             if f in (image, title):
                 continue
             var = 'item.%s' % f['name']
-            val = self.field_value({**f, 'choices': False}, 'item.get_%s_display' % f['name'] if f.get('choices') else var)
+            val = self.field_value({**f, 'choices': False}, 'item.get_%s_display' % f['name'] if f.get('choices') else var, digits=self.ctx.digits)
             if f['type'] in LONG_TYPES:
                 body.append('<p class="nb-card-text">%s</p>' % val)
             else:
@@ -713,7 +736,7 @@ class Renderer:
         for f in fields:
             if f in (image, title):
                 continue
-            val = self.field_value({**f, 'choices': False}, 'rec.get_%s_display' % f['name'] if f.get('choices') else 'rec.%s' % f['name'], long=True)
+            val = self.field_value({**f, 'choices': False}, 'rec.get_%s_display' % f['name'] if f.get('choices') else 'rec.%s' % f['name'], long=True, digits=self.ctx.digits)
             if f['type'] in LONG_TYPES:
                 rows.append('<div class="nb-detail-text">%s</div>' % val)
             else:
@@ -739,10 +762,11 @@ class Renderer:
             brand += '<span>{{ SITE_TITLE }}</span>'
         nav = ''
         if p.get('show_menu', True):
+            links = ('{% for title, href in MENU %}<a href="{{ href }}" class="{% if CURRENT_PATH == href %}on{% endif %}">{{ title }}</a>{% endfor %}'
+                     if not self.ctx.has_submenu else NAV_TREE)
             nav = ('<input class="nb-nav-toggle" type="checkbox" id="nb-nav-%s" aria-label="باز و بسته کردنِ منو">'
                    '<label class="nb-burger" for="nb-nav-%s" aria-hidden="true"><i></i><i></i><i></i></label>'
-                   '<nav class="nb-nav" aria-label="منوی اصلی">{%% for title, href in MENU %%}'
-                   '<a href="{{ href }}" class="{%% if CURRENT_PATH == href %%}on{%% endif %%}">{{ title }}</a>{%% endfor %%}</nav>') % (b['id'], b['id'])
+                   '<nav class="nb-nav" aria-label="منوی اصلی">%s</nav>') % (b['id'], b['id'], links)
         extra = ''
         if p.get('show_cart') and self.ctx.has_cart:
             extra += ('<a class="nb-cart" href="/cart/" aria-label="سبدِ خرید">%s{%% if cart|length %%}<span class="nb-badge">{{ cart|length }}</span>{%% endif %%}</a>'
@@ -759,6 +783,26 @@ class Renderer:
 
     def r_copyright(self, b):
         return '<p %s>© {{ SITE_TITLE }} — <span%s>%s</span></p>' % (self.attrs(b, 'nb-copy'), self.ed('text'), esc(b['props'].get('text')))
+
+
+def map_tiles(lat, lng, height):
+    """کاشی‌های OSM دورِ یک نقطه، طوری که خودِ نقطه وسطِ جعبه بیفتد؛ پهنای جعبه هر چه باشد."""
+    lat = max(-85.0, min(85.0, lat))
+    zoom = 16
+    n = 2 ** zoom
+    fx = (lng + 180.0) / 360.0 * n
+    fy = (1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * n
+    x0, y0 = int(fx), int(fy)
+    px, py = (fx - x0) * 256, (fy - y0) * 256
+    rows = 2 if height > 500 else 1
+    imgs = []
+    for dy in range(-rows, rows + 1):
+        for dx in range(-3, 4):
+            imgs.append('<img class="nb-map-tile" alt="" loading="lazy" src="%s" style="left:calc(50%% + %dpx);top:calc(50%% + %dpx)">'
+                        % (TILE_URL % (zoom, (x0 + dx) % n, y0 + dy), round(dx * 256 - px), round(dy * 256 - py)))
+    return ('<div class="nb-map-box">%s'
+            '<span class="nb-map-pin" aria-hidden="true"></span>'
+            '<a class="nb-map-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></div>' % ''.join(imgs))
 
 
 def video_embed(url):

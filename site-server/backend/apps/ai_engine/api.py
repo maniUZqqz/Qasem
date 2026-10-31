@@ -49,7 +49,46 @@ def settings_json(cfg):
         'max_tokens': cfg.max_tokens, 'timeout_s': cfg.timeout_s,
         'has_key': bool(cfg.api_key), 'masked_key': cfg.masked_key if cfg.api_key else '',
         'is_ready': cfg.is_ready, 'updated_at': cfg.updated_at.isoformat() if cfg.updated_at else None,
+        'route_mode': cfg.route_mode,
     }
+
+
+def _route_json():
+    from services.ai import routing
+    from .models import AiRouteLog
+    state = routing.node_state()
+    rows = [{'task': r.task, 'model': r.model, 'via': r.via, 'fell_back': r.fell_back, 'reason': r.reason, 'seconds': r.seconds, 'at': r.created_at.isoformat()}
+            for r in AiRouteLog.objects.order_by('-id')[:12]]
+    return {'mode': routing.mode(), 'node': state, 'recent': rows, 'claim_timeout': routing.claim_timeout(), 'run_timeout': routing.run_timeout()}
+
+
+@studio_api('GET', 'POST')
+def ai_route(request):
+    """تنظیمِ ساده: اول Qwen یا فقط Metis. POST {mode} ذخیره می‌کند؛ بقیهٔ تنظیمات دست نمی‌خورد."""
+    if request.method == 'POST':
+        mode = request.data.get('mode')
+        if mode not in ('qwen_first', 'metis_only'):
+            return bad('این گزینه شناخته نشد.')
+        AiSettings.objects.get_or_create(pk=1)
+        AiSettings.objects.filter(pk=1).update(route_mode=mode)
+    return Response(_route_json())
+
+
+@studio_api('POST')
+def ai_route_pull(request):
+    """مدل روی گره نیست ⇒ دانلودش از راهِ همان صفِ کارها. گره باید روشن باشد؛ برای گرهِ خاموش کار صف نمی‌شود."""
+    from apps.compute import services as compute
+    from services.ai import routing
+    state = routing.node_state()
+    if not state['online']:
+        return bad('سرورِ پردازش الان خاموش است. وقتی روشن شد این دکمه را بزن. دانلود حدودِ ۱۹ گیگابایت است.')
+    model = routing.coder_model()
+    try:
+        job = compute.enqueue('ollama.chat', {'path': '/api/pull', 'name': model, 'model': model, 'stream': False}, origin='ollama-pull',
+                              priority=200, timeout_s=6 * 3600, dedupe=False)
+    except compute.ComputeError as exc:
+        return bad(str(exc))
+    return Response({'ok': True, 'job': str(job.uid), 'message': 'دانلودِ %s روی سرورِ پردازش شروع شد (حدودِ ۱۹ گیگابایت). پیشرفتش در «سرورهای پردازش» دیده می‌شود.' % model}, status=202)
 
 
 # ──────────────────────────────────────────────── تنظیمات
@@ -74,6 +113,8 @@ def ai_settings(request):
             cfg.timeout_s = max(10, int(post.get('timeout_s') or 120))
         except ValueError:
             return bad('عددها درست نیستند.')
+        if post.get('route_mode') in ('qwen_first', 'metis_only'):
+            cfg.route_mode = post.get('route_mode')
         cfg.save()
         d = settings_json(cfg)
         d.update({'ok': True, 'message': 'تنظیماتِ هوشِ مصنوعی ذخیره شد.'})
@@ -90,7 +131,7 @@ def ai_settings(request):
 def ai_settings_test(request):
     """یک درخواستِ کوچک با تنظیماتِ ذخیره‌شده؛ اگر سرویس اجازه بدهد نامِ مدل‌هایش را هم می‌دهد."""
     cfg = AiSettings.get()
-    prov = get_provider(cfg)
+    prov = get_provider(cfg, direct=True)
     try:
         out = prov.ping()
     except AiError as exc:

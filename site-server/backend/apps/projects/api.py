@@ -116,6 +116,9 @@ def _project_create(request):
 def project_detail(request, slug):
     p = _p(slug)
     if request.method == 'DELETE':
+        from .models import PublishedSite
+        if PublishedSite.objects.filter(project=p).exclude(port=None).exists():
+            return bad('این پروژه روی اینترنت است. اول از «انتشار» آن را از اینترنت بردار.', code=409)
         preview_runner.stop(p)
         services.delete_workspace(p)
         name = p.name

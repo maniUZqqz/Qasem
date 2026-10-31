@@ -89,8 +89,9 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
 .nbe-checks input{accent-color:var(--brand)}
 .nbe-sample{background:var(--e-panel2);border-radius:10px;padding:8px 10px;font-size:12px;margin-bottom:10px}
 .nbe-sample p{margin:0}
-.nbe-stage{min-width:0;min-height:0;display:flex;justify-content:center;background:color-mix(in srgb,var(--e-bg) 85%,#000);overflow:auto;padding:0}
-.nbe-framebox{height:100%;max-width:100%;transition:width .18s ease;background:#fff;box-shadow:0 0 0 1px var(--e-line),0 20px 60px -30px rgba(0,0,0,.8)}
+.nbe-stage{min-width:0;min-height:0;display:flex;justify-content:flex-start;background:color-mix(in srgb,var(--e-bg) 85%,#000);overflow:auto;padding:0}
+.nbe-framebox{flex:none;margin-inline:auto;height:100%;transition:width .18s ease;background:#fff;box-shadow:0 0 0 1px var(--e-line),0 20px 60px -30px rgba(0,0,0,.8)}
+.nbe-framebox.is-d{min-width:770px;max-width:none}
 .nbe-frame{width:100%;height:100%;border:0;display:block;background:#fff}
 .nbe-libgroup{margin-top:14px}
 .nbe-libgroup h4{font-size:11px;font-weight:800;color:var(--text-3);margin:0 0 7px}
@@ -113,8 +114,12 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
 .nbe-presets span{margin-inline-start:3px}
 .nbe-colorrow label{display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer}
 .nbe-colorrow input{width:38px;height:30px;padding:0;border:1px solid var(--e-line);border-radius:7px;background:none;cursor:pointer;flex:none}
-.nbe-menu{display:grid;gap:5px;margin-bottom:10px}
-.nbe-menu-row{display:flex;align-items:center;gap:3px;background:var(--e-panel2);border-radius:9px;padding:3px}
+.nbe-menu{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin-bottom:10px}
+.nbe-menu-row{display:flex;flex-wrap:wrap;align-items:center;gap:3px;background:var(--e-panel2);border-radius:9px;padding:3px}
+.nbe-menu-row>.nbe-input{flex:1 1 90px;min-width:0;width:auto}
+.nbe-menu-row>button{width:22px}
+.nbe-menu-child{flex:1 1 100%;max-width:calc(100% - 12px);margin-inline-start:12px;margin-top:3px;background:var(--e-panel);border-inline-start:2px solid var(--brand);flex-wrap:nowrap}
+.nbe-menu-child .nbe-input{flex:1 1 auto;min-width:0;width:auto}
 .nbe-menu-row button{background:none;border:0;color:var(--text-3);width:24px;height:28px;flex:none}
 .nbe-menu-row .nbe-input{background:transparent;border-color:transparent;min-height:30px;padding:3px 6px}
 .nbe-grip{cursor:grab;color:var(--text-3);padding:0 3px;touch-action:none;user-select:none;font-size:13px;letter-spacing:-2px}
@@ -167,7 +172,8 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
 @media (max-width:900px){
   .nbe-body{display:block;position:relative}
   .nbe-stage{height:100%}
-  .nbe-framebox{width:100%!important}
+  .nbe-framebox{width:100%!important;max-width:100%}
+  .nbe-framebox.is-d{min-width:0;max-width:100%}
   .nbe-side{position:fixed;inset:auto 0 56px 0;z-index:40;height:62dvh;border:0;border-top:1px solid var(--e-line);border-radius:16px 16px 0 0;transform:translateY(110%);transition:transform .2s ease;box-shadow:0 -20px 50px -20px rgba(0,0,0,.6)}
   .nbe-side.open{transform:none}
   .nbe-sheet-close{display:block;position:absolute;inset-block-start:6px;inset-inline-end:8px;background:var(--e-panel2);border:0;border-radius:50%;width:30px;height:30px;font-size:18px;line-height:1;z-index:2}

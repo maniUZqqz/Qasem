@@ -213,9 +213,28 @@ def client(capability: str, store, data_class: str = PRODUCT):
     return factory.build(resolve(capability, store, data_class))
 
 
+def _external_allowed(store, data_class: str):
+    """First external text provider this store's data policy accepts, or None."""
+    policy = policy_for(store)
+    for resolved in providers.candidates(providers.TEXT):
+        if not resolved.is_local and check(resolved, policy, data_class) is None:
+            return resolved
+    return None
+
+
 def text_provider(store, data_class: str = PRODUCT):
-    """Reasoning, analysis, research, captions, scripts."""
-    return client(providers.TEXT, store, data_class)
+    """Reasoning, analysis, research, captions, scripts.
+
+    Owner's preference (services.ai.routing): Qwen Coder on the processing server first, the API as an
+    automatic fallback. The fallback still goes through the data policy: customer data that may not leave
+    our servers has no fallback and the call fails instead of quietly going out.
+    """
+    from . import routing
+
+    if not routing.wants_node():
+        return client(providers.TEXT, store, data_class)
+    external = _external_allowed(store, data_class)
+    return routing.RoutedTextProvider(factory.build(external) if external else None, task=f"text:{data_class}")
 
 
 def vision_provider(store, data_class: str = PRODUCT):
@@ -226,6 +245,8 @@ def vision_provider(store, data_class: str = PRODUCT):
 def provider_for_task(task_type: str, store, data_class: str = PRODUCT):
     """`services.ai.router` task type → client."""
     capability = providers.TASK_CAPABILITY.get(task_type, providers.TEXT)
+    if capability == providers.TEXT:
+        return text_provider(store, data_class)
     return client(capability, store, data_class)
 
 

@@ -843,3 +843,20 @@ CELERY_BEAT_SCHEDULE["compute-maintenance"] = {
     "schedule": 60.0,
     "options": {"expires": 50},
 }
+
+
+# ── انتشارِ واقعیِ سایت‌ها (apps/projects/hosting) ──
+NM_SITES_ROOT = Path(os.getenv("NM_SITES_ROOT", "/var/www/NM/sites"))
+NM_SITES_PUBLIC_IP = os.getenv("NM_SITES_PUBLIC_IP", "87.107.160.17")
+# این بازه در فایروال از قبل باز است (مالِ پیش‌نمایش است). سایت‌ها از بالا برمی‌دارند و پیش‌نمایش از پایین.
+NM_SITES_PORT_RANGE = (int(os.getenv("NM_SITES_PORT_LOW", "8621")), int(os.getenv("NM_SITES_PORT_HIGH", "8650")))
+NM_SITES_MAX = int(os.getenv("NM_SITES_MAX", "10"))
+NM_SITES_MIN_DISK_MB = int(os.getenv("NM_SITES_MIN_DISK_MB", "1500"))
+NM_SITES_MIN_MEM_MB = int(os.getenv("NM_SITES_MIN_MEM_MB", "500"))
+NM_SITES_MEMORY_MAX_MB = int(os.getenv("NM_SITES_MEMORY_MAX_MB", "192"))
+NM_SITES_CPU_QUOTA = int(os.getenv("NM_SITES_CPU_QUOTA", "40"))
+CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
+    "task": "apps.projects.tasks.published_sites_daily",
+    "schedule": 86400.0,
+    "options": {"expires": 7200},
+}

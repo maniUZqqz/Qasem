@@ -180,7 +180,8 @@ def publish(request, slug):
         return g
     target, page = _target(request.data, p)
     try:
-        out = P.publish_site(p, target, page, request.data.get('doc'), getattr(request.user, 'username', '') or '')
+        # live=True: فقط صفحه‌ها نوشته می‌شوند؛ ساخت و انتشار را کارِ پس‌زمینهٔ hosting می‌کند، نه پیش‌نمایش
+        out = P.publish_site(p, target, page, request.data.get('doc'), getattr(request.user, 'username', '') or '', build=not request.data.get('live'))
     except (DocError, P.PublishError, TypeError) as exc:
         return bad(exc)
     if out.get('port'):
@@ -226,6 +227,86 @@ def roundtrip_check(request, slug, pk):
     before = sum(1 for b in _walk((d.published or {}).get('blocks')) if b['type'] == 'custom_html')
     return Response({'has_design': True, 'custom': report['custom'], 'new_custom': max(0, report['custom'] - before),
                      'labels': report.get('custom_labels', [])[:8], 'dirty': canonical(d.draft) != canonical(d.published)})
+
+
+@studio_api('POST')
+def shared_roundtrip_check(request, slug, kind):
+    """همان وارسیِ پیش از ذخیرهٔ کد، برای سربرگ و پابرگ."""
+    p = _project(slug)
+    if kind not in ('header', 'footer'):
+        return Response({'has_design': False, 'custom': 0, 'new_custom': 0, 'labels': [], 'dirty': False})
+    d = Design.objects.filter(project=p, target=kind).first()
+    if d is None or not (d.published or d.draft):
+        return Response({'has_design': False, 'custom': 0, 'new_custom': 0, 'labels': [], 'dirty': False})
+    html = request.data.get('content')
+    if not isinstance(html, str):
+        return bad('متن نیامد.')
+    ctx = build_ctx(p, target=kind)
+    _doc, report = import_html(html, '', d.published, ctx, kind)
+    before = sum(1 for b in _walk((d.published or {}).get('blocks')) if b['type'] == 'custom_html')
+    return Response({'has_design': True, 'custom': report['custom'], 'new_custom': max(0, report['custom'] - before),
+                     'labels': report.get('custom_labels', [])[:8], 'dirty': canonical(d.draft) != canonical(d.published)})
+
+
+# ─────────────────────────────── ویرایشِ متن و عکسِ قالب‌های کدی
+def _quick_target(p, kind, pk):
+    from apps.projects.models import View
+    if kind == 'page':
+        page = get_object_or_404(Page, pk=pk, project=p)
+        if not page.is_imported:
+            raise Http404
+        return page, 'body_html', page.title, '', p.is_imported
+    if kind == 'view':
+        view = get_object_or_404(View.objects.select_related('app'), pk=pk, app__project=p)
+        if not view.needs_template:
+            raise Http404
+        if not (view.template_body or '').strip():
+            view.template_body = generator.default_template_body(view)
+            view.save(update_fields=['template_body'])
+        return view, 'template_body', view.description or view.name, view.css or '', p.is_imported
+    raise Http404
+
+
+@studio_api('GET', 'POST')
+def quick_edit(request, slug, kind, pk):
+    """فقط متنِ ساده و عکسِ با آدرسِ ثابت عوض می‌شود؛ تگ‌های قالب بایت‌به‌بایت می‌مانند (safe_edit)."""
+    from . import safe_edit
+    p = _project(slug)
+    row, attr, title, css, imported = _quick_target(p, kind, pk)
+    text = getattr(row, attr) or ''
+    if request.method == 'POST':
+        if request.data.get('hash') != safe_edit.digest(text):
+            return bad('این قالب در این فاصله جای دیگری عوض شده. صفحه را دوباره باز کن تا چیزی روی هم نوشته نشود.', code=409)
+        edits = request.data.get('edits')
+        if not isinstance(edits, dict):
+            return bad('تغییری نیامد.')
+        try:
+            new = safe_edit.apply_edits(text, edits)
+        except safe_edit.EditError as exc:
+            return bad(exc)
+        if new != text:
+            setattr(row, attr, new)
+            row.save(update_fields=[attr])
+        text = new
+    base = P.part_content(p, 'base_css') or (generator.BASE_CSS % {'brand': p.brand_color}) if not imported else ''
+    return Response({'title': title, 'imported': imported, 'hash': safe_edit.digest(text), 'items': safe_edit.public_items(text),
+                     'preview': safe_edit.preview_html(text), 'css': (base + '\n' + css)[:400000],
+                     'tags': len(safe_edit.tags_of(text))})
+
+
+@studio_api('POST')
+def quick_upload(request, slug):
+    """عکسِ تازه برای جایگزینی؛ مثلِ بقیهٔ رسانه‌ها داخلِ static/site-media ِ پروژه می‌رود."""
+    p = _project(slug)
+    upload = request.FILES.get('file')
+    if upload is None:
+        return bad('فایلی انتخاب نشده.')
+    try:
+        asset = media_mod.save_upload(p, upload, '')
+    except media_mod.MediaError as exc:
+        return bad(exc)
+    data = media_mod.asset_json(asset)
+    return Response({'ok': True, 'url': '/' + asset.rel_path.lstrip('/'), 'preview': data.get('url'), 'asset': data}, status=201)
 
 
 def _walk(blocks):
@@ -313,7 +394,7 @@ def page_meta(request, slug, pk):
 
 
 # ─────────────────────────────── پوسته و منو
-def _clean_menu(rows, p):
+def _clean_menu(rows, p, depth=0):
     pages = set(p.pages.values_list('pk', flat=True))
     out = []
     for row in (rows if isinstance(rows, list) else [])[:40]:
@@ -331,8 +412,17 @@ def _clean_menu(rows, p):
         elif row.get('url'):
             from .clean import safe_url
             url = safe_url(row['url'])
-            if url and not url.startswith('page:'):
+            if url and not url.startswith('page:') and not (depth and url == '#'):
                 out.append({'id': rid, 'url': url, 'label': label or url})
+            elif depth:
+                continue
+        else:
+            continue
+        if depth == 0 and out and row.get('children'):
+            # فقط دو سطح: زیرمنوی زیرمنو دور ریخته می‌شود
+            kids = _clean_menu(row['children'], p, 1)
+            if kids:
+                out[-1]['children'] = kids
     return out
 
 

@@ -733,3 +733,86 @@ class BuildLog(models.Model):
 
     def __str__(self):
         return '%s — %s' % (self.project.slug, self.summary)
+
+
+class PublishedSite(models.Model):
+    """سایتی که واقعاً روی اینترنت است (یا بوده). کد در releases/، داده در shared/؛ hosting/publisher.py"""
+    NONE, PUBLISHING, LIVE, STOPPED, FAILED, UNPUBLISHED = 'none', 'publishing', 'live', 'stopped', 'failed', 'unpublished'
+    STATES = [(NONE, 'منتشر نشده'), (PUBLISHING, 'در حالِ انتشار'), (LIVE, 'روی اینترنت'), (STOPPED, 'خاموش'),
+              (FAILED, 'خراب'), (UNPUBLISHED, 'برداشته شده')]
+    DOMAIN_NONE, DOMAIN_WAITING, DOMAIN_HTTP, DOMAIN_ISSUING, DOMAIN_ACTIVE, DOMAIN_FAILED = '', 'waiting', 'http', 'issuing', 'active', 'failed'
+    DOMAIN_STATES = [(DOMAIN_NONE, 'بدون دامنه'), (DOMAIN_WAITING, 'منتظرِ DNS'), (DOMAIN_HTTP, 'وصل بدونِ قفل'),
+                     (DOMAIN_ISSUING, 'گرفتنِ گواهی'), (DOMAIN_ACTIVE, 'وصل با قفل'), (DOMAIN_FAILED, 'خطا')]
+
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='published_site', verbose_name='پروژه')
+    key = models.CharField('کلیدِ سیستم', max_length=28, unique=True, editable=False)
+    state = models.CharField('وضعیت', max_length=12, choices=STATES, default=NONE)
+    port = models.PositiveIntegerField('پورتِ عمومی', null=True, blank=True, unique=True)
+    local_port = models.PositiveIntegerField('پورتِ داخلی', null=True, blank=True)
+    current_release = models.CharField('نسخهٔ فعلی', max_length=32, blank=True)
+    previous_release = models.CharField('نسخهٔ قبلی', max_length=32, blank=True)
+    last_publish_at = models.DateTimeField('آخرین انتشار', null=True, blank=True)
+    last_error = models.TextField('آخرین خطا', blank=True)
+    last_technical = models.TextField('جزئیاتِ فنی', blank=True)
+    admin_user = models.CharField('کاربرِ مدیریت', max_length=120, blank=True)
+    admin_password = models.CharField('رمزِ مدیریت', max_length=120, blank=True)
+    domain = models.CharField('دامنه', max_length=253, blank=True, db_index=True)
+    domain_www = models.BooleanField('www هم', default=False)
+    domain_state = models.CharField('وضعیتِ دامنه', max_length=10, choices=DOMAIN_STATES, blank=True, default=DOMAIN_NONE)
+    domain_error = models.TextField('خطای دامنه', blank=True)
+    domain_staging = models.BooleanField('گواهیِ آزمایشی', default=False)
+    cert_expires = models.CharField('پایانِ گواهی', max_length=40, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'سایتِ منتشرشده'
+        verbose_name_plural = 'سایت‌های منتشرشده'
+
+    def __str__(self):
+        return '%s (%s)' % (self.key, self.get_state_display())
+
+    @property
+    def domain_names(self):
+        if not self.domain:
+            return []
+        return [self.domain, 'www.' + self.domain] if self.domain_www else [self.domain]
+
+
+class SiteRelease(models.Model):
+    BUILDING, OK, FAILED = 'building', 'ok', 'failed'
+    site = models.ForeignKey(PublishedSite, on_delete=models.CASCADE, related_name='releases')
+    rid = models.CharField(max_length=32)
+    status = models.CharField(max_length=10, default=BUILDING)
+    user = models.CharField(max_length=80, blank=True)
+    note = models.CharField(max_length=300, blank=True)
+    db_backup = models.CharField(max_length=80, blank=True)
+    migrations = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'نسخهٔ سایت'
+        verbose_name_plural = 'نسخه‌های سایت'
+
+
+class SiteJob(models.Model):
+    """یک کارِ پس‌زمینه با پیشرفتِ قابلِ دیدن در پنل."""
+    PUBLISH, ROLLBACK, DOMAIN, DOMAIN_OFF, STOP, START, UNPUBLISH, RESET_ADMIN = 'publish', 'rollback', 'domain', 'domain_off', 'stop', 'start', 'unpublish', 'reset_admin'
+    QUEUED, RUNNING, OK, FAILED = 'queued', 'running', 'ok', 'failed'
+    site = models.ForeignKey(PublishedSite, on_delete=models.CASCADE, related_name='jobs')
+    kind = models.CharField(max_length=12)
+    state = models.CharField(max_length=10, default=QUEUED)
+    user = models.CharField(max_length=80, blank=True)
+    payload = models.JSONField(default=dict, blank=True)
+    steps = models.JSONField(default=list, blank=True)
+    message = models.TextField(blank=True)
+    technical = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-id']
+        verbose_name = 'کارِ انتشار'
+        verbose_name_plural = 'کارهای انتشار'

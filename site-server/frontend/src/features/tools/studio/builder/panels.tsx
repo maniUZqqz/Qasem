@@ -226,8 +226,9 @@ export function MenuPanel({ menu, pages, onChange }: { menu: MenuRow[]; pages: P
   // تا وقتی چیزی چیده نشده، منوی فعلیِ سایت را نشان بده
   const rows: MenuRow[] = menu.length ? menu : pages.filter((p) => p.in_menu).map((p) => ({ id: `p${p.id}`, page: p.id, label: p.title }));
   const titleOf = (r: MenuRow) => pages.find((p) => p.id === r.page)?.title ?? r.url ?? "";
-  const unused = pages.filter((p) => !rows.some((r) => r.page === p.id));
+  const unused = pages.filter((p) => !rows.some((r) => r.page === p.id || r.children?.some((c) => c.page === p.id)));
   const set = (next: MenuRow[]) => onChange(next);
+  const setChild = (i: number, fn: (kids: MenuRow[]) => MenuRow[]) => set(rows.map((x, j) => (j === i ? { ...x, children: fn(x.children ?? []) } : x)));
   const startDrag = (e: React.PointerEvent, index: number) => {
     e.preventDefault();
     const box = listRef.current;
@@ -261,7 +262,7 @@ export function MenuPanel({ menu, pages, onChange }: { menu: MenuRow[]; pages: P
   return (
     <div className="nbe-pane" data-testid="menu">
       <h4 className="nbe-h">منوی سایت</h4>
-      <p className="nbe-note">با دستگیره جابه‌جا کن. نام را هم می‌توانی عوض کنی.</p>
+      <p className="nbe-note">با دستگیره جابه‌جا کن. نام را هم می‌توانی عوض کنی. با دکمهٔ ← هر ردیف زیرمنوی ردیفِ بالایی‌اش می‌شود (فقط دو سطح).</p>
       <div className="nbe-menu" ref={listRef}>
         {rows.map((r, i) => (
           <div className="nbe-menu-row" key={r.id} data-menu-row={r.id}>
@@ -271,7 +272,49 @@ export function MenuPanel({ menu, pages, onChange }: { menu: MenuRow[]; pages: P
             <input className="nbe-input" value={r.label} placeholder={titleOf(r)} onChange={(e) => set(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} aria-label="نامِ گزینهٔ منو" />
             <button type="button" aria-label="بالاتر" disabled={i === 0} onClick={() => { const n = [...rows]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; set(n); }}>↑</button>
             <button type="button" aria-label="پایین‌تر" disabled={i === rows.length - 1} onClick={() => { const n = [...rows]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; set(n); }}>↓</button>
+            <button
+              type="button"
+              aria-label="زیرمنوی ردیفِ بالایی شود"
+              title="زیرمنوی ردیفِ بالایی شود"
+              data-menu-indent={r.id}
+              disabled={i === 0 || !!r.children?.length}
+              onClick={() => {
+                const n = rows.filter((_, j) => j !== i);
+                const parent = n[i - 1];
+                n[i - 1] = { ...parent, children: [...(parent.children ?? []), { id: r.id, page: r.page, url: r.url, label: r.label }] };
+                set(n);
+              }}
+            >
+              ←
+            </button>
             <button type="button" aria-label="حذف از منو" onClick={() => set(rows.filter((_, j) => j !== i))}>×</button>
+            {(r.children ?? []).map((c, k) => (
+              <div className="nbe-menu-row nbe-menu-child" key={c.id} data-menu-child={c.id}>
+                <input
+                  className="nbe-input"
+                  value={c.label}
+                  placeholder={titleOf(c)}
+                  aria-label="نامِ زیرمنو"
+                  onChange={(e) => setChild(i, (kids) => kids.map((x, j) => (j === k ? { ...x, label: e.target.value } : x)))}
+                />
+                <button type="button" aria-label="بالاتر" disabled={k === 0} onClick={() => setChild(i, (kids) => { const n = [...kids]; [n[k - 1], n[k]] = [n[k], n[k - 1]]; return n; })}>↑</button>
+                <button type="button" aria-label="پایین‌تر" disabled={k === (r.children?.length ?? 0) - 1} onClick={() => setChild(i, (kids) => { const n = [...kids]; [n[k + 1], n[k]] = [n[k], n[k + 1]]; return n; })}>↓</button>
+                <button
+                  type="button"
+                  aria-label="برگرداندن به منوی اصلی"
+                  title="برگرداندن به منوی اصلی"
+                  data-menu-outdent={c.id}
+                  onClick={() => {
+                    const n = rows.map((x, j) => (j === i ? { ...x, children: (x.children ?? []).filter((_, m) => m !== k) } : x));
+                    n.splice(i + 1, 0, { id: c.id, page: c.page, url: c.url, label: c.label });
+                    set(n);
+                  }}
+                >
+                  →
+                </button>
+                <button type="button" aria-label="حذف از منو" onClick={() => setChild(i, (kids) => kids.filter((_, j) => j !== k))}>×</button>
+              </div>
+            ))}
           </div>
         ))}
         {!rows.length && <p className="nbe-note">منو خالی است.</p>}

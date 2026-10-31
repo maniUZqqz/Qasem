@@ -365,6 +365,7 @@ class OllamaProvider:
             remote_payload = {k: v for k, v in payload.items() if k != "images"}
             data = ollama_remote.generate(
                 remote_payload, base_url=self.base_url, timeout_s=call_timeout, images=images,
+                on_tick=getattr(self, 'on_tick', None),
             )
             return self._answer_from(data, model, format_json)
 

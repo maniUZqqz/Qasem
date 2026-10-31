@@ -8,6 +8,8 @@ from apps.ai_engine import api as ai
 from apps.project_importer import api as imp
 from . import api
 from .builder import api as vb
+from .hosting import api as hosting
+from .hosting import api as hosting
 
 urlpatterns = [
     # پروژه‌ها
@@ -42,6 +44,32 @@ urlpatterns = [
     path('projects/<slug:slug>/shared/<str:kind>/', api.shared_detail),       # GET · POST/PUT
 
     # ویرایشگرِ دیداری
+    # انتشار روی اینترنت
+    path('projects/<slug:slug>/hosting/', hosting.status),                    # GET وضعیت (?light=1)
+    path('projects/<slug:slug>/hosting/publish/', hosting.do_publish),        # POST
+    path('projects/<slug:slug>/hosting/stop/', hosting.do_stop),
+    path('projects/<slug:slug>/hosting/start/', hosting.do_start),
+    path('projects/<slug:slug>/hosting/rollback/', hosting.do_rollback),
+    path('projects/<slug:slug>/hosting/unpublish/', hosting.do_unpublish),
+    path('projects/<slug:slug>/hosting/purge/', hosting.do_purge),
+    path('projects/<slug:slug>/hosting/reset-admin/', hosting.do_reset_admin),
+    path('projects/<slug:slug>/hosting/domain/', hosting.domain),             # POST ثبت · DELETE جدا کردن
+    path('projects/<slug:slug>/hosting/domain/check/', hosting.domain_check),  # POST
+    path('projects/<slug:slug>/hosting/messages/', hosting.messages),         # GET · POST خوانده‌شدن
+
+    # انتشار روی اینترنت
+    path('projects/<slug:slug>/hosting/', hosting.status),                    # GET وضعیت (?light=1)
+    path('projects/<slug:slug>/hosting/publish/', hosting.do_publish),        # POST
+    path('projects/<slug:slug>/hosting/stop/', hosting.do_stop),
+    path('projects/<slug:slug>/hosting/start/', hosting.do_start),
+    path('projects/<slug:slug>/hosting/rollback/', hosting.do_rollback),
+    path('projects/<slug:slug>/hosting/unpublish/', hosting.do_unpublish),
+    path('projects/<slug:slug>/hosting/purge/', hosting.do_purge),
+    path('projects/<slug:slug>/hosting/reset-admin/', hosting.do_reset_admin),
+    path('projects/<slug:slug>/hosting/domain/', hosting.domain),             # POST ثبت · DELETE جدا کردن
+    path('projects/<slug:slug>/hosting/domain/check/', hosting.domain_check),  # POST
+    path('projects/<slug:slug>/hosting/messages/', hosting.messages),         # GET · POST خوانده‌شدن
+
     path('projects/<slug:slug>/builder/catalog/', vb.catalog),                # GET کتابخانهٔ بلوک‌ها و قالب‌ها
     path('projects/<slug:slug>/builder/bootstrap/', vb.bootstrap),            # GET ?target=page&page=<id>
     path('projects/<slug:slug>/builder/design/', vb.design_save),             # PUT پیش‌نویس
@@ -52,6 +80,9 @@ urlpatterns = [
     path('projects/<slug:slug>/builder/pages/<int:pk>/starter/', vb.page_starter),
     path('projects/<slug:slug>/builder/pages/<int:pk>/meta/', vb.page_meta),
     path('projects/<slug:slug>/builder/pages/<int:pk>/roundtrip-check/', vb.roundtrip_check),
+    path('projects/<slug:slug>/builder/shared/<str:kind>/roundtrip-check/', vb.shared_roundtrip_check),
+    path('projects/<slug:slug>/quick-edit/upload/', vb.quick_upload),         # POST
+    path('projects/<slug:slug>/quick-edit/<str:kind>/<int:pk>/', vb.quick_edit),  # GET · POST
     path('projects/<slug:slug>/builder/theme/', vb.theme_detail),             # GET · PUT پوسته و منو
     path('projects/<slug:slug>/builder/media/', vb.media_list),               # GET · POST آپلود
     path('projects/<slug:slug>/builder/media/<int:pk>/', vb.media_detail),    # PUT · DELETE
@@ -73,6 +104,8 @@ urlpatterns = [
 
     # هوشِ مصنوعی
     path('ai/settings/', ai.ai_settings),                                     # GET · POST/PUT
+    path('ai/route/', ai.ai_route),                                           # GET · POST {mode}
+    path('ai/route/pull/', ai.ai_route_pull),                                 # POST دانلودِ مدل روی گره
     path('ai/settings/test/', ai.ai_settings_test),                           # POST
     path('projects/<slug:slug>/ai/', ai.ai_home),                             # GET · POST {act}
     path('projects/<slug:slug>/ai/page/<int:pk>/', ai.ai_edit_page),          # POST

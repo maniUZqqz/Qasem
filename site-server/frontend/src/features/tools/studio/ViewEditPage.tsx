@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Icon from "../../../components/Icon";
-import { Badge, Button, Card, ErrorBox, Field, Input, Select } from "../../../components/ui";
+import { Alert, Badge, Button, Card, ErrorBox, Field, Input, Select } from "../../../components/ui";
 import { api, pUrl, studioError } from "./api";
 import AiBox from "./AiBox";
 import { Check, CodeArea, confirmDo, docHtml, Help, Loading, Mono, Pre, PreviewFrame, SectionHead, StickyBar } from "./common";
@@ -174,6 +174,19 @@ export default function ViewEditPage() {
           </Link>
         </div>
       </Card>
+
+      {v.needs_template && (
+        <Alert
+          tone="info"
+          action={
+            <Link to={pUrl(slug, `quick-edit/view/${v.id}`)} className="no-underline">
+              <Button type="button" size="sm" data-testid="quick-edit-link">ویرایشِ متن و عکس</Button>
+            </Link>
+          }
+        >
+          متن‌های این قالب را می‌توانی بی‌دست‌زدن به کدها مستقیم ویرایش کنی.
+        </Alert>
+      )}
 
       {editable && v.needs_template && (
         <AiBox

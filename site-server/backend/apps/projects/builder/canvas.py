@@ -246,12 +246,13 @@ def render_canvas(project, target, page, doc, theme, menu):
     """⇒ JSONِ بوم: css، تکه‌های سطحِ بالا، سربرگ و پابرگ، هشدارها."""
     from apps.projects.models import Page, SharedPart
     ctx = build_ctx(project, canvas=True, target=target, theme=theme['colors'])
+    ctx.has_submenu = any(isinstance(r, dict) and r.get('children') for r in (menu or []))
     rendered = render_doc(doc, ctx)
     pages = {p.pk: p for p in Page.objects.filter(project=project)}
     path = ('/%s/' % page.slug if page.slug else '/') if page is not None else '/'
     data, samples = data_context(project, ctx)
     context = {
-        'DATA': data, 'MENU': genhook.items_from(menu, pages), 'SITE_TITLE': project.site_title or project.name,
+        'DATA': data, 'MENU': genhook.items_from(menu, pages), 'MENU_TREE': genhook.tree_from(menu, pages), 'SITE_TITLE': project.site_title or project.name,
         'CURRENT_PATH': path, 'cart': [], 'request': {'path': path}, 'products': [], 'categories': [], 'page_title': page.title if page else '',
     }
     parts = []

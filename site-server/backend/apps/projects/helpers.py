@@ -411,6 +411,7 @@ def proposal_json(pr):
         'id': pr.id, 'task': pr.task, 'task_display': pr.get_task_display(), 'title': pr.title,
         'prompt_text': pr.prompt_text, 'summary': pr.summary, 'status': pr.status,
         'status_display': pr.get_status_display(), 'error': pr.error, 'provider_model': pr.provider_model,
+        'answered_by': pr.answered_by, 'fallback_note': pr.fallback_note,
         'calls': pr.calls, 'created_at': _dt(pr.created_at), 'applied_at': _dt(pr.applied_at),
         'is_running': pr.is_running, 'can_apply': pr.can_apply, 'can_revert': pr.can_revert,
         'change_count': pr.changes.count(),

@@ -74,6 +74,10 @@ def _single_call(
         parsed, raw = provider.generate_json(
             model, prompt, system=system, images=images, options=options
         )
+        # provider مسیریابی‌شده: مدلی که واقعاً جواب داد باید در ردیف باشد
+        answered_by = getattr(provider, 'answered_by', '')
+        if isinstance(answered_by, str) and answered_by and answered_by != request_row.model:
+            request_row.model = answered_by
     except Exception as exc:  # noqa: BLE001 — the audit row must never be left "OK"
         request_row.status = _status_for(exc)
         request_row.error = str(exc)[:4000]

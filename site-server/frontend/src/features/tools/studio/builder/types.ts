@@ -11,7 +11,7 @@ export type ThemeColors = {
   surface: string;
 };
 export type ThemeT = { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number };
-export type MenuRow = { id: string; page?: number; url?: string; label: string };
+export type MenuRow = { id: string; page?: number; url?: string; label: string; children?: MenuRow[] };
 export type AssetT = { id: number; ref: string; kind: string; name: string; alt: string; width: number; height: number; size: number; url: string; thumb: string };
 export type ModelT = {
   ref: string;

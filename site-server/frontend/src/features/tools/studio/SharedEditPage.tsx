@@ -60,6 +60,21 @@ export default function SharedEditPage() {
     setBusy(true);
     setError(null);
     try {
+      if (kind === "header" || kind === "footer") {
+        const { data: chk } = await api.post<{ has_design: boolean; new_custom: number; dirty: boolean }>(
+          `/studio/projects/${slug}/builder/shared/${kind}/roundtrip-check/`,
+          { content },
+        );
+        const parts: string[] = [];
+        if (chk.new_custom > 0) {
+          parts.push(`با این تغییر ${chk.new_custom.toLocaleString("fa-IR")} بخش در ویرایشگرِ دیداری به «کدِ سفارشی» تبدیل می‌شود: چیزی گم نمی‌شود ولی دیگر نمی‌شود آن بخش‌ها را با کلیک ویرایش کرد.`);
+        }
+        if (chk.dirty) parts.push("این بخش در ویرایشگرِ دیداری پیش‌نویسِ منتشرنشده دارد؛ با این ذخیره آن پیش‌نویس کنار می‌رود و در «نسخه‌ها» می‌ماند.");
+        if (parts.length && !window.confirm(`${parts.join("\n\n")}\n\nذخیره شود؟`)) {
+          setBusy(false);
+          return;
+        }
+      }
       const { data: d } = await api.put<{ part: SharedPart; message: string }>(`/studio/projects/${slug}/shared/${kind}/`, { content });
       setData({ ...data!, part: d.part });
       notify(d.message);

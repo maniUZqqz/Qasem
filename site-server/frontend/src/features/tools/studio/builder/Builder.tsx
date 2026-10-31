@@ -14,6 +14,7 @@ import * as D from "./doc";
 import type { Block, Device, Doc, DropTarget, Rec } from "./doc";
 import { DEVICE_LABEL, FieldInput, FormEnv, StyleForm, Svg } from "./fields";
 import { LibraryPanel, MediaPanel, MenuPanel, Modal, OutlinePanel, StarterGrid, ThemePanel, VersionsPanel } from "./panels";
+import HostingPanel from "../hosting/HostingPanel";
 import type { AssetT, Bootstrap, MenuRow, PublishResp, SectionT, StarterT, ThemeT, VersionT } from "./types";
 import "./builder.css";
 
@@ -96,6 +97,10 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   const [warnings, setWarnings] = useState<CanvasPayload["warnings"]>([]);
   const [samples, setSamples] = useState<string[]>([]);
   const [publishing, setPublishing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [liveJob, setLiveJob] = useState<HostingJob | null>(null);
+  const [liveWarnings, setLiveWarnings] = useState<PublishResp["warnings"]>([]);
   const [result, setResult] = useState<PublishResp | null>(null);
   const [pubError, setPubError] = useState<string | null>(null);
   const [mediaPick, setMediaPick] = useState<{ accept: string; then: (ref: string) => void } | null>(null);
@@ -446,10 +451,37 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   };
 
   /* ─────────── انتشار ─────────── */
-  async function publish() {
+  /* انتشارِ واقعی: صفحه‌ها نوشته می‌شوند و بقیه‌اش (ساخت، مهاجرت، جابه‌جایی) کارِ پس‌زمینهٔ سرور است */
+  async function publishLive() {
     ctlRef.current?.commitEdit();
     window.clearTimeout(saveTimer.current);
     setPublishing(true);
+    setPubError(null);
+    try {
+      await api.put(`/studio/projects/${slug}/builder/theme/`, { theme, menu });
+      const { data } = await api.post<PublishResp>(`/studio/projects/${slug}/builder/publish/`, { target, page: pageRef, doc: docRef.current, live: true });
+      if (data.status) {
+        revRef.current = data.status.rev;
+        setDirty(data.status.dirty);
+        setSave("saved");
+      }
+      if (data.versions) setVersions(data.versions);
+      if (data.pages) setPages(data.pages);
+      const { data: st } = await api.post<{ job: HostingJob }>(`/studio/projects/${slug}/hosting/publish/`, {});
+      setLiveJob(st.job);
+      setLiveWarnings(data.warnings ?? []);
+      setLiveOpen(true);
+    } catch (err) {
+      setPubError(studioError(err));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function publish() {
+    ctlRef.current?.commitEdit();
+    window.clearTimeout(saveTimer.current);
+    setPreviewing(true);
     setPubError(null);
     try {
       await api.put(`/studio/projects/${slug}/builder/theme/`, { theme, menu });
@@ -460,7 +492,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       if (resp?.status === 500 && resp.data?.message) applyPublish(resp.data);
       else setPubError(studioError(err));
     } finally {
-      setPublishing(false);
+      setPreviewing(false);
     }
   }
   function applyPublish(data: PublishResp) {
@@ -670,14 +702,18 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
             {moreOpen && (
               <div className="nbe-more" onClick={() => setMoreOpen(false)}>
                 <button type="button" onClick={() => setAiOpen(true)}><Svg body={I.sparkle} size={15} /> ویرایش با هوشِ مصنوعی</button>
+                <button type="button" data-testid="open-hosting" onClick={() => { setLiveJob(null); setLiveWarnings([]); setLiveOpen(true); }}>وضعیتِ سایت، دامنه و پیام‌ها</button>
                 {target === "page" && <button type="button" onClick={() => setStarterOpen(true)}><Svg body={I.plus} size={15} /> قالبِ آماده روی این صفحه</button>}
-                {previewInfo.running && <a href={previewInfo.url} target="_blank" rel="noreferrer">دیدنِ سایتِ منتشرشده</a>}
+                {previewInfo.running && <a href={previewInfo.url} target="_blank" rel="noreferrer">دیدنِ پیش‌نمایش</a>}
                 <button type="button" onClick={() => void downloadZip(slug, false).catch((err) => setNotice(String(err.message ?? err)))}>دانلودِ سایت</button>
                 <Link to={target === "page" ? pUrl(slug, `page/${pageRef}`) : pUrl(slug, `shared/${target}`)} data-testid="code-mode">حالتِ پیشرفته: ویرایشِ کد</Link>
               </div>
             )}
           </div>
-          <button type="button" className="nbe-publish" disabled={publishing} data-testid="publish" onClick={() => void publish()}>
+          <button type="button" className="nbe-add nbe-preview-btn" disabled={publishing || previewing} data-testid="preview-btn" onClick={() => void publish()}>
+            {previewing ? "در حالِ ساخت…" : "پیش‌نمایش"}
+          </button>
+          <button type="button" className="nbe-publish" disabled={publishing || previewing} data-testid="publish" onClick={() => void publishLive()}>
             {publishing ? "در حالِ انتشار…" : "انتشار"}
           </button>
         </div>
@@ -703,7 +739,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           {panelSide}
         </aside>
         <main className="nbe-stage">
-          <div className="nbe-framebox" style={{ width: FRAME_WIDTH[device] }}>
+          <div className={`nbe-framebox ${device === "d" ? "is-d" : ""}`} style={{ width: FRAME_WIDTH[device] }}>
             <iframe ref={frameRef} title="بومِ صفحه" className="nbe-frame" data-testid="canvas" />
           </div>
         </main>
@@ -742,6 +778,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           <AiBox slug={slug} endpoint={target === "page" ? `ai/page/${pageRef}/` : `ai/shared/${target}/`} title="چه چیزی عوض شود؟" placeholder="مثلاً: متنِ سربرگِ بزرگ را دوستانه‌تر کن" note="پیش از اعمال، تغییرها را می‌بینی و تأیید می‌کنی. بعدش صفحه باز هم با کلیک ویرایش می‌شود." />
         </Modal>
       )}
+      {liveOpen && <LiveDialog slug={slug} job={liveJob} warnings={liveWarnings} onClose={() => setLiveOpen(false)} onSelect={(id) => { setLiveOpen(false); setSelected(id); ctlRef.current?.select(id); }} />}
       {result && <PublishDialog slug={slug} result={result} preview={previewInfo} onClose={() => setResult(null)} onSelect={(id) => { setResult(null); setSelected(id); ctlRef.current?.select(id, true); }} />}
     </div>
   );
@@ -769,15 +806,33 @@ function PageSettings({ slug, page, onPages }: { slug: string; page: NonNullable
   );
 }
 
+type HostingJob = NonNullable<React.ComponentProps<typeof HostingPanel>["autoJob"]>;
+
+function LiveDialog({ slug, job, warnings, onClose, onSelect }: { slug: string; job: HostingJob | null; warnings: PublishResp["warnings"]; onClose: () => void; onSelect: (id: string) => void }) {
+  return (
+    <Modal title="انتشار روی اینترنت" onClose={onClose} wide>
+      <HostingPanel slug={slug} autoJob={job} />
+      {warnings?.length > 0 && (
+        <div className="nbe-checks-list">
+          <h4 className="nbe-h">پیشنهادهایی برای بهتر شدن</h4>
+          {warnings.slice(0, 8).map((w, i) => (
+            <button type="button" key={i} onClick={() => onSelect(w.id)}>{w.text}</button>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function PublishDialog({ slug, result, preview, onClose, onSelect }: { slug: string; result: PublishResp; preview: Bootstrap["preview"]; onClose: () => void; onSelect: (id: string) => void }) {
   const [busy, setBusy] = useState(false);
   return (
-    <Modal title={result.ok ? "منتشر شد!" : "انتشار کامل نشد"} onClose={onClose}>
+    <Modal title={result.ok ? "پیش‌نمایش آماده است" : "ساختِ پیش‌نمایش کامل نشد"} onClose={onClose}>
       <div data-testid="publish-result">
         <p>{result.message}</p>
         {result.ok && (result.preview_url || preview.url) && (
           <div className="nbe-row">
-            <a className="nbe-publish nbe-a" href={result.preview_url || preview.url} target="_blank" rel="noreferrer" data-testid="view-site">دیدنِ سایت</a>
+            <a className="nbe-publish nbe-a" href={result.preview_url || preview.url} target="_blank" rel="noreferrer" data-testid="view-site">دیدنِ پیش‌نمایش</a>
             <button
               type="button"
               className="nbe-add"

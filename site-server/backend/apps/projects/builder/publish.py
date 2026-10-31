@@ -350,7 +350,36 @@ def publish_theme(project):
     return theme
 
 
-def publish_site(project, target, page, doc, user=''):
+def refresh_all(project):
+    """پیش از انتشار روی اینترنت: صفحه‌هایی که با سندشان همخوان‌اند دوباره رندر می‌شوند تا قابلیت‌های تازهٔ رندر
+    (زیرمنو، عددِ فارسی، نقشه) به همهٔ سایت برسد. صفحه‌ای که بیرون از ویرایشگر عوض شده دست نمی‌خورد."""
+    if not SiteTheme.objects.filter(project=project, active=True).exists():
+        return []
+    skipped = []
+    for d in Design.objects.filter(project=project).select_related('page'):
+        if not d.published_at or not d.published or d.synced_hash != fingerprint(project, d.target, d.page):
+            continue
+        try:
+            full, rendered = render_target(project, d, d.published)
+        except PublishError as exc:
+            skipped.append(str(exc))
+            continue
+        if d.target == 'page':
+            d.page.body_html = full
+            d.page.css = page_css(rendered.css, d.published.get('extra_css'))
+            d.page.save(update_fields=['body_html', 'css'])
+        else:
+            part, _ = SharedPart.objects.get_or_create(project=project, kind=d.target)
+            part.content = full
+            part.save()
+            extra = d.published.get('extra_css') or ''
+            d.published_css = rendered.css + ('\n' + extra if extra else '')
+        d.synced_hash = fingerprint(project, d.target, d.page)
+        d.save(update_fields=['synced_hash', 'published_css'])
+    return skipped
+
+
+def publish_site(project, target, page, doc, user='', build=True):
     """انتشار: همین صفحه + سربرگ/پابرگ/پوسته/منو ⇐ تولیدِ کد ⇐ پیش‌نمایش. ⇒ dict برای پنل."""
     design = get_design(project, target, page)
     doc = clean_doc(doc, target)
@@ -367,7 +396,8 @@ def publish_site(project, target, page, doc, user=''):
         write_target(project, d, dc, full, rendered, 'انتشار', user)
     # ورودِ خودکارِ صفحهٔ تازه به منوی چیده‌شده
     t = SiteTheme.objects.get(project=project)
-    if page is not None and t.menu and not any(r.get('page') == page.pk for r in t.menu) and page.in_menu and design.versions.filter(kind='publish').count() == 1 and not design.keep_out_of_menu:
+    in_menu_rows = [r for row in t.menu for r in [row] + list(row.get('children') or [])]
+    if page is not None and t.menu and not any(r.get('page') == page.pk for r in in_menu_rows) and page.in_menu and design.versions.filter(kind='publish').count() == 1 and not design.keep_out_of_menu:
         t.menu = t.menu + [{'id': 'p%d' % page.pk, 'page': page.pk, 'label': page.title}]
         t.menu_published = t.menu
         t.save(update_fields=['menu', 'menu_published'])
@@ -376,6 +406,9 @@ def publish_site(project, target, page, doc, user=''):
     if uses_form:
         ensure_forms_app(project)
 
+    if not build:
+        skipped = refresh_all(project)
+        return {'ok': True, 'warnings': render_doc(doc, _ctx(project, target)).warnings, 'preview_url': '', 'message': 'ذخیره شد.', 'technical': '\n'.join(skipped)}
     ok, summary, detail = services.generate(project, 'انتشار: %s' % title)
     warnings = render_doc(doc, _ctx(project, target)).warnings
     out = {'ok': ok, 'warnings': warnings, 'preview_url': '', 'message': '', 'technical': ''}

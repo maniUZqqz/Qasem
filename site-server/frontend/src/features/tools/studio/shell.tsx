@@ -93,6 +93,7 @@ const PROJECT_TABS: { sub: string; label: string; icon: IconName; also?: string[
   { sub: "files", label: "فایل‌ها (کدِ واقعی)", icon: "receipt" },
   { sub: "history", label: "تاریخچهٔ نسخه‌ها", icon: "clock" },
   { sub: "preview", label: "پیش‌نمایشِ زنده", icon: "play" },
+  { sub: "site", label: "انتشار روی اینترنت", icon: "link" },
 ];
 
 export function ProjectShell() {

@@ -1,0 +1,84 @@
+/* انتشار روی اینترنت — با توکن‌های پنل (تیره و روشن) */
+.nh{display:grid;gap:12px;color:var(--text);font-size:14px;line-height:1.8;min-width:0}
+.nh *{box-sizing:border-box}
+.nh a{color:var(--brand-strong,#6d5cff)}
+.nh-card{display:grid;gap:12px;background:var(--surface-2,rgb(255 255 255 / .06));border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
+.nh-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.nh-muted{color:var(--text-3);font-size:13px;margin:0}
+.nh-note{margin:0;font-size:13px;color:var(--text-2)}
+.nh-ok,.nh-warn,.nh-bad{margin:0;padding:9px 12px;border-radius:10px;font-size:13.5px;overflow-wrap:anywhere}
+.nh-ok{background:var(--ok-soft);color:var(--text);border:1px solid color-mix(in srgb,var(--ok) 40%,transparent)}
+.nh-warn{background:var(--warn-soft);color:var(--text);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+.nh-bad{background:var(--bad-soft);color:var(--text);border:1px solid color-mix(in srgb,var(--bad) 40%,transparent)}
+.nh-dot{width:10px;height:10px;border-radius:50%;background:var(--text-3);flex:none}
+.nh-dot.ok{background:var(--ok);box-shadow:0 0 0 4px var(--ok-soft)}
+.nh-dot.bad{background:var(--bad);box-shadow:0 0 0 4px var(--bad-soft)}
+.nh-dot.warn{background:var(--warn);box-shadow:0 0 0 4px var(--warn-soft)}
+.nh-address{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:var(--brand-soft);min-width:0}
+.nh-address a{font-weight:700;overflow-wrap:anywhere;min-width:0}
+.nh-copy,.nh-link{all:unset;cursor:pointer;font-size:12px;color:var(--brand-strong,#6d5cff);padding:1px 7px;border-radius:7px;border:1px solid var(--line-strong)}
+.nh-link{border:0;text-decoration:underline;padding:0 4px}
+.nh-copy:focus-visible,.nh-link:focus-visible{outline:2px solid var(--brand)}
+.nh-tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.nh-tabs button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:9px;font-size:13.5px;color:var(--text-2)}
+.nh-tabs button:hover{background:var(--surface-2)}
+.nh-tabs button.on{background:var(--brand-soft);color:var(--text);font-weight:700}
+.nh-tabs button:focus-visible{outline:2px solid var(--brand)}
+.nh-badge{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:12px;line-height:20px;text-align:center}
+.nh-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:0;font-size:13.5px}
+.nh-facts dt{color:var(--text-3)}
+.nh-facts dd{margin:0;overflow-wrap:anywhere}
+.nh-actions{display:flex;flex-wrap:wrap;gap:8px}
+.nh-btn{font:inherit;cursor:pointer;padding:7px 14px;border-radius:10px;border:1px solid var(--line-strong);background:transparent;color:var(--text);font-size:13.5px}
+.nh-btn:hover:not(:disabled){background:var(--surface-2)}
+.nh-btn:disabled{opacity:.5;cursor:default}
+.nh-btn.main{background:linear-gradient(135deg,var(--ok,#10b981),color-mix(in srgb,var(--ok,#10b981) 70%,#065f46));border-color:transparent;color:#fff;font-weight:700}
+.nh-btn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}
+.nh-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.nh-details{border-top:1px solid var(--line);padding-top:8px;font-size:13.5px}
+.nh-details summary{cursor:pointer;font-weight:600}
+.nh-details p{margin:6px 0}
+.nh-details code{padding:1px 6px;border-radius:6px;background:var(--surface-2);overflow-wrap:anywhere}
+.nh-log,.nh-tech pre{max-height:220px;overflow:auto;padding:8px;border-radius:8px;background:rgb(0 0 0 / .25);font-size:11.5px;white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0}
+.nh-tech{margin-top:6px;font-size:12.5px}
+.nh-tech summary{cursor:pointer;color:var(--text-3)}
+.nh-cap{border-top:1px solid var(--line);padding-top:8px}
+.nh-job{display:grid;gap:8px;padding:12px 14px;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface-2)}
+.nh-job.ok{border-color:color-mix(in srgb,var(--ok) 60%,transparent)}
+.nh-job.bad{border-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.nh-job p{margin:0;font-weight:600;overflow-wrap:anywhere}
+.nh-steps{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:13.5px}
+.nh-steps li{display:flex;align-items:center;gap:8px;color:var(--text-3)}
+.nh-steps li i{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--surface-2);font-style:normal;font-size:12px;flex:none}
+.nh-steps li.run{color:var(--text);font-weight:600}
+.nh-steps li.run i{background:var(--brand);color:#fff;animation:nh-pulse 1.1s infinite}
+.nh-steps li.done{color:var(--text-2)}
+.nh-steps li.done i{background:var(--ok);color:#fff}
+.nh-steps li.fail{color:var(--bad);font-weight:600}
+.nh-steps li.fail i{background:var(--bad);color:#fff}
+@keyframes nh-pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.nh-steps li.run i{animation:none}}
+.nh-label{font-weight:600;font-size:13.5px}
+.nh-domain-row{display:flex;gap:8px;min-width:0}
+.nh-input{flex:1;min-width:0;font:inherit;padding:8px 11px;border-radius:10px;border:1px solid var(--line-strong);background:transparent;color:var(--text)}
+.nh-input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.nh-dns{display:grid;gap:8px}
+.nh-dns p{margin:0}
+.nh-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.nh-table th,.nh-table td{padding:7px 9px;border:1px solid var(--line);text-align:start}
+.nh-table th{color:var(--text-3);font-weight:600}
+.nh-msgs{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.nh-msgs li{padding:10px 12px;border:1px solid var(--line);border-radius:11px;min-width:0}
+.nh-msgs li.new{border-color:var(--brand);background:var(--brand-soft)}
+.nh-msg-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px}
+.nh-msg-data{margin:0;display:grid;gap:3px;font-size:13.5px}
+.nh-msg-data div{display:grid;grid-template-columns:minmax(70px,max-content) minmax(0,1fr);gap:8px}
+.nh-msg-data dt{color:var(--text-3)}
+.nh-msg-data dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.nh-msg-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:640px){
+  .nh-card{padding:12px}
+  .nh-facts{grid-template-columns:minmax(0,1fr);gap:0}
+  .nh-facts dd{margin-bottom:6px}
+  .nh-btn{flex:1 1 auto}
+}

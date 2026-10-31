@@ -20,6 +20,8 @@ import PreviewPage from "./PreviewPage";
 import ProjectCreatePage from "./ProjectCreatePage";
 import ProjectDetailPage from "./ProjectDetailPage";
 import ProjectListPage from "./ProjectListPage";
+import HostingPage from "./hosting/HostingPage";
+import QuickEditPage from "./QuickEditPage";
 import RouteEditPage from "./RouteEditPage";
 import RoutesPage from "./RoutesPage";
 import SettingsPage from "./SettingsPage";
@@ -65,6 +67,8 @@ export default function StudioRoutes() {
           <Route path="ai" element={<AiHomePage />} />
           <Route path="ai/proposal/:pk" element={<AiProposalPage />} />
           <Route path="import-report" element={<ImportReportPage />} />
+          <Route path="site" element={<HostingPage />} />
+          <Route path="quick-edit/:kind/:pk" element={<QuickEditPage />} />
         </Route>
         <Route path="*" element={<Navigate to={BASE} replace />} />
       </Route>

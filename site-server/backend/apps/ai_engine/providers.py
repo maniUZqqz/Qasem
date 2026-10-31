@@ -214,7 +214,42 @@ class MockProvider(BaseProvider):
         return json.dumps({'summary': 'mock', 'result': 'ok'}, ensure_ascii=False)
 
 
-def get_provider(cfg=None):
+class RoutedProvider(BaseProvider):
+    """اول Qwen Coder روی سرورِ پردازش، بعد همان سرویسِ تنظیم‌شده (Metis). services/ai/routing.py"""
+    name = 'routed'
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        from services.ai.routing import StudioRouted
+        self.direct = OpenAIProvider(cfg)
+        self.router = StudioRouted(self.direct)
+
+    def complete(self, system, user, json_mode=True):
+        return self.router.complete(system, user, json_mode=json_mode, max_tokens=self.cfg.max_tokens, temperature=self.cfg.temperature)
+
+    @property
+    def answered_by(self):
+        return self.router.answered_by
+
+    @property
+    def fell_back(self):
+        return self.router.fell_back
+
+    @property
+    def fallback_reason(self):
+        return self.router.fallback_reason
+
+    def list_models(self, limit=30):
+        return self.direct.list_models(limit)
+
+
+def get_provider(cfg=None, direct=False):
+    """direct=True: همان سرویسِ تنظیم‌شده بی‌مسیریابی (دکمهٔ «آزمونِ اتصال» نباید چند دقیقه منتظرِ گره بماند)."""
+    from services.ai import routing
     from .models import AiSettings
     cfg = cfg or AiSettings.get()
-    return MockProvider(cfg) if cfg.provider == 'mock' else OpenAIProvider(cfg)
+    if cfg.provider == 'mock':
+        return MockProvider(cfg)
+    if not direct and routing.wants_node():
+        return RoutedProvider(cfg)
+    return OpenAIProvider(cfg)

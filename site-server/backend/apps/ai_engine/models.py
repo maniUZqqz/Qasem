@@ -34,6 +34,8 @@ class AiSettings(models.Model):
                                     help_text='0 تا 2؛ مدل‌هایی که نمی‌پذیرند خودکار بی‌آن فرستاده می‌شوند')
     max_tokens = models.PositiveIntegerField(default=6000, verbose_name='حداکثر توکنِ پاسخ')
     timeout_s = models.PositiveIntegerField(default=120, verbose_name='مهلت (ثانیه)')
+    ROUTE_MODES = [('qwen_first', 'اول Qwen روی سرورِ پردازش؛ اگر نبود Metis'), ('metis_only', 'فقط Metis')]
+    route_mode = models.CharField(max_length=12, choices=ROUTE_MODES, default='qwen_first', verbose_name='کارهای متن و کد کجا انجام شوند')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -92,6 +94,8 @@ class AiProposal(models.Model):
     status = models.CharField(max_length=10, choices=STATUS, default='running', verbose_name='وضعیت')
     error = models.TextField(blank=True, verbose_name='خطا')
     provider_model = models.CharField(max_length=120, blank=True, verbose_name='سرویس/مدل')
+    answered_by = models.CharField(max_length=120, blank=True, verbose_name='مدلی که جواب داد')
+    fallback_note = models.CharField(max_length=400, blank=True, verbose_name='چرا جایگزین')
     calls = models.PositiveIntegerField(default=0, verbose_name='تعدادِ فراخوانی')
     created_at = models.DateTimeField(auto_now_add=True)
     applied_at = models.DateTimeField(null=True, blank=True)
@@ -162,3 +166,19 @@ class AiChange(models.Model):
     @property
     def unchanged(self):
         return (self.old_content or '').strip() == (self.new_content or '').strip()
+
+
+class AiRouteLog(models.Model):
+    """آخرین پاسخ‌ها: کدام مدل جواب داد و اگر جایگزین شد چرا؛ در صفحهٔ تنظیمات نشان داده می‌شود."""
+    task = models.CharField(max_length=60, blank=True)
+    model = models.CharField(max_length=120, blank=True)
+    via = models.CharField(max_length=10, default='node')
+    fell_back = models.BooleanField(default=False)
+    reason = models.CharField(max_length=400, blank=True)
+    seconds = models.FloatField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+        verbose_name = 'مسیرِ پاسخِ هوشِ مصنوعی'
+        verbose_name_plural = 'مسیرِ پاسخ‌های هوشِ مصنوعی'

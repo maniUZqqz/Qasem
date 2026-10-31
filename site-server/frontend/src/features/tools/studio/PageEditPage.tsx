@@ -102,6 +102,19 @@ export default function PageEditPage() {
         <b style={{ color: "var(--text)" }}>{page.title}</b>
       </div>
 
+      {page.is_imported && (
+        <Alert
+          tone="info"
+          action={
+            <Link to={pUrl(slug, `quick-edit/page/${pk}`)} className="no-underline">
+              <Button type="button" size="sm" data-testid="quick-edit-link">ویرایشِ متن و عکس</Button>
+            </Link>
+          }
+        >
+          این قالب کد است. متن‌ها و عکس‌هایش را می‌توانی بی‌دست‌زدن به کدها مستقیم ویرایش کنی.
+        </Alert>
+      )}
+
       {page.is_imported && data.drift && (
         <Alert
           tone="warn"

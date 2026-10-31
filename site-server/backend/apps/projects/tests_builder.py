@@ -125,7 +125,7 @@ class RenderTests(Base):
     def test_every_block_renders_and_compiles_as_a_django_template(self):
         p = self.project('allb', shop=True)
         ctx = R.build_ctx(p)
-        engine = Engine(libraries={'static': 'django.templatetags.static'}, builtins=['django.templatetags.static'])
+        engine = Engine(libraries={'static': 'django.templatetags.static'}, builtins=['django.templatetags.static', 'apps.projects.builder.nb_filters'])
         for key, spec in BLOCKS.items():
             target = (spec.get('scope') or ['page'])[0]
             if key == 'column':

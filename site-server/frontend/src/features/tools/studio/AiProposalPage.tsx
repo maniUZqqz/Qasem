@@ -134,15 +134,25 @@ export default function AiProposalPage() {
             </div>
           </div>
           <span className="text-xs" style={{ color: "var(--text-3)" }}>
-            {prop.provider_model} · {fa(prop.calls)} فراخوانی · {fmtDate(prop.created_at)}
+            {prop.answered_by || prop.provider_model} · {fa(prop.calls)} فراخوانی · {fmtDate(prop.created_at)}
           </span>
         </div>
+        {prop.answered_by && (
+          <p className="mt-2 text-sm" data-testid="answered-by" style={{ color: prop.fallback_note ? "var(--warn)" : "var(--text-2)" }}>
+            {prop.fallback_note ? (
+              <>این پاسخ را <b dir="ltr">{prop.answered_by}</b> (Metis) داد، چون {prop.fallback_note}</>
+            ) : (
+              <>این پاسخ را <b dir="ltr">{prop.answered_by}</b> روی سرورِ پردازش داد.</>
+            )}
+          </p>
+        )}
       </Card>
 
       {prop.is_running && (
         <Card className="text-center">
           <div className="py-6">
             <Spinner size={38} />
+            <p className="mt-3 text-sm" style={{ color: "var(--text-3)" }}>اگر سرورِ پردازش روشن باشد این کار چند دقیقه طول می‌کشد؛ اگر جواب ندهد خودکار با Metis انجام می‌شود.</p>
             <h3 className="mt-4 text-base font-bold" style={{ color: "var(--text)" }}>
               هوشِ مصنوعی در حالِ کار است…
             </h3>

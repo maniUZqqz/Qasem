@@ -227,6 +227,8 @@ export type ProposalT = {
   status_display: string;
   error: string;
   provider_model: string;
+  answered_by?: string;
+  fallback_note?: string;
   calls: number;
   created_at: string | null;
   applied_at: string | null;

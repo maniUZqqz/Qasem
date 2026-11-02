@@ -17,6 +17,9 @@ urlpatterns = [
     # به‌روزرسانیِ کدِ گره از خودِ سایت (توکنِ گره یا کارمند) — updates.py
     path("update/", views_update.manifest),
     path("update/package/", views_update.package),
+    path("update/Update.bat", views_update.update_bat),            # همگانی (بی راز): دانلودِ Update.bat برای هر پوشهٔ نسخه
+    path("update/bootstrap/", views_update.bootstrap),             # همگانی: ابزارِ کوچکِ به‌روزرسانی که Update.bat می‌گیرد
+    path("downloads/", views_update.downloads),                    # اندازه + sha256 ِ فایل‌های بزرگِ سایت (توکنِ گره/کارمند)
     # پنل (کارکنان، JWT)
     path("nodes/", api.nodes),
     path("nodes/<int:pk>/", api.node_action),

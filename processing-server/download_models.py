@@ -32,6 +32,10 @@ mirror only (no PyTorch extra index: that one lists numpy etc. with links to fil
 networks cannot resolve). Every source is checked first (name resolves, the package is listed, one of its files
 answers); sources that fail are skipped, and a failed item is tried again on the next start.
 
+1.3: a download no longer gives up after a minute: every round tries each source once, then waits 3, 6, 12, 24, 48, 60 s
+and goes on until 30 minutes pass without one new byte (NM_STALL_S=seconds changes that); it always resumes (HTTP Range)
+and checks size + sha256 at the end.
+
 Python 3.8+ standard library only. Console text is English on purpose (the Windows console garbles Persian).
 Log: logs\\download-models.log in the data folder
 """
@@ -57,7 +61,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-VERSION = "1.2"
+VERSION = "1.3"
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -724,8 +728,13 @@ class _WrongFile(Exception):
     pass
 
 
-def fetch(urls, dest, size=None, sha256=None, label="", state=None, attempts=6):
-    """Download to dest via dest.part, resuming with HTTP Range; tries every URL in turn. Raises Fail."""
+STALL_S = int(os.environ.get("NM_STALL_S") or 1800)      # seconds without a new byte before a download is given up
+BACKOFF_S = (3, 6, 12, 24, 48, 60)
+
+
+def fetch(urls, dest, size=None, sha256=None, label="", state=None, attempts=None, stall=None):
+    """Download to dest via dest.part, resuming with HTTP Range; tries every URL in turn, again and again with growing
+    waits until `stall` seconds pass without a single new byte (`attempts` is kept for old callers). Raises Fail."""
     sha256 = (sha256 or "").lower() or None
     os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
     if os.path.isfile(dest):
@@ -750,62 +759,84 @@ def fetch(urls, dest, size=None, sha256=None, label="", state=None, attempts=6):
     if complete:
         open(part, "wb").close()
     errors = []
-    for url in urls:
-        if complete:
-            break
-        for attempt in range(1, attempts + 1):
-            have = os.path.getsize(part) if os.path.exists(part) else 0
-            if size is not None and have > size:
+    dead = set()                                      # URLs that cannot work (401/403/404/410, another file there)
+
+    def attempt_once(url):
+        """One connection to one URL: "done" (the file is complete), "dead" (this URL will not work), "retry"."""
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        if size is not None and have > size:
+            open(part, "wb").close()
+            have = 0
+        if size is not None and have == size:
+            return "done"
+        headers = {"Range": "bytes=%d-" % have} if have else {}
+        try:
+            with request(url, headers=headers, timeout=60) as r:
+                if have and r.status != 206:          # the server ignored Range: start over
+                    have = 0
+                total = size
+                cr = r.headers.get("Content-Range") or ""
+                if "/" in cr and cr.rsplit("/", 1)[1].strip().isdigit():
+                    total = int(cr.rsplit("/", 1)[1])
+                elif r.status == 200 and (r.headers.get("Content-Length") or "").isdigit():
+                    total = int(r.headers["Content-Length"])
+                if size is not None and total is not None and total != size:
+                    raise _WrongFile("%s: serves %s, the manifest says %s" % (_host(url), human(total), human(size)))
+                prog = Progress(label, total, have)
+                with open(part, "ab" if have else "wb") as fh:
+                    while True:
+                        b = r.read(1 << 20)
+                        if not b:
+                            break
+                        fh.write(b)
+                        prog.add(len(b))
+                prog.show(end=True)
+            done = os.path.getsize(part)
+            if size is None or done == size:
+                return "done"
+            raise OSError("connection closed at %s of %s" % (human(done), human(size)))
+        except _WrongFile as e:
+            errors.append(str(e))
+            return "dead"                             # a different file there
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and size is not None and have == size:
+                return "done"
+            if e.code == 416:
                 open(part, "wb").close()
-                have = 0
-            if size is not None and have == size:
+            errors.append("%s: HTTP %s" % (_host(url), e.code))
+            return "dead" if e.code in (401, 403, 404, 410) else "retry"
+        except (urllib.error.URLError, socket.timeout, OSError, http.client.HTTPException) as e:
+            errors.append("%s: %s" % (_host(url), str(getattr(e, "reason", e))[:100]))
+            return "retry"
+
+    # Every round tries each URL that still may work once (so a blocked primary host does not hold up its mirror), then
+    # waits 3, 6, 12, 24, 48, 60 ... s. It gives up only after `stall` seconds in which not one new byte arrived
+    # (default 30 minutes: a line that is down for a while must not fail a 20 GB download); what is received is kept.
+    stall = STALL_S if stall is None else stall
+    fails, waited, last_progress = 0, 0.0, time.time()
+    while not complete and len(dead) < len(urls):
+        before = os.path.getsize(part) if os.path.exists(part) else 0
+        for url in urls:
+            if url in dead:
+                continue
+            res = attempt_once(url)
+            if res == "done":
                 complete = True
                 break
-            headers = {"Range": "bytes=%d-" % have} if have else {}
-            try:
-                with request(url, headers=headers, timeout=60) as r:
-                    if have and r.status != 206:      # the server ignored Range: start over
-                        have = 0
-                    total = size
-                    cr = r.headers.get("Content-Range") or ""
-                    if "/" in cr and cr.rsplit("/", 1)[1].strip().isdigit():
-                        total = int(cr.rsplit("/", 1)[1])
-                    elif r.status == 200 and (r.headers.get("Content-Length") or "").isdigit():
-                        total = int(r.headers["Content-Length"])
-                    if size is not None and total is not None and total != size:
-                        raise _WrongFile("%s: serves %s, the manifest says %s" % (_host(url), human(total), human(size)))
-                    prog = Progress(label, total, have)
-                    with open(part, "ab" if have else "wb") as fh:
-                        while True:
-                            b = r.read(1 << 20)
-                            if not b:
-                                break
-                            fh.write(b)
-                            prog.add(len(b))
-                    prog.show(end=True)
-                done = os.path.getsize(part)
-                if size is None or done == size:
-                    complete = True
-                    break
-                raise OSError("connection closed at %s of %s" % (human(done), human(size)))
-            except _WrongFile as e:
-                errors.append(str(e))
-                break                                 # a different file there: try the next URL
-            except urllib.error.HTTPError as e:
-                if e.code == 416 and size is not None and have == size:
-                    complete = True
-                    break
-                if e.code == 416:
-                    open(part, "wb").close()
-                errors.append("%s: HTTP %s" % (_host(url), e.code))
-                if e.code in (401, 403, 404, 410):
-                    break                             # this URL will not work; try the next one
-            except (urllib.error.URLError, socket.timeout, OSError, http.client.HTTPException) as e:
-                errors.append("%s: %s" % (_host(url), str(getattr(e, "reason", e))[:100]))
-            if attempt < attempts:
-                wait = min(60, 2 ** attempt)
-                say("  retry %d/%d in %ds (%s)" % (attempt, attempts, wait, errors[-1] if errors else "?"))
-                time.sleep(wait)
+            if res == "dead":
+                dead.add(url)
+        if complete or len(dead) >= len(urls):
+            break
+        if (os.path.getsize(part) if os.path.exists(part) else 0) > before:
+            fails, waited, last_progress = 0, 0.0, time.time()
+        if max(time.time() - last_progress, waited) >= stall:
+            break
+        wait = min(BACKOFF_S[min(fails, len(BACKOFF_S) - 1)], max(1.0, stall - waited))
+        say("  retry in %ds (%s); gives up after %d min without progress" % (wait, errors[-1] if errors else "?",
+                                                                            max(1, int(stall // 60))))
+        fails += 1
+        waited += wait
+        time.sleep(wait)
     if not complete:
         have = os.path.getsize(part) if os.path.exists(part) else 0
         raise Fail("download incomplete (%s%s): %s" % (human(have), (" of %s" % human(size)) if size else "",

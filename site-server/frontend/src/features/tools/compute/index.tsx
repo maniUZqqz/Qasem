@@ -1212,6 +1212,19 @@ function EnrollCard({
       if (alive.current) setDl(false);
     }
   };
+  // Update.bat: یک فایلِ همگانی (بی توکن)؛ کنارِ START.bat هر پوشه‌ای بگذارید (حتی نسخهٔ ۴) و دو بار کلیک کنید
+  const [dlBat, setDlBat] = useState(false);
+  const downloadBat = async () => {
+    setDlBat(true);
+    try {
+      await downloadBlob("/api/v1/compute/update/Update.bat", "Update.bat");
+      if (alive.current) setErr(null);
+    } catch (e) {
+      if (alive.current) setErr(errorMessage(e));
+    } finally {
+      if (alive.current) setDlBat(false);
+    }
+  };
 
   const copy = async () => {
     if (!key) return;
@@ -1291,6 +1304,18 @@ function EnrollCard({
               </span>
             )}
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" disabled={dlBat} onClick={() => void downloadBat()}>
+              {dlBat ? <Spinner size={13} /> : <Icon name="download" size={13} />} دانلودِ Update.bat
+            </Button>
+            <span className="text-xs" style={{ color: "var(--text-3)" }}>
+              کنارِ START.bat هر پوشه‌ای (حتی نسخهٔ ۴) بگذارید و دو بار کلیک کنید: آخرین نسخه را از همین سایت می‌آورد و
+              مدل‌ها را دوباره دانلود نمی‌کند. نشانیِ ثابت:{" "}
+              <span dir="ltr" className="select-all font-mono" style={{ color: "var(--text-2)" }}>
+                {(settings?.site || "").replace(/\/$/, "")}/api/v1/compute/update/Update.bat
+              </span>
+            </span>
+          </div>
         </div>
         <ol className="space-y-1.5 text-sm leading-7" style={{ color: "var(--text-2)" }}>
           <li>۱) بستهٔ سرورِ پردازش را (دکمهٔ کنارِ کلید، یا از مخزن) روی کامپیوترِ گرافیکی باز کنید.</li>
@@ -1306,6 +1331,12 @@ function EnrollCard({
             ۵) به‌روزرسانی: START.bat هر بار خودش کدِ تازه را از همین سایت می‌گیرد (یا Update.bat، یا دکمهٔ «به‌روزرسانی»
             کنارِ سرور). مدل‌ها، محیط‌های پایتون و شناسنامهٔ سرور در پوشهٔ دادهٔ جدا (NMarketing-data) می‌مانند و با نسخهٔ
             تازه دوباره دانلود نمی‌شوند؛ بارِ اول، پوشهٔ قدیمی را خودش پیدا و منتقل می‌کند.
+          </li>
+          <li>
+            ۶) از نسخهٔ قدیمی (مثلاً ۴ که همه‌چیز را داخلِ پوشه دانلود کرده بود): «دانلودِ Update.bat» را بزنید، فایل را
+            کنارِ START.bat همان پوشه بگذارید، پنجرهٔ START.bat را ببندید و Update.bat را دو بار کلیک کنید. کدِ تازه را
+            می‌آورد و مدل‌ها را جابه‌جا (نه کپی و نه دانلودِ دوباره) به NMarketing-data می‌برد؛ نام و توکنِ سرور می‌ماند.
+            اگر اینترنت وسطِ کار قطع شود تا ۳۰ دقیقه صبر می‌کند و از همان‌جا ادامه می‌دهد.
           </li>
         </ol>
       </div>

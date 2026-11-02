@@ -21,6 +21,7 @@ TMP = Path(tempfile.mkdtemp(prefix="nm-update-test-"))
 SRC = TMP / "processing"
 SHIPPED = {"agent.py": 'VERSION = "2.0"\n# UpMarket processing node\n', "update.py": 'VERSION = "1.0"\n',
            "download_models.py": 'VERSION = "1.2"\n', "nm_data.py": "x = 1\n", "site.json": '{"site": "http://x"}\n',
+           "nm_fetch.py": 'VERSION = "1.0"\n', "Update.bat": "@echo off&echo hi\nREM python part\n",
            "START.bat": "@echo off\r\n", "audio/_common.py": "y = 2\n", "downloads/voice.json": "{}\n",
            "tools/PersianAiKit/Voice/voice/gateway.py": "g = 1\n", "tools/PersianAiKit/Voice/Run-Server.bat": "@echo\r\n"}
 NEVER = {"node.json": "{}", "services.json": "{}", "logs/agent.log": "l", "venvs/x/pyvenv.cfg": "c", "models/m.bin": "m",
@@ -28,7 +29,8 @@ NEVER = {"node.json": "{}", "services.json": "{}", "logs/agent.log": "l", "venvs
          "audio/__pycache__/b.pyc": "c", "tools/PersianAiKit/Voice/app/x.exe": "e", "tools/PersianAiKit/Voice/models/m.onnx": "m",
          "tools/PersianAiKit/Voice/data/my-voice.wav": "w", "tools/PersianAiKit/Voice/voice/.venv/pyvenv.cfg": "c",
          "tools/PersianAiKit/Video/tools/ffmpeg/bin/ffmpeg.exe": "f", "python312/python.exe": "p", ".nm-version.json": "{}",
-         "pip-cache/x": "x", "work/j/a": "a", "data/worker/x": "x", "downloads-local.json": "{}"}
+         "pip-cache/x": "x", "work/j/a": "a", "data/worker/x": "x", "downloads-local.json": "{}",
+         "START-local.bat": "set NM_COMFY_BAT=C:\\mine\r\n", "Update.bat.part": "x"}
 
 
 def make_src():
@@ -92,6 +94,74 @@ class UpdatePackageTests(TestCase):
         r = self.staff.get("/api/v1/compute/update/package/")            # the panel's «دانلودِ بسته»
         self.assertEqual(r.status_code, 200)
         self.assertEqual(zipfile.ZipFile(io.BytesIO(b"".join(r.streaming_content))).testzip(), None)
+
+    def test_package_download_resumes_with_range(self):
+        m = U.current_manifest()
+        url = "/api/v1/compute/update/package/?zip=" + m["zip_sha256"]
+        whole = b"".join(self.nc.get(url).streaming_content)
+        self.assertEqual(len(whole), m["zip_size"])
+        r = self.nc.get(url, HTTP_RANGE="bytes=100-")
+        self.assertEqual(r.status_code, 206)
+        self.assertEqual(r["Content-Range"], "bytes 100-%d/%d" % (len(whole) - 1, len(whole)))
+        self.assertEqual(int(r["Content-Length"]), len(whole) - 100)
+        self.assertEqual(whole[:100] + b"".join(r.streaming_content), whole, "the two halves make the zip")
+        r = self.nc.get(url, HTTP_RANGE="bytes=-50")
+        self.assertEqual((r.status_code, b"".join(r.streaming_content)), (206, whole[-50:]))
+        r = self.nc.get(url, HTTP_RANGE="bytes=10-19")
+        self.assertEqual((r.status_code, b"".join(r.streaming_content)), (206, whole[10:20]))
+        r = self.nc.get(url, HTTP_RANGE="bytes=%d-" % len(whole))
+        self.assertEqual((r.status_code, r["Content-Range"]), (416, "bytes */%d" % len(whole)))
+        r = self.nc.get(url, HTTP_RANGE="nonsense")
+        self.assertEqual((r.status_code, len(b"".join(r.streaming_content))), (200, len(whole)))
+        self.assertEqual(r["Accept-Ranges"], "bytes")
+
+    def test_bootstrap_is_public_small_and_follows_the_code(self):
+        anon = APIClient()
+        info = anon.get("/api/v1/compute/update/bootstrap/?info=1")
+        self.assertEqual(info.status_code, 200)
+        self.assertNotIn("path", info.data)
+        self.assertEqual(info.data["files"], list(U.BOOT_FILES))
+        r = anon.get("/api/v1/compute/update/bootstrap/")
+        self.assertEqual(r.status_code, 200)
+        body = b"".join(r.streaming_content)
+        self.assertEqual(hashlib.sha256(body).hexdigest(), info.data["sha256"])
+        self.assertEqual(r["X-NM-SHA256"], info.data["sha256"])
+        self.assertEqual(len(body), info.data["size"])
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            self.assertEqual(sorted(zf.namelist()), sorted(U.BOOT_FILES))
+            self.assertEqual(zf.read("update.py"), SHIPPED["update.py"].encode())
+        self.assertEqual(anon.get("/api/v1/compute/update/bootstrap/", HTTP_RANGE="bytes=5-").status_code, 206)
+        again = anon.get("/api/v1/compute/update/bootstrap/?info=1").data
+        self.assertEqual(again["sha256"], info.data["sha256"], "same files, same bytes (a stable sha256)")
+        time.sleep(0.01)
+        (SRC / "nm_fetch.py").write_text('VERSION = "1.1"\n', encoding="utf-8")
+        self.assertNotEqual(anon.get("/api/v1/compute/update/bootstrap/?info=1").data["sha256"], info.data["sha256"])
+
+    def test_update_bat_is_public_and_has_crlf(self):
+        r = APIClient().get("/api/v1/compute/update/Update.bat")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.content, b"@echo off&echo hi\r\nREM python part\r\n")
+        self.assertIn('filename="Update.bat"', r["Content-Disposition"])
+
+    def test_downloads_list_gives_size_and_sha256_to_nodes_only(self):
+        d = U.downloads_dir()
+        shutil.rmtree(TMP / "data" / "up3d", ignore_errors=True)
+        d.mkdir(parents=True)
+        (d / "real.bin").write_bytes(b"0123456789" * 1000)
+        try:
+            (d / "alias.zip").symlink_to(d / "real.bin")
+        except (OSError, NotImplementedError):
+            (d / "alias.zip").write_bytes(b"0123456789" * 1000)
+        want = hashlib.sha256(b"0123456789" * 1000).hexdigest()
+        r = self.nc.get("/api/v1/compute/downloads/?name=alias.zip")
+        self.assertEqual((r.status_code, r.data), (200, {"name": "alias.zip", "size": 10000, "sha256": want}))
+        self.assertEqual(self.nc.get("/api/v1/compute/downloads/?name=nothing.zip").status_code, 404)
+        self.assertEqual(self.nc.get("/api/v1/compute/downloads/?name=..%2F..%2Fetc%2Fpasswd").status_code, 404)
+        self.assertEqual({f["name"] for f in self.staff.get("/api/v1/compute/downloads/").data["files"]}, {"real.bin", "alias.zip"})
+        (d / "real.bin").write_bytes(b"x" * 20)
+        U.download_info("real.bin")
+        self.assertEqual(U.download_info("real.bin")["size"], 20, "a changed file is hashed again")
+        self.assertIn(APIClient().get("/api/v1/compute/downloads/?name=real.bin").status_code, (401, 403))
 
     def test_access(self):
         anon = APIClient()

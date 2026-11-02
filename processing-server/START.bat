@@ -11,7 +11,7 @@ rem      "Register a new server");
 rem   3. a quiet update check: newer code from the site is applied here (Update.bat does the same by hand;
 rem      set NM_AUTO_UPDATE=0 to turn it off);
 rem   4. the node runs; it restarts by itself after an update, and a broken update is rolled back.
-rem  The site URL comes from site.json (next to this file).
+rem  The site URL comes from site.json (next to this file). Your own settings (set NM_...=...) belong in START-local.bat.
 rem
 rem  NOTE for whoever edits this file: the blocks in ( ) are read in one go and the labels :prepare and :loop
 rem  must stay - an update may replace this file while it runs, and only that keeps the window working.
@@ -20,6 +20,10 @@ cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONIOENCODING=utf-8"
 set "PYTHONUNBUFFERED=1"
+
+rem ---- your own settings (for example: set NM_COMFY_BAT=C:\ComfyUI\run_nvidia_gpu.bat) go in START-local.bat next to this file;
+rem ---- it is run here and no update ever replaces it
+if exist "%~dp0START-local.bat" call "%~dp0START-local.bat"
 
 where python >nul 2>nul
 if errorlevel 1 (

@@ -33,7 +33,7 @@ SKIP_PATHS = ("tools/PersianAiKit/*/app", "tools/PersianAiKit/*/models", "tools/
               "tools/PersianAiKit/Video/tools/ffmpeg")
 SKIP_FILES = ("*.pyc", "*.pyo", "*.bak", "*.bak-*", "*.part", "*.nm-new", "*.nm-tmp", "*.nm-old", "*.log", "*.tmp",
               "node.json", "services.json", "downloads-local.json", ".nm-version.json", "nm-data.txt",
-              ".nm-moved-to-data.json", ".nm-kit-sync.json", "*.swp", ".DS_Store", "Thumbs.db")
+              ".nm-moved-to-data.json", ".nm-kit-sync.json", "START-local.bat", "*.swp", ".DS_Store", "Thumbs.db")
 KEEP_BUILDS = 3
 _LOCK = threading.Lock()
 _CACHE: dict = {"at": 0.0, "fp": None, "manifest": None}
@@ -178,6 +178,112 @@ def latest() -> dict:
         return {"version": m.get("version"), "id": m.get("id"), "size": m.get("zip_size"), "built": m.get("built")}
     except Exception:  # noqa: BLE001 — نبودِ بسته نباید فهرستِ سرورها را بخواباند
         return {}
+
+
+# ───────────────────────────────────────────── ابزارِ به‌روزرسانیِ کوچک (Update.bat) و فایل‌های بزرگِ سایت
+
+#: چیزی که Update.bat هر بار تازه از سایت می‌گیرد تا حتی پوشهٔ خیلی قدیمی (نسخهٔ ۱) با منطقِ تازه به‌روز شود
+BOOT_FILES = ("update.py", "nm_data.py", "nm_fetch.py")
+_BOOT: dict = {"fp": None, "info": None}
+
+
+def bootstrap() -> dict:
+    """زیپِ کوچکِ ابزارِ به‌روزرسانی: {"path", "sha256", "size", "version", "files"}؛ فقط وقتی فایل‌ها عوض شوند دوباره ساخته
+    می‌شود (زمانِ فایل‌های داخلش ثابت است تا sha256 فقط با محتوا عوض شود)."""
+    src = source_dir()
+    files = [(n, src / n) for n in BOOT_FILES]
+    missing = [n for n, p in files if not p.is_file()]
+    if missing:
+        raise FileNotFoundError("update tool files missing in %s: %s" % (src, ", ".join(missing)))
+    fp = tuple((n, p.stat().st_size, p.stat().st_mtime_ns) for n, p in files)
+    with _LOCK:
+        if _BOOT["info"] is not None and _BOOT["fp"] == fp and Path(_BOOT["info"]["path"]).is_file():
+            return _BOOT["info"]
+        out = build_dir()
+        tmp = out / ("bootstrap-%d-%d.zip.tmp" % (os.getpid(), threading.get_ident()))
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+            for n, p in files:
+                info = zipfile.ZipInfo(n, date_time=(2026, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                z.writestr(info, p.read_bytes())
+        sha = _sha(tmp)
+        final = out / ("bootstrap-%s.zip" % sha[:16])
+        os.replace(tmp, final)
+        for old in sorted(out.glob("bootstrap-*.zip"), key=lambda q: q.stat().st_mtime, reverse=True)[KEEP_BUILDS:]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        info = {"path": str(final), "sha256": sha, "size": final.stat().st_size, "files": list(BOOT_FILES),
+                "version": _version_of(src / "update.py"), "fetcher": _version_of(src / "nm_fetch.py")}
+        _BOOT.update(fp=fp, info=info)
+        return info
+
+
+def update_bat_bytes() -> bytes:
+    """متنِ Update.bat بسته (همان فایلِ processing/Update.bat) همیشه با CRLF؛ cmd.exe با LF تنها گاهی خط‌ها را خراب می‌خواند."""
+    p = source_dir() / "Update.bat"
+    if not p.is_file():
+        raise FileNotFoundError("Update.bat missing in %s" % source_dir())
+    data = p.read_bytes()
+    return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
+def downloads_dir() -> Path:
+    """پوشهٔ فایل‌های بزرگی که nginx مستقیم می‌دهد: {site}/3d/files/downloads/ (Blender، ویرایشگرها، مدل‌ها)."""
+    from .services import data_root
+    return data_root() / "up3d" / "downloads"
+
+
+_SHA_LOCK = threading.Lock()
+
+
+def download_info(name: str) -> dict | None:
+    """{"name", "size", "sha256"} ِ یک فایلِ پوشهٔ downloads (پیوندِ نمادین هم دنبال می‌شود)؛ sha256 یک بار حساب و با
+    (اندازه، زمان) کش می‌شود تا گره‌ها بتوانند دانلودِ ۴۰۰ مگابایتی را بعد از پایان بسنجند."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,120}", name or ""):
+        return None
+    path = downloads_dir() / name
+    try:
+        real = path.resolve(strict=True)
+        st = real.stat()
+    except OSError:
+        return None
+    if not real.is_file():
+        return None
+    cache_file = build_dir() / "downloads-sha.json"
+    with _SHA_LOCK:
+        try:
+            cache = json.loads(cache_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cache = {}
+        row = cache.get(name) or {}
+        if row.get("size") != st.st_size or row.get("mtime_ns") != st.st_mtime_ns or not row.get("sha256"):
+            row = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha256": _sha(real)}
+            cache[name] = row
+            tmp = cache_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(cache), encoding="utf-8")
+            os.replace(tmp, cache_file)
+    return {"name": name, "size": st.st_size, "sha256": row["sha256"]}
+
+
+def list_downloads() -> list[dict]:
+    """نامِ فایل‌های بزرگ + اندازه (sha256 فقط اگر پیش‌تر حساب شده)؛ کار را سبک نگه می‌دارد."""
+    out = []
+    d = downloads_dir()
+    try:
+        names = sorted(p.name for p in d.iterdir())
+    except OSError:
+        return out
+    for n in names:
+        try:
+            st = (d / n).resolve(strict=True).stat()
+        except OSError:
+            continue
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,120}", n) and (d / n).resolve().is_file():
+            out.append({"name": n, "size": st.st_size})
+    return out
 
 
 def _vtuple(v) -> tuple:

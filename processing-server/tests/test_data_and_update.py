@@ -262,6 +262,9 @@ class Site:
     corrupt = False
     hits = []
     token = "TOK"
+    enroll_key = "ENROLL-KEY"
+    manifest_down = 0          # answer HTTP 503 to this many manifest requests (a site restart)
+    boot_zip = b""             # what /update/bootstrap/ serves (update.py + nm_data.py + nm_fetch.py)
 
 
 class SiteHandler(BaseHTTPRequestHandler):
@@ -270,15 +273,42 @@ class SiteHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         Site.hits.append(self.path)
+        if self.path.startswith("/api/v1/compute/update/bootstrap/"):          # public, no token
+            sha = hashlib.sha256(Site.boot_zip).hexdigest()
+            if "info=1" in self.path:
+                return self._send(200, json.dumps({"sha256": sha, "size": len(Site.boot_zip), "files": []}).encode())
+            return self._send(200, Site.boot_zip, "application/zip")
         if self.headers.get("Authorization") != "Node " + Site.token:
             return self._send(401, b'{"detail": "bad token"}')
         if self.path.startswith("/api/v1/compute/update/package/"):
             body = Site.zip_bytes
             if Site.corrupt:
                 body = body[:-10] + b"0123456789"
+            rng = self.headers.get("Range")
+            if rng and rng.startswith("bytes=") and rng.endswith("-") and not Site.corrupt:
+                start = int(rng[6:-1])
+                part = body[start:]
+                self.send_response(206)
+                self.send_header("Content-Range", "bytes %d-%d/%d" % (start, len(body) - 1, len(body)))
+                self.send_header("Content-Length", str(len(part)))
+                self.end_headers()
+                self.wfile.write(part)
+                return
             return self._send(200, body, "application/zip")
         if self.path.startswith("/api/v1/compute/update/"):
+            if Site.manifest_down > 0:
+                Site.manifest_down -= 1
+                return self._send(503, b'{"detail": "restarting"}')
             return self._send(200, json.dumps(Site.manifest).encode())
+        return self._send(404, b"{}")
+
+    def do_POST(self):
+        Site.hits.append("POST " + self.path)
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        if self.path.startswith("/api/v1/compute/enroll/"):
+            if body.get("key") != Site.enroll_key:
+                return self._send(403, b'{"detail": "wrong key"}')
+            return self._send(201, json.dumps({"name": body.get("name"), "token": Site.token, "created": True}).encode())
         return self._send(404, b"{}")
 
     def _send(self, code, body, ctype="application/json"):
@@ -376,7 +406,8 @@ class UpdateTests(unittest.TestCase):
         Site.corrupt = True
         rc, lines = self.run_update()
         self.assertEqual(rc, 1)
-        self.assertIn("checksum mismatch", "\n".join(lines))
+        self.assertIn("checksum", "\n".join(lines))
+        self.assertIn("the package could not be downloaded", "\n".join(lines))
         for p, t in self.old.items():
             self.assertEqual(self.read(p), t, p)
         self.assertFalse(os.path.exists(os.path.join(self.code, ".nm-version.json")))
@@ -484,6 +515,244 @@ class UpdateTests(unittest.TestCase):
         for bad in ("../evil.py", "C:/x.py", "/etc/x", "a//b"):
             with self.assertRaises(update.UpdateError):
                 update.safe_join(self.code, bad)
+
+    def test_the_package_is_resumed_not_started_again(self):
+        """Update.bat: a package that stopped half-way is continued with a Range request (the site supports it)."""
+        os.makedirs(os.path.join(self.data, "updates"))
+        part = os.path.join(self.data, "updates", "package-%s.zip.part" % Site.manifest["zip_sha256"][:16])
+        with open(part, "wb") as fh:
+            fh.write(Site.zip_bytes[:200])
+        with mock.patch.object(update, "_processes", lambda: []):
+            rc, lines = self.run_update(bat=True, migrate=False)
+        self.assertEqual(rc, 0, lines)
+        self.assertEqual(self.read("agent.py"), AGENT_HEAD % "2.0")
+        self.assertTrue(any(h.startswith("/api/v1/compute/update/package/") for h in Site.hits))
+
+
+# ═════════════════════════════════════════════ Update.bat in a folder of agent 1.x (V4) - the whole way
+
+V4_START = "@echo off\r\nset NM_COMFY_BAT=C:\\ComfyUI\\run_nvidia_gpu.bat\r\nset \"NM_SLOTS=2\"\r\npython agent.py\r\n"
+
+
+class UpdateFromV4Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), SiteHandler)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.base = "http://127.0.0.1:%d" % cls.srv.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="nm-v4-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = os.path.join(self.tmp, "home")
+        self.v4 = os.path.join(self.home, "Desktop", "N", "Main V4", "processing-server")
+        self.data = os.path.join(self.home, "NMarketing-data")
+        v4 = self.v4
+        write(os.path.join(v4, "agent.py"), AGENT_HEAD % "1.9")
+        write(os.path.join(v4, "START.bat"), V4_START)
+        write(os.path.join(v4, "site.json"), json.dumps({"site": self.base}))
+        write(os.path.join(v4, "node.json"), json.dumps({"site": self.base, "token": Site.token, "name": "QQZ-PC"}))
+        write(os.path.join(v4, "models", "flux", "flux1-dev.safetensors"), "BIG FLUX " * 1000)
+        write(os.path.join(v4, "python312", "python.exe"), "py")
+        write(os.path.join(v4, "venvs", "moss-tts", "pyvenv.cfg"), "home = %s\n" % os.path.join(v4, "python312"))
+        write(os.path.join(v4, "vendor", "blender", "blender.exe"), "BLENDER")
+        write(os.path.join(v4, "tools", "PersianAiKit", "Voice", "data", "voices", "mine.json"), "MY CLONED VOICE")
+        write(os.path.join(v4, "tools", "PersianAiKit", "Voice", "voice", "gateway.py"), "old gateway")
+        write(os.path.join(v4, "logs", "agent.log"), "log")
+        self.model = os.path.join(v4, "models", "flux", "flux1-dev.safetensors")
+        self.model_id = os.stat(self.model).st_ino
+        self.new = {"agent.py": AGENT_HEAD % "2.1", "START.bat": "@echo off\r\nnew start\r\n", "Update.bat": "@echo off\r\n",
+                    "update.py": "VERSION = '1.1'\n", "nm_data.py": "x = 1\n", "nm_fetch.py": "y = 1\n",
+                    "site.json": '{"site": "http://other"}', "tools/PersianAiKit/Voice/voice/gateway.py": "NEW gateway"}
+        Site.zip_bytes, Site.manifest = build_package(self.new, "2.1")
+        Site.corrupt, Site.hits, Site.manifest_down = False, [], 0
+        pats = [os.path.join(self.home, "Desktop", "*"), os.path.join(self.home, "Desktop", "*", "*"),
+                os.path.join(self.home, "Desktop", "*", "*", "*")]
+        for p in (mock.patch.object(nm_data, "search_patterns", lambda code=None: pats),
+                  mock.patch("os.path.expanduser", lambda p: p.replace("~", self.home) if p.startswith("~") else p),
+                  mock.patch.object(update.time, "sleep", lambda s: None),
+                  mock.patch.object(update, "_processes", lambda: []),
+                  mock.patch.object(update, "_ask", lambda q: None),
+                  mock.patch.dict(os.environ, {"NM_DATA": "", "NM_DATA_POINTER": os.path.join(self.tmp, "ptr", "data-root.txt"),
+                                               "NM_SITE": "", "NM_TOKEN": "", "NM_AUTO_UPDATE": "", "NM_ENROLL_KEY": ""})):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def go(self, **kw):
+        lines = []
+        kw.setdefault("bat", True)
+        rc = update.run(out=lines.append, root=self.v4, **kw)
+        return rc, "\n".join(lines)
+
+    def test_v4_is_brought_to_the_newest_version_and_its_downloads_are_moved_not_copied(self):
+        rc, text = self.go()
+        self.assertEqual(rc, 0, text)
+        # the code is the newest, the local site.json and the folder's own files stay
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "2.1")
+        self.assertEqual(readf(os.path.join(self.v4, "START.bat")), "@echo off\r\nnew start\r\n")
+        self.assertEqual(jload(os.path.join(self.v4, "site.json"))["site"], self.base, "this computer's site.json wins")
+        self.assertEqual(readf(os.path.join(self.v4, "tools", "PersianAiKit", "Voice", "voice", "gateway.py")), "NEW gateway")
+        # the downloads were MOVED (same file, not a copy) into the data folder
+        moved = os.path.join(self.data, "models", "flux", "flux1-dev.safetensors")
+        self.assertEqual(readf(moved), "BIG FLUX " * 1000)
+        self.assertEqual(os.stat(moved).st_ino, self.model_id, "a rename: the very same file")
+        self.assertFalse(os.path.exists(os.path.join(self.v4, "models")))
+        self.assertFalse(os.path.exists(os.path.join(self.v4, "venvs")))
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "vendor", "blender", "blender.exe")))
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "python312", "python.exe")))
+        self.assertEqual(readf(os.path.join(self.data, "tools", "PersianAiKit", "Voice", "data", "voices", "mine.json")),
+                         "MY CLONED VOICE", "the cloned voices travel with the node")
+        self.assertIn("home = %s" % os.path.join(self.data, "python312"), readf(os.path.join(self.data, "venvs", "moss-tts", "pyvenv.cfg")))
+        # the node keeps its identity
+        self.assertEqual(jload(os.path.join(self.data, "node.json"))["token"], Site.token)
+        self.assertFalse(os.path.exists(os.path.join(self.v4, "node.json")))
+        self.assertEqual(update.site_and_token(self.v4), (self.base, Site.token))
+        # the replaced files are in the backup; the settings of the old START.bat are pointed out
+        st = jload(os.path.join(self.data, "updates", "state.json"))
+        self.assertEqual(readf(os.path.join(st["pending"]["backup"], "files", "START.bat")), V4_START)
+        self.assertIn("NM_COMFY_BAT=C:\\ComfyUI\\run_nvidia_gpu.bat", text)
+        self.assertIn("START-local.bat", text)
+        self.assertIn("nothing was downloaded again", text)
+        self.assertTrue(all(ord(c) < 128 for c in text.replace(self.tmp, "")), "console text stays ASCII")
+        # the memory of the chosen data folder is kept for every copy of the code
+        self.assertEqual(nm_data.configured(self.v4)[0], self.data)
+        # running it again: up to date, nothing moves, nothing is downloaded
+        n = len(Site.hits)
+        rc, text2 = self.go()
+        self.assertEqual(rc, 0, text2)
+        self.assertIn("up to date", text2)
+        self.assertNotIn("moved  ", text2)
+        self.assertEqual([h for h in Site.hits[n:] if "package" in h], [])
+
+    def test_a_running_old_node_blocks_the_update_until_it_is_stopped(self):
+        agent = os.path.join(self.v4, "agent.py")
+        procs = {"alive": True}
+        shell = {"pid": 500, "ppid": 1, "name": "cmd.exe", "cmd": 'cmd /c ""%s" "' % os.path.join(self.v4, "START.bat")}
+        node = {"pid": 501, "ppid": 500, "name": "python.exe", "cmd": 'python "%s"' % agent}
+        killed = []
+
+        def processes():
+            return [shell, node] if procs["alive"] else []
+
+        def taskkill(pid):
+            killed.append(pid)
+            procs["alive"] = False
+        with mock.patch.object(update, "_processes", processes), mock.patch.object(update, "_taskkill", taskkill):
+            rc, text = self.go()                                  # no console to ask: it refuses, changes nothing
+            self.assertEqual(rc, 1, text)
+            self.assertIn("close the START.bat window first", text)
+            self.assertEqual(readf(agent), AGENT_HEAD % "1.9")
+            self.assertTrue(os.path.isdir(os.path.join(self.v4, "models")), "nothing was moved")
+            self.assertEqual(killed, [])
+            rc, text = self.go(stop_node=True)
+        self.assertEqual(rc, 0, text)
+        self.assertEqual(killed, [500, 501], "first the START.bat window (so its loop cannot restart the agent), then the agent")
+        self.assertEqual(readf(agent), AGENT_HEAD % "2.1")
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "models", "flux", "flux1-dev.safetensors")))
+
+    def test_a_running_node_of_agent_2_restarts_itself_so_nothing_is_stopped(self):
+        write(os.path.join(self.v4, "agent.py"), AGENT_HEAD % "2.0")
+        node = {"pid": 501, "ppid": 500, "name": "python.exe", "cmd": 'python "%s"' % os.path.join(self.v4, "agent.py")}
+        with mock.patch.object(update, "_processes", lambda: [node]), mock.patch.object(update, "_taskkill") as kill:
+            rc, text = self.go()
+        self.assertEqual(rc, 0, text)
+        kill.assert_not_called()
+        self.assertIn("restarts on the new code by itself", text)
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "2.1")
+
+    def test_another_folders_node_is_not_my_business(self):
+        other = {"pid": 9, "ppid": 1, "name": "python.exe", "cmd": 'python "%s"' % os.path.join(self.tmp, "elsewhere", "agent.py")}
+        with mock.patch.object(update, "_processes", lambda: [other]):
+            rc, text = self.go()
+        self.assertEqual(rc, 0, text)
+
+    def test_an_unregistered_folder_enrolls_with_the_key_then_updates(self):
+        os.remove(os.path.join(self.v4, "node.json"))
+        rc, text = self.go()
+        self.assertEqual(rc, 1)
+        self.assertIn("not registered", text)
+        with mock.patch.dict(os.environ, {"NM_ENROLL_KEY": "WRONG"}):
+            rc, text = self.go()
+        self.assertEqual(rc, 1)
+        self.assertIn("enrollment key was refused", text)
+        with mock.patch.dict(os.environ, {"NM_ENROLL_KEY": Site.enroll_key}):
+            rc, text = self.go()
+        self.assertEqual(rc, 0, text)
+        self.assertEqual(jload(os.path.join(self.data, "node.json"))["token"], Site.token, "the new identity ends in the data folder")
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "2.1")
+        self.assertEqual(len([h for h in Site.hits if h.startswith("POST")]), 2, "wrong key + right key; never asked again")
+
+    def test_a_site_that_restarts_during_the_check_is_waited_for(self):
+        Site.manifest_down = 2
+        rc, text = self.go()
+        self.assertEqual(rc, 0, text)
+        self.assertIn("asking again in", text)
+        Site.manifest_down = 99
+        rc, text = self.go(check_only=True)
+        self.assertEqual(rc, 1)
+        self.assertIn("HTTP 503", text)
+
+    def test_the_old_version_is_not_restored_automatically_once_its_downloads_moved(self):
+        self.go()
+        out = []
+        with mock.patch.object(update, "HERE", self.v4):
+            update.agent_exited(out.append)
+            update.agent_exited(out.append)
+            update.agent_exited(out.append)
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "2.1", "no automatic rollback to 1.x")
+        self.assertIn("NOT rolled back automatically", "\n".join(out))
+        with mock.patch.object(update, "HERE", self.v4):
+            rc = update.rollback(out.append)
+        self.assertEqual(rc, 0)
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "1.9", "by hand it is possible")
+        self.assertIn("will not find them", "\n".join(out))
+
+    def test_nothing_changes_when_the_site_cannot_be_reached(self):
+        write(os.path.join(self.v4, "node.json"), json.dumps({"site": "http://127.0.0.1:9", "token": "T"}))
+        write(os.path.join(self.v4, "site.json"), json.dumps({"site": "http://127.0.0.1:9"}))
+        rc, text = self.go()
+        self.assertEqual(rc, 1)
+        self.assertIn("UPDATE FAILED", text)
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "1.9")
+        self.assertTrue(os.path.isfile(self.model), "the models stay where they are")
+
+    @unittest.skipUnless(nm_data.IS_WIN, "runs the real Update.bat in cmd.exe")
+    def test_the_real_update_bat_does_it_all_from_a_folder_with_spaces(self):
+        """The single-line batch header + the Python text: python -x, call %%NM_PY%%, a path with spaces, the site's own
+        update tool fetched first, then update + move. Replaces Update.bat itself while it runs."""
+        boot = io.BytesIO()
+        with zipfile.ZipFile(boot, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in ("update.py", "nm_data.py", "nm_fetch.py"):
+                z.write(os.path.join(PROC, n), n)
+        Site.boot_zip = boot.getvalue()
+        with open(os.path.join(PROC, "Update.bat"), "rb") as fh:
+            bat = fh.read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        # the package carries the same Update.bat (it replaces the running file)
+        new = dict(self.new, **{"Update.bat": bat.decode("ascii")})
+        Site.zip_bytes, Site.manifest = build_package(new, "2.1")
+        with open(os.path.join(self.v4, "Update.bat"), "wb") as fh:
+            fh.write(bat + b"# an older copy of this file: the update replaces it while it runs\r\n")
+        env = dict(os.environ, NM_SITE=self.base, NM_TOKEN=Site.token, NM_NO_PAUSE="1", NM_DATA=self.data, USERPROFILE=self.home,
+                   HOME=self.home, LOCALAPPDATA=os.path.join(self.home, "AppData", "Local"), TEMP=os.path.join(self.tmp, "temp"),
+                   TMP=os.path.join(self.tmp, "temp"), PYTHONUTF8="1")
+        os.makedirs(env["TEMP"])
+        out = subprocess.run(["cmd.exe", "/c", os.path.join(self.v4, "Update.bat")], cwd=self.tmp, capture_output=True,
+                             text=True, timeout=300, stdin=subprocess.DEVNULL, env=env)
+        text = out.stdout + out.stderr
+        self.assertIn("Updated to version 2.1", text, text)
+        self.assertIn("Finished. Now start the node with START.bat", text)
+        self.assertNotIn("is not recognized", text)
+        self.assertEqual(readf(os.path.join(self.v4, "agent.py")), AGENT_HEAD % "2.1")
+        with open(os.path.join(self.v4, "Update.bat"), "rb") as fh:
+            self.assertEqual(fh.read(), bat, "Update.bat replaced itself")
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "models", "flux", "flux1-dev.safetensors")))
+        self.assertEqual(os.stat(os.path.join(self.data, "models", "flux", "flux1-dev.safetensors")).st_ino, self.model_id)
+        self.assertTrue(all(ord(c) < 128 for c in text.replace(self.tmp, "")), "console text stays ASCII")
+        self.assertTrue(any(h.startswith("/api/v1/compute/update/bootstrap/") for h in Site.hits))
 
 
 if __name__ == "__main__":

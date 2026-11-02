@@ -29,6 +29,29 @@ every copy of the code finds again - so a new version never downloads anything t
   the console says so; what the data folder already has stays in the older copy (delete that copy yourself). Moved
   Python environments are re-pointed (`pyvenv.cfg`, `.pth`), `logs\download-state.json` keeps its sha256 checks.
   The node keeps its identity (`node.json`).
+* **Update.bat - one file for every update, also from old folders (agent 2.1).** Put it next to `START.bat` (also in an
+  old copy such as `Main V4\processing-server`, agent 1.x, where everything was downloaded inside the folder) and
+  double-click it; run it again whenever you want the newest version. Download it from the panel (Tools > Processing
+  servers > "Register a new server" > "دانلودِ Update.bat") or from the fixed URL
+  `http://87.107.160.17:8040/api/v1/compute/update/Update.bat` (public; it contains no secret). It is one batch line plus
+  a Python text (`python -x`): it first fetches the newest update tool (`update.py`, `nm_data.py`, `nm_fetch.py`, a few
+  KB, from `/api/v1/compute/update/bootstrap/`), so even a 1.x folder updates with the newest logic; then the same
+  update as below, plus: a node of agent 1.x that is still running from the folder must be closed first (it asks; `K`
+  or `--stop-node` stops it, the START.bat window first so its loop cannot restart the agent); in a 1.x folder the
+  downloads are **moved** into the data folder right after the code is replaced (`nm_data.prepare`: a rename, never a
+  copy or delete; `node.json` keeps the identity) and the update is not rolled back automatically afterwards (1.x could
+  not find its models any more); an unregistered folder asks for the enrollment key; lines like `set NM_COMFY_BAT=...`
+  of an old START.bat are listed - they belong in `START-local.bat`, which START.bat runs and no update replaces.
+  The site builds the package from `processing/` on the site server, the very tree that `deploy/nm/git-autopush.sh`
+  mirrors to GitHub `processing-server/` every 6 hours, so it is never older than GitHub's main.
+  Options: `--check`, `--rollback`, `--stop-node`, `--no-migrate`. Persian step-by-step guide: `README-FA.md`.
+* **nm_fetch.py - every big download resumes and waits** (agent 2.1, downloader 1.3): Blender / MPFB (`worker-3d.bat`),
+  the editors (`agent.py`), the models (`download_models.py`) and the update package go through the same rules:
+  HTTP Range resume after every break, retries after 3, 6, 12, 24, 48 and then every 60 s, giving up only after 30
+  minutes (`NM_STALL_S`) without one new byte (a received byte restarts that clock), size + sha256 checked at the end
+  (the site states them for its own files: `GET /api/v1/compute/downloads/?name=blender-windows.zip`); a copy that
+  fails its checksum is kept as `.bad-<time>` and fetched again; an unfinished file from an older curl run is continued.
+  `python nm_fetch.py site-file blender-windows.zip <destination>` does one by hand.
 * **Update.bat** updates this folder in place from the site (`update.py`; no git, no GitHub, no questions): the site
   serves the current package (`GET /api/v1/compute/update/` with the node token: every file with size + sha256; the
   zip is checked by size + sha256 and every file again before anything is written). Replaced files go to
@@ -59,9 +82,10 @@ every copy of the code finds again - so a new version never downloads anything t
 | Item | Purpose |
 |---|---|
 | `START.bat` | the only file you run. First time it asks for the **enrollment key** (panel → Tools → Processing servers → "Register a new server") and saves `node.json` in the data folder; afterwards it just starts (and updates the code quietly) |
-| `Update.bat` | update this folder's code from the site now (see above); `--check`, `--rollback` |
+| `Update.bat` | update this folder's code from the site now (see above; also brings a 1.x folder like `Main V4` to the newest version); `--check`, `--rollback`, `--stop-node` |
+| `START-local.bat` | optional, yours: `set NM_...=...` lines START.bat runs first; never part of the package, never replaced |
 | `agent.py` | the node (Python standard library only, nothing to install) |
-| `nm_data.py`, `update.py` | the data folder + moving older copies; the in-place update |
+| `nm_data.py`, `update.py`, `nm_fetch.py` | the data folder + moving older copies; the in-place update; the resumable downloader |
 | `site.json` | the site URL (edit it if the site moves; an update never overwrites your copy) |
 | `worker-3d.bat` | Blender render worker for the 3D video section (same registration); started by the agent (panel: services -> 3D render, or automatically while 3D jobs wait). First run downloads Blender 4.5 (~400 MB) and the MPFB character data (~430 MB) from the site, resumable |
 | `upmarket_comfyui_flask\` | ComfyUI profiles (FLUX / Wan) and workflow graphs. `agent.py` reads `profiles.json` + `workflows\*.json` directly; running the Flask bridge itself is optional |

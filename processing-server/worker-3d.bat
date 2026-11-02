@@ -6,7 +6,7 @@ rem  Engine + assets ship in this folder (up3d\, engine\, assets\). Downloaded o
 rem    Blender 4.5            -> <data folder>\vendor\blender\        (blender-windows.zip, ~400 MB)
 rem    MPFB human data        -> <data folder>\vendor\blender-user\   (up3d-blender-user.zip; for the presenters)
 rem  The data folder (NM_DATA, %USERPROFILE%\NMarketing-data unless chosen otherwise) survives code updates.
-rem  Downloads resume after a dropped connection and are checked before they are unpacked.
+rem  Downloads (nm_fetch.py) resume after every break, wait up to 30 minutes for the site, and are checked (size + sha256) before they are unpacked.
 rem  Normally started by agent.py (panel: Processing servers > services > "3D render"); can also be run by hand.
 rem ============================================================
 cd /d "%~dp0"
@@ -65,26 +65,22 @@ rem the loop is one block (read in one go) so an update that replaces this file 
 )
 
 rem ---- :fetch <file on the site> <folder to unpack into> <strip first folder 1|0>
+rem ---- nm_fetch.py downloads it: it resumes after every break (also an unfinished copy from an older run), waits and
+rem ---- retries for up to 30 minutes without one new byte, and checks size + sha256 (the site states them); then it is unpacked
 :fetch
 set "ZIP=%VENDOR%\%~1"
-set /a TRY=0
-:fetch_again
-set /a TRY+=1
-if exist "%ZIP%" (
-  tar -tf "%ZIP%" >nul 2>nul
-  if not errorlevel 1 goto fetch_unpack
-)
-echo Downloading %~1 ^(attempt %TRY%^) ...
-curl.exe -f -L -C - --retry 5 --retry-delay 10 --connect-timeout 30 -o "%ZIP%" "%NM_SITE%/3d/files/downloads/%~1"
-tar -tf "%ZIP%" >nul 2>nul
-if not errorlevel 1 goto fetch_unpack
-if %TRY% GEQ 8 (
-  echo [!] Could not download %~1 after %TRY% attempts. The partial file stays in %VENDOR% and the next start continues it.
+echo Downloading %~1 - resumes after a break and waits up to 30 minutes for the site ...
+python "%~dp0nm_fetch.py" site-file "%~1" "%ZIP%"
+if errorlevel 1 (
+  echo [!] Could not download %~1. What arrived stays in %VENDOR% and the next start continues it.
   exit /b 1
 )
-echo Download incomplete; continuing in 15 seconds ...
-timeout /t 15 >nul
-goto fetch_again
+tar -tf "%ZIP%" >nul 2>nul
+if errorlevel 1 (
+  echo [!] %~1 is damaged: it is renamed to %~1.bad and the next start downloads it again.
+  move /y "%ZIP%" "%ZIP%.bad" >nul
+  exit /b 1
+)
 :fetch_unpack
 echo Extracting %~1 ...
 if not exist "%~2" mkdir "%~2"

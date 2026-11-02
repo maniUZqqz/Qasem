@@ -62,6 +62,8 @@ voices), node.json, services.json and the logs live in ONE data folder that ever
 copies there instead of downloading them again. Update.bat (update.py) refreshes the code in place from the site;
 a running node notices new code and restarts by itself when idle.
     python agent.py --prepare   data folder + moving older copies' downloads + registration (START.bat does this)
+Agent 2.1 - every big download (editors, Blender, the update package) goes through nm_fetch.py: it resumes after every
+break, waits and retries for up to 30 minutes without a single new byte, and checks size + sha256 at the end.
 """
 import glob
 import hashlib
@@ -83,11 +85,12 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.0"
+VERSION = "2.1"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import nm_data  # noqa: E402
+import nm_fetch  # noqa: E402
 
 DATA = nm_data.data_root(HERE)                                     # models, venvs, node.json ... (survives updates)
 WORK = os.path.join(DATA, "work")
@@ -258,52 +261,32 @@ def voice_models_ok():
             and os.path.isdir(v) and any(f.endswith(".onnx") for f in os.listdir(v)))
 
 
-def download_resumable(url, dest, tick=None, attempts=10):
-    """Download with HTTP Range resume: a flaky line that stops half-way continues from where it stopped."""
-    part = dest + ".part"
-    total = None
-    last = None
-    for attempt in range(1, attempts + 1):
-        have = os.path.getsize(part) if os.path.isfile(part) else 0
-        headers = {"User-Agent": "nm-node/" + VERSION}
-        if have:
-            headers["Range"] = "bytes=%d-" % have
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as r:
-                if have and r.status != 206:
-                    have = 0                         # server ignored Range: start again
-                cr = r.headers.get("Content-Range") or ""
-                if "/" in cr:
-                    total = int(cr.rsplit("/", 1)[1])
-                elif r.headers.get("Content-Length"):
-                    total = have + int(r.headers["Content-Length"])
-                next_tick = time.time() + 30
-                with open(part, "ab" if have else "wb") as fh:
-                    while True:
-                        chunk = r.read(256 * 1024)
-                        if not chunk:
-                            break
-                        fh.write(chunk)
-                        have += len(chunk)
-                        if tick and time.time() > next_tick:
-                            next_tick = time.time() + 30
-                            tick("downloading %s: %d / %s MB" % (os.path.basename(dest), have >> 20, (total >> 20) if total else "?"))
-            if total is None or have >= total:
-                os.replace(part, dest)
-                return dest
-            last = "stopped at %d of %d bytes" % (have, total)
-        except urllib.error.HTTPError as e:
-            if e.code == 416 and total and have >= total:
-                os.replace(part, dest)
-                return dest
-            if e.code in (403, 404):
-                raise RuntimeError("%s -> HTTP %s" % (url, e.code))
-            last = e
-        except (urllib.error.URLError, socket.timeout, OSError) as e:
-            last = e
-        warn("download %s: attempt %d/%d failed (%s) - resuming" % (os.path.basename(dest), attempt, attempts, last))
-        time.sleep(min(30, 3 * attempt))
-    raise RuntimeError("download %s failed after %d attempts: %s" % (url, attempts, last))
+DOWNLOAD_STALL_S = int(os.environ.get("NM_STALL_S") or nm_fetch.STALL_DEFAULT)
+
+
+def download_resumable(url, dest, tick=None, attempts=None):
+    """Download with HTTP Range resume (nm_fetch.py): a flaky line that stops half-way continues from where it
+    stopped, a site that is unreachable for a while is asked again with growing waits (up to 30 minutes without a single
+    new byte), and the size + sha256 the site states for its own downloads are checked at the end. `attempts` is kept for
+    old callers; the limit is time without progress now."""
+    base = site_base()
+    size = sha = None
+    headers = {}
+    if base and url.startswith(base + "/3d/files/downloads/"):
+        token = (CONFIG or {}).get("token") or os.environ.get("NM_TOKEN") or ""
+        size, sha = nm_fetch.site_file_info(base, token, url.rsplit("/", 1)[1])
+
+    def say(msg):
+        if tick:
+            tick(msg.strip())
+        if "problem" in msg or "again" in msg or "checksum" in msg:
+            warn("download %s: %s" % (os.path.basename(dest), msg.strip()))
+    try:
+        nm_fetch.fetch_with_progress(url, dest, out=say, every=30.0, headers=headers, size=size, sha256=sha,
+                                     stall=DOWNLOAD_STALL_S, sleep=lambda s: time.sleep(s))
+    except nm_fetch.FetchError as e:
+        raise RuntimeError("download %s failed: %s" % (url, e))
+    return dest
 
 
 def fetch_pack(name, tick=None):
@@ -2531,7 +2514,7 @@ def h_node_models(job):
 
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
-CODE_FILES = ("agent.py", "nm_data.py", "update.py", "download_models.py", ".nm-version.json")
+CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json")
 
 
 def code_stamp():

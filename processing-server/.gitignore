@@ -12,6 +12,7 @@
 /data/
 /updates/
 /node.json
+/START-local.bat
 /services.json
 /nm-data.txt
 /.nm-version.json

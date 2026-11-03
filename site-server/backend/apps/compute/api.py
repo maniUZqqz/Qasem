@@ -100,7 +100,17 @@ def _control(node) -> dict:
                 desired["worker3d"] = True
         except Exception:  # noqa: BLE001 — بخشِ سه‌بعدی نباید سرورهای پردازش را بخواباند
             pass
-    return {"desired": desired, "auto_switch": node.auto_switch}
+    out = {"desired": desired, "auto_switch": node.auto_switch}
+    try:
+        # اولویتِ لوکال/متیس (apps.ai.AiPriority): مدلِ لوکالِ هر نوعِ کار را به گره می‌گوییم تا «ویرایشِ هوشمندِ عکس» (کیتِ عکس)
+        # همان مدلِ بینایی را اول امتحان کند. عاملِ قدیمی این کلید را نمی‌شناسد و نادیده می‌گیرد.
+        from services.ai import priority
+        cfg = priority.config()
+        out["ai"] = {"priority": cfg.priority, "vision_model": priority.local_model(priority.VISION, cfg),
+                     "text_model": priority.local_model(priority.TEXT, cfg), "code_model": priority.local_model(priority.CODE, cfg)}
+    except Exception:  # noqa: BLE001 — این راهنما نباید heartbeat را بیندازد
+        pass
+    return out
 
 
 @node_api("POST")

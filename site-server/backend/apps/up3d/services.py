@@ -76,13 +76,18 @@ def process_plan(job):
     p = job.project
     brief = job.params.get('brief') or p.brief
     ai = AiSettings.get()
-    if job.params.get('mode') == 'ai' and ai.enabled and ai.api_key:
-        doc, info = director.plan(brief, ai.llm(), reg(), log=job.add_log)
+    if job.params.get('mode') == 'ai' and ai.can_plan():
+        cfg = ai.routed_llm()
+        doc, info = director.plan(brief, cfg, reg(), log=job.add_log)
         src = info['source']
         if src != 'ai':
             job.add_log('AI نتوانست؛ قالب جایگزین شد: %s' % info.get('fallback_reason'))
         else:
             job.add_log('برنامهٔ AI در %s ثانیه (%d ترمیم)' % (info.get('seconds'), len(info.get('repairs', []))))
+            router = cfg.get('router')
+            if router is not None and router.answered_via:
+                job.add_log('جواب از: %s' % router.answered_label)
+                info['answered'] = router.describe()
         job.report = {'director': info}
     else:
         if job.params.get('mode') == 'ai':
@@ -98,9 +103,13 @@ def process_plan(job):
 
 def ai_edit(project, instruction, user=None):
     ai = AiSettings.get()
-    if not (ai.enabled and ai.api_key):
-        raise director.DirectorError('کلیدِ هوشِ مصنوعی در تنظیمات (جنگو ادمین) وارد نشده')
-    new, info = director.edit(project.current.document, instruction, ai.llm(), reg())
+    if not ai.can_plan():
+        raise director.DirectorError('کلیدِ هوشِ مصنوعی در تنظیمات (جنگو ادمین) وارد نشده و مسیر لوکال هم در دسترس نیست')
+    cfg = ai.routed_llm()
+    new, info = director.edit(project.current.document, instruction, cfg, reg())
+    router = cfg.get('router')
+    if router is not None and router.answered_via:
+        info['answered'] = router.describe()
     v = new_version(project, new, 'ai-edit', instruction)
     return v, info
 

@@ -174,6 +174,8 @@ class ChatView(APIView):
                 # orders of this conversation the customer can still pay for —
                 # drives the receipt-upload button in the chat UI
                 "open_orders": open_orders_payload(conversation),
+                # «جواب از: لوکال (qwq:32b)» / «متیس (پشتیبان)» — کدام مسیرِ هوش مصنوعی این پاسخ را داد
+                "answer": result["ai_request"].answer_info() if result.get("ai_request") is not None else None,
             }
         )
 

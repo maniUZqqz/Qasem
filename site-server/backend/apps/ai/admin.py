@@ -16,8 +16,8 @@ class AIRequestAdmin(admin.ModelAdmin):
         "دفتر ثبت هر تماسی که با موتور هوش مصنوعی گرفته شده — چه مدلی، چه هزینه‌ای، چه "
         "جوابی. وقتی کسی می‌پرسد «چرا این‌قدر مصرف شد؟»، جواب اینجاست."
     )
-    list_display = ["id", "task_type", "model", "prompt_id", "status", "latency_ms", "created_at"]
-    list_filter = ["task_type", "status", "model"]
+    list_display = ["id", "task_type", "model", "via", "fell_back", "prompt_id", "status", "latency_ms", "created_at"]
+    list_filter = ["task_type", "status", "via", "fell_back", "model"]
     inlines = [AIResponseInline]
 
 
@@ -43,3 +43,4 @@ class MarketResearchAdmin(admin.ModelAdmin):
 from .admin_providers import ModelProviderAdmin  # noqa: F401
 from .admin_audio import AudioEngineAdmin  # noqa: E402,F401
 from .admin_voice_clone import ClonedVoiceAdmin  # noqa: E402,F401
+from .admin_priority import AiPriorityAdmin, AiProviderStateAdmin  # noqa: E402,F401

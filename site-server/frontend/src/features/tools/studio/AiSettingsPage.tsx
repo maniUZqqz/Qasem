@@ -4,7 +4,7 @@ import Icon from "../../../components/Icon";
 import { openTool } from "../../../components/Layout";
 import { Alert, Badge, Button, Card, ErrorBox, Field, Input, Select } from "../../../components/ui";
 import { api, studioError } from "./api";
-import AiRouteCard from "./AiRouteCard";
+import AiPriorityCard from "../../ai/AiPriorityCard";
 import { Check, Help, Loading, SectionHead } from "./common";
 import type { AiSettingsResp, AiSettingsT } from "./types";
 
@@ -97,7 +97,7 @@ export default function AiSettingsPage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-4">
-      <AiRouteCard />
+      <AiPriorityCard />
       <Card>
         <form onSubmit={save} className="space-y-4">
           <Alert

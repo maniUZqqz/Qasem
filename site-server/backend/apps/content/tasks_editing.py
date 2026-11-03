@@ -508,12 +508,94 @@ def make_proxy_task(self, job_id, ref):
         return {"error": str(exc)}
 
 
+# ------------------------------------------------------------ the render queue
+
+#: Only one render at a time on this small server: the others wait their turn («در صف») and can be cancelled.
+RENDER_LOCK = "render.lock"
+KEEP_EXPORTS = 4
+KEEP_PREVIEWS = 3
+
+
+class _Cancelled(Exception):
+    pass
+
+
+def _editing_root() -> Path:
+    path = Path(settings.MEDIA_ROOT) / "generated" / "editing"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _cancelled(job_id) -> bool:
+    return Job.objects.filter(pk=job_id, state=Job.State.CANCELLED).exists()
+
+
+@contextlib.contextmanager
+def _render_slot(job: Job):
+    """Wait for the single render slot (polling, so a cancel while queued is noticed), hold it, release it."""
+    import fcntl
+    import time
+
+    handle = open(_editing_root() / RENDER_LOCK, "a+")
+    waited = False
+    try:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if _cancelled(job.id):
+                    raise _Cancelled() from None
+                if not waited:
+                    waited = True
+                    job.mark_progress(0, "در صفِ رندر — یک رندرِ دیگر در حال اجراست")
+                time.sleep(1.0)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def _percent(job: Job, lo: int, hi: int, label: str):
+    """A progress callback that maps ffmpeg's 0..1 onto [lo, hi] percent of the job (a save every ~0.7 s at most)."""
+    import time
+
+    state = {"t": 0.0, "p": -1}
+
+    def report(fraction: float) -> None:
+        now = time.monotonic()
+        p = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
+        if p != state["p"] and now - state["t"] > 0.7:
+            state["t"], state["p"] = now, p
+            job.mark_progress(p, f"{label} — {p}٪")
+
+    return report
+
+
+def _snapshot_data(project: VideoProject, snapshot: str) -> dict:
+    import json
+
+    if snapshot:
+        snap = Path(settings.MEDIA_ROOT) / snapshot
+        if snap.is_file():
+            return json.loads(snap.read_text(encoding="utf-8"))
+    return project.data or {}
+
+
 @shared_task(bind=True)
-def render_project_task(self, job_id, project_id, quality="final"):
+def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
     """The «دستی» workspace's Export: timeline → one ffmpeg graph (stage one), then the program-wide tools through the
-    single-source EDL pipeline (stage two) — so every one of the 21 tools has a place, per clip or on the whole video."""
+    single-source EDL pipeline (stage two) — so every one of the 21 tools has a place, per clip or on the whole video.
+
+    Works on a SNAPSHOT of the project taken when Export was pressed (the editor keeps autosaving meanwhile), reads the
+    ORIGINAL files (never proxies), waits for the single render slot, reports percent and honours cancel."""
+    import shutil
+
     from django.utils import timezone
 
+    from services.editing import export as export_module
     from services.editing import timeline as tl
     from services.video.ffmpeg import probe_duration
 
@@ -521,56 +603,180 @@ def render_project_task(self, job_id, project_id, quality="final"):
 
     job = Job.objects.get(id=job_id)
     project = None
+    work = None
     try:
         project = VideoProject.objects.select_related("store").get(pk=project_id)
-        job.total_steps = 3
+        data = _snapshot_data(project, snapshot)
+        job.total_steps = 100
         job.mark_running("در حال چیدنِ تایم‌لاین")
-        work = Path(settings.MEDIA_ROOT) / "generated" / "editing" / f"project_{project.pk}"
-        work.mkdir(parents=True, exist_ok=True)
-        program_ops = tl.program_operations(project.data or {})
-        stage1 = work / "program.mp4"
-        with editor_project.sources(project.store) as resolve:
-            timeline = tl.from_project(project.data or {}, resolve)
-            tl.render(timeline, stage1, quality=quality)
-        job.mark_progress(2, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
+        work = _editing_root() / f"project_{project.pk}"
+        (work / "exports").mkdir(parents=True, exist_ok=True)
+        program_ops = tl.program_operations(data)
+        with _render_slot(job):
+            job.mark_progress(1, "در حال چیدنِ تایم‌لاین")
+            stage1 = work / f"program_{job.id}.mp4"
+            with editor_project.sources(project.store) as resolve:
+                timeline = tl.from_project(data, resolve)
+                spec_export = dict(timeline.export or {}) if quality != "draft" else None
+                spec = export_module.resolve(spec_export, timeline) if spec_export else None
+                hi = 85 if program_ops else 98
+                tl.render(timeline, stage1, quality=quality, export=spec_export or None,
+                          progress=_percent(job, 2, hi, "رندرِ تایم‌لاین"), cancel=lambda: _cancelled(job.id))
+            job.mark_progress(hi, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
 
-        final = stage1
-        refusals: list[str] = []
-        if program_ops:
-            final = work / "final.mp4"
-            plan = agent.plan(stage1, work / "stage2", mode=agent.MANUAL, operations=program_ops,
-                              store=project.store, job=job)
-            plan.edl.store = project.store
-            if not plan.facts.get("readable", True):
-                raise RuntimeError(plan.edl.refusals[0] if plan.edl.refusals else "خروجیِ مرحلهٔ اول خوانده نشد")
-            if edl.needs_stabilization_pass(plan.edl):
-                try:
-                    edl.detect_stabilization(stage1, work / "stage2", plan.edl)
-                except Exception as exc:  # noqa: BLE001
-                    logger.info("Stabilisation detect failed: %s", exc)
-                    plan.edl.stabilize = ""
-                    plan.edl.refusals.append("ثابت‌کردن تصویر روی این ویدیو ممکن نشد و از تدوین حذف شد")
-            edl.render(plan.edl, final)
-            refusals = list(plan.edl.refusals)
+            final = stage1
+            refusals: list[str] = []
+            if program_ops:
+                final = work / f"final_{job.id}.mp4"
+                stage2 = work / f"stage2_{job.id}"
+                plan = agent.plan(stage1, stage2, mode=agent.MANUAL, operations=program_ops, store=project.store, job=job)
+                plan.edl.store = project.store
+                if not plan.facts.get("readable", True):
+                    raise RuntimeError(plan.edl.refusals[0] if plan.edl.refusals else "خروجیِ مرحلهٔ اول خوانده نشد")
+                if edl.needs_stabilization_pass(plan.edl):
+                    try:
+                        edl.detect_stabilization(stage1, stage2, plan.edl)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.info("Stabilisation detect failed: %s", exc)
+                        plan.edl.stabilize = ""
+                        plan.edl.refusals.append("ثابت‌کردن تصویر روی این ویدیو ممکن نشد و از تدوین حذف شد")
+                edl.render(plan.edl, final)
+                refusals = list(plan.edl.refusals)
+                shutil.rmtree(stage2, ignore_errors=True)
+                stage1.unlink(missing_ok=True)
 
-        media.store(project.output, final)
+        preset = str((timeline.export or {}).get("preset") or "")
+        dest = work / "exports" / f"{job.id}_{preset or quality}.mp4"
+        Path(final).replace(dest)
+        rel = media.media_rel(dest)
+        w, h = export_module.size_for(timeline, spec.short_side if spec else None)
+        project = VideoProject.objects.get(pk=project.pk)          # fresh: the editor may have saved meanwhile
+        old = [e for e in (project.render_info or {}).get("exports", []) if isinstance(e, dict)]
+        entry = {
+            "job_id": job.id, "url": settings.MEDIA_URL.rstrip("/") + "/" + rel, "rel": rel, "preset": preset, "quality": quality,
+            "seconds": round(probe_duration(dest), 2), "bytes": dest.stat().st_size, "size": f"{w}x{h}",
+            "codec": spec.codec if spec else "h264", "note": spec.note if spec else "",
+            "rendered_at": timezone.now().isoformat(),
+        }
+        keep = [entry] + [e for e in old if e.get("job_id") != job.id][: KEEP_EXPORTS - 1]
+        for gone in [e for e in old if e not in keep]:
+            try:
+                (Path(settings.MEDIA_ROOT) / gone.get("rel", "")).unlink(missing_ok=True)
+            except OSError:
+                pass
+        project.output.name = rel
         project.state = VideoProject.State.READY
         project.error = ""
-        project.render_info = {
-            "seconds": round(probe_duration(final), 2), "bytes": Path(final).stat().st_size, "quality": quality,
-            "refusals": refusals, "program_tools": [o["tool"] for o in program_ops],
-            "size": f"{timeline.width}x{timeline.height}", "rendered_at": timezone.now().isoformat(),
-        }
+        project.render_info = {**entry, "refusals": refusals, "program_tools": [o["tool"] for o in program_ops], "exports": keep}
         project.save(update_fields=["output", "state", "error", "render_info", "updated_at"])
-        job.mark_progress(3, "")
-        result = {"project_id": project.pk, "output": project.output.url if project.output else None, **project.render_info}
+        job.mark_progress(100, "")
+        result = {"project_id": project.pk, "output": entry["url"], **{k: v for k, v in project.render_info.items() if k != "exports"}}
         job.mark_completed(result)
         return result
+    except (_Cancelled, export_module.RenderCancelled):
+        logger.info("Project render job %s cancelled", job_id)
+        if project is not None:
+            project = VideoProject.objects.get(pk=project.pk)
+            project.state = VideoProject.State.READY if project.output else VideoProject.State.DRAFT
+            project.save(update_fields=["state", "updated_at"])
+        return {"cancelled": True}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Project render job %s failed", job_id)
         if project is not None:
+            project = VideoProject.objects.get(pk=project.pk)
             project.state = VideoProject.State.FAILED
             project.error = str(exc)[:1500]
             project.save(update_fields=["state", "error", "updated_at"])
         job.mark_failed(exc)
         return {"error": str(exc)}
+    finally:
+        if work is not None:
+            (work / f"program_{job_id}.mp4").unlink(missing_ok=True)
+        if snapshot:
+            (Path(settings.MEDIA_ROOT) / snapshot).unlink(missing_ok=True)
+
+
+@shared_task(bind=True)
+def preview_range_task(self, job_id, project_id, snapshot, t0, t1, height=360):
+    """«پیش‌نمایشِ دقیقِ این بازه»: the real graph for a few seconds at low resolution (waits for the render slot too)."""
+    from services.editing import export as export_module
+    from services.editing import timeline as tl
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    try:
+        project = VideoProject.objects.select_related("store").get(pk=project_id)
+        data = _snapshot_data(project, snapshot)
+        job.total_steps = 100
+        job.mark_running("در حال ساختنِ پیش‌نمایشِ دقیق")
+        work = _editing_root() / f"project_{project.pk}" / "previews"
+        work.mkdir(parents=True, exist_ok=True)
+        out = work / f"preview_{job.id}.mp4"
+        with _render_slot(job):
+            with editor_project.sources(project.store) as resolve:
+                timeline = tl.from_project(data, resolve)
+                info = export_module.render_preview(timeline, out, float(t0), float(t1), height=int(height),
+                                                    progress=_percent(job, 5, 98, "پیش‌نمایشِ دقیق"),
+                                                    cancel=lambda: _cancelled(job.id))
+        for old in sorted(work.glob("preview_*.mp4"), key=lambda p: p.stat().st_mtime)[:-KEEP_PREVIEWS]:
+            old.unlink(missing_ok=True)
+        result = {"url": settings.MEDIA_URL.rstrip("/") + "/" + media.media_rel(out), "t0": info["t0"], "t1": info["t1"],
+                  "size": info["size"], "seconds": info["seconds"], "notes": info["notes"]}
+        job.mark_progress(100, "")
+        job.mark_completed(result)
+        return result
+    except (_Cancelled, export_module.RenderCancelled):
+        return {"cancelled": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Preview job %s failed", job_id)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+    finally:
+        if snapshot:
+            (Path(settings.MEDIA_ROOT) / snapshot).unlink(missing_ok=True)
+
+
+@shared_task(bind=True)
+def captions_task(self, job_id, ref, start, end, at, speed=1.0):
+    """Auto-captions for a stretch of a clip: speech → words (the node's `voice.asr`, else a clear message) →
+    caption lines with per-word timing, placed on the timeline at `at` (the clip's speed followed)."""
+    import tempfile
+
+    from services.editing import captions
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    wav = None
+    try:
+        job.total_steps = 3
+        job.mark_running("در حال آماده‌کردنِ صدا")
+        item = editor_project.describe(job.store, ref)
+        if not item.get("has_audio"):
+            raise captions.CaptionsUnavailable("این قطعه صدا ندارد، پس چیزی برای زیرنویس‌کردن نیست.")
+        handle = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        handle.close()
+        wav = Path(handle.name)
+        captions.extract_audio(item["path"], float(start), float(end), wav)
+        job.mark_progress(1, "در حال گوش‌دادن به گفتار (سرورِ پردازش)")
+        heard = captions.transcribe_wav(wav, store=job.store, on_tick=lambda j: job.mark_progress(1, "در حال گوش‌دادن به گفتار"))
+        words = heard.get("words") or []
+        if not words:
+            raise captions.CaptionsUnavailable("حرفی در این بخش شنیده نشد.")
+        k = 1.0 / max(0.25, float(speed or 1.0))
+        scaled = [{"w": w["w"], "s": w["s"] * k, "e": w["e"] * k} for w in words]
+        groups = captions.group_words(scaled)
+        clips = captions.caption_clips(groups, offset=float(at))
+        job.mark_progress(2, "")
+        result = {"clips": clips, "text": heard.get("text", ""), "engine": heard.get("engine", ""), "count": len(clips)}
+        job.mark_progress(3, "")
+        job.mark_completed(result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Captions job %s: %s", job_id, exc)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+    finally:
+        if wav is not None:
+            wav.unlink(missing_ok=True)

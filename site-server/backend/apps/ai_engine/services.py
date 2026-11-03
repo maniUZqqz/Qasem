@@ -214,8 +214,10 @@ def _note_route(provider, proposal):
     if not who:
         return
     proposal.answered_by = who[:120]
+    via = getattr(provider, 'answered_via', '')
+    proposal.answered_via = via if isinstance(via, str) else ''
     proposal.fallback_note = (getattr(provider, 'fallback_reason', '') or '')[:400] if getattr(provider, 'fell_back', False) else ''
-    proposal.save(update_fields=['answered_by', 'fallback_note'])
+    proposal.save(update_fields=['answered_by', 'answered_via', 'fallback_note'])
 
 
 def _call(provider, proposal, system, payload):

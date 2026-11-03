@@ -190,6 +190,23 @@ def _tools() -> list[dict]:
          "help": "هوشِ مصنوعیِ بینای سرورِ پردازش عکسِ کوچک و اندازه‌گیری‌ها را می‌بیند و لغزنده‌های کیت را تنظیم می‌کند؛ یک "
                  "بار نتیجه را می‌بیند و اصلاح می‌کند. بی مدلِ بینا ⇐ همان بهبودِ خودکار.",
          "params": [_text("goal", "چه می‌خواهید؟", "", "مثلاً: گرم و روشن، مناسبِ اینستاگرامِ کافه", 300)]},
+
+        # ─────────────── ابزارهای پنهانِ ادیتورِ حرفه‌ای (سرورِ سایت؛ در دستورها و پیشنهاد نمی‌آیند)
+        {"key": "develop", "title": "ظهورِ عکس (لغزنده‌های کیت روی سرورِ سایت)", "where": "server", "icon": "settings", "hidden": True,
+         "help": "همان ۵۸ لغزنده، منحنی و ترمیمِ لکه، با پورتِ numpy ِ موتورِ کیت روی سرورِ سایت — بی سرورِ پردازش.",
+         "params": [{"key": "adjust", "title": "لغزنده‌ها", "type": "adjust", "default": {}, "help": ""},
+                    {"key": "curve", "title": "منحنیِ تُن (Curves)", "type": "curve", "default": {}, "help": ""},
+                    {"key": "spots", "title": "لکه‌ها", "type": "spots", "default": [], "help": ""}]},
+        {"key": "compose", "title": "ترکیبِ لایه‌ها", "where": "server", "icon": "image", "hidden": True,
+         "help": "لایه‌های پروژه (عکس، تصویر، متن، شکل، تنظیم، روتوش) با ماسک و حالتِ ترکیب روی عکسِ پایه.",
+         "params": [_num("project", "شمارهٔ پروژه (برای ماسک‌ها)", 0, 10 ** 9, 0, 1),
+                    {"key": "layers", "title": "لایه‌ها", "type": "layers", "default": [], "help": ""}]},
+        {"key": "perspective", "title": "اصلاحِ پرسپکتیو", "where": "server", "icon": "image", "hidden": True,
+         "help": "چهارضلعیِ دلخواه (نسبی) به مستطیل تبدیل می‌شود.",
+         "params": [{"key": "tl", "title": "بالا-چپ", "type": "point", "default": [0, 0], "help": ""},
+                    {"key": "tr", "title": "بالا-راست", "type": "point", "default": [1, 0], "help": ""},
+                    {"key": "br", "title": "پایین-راست", "type": "point", "default": [1, 1], "help": ""},
+                    {"key": "bl", "title": "پایین-چپ", "type": "point", "default": [0, 1], "help": ""}]},
     ]
 
 
@@ -347,6 +364,15 @@ def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True)
             out[k] = adj
         elif t == "curve":
             out[k] = normalize_curve(v)
+        elif t == "layers":
+            from . import layers as layers_mod
+
+            lst = v if isinstance(v, list) else []
+            out[k] = layers_mod.normalize_layers(lst, base="one") if (lst or strict) else []
+        elif t == "point":
+            d = p["default"]
+            out[k] = ([round(_clamp(v[0], -1, 2, d[0]), 5), round(_clamp(v[1], -1, 2, d[1]), 5)]
+                      if isinstance(v, (list, tuple)) and len(v) >= 2 else list(d))
         elif t == "spots":
             spots = []
             for s in (v or [])[:60] if isinstance(v, list) else []:

@@ -68,6 +68,8 @@ def _short(exc, n=300):
 class OpenAIProvider(BaseProvider):
     """کتابخانهٔ رسمیِ openai — برای OpenAI و هر سرویسِ سازگار با آن."""
     name = 'openai'
+    #: مسیرِ دیگری (لوکال) هم هست ⇒ تکرارِ خودکارِ کتابخانه خاموش (services/ai/routing.py StudioRouted)
+    fast_fail = False
 
     def _client(self):
         try:
@@ -76,9 +78,10 @@ class OpenAIProvider(BaseProvider):
             raise AiError('کتابخانهٔ openai نصب نیست (venv/bin/pip install openai).')
         if not (self.cfg.api_key or '').strip():
             raise AiError('کلید (توکن) API تنظیم نشده — در جنگو ادمین ⇐ «تنظیماتِ هوشِ مصنوعی» بگذار.')
+        # fast_fail: مسیرِ دیگری هم هست (لوکال) ⇒ یک تلاش بس است، نه دو (services/ai/routing.py)
         return OpenAI(api_key=self.cfg.api_key.strip(),
                       base_url=(self.cfg.base_url or '').strip() or None,
-                      timeout=float(self.cfg.timeout_s or 120), max_retries=1)
+                      timeout=float(self.cfg.timeout_s or 120), max_retries=0 if getattr(self, 'fast_fail', False) else 1)
 
     def complete(self, system, user, json_mode=True):
         import openai
@@ -215,7 +218,8 @@ class MockProvider(BaseProvider):
 
 
 class RoutedProvider(BaseProvider):
-    """اول Qwen Coder روی سرورِ پردازش، بعد همان سرویسِ تنظیم‌شده (Metis). services/ai/routing.py"""
+    """دو مسیر: لوکال (qwen3-coder روی سرورِ پردازش) و متیس (همان سرویسِ تنظیم‌شده)؛ ترتیب = اولویتِ کلی (apps.ai.AiPriority)
+    برای نوعِ «کد». services/ai/routing.py"""
     name = 'routed'
 
     def __init__(self, cfg):
@@ -225,11 +229,23 @@ class RoutedProvider(BaseProvider):
         self.router = StudioRouted(self.direct)
 
     def complete(self, system, user, json_mode=True):
-        return self.router.complete(system, user, json_mode=json_mode, max_tokens=self.cfg.max_tokens, temperature=self.cfg.temperature)
+        from services.ai.routing import AllProvidersFailed
+        try:
+            return self.router.complete(system, user, json_mode=json_mode, max_tokens=self.cfg.max_tokens, temperature=self.cfg.temperature)
+        except AllProvidersFailed as exc:
+            raise AiError(str(exc)) from exc
 
     @property
     def answered_by(self):
         return self.router.answered_by
+
+    @property
+    def answered_via(self):
+        return self.router.answered_via
+
+    @property
+    def answered_label(self):
+        return self.router.answered_label
 
     @property
     def fell_back(self):
@@ -252,4 +268,4 @@ def get_provider(cfg=None, direct=False):
         return MockProvider(cfg)
     if not direct and routing.wants_node():
         return RoutedProvider(cfg)
-    return OpenAIProvider(cfg)
+    return OpenAIProvider(cfg)   # direct=True: دکمهٔ «آزمونِ اتصال» (فقط متیس) یا آزمون‌های بی‌مسیریابی

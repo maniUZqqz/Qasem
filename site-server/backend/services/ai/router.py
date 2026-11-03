@@ -29,10 +29,24 @@ def configured_model(task_type: str) -> str:
 
 
 def models_for(task_type: str) -> list[str]:
-    """Ordered candidates for this task; never empty."""
+    """Ordered candidates for this task; never empty.
+
+    The local model the owner picked for this kind of work (apps.ai.AiPriority — «مدل لوکال» dropdowns) goes first
+    when one is picked; otherwise the .env preference decides, as before.
+    """
     configured_model(task_type)  # validates the task type
     found = models_registry.candidates(task_type)
-    return found or [configured_model(task_type)]
+    found = found or [configured_model(task_type)]
+    try:
+        from . import priority
+
+        cfg = priority.config()
+        picked = (cfg.models or {}).get(priority.kind_of_task(task_type))
+    except Exception:  # noqa: BLE001 — a setting must never break model lookup
+        picked = ""
+    if picked:
+        found = [picked] + [m for m in found if m != picked]
+    return found
 
 
 def model_for(task_type: str) -> str:

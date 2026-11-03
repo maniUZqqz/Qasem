@@ -7,7 +7,7 @@ export type Where = "server" | "node";
 export type ParamSpec = {
   key: string;
   title: string;
-  type: "number" | "select" | "bool" | "text" | "color" | "adjust" | "spots" | "curve";
+  type: "number" | "select" | "bool" | "text" | "color" | "adjust" | "spots" | "curve" | "layers" | "quad";
   default: unknown;
   help?: string;
   min?: number;
@@ -24,6 +24,8 @@ export type Tool = {
   help: string;
   icon?: string;
   single?: boolean;
+  /** ابزارِ داخلی (develop / compose / perspective) که در فهرستِ «افزودنِ ابزار» نمی‌آید */
+  hidden?: boolean;
   params: ParamSpec[];
 };
 
@@ -252,6 +254,79 @@ export const photoApi = {
 };
 
 export type PreviewInfo = { size: [number, number]; notes: string[]; skipped: string[] };
+
+// ───────────────────────────── ادیتورِ حرفه‌ای: پروژه، ماسک، پیش‌نمایشِ دقیق، پریست
+
+export type ProjectSummary = { id: number; asset: number; title: string; rev: number; updated_at: string; thumb: string | null };
+export type Project = ProjectSummary & { data: Record<string, unknown>; masks: Record<string, string> };
+export type ExactStart = {
+  online: boolean;
+  state: "OFFLINE" | "NOOP" | "QUEUED" | "RUNNING" | "COMPLETED";
+  job?: string;
+  ignored?: string[];
+  nodes?: string[];
+  size?: [number, number];
+};
+export type ExactStatus = {
+  job: string;
+  state: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  message?: string;
+  progress?: number;
+  node?: string;
+  url?: string | null;
+  size?: [number, number];
+  online?: boolean;
+  error?: string;
+};
+export type SubjectResult = {
+  state: "READY" | "QUEUED" | "RUNNING" | "FAILED";
+  method?: string;
+  job?: string;
+  url?: string;
+  w?: number;
+  h?: number;
+  message?: string;
+  error?: string;
+};
+export type Preset = { id: number; name: string; kind: string; data: Record<string, unknown>; created_at: string; updated_at: string };
+export type FontInfo = { key: string; title: string; family: string; weights: number[]; rtl: boolean };
+
+type PresetBody = { preset?: Preset } & Partial<Preset>;
+
+export const proApi = {
+  projects: (store: string, asset: number) =>
+    api.get<{ projects: ProjectSummary[] }>(`${base(store)}/projects/`, { params: { asset } }).then((r) => r.data.projects),
+  createProject: (store: string, asset: number, data?: Record<string, unknown>, title?: string) =>
+    api.post<{ project: Project }>(`${base(store)}/projects/`, { asset, data, title }).then((r) => r.data.project),
+  project: (store: string, id: number) => api.get<{ project: Project }>(`${base(store)}/projects/${id}/`).then((r) => r.data.project),
+  saveProject: (store: string, id: number, data: Record<string, unknown>, rev?: number, title?: string) =>
+    api.put<{ project: Project }>(`${base(store)}/projects/${id}/`, { data, rev, title }).then((r) => r.data.project),
+  removeProject: (store: string, id: number) => api.delete(`${base(store)}/projects/${id}/`),
+  putMask: (store: string, pid: number, mid: string, blob: Blob) =>
+    api
+      .put<{ id: string; url: string; w: number; h: number }>(`${base(store)}/projects/${pid}/masks/${mid}/`, blob, {
+        headers: { "Content-Type": "image/png" },
+      })
+      .then((r) => r.data),
+  exact: (store: string, asset: number, operations: { tool: string; params: Params }[], side = 1280) =>
+    api.post<ExactStart>(`${base(store)}/exact/`, { asset, operations, side }).then((r) => r.data),
+  exactStatus: (store: string, job: string) => api.get<ExactStatus>(`${base(store)}/exact/${job}/`).then((r) => r.data),
+  exactCancel: (store: string, job: string) => api.delete(`${base(store)}/exact/${job}/`).catch(() => undefined),
+  subject: (store: string, asset: number, rect?: [number, number, number, number]) =>
+    api.post<SubjectResult>(`${base(store)}/subject/`, { asset, rect }).then((r) => r.data),
+  subjectStatus: (store: string, job: string) => api.get<SubjectResult>(`${base(store)}/subject/${job}/`).then((r) => r.data),
+  fonts: (store: string) => api.get<{ fonts: FontInfo[] }>(`${base(store)}/fonts/`).then((r) => r.data.fonts),
+  presets: (store: string) => api.get<{ presets: Preset[] }>(`${base(store)}/presets/`).then((r) => r.data.presets),
+  createPreset: (store: string, name: string, data: Record<string, unknown>, kind = "develop") =>
+    api.post<PresetBody>(`${base(store)}/presets/`, { name, kind, data }).then((r) => (r.data.preset ?? r.data) as Preset),
+  patchPreset: (store: string, id: number, body: { name?: string; data?: Record<string, unknown> }) =>
+    api.patch<PresetBody>(`${base(store)}/presets/${id}/`, body).then((r) => (r.data.preset ?? r.data) as Preset),
+  removePreset: (store: string, id: number) => api.delete(`${base(store)}/presets/${id}/`),
+  applyPreset: (store: string, id: number, assets: number[]) =>
+    api
+      .post<{ batch: string; edits: Edit[]; node: NodeStatus }>(`${base(store)}/presets/${id}/apply/`, { assets })
+      .then((r) => r.data),
+};
 
 export const ACTIVE_STATES = ["QUEUED", "NODE", "SERVER"];
 

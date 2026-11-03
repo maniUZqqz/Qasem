@@ -406,12 +406,19 @@ def build_json(b):
             'files_written': b.files_written, 'created_at': _dt(b.created_at)}
 
 
+def _answer_label(pr):
+    """«لوکال (qwen3-coder:30b)» / «متیس (پشتیبان)» — کدام مسیرِ هوش مصنوعی این پیشنهاد را ساخت."""
+    from services.ai.priority import answer_label
+    return answer_label(pr.answered_via, pr.answered_by, bool(pr.fallback_note)) if pr.answered_via else ''
+
+
 def proposal_json(pr):
     return {
         'id': pr.id, 'task': pr.task, 'task_display': pr.get_task_display(), 'title': pr.title,
         'prompt_text': pr.prompt_text, 'summary': pr.summary, 'status': pr.status,
         'status_display': pr.get_status_display(), 'error': pr.error, 'provider_model': pr.provider_model,
         'answered_by': pr.answered_by, 'fallback_note': pr.fallback_note,
+        'answered_via': pr.answered_via, 'answered_label': _answer_label(pr),
         'calls': pr.calls, 'created_at': _dt(pr.created_at), 'applied_at': _dt(pr.applied_at),
         'is_running': pr.is_running, 'can_apply': pr.can_apply, 'can_revert': pr.can_revert,
         'change_count': pr.changes.count(),

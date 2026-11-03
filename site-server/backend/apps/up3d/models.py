@@ -49,6 +49,36 @@ class AiSettings(models.Model):
     def llm(self):
         return {'base_url': self.base_url, 'api_key': self.api_key, 'model': self.model, 'temperature': self.temperature}
 
+    def can_plan(self):
+        """کارگردانِ AI کار می‌کند؟ با کلیدِ متیس، یا با مسیریابیِ دوگانه (لوکال روی سرورِ پردازش) حتی بی‌کلید."""
+        if not self.enabled:
+            return False
+        if self.api_key:
+            return True
+        try:
+            from services.ai import routing
+            return routing.enabled()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def routed_llm(self):
+        """llm() + یک `chat` که اولویتِ لوکال/متیس را رعایت می‌کند (apps.ai.AiPriority). بی‌مسیریابی همان llm() ساده.
+
+        کارگردان (up3d-engine/up3d/director.py) اگر `chat` را ببیند از آن استفاده می‌کند؛ `router` برای نوشتنِ «جواب از …» در گزارشِ کار.
+        """
+        plain = self.llm()
+        try:
+            from services.ai import routing
+            if not routing.enabled():
+                return plain
+            from up3d import director
+            router = routing.ChatRouted(
+                lambda messages, temperature: director._chat(dict(plain, temperature=temperature), messages),
+                metis_model=self.model, metis_ready=bool(self.api_key), task='up3d-director', kind=routing.TEXT)
+            return dict(plain, chat=router.chat, router=router)
+        except Exception:  # noqa: BLE001 — مسیریابی هرگز نباید کارگردان را از کار بیندازد
+            return plain
+
     def tts(self):
         if not self.tts_enabled:
             return {'api_key': ''}

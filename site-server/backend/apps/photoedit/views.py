@@ -14,6 +14,19 @@
     GET|DELETE stores/<id>/photo-editor/edits/<pk>/
     POST   stores/<id>/photo-editor/edits/<pk>/<cancel|retry|product|content|library>/
     GET    stores/<id>/photo-editor/batches/<batch>/zip/      همهٔ نتیجه‌های آمادهٔ یک «اعمال» در یک zip
+
+    ─── ادیتورِ حرفه‌ای (لایه‌ها، ماسک، پیش‌تنظیم، پیش‌نمایشِ دقیق) ───
+    GET|POST  stores/<id>/photo-editor/projects/                 ?asset=ID ⇐ {projects}؛ POST {asset, title?, data?} ⇐ 201 {project}
+    GET|PUT|PATCH|DELETE  stores/<id>/photo-editor/projects/<pid>/   {data?, title?, rev?} ⇐ {project}؛ rev کهنه ⇐ 409
+    PUT|GET|DELETE  stores/<id>/photo-editor/projects/<pid>/masks/<mid>/   بدنهٔ خامِ عکس یا multipart file ⇐ {id, url, w, h}
+    POST   stores/<id>/photo-editor/exact/                       {asset, operations, side?} ⇐ {online, state, job?} (کیت روی کپیِ کوچک)
+    GET|DELETE  stores/<id>/photo-editor/exact/<uid>/            وضعیت + نشانیِ نتیجه / لغوِ درخواستِ کهنه
+    POST   stores/<id>/photo-editor/subject/                     {asset, rect?} ⇐ ماسکِ سوژه (گره یا grabCut)
+    GET    stores/<id>/photo-editor/subject/<uid>/
+    GET|POST  stores/<id>/photo-editor/presets/                  پیش‌تنظیم‌های شخصی
+    PATCH|DELETE  stores/<id>/photo-editor/presets/<id>/         تغییرِ نام/داده، حذف
+    POST   stores/<id>/photo-editor/presets/<id>/apply/          {assets: [...]} ⇐ نسخه برای هر عکس (مثلِ edits/)
+    GET    stores/<id>/photo-editor/fonts/                       فونت‌های فارسیِ موجود روی سرور
 """
 from __future__ import annotations
 
@@ -23,7 +36,7 @@ import zipfile
 
 from django.http import HttpResponse
 from rest_framework import status
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import BaseParser, FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,7 +44,9 @@ from rest_framework.views import APIView
 from apps.stores import access
 
 from . import catalog, services
-from .models import PhotoAsset, PhotoEdit
+from . import blend as blendmod
+from . import layers as layers_mod
+from .models import PhotoAsset, PhotoEdit, PhotoPreset, PhotoProject
 from .tasks import finish_edit_task, start_edit_task
 
 logger = logging.getLogger(__name__)
@@ -91,6 +106,8 @@ class OverviewView(APIView):
             "node": services.node_status(),
             "store_logo": services.media_url(store.logo.name) if getattr(store, "logo", None) else None,
             "limits": {"max_upload_mb": services.MAX_UPLOAD_MB, "max_batch": services.MAX_BATCH},
+            "pro": {"blend_modes": list(blendmod.BLEND_MODES), "layer_types": list(layers_mod.LAYER_TYPES),
+                    "fonts": services.fonts_list(), "max_layers": layers_mod.MAX_LAYERS},
         })
 
 
@@ -330,3 +347,278 @@ class BatchZipView(APIView):
         resp = HttpResponse(buf.getvalue(), content_type="application/zip")
         resp["Content-Disposition"] = f'attachment; filename="photos-{batch[:8]}.zip"'
         return resp
+
+
+# ═════════════════════════════ ادیتورِ حرفه‌ای
+
+class RawParser(BaseParser):
+    """بدنهٔ خامِ عکس (image/png …) برای ماسک‌ها."""
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        return stream.read(31 * 1024 * 1024) if stream is not None else b""
+
+
+def _asset(store, pk):
+    try:
+        return PhotoAsset.objects.filter(pk=int(pk or 0), store=store).select_related("store").first()
+    except (TypeError, ValueError):
+        return None
+
+
+class ProjectListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        qs = PhotoProject.objects.filter(store=store).select_related("asset")
+        aid = request.query_params.get("asset")
+        if aid:
+            qs = qs.filter(asset_id=int(aid) if str(aid).isdigit() else 0)
+        return Response({"projects": [services.project_dict(p, full=False) for p in qs[:200]]})
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        asset = _asset(store, request.data.get("asset"))
+        if asset is None:
+            return _not_found()
+        try:
+            p = services.create_project(store, asset, str(request.data.get("title") or ""), request.data.get("data"))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        return Response({"project": services.project_dict(p)}, status=status.HTTP_201_CREATED)
+
+
+class ProjectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, store_id, pk, write=False):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=write)
+        return PhotoProject.objects.filter(pk=pk, store=store).select_related("asset", "store").first()
+
+    def get(self, request, store_id, pk):
+        p = self._get(request, store_id, pk)
+        return _not_found() if p is None else Response({"project": services.project_dict(p)})
+
+    def put(self, request, store_id, pk):
+        p = self._get(request, store_id, pk, write=True)
+        if p is None:
+            return _not_found()
+        rev = request.data.get("rev")
+        try:
+            saved = services.save_project(p, data=request.data.get("data") if "data" in request.data else None,
+                                          title=request.data.get("title") if "title" in request.data else None,
+                                          rev=None if rev in (None, "") else int(rev))
+        except services.ProjectConflict as exc:
+            p.refresh_from_db()
+            return Response({"error": {"code": "conflict", "message": str(exc)}, "project": services.project_dict(p)},
+                            status=status.HTTP_409_CONFLICT)
+        except (services.PhotoError, ValueError) as exc:
+            return _err(str(exc))
+        return Response({"project": services.project_dict(saved)})
+
+    patch = put
+
+    def delete(self, request, store_id, pk):
+        p = self._get(request, store_id, pk, write=True)
+        if p is None:
+            return _not_found()
+        services.delete_project(p)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MaskView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, RawParser]
+
+    def _project(self, request, store_id, pk, write):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=write)
+        return PhotoProject.objects.filter(pk=pk, store=store).select_related("asset", "store").first()
+
+    def put(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        raw = request.FILES["file"].read() if "file" in request.FILES else (
+            request.data if isinstance(request.data, (bytes, bytearray)) else b"")
+        try:
+            path, w, h = services.save_mask(p, mid, bytes(raw))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        rel = f"{p.dir_rel}/{path.name}"
+        return Response({"id": mid, "url": f"{services.media_url(rel)}?v={int(path.stat().st_mtime)}", "w": w, "h": h})
+
+    def get(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, False)
+        if p is None:
+            return _not_found()
+        try:
+            path = services.mask_file(p, mid)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        if not path.is_file():
+            return _not_found()
+        resp = HttpResponse(path.read_bytes(), content_type="image/png")
+        resp["Cache-Control"] = "no-store"
+        return resp
+
+    def delete(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        try:
+            services.mask_file(p, mid).unlink(missing_ok=True)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExactView(APIView):
+    """POST {asset, operations, side?} ⇐ کارهای کیتِ لغزنده‌ها روی کپیِ کوچک، روی سرورِ پردازش (آنلاین)؛ خاموش ⇐ online:false."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        asset = _asset(store, request.data.get("asset"))
+        if asset is None:
+            return _not_found()
+        try:
+            return Response(services.exact_request(asset, request.data.get("operations") or [],
+                                                   request.data.get("side") or 1280))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+
+
+class ExactStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        out = services.exact_status(store, uid)
+        return _not_found() if out is None else Response(out)
+
+    def delete(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        return Response(status=status.HTTP_204_NO_CONTENT) if services.exact_cancel(store, uid) else _not_found()
+
+
+class SubjectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        asset = _asset(store, request.data.get("asset"))
+        if asset is None:
+            return _not_found()
+        try:
+            return Response(services.subject_request(asset, request.data.get("rect")))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("photoedit: subject selection failed")
+            return _err(f"انتخابِ سوژه انجام نشد: {exc}")
+
+
+class SubjectStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        out = services.subject_status(store, uid)
+        return _not_found() if out is None else Response(out)
+
+    def delete(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        ok = services.exact_cancel(store, uid, "photosubject")
+        return Response(status=status.HTTP_204_NO_CONTENT) if ok else _not_found()
+
+
+class FontsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        access.get_store(request.user, store_id, access.CONTENT, write=False)
+        return Response({"fonts": services.fonts_list()})
+
+
+MAX_PRESETS = 200
+
+
+class PresetListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        return Response({"presets": [services.preset_dict(p) for p in PhotoPreset.objects.filter(store=store)[:MAX_PRESETS]]})
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        name = str(request.data.get("name") or "").strip()[:80]
+        if not name:
+            return _err("برای پیش‌تنظیم یک نام بنویسید.")
+        if PhotoPreset.objects.filter(store=store).count() >= MAX_PRESETS:
+            return _err(f"بیشتر از {MAX_PRESETS} پیش‌تنظیم نمی‌شود.")
+        try:
+            raw = request.data.get("data")
+            data = services.normalize_preset_data(raw if raw is not None else {})
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        kind = str(request.data.get("kind") or "develop")[:20]
+        p = PhotoPreset.objects.create(store=store, created_by=request.user, name=name, kind=kind, data=data)
+        return Response({"preset": services.preset_dict(p)}, status=status.HTTP_201_CREATED)
+
+
+class PresetView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, store_id, pk, write=True):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=write)
+        return store, PhotoPreset.objects.filter(pk=pk, store=store).first()
+
+    def patch(self, request, store_id, pk):
+        _store, p = self._get(request, store_id, pk)
+        if p is None:
+            return _not_found()
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()[:80]
+            if not name:
+                return _err("نامِ پیش‌تنظیم خالی است.")
+            p.name = name
+        if "data" in request.data:
+            try:
+                p.data = services.normalize_preset_data(request.data.get("data"))
+            except services.PhotoError as exc:
+                return _err(str(exc))
+        p.save()
+        return Response({"preset": services.preset_dict(p)})
+
+    put = patch
+
+    def delete(self, request, store_id, pk):
+        _store, p = self._get(request, store_id, pk)
+        if p is None:
+            return _not_found()
+        p.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PresetApplyView(APIView):
+    """POST {assets: [...]} ⇐ پیش‌تنظیم روی چند عکس (مثلِ CapCut): برای هر عکس یک نسخه."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id, pk):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        p = PhotoPreset.objects.filter(pk=pk, store=store).first()
+        if p is None:
+            return _not_found()
+        try:
+            operations = services.preset_operations(p.data, services.node_status()["online"])
+            edits = services.create_edits(store, request.user, request.data.get("assets") or [], "manual", operations)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        for e in edits:
+            _dispatch(start_edit_task, e.pk)
+        for e in edits:
+            e.refresh_from_db()
+        return Response({"batch": edits[0].batch, "edits": [services.edit_dict(e) for e in edits],
+                         "node": services.node_status(), "preset": p.pk}, status=status.HTTP_201_CREATED)

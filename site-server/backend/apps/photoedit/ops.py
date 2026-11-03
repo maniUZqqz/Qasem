@@ -552,15 +552,71 @@ def op_watermark(img, p, ctx):
     return base if img.mode == "RGBA" else base.convert("RGB")
 
 
+def op_develop(img, p, ctx):
+    """لغزنده‌های کیت (۵۸ تا + منحنی + لکه) روی سرورِ سایت — پورتِ numpy ِ موتورِ کیت (develop_np). شفافیت می‌ماند."""
+    from . import develop_np, layers
+
+    rgb, alpha = _rgb(img)
+    w, h = rgb.size
+    arr = np.asarray(rgb, dtype=np.uint8).astype(np.float32) / 255.0
+    scale = float(ctx.get("scale") or 1.0)
+    if w * h > layers.FLOAT_WORK_PIXELS:
+        import cv2
+
+        k = math.sqrt(layers.FLOAT_WORK_PIXELS / (w * h))
+        small = cv2.resize(arr, (max(1, int(w * k)), max(1, int(h * k))), interpolation=cv2.INTER_AREA)
+        del arr
+        res = develop_np.develop(small, p["adjust"], p["curve"], p["spots"], scale=scale * k, inplace=True)
+        out = cv2.resize(res, (w, h), interpolation=cv2.INTER_LANCZOS4)
+        ctx["notes"].append("عکس بزرگ است؛ ظهور روی نسخهٔ ۱۶ مگاپیکسلی انجام و بزرگ شد")
+    else:
+        out = develop_np.develop(arr, p["adjust"], p["curve"], p["spots"], scale=scale, inplace=True)
+    res_img = Image.fromarray(np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8), "RGB")
+    return _with_alpha(res_img, alpha)
+
+
+def op_compose(img, p, ctx):
+    from . import layers
+
+    return layers.compose(img, p["layers"], ctx, project=int(p.get("project") or 0))
+
+
+def op_perspective(img, p, ctx):
+    """اصلاحِ پرسپکتیو/کیستون: چهارضلعیِ tl,tr,br,bl (نسبی) ⇐ مستطیل."""
+    import cv2
+
+    pts = [p[k] for k in ("tl", "tr", "br", "bl")]
+    full = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    if all(abs(a[0] - b[0]) < 1e-4 and abs(a[1] - b[1]) < 1e-4 for a, b in zip(pts, full)):
+        return img
+    w, h = img.size
+    src = np.float32([[x * w - 0.5, y * h - 0.5] for x, y in pts])
+
+    def dist(a, b):
+        return math.hypot((a[0] - b[0]) * w, (a[1] - b[1]) * h)
+
+    ow = (dist(pts[0], pts[1]) + dist(pts[3], pts[2])) / 2
+    oh = (dist(pts[0], pts[3]) + dist(pts[1], pts[2])) / 2
+    k = min(1.0, 8000 / max(ow, oh, 1))
+    ow, oh = max(8, int(round(ow * k))), max(8, int(round(oh * k)))
+    dst = np.float32([[-0.5, -0.5], [ow - 0.5, -0.5], [ow - 0.5, oh - 0.5], [-0.5, oh - 0.5]])
+    m = cv2.getPerspectiveTransform(src, dst)
+    arr = np.asarray(img.convert("RGBA") if img.mode == "RGBA" else img.convert("RGB"))
+    out = cv2.warpPerspective(arr, m, (ow, oh), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return Image.fromarray(out, "RGBA" if img.mode == "RGBA" else "RGB")
+
+
 OPS = {
     "auto_tone": op_auto_tone, "color": op_color, "look": op_look, "rotate": op_rotate,
     "crop_format": op_crop_format, "crop_rect": op_crop_rect, "resize": op_resize, "text": op_text, "logo": op_logo, "watermark": op_watermark,
+    "develop": op_develop, "compose": op_compose, "perspective": op_perspective,
 }
 
 
 def run(img: Image.Image, ops: list[dict], ctx: dict) -> tuple[Image.Image, dict]:
     """کارهای سرورِ سایت به ترتیب ⇐ (تصویر، تنظیماتِ خروجی). «export» فقط قالب را تعیین می‌کند."""
     ctx.setdefault("notes", [])
+    ctx.setdefault("scale", 1.0)      # اندازهٔ کار به اندازهٔ اصل (پیش‌نمایش < ۱) — شعاعِ شارپ و اندازهٔ دانه در develop
     export = None
     for o in ops:
         if o["tool"] == "export":

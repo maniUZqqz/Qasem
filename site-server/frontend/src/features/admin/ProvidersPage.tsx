@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
+import AiPriorityCard from "../ai/AiPriorityCard";
 import {
   Alert,
   Badge,
@@ -103,6 +104,8 @@ export default function ProvidersPage() {
   return (
     <div className="space-y-4">
       <ErrorBox message={error} />
+
+      <AiPriorityCard />
 
       {status.any_external && (
         <Alert tone="info" title="بعضی قابلیت‌ها بیرون از این سرور اجرا می‌شوند">

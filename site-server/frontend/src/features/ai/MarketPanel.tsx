@@ -13,6 +13,7 @@ import {
 } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { CompetitorInfo, Job, MarketResearch } from "../../types";
+import AnswerChip, { type AiAnswer } from "./AnswerChip";
 
 const CONFIDENCE_LABEL: Record<MarketResearch["confidence"], string> = {
   LOW: "اطمینان پایین (ورودی واقعی کم بود)",
@@ -164,9 +165,12 @@ export default function MarketPanel({ productId }: { productId: number }) {
 
       {research && conclusions && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="font-bold text-slate-700">سطح اطمینان:</span>
-            <Chip>{CONFIDENCE_LABEL[research.confidence]}</Chip>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="flex items-center gap-2">
+              <span className="font-bold text-slate-700">سطح اطمینان:</span>
+              <Chip>{CONFIDENCE_LABEL[research.confidence]}</Chip>
+            </span>
+            <AnswerChip answer={(research as typeof research & { answer?: AiAnswer | null }).answer} />
           </div>
           {conclusions.strategy_summary && (
             <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700">

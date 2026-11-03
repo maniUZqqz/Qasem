@@ -277,14 +277,35 @@ class GatewayRoutingTests(Base):
         with self.assertRaises(OllamaUnavailable):
             prov.generate(CODER, 'x')
 
-    def test_metis_only_mode_skips_routing(self):
-        AiSettings.objects.filter(pk=1).update(route_mode='metis_only')
-        self.assertFalse(routing.wants_node())
+    def test_metis_first_asks_metis_before_the_node(self):
+        """«فقط Metis» دیگر وجود ندارد: ترتیب را تنظیمِ واحد (apps.ai.AiPriority) می‌گوید و لوکال پشتیبان می‌ماند."""
+        from apps.ai.models import AiPriority
+        row = AiPriority.get()
+        row.priority = 'metis_first'
+        row.save()
+        self.assertEqual(routing.mode(), 'metis_only')
+        self.assertTrue(routing.wants_node())
         n = self.node()
-        self.assertTrue(n)
-        with mock.patch.object(gateway, 'client', return_value='direct') as c:
-            self.assertEqual(gateway.text_provider(None), 'direct')
-        c.assert_called_once()
+        metis = FakeMetis()
+        prov = self.routed(metis)
+        with self.sleeping(lambda s: self.fail('نباید منتظر گره بماند')):
+            self.assertEqual(prov.generate(CODER, 'x'), 'پاسخ از Metis')
+        self.assertEqual(ComputeJob.objects.count(), 0)
+        self.assertFalse(prov.fell_back)                      # متیس انتخابِ اول بود، پشتیبان نیست
+        self.assertEqual(prov.answered_via, 'metis')
+        # متیس بیفتد ⇒ همان لحظه گره
+        from services.ai.ollama import OllamaError
+
+        class NoCredit(FakeMetis):
+            def generate(self, prompt, *, model=None, **kw):
+                raise OllamaError('خطای سرویس 402: no credit')
+
+        prov2 = self.routed(NoCredit())
+        with self.sleeping(FakeNode(n)):
+            self.assertEqual(prov2.generate(CODER, 'x'), 'سلام از Qwen')
+        self.assertTrue(prov2.fell_back)
+        self.assertEqual(prov2.answered_by, CODER)
+        self.assertIn('۴۰۲', prov2.fallback_reason)
 
     def test_gateway_returns_routed_and_respects_policy(self):
         prov = gateway.text_provider(None)
@@ -294,10 +315,11 @@ class GatewayRoutingTests(Base):
         self.assertIsInstance(customer, routing.RoutedTextProvider)
         self.assertIsNone(customer.fallback)
 
-    def test_vision_untouched(self):
-        with mock.patch.object(gateway, 'client', return_value='vision-direct') as c:
-            self.assertEqual(gateway.vision_provider(None), 'vision-direct')
-        self.assertEqual(c.call_args[0][0], 'VISION')
+    def test_vision_is_two_path_too(self):
+        """بینایی هم مثل متن: لوکال (qwen3-vl) و متیس، ترتیب از تنظیم."""
+        prov = gateway.vision_provider(None)
+        self.assertIsInstance(prov, routing.RoutedTextProvider)
+        self.assertEqual(prov.kind, routing.VISION)
 
 
 class StudioRoutingTests(Base):
@@ -311,8 +333,12 @@ class StudioRoutingTests(Base):
     def test_get_provider_choice(self):
         self.assertIsInstance(studio_providers.get_provider(self.cfg), studio_providers.RoutedProvider)
         self.assertIsInstance(studio_providers.get_provider(self.cfg, direct=True), studio_providers.OpenAIProvider)
-        AiSettings.objects.filter(pk=1).update(route_mode='metis_only')
-        self.assertIsInstance(studio_providers.get_provider(self.cfg), studio_providers.OpenAIProvider)
+        # «اول متیس» هم مسیریابی را نگه می‌دارد (لوکال پشتیبان است)
+        from apps.ai.models import AiPriority
+        row = AiPriority.get()
+        row.priority = 'metis_first'
+        row.save()
+        self.assertIsInstance(studio_providers.get_provider(self.cfg), studio_providers.RoutedProvider)
         self.cfg.provider = 'mock'
         self.assertIsInstance(studio_providers.get_provider(self.cfg), studio_providers.MockProvider)
 

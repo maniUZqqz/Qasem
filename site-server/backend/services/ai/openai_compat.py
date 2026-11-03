@@ -80,6 +80,9 @@ class OpenAICompatProvider:
         self.model = model
         self.timeout = timeout or DEFAULT_TIMEOUT
         self.options = options or {}
+        # how many times a timeout / 5xx / connection error is retried. The two-path router sets 0 when the other
+        # path is available, so a dead API costs one attempt, not three (services/ai/routing.py).
+        self.retries = RETRIES
 
     # ------------------------------------------------------------------
 
@@ -158,7 +161,7 @@ class OpenAICompatProvider:
         wait = timeout or self.timeout
         last: Exception | None = None
 
-        for attempt in range(1, RETRIES + 2):
+        for attempt in range(1, self.retries + 2):
             started = time.monotonic()
             try:
                 response = requests.post(
@@ -189,7 +192,7 @@ class OpenAICompatProvider:
                     )
                     return strip_reasoning(text)
 
-            if attempt <= RETRIES:
+            if attempt <= self.retries:
                 time.sleep(BACKOFF ** attempt)
 
         raise last or OllamaError("سرویس هوش مصنوعی پاسخ نداد.")

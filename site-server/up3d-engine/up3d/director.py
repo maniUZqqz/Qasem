@@ -69,6 +69,13 @@ def _client(settings):
 
 
 def _chat(settings, messages):
+    chat = settings.get('chat')
+    if callable(chat):
+        # مسیریابیِ دوگانه (لوکال ⇄ متیس) را پنل می‌دهد: apps.up3d.models.AiSettings.routed_llm
+        try:
+            return chat(messages, settings.get('temperature', 0.7))
+        except Exception as e:  # noqa: BLE001
+            raise DirectorError('مدل پاسخ نداد: %s' % str(e)[:300]) from e
     client = _client(settings)
     kw = {'model': settings.get('model') or 'gpt-4o-mini', 'messages': messages}
     temp = settings.get('temperature', 0.7)

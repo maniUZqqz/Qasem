@@ -15,6 +15,7 @@ import {
   Store,
   TicketInfo,
 } from "../../types";
+import AnswerChip, { type AiAnswer } from "../ai/AnswerChip";
 
 interface Bubble {
   role: "CUSTOMER" | "AI" | "SYSTEM";
@@ -24,6 +25,7 @@ interface Bubble {
   orderError?: string | null;
   paymentRequest?: { order_id: number; payment_info: string } | null;
   ticket?: TicketInfo | null;
+  answer?: AiAnswer | null;
 }
 
 const STATE_LABEL: Record<ConversationState, string> = {
@@ -217,6 +219,7 @@ export default function ChatPage() {
             orderError: data.order_error ?? null,
             paymentRequest: data.payment_request ?? null,
             ticket: data.ticket ?? null,
+            answer: (data as ChatResponse & { answer?: AiAnswer | null }).answer ?? null,
           },
         ]);
       } else if (data.note) {
@@ -350,6 +353,11 @@ export default function ChatPage() {
                   }`}
                 >
                   {bubble.text}
+                </div>
+              )}
+              {bubble.role === "AI" && bubble.answer && (
+                <div className="mt-1 ml-auto max-w-[80%]">
+                  <AnswerChip answer={bubble.answer} />
                 </div>
               )}
               {bubble.products && bubble.products.length > 0 && (

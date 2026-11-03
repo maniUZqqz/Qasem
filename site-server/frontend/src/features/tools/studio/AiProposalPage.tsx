@@ -139,7 +139,12 @@ export default function AiProposalPage() {
         </div>
         {prop.answered_by && (
           <p className="mt-2 text-sm" data-testid="answered-by" style={{ color: prop.fallback_note ? "var(--warn)" : "var(--text-2)" }}>
-            {prop.fallback_note ? (
+            {prop.answered_label ? (
+              <>
+                جواب از: <b dir="ltr">{prop.answered_label}</b>
+                {prop.fallback_note ? <> — چون {prop.fallback_note}</> : null}
+              </>
+            ) : prop.fallback_note ? (
               <>این پاسخ را <b dir="ltr">{prop.answered_by}</b> (Metis) داد، چون {prop.fallback_note}</>
             ) : (
               <>این پاسخ را <b dir="ltr">{prop.answered_by}</b> روی سرورِ پردازش داد.</>

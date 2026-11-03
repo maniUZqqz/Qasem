@@ -104,3 +104,47 @@ class PhotoEdit(TimeStampedModel):
     @property
     def active(self) -> bool:
         return self.state in self.ACTIVE
+
+
+class PhotoProject(TimeStampedModel):
+    """پروژهٔ غیرمخربِ ادیتورِ حرفه‌ای: یک عکسِ پایه + لایه‌ها، ماسک‌ها و تنظیم‌ها به‌صورتِ JSON.
+
+    ``data`` همان وضعیتِ ادیتور است (develop، هندسه، لایه‌ها، خروجی…)؛ فقط ``layers`` سمتِ سرور وارسی می‌شود و بقیه مات
+    می‌ماند. ماسک‌های رنگ‌آمیزی‌شده فایلِ PNG ِ خاکستری در ``dir_rel`` هستند (mask-<id>.png). ``rev`` با هر ذخیره بالا می‌رود
+    (برای تشخیصِ ذخیرهٔ هم‌زمان از دو تب).
+    """
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="photo_projects")
+    asset = models.ForeignKey(PhotoAsset, on_delete=models.CASCADE, related_name="projects")
+    title = models.CharField("عنوان", max_length=200, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    rev = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        verbose_name = "پروژهٔ ادیتورِ عکس"
+        verbose_name_plural = "پروژه‌های ادیتورِ عکس"
+
+    def __str__(self):
+        return self.title or f"project #{self.pk}"
+
+    @property
+    def dir_rel(self) -> str:
+        return f"{self.asset.dir_rel}/p{self.pk}"
+
+
+class PhotoPreset(TimeStampedModel):
+    """پیش‌تنظیمِ شخصیِ فروشگاه: لغزنده‌ها، منحنی، فیلتر، لایه‌های روکش (لوگو، متن، واترمارک) و خروجی."""
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="photo_presets")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name="+")
+    name = models.CharField("نام", max_length=80)
+    kind = models.CharField(max_length=20, default="develop")
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["name", "pk"]
+        verbose_name = "پیش‌تنظیمِ عکس"
+        verbose_name_plural = "پیش‌تنظیم‌های عکس"
+
+    def __str__(self):
+        return self.name

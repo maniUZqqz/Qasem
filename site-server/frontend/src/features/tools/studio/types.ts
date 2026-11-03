@@ -228,6 +228,8 @@ export type ProposalT = {
   error: string;
   provider_model: string;
   answered_by?: string;
+  answered_via?: string;
+  answered_label?: string;
   fallback_note?: string;
   calls: number;
   created_at: string | null;

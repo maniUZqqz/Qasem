@@ -4,6 +4,8 @@ Every feature that uses this works **without** it (heuristics first); the model
 is asked only to *confirm* or *rank* what the heuristic already found, and only
 when a text provider is actually reachable. A dead GPU node therefore costs one
 fast health probe (cached for a minute), not a two-minute timeout per request.
+With the two-path router (local ⇄ Metis) "reachable" means at least one of the two paths
+can be tried right now — decided from the database, never by calling Metis or the node.
 
 Uses the existing gateway (policy check, provider choice) and
 ``recorded_json_call`` (audit row per attempt) without changing either.
@@ -30,10 +32,15 @@ def status(store) -> tuple[bool, str]:
     if cached is not None:
         return tuple(cached)
     try:
-        from services.ai import factory, gateway, providers
+        from services.ai import factory, gateway, providers, routing
 
-        resolved = gateway.resolve(providers.TEXT, store)
-        ok, note = factory.health(resolved)
+        provider = gateway.text_provider(store)
+        if isinstance(provider, routing.RoutedTextProvider):
+            # دو مسیر (لوکال/متیس): کافی است یکی قابل‌استفاده باشد؛ بی‌هیچ درخواستی به متیس یا گره
+            ok, note = provider.availability()
+        else:
+            resolved = gateway.resolve(providers.TEXT, store)
+            ok, note = factory.health(resolved)
     except Exception as exc:  # noqa: BLE001 — "not available" is the answer
         ok, note = False, f"{type(exc).__name__}: {exc}"
     result = (bool(ok), str(note)[:300])

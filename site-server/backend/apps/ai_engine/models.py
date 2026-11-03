@@ -35,7 +35,10 @@ class AiSettings(models.Model):
     max_tokens = models.PositiveIntegerField(default=6000, verbose_name='حداکثر توکنِ پاسخ')
     timeout_s = models.PositiveIntegerField(default=120, verbose_name='مهلت (ثانیه)')
     ROUTE_MODES = [('qwen_first', 'اول Qwen روی سرورِ پردازش؛ اگر نبود Metis'), ('metis_only', 'فقط Metis')]
-    route_mode = models.CharField(max_length=12, choices=ROUTE_MODES, default='qwen_first', verbose_name='کارهای متن و کد کجا انجام شوند')
+    # ⚠ منسوخ (۱۴۰۵/۰۸/۱۲): اولویتِ لوکال/متیس حالا یک تنظیمِ واحد برای کلِ NM است — apps.ai.AiPriority
+    # (جنگو ادمین ⇐ «اولویتِ هوش مصنوعی» و پنل ⇐ ادمین ⇐ موتورهای AI). این ستون فقط برای خواندنِ مقدارِ قدیمی در
+    # مهاجرتِ تنظیم مانده؛ هیچ مسیریابی‌ای از آن نمی‌خواند.
+    route_mode = models.CharField(max_length=12, choices=ROUTE_MODES, default='qwen_first', verbose_name='(منسوخ) کارهای متن و کد کجا انجام شوند')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -95,6 +98,7 @@ class AiProposal(models.Model):
     error = models.TextField(blank=True, verbose_name='خطا')
     provider_model = models.CharField(max_length=120, blank=True, verbose_name='سرویس/مدل')
     answered_by = models.CharField(max_length=120, blank=True, verbose_name='مدلی که جواب داد')
+    answered_via = models.CharField(max_length=8, blank=True, default='', verbose_name='جواب از (لوکال/متیس)')
     fallback_note = models.CharField(max_length=400, blank=True, verbose_name='چرا جایگزین')
     calls = models.PositiveIntegerField(default=0, verbose_name='تعدادِ فراخوانی')
     created_at = models.DateTimeField(auto_now_add=True)

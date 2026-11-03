@@ -5,11 +5,12 @@ right shape for «کوتاهش کن، روشنش کن» and the wrong shape the 
 wants two clips side by side, a logo in the corner for the last five seconds,
 and music under all of it. This is that second shape.
 
-**A timeline is tracks, and a track is clips on a clock.** Nothing here renders:
-it produces an ffmpeg filtergraph, and `render` still does the work. Keeping
-the description separate from the execution is what lets the panel show a shop
-what will happen before a single frame is encoded — the same reason `plan` and
-`apply` are separate endpoints.
+**A timeline is tracks, and a track is clips on a clock.** This module is the
+DATA (what the panel's JSON becomes, validated and clamped); `compose.py` turns
+it into one ffmpeg filtergraph and `export.py` runs it. Keeping the description
+separate from the execution is what lets the panel show a shop what will
+happen before a single frame is encoded — the same reason `plan` and `apply`
+are separate endpoints.
 
 **Proxy editing exists because of what a shop's phone produces.** A three-minute
 4K clip is gigabytes, and every preview render of it costs minutes the shop
@@ -23,21 +24,28 @@ only shows up on the final render, after the shop approved something else.
 `PROXY_FPS` is therefore **not** set: the proxy keeps the source's timebase and
 only loses resolution.
 
-**What the panel's «دستی» workspace adds on top (Premiere-style):** a clip can carry its own sound
-(`has_audio`, `volume`, fades), a speed, a fit (`cover`/`contain`/`stretch`), a handful of picture effects
-(`effects`, the same toolbox as `tools.py`), a transition into it from the previous clip, and a track can hold
-text (`TextClip`). Stills are clips too (`kind="image"`). `from_project` turns the panel's JSON into a Timeline,
-resolving every `ref` through a callback — the browser never names a file path.
+**What the panel's «دستی» workspace adds on top (Premiere/CapCut-style):** a clip can carry its own sound
+(`has_audio`, `volume`, fades, EQ, pan), a speed (or a keyframed speed ramp, reverse, freeze), a fit, picture effects
+and a Lumetri-style colour block, keyframed position/scale/rotation/opacity/crop/volume, chroma key, blend mode, a
+mask, a transition into it (xfade library), and a track can hold titles/captions (`TextClip`, rendered by libass).
+Stills are clips too (`kind="image"`). `from_project` turns the panel's JSON into a Timeline, resolving every `ref`
+through a callback — the browser never names a file path.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import re
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import color as color_module
+from . import keyframes
+from .errors import TimelineError
+
 logger = logging.getLogger(__name__)
+
+__all__ = ["TimelineError"]
 
 #: Small enough to render in seconds, large enough to judge framing and read
 #: any text burnt into the picture.
@@ -49,13 +57,19 @@ PROXY_PRESET = "veryfast"
 
 #: More than this and the filtergraph takes longer to assemble than the render
 #: it describes, and nobody is hand-building a 40-track edit in this panel.
-MAX_TRACKS = 8
+MAX_TRACKS = 12
 MAX_CLIPS = 120
 
 FITS = ("stretch", "cover", "contain")
 TRACK_KINDS = ("video", "audio", "text")
-TRANSITIONS = ("fade", "crossfade")
+ROLES = ("", "speech", "music", "sfx")
 TEXT_POSITIONS = ("top", "middle", "bottom")
+BLENDS = ("normal", "multiply", "screen", "overlay", "add", "softlight", "lighten", "darken", "difference")
+EQ_PRESETS = ("flat", "voice", "bright", "warm", "phone", "bass_cut", "bass_boost", "deess")
+MASK_SHAPES = ("none", "rect", "ellipse")
+
+#: Legacy transition kinds ("fade" = dip to black, "crossfade" = dissolve) + the xfade library.
+LEGACY_TRANSITIONS = ("fade", "crossfade")
 
 #: Picture tools that make sense on ONE clip (the rest — cut, trim_silence, zoom, fade, transition, stabilize,
 #: crop_format, denoise_audio, normalize_audio, subtitle, speed, watermark — act on the whole program or are native
@@ -63,11 +77,58 @@ TEXT_POSITIONS = ("top", "middle", "bottom")
 CLIP_EFFECT_TOOLS = ("brightness", "contrast", "saturation", "white_balance", "deflicker", "sharpen", "vignette",
                      "blur_region", "rotate")
 
+#: keyframe channels → (min, max)
+KF_CHANNELS = {
+    "px": (-2.0, 2.0), "py": (-2.0, 2.0), "scale": (0.05, 8.0), "rot": (-720.0, 720.0), "opacity": (0.0, 1.0),
+    "volume": (0.0, 3.0), "crop_l": (0.0, 0.95), "crop_r": (0.0, 0.95), "crop_t": (0.0, 0.95), "crop_b": (0.0, 0.95),
+}
+
+#: a speed ramp is played as this many constant-speed steps (the browser mirrors it, so lengths agree to the frame)
+RAMP_STEPS = 16
+
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-class TimelineError(Exception):
-    """Something about the arrangement cannot be rendered, said in Persian."""
+def transitions_all() -> tuple[str, ...]:
+    from . import transitions
+
+    return LEGACY_TRANSITIONS + tuple(transitions.XFADE)
+
+
+# ----------------------------------------------------------------- speed ramp
+
+
+def ramp_speeds(ramp: list[dict]) -> list[float]:
+    """The speed of each of the RAMP_STEPS equal slices of the used source range (linear between keys, clamped)."""
+    keys = sorted(({"p": float(k["p"]), "v": float(k["v"])} for k in ramp), key=lambda k: k["p"])
+    out = []
+    for i in range(RAMP_STEPS):
+        p = (i + 0.5) / RAMP_STEPS
+        if p <= keys[0]["p"]:
+            v = keys[0]["v"]
+        elif p >= keys[-1]["p"]:
+            v = keys[-1]["v"]
+        else:
+            v = keys[-1]["v"]
+            for a, b in zip(keys, keys[1:]):
+                if a["p"] <= p <= b["p"]:
+                    u = (p - a["p"]) / max(1e-9, b["p"] - a["p"])
+                    v = a["v"] + (b["v"] - a["v"]) * u
+                    break
+        out.append(max(0.1, min(8.0, v)))
+    return out
+
+
+def cut_segments(segs: list[tuple[float, float, float]], x0: float, x1: float) -> list[tuple[float, float, float]]:
+    """The part of a (source-order) segment list that plays between timeline seconds x0 and x1 (of the un-reversed run)."""
+    out, cum = [], 0.0
+    for a, b, v in segs:
+        dur = (b - a) / v
+        lo, hi = max(x0, cum), min(x1, cum + dur)
+        if hi - lo > 1e-4:
+            out.append((a + (lo - cum) * v, a + (hi - cum) * v, v))
+        cum += dur
+    return out
 
 
 @dataclass
@@ -104,22 +165,65 @@ class Clip:
     fade_out: float = 0.0
     #: Validated picture effects (tools.Operation-style dicts: {"tool", "params"}).
     effects: list = field(default_factory=list)
-    #: How this clip comes in from the previous one on its track: {"kind": "fade"|"crossfade", "duration": s}.
+    #: How this clip comes in from the previous one on its track: {"kind": …, "duration": s}.
     transition: dict | None = None
-    #: Seconds the previous clip is held on its last frame under a crossfade (set by `_resolve_transitions`).
+    #: Seconds the previous clip is held on its last frame under a crossfade (legacy; the xfade path uses handles).
     hold: float = 0.0
+    # ---- the "pro" fields (all optional; the defaults are a plain clip)
+    rot: float = 0.0
+    scale: float = 1.0
+    px: float = 0.0
+    py: float = 0.0
+    flip_h: bool = False
+    flip_v: bool = False
+    blend: str = "normal"
+    crop: dict = field(default_factory=dict)
+    mask: dict = field(default_factory=dict)
+    kf: dict = field(default_factory=dict)
+    chroma: dict = field(default_factory=dict)
+    color: dict = field(default_factory=dict)
+    ramp: list = field(default_factory=list)
+    reverse: bool = False
+    freeze: bool = False
+    link: str = ""
+    audio: dict = field(default_factory=dict)
+    #: Explicit (source_a, source_b, speed) list — set by `window()` when a ramp clip is cut; wins over `ramp`.
+    segs: list | None = None
+    #: Length of the whole source file (0 = unknown) — how much footage exists beyond the in/out points (handles).
+    src_len: float = 0.0
 
     @property
     def source_length(self) -> float:
         return (self.end - self.start) if self.end is not None else 0.0
 
+    def segments(self) -> list[tuple[float, float, float]]:
+        """Source-order (a, b, speed) pieces that make up the clip (one piece unless it is ramped)."""
+        if self.end is None:
+            return []
+        if self.segs:
+            return [tuple(s) for s in self.segs]
+        if self.ramp and len(self.ramp) >= 2 and self.kind != "image" and not self.freeze:
+            speeds = ramp_speeds(self.ramp)
+            n = len(speeds)
+            span = (self.end - self.start) / n
+            return [(self.start + i * span, self.start + (i + 1) * span, v) for i, v in enumerate(speeds)]
+        return [(self.start, self.end, self.speed or 1.0)]
+
     @property
     def length(self) -> float:
+        if self.freeze or self.kind == "image":
+            return max(0.0, self.source_length)
+        if self.segs or self.ramp:
+            return sum((b - a) / v for a, b, v in self.segments())
         return self.source_length / (self.speed or 1.0)
 
     @property
     def ends_at(self) -> float:
         return self.at + self.length
+
+    @property
+    def animated(self) -> bool:
+        return any(self.kf.get(k) for k in ("px", "py", "scale", "rot"))
 
     def validate(self, index: int) -> None:
         where = self.label or f"قطعه‌ی {index + 1}"
@@ -140,19 +244,21 @@ class Clip:
             raise TimelineError(f"{where}: اندازه باید بین ۰ و ۱ باشد.")
         if self.x + self.width > 1.001 or self.y + self.height > 1.001:
             raise TimelineError(f"{where}: از لبه‌ی کادر بیرون می‌زند.")
-        if not 0.25 <= self.speed <= 4:
+        if not self.segs and not self.ramp and not 0.25 <= self.speed <= 4:
             raise TimelineError(f"{where}: سرعت باید بین ۰٫۲۵ و ۴ برابر باشد.")
         if not 0 <= self.volume <= 3:
             raise TimelineError(f"{where}: بلندی صدا باید بین ۰ و ۳ برابر باشد.")
         if self.fit not in FITS:
             raise TimelineError(f"{where}: روش جا دادن باید یکی از {'، '.join(FITS)} باشد.")
+        if self.blend not in BLENDS:
+            raise TimelineError(f"{where}: حالتِ ترکیب نامعتبر است.")
         if self.fade_in < 0 or self.fade_out < 0 or self.fade_in + self.fade_out > max(self.length, 0.01) + 0.001:
             raise TimelineError(f"{where}: محو شدنِ ابتدا و انتها از طولِ قطعه بیشتر است.")
 
 
 @dataclass
 class TextClip:
-    """A line of text on the picture for a while. Lives on a track of kind "text"."""
+    """A title / caption for a while. Lives on a track of kind "text"; rendered by libass (`titles.py`)."""
 
     text: str
     at: float
@@ -167,6 +273,8 @@ class TextClip:
     kind: str = "text"
     source: str = ""
     start: float = 0.0
+    #: The cleaned `titles.clean` dict (None ⇒ built from the fields above on demand).
+    spec: dict | None = None
 
     @property
     def end(self) -> float:
@@ -184,11 +292,22 @@ class TextClip:
     def ends_at(self) -> float:
         return self.at + self.duration
 
+    def style(self) -> dict:
+        """The cleaned titles dict for this clip, with the CURRENT at/duration."""
+        from . import titles
+
+        if self.spec is not None:
+            return {**self.spec, "at": self.at, "duration": self.duration}
+        return titles.clean({
+            "text": self.text, "at": self.at, "duration": self.duration, "position": self.position, "size": self.size,
+            "color": self.color, "box": self.box, "opacity": self.opacity, "label": self.label,
+        })
+
     def validate(self, index: int) -> None:
         where = self.label or f"متن {index + 1}"
         if self.at < 0 or self.duration <= 0:
             raise TimelineError(f"{where}: زمان یا مدتِ متن درست نیست.")
-        if not self.text.strip():
+        if not (self.text or "").strip() and not ((self.spec or {}).get("text2") or "").strip():
             raise TimelineError(f"{where}: متن خالی است.")
         if self.position not in TEXT_POSITIONS:
             raise TimelineError(f"{where}: جای متن باید یکی از {'، '.join(TEXT_POSITIONS)} باشد.")
@@ -204,6 +323,12 @@ class Track:
     name: str = ""
     clips: list = field(default_factory=list)
     muted: bool = False
+    hidden: bool = False
+    solo: bool = False
+    gain_db: float = 0.0
+    pan: float = 0.0
+    role: str = ""
+    caption: bool = False
 
     @property
     def length(self) -> float:
@@ -230,6 +355,12 @@ class Timeline:
     width: int = 1080
     height: int = 1920
     fps: int = 30
+    markers: list = field(default_factory=list)
+    inout: dict | None = None
+    master: dict = field(default_factory=lambda: {"gain_db": 0.0, "limiter": True})
+    ducking: dict = field(default_factory=lambda: {"on": False, "amount_db": 12.0, "threshold": 0.04,
+                                                    "attack_ms": 40.0, "release_ms": 500.0})
+    export: dict = field(default_factory=dict)
 
     @property
     def length(self) -> float:
@@ -239,7 +370,7 @@ class Timeline:
     def clip_count(self) -> int:
         return sum(len(t.clips) for t in self.tracks)
 
-    def validate(self) -> None:
+    def validate(self, *, need_base: bool = True) -> None:
         if not self.tracks:
             raise TimelineError("تایم‌لاین خالی است.")
         if len(self.tracks) > MAX_TRACKS:
@@ -250,7 +381,7 @@ class Timeline:
         video_tracks = [t for t in self.tracks if t.kind == "video"]
         if not video_tracks:
             raise TimelineError("حداقل یک ترک تصویر لازم است.")
-        if not video_tracks[0].clips:
+        if need_base and not video_tracks[0].clips:
             raise TimelineError("ترک اصلی تصویر هیچ قطعه‌ای ندارد.")
 
         for track in self.tracks:
@@ -265,6 +396,22 @@ class Timeline:
                     f"{second.label or 'قطعه'} از {second.at:.1f}). "
                     "یکی را جابه‌جا کنید یا ترک تازه بسازید."
                 )
+        self._check_reverse()
+
+    def _check_reverse(self) -> None:
+        """`reverse` buffers every frame in memory: bound it by what a 3 GB server can hold."""
+        budget = 600e6
+        for track in self.tracks:
+            for clip in track.clips:
+                if getattr(clip, "reverse", False) and clip.kind == "video":
+                    bw, bh = max(2, int(self.width * clip.width)), max(2, int(self.height * clip.height))
+                    frames = clip.length * self.fps
+                    if frames * bw * bh * 1.5 > budget:
+                        most = budget / (bw * bh * 1.5 * self.fps)
+                        raise TimelineError(
+                            f"«{clip.label or 'قطعه'}»: برای وارونه‌کردن در این اندازه‌ی قاب حداکثر "
+                            f"{most:.0f} ثانیه جا دارد؛ قطعه را کوتاه‌تر کنید."
+                        )
 
     def gaps(self) -> list[tuple[float, float]]:
         """Moments the base video track shows nothing.
@@ -313,12 +460,7 @@ class Timeline:
         }
 
 
-# -------------------------------------------------------------- filtergraph
-
-#: Substituted by `render` with the path of a text file per text clip (drawtext's own escaping rejects '%', quotes
-#: and commas; `expansion=none` + a textfile carries any string untouched — the same trick the watermark uses).
-TEXTFILE_TOKEN = "__TEXTFILE_{n}__"
-
+# -------------------------------------------------------------------- helpers
 
 def _f(value) -> str:
     return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
@@ -338,8 +480,8 @@ def _atempo(factor: float) -> str:
 
 
 def wrap_text(text: str, frame_width: int, frame_height: int, size_pct: float) -> str:
-    """drawtext does not wrap: a long line runs off both edges. Break it at spaces so each line fits ~88 % of the
-    frame width (Vazirmatn averages about half an em per character)."""
+    """Kept for callers of the old drawtext path: break a long line at spaces so each fits ~88 % of the frame width.
+    (Titles are laid out by libass now; this is no longer used by the renderer.)"""
     font_px = max(8.0, frame_height * max(1.0, min(20.0, size_pct)) / 100)
     limit = max(6, int(frame_width * 0.88 / (font_px * 0.5)))
     out: list[str] = []
@@ -366,179 +508,11 @@ def _effect_fragment(effect: dict) -> str:
     return tool.build(dict(effect.get("params") or {}))
 
 
-def _resolve_transitions(timeline: Timeline) -> None:
-    """A crossfade holds the previous clip's last frame under the incoming fade; a «fade» dips both to black."""
-    for track in timeline.tracks:
-        if track.kind != "video":
-            continue
-        ordered = sorted(track.clips, key=lambda c: c.at)
-        for clip in ordered:
-            clip.hold = 0.0
-        for earlier, later in zip(ordered, ordered[1:]):
-            tr = later.transition
-            if not tr or abs(later.at - earlier.ends_at) > 0.15:
-                continue
-            d = max(0.1, min(float(tr.get("duration", 0.5)), 2.0, later.length, 3.0))
-            if tr.get("kind") == "crossfade":
-                earlier.hold = max(earlier.hold, d)
-            else:
-                earlier.fade_out = max(earlier.fade_out, min(d / 2, earlier.length))
+def build_graph(timeline: Timeline, **kwargs):
+    """The whole filtergraph plus what `render` needs to run it (see compose.py)."""
+    from . import compose
 
-
-@dataclass
-class Graph:
-    inputs: list[str]
-    input_args: list[list[str]]
-    graph: str
-    texts: dict[str, str]
-    has_audio: bool
-
-
-def build_graph(timeline: Timeline) -> Graph:
-    """The whole filtergraph plus what `render` needs to run it."""
-    timeline.validate()
-    _resolve_transitions(timeline)
-
-    inputs: list[str] = []
-    input_args: list[list[str]] = []
-    parts: list[str] = []
-    index_of: dict[int, int] = {}
-    texts: dict[str, str] = {}
-
-    for track in timeline.tracks:
-        if track.kind == "text":
-            continue
-        for clip in track.clips:
-            index_of[id(clip)] = len(inputs)
-            inputs.append(clip.source)
-            if clip.kind == "image":
-                input_args.append(["-loop", "1", "-framerate", str(timeline.fps), "-t", f"{clip.source_length + clip.hold + 0.5:.3f}"])
-            else:
-                input_args.append([])
-
-    W, H = timeline.width, timeline.height
-    # The canvas. Every video clip is composited onto it, which means a gap in
-    # the base track is black rather than whatever the renderer felt like.
-    parts.append(f"color=c=black:s={W}x{H}:r={timeline.fps}:d={timeline.length:.3f}[base]")
-
-    current = "base"
-    step = 0
-    for track in timeline.tracks:
-        if track.kind == "video":
-            for clip in track.clips:
-                source = index_of[id(clip)]
-                label = f"v{step}"
-                trimmed = f"t{step}"
-                end = clip.end if clip.end is not None else clip.start
-                chain = [
-                    f"trim={clip.start:.3f}:{end:.3f}",
-                    # `setpts` moves the clip so that its first frame carries the timestamp `at` — the same shift
-                    # `adelay` gives the audio below. Without it the clip's own clock starts at 0, and by the time
-                    # the overlay window opens at `at` the input has already played past (a two-second clip placed
-                    # at 3 s never appeared at all).
-                    (f"setpts=(PTS-STARTPTS)/{_f(clip.speed)}+{clip.at:.3f}/TB" if clip.speed != 1.0
-                     else f"setpts=PTS-STARTPTS+{clip.at:.3f}/TB"),
-                ]
-                for effect in clip.effects:
-                    if effect.get("tool") == "rotate":
-                        chain.append(_effect_fragment(effect))
-                bw, bh = int(W * clip.width) // 2 * 2, int(H * clip.height) // 2 * 2
-                if clip.fit == "cover":
-                    chain.append(f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh}")
-                elif clip.fit == "contain":
-                    chain.append(f"scale={bw}:{bh}:force_original_aspect_ratio=decrease,"
-                                 f"pad={bw}:{bh}:(ow-iw)/2:(oh-ih)/2:color=black")
-                else:
-                    chain.append(f"scale={int(W * clip.width)}:{int(H * clip.height)}")
-                chain.append("setsar=1")
-                for effect in clip.effects:
-                    if effect.get("tool") != "rotate":
-                        chain.append(_effect_fragment(effect))
-                if clip.hold > 0:
-                    chain.append(f"tpad=stop_mode=clone:stop_duration={clip.hold:.3f}")
-                fades = []
-                fin = clip.fade_in
-                if clip.transition and clip.transition.get("kind") in TRANSITIONS:
-                    fin = max(fin, min(float(clip.transition.get("duration", 0.5)) / (1 if clip.transition["kind"] == "crossfade" else 2), clip.length))
-                if fin > 0:
-                    fades.append(f"fade=t=in:st={clip.at:.3f}:d={fin:.3f}:alpha=1")
-                if clip.fade_out > 0:
-                    fades.append(f"fade=t=out:st={clip.ends_at - clip.fade_out:.3f}:d={clip.fade_out:.3f}:alpha=1")
-                if fades:
-                    chain.append("format=yuva420p")
-                    chain += fades
-                if clip.opacity < 1:
-                    chain.append(f"format=yuva420p,colorchannelmixer=aa={clip.opacity:.3f}")
-                parts.append(f"[{source}:v]" + ",".join(chain) + f"[{trimmed}]")
-                parts.append(
-                    f"[{current}][{trimmed}]overlay="
-                    f"x={int(W * clip.x)}:"
-                    f"y={int(H * clip.y)}:"
-                    f"enable='between(t,{clip.at:.3f},{clip.ends_at + clip.hold:.3f})':"
-                    f"eof_action=pass[{label}]"
-                )
-                current = label
-                step += 1
-        elif track.kind == "text":
-            from .tools import FONT_FILE
-            from services.video.ffmpeg import filter_path
-
-            for clip in track.clips:
-                label = f"v{step}"
-                token = TEXTFILE_TOKEN.format(n=len(texts))
-                texts[token] = wrap_text(clip.text, W, H, clip.size)
-                y = {"top": "h*0.08", "middle": "(h-text_h)/2", "bottom": "h-text_h-h*0.08"}[clip.position]
-                size = _f(max(1.0, min(20.0, clip.size)) / 100)
-                box = ":box=1:boxcolor=black@0.45:boxborderw='h*0.012'" if clip.box else ""
-                colour = clip.color.lstrip("#")
-                parts.append(
-                    f"[{current}]drawtext=fontfile={filter_path(FONT_FILE)}:expansion=none:textfile={token}"
-                    f":x=(w-text_w)/2:y={y}:text_align=center:fontsize='h*{size}':fontcolor=0x{colour}@{_f(clip.opacity)}{box}"
-                    f":enable='between(t,{clip.at:.3f},{clip.ends_at:.3f})'[{label}]"
-                )
-                current = label
-                step += 1
-
-    audio_labels = []
-    step = 0
-    for track in timeline.tracks:
-        if track.kind == "text" or track.muted:
-            continue
-        for clip in track.clips:
-            carries = (track.kind == "audio") or (track.kind == "video" and clip.kind == "video" and clip.has_audio)
-            if not carries:
-                continue
-            source = index_of[id(clip)]
-            label = f"a{step}"
-            end = clip.end if clip.end is not None else clip.start
-            chain = [f"atrim={clip.start:.3f}:{end:.3f}", "asetpts=PTS-STARTPTS"]
-            if clip.speed != 1.0:
-                chain.append(_atempo(clip.speed))
-            if clip.fade_in > 0:
-                chain.append(f"afade=t=in:st=0:d={clip.fade_in:.3f}")
-            if clip.fade_out > 0:
-                chain.append(f"afade=t=out:st={max(0.0, clip.length - clip.fade_out):.3f}:d={clip.fade_out:.3f}")
-            # An audio clip's `opacity` is its level (the original, pre-panel meaning); `volume` multiplies it.
-            level = clip.volume * (clip.opacity if track.kind == "audio" else 1.0)
-            if abs(level - 1.0) > 1e-6:
-                chain.append(f"volume={level:.3f}")
-            ms = int(clip.at * 1000)
-            chain.append(f"adelay={ms}|{ms}")
-            parts.append(f"[{source}:a]" + ",".join(chain) + f"[{label}]")
-            audio_labels.append(f"[{label}]")
-            step += 1
-
-    if audio_labels:
-        parts.append(
-            f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}"
-            # normalize=0: amix otherwise divides by the input count, so a
-            # six-clip timeline came back quieter than any one of its clips.
-            f":duration=longest:dropout_transition=0:normalize=0,"
-            "alimiter=limit=0.95[aout]"
-        )
-
-    parts.append(f"[{current}]null[vout]")
-    return Graph(inputs, input_args, ";".join(parts), texts, bool(audio_labels))
+    return compose.build_graph(timeline, **kwargs)
 
 
 def build_filtergraph(timeline: Timeline) -> tuple[list[str], str]:
@@ -551,45 +525,11 @@ def build_filtergraph(timeline: Timeline) -> tuple[list[str], str]:
     return built.inputs, built.graph
 
 
-#: Draft = look at it fast; final = the delivery settings every other render here uses.
-DRAFT_VIDEO = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+def render(timeline: Timeline, out_path, *, quality: str = "final", **kwargs) -> Path:
+    """Encode the arrangement (see export.py for presets, progress, cancel and range previews)."""
+    from . import export
 
-
-def render(timeline: Timeline, out_path, *, quality: str = "final") -> Path:
-    """Encode the arrangement."""
-    from services.video.ffmpeg import AUDIO_DELIVERY, FFMPEG, VIDEO_DELIVERY, VideoProcessingError, _run, filter_path
-
-    built = build_graph(timeline)
-    out = Path(out_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    graph = built.graph
-    handles: list[Path] = []
-    try:
-        for token, text in built.texts.items():
-            handle = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
-            handle.write(text[:300])
-            handle.close()
-            handles.append(Path(handle.name))
-            graph = graph.replace(token, filter_path(handle.name))
-
-        command = [FFMPEG, "-y"]
-        for source, args in zip(built.inputs, built.input_args):
-            command += [*args, "-i", str(source)]
-        command += ["-filter_complex", graph, "-map", "[vout]"]
-        if built.has_audio:
-            command += ["-map", "[aout]", *AUDIO_DELIVERY]
-        command += [*(DRAFT_VIDEO if quality == "draft" else VIDEO_DELIVERY), str(out)]
-        _run(command)
-    finally:
-        for path in handles:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-    if not out.exists() or out.stat().st_size == 0:
-        raise VideoProcessingError("تایم‌لاین رندر نشد")
-    return out
+    return export.render(timeline, out_path, quality=quality, **kwargs)
 
 
 # ------------------------------------------------------------ the panel's JSON
@@ -610,6 +550,103 @@ def _num(value, lo, hi, default):
     return max(lo, min(hi, x))
 
 
+def _bool(value, default=False) -> bool:
+    return default if value is None else bool(value)
+
+
+def _hex(value, default):
+    return str(value) if _HEX.match(str(value or "")) else default
+
+
+def _clean_extras(rc: dict) -> dict:
+    """The "pro" fields of a media clip, clamped. Never raises: a bad value falls back to the neutral one."""
+    out: dict = {}
+    out["rot"] = _num(rc.get("rot"), -360, 360, 0.0)
+    out["scale"] = _num(rc.get("scale"), 0.05, 8, 1.0)
+    out["px"] = _num(rc.get("px"), -2, 2, 0.0)
+    out["py"] = _num(rc.get("py"), -2, 2, 0.0)
+    out["flip_h"] = _bool(rc.get("flip_h"))
+    out["flip_v"] = _bool(rc.get("flip_v"))
+    blend = str(rc.get("blend") or "normal")
+    out["blend"] = blend if blend in BLENDS else "normal"
+
+    crop_in = rc.get("crop") if isinstance(rc.get("crop"), dict) else {}
+    crop = {k: _num(crop_in.get(k), 0, 0.95, 0.0) for k in ("l", "r", "t", "b")}
+    for a, b in (("l", "r"), ("t", "b")):
+        if crop[a] + crop[b] > 0.98:
+            k = 0.98 / (crop[a] + crop[b])
+            crop[a], crop[b] = crop[a] * k, crop[b] * k
+    out["crop"] = {k: round(v, 4) for k, v in crop.items() if v > 0}
+
+    mask_in = rc.get("mask") if isinstance(rc.get("mask"), dict) else {}
+    shape = str(mask_in.get("shape") or "none")
+    if shape in MASK_SHAPES and shape != "none":
+        out["mask"] = {"shape": shape, "cx": _num(mask_in.get("cx"), 0, 1, 0.5), "cy": _num(mask_in.get("cy"), 0, 1, 0.5),
+                       "w": _num(mask_in.get("w"), 0.02, 1, 0.6), "h": _num(mask_in.get("h"), 0.02, 1, 0.6),
+                       "feather": _num(mask_in.get("feather"), 0, 0.5, 0.05), "invert": _bool(mask_in.get("invert"))}
+    else:
+        out["mask"] = {}
+
+    kf_in = rc.get("kf") if isinstance(rc.get("kf"), dict) else {}
+    kf = {}
+    for channel, (lo, hi) in KF_CHANNELS.items():
+        keys = keyframes.clean_keys(kf_in.get(channel), lo, hi)
+        if keys:
+            kf[channel] = keys
+    out["kf"] = kf
+
+    ch = rc.get("chroma") if isinstance(rc.get("chroma"), dict) else {}
+    out["chroma"] = ({"on": True, "color": _hex(ch.get("color"), "#00ff00"), "similarity": _num(ch.get("similarity"), 0.01, 0.8, 0.18),
+                      "blend": _num(ch.get("blend"), 0, 0.5, 0.08), "spill": _num(ch.get("spill"), 0, 1, 0.5)}
+                     if ch.get("on") else {})
+
+    col = color_module.clean(rc.get("color")) if isinstance(rc.get("color"), dict) else None
+    out["color"] = col if col is not None and not color_module.is_neutral(col) else {}
+
+    ramp = []
+    for item in (rc.get("ramp") if isinstance(rc.get("ramp"), list) else [])[:12]:
+        if isinstance(item, dict):
+            ramp.append({"p": _num(item.get("p"), 0, 1, 0.0), "v": _num(item.get("v"), 0.1, 8, 1.0)})
+    ramp.sort(key=lambda k: k["p"])
+    out["ramp"] = ramp if len(ramp) >= 2 else []
+    out["reverse"] = _bool(rc.get("reverse"))
+    out["freeze"] = _bool(rc.get("freeze"))
+    out["link"] = str(rc.get("link") or "")[:24]
+
+    au = rc.get("audio") if isinstance(rc.get("audio"), dict) else {}
+    eq = str(au.get("eq") or "flat")
+    out["audio"] = {k: v for k, v in {
+        "pan": _num(au.get("pan"), -1, 1, 0.0), "eq": eq if eq in EQ_PRESETS else "flat",
+        "comp": _num(au.get("comp"), 0, 1, 0.0), "enhance": _bool(au.get("enhance")),
+        "denoise": _bool(au.get("denoise")), "normalize": _bool(au.get("normalize")),
+    }.items() if v not in (0.0, "flat", False)}
+    return out
+
+
+def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
+    m = data.get("master") if isinstance(data.get("master"), dict) else {}
+    master = {"gain_db": _num(m.get("gain_db"), -24, 12, 0.0), "limiter": _bool(m.get("limiter"), True)}
+    d = data.get("ducking") if isinstance(data.get("ducking"), dict) else {}
+    ducking = {"on": _bool(d.get("on")), "amount_db": _num(d.get("amount_db"), 3, 30, 12.0),
+               "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
+               "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
+    e = data.get("export") if isinstance(data.get("export"), dict) else {}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps")}
+    markers = []
+    for item in (data.get("markers") if isinstance(data.get("markers"), list) else [])[:400]:
+        if isinstance(item, dict):
+            markers.append({"id": str(item.get("id") or "")[:24], "t": _num(item.get("t"), 0, 86400, 0.0),
+                            "label": str(item.get("label") or "")[:60], "color": _hex(item.get("color"), "#ffcc00"),
+                            "kind": str(item.get("kind")) if item.get("kind") in ("marker", "beat", "chapter") else "marker"})
+    io = data.get("inout") if isinstance(data.get("inout"), dict) else None
+    inout = None
+    if io and io.get("in") is not None and io.get("out") is not None:
+        a, b = _num(io.get("in"), 0, 86400, 0.0), _num(io.get("out"), 0, 86400, 0.0)
+        if b > a + 0.05:
+            inout = {"in": a, "out": b}
+    return master, ducking, export, markers, inout
+
+
 def from_project(data: dict, resolve) -> Timeline:
     """The panel's project JSON → a validated Timeline.
 
@@ -617,6 +654,7 @@ def from_project(data: dict, resolve) -> Timeline:
     sends is clamped here; unknown keys are dropped, unknown tools refused.
     """
     from . import tools as tools_module
+    from . import titles
 
     if not isinstance(data, dict):
         raise TimelineError("پروژه درست ذخیره نشده است.")
@@ -625,6 +663,7 @@ def from_project(data: dict, resolve) -> Timeline:
     height = int(_num(fmt.get("height"), 240, 3840, 1920)) // 2 * 2
     fps = int(_num(fmt.get("fps"), 12, 60, 30))
     timeline = Timeline(width=width, height=height, fps=fps)
+    timeline.master, timeline.ducking, timeline.export, timeline.markers, timeline.inout = _clean_master(data)
 
     raw_tracks = data.get("tracks")
     if not isinstance(raw_tracks, list) or not raw_tracks:
@@ -635,19 +674,20 @@ def from_project(data: dict, resolve) -> Timeline:
         kind = str(rt.get("kind") or "video")
         if kind not in TRACK_KINDS:
             raise TimelineError(f"نوعِ ترک باید یکی از {'، '.join(TRACK_KINDS)} باشد.")
-        track = Track(kind=kind, name=str(rt.get("name") or "")[:40], muted=bool(rt.get("muted")))
+        role = str(rt.get("role") or "")
+        track = Track(kind=kind, name=str(rt.get("name") or "")[:40], muted=bool(rt.get("muted")),
+                      hidden=bool(rt.get("hidden")), solo=bool(rt.get("solo")),
+                      gain_db=_num(rt.get("gain_db"), -40, 12, 0.0), pan=_num(rt.get("pan"), -1, 1, 0.0),
+                      role=role if role in ROLES else "", caption=bool(rt.get("caption")))
         for ci, rc in enumerate((rt.get("clips") or [])[: MAX_CLIPS + 1]):
             if not isinstance(rc, dict):
                 raise TimelineError("قطعهٔ نامعتبر.")
             label = str(rc.get("label") or "")[:60]
             if kind == "text":
+                spec = titles.clean(rc, ci)
                 track.clips.append(TextClip(
-                    text=str(rc.get("text") or "")[:200], at=_num(rc.get("at"), 0, 86400, 0),
-                    duration=_num(rc.get("duration"), 0.1, 3600, 2.0),
-                    position=str(rc.get("position") or "bottom") if str(rc.get("position") or "bottom") in TEXT_POSITIONS else "bottom",
-                    size=_num(rc.get("size"), 1, 20, 6.0),
-                    color=str(rc.get("color")) if _HEX.match(str(rc.get("color") or "")) else "#ffffff",
-                    box=bool(rc.get("box", True)), opacity=_num(rc.get("opacity"), 0.05, 1, 1.0), label=label,
+                    text=spec["text"], at=spec["at"], duration=spec["duration"], position=spec["position"], size=spec["size"],
+                    color=spec["color"], box=spec["box"], opacity=spec["opacity"], label=spec["label"], spec=spec,
                 ))
                 continue
             ref = str(rc.get("ref") or "")
@@ -681,8 +721,11 @@ def from_project(data: dict, resolve) -> Timeline:
                 effects.append({"tool": op.tool, "params": op.params})
             transition = None
             tr = rc.get("transition")
-            if isinstance(tr, dict) and tr.get("kind") in TRANSITIONS:
+            if isinstance(tr, dict) and tr.get("kind") in transitions_all():
                 transition = {"kind": tr["kind"], "duration": _num(tr.get("duration"), 0.1, 2.0, 0.5)}
+            extras = _clean_extras(rc)
+            if src_kind == "image":
+                extras["ramp"], extras["reverse"] = [], False
             track.clips.append(Clip(
                 source=str(info["path"]), at=_num(rc.get("at"), 0, 86400, 0), start=0.0 if src_kind == "image" else start,
                 end=end, opacity=_num(rc.get("opacity"), 0, 1, 1.0),
@@ -693,7 +736,7 @@ def from_project(data: dict, resolve) -> Timeline:
                 volume=_num(rc.get("volume"), 0, 3, 1.0), speed=_num(rc.get("speed"), 0.25, 4, 1.0),
                 fit=str(rc.get("fit")) if str(rc.get("fit")) in FITS else "cover",
                 fade_in=_num(rc.get("fade_in"), 0, 30, 0.0), fade_out=_num(rc.get("fade_out"), 0, 30, 0.0),
-                effects=effects, transition=transition,
+                effects=effects, transition=transition, src_len=duration if src_kind != "image" else 0.0, **extras,
             ))
         timeline.tracks.append(track)
     return timeline
@@ -709,6 +752,69 @@ def program_operations(data: dict) -> list[dict]:
         elif isinstance(op, dict):
             raise TimelineError(f"«{op.get('tool')}» افکتِ کلِ ویدیو نیست.")
     return out
+
+
+# ------------------------------------------------------------------ windowing
+
+
+def window(timeline: Timeline, t0: float, t1: float) -> Timeline:
+    """The part of a timeline between `t0` and `t1`, re-based to start at 0 — for the exact range preview.
+
+    Every clip is cut to the window (its source range, keyframes, fades and text words follow); a ramp clip becomes
+    an explicit segment list. Nothing outside the window is decoded afterwards.
+    """
+    t0, t1 = max(0.0, float(t0)), max(float(t0) + 0.1, float(t1))
+    out = Timeline(width=timeline.width, height=timeline.height, fps=timeline.fps, master=dict(timeline.master),
+                   ducking=dict(timeline.ducking), export=dict(timeline.export))
+    for track in timeline.tracks:
+        nt = Track(kind=track.kind, name=track.name, muted=track.muted, hidden=track.hidden, solo=track.solo,
+                   gain_db=track.gain_db, pan=track.pan, role=track.role, caption=track.caption)
+        for clip in sorted(track.clips, key=lambda c: c.at):
+            if clip.ends_at <= t0 + 1e-6 or clip.at >= t1 - 1e-6:
+                continue
+            nt.clips.append(_cut_clip(clip, t0, t1))
+        out.tracks.append(nt)
+    return out
+
+
+def _cut_clip(clip, t0: float, t1: float):
+    a, b = max(clip.at, t0), min(clip.ends_at, t1)
+    lt0, lt1 = a - clip.at, b - clip.at
+    whole_head, whole_tail = lt0 <= 1e-6, lt1 >= clip.length - 1e-6
+    if clip.kind == "text":
+        new = copy.deepcopy(clip)
+        new.at, new.duration = a - t0, b - a
+        if new.spec:
+            words = [{**w, "s": round(w["s"] - lt0, 3), "e": round(w["e"] - lt0, 3)} for w in new.spec.get("words", [])
+                     if w["e"] > lt0 and w["s"] < lt1]
+            new.spec = {**new.spec, "words": [{**w, "s": max(0.0, w["s"]), "e": min(b - a, w["e"])} for w in words]}
+        return new
+    new = copy.deepcopy(clip)
+    new.at = a - t0
+    new.transition = clip.transition if whole_head else None
+    new.fade_in = clip.fade_in if whole_head else 0.0
+    new.fade_out = clip.fade_out if whole_tail else 0.0
+    for channel, keys in list(new.kf.items()):
+        sliced = keyframes.sliced(keys, lt0, lt1)
+        if sliced:
+            new.kf[channel] = sliced
+    if new.freeze or new.kind == "image":
+        new.end = new.start + (b - a)
+        if new.kind == "image":
+            new.start, new.end = 0.0, b - a
+        return new
+    L = clip.length
+    x0, x1 = (L - lt1, L - lt0) if clip.reverse else (lt0, lt1)
+    segs = cut_segments(clip.segments(), x0, x1)
+    if not segs:
+        segs = [(clip.start, clip.start + 0.04, clip.speed or 1.0)]
+    new.start, new.end = min(s[0] for s in segs), max(s[1] for s in segs)
+    if len(segs) == 1:
+        new.speed = max(0.1, min(8.0, segs[0][2]))
+        new.ramp, new.segs = [], None
+    else:
+        new.ramp, new.segs = [], [tuple(s) for s in segs]
+    return new
 
 
 # ------------------------------------------------------------------- proxy

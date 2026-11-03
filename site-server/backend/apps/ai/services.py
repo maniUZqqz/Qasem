@@ -24,6 +24,9 @@ _STATUS_FOR_ERROR = [
 
 
 def _status_for(exc) -> str:
+    hint = getattr(exc, "status_hint", None)
+    if hint == "TIMEOUT":
+        return AIRequest.Status.TIMEOUT
     for error_type, status in _STATUS_FOR_ERROR:
         if isinstance(exc, error_type):
             return status
@@ -55,6 +58,21 @@ def _models_for_provider(provider, candidates: list[str]) -> list[str]:
     return candidates
 
 
+def _note_route(request_row, provider) -> None:
+    """Which path answered — local (Ollama on the processing node) or Metis (the API) — and whether it was the
+    backup. Routed providers say so themselves; a plain Ollama / OpenAI-compatible client is local / Metis by type.
+    """
+    via = getattr(provider, "answered_via", "")
+    if not (isinstance(via, str) and via):
+        name = type(provider).__name__
+        via = "local" if name == "OllamaProvider" else "metis" if name == "OpenAICompatProvider" else ""
+    request_row.via = via
+    fell_back = getattr(provider, "fell_back", False)
+    request_row.fell_back = fell_back is True
+    reason = getattr(provider, "fallback_reason", "")
+    request_row.fallback_reason = reason[:400] if request_row.fell_back and isinstance(reason, str) else ""
+
+
 def _single_call(
     *, store, task_type, prompt_id, prompt_version, provider, model, prompt,
     system=None, images=None, job=None, options=None,
@@ -78,6 +96,7 @@ def _single_call(
         answered_by = getattr(provider, 'answered_by', '')
         if isinstance(answered_by, str) and answered_by and answered_by != request_row.model:
             request_row.model = answered_by
+        _note_route(request_row, provider)
     except Exception as exc:  # noqa: BLE001 — the audit row must never be left "OK"
         request_row.status = _status_for(exc)
         request_row.error = str(exc)[:4000]

@@ -5,6 +5,7 @@ import JobProgress from "../../components/JobProgress";
 import { Button, Card, Chip, ErrorBox, SectionTitle } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { Intelligence, Job } from "../../types";
+import AnswerChip, { type AiAnswer } from "./AnswerChip";
 
 function ListSection({ title, items }: { title: string; items: string[] }) {
   if (!items?.length) return null;
@@ -89,6 +90,7 @@ export default function IntelligencePanel({ productId }: { productId: number }) 
 
       {intelligence && (
         <div className="space-y-4">
+          <AnswerChip answer={(intelligence as Intelligence & { answer?: AiAnswer | null }).answer} />
           {intelligence.summary && (
             <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700">
               {intelligence.summary}

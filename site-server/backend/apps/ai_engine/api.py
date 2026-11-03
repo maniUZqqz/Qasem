@@ -49,28 +49,42 @@ def settings_json(cfg):
         'max_tokens': cfg.max_tokens, 'timeout_s': cfg.timeout_s,
         'has_key': bool(cfg.api_key), 'masked_key': cfg.masked_key if cfg.api_key else '',
         'is_ready': cfg.is_ready, 'updated_at': cfg.updated_at.isoformat() if cfg.updated_at else None,
-        'route_mode': cfg.route_mode,
+        'route_mode': _legacy_mode(),
     }
 
 
-def _route_json():
+def _legacy_mode():
+    """نمای قدیمیِ اولویت: qwen_first / metis_only. منبعِ حقیقت: apps.ai.AiPriority (جنگو ادمین + پنل «موتورهای AI»)."""
     from services.ai import routing
+    return routing.mode()
+
+
+def _set_priority_from_mode(mode):
+    from apps.ai.models import AiPriority
+    row = AiPriority.get()
+    row.priority = 'metis_first' if mode == 'metis_only' else 'local_first'
+    row.save(update_fields=['priority', 'updated_at'])
+
+
+def _route_json():
+    from services.ai import priority, routing
     from .models import AiRouteLog
-    state = routing.node_state()
+    state = routing.node_state(priority.CODE)
     rows = [{'task': r.task, 'model': r.model, 'via': r.via, 'fell_back': r.fell_back, 'reason': r.reason, 'seconds': r.seconds, 'at': r.created_at.isoformat()}
             for r in AiRouteLog.objects.order_by('-id')[:12]]
-    return {'mode': routing.mode(), 'node': state, 'recent': rows, 'claim_timeout': routing.claim_timeout(), 'run_timeout': routing.run_timeout()}
+    return {'mode': routing.mode(), 'priority': priority.config().priority, 'node': state, 'recent': rows,
+            'claim_timeout': routing.claim_timeout(), 'run_timeout': routing.run_timeout()}
 
 
 @studio_api('GET', 'POST')
 def ai_route(request):
-    """تنظیمِ ساده: اول Qwen یا فقط Metis. POST {mode} ذخیره می‌کند؛ بقیهٔ تنظیمات دست نمی‌خورد."""
+    """نمای قدیمیِ اولویت (اول Qwen = اول لوکال، «فقط Metis» = اول متیس). POST {mode} همان تنظیمِ واحدِ NM را عوض می‌کند
+    (apps.ai.AiPriority)؛ تنظیمِ کامل‌تر: /api/v1/ai/priority/."""
     if request.method == 'POST':
         mode = request.data.get('mode')
         if mode not in ('qwen_first', 'metis_only'):
             return bad('این گزینه شناخته نشد.')
-        AiSettings.objects.get_or_create(pk=1)
-        AiSettings.objects.filter(pk=1).update(route_mode=mode)
+        _set_priority_from_mode(mode)
     return Response(_route_json())
 
 
@@ -78,8 +92,8 @@ def ai_route(request):
 def ai_route_pull(request):
     """مدل روی گره نیست ⇒ دانلودش از راهِ همان صفِ کارها. گره باید روشن باشد؛ برای گرهِ خاموش کار صف نمی‌شود."""
     from apps.compute import services as compute
-    from services.ai import routing
-    state = routing.node_state()
+    from services.ai import priority, routing
+    state = routing.node_state(priority.CODE)
     if not state['online']:
         return bad('سرورِ پردازش الان خاموش است. وقتی روشن شد این دکمه را بزن. دانلود حدودِ ۱۹ گیگابایت است.')
     model = routing.coder_model()
@@ -114,7 +128,7 @@ def ai_settings(request):
         except ValueError:
             return bad('عددها درست نیستند.')
         if post.get('route_mode') in ('qwen_first', 'metis_only'):
-            cfg.route_mode = post.get('route_mode')
+            _set_priority_from_mode(post.get('route_mode'))
         cfg.save()
         d = settings_json(cfg)
         d.update({'ok': True, 'message': 'تنظیماتِ هوشِ مصنوعی ذخیره شد.'})

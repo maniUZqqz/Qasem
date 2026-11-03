@@ -1,6 +1,7 @@
 """منطقِ ادیتورِ عکس: کتابخانه، نسخه‌ها، صفِ سرورِ پردازش و کارهای سرورِ سایت."""
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -15,10 +16,12 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
-from . import catalog, ops
-from .models import PhotoAsset, PhotoEdit
+from . import catalog, develop_np, ops
+from . import layers as layers_mod
+from . import textlayer
+from .models import PhotoAsset, PhotoEdit, PhotoPreset, PhotoProject
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +278,9 @@ def create_edits(store, user, asset_ids, recipe_key: str, operations) -> list[Ph
     else:
         try:
             ops_ = catalog.normalize_operations(operations)
+            for o in ops_:      # عکسِ لایه‌های تصویری باید مالِ همین فروشگاه باشد
+                if o["tool"] == "compose":
+                    layers_mod.normalize_layers(o["params"]["layers"], store=store, base="one")
         except catalog.CatalogError as exc:
             raise PhotoError(str(exc)) from exc
         per_asset = {pk: ops_ for pk in assets}
@@ -399,6 +405,28 @@ def _store_logo(store) -> Path | None:
     return _field_path(getattr(store, "logo", None))
 
 
+def server_ctx(store) -> dict:
+    """زمینهٔ کارهای سرورِ سایت: لوگو / عکسِ کتابخانه (logo_path) و ماسکِ پروژه (mask_path)؛ scale را فراخواننده می‌گذارد."""
+
+    def logo_path(p):
+        if p.get("source") == "asset" and p.get("asset"):
+            a = PhotoAsset.objects.filter(store=store, pk=int(p["asset"])).first()
+            return abs_path(a.original) if a and abs_path(a.original).is_file() else None
+        return _store_logo(store)
+
+    def mask_path(project_id, mid):
+        try:
+            pr = PhotoProject.objects.filter(pk=int(project_id), store=store).select_related("asset").first()
+        except (TypeError, ValueError):
+            return None
+        if pr is None or not layers_mod.MASK_ID_RE.match(str(mid)):
+            return None
+        p = abs_path(pr.dir_rel) / f"mask-{mid}.png"
+        return p if p.is_file() else None
+
+    return {"notes": [], "store_name": store.name, "logo_path": logo_path, "mask_path": mask_path, "scale": 1.0}
+
+
 def run_server_stage(edit: PhotoEdit) -> PhotoEdit:
     """کارهای سرورِ سایت روی اصل (یا خروجیِ سرورِ پردازش) ⇐ نتیجه، پیش‌نمایش، بندانگشتی، اندازه‌گیری ⇐ READY."""
     if edit.state not in (PhotoEdit.State.QUEUED, PhotoEdit.State.SERVER):
@@ -410,15 +438,10 @@ def run_server_stage(edit: PhotoEdit) -> PhotoEdit:
     src = abs_path(edit.files["node"]) if edit.files.get("node") else abs_path(asset.original)
     vdir = abs_path(edit.dir_rel)
 
-    def logo_path(p):
-        if p.get("source") == "asset" and p.get("asset"):
-            a = PhotoAsset.objects.filter(store=store, pk=int(p["asset"])).first()
-            return abs_path(a.original) if a and abs_path(a.original).is_file() else None
-        return _store_logo(store)
-
-    ctx = {"notes": [], "store_name": store.name, "logo_path": logo_path}
+    ctx = server_ctx(store)
     try:
         img = ops.load(src)
+        ctx["scale"] = (img.width / asset.width) if asset.width else 1.0
         out, export = ops.run(img, server_ops, ctx)
         fmt = export.get("format") or ops.default_format(out, src.suffix)
         if fmt == "jpeg" and out.mode == "RGBA" and not export:
@@ -562,15 +585,8 @@ def preview(asset: PhotoAsset, operations) -> tuple[bytes, dict]:
     server_ops = [o for o in server_ops if o["tool"] != "export"]
     img = preview_source(asset)
     img.thumbnail((PREVIEW_SIDE_LIVE, PREVIEW_SIDE_LIVE), Image.Resampling.LANCZOS)
-    store = asset.store
-
-    def logo_path(p):
-        if p.get("source") == "asset" and p.get("asset"):
-            a = PhotoAsset.objects.filter(store=store, pk=int(p["asset"])).first()
-            return abs_path(a.original) if a and abs_path(a.original).is_file() else None
-        return _store_logo(store)
-
-    ctx = {"notes": [], "store_name": store.name, "logo_path": logo_path}
+    ctx = server_ctx(asset.store)
+    ctx["scale"] = (img.width / asset.width) if asset.width else 1.0
     try:
         out, _export = ops.run(img, server_ops, ctx)
     except ops.OpError as exc:
@@ -693,3 +709,468 @@ def asset_dict(a: PhotoAsset, *, edits: bool = False) -> dict:
         out["last_edit"] = edit_dict(last) if last else None
         out["edits_count"] = qs.count()
     return out
+
+
+# ═════════════════════════════ ادیتورِ حرفه‌ای: پروژه‌ها، ماسک‌ها، پیش‌نمایشِ دقیق، پیش‌تنظیم‌ها
+
+MAX_PROJECT_BYTES = 2 * 1024 * 1024
+MAX_PRESET_BYTES = 512 * 1024
+MASK_MAX_SIDE = 2048
+MASK_GC_AGE_S = 600
+EXACT_KEEP = 8
+#: کارهای کیت که در «پیش‌نمایشِ دقیق» با یک کپیِ کوچک اجرا می‌شوند (هندسه‌تغییردهنده‌ها و هوشِ مصنوعی نه)
+EXACT_TOOLS = {"kit_auto", "kit_preset", "kit_adjust", "kit_denoise", "kit_sharpen", "kit_heal"}
+PRESET_TOOLS = ("look", "auto_tone", "color", "crop_format", "kit_preset", "kit_denoise", "kit_sharpen",
+                "kit_background", "kit_square", "kit_upscale")
+
+
+class ProjectConflict(PhotoError):
+    """ذخیره با شمارهٔ نسخهٔ کهنه — پروژه از جای دیگری عوض شده."""
+
+
+def project_dir(project: PhotoProject) -> Path:
+    return abs_path(project.dir_rel)
+
+
+def mask_file(project: PhotoProject, mid: str) -> Path:
+    if not layers_mod.MASK_ID_RE.match(str(mid or "")):
+        raise PhotoError("شناسهٔ ماسک نامعتبر است.")
+    return project_dir(project) / f"mask-{mid}.png"
+
+
+def project_dict(p: PhotoProject, *, full: bool = True) -> dict:
+    out = {"id": p.pk, "asset": p.asset_id, "title": p.title, "rev": p.rev, "updated_at": p.updated_at,
+           "thumb": media_url(p.asset.thumb)}
+    if full:
+        masks = {}
+        d = project_dir(p)
+        if d.is_dir():
+            for f in sorted(d.glob("mask-*.png")):
+                masks[f.stem[5:]] = f"{media_url(p.dir_rel + '/' + f.name)}?v={int(f.stat().st_mtime)}"
+        out["data"] = p.data or {}
+        out["masks"] = masks
+    return out
+
+
+def _clean_project_data(data, store) -> dict:
+    if not isinstance(data, dict):
+        raise PhotoError("دادهٔ پروژه باید یک شیء باشد.")
+    data = dict(data)
+    if isinstance(data.get("layers"), list):
+        try:
+            data["layers"] = layers_mod.normalize_layers(data["layers"], store=store, base="at_most_one")
+        except catalog.CatalogError as exc:
+            raise PhotoError(str(exc)) from exc
+    elif "layers" in data:
+        raise PhotoError("layers باید فهرست باشد.")
+    if len(json.dumps(data, ensure_ascii=False)) > MAX_PROJECT_BYTES:
+        raise PhotoError("پروژه بزرگ‌تر از ۲ مگابایت است.")
+    return data
+
+
+def create_project(store, asset: PhotoAsset, title: str = "", data=None) -> PhotoProject:
+    cleaned = _clean_project_data(data if data is not None else {}, store)
+    return PhotoProject.objects.create(store=store, asset=asset, title=(title or asset.title or "")[:200], data=cleaned)
+
+
+def save_project(project: PhotoProject, *, data=None, title=None, rev=None) -> PhotoProject:
+    with transaction.atomic():
+        locked = PhotoProject.objects.select_for_update().select_related("asset", "store").get(pk=project.pk)
+        if rev is not None and int(rev) != locked.rev:
+            raise ProjectConflict("پروژه در جای دیگری عوض شده است؛ نسخهٔ تازه را باز کنید.")
+        if data is not None:
+            locked.data = _clean_project_data(data, locked.store)
+        if title is not None:
+            locked.title = str(title)[:200]
+        locked.rev += 1
+        locked.save()
+    gc_masks(locked)
+    return locked
+
+
+def gc_masks(project: PhotoProject, *, min_age_s: int = MASK_GC_AGE_S) -> int:
+    """ماسک‌های بی‌ارجاع (و قدیمی‌تر از min_age_s؛ ماسکِ تازه‌بارگذاری‌شده هنوز در JSON نیامده ممکن است) پاک می‌شوند."""
+    d = project_dir(project)
+    if not d.is_dir():
+        return 0
+    used = layers_mod.mask_ids((project.data or {}).get("layers"))
+    now = timezone.now().timestamp()
+    n = 0
+    for f in d.glob("mask-*.png"):
+        if f.stem[5:] not in used and now - f.stat().st_mtime >= min_age_s:
+            f.unlink(missing_ok=True)
+            n += 1
+    return n
+
+
+def delete_project(project: PhotoProject) -> None:
+    shutil.rmtree(project_dir(project), ignore_errors=True)
+    project.delete()
+
+
+def save_mask(project: PhotoProject, mid: str, raw: bytes) -> tuple[Path, int, int]:
+    """PNG/JPEG ِ ماسک ⇐ خاکستری، حداکثر ۲۰۴۸ پیکسل ⇐ mask-<id>.png."""
+    path = mask_file(project, mid)
+    if not raw:
+        raise PhotoError("فایلِ ماسک خالی است.")
+    if len(raw) > 30 * 1024 * 1024:
+        raise PhotoError("فایلِ ماسک خیلی بزرگ است.")
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            im.load()
+            if im.mode in ("RGBA", "LA") and im.convert("L").getextrema() == (0, 0):
+                g = im.getchannel("A")          # ماسک فقط در آلفا (قلمِ سفید روی شفاف نبود)
+            else:
+                g = im.convert("L")
+    except Exception as exc:  # noqa: BLE001
+        raise PhotoError("ماسک عکسِ معتبری نیست.") from exc
+    g.thumbnail((MASK_MAX_SIDE, MASK_MAX_SIDE), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    g.save(buf, "PNG", optimize=True)
+    ops.save_bytes(path, buf.getvalue())
+    return path, g.width, g.height
+
+
+# ───────────────────────────── پیش‌نمایشِ دقیق (کیت روی کپیِ کوچک)
+
+def _prune_dir(d: Path, keep: int) -> None:
+    files = sorted((f for f in d.iterdir() if f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in files[keep:]:
+        f.unlink(missing_ok=True)
+
+
+def _small_copy(asset: PhotoAsset, side: int, subdir: str, stem: str) -> tuple[Path, Image.Image]:
+    img = preview_source(asset)
+    img.thumbnail((side, side), Image.Resampling.LANCZOS)
+    d = abs_path(asset.dir_rel) / subdir
+    d.mkdir(parents=True, exist_ok=True)
+    fmt = "png" if img.mode == "RGBA" else "jpeg"
+    data, fmt = ops.encode(img, fmt, 92)
+    path = d / f"{stem}-{side}.{'png' if fmt == 'png' else 'jpg'}"
+    ops.save_bytes(path, data)
+    _prune_dir(d, EXACT_KEEP * 3)
+    return path, img
+
+
+def _job_state(job) -> str:
+    from apps.compute.models import ComputeJob
+
+    return {ComputeJob.State.QUEUED: "QUEUED", ComputeJob.State.CLAIMED: "RUNNING", ComputeJob.State.RUNNING: "RUNNING",
+            ComputeJob.State.COMPLETED: "COMPLETED", ComputeJob.State.FAILED: "FAILED",
+            ComputeJob.State.CANCELLED: "CANCELLED"}.get(job.state, job.state)
+
+
+def exact_request(asset: PhotoAsset, operations, side: int = 1280) -> dict:
+    """کارهای کیتِ لغزنده‌ها روی کپیِ کوچکِ عکس، روی سرورِ پردازش (فقط وقتی آنلاین است)."""
+    from apps.compute import services as compute
+
+    node = node_status()
+    if not node["online"]:
+        return {"online": False, "state": "OFFLINE", "nodes": []}
+    try:
+        clean = catalog.normalize_operations(operations if operations is not None else [])
+    except catalog.CatalogError as exc:
+        raise PhotoError(str(exc)) from exc
+    node_ops, _server = catalog.split(clean)
+    use = [o for o in node_ops if o["tool"] in EXACT_TOOLS]
+    ignored = catalog.titles([o for o in node_ops if o["tool"] not in EXACT_TOOLS])
+    if not use:
+        return {"online": True, "state": "NOOP", "ignored": ignored, "nodes": node["nodes"]}
+    try:
+        side = int(max(320, min(2000, int(side))))
+    except (TypeError, ValueError):
+        side = 1280
+    path, img = _small_copy(asset, side, "exact", f"photo-x{asset.pk}")
+    payload = catalog.kit_payload(use, has_server_after=False, final_format="jpeg")
+    recipe = payload["recipe"]
+    adj = recipe.get("adjust") or {}
+    if "sharpenRadius" in adj and asset.width:
+        # شعاعِ شارپ به پیکسلِ اندازهٔ اصل است؛ روی کپیِ کوچک متناسب می‌شود (حداقلِ کیت ۰٫۵)
+        adj["sharpenRadius"] = round(max(0.5, min(3.0, adj["sharpenRadius"] * img.width / asset.width)), 3)
+    recipe.setdefault("output", {}).update({"format": "jpeg", "quality": 90})
+    payload["image"] = path.name
+    payload["x_asset"] = asset.pk
+    try:
+        job = compute.enqueue("photo.edit", payload, {path.name: str(path)}, store=asset.store, origin="photoexact",
+                              timeout_s=180, require_online=True, priority=30)
+    except compute.ComputeUnavailable:
+        return {"online": False, "state": "OFFLINE", "nodes": []}
+    return {"online": True, "job": str(job.uid), "state": _job_state(job), "ignored": ignored, "nodes": node["nodes"],
+            "size": list(img.size)}
+
+
+def _image_output(job):
+    from apps.compute import services as compute
+
+    outs = job.outputs()
+    primary = (job.result or {}).get("meta", {}).get("primary")
+    out = next((o for o in outs if o["name"] == primary), None) or next((o for o in outs if o.get("media") == "image"), None)
+    return (out, compute.output_path(job, out["name"])) if out else (None, None)
+
+
+def _job_for(store, uid, origin: str):
+    from apps.compute.models import ComputeJob
+
+    try:
+        return ComputeJob.objects.filter(uid=uid, origin=origin, store=store).first()
+    except Exception:  # noqa: BLE001 — شناسهٔ خراب
+        return None
+
+
+def exact_status(store, uid) -> dict | None:
+    job = _job_for(store, uid, "photoexact")
+    if job is None:
+        return None
+    out = {"job": str(job.uid), "state": _job_state(job), "message": job.message, "progress": round(job.progress or 0, 3),
+           "node": job.node.name if job.node_id else None, "url": None, "size": None,
+           "online": bool(node_status()["online"])}
+    if job.state == job.State.FAILED:
+        out["error"] = (job.error or "")[:500]
+    if job.state == job.State.COMPLETED:
+        meta, src = _image_output(job)
+        asset = PhotoAsset.objects.filter(store=store, pk=(job.payload or {}).get("x_asset") or 0).first()
+        if meta is None or src is None or not src.is_file() or asset is None:
+            out.update(state="FAILED", error="سرورِ پردازش عکسی پس نفرستاد.")
+            return out
+        d = abs_path(asset.dir_rel) / "exact"
+        d.mkdir(parents=True, exist_ok=True)
+        dst = d / f"out-{str(job.uid)[:12]}{src.suffix.lower() or '.jpg'}"
+        if not dst.is_file():
+            _link_or_copy(src, dst)
+            _prune_dir(d, EXACT_KEEP * 3)
+        try:
+            with Image.open(dst) as im:
+                out["size"] = list(im.size)
+        except Exception:  # noqa: BLE001
+            pass
+        rel = str(dst.relative_to(media_root())).replace(os.sep, "/")
+        out["url"] = f"{media_url(rel)}?v={int(dst.stat().st_mtime)}"
+    return out
+
+
+def exact_cancel(store, uid, origin: str = "photoexact") -> bool:
+    from apps.compute import services as compute
+
+    job = _job_for(store, uid, origin)
+    if job is None:
+        return False
+    if not job.final:
+        compute.cancel(job)
+    return True
+
+
+def exact_finish_for_test(job, node=None, *, factor: float = 1.2):
+    """آزمون/توسعه: نقشِ گرهٔ پردازش را بازی می‌کند — همین کار را به نامِ گره برمی‌دارد (کارِ دیگری را نه)، عکسِ ورودی را
+    به اندازهٔ ``factor`` روشن می‌کند (کارِ «انتخابِ سوژه»: خروجیِ PNG ِ شفاف با بیضیِ وسط) و با همان قراردادِ agent
+    (خروجی ``<نام>-edited.<jpg|png>`` + ``meta.primary``) تمامش می‌کند. ⇐ کارِ تمام‌شده.
+
+    مثال روی سرور: ``manage.py photoedit_fake_node online`` ⇐ (درخواستِ exact از مرورگر) ⇐ ``manage.py photoedit_fake_node finish``.
+    """
+    from PIL import ImageEnhance
+
+    from apps.compute import services as compute
+    from apps.compute.models import ComputeNode
+
+    node = node or ComputeNode.objects.filter(enabled=True).first() or ComputeNode.objects.create(
+        name="gpu-fake", last_seen=timezone.now(), capabilities={"photo": True})
+    if job.state != job.State.QUEUED:
+        raise PhotoError("این کار دیگر در صف نیست.")
+    job.node, job.state, job.attempts = node, job.State.RUNNING, job.attempts + 1
+    job.claimed_at = job.heartbeat_at = timezone.now()
+    job.save()
+    root = compute.job_root(job)
+    src = root / "inputs" / (job.payload or {}).get("image", "")
+    stem = Path(src.name).stem
+    if job.origin == "photosubject":
+        im = Image.open(src).convert("RGBA")
+        alpha = Image.new("L", im.size, 0)
+        ImageDraw.Draw(alpha).ellipse([im.width * 0.2, im.height * 0.2, im.width * 0.8, im.height * 0.8], fill=255)
+        im.putalpha(alpha)
+        name = stem + "-edited.png"
+        im.save(compute.output_path(job, name), "PNG")
+    else:
+        img = ImageEnhance.Brightness(Image.open(src).convert("RGB")).enhance(factor)
+        name = stem + "-edited.jpg"
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=90)
+        compute.output_path(job, name).write_bytes(buf.getvalue())
+    return compute.finish(job, node, True, meta={"primary": name, "engine": "photo"})
+
+
+# ───────────────────────────── «انتخابِ سوژه»
+
+def _mask_png(mask_u8, asset: PhotoAsset, token: str) -> tuple[str, int, int]:
+    d = abs_path(asset.dir_rel) / "subject"
+    d.mkdir(parents=True, exist_ok=True)
+    g = Image.fromarray(mask_u8, "L")
+    buf = io.BytesIO()
+    g.save(buf, "PNG", optimize=True)
+    path = d / f"{token}.png"
+    ops.save_bytes(path, buf.getvalue())
+    _prune_dir(d, 10)
+    rel = str(path.relative_to(media_root())).replace(os.sep, "/")
+    return f"{media_url(rel)}?v={int(path.stat().st_mtime)}", g.width, g.height
+
+
+def subject_grabcut(asset: PhotoAsset, rect=None) -> dict:
+    """جایگزینِ سبکِ سرور وقتی سرورِ پردازش خاموش است: cv2.grabCut روی کپیِ ۵۱۲ پیکسلی (یا آلفای خودِ عکسِ شفاف)."""
+    import cv2
+    import numpy as np
+
+    img = preview_source(asset)
+    img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    if img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 250:
+        mask = np.asarray(img.getchannel("A"), dtype=np.uint8).copy()
+        url, w, h = _mask_png(mask, asset, "alpha")
+        return {"state": "READY", "method": "alpha", "url": url, "w": w, "h": h}
+    arr = np.asarray(ops.flatten(img))[..., ::-1].copy()
+    h, w = arr.shape[:2]
+    try:
+        x, y, rw, rh = (float(v) for v in rect)
+    except (TypeError, ValueError):
+        x, y, rw, rh = 0.05, 0.05, 0.9, 0.9
+    x0, y0 = int(max(0, min(w - 2, round(x * w)))), int(max(0, min(h - 2, round(y * h))))
+    box = (x0, y0, int(max(2, min(w - x0, round(rw * w)))), int(max(2, min(h - y0, round(rh * h)))))
+    gc = np.zeros((h, w), np.uint8)
+    bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
+    cv2.grabCut(arr, gc, box, bgd, fgd, 4, cv2.GC_INIT_WITH_RECT)
+    fg = np.where((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    fg = cv2.GaussianBlur(fg, (0, 0), 1.2)
+    url, mw, mh = _mask_png(fg, asset, "grabcut")
+    return {"state": "READY", "method": "grabcut", "url": url, "w": mw, "h": mh}
+
+
+def subject_request(asset: PhotoAsset, rect=None) -> dict:
+    from apps.compute import services as compute
+
+    node = node_status()
+    if not node["online"]:
+        return subject_grabcut(asset, rect)
+    path, _img = _small_copy(asset, 1024, "subject", f"photo-s{asset.pk}")
+    op = {"tool": "kit_background", "params": catalog.normalize_params(
+        "kit_background", {"method": "auto", "bg": "transparent", "shadow": 0, "cleanup": -1})}
+    payload = catalog.kit_payload([op], has_server_after=False, final_format="png")
+    payload["image"] = path.name
+    payload["x_asset"] = asset.pk
+    try:
+        job = compute.enqueue("photo.edit", payload, {path.name: str(path)}, store=asset.store, origin="photosubject",
+                              timeout_s=300, require_online=True, priority=30)
+    except compute.ComputeUnavailable:
+        return subject_grabcut(asset, rect)
+    return {"state": _job_state(job), "method": "kit", "job": str(job.uid)}
+
+
+def subject_status(store, uid) -> dict | None:
+    import numpy as np
+
+    job = _job_for(store, uid, "photosubject")
+    if job is None:
+        return None
+    out = {"job": str(job.uid), "state": _job_state(job), "method": "kit", "message": job.message}
+    if job.state == job.State.FAILED:
+        out["error"] = (job.error or "")[:500]
+    if job.state == job.State.COMPLETED:
+        meta, src = _image_output(job)
+        asset = PhotoAsset.objects.filter(store=store, pk=(job.payload or {}).get("x_asset") or 0).first()
+        if meta is None or src is None or not src.is_file() or asset is None:
+            out.update(state="FAILED", error="سرورِ پردازش عکسی پس نفرستاد.")
+            return out
+        with Image.open(src) as im:
+            alpha = np.asarray(im.convert("RGBA").getchannel("A"), dtype=np.uint8).copy()
+        url, w, h = _mask_png(alpha, asset, f"kit-{str(job.uid)[:12]}")
+        out.update(url=url, w=w, h=h)
+        out["state"] = "READY"
+    return out
+
+
+# ───────────────────────────── فونت‌ها
+
+def fonts_list() -> list[dict]:
+    files = textlayer.font_files()
+    if not files:
+        return []
+    return [{"key": "vazirmatn", "title": "وزیرمتن", "family": "Vazirmatn", "weights": sorted(files), "rtl": True}]
+
+
+# ───────────────────────────── پیش‌تنظیم‌ها (ذخیره، اعمال روی چند عکس)
+
+def normalize_preset_data(data) -> dict:
+    if not isinstance(data, dict):
+        raise PhotoError("دادهٔ پیش‌تنظیم باید یک شیء باشد.")
+    try:
+        tools = {}
+        for key, params in (data.get("tools") if isinstance(data.get("tools"), dict) else {}).items():
+            if key in PRESET_TOOLS:
+                tools[key] = catalog.normalize_params(key, params, strict=False)
+        out_in = data.get("output") if isinstance(data.get("output"), dict) else {}
+        fmt = out_in.get("format") if out_in.get("format") in ("jpeg", "png", "webp") else "jpeg"
+        le = out_in.get("long_edge")
+        out = {
+            "adjust": develop_np.normalize_adjust(data.get("adjust") if isinstance(data.get("adjust"), dict) else {}),
+            "curve": catalog.normalize_curve(data.get("curve")),
+            "kit_auto": bool(data.get("kit_auto")),
+            "tools": tools,
+            "layers": layers_mod.preset_layers(data.get("layers")),
+            "output": {"format": fmt, "quality": int(catalog._clamp(out_in.get("quality"), 40, 100, 92)),
+                       "max_kb": int(catalog._clamp(out_in.get("max_kb"), 0, 20000, 0)),
+                       "long_edge": 0 if not le else int(catalog._clamp(le, 64, 8000, 0))},
+        }
+    except catalog.CatalogError as exc:
+        raise PhotoError(str(exc)) from exc
+    if len(json.dumps(out, ensure_ascii=False)) > MAX_PRESET_BYTES:
+        raise PhotoError("پیش‌تنظیم خیلی بزرگ است.")
+    return out
+
+
+def preset_dict(p: PhotoPreset) -> dict:
+    return {"id": p.pk, "name": p.name, "kind": p.kind, "data": p.data or {}, "created_at": p.created_at,
+            "updated_at": p.updated_at}
+
+
+def preset_operations(data, node_online: bool) -> list[dict]:
+    """داده‌ی پیش‌تنظیم ⇐ فهرستِ کارها برای ``create_edits``، با ترتیبِ قراردادی:
+    کارهای کیت (آنلاین) یا develop (خاموش) ⇐ compose (روکش‌ها روی عکسِ پایه) ⇐ ابزارهای سبک ⇐ resize ⇐ export."""
+    d = normalize_preset_data(data)
+    adjust, curve, tools = dict(d["adjust"]), dict(d["curve"]), d["tools"]
+    ops_: list[dict] = []
+
+    def add(tool, params):
+        ops_.append({"tool": tool, "params": catalog.normalize_params(tool, params, strict=False)})
+
+    if node_online:
+        if d["kit_auto"]:
+            add("kit_auto", {})
+        for key in ("kit_preset", "kit_denoise", "kit_sharpen", "kit_background", "kit_square", "kit_upscale"):
+            if key in tools:
+                add(key, tools[key])
+        if adjust or curve:
+            add("kit_adjust", {"adjust": adjust, "curve": curve})
+    else:
+        merged: dict = {}
+        mcurve: dict = {}
+        preset = tools.get("kit_preset")
+        if preset:   # فیلترِ کیت ⇐ لغزنده‌هایش، زیرِ لغزنده‌های خودِ کاربر
+            rec = catalog.kit_presets().get(preset["preset"], {}).get("recipe") or {}
+            merged.update(rec.get("adjust") or {})
+            mcurve.update(catalog.normalize_curve(rec.get("curve")))
+        if "kit_denoise" in tools:
+            merged.update({"noiseLuma": tools["kit_denoise"]["luma"], "noiseColor": tools["kit_denoise"]["color"]})
+        if "kit_sharpen" in tools:
+            sp = tools["kit_sharpen"]
+            merged.update({"sharpen": sp["amount"], "sharpenRadius": sp["radius"], "sharpenMasking": sp["masking"]})
+        merged.update(adjust)
+        mcurve.update(curve)
+        if merged or mcurve:
+            add("develop", {"adjust": merged, "curve": mcurve, "spots": []})
+    if d["layers"]:
+        base = {"id": "base", "type": "base", "name": "عکس"}
+        add("compose", {"project": 0, "layers": [base] + d["layers"]})
+    for key in ("crop_format", "auto_tone", "look", "color"):
+        if key in tools:
+            add(key, tools[key])
+    out = d["output"]
+    if out["long_edge"]:
+        add("resize", {"long_edge": out["long_edge"]})
+    add("export", {"format": out["format"], "quality": out["quality"], "max_kb": out["max_kb"]})
+    return ops_

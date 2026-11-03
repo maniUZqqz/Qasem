@@ -27,6 +27,14 @@ from .views_sound import (
     StoreVoiceView,
     VoicePreviewView,
 )
+from .views_editor_pro import (
+    CaptionsStatusView,
+    CaptionsView,
+    EditorAnalysisView,
+    EditorCatalogueView,
+    ProjectPreviewView,
+    ProjectRendersView,
+)
 from .views_timeline import (
     EditorBinView,
     EditorProxyView,
@@ -125,6 +133,12 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/", ProjectListView.as_view(), name="editor-projects"),
     path("stores/<int:store_id>/editor/projects/<int:pk>/", ProjectDetailView.as_view(), name="editor-project"),
     path("stores/<int:store_id>/editor/projects/<int:pk>/render/", ProjectRenderView.as_view(), name="editor-project-render"),
+    path("stores/<int:store_id>/editor/catalogue/", EditorCatalogueView.as_view(), name="editor-catalogue"),
+    path("stores/<int:store_id>/editor/analysis/", EditorAnalysisView.as_view(), name="editor-analysis"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/preview/", ProjectPreviewView.as_view(), name="editor-project-preview"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/renders/", ProjectRendersView.as_view(), name="editor-project-renders"),
+    path("stores/<int:store_id>/editor/captions/status/", CaptionsStatusView.as_view(), name="editor-captions-status"),
+    path("stores/<int:store_id>/editor/captions/", CaptionsView.as_view(), name="editor-captions"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
     path(

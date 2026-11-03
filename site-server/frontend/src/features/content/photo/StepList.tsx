@@ -105,10 +105,10 @@ export default function StepList({
           >
             <option value="">+ افزودنِ ابزار…</option>
             <optgroup label="سرورِ سایت (همین حالا)">
-              {Object.values(tools).filter((t) => t.where === "server").map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
+              {Object.values(tools).filter((t) => t.where === "server" && !t.hidden).map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
             </optgroup>
             <optgroup label="سرورِ پردازش (کیتِ PersianAiKit.Photo)">
-              {Object.values(tools).filter((t) => t.where === "node").map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
+              {Object.values(tools).filter((t) => t.where === "node" && !t.hidden).map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
             </optgroup>
           </Select>
         </div>

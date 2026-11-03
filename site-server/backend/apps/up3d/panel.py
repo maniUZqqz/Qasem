@@ -33,7 +33,7 @@ def worker_json(w):
 
 def ai_json():
     ai = AiSettings.get()
-    return {'ready': bool(ai.enabled and ai.api_key), 'enabled': ai.enabled, 'model': ai.model,
+    return {'ready': ai.can_plan(), 'enabled': ai.enabled, 'model': ai.model,
             'tts_model': ai.tts_model, 'tts_enabled': ai.tts_enabled, 'base_url': ai.base_url or 'api.openai.com'}
 
 

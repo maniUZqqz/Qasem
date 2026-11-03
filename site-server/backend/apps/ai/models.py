@@ -32,6 +32,10 @@ class AIRequest(TimeStampedModel):
     attempts = models.PositiveIntegerField(default=1)
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
     error = models.TextField(blank=True)
+    # کدام مسیر واقعاً جواب داد (اولویتِ لوکال/متیس — services.ai.priority): «local» | «metis» | «» (نامشخص/شکست)
+    via = models.CharField("جواب از (لوکال/متیس)", max_length=8, blank=True, default="")
+    fell_back = models.BooleanField("مسیرِ پشتیبان جواب داد", default=False)
+    fallback_reason = models.CharField("چرا مسیرِ اول نشد", max_length=400, blank=True, default="")
 
     class Meta:
         verbose_name = "درخواست هوش مصنوعی"
@@ -40,6 +44,19 @@ class AIRequest(TimeStampedModel):
 
     def __str__(self):
         return f"{self.task_type} {self.model} [{self.status}]"
+
+    @property
+    def answer_label(self) -> str:
+        """«لوکال (qwq:32b)» · «متیس (پشتیبان)» — برای نشان‌دادن کنارِ هر نتیجهٔ هوش مصنوعی."""
+        from services.ai.priority import answer_label
+
+        return answer_label(self.via, self.model, self.fell_back)
+
+    def answer_info(self) -> dict:
+        return {
+            "via": self.via, "model": self.model, "fell_back": self.fell_back,
+            "fallback_reason": self.fallback_reason, "label": self.answer_label,
+        }
 
 
 class AIResponse(models.Model):
@@ -369,3 +386,7 @@ from .voice_clone_models import ClonedVoice, ClonedVoiceClip  # noqa: E402,F401
 
 # The shop's audio library (speech / ambience / music made in the «صدا» section).
 from .audio_library_models import AudioAsset  # noqa: E402,F401
+
+# «اول متیس / اول لوکال» — the one setting that orders every AI call, and the short memory of failures
+# (services/ai/priority.py, services/ai/routing.py).
+from .priority_models import AiPriority, AiProviderState  # noqa: E402,F401

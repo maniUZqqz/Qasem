@@ -213,40 +213,76 @@ def client(capability: str, store, data_class: str = PRODUCT):
     return factory.build(resolve(capability, store, data_class))
 
 
-def _external_allowed(store, data_class: str):
-    """First external text provider this store's data policy accepts, or None."""
+def _external_allowed(store, data_class: str, capability: str = providers.TEXT):
+    """First external provider for this capability that this store's data policy accepts, or None."""
     policy = policy_for(store)
-    for resolved in providers.candidates(providers.TEXT):
+    for resolved in providers.candidates(capability):
         if not resolved.is_local and check(resolved, policy, data_class) is None:
             return resolved
     return None
 
 
-def text_provider(store, data_class: str = PRODUCT):
-    """Reasoning, analysis, research, captions, scripts.
+def _no_external_reason(store, data_class: str, capability: str) -> str:
+    """Why there is no Metis/API path for this call — the owner reads this in the combined error."""
+    external = [r for r in providers.candidates(capability) if not r.is_local]
+    if not external:
+        return "متیس (API) تنظیم نشده است (AI_API_BASE_URL و AI_API_KEY)."
+    policy = policy_for(store)
+    return "سیاستِ داده‌ی این فروشگاه اجازه‌ی فرستادنِ این داده به سرویسِ بیرونی (متیس) را نمی‌دهد. " + str(
+        check(external[0], policy, data_class) or ""
+    )
 
-    Owner's preference (services.ai.routing): Qwen Coder on the processing server first, the API as an
-    automatic fallback. The fallback still goes through the data policy: customer data that may not leave
-    our servers has no fallback and the call fails instead of quietly going out.
+
+def _routed(capability: str, kind: str, store, data_class: str, task: str):
+    """The two-path provider (local ⇄ Metis, order = the owner's setting) for text / code / vision.
+
+    The Metis leg still goes through the data policy: customer data that may not leave our servers has no Metis path
+    and the call stays local (or fails) instead of quietly going out.
+    """
+    from . import routing
+
+    external = _external_allowed(store, data_class, capability)
+    return routing.RoutedTextProvider(
+        factory.build(external) if external else None,
+        task=task,
+        kind=kind,
+        no_fallback_reason="" if external else _no_external_reason(store, data_class, capability),
+    )
+
+
+def text_provider(store, data_class: str = PRODUCT, kind: str | None = None):
+    """Reasoning, analysis, research, captions, scripts (kind="text"); site-builder style code work (kind="code").
+
+    Both paths are always available: Ollama on the processing node (local) and the API (Metis). Which comes first
+    is the owner's setting (`apps.ai.AiPriority`, services.ai.priority); when the first cannot answer, the other
+    does. The Metis path still goes through the data policy.
     """
     from . import routing
 
     if not routing.wants_node():
         return client(providers.TEXT, store, data_class)
-    external = _external_allowed(store, data_class)
-    return routing.RoutedTextProvider(factory.build(external) if external else None, task=f"text:{data_class}")
+    kind = kind or routing.TEXT
+    return _routed(providers.TEXT, kind, store, data_class, task=f"{kind}:{data_class}")
 
 
 def vision_provider(store, data_class: str = PRODUCT):
-    """Reads a product photo."""
-    return client(providers.VISION, store, data_class)
+    """Reads a product photo. Local = qwen3-vl on the node, Metis = the API's vision model; order = the setting."""
+    from . import routing
+
+    if not routing.wants_node():
+        return client(providers.VISION, store, data_class)
+    return _routed(providers.VISION, routing.VISION, store, data_class, task=f"vision:{data_class}")
 
 
 def provider_for_task(task_type: str, store, data_class: str = PRODUCT):
     """`services.ai.router` task type → client."""
+    from . import priority
+
     capability = providers.TASK_CAPABILITY.get(task_type, providers.TEXT)
     if capability == providers.TEXT:
-        return text_provider(store, data_class)
+        return text_provider(store, data_class, kind=priority.kind_of_task(task_type))
+    if capability == providers.VISION:
+        return vision_provider(store, data_class)
     return client(capability, store, data_class)
 
 

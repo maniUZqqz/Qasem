@@ -6,7 +6,7 @@
     GET    stores/<id>/editor/projects/                    the shop's projects
     POST   stores/<id>/editor/projects/                    {title?, data?}
     GET PUT DELETE stores/<id>/editor/projects/<pk>/       one project; PUT validates and says whether it would render
-    POST   stores/<id>/editor/projects/<pk>/render/        {quality: draft|final} → job → project.output
+    POST   stores/<id>/editor/projects/<pk>/render/        {quality: draft|final, export?: {...}, data?: project} → job (queued, one at a time)
 
 A project's JSON never carries a file path — only refs the server resolves for this store (see editor_project.py).
 """
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 MAX_PROJECT_BYTES = 600_000
 MAX_PROJECTS = 60
+MAX_QUEUED_RENDERS = 3
 
 
 def _err(code, message, http=status.HTTP_400_BAD_REQUEST):
@@ -52,13 +53,16 @@ def project_dict(project: VideoProject, *, with_data: bool = True) -> dict:
     return out
 
 
-def _busy(project: VideoProject) -> bool:
-    """RENDERING, but not a render that died with its worker half an hour ago."""
+def _active_renders(project: VideoProject) -> int:
+    """Export jobs of this project that are queued or running (a job that died with its worker half an hour ago is not)."""
     from datetime import timedelta
 
     from django.utils import timezone
 
-    return project.state == VideoProject.State.RENDERING and project.updated_at > timezone.now() - timedelta(minutes=45)
+    return Job.objects.filter(
+        store=project.store, type=Job.Type.VIDEO_EDIT, context__what="project", context__project_id=project.pk,
+        state__in=(Job.State.QUEUED, Job.State.RUNNING, Job.State.PROCESSING), updated_at__gt=timezone.now() - timedelta(minutes=45),
+    ).count()
 
 
 def _clean_data(data) -> dict:
@@ -144,8 +148,6 @@ class ProjectDetailView(APIView):
     def put(self, request, store_id, pk):
         store = access.get_store(request.user, store_id, access.CONTENT)
         project = get_object_or_404(VideoProject, pk=pk, store=store)
-        if _busy(project):
-            return _err("rendering", "الان در حال رندر است؛ بعد از پایانش ذخیره کنید.", status.HTTP_409_CONFLICT)
         if "title" in request.data:
             project.title = str(request.data.get("title") or "")[:200] or project.title
         check = None
@@ -166,22 +168,36 @@ class ProjectDetailView(APIView):
 
 
 class ProjectRenderView(APIView):
+    """Export. The job works on a snapshot of the project, so editing can go on while it renders (and waits in the queue)."""
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, store_id, pk):
+        from .views_editor_pro import snapshot_path
+
         store = access.get_store(request.user, store_id, access.CONTENT)
         project = get_object_or_404(VideoProject, pk=pk, store=store)
-        if _busy(project):
-            return _err("rendering", "الان در حال رندر است.", status.HTTP_409_CONFLICT)
+        if _active_renders(project) >= MAX_QUEUED_RENDERS:
+            return _err("queue_full", f"{MAX_QUEUED_RENDERS} رندر در صف است؛ یکی را لغو کنید یا صبر کنید.", status.HTTP_409_CONFLICT)
         quality = "draft" if str(request.data.get("quality")) == "draft" else "final"
-        verdict = editor_project.check(store, project.data or {})
+        data = request.data.get("data") if isinstance(request.data.get("data"), dict) and request.data["data"].get("tracks") else (project.data or {})
+        try:
+            data = _clean_data(data)
+        except tl.TimelineError as exc:
+            return _err("bad_project", str(exc))
+        override = request.data.get("export")
+        if isinstance(override, dict):
+            data = {**data, "export": {**(data.get("export") or {}), **override}}
+        verdict = editor_project.check(store, data)
         if not verdict["ok"]:
             return _err("bad_project", verdict["error"])
-        job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "project", "project_id": project.pk})
+        export_block = data.get("export") or {}
+        job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={
+            "what": "project", "project_id": project.pk, "quality": quality, "preset": str(export_block.get("preset") or "")})
         project.state = VideoProject.State.RENDERING
         project.error = ""
         project.save(update_fields=["state", "error", "updated_at"])
-        failed = dispatch_job(job, render_project_task, job.id, project.pk, quality)
+        failed = dispatch_job(job, render_project_task, job.id, project.pk, quality, snapshot_path(project, f"render_{job.id}.json", data))
         if failed is not None:
             project.state = VideoProject.State.FAILED
             project.error = "رندر شروع نشد."

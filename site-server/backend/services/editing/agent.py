@@ -482,6 +482,11 @@ def ask_model_ex(facts: dict, findings: list[dict], instruction: str, *,
         node_model = ""
     answer.via = ("node" if (answer.answered_by and answer.answered_by == node_model and not answer.fell_back)
                   else "api" if answer.answered_by else "")
+    # The router says which path answered (local = the processing node, metis = the API). The model-name guess above is
+    # kept for providers that do not say, and is wrong whenever the owner picked another local model for this kind of work.
+    routed_via = getattr(provider, "answered_via", "")
+    if routed_via in ("local", "metis"):
+        answer.via = "node" if routed_via == "local" else "api"
     answer.ok = True
 
     if store is not None and instruction:

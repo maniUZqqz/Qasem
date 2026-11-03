@@ -16,6 +16,7 @@ from .views_competitors import (
     ProfitReportView,
 )
 from .views_policy import StoreAIPolicyView
+from .views_priority import AIPriorityResetView, AIPriorityTestView, AIPriorityView
 from .views_providers import AIProviderHealthView, AIStatusView
 
 
@@ -36,6 +37,10 @@ urlpatterns = [
         name="store-ai-policy",
     ),
     path("ai/providers/health/", AIProviderHealthView.as_view(), name="ai-provider-health"),
+    # اولویتِ لوکال/متیس (تنظیمِ واحدِ هوش مصنوعیِ NM)
+    path("ai/priority/", AIPriorityView.as_view(), name="ai-priority"),
+    path("ai/priority/test/", AIPriorityTestView.as_view(), name="ai-priority-test"),
+    path("ai/priority/reset/", AIPriorityResetView.as_view(), name="ai-priority-reset"),
     path("products/<int:pk>/analyze/", ProductAnalyzeView.as_view(), name="product-analyze"),
     # ---- competitors (§3) ------------------------------------------------
     path(

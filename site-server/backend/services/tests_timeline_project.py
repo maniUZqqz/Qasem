@@ -110,7 +110,8 @@ class GraphTests(SimpleTestCase):
         self.assertIn("afade=t=out:st=1.700:d=0.300", g)
         self.assertIn("volume=0.500", g)
         self.assertIn("adelay=1000|1000", g)
-        self.assertIn("setpts=(PTS-STARTPTS)/2+1.000/TB", g)
+        self.assertIn("setpts=(PTS-STARTPTS)/2", g)
+        self.assertIn("setpts=PTS+1.000/TB", g)
         self.assertIn("[aout]", g)
         # ویدیوی بی‌صدا یا ترکِ بی‌صدا ⇒ بی خروجیِ صدا
         _, g = T.build_filtergraph(self.line(T.Track(clips=[T.Clip("a.mp4", at=0, end=3, has_audio=True)], muted=True)))
@@ -127,14 +128,23 @@ class GraphTests(SimpleTestCase):
         self.assertIn("pad=320:240", g)
         self.assertIn("eq=brightness=0.1", g)
         self.assertLess(g.index("transpose=1"), g.index("force_original_aspect_ratio=increase"), "چرخش پیش از جا دادن")
-        self.assertIn("tpad=stop_mode=clone:stop_duration=0.500", g)       # قطعهٔ قبلی زیرِ محوشدن می‌ماند
-        self.assertIn("fade=t=in:st=3.000:d=0.500:alpha=1", g)
-        self.assertIn("between(t,0.000,3.500)", g)
-        # fade (نه crossfade) ⇒ هر دو طرف به سیاه
+        # گذار = پنجره‌ای دورِ برش [۲٫۷۵ تا ۳٫۲۵]: هر دو قطعه روی سیاه، xfade، و روی ترک
+        self.assertIn("xfade=transition=fade:duration=0.500:offset=0", g)
+        self.assertIn("between(t,2.750,3.250)", g)
+        self.assertIn("between(t,0.000,2.750)", g, "قطعهٔ اول فقط تا آغازِ پنجره دیده می‌شود")
+        self.assertIn("between(t,3.250,9.000)", g, "قطعهٔ دوم فقط از پایانِ پنجره")
+        self.assertIn("tpad=stop_mode=clone", g, "منبعی که هندلِ بعد از برش ندارد، آخرین فریم را نگه می‌دارد")
+        # fade (نه crossfade) ⇒ به سیاه و برگشت
         b2 = T.Clip("b.mp4", at=3, end=6, transition={"kind": "fade", "duration": 1.0})
         _, g = T.build_filtergraph(self.line(T.Track(clips=[T.Clip("a.mp4", at=0, end=3), b2])))
-        self.assertIn("fade=t=out:st=2.500:d=0.500:alpha=1", g)
-        self.assertIn("fade=t=in:st=3.000:d=0.500:alpha=1", g)
+        self.assertIn("xfade=transition=fadeblack:duration=1.000", g)
+        # با هندل (منبعِ بلندتر) از خودِ فیلم می‌خواند، نه از فریمِ ثابت
+        a3 = T.Clip("a.mp4", at=0, start=1, end=3, src_len=10.0)
+        b3 = T.Clip("b.mp4", at=2, start=2, end=5, src_len=10.0, transition={"kind": "wipeleft", "duration": 1.0})
+        built = T.build_graph(self.line(T.Track(clips=[a3, b3])))
+        self.assertIn("xfade=transition=wipeleft", built.graph)
+        self.assertNotIn("tpad", built.graph)
+        self.assertIn(["-ss", "2.500", "-t", "1.100"], built.input_args, "پایانِ قطعهٔ اول: ۰٫۵ ثانیه بعد از نقطهٔ خروج می‌خواند")
 
     def test_stills_text_and_the_inputs_that_go_with_them(self):
         img = T.Clip("p.png", at=0, start=0, end=4, kind="image", fit="cover")
@@ -142,11 +152,12 @@ class GraphTests(SimpleTestCase):
         built = T.build_graph(self.line(T.Track(clips=[img]), T.Track(kind="text", clips=[txt])))
         self.assertEqual(built.inputs, ["p.png"])
         self.assertEqual(built.input_args[0][:2], ["-loop", "1"])
-        self.assertIn("drawtext=", built.graph)
-        self.assertIn("expansion=none", built.graph)
-        self.assertIn("fontcolor=0xffcc00@1", built.graph)
-        self.assertIn("between(t,1.000,3.000)", built.graph)
-        self.assertEqual(list(built.texts.values()), ["سلام ۵۰٪ تخفیف"])
+        self.assertIn("ass=filename=", built.graph, "عنوان‌ها را libass می‌کشد (شکل‌دهیِ فارسی)")
+        self.assertNotIn("drawtext", built.graph)
+        (doc,) = built.texts.values()
+        self.assertIn("سلام ۵۰٪ تخفیف", doc)
+        self.assertIn("Dialogue:", doc)
+        self.assertIn("0:00:01.00", doc)
         self.assertNotIn("سلام", built.graph, "متن فقط از راهِ فایل می‌رود، نه خودِ گراف")
 
     def test_long_text_is_wrapped_to_the_frame(self):

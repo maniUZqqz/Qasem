@@ -1044,7 +1044,7 @@ class ServiceManager:
 
 
 MANAGER = None
-STATE = {"auto_switch": True, "desired": {}}
+STATE = {"auto_switch": True, "desired": {}, "ai": {}}
 
 
 class Capabilities:
@@ -2639,13 +2639,24 @@ def photo_ai_env(env):
     its free automatic edit and says so (usedAi=false)."""
     if str(env.get("NM_PHOTO_AI", "")).strip().lower() in ("0", "off", "false", "no") or env.get("Photo__Ai__BaseUrl"):
         return {}
-    models = (env.get("NM_PHOTO_AI_MODELS") or "").strip() or ",".join(ollama_vision_models()) or \
+    preferred = str((STATE.get("ai") or {}).get("vision_model") or "").strip()
+    models = (env.get("NM_PHOTO_AI_MODELS") or "").strip() or ",".join(prefer_vision(ollama_vision_models(), preferred)) or \
         "qwen3-vl:30b,qwen2.5vl:7b,llava:7b"
     return {"Photo__Ai__BaseUrl": service_url("ollama") + "/v1", "Photo__Ai__Models": models,
             "Photo__Ai__TimeoutSeconds": str(env.get("NM_PHOTO_AI_TIMEOUT") or 900)}
 
 
 VISION_HINTS = ("-vl", "vl:", "vl-", "vision", "llava", "minicpm-v", "moondream", "gemma3", "llama4", "mistral-small3")
+
+
+def prefer_vision(names, preferred=""):
+    """The kit tries the models in order and the first one that answers wins, so order matters: the vision model chosen
+    on the site (Tools > AI priority > local vision model) first, then qwen3-vl, then the rest in Ollama's own order."""
+    def rank(n):
+        if preferred and n == preferred:
+            return 0
+        return 1 if n.lower().startswith("qwen3-vl") else 2
+    return sorted(names, key=rank)
 
 
 def ollama_vision_models():
@@ -3048,6 +3059,8 @@ def main():
             return
         if "auto_switch" in r:
             STATE["auto_switch"] = bool(r["auto_switch"])
+        if isinstance(r.get("ai"), dict):
+            STATE["ai"] = r["ai"]       # the site's AI settings (local model per kind of work)
         if isinstance(r.get("desired"), dict):
             if r["desired"] != STATE["desired"]:
                 log("panel wants: %s (auto-switch %s)" % (json.dumps(r["desired"]), "on" if STATE["auto_switch"] else "off"))

@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, views_update, views_voice
+from . import api, transfer, views_ollama, views_update, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -11,9 +11,13 @@ urlpatterns = [
     path("jobs/<uuid:uid>/progress/", api.progress),
     path("jobs/<uuid:uid>/upload/", api.upload),
     path("jobs/<uuid:uid>/finish/", api.finish),
+    # فایل‌های بزرگِ رندرِ نهایی: دانلودِ ازسرگیرِ ورودی‌ها (Range) و آپلودِ ازسرگیرِ خروجی (تکه‌تکه) — transfer.py
+    path("jobs/<uuid:uid>/files/<str:fid>/", transfer.job_file),
+    path("jobs/<uuid:uid>/chunks/<str:name>/", transfer.output_chunks),
     path("jobs/<uuid:uid>/outputs/<str:name>", api.output_file),
     path("log/", api.node_log),
     path("enroll/", api.enroll),
+    path("ollama/pullable/", views_ollama.pullable),                # فهرستِ مجازِ دانلودِ مدل (گره پیش از ollama.pull می‌پرسد)
     # به‌روزرسانیِ کدِ گره از خودِ سایت (توکنِ گره یا کارمند) — updates.py
     path("update/", views_update.manifest),
     path("update/package/", views_update.package),

@@ -1,5 +1,6 @@
 import type { Adjust, Curve, Pt } from "../../manual/engine";
 import type { ShapeLayer, Stroke, TextLayer } from "../types";
+import { rasterPath } from "./pathraster";
 
 /** رسم‌های دوبعدیِ لایه‌ها (متن، شکل، قلم) و جدول‌های منحنی. همه با همان قراردادِ بک‌اند (layers.py / textlayer.py). */
 
@@ -235,6 +236,7 @@ export type ShapeRaster = { canvas: HTMLCanvasElement; bw: number; bh: number };
 
 /** مثلِ layers._render_shape */
 export function rasterShape(layer: ShapeLayer, W: number): ShapeRaster | null {
+  if (layer.shape === "path") return rasterPath(layer, W); // قلم (Pen): pathraster.ts = layers._render_path
   const wpx = layer.w * W;
   let hpx = layer.h * W;
   const sw = layer.stroke ? layer.stroke.w * W : 0;

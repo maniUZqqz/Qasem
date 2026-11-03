@@ -7,6 +7,9 @@ import type { Adjust, Curve } from "../manual/engine";
 import { SECTIONS } from "../manual/model";
 import { SectionBody } from "../manual/Sliders";
 import type { Hist, ProActions } from "./panelTypes";
+import RedeyeInspector from "./RedeyeInspector";
+import { FxBlock, GroupInspector } from "./FxInspector";
+import { effectivelyLocked } from "./tree";
 import type { AdjustLayer, ImageLayer, Layer, ProState, RetouchLayer, ShapeLayer, TextLayer } from "./types";
 import "./panels.css";
 
@@ -480,19 +483,23 @@ export default function LayerInspector(props: LayerInspectorProps) {
       case "image": return <ImageInspector layer={layer} hist={hist} assets={assets} storeLogo={props.storeLogo} />;
       case "adjust": return <AdjustInspector layer={layer} hist={hist} kit={kit} />;
       case "retouch": return <RetouchInspector layer={layer} hist={hist} />;
+      case "redeye": return <RedeyeInspector layer={layer} hist={hist} />;
+      case "group": return <GroupInspector layer={layer} state={props.state} hist={hist} actions={props.actions} />;
       default: return <p className="pn-hint">تنظیم‌های عکس در زبانهٔ «تنظیم» است؛ این‌جا فقط شفافیت، حالتِ ترکیب و ماسکِ لایهٔ عکس را می‌توان عوض کرد.</p>;
     }
   })();
   const transformable = layer.type === "image" || layer.type === "text" || layer.type === "shape";
+  const locked = effectivelyLocked(props.state.layers, layer);
   return (
     <div className="pn-root" data-testid="layer-inspector" data-layer-id={layer.id} data-type={layer.type}>
       <div className="pn-head">
         <span className="pn-title">{layer.name}</span>
-        {layer.locked && <span className="pn-count">قفل است</span>}
+        {locked && <span className="pn-count">{layer.locked ? "قفل است" : "قفلِ گروه"}</span>}
       </div>
-      <fieldset className="pn-fieldset" disabled={layer.locked}>
-        <div className={layer.locked ? "pn-locked" : undefined}>
+      <fieldset className="pn-fieldset" disabled={locked}>
+        <div className={locked ? "pn-locked" : undefined}>
           {body}
+          {transformable && <FxBlock layer={layer as ImageLayer | TextLayer | ShapeLayer} hist={hist} />}
           {transformable && (
             <TransformBlock layer={layer as ImageLayer | TextLayer | ShapeLayer} hist={hist} layerBox={props.layerBox} canvasAspect={props.canvasAspect} />
           )}

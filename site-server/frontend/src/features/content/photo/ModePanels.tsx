@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { errorMessage } from "../../../api/client";
 import { Alert, Button, Card, SectionTitle, Spinner, TextArea, fa } from "../../../components/ui";
-import type { Asset, Edit, Operation, Overview, Tool } from "./api";
+import type { Asset, Edit, Operation, Overview, SmartDecision, Tool } from "./api";
 import { photoApi } from "./api";
 import ResultCard from "./ResultCard";
 import StepList from "./StepList";
@@ -167,13 +167,62 @@ const EXAMPLES = [
   "پس‌زمینهٔ سفیدِ تمیز و کالا وسط",
 ];
 
+/** «این دستور کجا انجام می‌شود» — راست و درست، از تصمیمِ سرور (smart.decide_path) یا، تا آن نیامده، از وضعِ سرورِ پردازش. */
+function SmartRoute({ decision, nodeOn }: { decision: SmartDecision | null; nodeOn: boolean }) {
+  if (decision?.path === "node") {
+    return (
+      <Alert tone="ok" title="روی سرورِ پردازش">
+        «اول لوکال» است و سرورِ پردازش آنلاین است؛ مدلِ بینا (روی کامپیوترِ خودتان) همین حالا جواب می‌دهد و هیچ اعتبارِ بیرونی خرج نمی‌شود.
+      </Alert>
+    );
+  }
+  if (decision?.path === "site") {
+    const first = decision.first === "metis" ? "متیس" : "لوکال";
+    const second = decision.first === "metis" ? "لوکال" : "متیس";
+    return (
+      <Alert tone="info" title="بی سرورِ پردازش هم کار می‌کند">
+        هوشِ مصنوعیِ بینا از سرورِ سایت صدا زده می‌شود: ترتیبِ «تنظیماتِ هوش مصنوعی» اول {first} است و اگر جواب نداد {second}. لغزنده‌ها روی سرورِ
+        سایت اعمال می‌شود. اگر هیچ‌کدام جواب ندادند فقط نور و رنگِ خودکارِ سبک اعمال می‌شود و همین را بالای نتیجه می‌نویسیم.
+      </Alert>
+    );
+  }
+  return nodeOn ? (
+    <Alert tone="ok" title="سرورِ پردازش آنلاین است">
+      اگر ترتیبِ هوش مصنوعی «اول لوکال» باشد، مدلِ بینا روی سرورِ پردازش جواب می‌دهد؛ اگر «اول متیس» باشد از سرورِ سایت اول متیس صدا زده می‌شود و لوکال
+      پشتیبان است. بالای هر نتیجه نوشته می‌شود چه کسی جواب داد.
+    </Alert>
+  ) : (
+    <Alert tone="info" title="بی سرورِ پردازش هم کار می‌کند">
+      هوشِ مصنوعیِ بینا از سرورِ سایت صدا زده می‌شود، به ترتیبِ «تنظیماتِ هوش مصنوعی» (اول لوکال یا اول متیس؛ اگر اولی جواب نداد دومی). اگر هیچ‌کدام جواب
+      ندادند فقط نور و رنگِ خودکارِ سبک اعمال می‌شود.
+    </Alert>
+  );
+}
+
 export function PhotoPromptPanel(p: Common) {
   const [goal, setGoal] = useState("");
   const [follow, setFollow] = useState("");
   const [error, setError] = useState<string | null>(null);
   const noSel = p.selected.length === 0;
   const last = p.asset ? p.latest(p.asset.id) : null;
-  const lastSmart = last && last.operations.some((o) => o.tool === "kit_smart") ? last : null;
+  // روی سرورِ سایت، kit_smart به develop بازنویسی می‌شود؛ نسخهٔ هوشمند را از ثبتِ stats.smart هم می‌شناسیم
+  const lastSmart = last && (last.smart || last.operations.some((o) => o.tool === "kit_smart")) ? last : null;
+  const [decision, setDecision] = useState<SmartDecision | null>(null);
+  const firstSelected = p.selected[0];
+  useEffect(() => {
+    // مسیرِ این دستور (سرورِ پردازش یا هوشِ مصنوعیِ سایت) را از سرور بپرس تا متنِ زیرِ دکمه راست باشد
+    let alive = true;
+    setDecision(null);
+    if (firstSelected) {
+      photoApi
+        .plan(p.storeId, firstSelected, "smart")
+        .then((pl) => alive && setDecision(pl.smart ?? null))
+        .catch(() => alive && setDecision(null));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [p.storeId, firstSelected, p.nodeOn]);
 
   async function ask() {
     setError(null);
@@ -187,9 +236,14 @@ export function PhotoPromptPanel(p: Common) {
   async function refine() {
     if (!lastSmart || !follow.trim()) return;
     setError(null);
-    // کارهای انتخاب‌شدهٔ قبلی + هدفِ تازه ⇐ کیت از نسخهٔ فعلی ادامه می‌دهد و فقط «تغییر» می‌دهد
+    // کارهای انتخاب‌شدهٔ قبلی + هدفِ تازه ⇐ کیت از نسخهٔ فعلی ادامه می‌دهد و فقط «تغییر» می‌دهد.
+    // نسخهٔ سایت: لغزنده‌های فعلی (develop و ابزارهای سبک) همراه می‌روند؛ هوش مصنوعی آن‌ها را در پرسش می‌بیند و اصلاح می‌کند
+    const prior: Operation[] =
+      lastSmart.smart?.path === "site"
+        ? lastSmart.operations.filter((o) => o.tool !== "export").map((o) => ({ tool: o.tool, params: o.params, on: true }))
+        : (lastSmart.chosen ?? []).map((c) => ({ ...c, on: true }));
     const ops: Operation[] = [
-      ...(lastSmart.chosen ?? []).map((c) => ({ ...c, on: true })),
+      ...prior,
       { tool: "kit_smart", params: { goal: follow.trim() }, on: true, reason: "اصلاحِ شما" },
       { tool: "export", params: { format: "jpeg", quality: 92 }, on: true },
     ];
@@ -203,8 +257,7 @@ export function PhotoPromptPanel(p: Common) {
       <div data-testid="prompt-panel">
         <SectionTitle>ویرایش با دستور (نیمه‌خودکار)</SectionTitle>
         <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
-          بنویسید چه می‌خواهید. هوشِ مصنوعیِ بینای سرورِ پردازش عکس را می‌بیند، لغزنده‌های کیت را تنظیم می‌کند و یک بار نتیجه را می‌بیند و اصلاح
-          می‌کند. بعدش همهٔ انتخاب‌هایش را به‌صورتِ مرحله‌های قابل‌ویرایش می‌بینید.
+          بنویسید چه می‌خواهید. هوشِ مصنوعیِ بینا عکس را می‌بیند و لغزنده‌های ظهورِ عکس (نور، رنگ، منحنی…) را تنظیم می‌کند؛ بعدش همهٔ انتخاب‌هایش را به‌صورتِ مرحله‌های قابل‌ویرایش می‌بینید و بالای نتیجه نوشته می‌شود چه کسی جواب داد (متیس، لوکال یا بدون هوش مصنوعی).
         </p>
         <TextArea
           rows={3} value={goal} maxLength={300} onChange={(e) => setGoal(e.target.value)} data-testid="goal"
@@ -221,15 +274,8 @@ export function PhotoPromptPanel(p: Common) {
           </Button>
           {noSel && <span className="text-sm" style={{ color: "var(--warn)" }}>اول از کتابخانه عکس انتخاب کنید.</span>}
         </div>
-        <div className="mt-3">
-          {p.nodeOn ? (
-            <Alert tone="ok">سرورِ پردازش آنلاین است؛ هوشِ مصنوعی (Qwen بینا روی کامپیوترِ خودتان) همین حالا جواب می‌دهد. هیچ اعتبارِ بیرونی خرج نمی‌شود.</Alert>
-          ) : (
-            <Alert tone="warn" title="سرورِ پردازش خاموش است">
-              این حالت به مدلِ بینا روی سرورِ پردازش نیاز دارد. کار در صف می‌ماند و وقتی سرورِ پردازش روشن شد انجام می‌شود (بی مدلِ بینا، همان بهبودِ خودکارِ کیت).
-              برای نتیجهٔ همین حالا به حالتِ «خودکار» یا «دستی» بروید.
-            </Alert>
-          )}
+        <div className="mt-3" data-testid="smart-route">
+          <SmartRoute decision={decision} nodeOn={p.nodeOn} />
         </div>
         {error && <div className="mt-3"><Alert tone="bad">{error}</Alert></div>}
 

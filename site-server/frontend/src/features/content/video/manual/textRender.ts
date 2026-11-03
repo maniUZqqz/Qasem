@@ -406,6 +406,20 @@ const rgba = (color: string, a: number): string => {
  * عنوانِ `clip` را در لحظهٔ `t` ِ «تایم‌لاین» روی بومِ W×H می‌کشد؛ بیرون از [at, at+duration) چیزی نمی‌کشد.
  * ctx باید ماتریسِ هویت داشته باشد. هزینه: چیدمان کش می‌شود؛ هر فریم فقط چند fillText.
  */
+/** مسیرِ ردیابیِ متن: جابه‌جاییِ لنگر (کسری از قاب) در زمانِ `t` از شروعِ متن — همان titles.path_at ِ سرور */
+export function pathAt(path: { t: number; dx: number; dy: number }[] | undefined, t: number): [number, number] {
+  if (!path || path.length === 0) return [0, 0];
+  if (t <= path[0].t) return [path[0].dx, path[0].dy];
+  for (let i = 0; i + 1 < path.length; i++) {
+    if (t < path[i + 1].t) {
+      const u = (t - path[i].t) / Math.max(1e-9, path[i + 1].t - path[i].t);
+      return [path[i].dx + (path[i + 1].dx - path[i].dx) * u, path[i].dy + (path[i + 1].dy - path[i].dy) * u];
+    }
+  }
+  const last = path[path.length - 1];
+  return [last.dx, last.dy];
+}
+
 export function drawText(ctx: CanvasRenderingContext2D, clip: TextClip, t: number, W: number, H: number): void {
   const r = resolveText(clip);
   const local = t - r.at;
@@ -414,6 +428,11 @@ export function drawText(ctx: CanvasRenderingContext2D, clip: TextClip, t: numbe
   const L = layoutFor(clip, r, W, H);
   const { g } = L;
   const st = stateAt(r, local, L.dIn, L.dOut, W, H);
+  if (clip.path && clip.path.length >= 2) {
+    const [fx, fy] = pathAt(clip.path, local);
+    st.dx += fx * W;
+    st.dy += fy * H;
+  }
   if (st.alpha <= 0.002) return;
   const textA = r.opacity * st.alpha;
   const strokePx = (g.em * r.stroke) / 100;

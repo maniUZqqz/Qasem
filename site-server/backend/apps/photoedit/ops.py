@@ -362,28 +362,95 @@ def _energy_offset(img: Image.Image, crop_w: int, crop_h: int) -> tuple[int, int
     return int(best_x / sx), int(best_y / sy)
 
 
-def op_crop_format(img, p, ctx):
-    tw, th, label = SOCIAL_FORMATS[p["format"]]
-    w, h = img.size
+def crop_format_target(p) -> tuple[int, int, str]:
+    """(عرض، ارتفاع، برچسب) قابِ خروجیِ ``crop_format``؛ ``format="custom"`` ⇐ مربعِ ``size × size``."""
+    if p.get("format") == "custom":
+        side = int(max(200, min(4000, int(p.get("size") or 2000))))
+        return side, side, f"قابِ {side}×{side}"
+    return SOCIAL_FORMATS[p["format"]]
+
+
+def crop_format_geometry(p, w: int, h: int, energy=None) -> dict:
+    """هندسهٔ قطعیِ ``crop_format`` برای ورودیِ w×h — یک منبعِ حقیقت برای ``op_crop_format``، ``frames.py`` و مرورگر.
+
+    ⇐ cover:   ``{"mode": "cover", "size": (tw, th), "label", "box": (x0, y0, x1, y1) پیکسلِ ورودی،
+                 "exact": True وقتی box از window آمده (اعشاری)، "upscale": بزرگ‌شدگی, "approx": bool}``
+    ⇐ contain: ``{"mode": "contain", "size", "label", "fg": (nw, nh), "pos": (left, top)}``
+    ``energy(cw, ch) ⇐ (x, y)`` فقط برای cover با focus=smart و بی window لازم است؛ نبودنش ⇐ وسط و ``approx=True``.
+    """
+    tw, th, label = crop_format_target(p)
     if p["fit"] == "cover":
+        window = p.get("window") or []
+        if len(window) == 4:
+            wx, wy, ww, wh = (float(v) for v in window)
+            box = (max(0.0, min(w - 1.0, wx * w)), max(0.0, min(h - 1.0, wy * h)),
+                   max(1.0, min(float(w), (wx + ww) * w)), max(1.0, min(float(h), (wy + wh) * h)))
+            if box[2] - box[0] < 1.0 or box[3] - box[1] < 1.0:
+                box = (0.0, 0.0, float(w), float(h))
+            up = max(tw / max(1e-9, box[2] - box[0]), th / max(1e-9, box[3] - box[1]))
+            return {"mode": "cover", "size": (tw, th), "label": label, "box": box, "exact": True, "upscale": up,
+                    "approx": False}
         scale = max(tw / w, th / h)
         cw, ch = min(w, int(round(tw / scale))), min(h, int(round(th / scale)))
-        focus = p["focus"]
+        focus, approx = p["focus"], False
         if focus == "smart":
-            x, y = _energy_offset(img, cw, ch)
+            if energy is not None:
+                x, y = energy(cw, ch)
+            else:
+                x, y, approx = (w - cw) // 2, (h - ch) // 2, True
         else:
             x = {"left": 0, "right": w - cw}.get(focus, (w - cw) // 2)
             y = {"top": 0, "bottom": h - ch}.get(focus, (h - ch) // 2)
         x, y = max(0, min(w - cw, x)), max(0, min(h - ch, y))
-        out = img.crop((x, y, x + cw, y + ch)).resize((tw, th), Image.Resampling.LANCZOS)
-        if max(tw / w, th / h) > 1.05:
-            ctx["notes"].append(f"عکس از {label} کوچک‌تر بود و بزرگ شد (برای کیفیتِ بهتر «بزرگ‌نماییِ هوشمند» را اضافه کنید)")
-        return out
-    # contain: کلِ عکس دیده می‌شود، دورش پر می‌شود
-    scale = min(tw / w, th / h)
+        return {"mode": "cover", "size": (tw, th), "label": label, "box": (x, y, x + cw, y + ch), "exact": False,
+                "upscale": scale, "approx": approx}
+    pad = max(0.0, min(40.0, float(p.get("padding") or 0))) / 100.0
+    scale = min(tw / w, th / h) * (1.0 - 2.0 * pad)
     nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
-    fg = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    return {"mode": "contain", "size": (tw, th), "label": label, "fg": (nw, nh), "pos": ((tw - nw) // 2, (th - nh) // 2)}
+
+
+def op_crop_format(img, p, ctx):
+    """قابِ نهایی (شبکه‌ها یا مربعِ دلخواه) — هندسه قطعی است و مرورگر عیناً همین را بازتولید می‌کند. ورودی w×h، قاب tw×th
+    (``crop_format_target``، هندسه در ``crop_format_geometry``):
+
+    * **cover** بی ``window``: ``scale = max(tw/w, th/h)``؛ پنجرهٔ برش ``cw×ch = min(w, round(tw/scale)) × min(h, round(th/scale))``
+      در جای ``focus`` (left/right/top/bottom/center؛ ``smart`` ⇐ ``_energy_offset``)؛ برش ⇐ تغییرِ اندازه به tw×th با LANCZOS.
+    * **cover با ``window=[x, y, w', h']``** (کسری از ورودی؛ ``focus`` را کنار می‌زند): جعبهٔ برش
+      ``(x·w, y·h, (x+w')·w, (y+h')·h)`` به پیکسلِ اعشاری؛ برشِ صحیحِ دربرگیرنده (floor/ceil) و بعد
+      ``resize((tw, th), LANCZOS, box=<همان جعبه نسبت به برش>)`` — یعنی «پنجره ⇐ برش ⇐ LANCZOS به tw×th» بی نشتِ پیکسل‌های
+      بیرونِ پنجره (نسبتِ پنجره با قاب فرق کند کشیده می‌شود؛ مرورگر پنجره را هم‌نسبتِ قاب می‌دهد).
+    * **contain**: ``scale = min(tw/w, th/h) · (1 − 2·padding/100)``؛ ``nw×nh = round(w·scale) × round(h·scale)`` (≥۱)،
+      وسط‌چین در ``((tw−nw)//2, (th−nh)//2)``. ``fill``: ``blur`` (الگوریتمِ قدیم: نسخهٔ cover و ۸ برابر کوچک‌شده با
+      GaussianBlur(6) و روشنی ×۰٫۸۲؛ به padding وابسته نیست)، ``white``، ``black``، ``color`` (= ``fill_color``) — خروجی RGB —
+      یا ``transparent``: بومِ RGBA با آلفای ۰ بیرونِ محتوا (آلفای خودِ عکس درونِ محتوا می‌ماند). خروجیِ JPEG طبقِ معمول روی
+      سفید flatten می‌شود.
+    """
+    w, h = img.size
+    geo = crop_format_geometry(p, w, h, lambda cw, ch: _energy_offset(img, cw, ch))
+    tw, th = geo["size"]
+    if geo["mode"] == "cover":
+        if geo["exact"]:
+            # برشِ صحیحِ دربرگیرندهٔ پنجره، بعد تغییرِ اندازهٔ اعشاریِ همان پنجره: پیکسل‌های بیرونِ پنجره نشت نمی‌کنند
+            x0, y0, x1, y1 = geo["box"]
+            ix0, iy0 = int(math.floor(x0 + 1e-6)), int(math.floor(y0 + 1e-6))
+            ix1, iy1 = min(w, int(math.ceil(x1 - 1e-6))), min(h, int(math.ceil(y1 - 1e-6)))
+            sub = img.crop((ix0, iy0, ix1, iy1))
+            out = sub.resize((tw, th), Image.Resampling.LANCZOS,
+                             box=(x0 - ix0, y0 - iy0, min(float(sub.width), x1 - ix0), min(float(sub.height), y1 - iy0)))
+        else:
+            out = img.crop(geo["box"]).resize((tw, th), Image.Resampling.LANCZOS)
+        if geo["upscale"] > 1.05:
+            ctx["notes"].append(f"عکس از {geo['label']} کوچک‌تر بود و بزرگ شد (برای کیفیتِ بهتر «بزرگ‌نماییِ هوشمند» را اضافه کنید)")
+        return out
+    # contain: کلِ عکس دیده می‌شود (با حاشیهٔ اختیاری)، دورش پر می‌شود
+    fg = img.resize(geo["fg"], Image.Resampling.LANCZOS)
+    pos = geo["pos"]
     fill = p["fill"]
+    if fill == "transparent":
+        canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        canvas.paste(fg.convert("RGBA"), pos)       # بی ماسک ⇒ RGBA و آلفا عیناً کپی می‌شود
+        return canvas
     if fill == "blur":
         cover = max(tw / w, th / h)
         bg = flatten(img).resize((max(tw, int(w * cover)), max(th, int(h * cover))), Image.Resampling.BILINEAR)
@@ -395,8 +462,8 @@ def op_crop_format(img, p, ctx):
     else:
         color = {"white": "#ffffff", "black": "#000000"}.get(fill, p["fill_color"])
         bg = Image.new("RGB", (tw, th), color)
-    # کالای شفاف روی همان زمینه می‌نشیند (قالبِ شبکه‌ها شفافیت نمی‌خواهد)
-    bg.paste(fg.convert("RGB"), ((tw - nw) // 2, (th - nh) // 2), fg.getchannel("A") if fg.mode == "RGBA" else None)
+    # کالای شفاف روی همان زمینه می‌نشیند (قالبِ شبکه‌ها شفافیت نمی‌خواهد؛ شفاف‌خواه «transparent» را بگذارد)
+    bg.paste(fg.convert("RGB"), pos, fg.getchannel("A") if fg.mode == "RGBA" else None)
     return bg
 
 
@@ -581,6 +648,25 @@ def op_compose(img, p, ctx):
     return layers.compose(img, p["layers"], ctx, project=int(p.get("project") or 0))
 
 
+def op_liquify(img, p, ctx):
+    """نقشهٔ مایع‌سازیِ پروژه (liquify.bin) روی عکس؛ نقشه نبود یا خراب بود ⇒ یادداشت و عکسِ دست‌نخورده.
+    پیش‌نمایش (ctx["scale"] < 1) با INTER_LINEAR، خروجیِ کامل با INTER_CUBIC."""
+    from . import liquify
+
+    getter = ctx.get("liquify_path")
+    path = getter(int(p.get("project") or 0)) if getter else None
+    if not path or not Path(path).is_file():
+        ctx["notes"].append("نقشهٔ مایع‌سازیِ پروژه پیدا نشد و نادیده گرفته شد")
+        return img
+    try:
+        field = liquify.load_field(path)
+    except (liquify.LiquifyError, OSError):
+        ctx["notes"].append("نقشهٔ مایع‌سازی خراب بود و نادیده گرفته شد")
+        return img
+    quality = "final" if float(ctx.get("scale") or 1.0) >= 0.999 else "fast"
+    return liquify.apply(img, field, quality=quality)
+
+
 def op_perspective(img, p, ctx):
     """اصلاحِ پرسپکتیو/کیستون: چهارضلعیِ tl,tr,br,bl (نسبی) ⇐ مستطیل."""
     import cv2
@@ -609,7 +695,7 @@ def op_perspective(img, p, ctx):
 OPS = {
     "auto_tone": op_auto_tone, "color": op_color, "look": op_look, "rotate": op_rotate,
     "crop_format": op_crop_format, "crop_rect": op_crop_rect, "resize": op_resize, "text": op_text, "logo": op_logo, "watermark": op_watermark,
-    "develop": op_develop, "compose": op_compose, "perspective": op_perspective,
+    "develop": op_develop, "compose": op_compose, "perspective": op_perspective, "liquify": op_liquify,
 }
 
 

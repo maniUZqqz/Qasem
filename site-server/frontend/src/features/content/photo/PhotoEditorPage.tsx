@@ -18,6 +18,7 @@ import {
 } from "../../../components/ui";
 import CompareSlider from "./CompareSlider";
 import { PhotoAutoPanel, PhotoPromptPanel } from "./ModePanels";
+import { smartChipText } from "./ResultCard";
 import PhotoWorkspace from "./manual/PhotoWorkspace";
 import ProWorkspace from "./pro/ProWorkspace";
 import SourcePicker from "./SourcePicker";
@@ -278,14 +279,15 @@ export default function PhotoEditorPage() {
       <div className="mb-4" data-testid="node-banner">
         {nodeOn ? (
           <Alert tone="ok" title="سرورِ پردازش آنلاین است">
-            کارهای هوشمند (بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی، ویرایش با دستور) همین حالا روی{" "}
-            {(node ?? data.node).nodes.join("، ")} انجام می‌شود.
+            کارهای هوشمندِ کیت (بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) همین حالا روی{" "}
+            {(node ?? data.node).nodes.join("، ")} انجام می‌شود. «ویرایش با دستور» طبقِ ترتیبِ تنظیماتِ هوش مصنوعی یا روی سرورِ پردازش
+            یا از سرورِ سایت (متیس/لوکال) انجام می‌شود و بالای نتیجه می‌نویسیم چه کسی جواب داد.
           </Alert>
         ) : (
           <Alert tone="warn" title="سرورِ پردازش خاموش است">
-            کارهای سبک — برش برای شبکه‌ها، اندازه، چرخش، متن، لوگو، واترمارک و نور و رنگِ ساده — همین‌جا روی
-            سرورِ سایت انجام می‌شود. کارهای هوشمندِ کیت (برچسبِ «سرورِ پردازش») در صف می‌مانند تا سرورِ پردازش
-            روشن شود؛ صفحه را می‌توانید ببندید.
+            کارهای سبک — برش برای شبکه‌ها، اندازه، چرخش، متن، لوگو، واترمارک و نور و رنگِ ساده — و «ویرایش با دستور» (هوشِ مصنوعیِ بینا از
+            سرورِ سایت: لوکال یا متیس طبقِ تنظیماتِ هوش مصنوعی) همین‌جا روی سرورِ سایت انجام می‌شود. بقیهٔ کارهای هوشمندِ کیت (برچسبِ
+            «سرورِ پردازش»: بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) در صف می‌مانند تا سرورِ پردازش روشن شود؛ صفحه را می‌توانید ببندید.
           </Alert>
         )}
       </div>
@@ -835,6 +837,12 @@ function AssetDetail({
                           کیت{e.node ? ` روی ${e.node}` : ""}
                           {e.kit.usedAi === true ? " (هوشِ مصنوعیِ بینا)" : e.kit.usedAi === false ? " (بی هوشِ مصنوعی)" : ""}:{" "}
                           {Array.isArray(e.kit.notes) ? e.kit.notes.join(" ") : e.kit.notes}
+                        </p>
+                      )}
+                      {e.state === "READY" && e.smart && !e.smart.pending && (
+                        <p className="text-xs" style={{ color: e.smart.fallback ? "var(--warn)" : "var(--text-3)" }} data-testid="version-smart">
+                          {smartChipText(e.smart)}
+                          {e.smart.notes ? ` — «${e.smart.notes}»` : ""}
                         </p>
                       )}
                       {e.server_notes.length > 0 && (

@@ -7,9 +7,11 @@ import type { AudioEngine } from "./AudioEngine";
 import type { LookDef } from "./color";
 import { Compositor, Source, planTransitions, sourceTimeFor } from "./Compositor";
 import { setKey } from "./keyframes";
+import type { Lut } from "./lut";
 import {
   AnyClip, MediaClip, Project, TextClip, clipEnd, clipLength, findClip, isMedia, projectLength, propAt, speedAt, timecode,
 } from "./model";
+import { flattenForMedia } from "./ops";
 import { onTextFontsReady } from "./textRender";
 import "./monitor.css";
 
@@ -70,6 +72,11 @@ type Props = {
   compare: string | null;
   engine: AudioEngine | null;
   duckSpans: [number, number][];
+  /** LUT های خوانده‌شده و ماتِ حذفِ پس‌زمینه (کلید ⇒ نشانی و ثانیهٔ شروع) برای پیش‌نمایش */
+  luts?: Record<string, Lut>;
+  matteMeta?: Record<string, { url: string; s0: number }>;
+  /** لایهٔ تعاملیِ روی تصویر (ویرایشِ ماسکِ آزاد، انتخابِ ناحیهٔ ردیابی) */
+  pickOverlay?: ReactNode;
   /** پخش: زمانِ فعلی را به‌صورتِ ملایم خبر می‌دهد */
   onTime: (t: number) => void;
   onEnded: () => void;
@@ -101,12 +108,18 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
   const [size, setSize] = useState({ w: 320, h: 400 });
   const [safe, setSafe] = useState(false);
   const rafRender = useRef(0);
-  const latest = useRef({ project, time, playing, rate, looks, compare, engine, duckSpans });
-  latest.current = { project, time, playing, rate, looks, compare, engine, duckSpans };
+  // توالی‌های تودرتو: برگ‌هایشان روی خطِ زمانِ ریشه هم‌گام می‌شوند (مونتاژگر خودش تودرتو می‌کشد)
+  const flat = useMemo(() => flattenForMedia(project), [project]);
+  const luts = props.luts;
+  const matteMeta = props.matteMeta;
+  const latest = useRef({ project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta });
+  latest.current = { project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta };
+  const matteEls = useRef(new Map<string, { el: HTMLVideoElement; url: string }>());
+  const matteNow = useRef(new Map<string, Source>());
   const timeRef = useRef(time);
   const [frameVersion, setFrameVersion] = useState(0);
 
-  const mediaClips = useMemo(() => project.tracks.flatMap((t) => t.clips.filter(isMedia).map((c) => ({ c, t }))), [project]);
+  const mediaClips = useMemo(() => flat.tracks.flatMap((t) => t.clips.filter(isMedia).map((c) => ({ c, t }))), [flat]);
   const refs = useMemo(() => Array.from(new Set(mediaClips.map((x) => x.c.ref))), [mediaClips]);
   const urls = useMediaUrls(media, refs);
   const urlsRef = useRef(urls);
@@ -189,9 +202,11 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
 
   /** element ها را با زمان هماهنگ می‌کند (پخش/توقف/جست‌وجو) و فهرستِ منبعِ آمادهٔ رسم را برمی‌گرداند */
   const syncMedia = useCallback((t: number, isPlaying: boolean, r: number): Map<string, Source> => {
-    const { project: pr } = latest.current;
+    const pr = latest.current.flat;
     const sources = new Map<string, Source>();
     const keep = new Set<string>();
+    const mattes = new Map<string, Source>();
+    const keepMatte = new Set<string>();
     for (const tr of pr.tracks) {
       if (tr.kind === "text") continue;
       const pairs = tr.kind === "video" ? planTransitions(tr) : [];
@@ -233,9 +248,33 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
           if (el.readyState >= 1 && Math.abs(el.currentTime - want) > (isPlaying ? 0.06 : 0.02)) el.currentTime = want;
         }
         if (el instanceof HTMLVideoElement && el.videoWidth > 0 && el.readyState >= 1) sources.set(c.id, el);
+        // ماتِ حذفِ پس‌زمینه: یک ویدیوی خاکستریِ هم‌گام (ثانیهٔ منبع − شروعِ مات)
+        const meta = c.matte ? latest.current.matteMeta?.[c.matte.key] : undefined;
+        if (meta && c.kind === "video") {
+          keepMatte.add(c.id);
+          let me = matteEls.current.get(c.id);
+          if (!me || me.url !== meta.url) {
+            if (me) { me.el.removeAttribute("src"); me.el.load(); }
+            const mel = document.createElement("video");
+            mel.preload = "auto";
+            mel.muted = true;
+            mel.playsInline = true;
+            for (const ev of ["seeked", "loadeddata"]) mel.addEventListener(ev, () => requestRender());
+            mel.src = meta.url;
+            me = { el: mel, url: meta.url };
+            matteEls.current.set(c.id, me);
+          }
+          const mt = Math.max(0, want - meta.s0);
+          if (me.el.readyState >= 1 && Math.abs(me.el.currentTime - mt) > 0.05) me.el.currentTime = mt;
+          if (me.el.readyState >= 2 && me.el.videoWidth > 0) mattes.set(c.id, me.el);
+        }
       }
     }
     for (const id of [...elements.current.keys()]) if (!keep.has(id)) releaseElement(id);
+    for (const [id, m] of [...matteEls.current]) {
+      if (!keepMatte.has(id)) { m.el.removeAttribute("src"); m.el.load(); matteEls.current.delete(id); }
+    }
+    matteNow.current = mattes;
     return sources;
   }, [ensureElement, releaseElement]);
 
@@ -244,8 +283,8 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     if (!comp) return;
     const sources = syncMedia(t, isPlaying, r);
     const L = latest.current;
-    comp.render({ project: L.project, time: t, sources, looks: L.looks, compare: L.compare });
-    L.engine?.sync(L.project, t, isPlaying, L.duckSpans);
+    comp.render({ project: L.project, time: t, sources, looks: L.looks, compare: L.compare, luts: L.luts, mattes: matteNow.current });
+    L.engine?.sync(L.flat, t, isPlaying, L.duckSpans);
     props.onFrame?.();
   }, [props, syncMedia]);
 
@@ -271,7 +310,7 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     draw(time, false, 1);
     setFrameVersion((v) => v + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [time, playing, project, urls, looks, compare, fw, fh, duckSpans]);
+  }, [time, playing, project, urls, looks, compare, fw, fh, duckSpans, luts, matteMeta]);
 
   useEffect(() => onTextFontsReady(() => requestRender()), [requestRender]);
 
@@ -349,12 +388,20 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
   const patchFor = (c: AnyClip, mode: "move" | "scale" | "rot", x: number, y: number, st: NonNullable<typeof drag.current>): Partial<MediaClip> | Partial<TextClip> => {
     const rel = time - c.at;
     if (c.type === "text") {
+      if (mode === "move" && c.follow) {
+        const f0 = (st.c0 as TextClip).follow ?? c.follow;
+        return { follow: { ...f0, bx: f0.bx + (x - st.sx) / fw, by: f0.by + (y - st.sy) / fh } };
+      }
       if (mode === "move") return { x: Math.max(0, Math.min(1, (st.cx + x - st.sx) / fw)), y: Math.max(0, Math.min(1, (st.cy + y - st.sy) / fh)) };
       if (mode === "scale") return { scale: Math.max(0.1, Math.min(4, (c.scale ?? 1) * 1)) };
       return { rotation: Math.round(Math.atan2(y - st.cy, x - st.cx) * (180 / Math.PI) + 90) };
     }
     const m = c as MediaClip;
     const kf = m.kf ?? {};
+    if (mode === "move" && m.follow) {
+      const f0 = (st.c0 as MediaClip).follow ?? m.follow;
+      return { follow: { ...f0, bx: f0.bx + (x - st.sx) / fw, by: f0.by + (y - st.sy) / fh } };
+    }
     if (mode === "move") {
       const dx = (x - st.sx) / fw, dy = (y - st.sy) / fh;
       const bx = propAt(st.c0 as MediaClip, "px", time) + dx, by = propAt(st.c0 as MediaClip, "py", time) + dy;
@@ -428,6 +475,7 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
               <i className="h rot" data-handle="rot" onPointerDown={(e) => begin(e, "rot")} onPointerMove={move} onPointerUp={end} />
             </div>
           )}
+          {props.pickOverlay}
           {props.overlay}
         </div>
       </div>

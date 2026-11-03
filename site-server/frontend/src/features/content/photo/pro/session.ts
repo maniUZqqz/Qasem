@@ -3,7 +3,7 @@ import { newCanvas } from "./gl/raster";
 
 export type ToolId =
   | "move" | "hand" | "crop" | "straighten" | "persp" | "text" | "brush" | "gradient" | "clone" | "heal" | "spot"
-  | "marquee" | "ellipse" | "lasso" | "subject" | "wb";
+  | "marquee" | "ellipse" | "lasso" | "subject" | "wb" | "redeye" | "pen" | "liquify" | "genfill";
 
 export type ToolOpts = {
   /** شعاعِ قلم، کسری از پهنای بوم */
@@ -17,10 +17,20 @@ export type ToolOpts = {
   spotR: number;
   heal: boolean;
   grid: "off" | "thirds" | "golden" | "diag";
+  /** قرمزیِ چشم: شعاعِ پیش‌فرض (کسری از پهنای بوم؛ اگر برآوردِ خودکار نشد)، شدت و تیره‌کردن */
+  eyeR: number;
+  eyeAmount: number;
+  eyeDarken: number;
+  /** مایع‌سازی: قلم، شعاع (کسری از پهنای عکس)، فشار، آهنگِ ثابت‌ماندن */
+  liq: "push" | "bloat" | "pucker" | "reconstruct";
+  liqSize: number;
+  liqStrength: number;
+  liqRate: number;
 };
 
 export const defaultToolOpts = (): ToolOpts => ({
   size: 0.04, hardness: 0.5, flow: 1, erase: false, gradKind: "linear", feather: 0, spotR: 0.02, heal: false, grid: "off",
+  eyeR: 0.012, eyeAmount: 1, eyeDarken: 0.6, liq: "push", liqSize: 0.08, liqStrength: 0.7, liqRate: 0.5,
 });
 
 export type ZoomCmd = { id: number; kind: "fit" | "100" | "in" | "out" } | null;

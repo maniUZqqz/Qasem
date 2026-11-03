@@ -165,6 +165,8 @@ type Tone = "ok" | "bad" | "warn" | "info" | "neutral";
 /** کلیدهایی که جای دیگری نشان داده می‌شوند (زیرِ نام یا در ستونِ سرویس‌ها) و نباید دوباره Badge شوند */
 const HIDDEN_CAPS = new Set<string>([
   "hostname", "version", "agent", "platform", "comfy_nodes", "gpu", "slots", "ollama_models", "comfy_profiles",
+  // نشانه‌های داخلیِ عامل (دانلودِ مدل و منبعِ فهرستِ مدل‌ها): چیزی برای نمایشِ مستقل ندارند
+  "ollama_pull", "ollama_models_stale", "ollama_models_source",
   // این‌ها در کشوی «سرویس‌ها» و نوارهای حافظه نشان داده می‌شوند
   "managed", "ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb",
   ...SERVICE_KEYS,

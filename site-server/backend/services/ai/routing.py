@@ -35,7 +35,7 @@ from django.conf import settings
 
 from . import priority
 from .ollama import OllamaUnavailable
-from .priority import CODE, LOCAL, METIS, TEXT, VISION, Failure  # noqa: F401 — re-exported for callers
+from .priority import CODE, LOCAL, METIS, RESEARCH, TEXT, VISION, Failure  # noqa: F401 — re-exported for callers
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +103,46 @@ def _same_model(a, b):
     return models_registry._same_model(a, b)
 
 
+def _first_installed(chain, names):
+    """اولین مدلِ زنجیره که در فهرستِ مدل‌های نصب‌شده هست (برچسبِ خودِ فهرست برگردانده نمی‌شود، برچسبِ زنجیره)؛ وگرنه None."""
+    for cand in chain:
+        if any(_same_model(cand, m) for m in names or []):
+            return cand
+    return None
+
+
+def _missing_reason(wanted, chain):
+    others = [m for m in chain if m != wanted]
+    if others:
+        return 'مدلِ %s و جایگزین‌هایش (%s) روی سرورِ پردازش نصب نیست.' % (wanted, '، '.join(others))
+    return 'مدلِ %s روی سرورِ پردازش نصب نیست.' % wanted
+
+
 def node_state(kind=CODE):
-    """وضعِ الانِ سرورهای پردازش برای مدلِ لوکالِ این نوعِ کار. ⇒ dict برای تصمیم و برای پنل."""
+    """وضعِ الانِ سرورهای پردازش برای مدلِ لوکالِ این نوعِ کار. ⇒ dict برای تصمیم و برای پنل.
+
+    `model` = مدلی که واقعاً اجرا می‌شود: اگر مدلِ انتخابی (`wanted`) نصب نبود، اولین مدلِ نصب‌شدهٔ زنجیرهٔ این نوع
+    (`chain`، مثلاً gemma3:12b ⇒ qwen3:14b ⇒ qwq:32b)؛ `substitute` همان جایگزین است (خالی = خودِ مدلِ انتخابی).
+    `has_model` = دست‌کم یکی از زنجیره نصب است؛ `wanted_installed` = خودِ مدلِ انتخابی نصب است.
+    """
     wanted = priority.local_model(kind)
-    out = {'model': wanted, 'kind': kind, 'online': False, 'ready': False, 'has_model': None, 'node': '', 'nodes': [], 'known_models': [], 'reason': ''}
+    chain = priority.local_chain(kind)
+    out = {'model': wanted, 'wanted': wanted, 'chain': chain, 'substitute': '', 'kind': kind, 'online': False, 'ready': False,
+           'has_model': None, 'wanted_installed': None, 'node': '', 'nodes': [], 'known_models': [], 'reason': '',
+           'models_reported_at': None, 'models_stale': False}
+
+    blocked = priority.blocked_models(chain)        # خودِ گره تازه گفته «این مدل نیست» (فهرستش کهنه بود)
+
+    def decide(names):
+        """has_model / wanted_installed / model / substitute از روی فهرستِ نصب‌شده‌ها."""
+        found = _first_installed([c for c in chain if c not in blocked], names)
+        out['wanted_installed'] = wanted not in blocked and any(_same_model(wanted, m) for m in names)
+        out['has_model'] = found is not None
+        if found is not None:
+            out['model'] = found
+            out['substitute'] = '' if _same_model(found, wanted) else found
+        return found
+
     try:
         from apps.compute.models import ComputeNode
         nodes = list(ComputeNode.objects.filter(enabled=True))
@@ -121,31 +157,47 @@ def node_state(kind=CODE):
         out['reason'] = 'سرورِ پردازش خاموش است.' if nodes else 'هیچ سرورِ پردازشی ثبت نشده.'
         # آخرین فهرستِ مدل‌ها (از آخرین باری که گره روشن بود) فقط برای نمایش
         names = []
+        seen = None
         for n in registered or nodes:
-            names += [m for m in (n.capabilities or {}).get('ollama_models') or [] if m not in names]
+            got = [m for m in (n.capabilities or {}).get('ollama_models') or [] if m not in names]
+            names += got
+            if got and n.last_seen and (seen is None or n.last_seen > seen):
+                seen = n.last_seen
         out['known_models'] = names
+        out['models_reported_at'] = seen.isoformat() if seen else None
         if names:
-            out['has_model'] = any(_same_model(wanted, m) for m in names)
+            decide(names)
         return out
     out['online'] = True
     unknown = None
+    best = None            # (جایگاه در زنجیره، گره، فهرستِ مدل‌هایش): گره‌ای که مدلِ بهتری از زنجیره دارد برنده است
     for n in live:
-        names = (n.capabilities or {}).get('ollama_models')
+        caps = n.capabilities or {}
+        names = caps.get('ollama_models')
         for m in names or []:
             if m not in out['known_models']:
                 out['known_models'].append(m)
-        if names and any(_same_model(wanted, m) for m in names):
-            out.update({'ready': True, 'has_model': True, 'node': n.name})
-            return out
-        if not names and unknown is None:
+        if names:
+            found = _first_installed([c for c in chain if c not in blocked], names)
+            if found is not None and (best is None or chain.index(found) < best[0]):
+                best = (chain.index(found), n, names)
+        elif unknown is None:
             unknown = n
+    if best is not None:
+        _idx, n, names = best
+        decide(names)
+        out.update({'ready': True, 'node': n.name, 'models_reported_at': n.last_seen.isoformat() if n.last_seen else None,
+                    'models_stale': bool((n.capabilities or {}).get('ollama_models_stale'))})
+        return out
     if unknown is not None:
         # Ollama الان خاموش است و عاملِ گره می‌تواند روشنش کند؛ فهرستِ مدل‌ها را تا آن موقع نمی‌دانیم.
         # اگر مدل نبود، خودِ Ollama خطا می‌دهد و همان لحظه می‌رویم سراغِ مسیرِ دیگر.
         out.update({'ready': True, 'has_model': None, 'node': unknown.name})
         return out
+    decide(out['known_models'])
     out['has_model'] = False
-    out['reason'] = 'مدلِ %s روی سرورِ پردازش نصب نیست.' % wanted
+    out['wanted_installed'] = False
+    out['reason'] = _missing_reason(wanted, chain)
     return out
 
 
@@ -195,12 +247,13 @@ def _watch(state):
     return tick
 
 
-def node_provider(node_name, kind=CODE, claim_s=None, run_s=None):
-    """OllamaProvider ِ معمولی روی صفِ کارها، با بازرسِ بالا؛ پس تعمیرِ JSON و بقیهٔ منطق همان است."""
+def node_provider(node_name, kind=CODE, claim_s=None, run_s=None, model=None):
+    """OllamaProvider ِ معمولی روی صفِ کارها، با بازرسِ بالا؛ پس تعمیرِ JSON و بقیهٔ منطق همان است.
+    `model` = مدلی که واقعاً اجرا می‌شود (با جایگزین)؛ خالی = مدلِ انتخابیِ این نوع."""
     from .ollama import OllamaProvider
     claim_s = int(claim_s if claim_s is not None else claim_timeout())
     run_s = int(run_s if run_s is not None else run_timeout())
-    prov = OllamaProvider(base_url='agent://%s' % node_name if node_name else 'agent://any', timeout=run_s, model=priority.local_model(kind))
+    prov = OllamaProvider(base_url='agent://%s' % node_name if node_name else 'agent://any', timeout=run_s, model=model or priority.local_model(kind))
     prov.num_ctx = int(_conf('AI_NODE_NUM_CTX', 16384))
     state = {'claim_deadline': time.monotonic() + claim_s, 'claim_s': claim_s}
     prov.on_tick = _watch(state)
@@ -226,6 +279,7 @@ class _Router:
         self.answered_via = ''            # 'local' | 'metis'
         self.fell_back = False
         self.fallback_reason = ''
+        self.model_note = ''              # «gemma3:12b نصب نیست؛ qwq:32b جواب داد» — جایگزینیِ مدل داخلِ لوکال
         self.attempts = []                # [{'via','model','ok','reason'}] آخرین _route
         self._lifetime = {}               # مسیر -> Failure؛ تا پایانِ عمرِ این provider دیگر امتحان نمی‌شود
 
@@ -236,7 +290,7 @@ class _Router:
 
     def describe(self):
         return {'via': self.answered_via, 'model': self.answered_by, 'fell_back': self.fell_back,
-                'fallback_reason': self.fallback_reason, 'label': self.answered_label}
+                'fallback_reason': self.fallback_reason, 'label': self.answered_label, 'model_note': self.model_note}
 
     # ---- قلاب‌های زیرکلاس
     def _metis_precheck(self):
@@ -265,11 +319,15 @@ class _Router:
                 return None
             reason = state['reason'] or 'سرورِ پردازش آماده نیست.'
             kind = 'no_model' if state.get('has_model') is False and state.get('online') else 'offline'
-            return Failure(kind, reason, provider=LOCAL, model=state['model'])
+            return Failure(kind, reason, provider=LOCAL, model=state['wanted'])
         return self._metis_precheck()
 
     def _model_of(self, provider, cfg=None):
-        return priority.local_model(self.kind, cfg) if provider == LOCAL else ''
+        """مدلِ لوکالی که واقعاً اجرا می‌شود (با جایگزین)؛ مدارِ شکستِ «همین مدل» با آن کلید می‌خورد."""
+        if provider != LOCAL:
+            return ''
+        state = node_state(self.kind)
+        return state['model'] if state.get('has_model') else priority.local_model(self.kind, cfg)
 
     # ---- ترتیبِ عملی، بی‌اجرا (برای select_models)
     def _usable_order(self, cfg=None):
@@ -311,9 +369,33 @@ class _Router:
         state = node_state(self.kind)
         if not state['ready']:
             raise NodeFailed(state['reason'] or 'سرورِ پردازش آماده نیست.')
-        model = priority.local_model(self.kind, cfg)
-        prov = node_provider(state['node'], self.kind) if self.kind != CODE else node_provider(state['node'])
-        return local_call(prov, model), model
+        wanted = priority.local_model(self.kind, cfg)
+        chain = state.get('chain') or [wanted]
+        # مدلِ انتخابی نصب نیست ⇒ اولین مدلِ مناسبِ نصب‌شده؛ فهرست نامعلوم (Ollama خاموش) ⇒ از خودِ مدلِ انتخابی شروع می‌شود
+        first = state['model'] if state.get('has_model') else wanted
+        known = state.get('known_models') or []
+        if state.get('has_model') and first in chain:
+            # فهرست را می‌دانیم: فقط مدل‌های بعدیِ زنجیره که در آن هستند (هر امتحانِ بی‌خود یک رفت‌وبرگشت در صف است)
+            order = [first] + [m for m in chain[chain.index(first) + 1:] if any(_same_model(m, k) for k in known)]
+        else:
+            order = [first] + [m for m in chain if m != first]
+        # فهرستِ مدل‌های گره ممکن است کهنه باشد (Ollama خاموش بود، یا مالک مدلی را پاک کرد): اگر گره بگوید «مدل نیست»، همان لحظه
+        # مدلِ مناسبِ بعدی امتحان می‌شود و آن مدل چند دقیقه کنار می‌ماند — پیش از آن‌که کار به متیس برود
+        gone = priority.blocked_models(order)
+        usable = [m for m in order if m not in gone] or order
+        for index, model in enumerate(usable):
+            self.model_note = ('%s نصب نیست؛ %s جواب داد' % (wanted, model)) if model != wanted else ''
+            self._local_model_used = model        # اگر شکست خورد، مدارِ «همین مدل» باز شود نه مدلِ انتخابی
+            prov = node_provider(state['node'], self.kind, model=model)
+            try:
+                return local_call(prov, model), model
+            except Exception as exc:  # noqa: BLE001
+                failure = priority.classify(exc, LOCAL, model)
+                if failure.kind != 'no_model' or index == len(usable) - 1:
+                    raise
+                priority.trip(LOCAL, failure, model, cfg.breaker_minutes)
+                logger.warning('AI route [%s/%s]: local model %s is not installed on the node — trying %s', self.task, self.kind,
+                               model, usable[index + 1])
 
     def _route(self, local_call, metis_call):
         """local_call(prov, model) ⇒ نتیجه؛ metis_call(has_alt) ⇒ (نتیجه، مدل). اولین مسیرِ موفق جواب می‌دهد."""
@@ -323,6 +405,8 @@ class _Router:
         started = time.monotonic()
         self.attempts = []
         self.answered_by, self.answered_via, self.fell_back, self.fallback_reason = '', '', False, ''
+        self.model_note = ''
+        self._local_model_used = ''
         failures = {}
         runnable = []
         for p in order:
@@ -353,6 +437,8 @@ class _Router:
                 else:
                     result, model = metis_call(has_alt)
             except Exception as exc:  # noqa: BLE001 — هر شکستی ⇒ مسیرِ دیگر؛ علتش ثبت می‌شود
+                if p == LOCAL and getattr(self, '_local_model_used', ''):
+                    model = self._local_model_used
                 failure = priority.classify(exc, p, model)
                 if p == LOCAL and failure.kind == 'no_model':
                     failure.message = 'مدلِ %s روی سرورِ پردازش نصب نیست.' % (model or priority.local_model(self.kind, cfg))
@@ -431,7 +517,7 @@ class RoutedTextProvider(_Router):
     def select_models(self, candidates):
         usable = self._usable_order()
         if usable and usable[0] == LOCAL:
-            return [priority.local_model(self.kind)]
+            return [self._model_of(LOCAL)]            # the model that will really run (a stand-in when the chosen one is missing)
         if self.fallback is not None:
             return self.fallback.select_models(candidates)
         return [m for m in (candidates or []) if m] or [priority.local_model(self.kind)]

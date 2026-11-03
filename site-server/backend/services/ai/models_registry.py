@@ -34,11 +34,22 @@ EMBEDDING_MARKERS = ("embed", "minilm", "bge-", "gte-")
 VISION_MARKERS = ("-vl", "vl:", "vision", "llava", "moondream", "minicpm-v", "bakllava", "gemma3")
 
 # task type (services.ai.router) → the settings key holding its model name
+# (REASONING = everyday text: MODEL_TEXT, which may be absent ⇒ priority.DEFAULT_MODELS; RESEARCH = the old MODEL_REASONING)
 TASK_MODEL_KEY = {
-    "REASONING": "MODEL_REASONING",
+    "REASONING": "MODEL_TEXT",
+    "RESEARCH": "MODEL_REASONING",
     "VISION": "MODEL_VISION",
     "CODE": "MODEL_CODER",
 }
+
+
+def _preferred(task_type: str, conf) -> str:
+    from . import priority
+
+    kind = priority.TASK_KIND.get(task_type)
+    if kind:
+        return priority.env_model(kind)
+    return conf.get(TASK_MODEL_KEY.get(task_type, ""), "")
 
 _cache = {"at": 0.0, "models": []}
 _lock = threading.Lock()
@@ -135,7 +146,7 @@ def candidates(task_type: str) -> list[str]:
     cannot be reached the configured names are returned as-is.
     """
     conf = settings.UPMARKET_AI
-    preferred = conf.get(TASK_MODEL_KEY.get(task_type, ""), "")
+    preferred = _preferred(task_type, conf)
     wants_vision = task_type == "VISION"
 
     configured = [preferred] + list(conf.get("MODEL_FALLBACKS", []))

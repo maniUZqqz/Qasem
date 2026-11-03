@@ -12,18 +12,30 @@ import { ASPECTS, FULL, SECTIONS, aspectRect } from "../manual/model";
 import { ParamSlider, SectionBody } from "../manual/Sliders";
 import type { PhotoWorkspaceProps } from "../manual/PhotoWorkspace";
 import OperationForm from "../OperationForm";
+import FrameCard, { STORE_FRAME } from "./FrameCard";
+import { cropFormatOpParams, effectiveCropFormat, makeFrameSpec } from "./frame";
+import { photoGeoSizes } from "./geo";
 import { neutralizeToTempTint } from "./gl/engine";
+import GenFillPanel from "./GenFillPanel";
 import Histogram, { HistData } from "./Histogram";
 import LayerInspector from "./LayerInspector";
 import LayersPanel from "./LayersPanel";
+import { LiquifyStore } from "./liquify";
 import type { Hist, MaskKind, ProActions } from "./panelTypes";
+import { PenPath, penToSelection, penToShape } from "./pen";
 import PresetsPanel from "./PresetsPanel";
 import { MaskStore, Selection, ToolId, ToolOpts, ZoomCmd, defaultToolOpts } from "./session";
-import Stage, { StageApi } from "./Stage";
+import Stage, { StageApi, frameInputOf } from "./Stage";
 import {
-  AdjustLayer, Layer, MaskSpec, ProState, Quad, buildProOperations, defaultProState, developKeys, makeAdjust, makeImage, makeRetouch,
+  AdjustLayer, Layer, MaskSpec, ProState, Quad, buildProOperations, defaultProState, developKeys, makeAdjust, makeImage, makePathShape, makeRetouch,
   makeShape, makeText, nid, proStateFromOperations, serializeProject, withBase,
 } from "./types";
+import type { GenFillResult } from "../api";
+import { makeGroup } from "./types";
+import {
+  canonical, cloneSubtree, clipTarget, descendantIds, effectivelyLocked, moveSibling as treeMoveSibling, moveTo, parentIdOf, removeWithDescendants,
+  siblingsOf, ungroupLayers, wrapInGroup,
+} from "./tree";
 import "./pro.css";
 
 type Props = PhotoWorkspaceProps & { storeLogo?: string | null };
@@ -47,11 +59,14 @@ const TOOLS: ToolDef[] = [
   { id: "lasso", key: "L", title: "انتخابِ آزاد (کمند)", hint: "دورِ ناحیه بکشید", icon: "M5 13c0-4 3-8 8-8s7 2 7 5-3 5-8 5c-1 0-2 0-3-.3L7 20l1-3.5C6 16 5 14.5 5 13Z" },
   { id: "subject", key: "W", title: "انتخابِ سوژه", hint: "روی عکس کلیک کنید تا سوژه خودکار انتخاب شود (کیت یا الگوریتمِ سبک)", icon: "M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm-7 18a7 7 0 0 1 14 0" },
   { id: "wb", key: "I", title: "قطره‌چکانِ تعادلِ سفیدی", hint: "روی یک بخشِ خاکستریِ عکس کلیک کنید تا رنگ‌زدگی برطرف شود", icon: "M14 4l6 6-9 9H5v-6l9-9Zm-2 2 6 6", sep: true },
+  { id: "redeye", key: "R", title: "قرمزیِ چشم", hint: "روی مردمکِ قرمز کلیک کنید؛ لکهٔ قرمز خودکار پیدا و اصلاح می‌شود (هر کلیک یک چشم در لایهٔ «قرمزیِ چشم»)", icon: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", sep: true },
+  { id: "pen", key: "P", title: "قلم (Pen)", hint: "کلیک = نقطه، کلیک و کشیدن = منحنیِ نرم، کلیک روی نقطهٔ اول = بستن؛ Enter = پایان، Esc = لغو، Backspace = حذفِ آخرین، Alt+کلیک روی نقطه = گوشه/نرم", icon: "M4 20l4-1 11-11-3-3L5 16l-1 4Zm10-14 3 3" },
+  { id: "liquify", key: "Q", title: "مایع‌سازی (Liquify)", hint: "روی عکس بکشید تا بخش‌ها جابه‌جا شوند؛ باد کردن، جمع کردن و بازسازی هم دارد", icon: "M3 8c3-3 5 3 9 0s6-3 9 0M3 16c3-3 5 3 9 0s6-3 9 0" },
+  { id: "genfill", key: "F", title: "پرکردنِ هوشمند", hint: "با قلم جایی را که باید عوض/حذف شود رنگ کنید (Alt = کم کردن)؛ بعد در پنل «اجرا» را بزنید", icon: "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm7 11 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" },
 ];
 
 const KIT_TOOLS: { key: string; title: string }[] = [
   { key: "kit_background", title: "حذف / تعویضِ پس‌زمینه" },
-  { key: "kit_square", title: "قابِ مربعِ فروشگاه" },
   { key: "kit_upscale", title: "بزرگ‌نماییِ هوشمند" },
   { key: "kit_denoise", title: "نویزگیری (کیت)" },
   { key: "kit_sharpen", title: "شارپِ حرفه‌ای (کیت)" },
@@ -70,16 +85,29 @@ function ToolIcon({ t }: { t: ToolDef }) {
   );
 }
 
-function normalizeLoaded(raw: Record<string, unknown>): ProState {
+/**
+ * پروژهٔ ذخیره‌شده ⇒ حالتِ ادیتور. `fv` همان‌طور که ذخیره شده می‌ماند (سرور پروژهٔ قدیمی را هنگامِ بازکردن کوچ می‌دهد و fv=2 می‌زند؛
+ * اگر کوچ ممکن نبود fv نیست ⇒ legacy=true و ذخیرهٔ خودکار تا اولین ویرایشِ کاربر نگه داشته می‌شود).
+ */
+function normalizeLoaded(raw: Record<string, unknown>): { data: ProState; legacy: boolean } {
   const base = defaultProState();
   const data = { ...base, ...(raw as Partial<ProState>) } as ProState;
+  const fv = Number((raw as { fv?: unknown }).fv);
+  const legacy = !(fv >= 2);
+  data.fv = legacy ? 1 : fv;
   data.tools = { ...(data.tools ?? {}) };
+  // «قابِ مربعِ فروشگاه»ِ قدیمی (kit_square) ⇒ «قابِ شبکه‌ها: مربعِ دلخواه، جا دادن، سفید» (مثلِ کوچِ سرور)
+  if (data.tools.kit_square) {
+    const cf = data.tools.crop_format ? null : effectiveCropFormat({ kit_square: data.tools.kit_square });
+    delete data.tools.kit_square;
+    if (cf) data.tools.crop_format = cropFormatOpParams(cf);
+  }
   data.layers = (Array.isArray(data.layers) ? data.layers : []).map((l) => {
     if (l.mask && l.mask.type === "paint") return { ...l, mask: { ...l.mask, rev: 0 } } as Layer;
     return l;
   });
   data.crop = { ...FULL, ...(data.crop ?? {}) };
-  return withBase(data);
+  return { data: withBase(data), legacy };
 }
 
 const loadImg = (url: string) =>
@@ -103,6 +131,26 @@ export default function ProWorkspace(props: Props) {
   const masks = useMemo(() => new MaskStore(), []);
   const selection = useMemo(() => new Selection(), []);
   const [selVer, setSelVer] = useState(0);
+  /** قلم (Pen): مسیرِ در حالِ ساخت؛ مایع‌سازی: نقشهٔ جابه‌جاییِ پروژه (فضای عکس) */
+  const pen = useMemo(() => new PenPath(), []);
+  const [, setPenVer] = useState(0);
+  const bumpPen = useCallback(() => setPenVer((v) => v + 1), []);
+  const liquify = useMemo(() => {
+    const s = new LiquifyStore();
+    s.init(asset.width, asset.height);
+    return s;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  /** پرکردنِ هوشمند: پنل باز است؟ و شناسهٔ کارِ در جریان (برای ادامه پس از بازکردنِ دوبارهٔ صفحه) */
+  const [gfOpen, setGfOpen] = useState(false);
+  const [gfBusy, setGfBusy] = useState(false);
+  const gfKey = `nm.photo.genfill.${storeId}.${asset.id}`;
+  const [gfResume] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(gfKey);
+    } catch {
+      return null;
+    }
+  });
   const [stage, setStage] = useState<StageApi | null>(null);
   const stageRef = useRef<StageApi | null>(null);
   stageRef.current = stage;
@@ -130,6 +178,8 @@ export default function ProWorkspace(props: Props) {
   const [thumbVersion, setThumbVersion] = useState(0);
   const projRef = useRef<{ id: number; rev: number } | null>(null);
   const saving = useRef(false);
+  /** پروژهٔ قدیمیِ کوچ‌نشده: تا کاربر چیزی را عوض نکرده ذخیرهٔ خودکار نکن (ذخیره fv=2 می‌زند) */
+  const holdSave = useRef(false);
 
   const allAssets = useMemo(() => [...props.assets, ...extraAssets.filter((e) => !props.assets.some((a) => a.id === e.id))], [props.assets, extraAssets]);
   const src = asset.has_alpha ? asset.url : asset.preview;
@@ -151,13 +201,33 @@ export default function ProWorkspace(props: Props) {
         }
         if (stop) return;
         if (proj && proj.data && Array.isArray((proj.data as { layers?: unknown }).layers)) {
-          const data = normalizeLoaded(proj.data);
+          const { data, legacy } = normalizeLoaded(proj.data);
+          holdSave.current = legacy;
           const ids = data.layers.flatMap((l) => (l.mask && l.mask.type === "paint" ? [l.mask.id] : []));
           await Promise.all(ids.map((id) => (proj!.masks[id] ? masks.loadUrl(id, proj!.masks[id]) : Promise.resolve(false))));
+          // نقشهٔ مایع‌سازی (liquify.bin): اگر پروژه نشانش را دارد ولی فایل نیامد/خراب بود، نشان را بردار تا حالت و نقشه یکی بمانند
+          liquify.onServer = !!proj.liquify;
+          if (data.liquify) {
+            let ok = false;
+            if (proj.liquify) {
+              try {
+                ok = liquify.load(await proApi.getLiquify(storeId, proj.id), Number(data.liquify.rev) || proj.liquify.rev || 1);
+              } catch {
+                ok = false;
+              }
+            }
+            if (!ok) data.liquify = null;
+          }
           if (stop) return;
           hist.reset(data);
           projRef.current = { id: proj.id, rev: proj.rev };
           setSaveMsg("پروژهٔ ذخیره‌شده باز شد");
+          const mig = (proj as { migration?: { migrated?: boolean; trivial?: boolean; notes?: string[]; error?: string } }).migration;
+          if (mig?.error || legacy) {
+            setNotice({ tone: "warn", text: "این پروژه با ویرایشگرِ قدیمی ساخته شده و تبدیلِ خودکارش به «قاب‌اول» ممکن نبود؛ جای لایه‌ها ممکن است جابه‌جا دیده شود. تا چیزی را عوض نکنید ذخیره نمی‌شود." });
+          } else if (mig?.migrated && !mig.trivial) {
+            setNotice({ tone: "info", text: `پروژه به مدلِ «قاب‌اول» (لایه‌ها نسبت به قابِ نهایی) تبدیل شد${mig.notes?.length ? ": " + mig.notes.join("؛ ") : ""}` });
+          }
         } else {
           const created = await proApi.createProject(storeId, asset.id, serializeProject(stateRef.current) as unknown as Record<string, unknown>, asset.title);
           projRef.current = { id: created.id, rev: created.rev };
@@ -193,6 +263,19 @@ export default function ProWorkspace(props: Props) {
           masks.dirty.delete(id);
         }
       }
+      // نقشهٔ مایع‌سازی: با ماسک‌ها هم‌زمان ذخیره می‌شود (حالت نشان دارد ⇒ بنویس؛ نشان ندارد و روی سرور فایل هست ⇒ بردار)
+      if (stateRef.current.liquify) {
+        if (liquify.dirty || !liquify.onServer) {
+          const v = liquify.ver;
+          await proApi.putLiquify(storeId, pr.id, liquify.encode());
+          liquify.onServer = true;
+          if (liquify.ver === v) liquify.dirty = false;
+        }
+      } else if (liquify.onServer) {
+        await proApi.deleteLiquify(storeId, pr.id);
+        liquify.onServer = false;
+        liquify.dirty = false;
+      }
       const data = serializeProject(stateRef.current) as unknown as Record<string, unknown>;
       try {
         const res = await proApi.saveProject(storeId, pr.id, data, pr.rev);
@@ -212,12 +295,15 @@ export default function ProWorkspace(props: Props) {
     } finally {
       saving.current = false;
     }
-  }, [masks, storeId]);
+  }, [masks, storeId, liquify]);
 
   useEffect(() => {
     if (!projectReady || !projRef.current) return;
+    if (holdSave.current && !hist.canUndo) return;
+    holdSave.current = false;
     const t = window.setTimeout(() => void saveProject(), 1500);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, projectReady, saveProject]);
 
   // برگشت/جلو ⇒ ماسک‌های نقاشی‌شده را به نسخهٔ همان گام برگردان
@@ -234,6 +320,12 @@ export default function ProWorkspace(props: Props) {
     }
     if (changed) stage?.redraw();
   }, [state.layers, masks, stage]);
+
+  // برگشت/جلو ⇒ نقشهٔ مایع‌سازی را به نسخهٔ همان گام برگردان (state.liquify.rev؛ نبودنش = نقشهٔ صفر)
+  useEffect(() => {
+    const want = state.liquify?.rev ?? 0;
+    if (liquify.rev !== want && liquify.restore(want)) stage?.redraw();
+  }, [state.liquify, liquify, stage]);
 
   useEffect(() => {
     proApi.fonts(storeId).then(setFonts).catch(() => undefined);
@@ -321,9 +413,13 @@ export default function ProWorkspace(props: Props) {
     });
   const liveTools = (key: string, params: Params) => hist.live((s) => ({ ...s, tools: { ...s.tools, [key]: params } }));
 
-  const geoNow = stage?.geo() ?? null;
-  const Wt = geoNow?.Wt ?? asset.width;
-  const Ht = geoNow?.Ht ?? asset.height;
+  // اندازهٔ عکس پس از پرسپکتیو/چرخش/صاف‌کردن (برای نسبتِ برش) و قابِ نهایی (اندازهٔ بوم) — محاسبهٔ خالص، مستقل از نما
+  const { Wt, Ht } = useMemo(() => photoGeoSizes(asset.width, asset.height, state), [asset.width, asset.height, state.turn, state.straighten, state.persp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const frameSpec = useMemo(
+    () => makeFrameSpec(asset.width, asset.height, frameInputOf(state)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [asset.width, asset.height, state.turn, state.straighten, state.flipH, state.flipV, state.crop, state.persp, state.tools],
+  );
   const aspectRatio = useMemo(() => {
     const a = ASPECTS.find((x) => x.key === aspectKey);
     if (!a || a.ratio === null) return null;
@@ -350,7 +446,36 @@ export default function ProWorkspace(props: Props) {
       active: (id: string | null) => setActiveId(id),
       opts: (o: Partial<ToolOpts>) => setOpts(o),
       fromOps: (ops: { tool: string; params: Params }[]) => proStateFromOperations(ops),
-      buildOps: (quick: boolean) => buildProOperations(stateRef.current, { quick, projectId: 0 }),
+      buildOps: (quick: boolean) => buildProOperations(stateRef.current, { quick, projectId: 0, window: stageRef.current?.smartWindow(stateRef.current) ?? null }),
+      /** بومِ نهایی: اندازهٔ واقعی (Wf×Hf) و کاری (Wc×Hc)، پنجرهٔ سوژه */
+      canvasSize: () => {
+        const e = stageRef.current?.engine;
+        const f = stageRef.current?.frame();
+        return e && f ? { Wf: f.Wf, Hf: f.Hf, Wc: e.Wc, Hc: e.Hc, trivial: f.trivial, smartPending: f.smartPending } : null;
+      },
+      frame: () => stageRef.current?.frame() ?? null,
+      smartWindow: () => stageRef.current?.smartWindow(stateRef.current) ?? null,
+      /** انتخابِ فعلی (فضای بومِ نهایی) به‌صورتِ data URL — برای آزمون */
+      selectionInfo: () => ({ active: selection.active, w: selection.w, h: selection.h, url: selection.canvas ? selection.canvas.toDataURL("image/png") : null }),
+      /** قلم و مایع‌سازی (آزمون) */
+      penInfo: () => ({ pts: pen.pts, closed: pen.closed, done: pen.done }),
+      liqInfo: () => {
+        let m = 0;
+        for (let i = 0; i < liquify.field.length; i++) m = Math.max(m, Math.abs(liquify.field[i]));
+        return { rev: liquify.rev, ver: liquify.ver, active: liquify.active, dirty: liquify.dirty, onServer: liquify.onServer, gw: liquify.gw, gh: liquify.gh, maxAbs: m };
+      },
+      liqBytes: () => Array.from(liquify.encode()),
+      /** آزمون: میدانِ مایع‌سازی را از بایت‌های LQF1 بخوان و ثبت کن */
+      liqSet: (bytes: number[], label = "مایع‌سازی") => {
+        const tmp = new LiquifyStore();
+        tmp.init(asset.width, asset.height);
+        if (!tmp.load(new Uint8Array(bytes).buffer, 1) || tmp.gw !== liquify.gw || tmp.gh !== liquify.gh) return false;
+        liquify.field.set(tmp.field);
+        liquify.touch();
+        const rev = liquify.commit();
+        hist.apply(label, (s) => ({ ...s, liquify: { rev } }));
+        return true;
+      },
     };
   });
 
@@ -437,36 +562,50 @@ export default function ProWorkspace(props: Props) {
       addLayer(l, "واترمارک");
     },
     duplicate: (id) => {
-      const src0 = stateRef.current.layers.find((l) => l.id === id);
+      const st0 = stateRef.current;
+      const src0 = st0.layers.find((l) => l.id === id);
       if (!src0 || src0.type === "base") return;
-      const copy = JSON.parse(JSON.stringify(src0)) as Layer;
-      copy.id = nid();
-      copy.name = `${src0.name} کپی`;
-      if ("cx" in copy) {
-        copy.cx = Math.min(0.98, copy.cx + 0.03);
-        copy.cy = Math.min(0.98, copy.cy + 0.03);
+      // رونوشتِ عمیق: گروه ⇒ با همهٔ نوادگان (شناسه‌ها نو، parent نگاشته، ماسکِ نقاشی‌شده کپی)
+      const { clones, map } = cloneSubtree(st0.layers, id, nid);
+      const topId = map.get(id)!;
+      for (const copy of clones) {
+        if (copy.id === topId) copy.name = `${src0.name} کپی`;
+        if ("cx" in copy) {
+          copy.cx = Math.min(0.98, copy.cx + 0.03);
+          copy.cy = Math.min(0.98, copy.cy + 0.03);
+        }
+        if (copy.mask && copy.mask.type === "paint") {
+          const nm = nid();
+          masks.copy(copy.mask.id, nm);
+          copy.mask = { ...copy.mask, id: nm, rev: 0 };
+        }
       }
-      if (copy.mask && copy.mask.type === "paint") {
-        const nm = nid();
-        masks.copy(copy.mask.id, nm);
-        copy.mask = { ...copy.mask, id: nm, rev: 0 };
-      }
-      addLayer(copy, "رونوشتِ لایه", id);
+      // جای رونوشت: درست بالای خودِ لایه (برای گروه: بالای سرگروه)
+      hist.apply("رونوشتِ لایه", (s) => {
+        const i = s.layers.findIndex((x) => x.id === id);
+        const arr = [...s.layers];
+        arr.splice(i + 1, 0, ...clones);
+        return { ...s, layers: canonical(arr) };
+      });
+      setActiveId(topId);
     },
     remove: (id) => {
-      const l = stateRef.current.layers.find((x) => x.id === id);
-      if (!l || l.type === "base") return;
-      const idx = stateRef.current.layers.findIndex((x) => x.id === id);
-      if (l.mask?.type === "paint") masks.remove(l.mask.id);
-      hist.apply("حذفِ لایه", (s) => ({ ...s, layers: s.layers.filter((x) => x.id !== id) }));
-      const rest = stateRef.current.layers.filter((x) => x.id !== id);
-      setActiveId(rest[Math.max(0, Math.min(rest.length - 1, idx - 1))]?.id ?? null);
+      const st0 = stateRef.current;
+      const l = st0.layers.find((x) => x.id === id);
+      if (!l || l.type === "base" || effectivelyLocked(st0.layers, l)) return;
+      const idx = st0.layers.findIndex((x) => x.id === id);
+      // گروه ⇒ همراهِ همهٔ نوادگانش حذف می‌شود (یک گامِ تاریخچه)؛ ماسک‌های نقاشی‌شدهٔ همه پاک می‌شود
+      const { layers: rest, removed } = removeWithDescendants(st0.layers, id);
+      for (const r of removed) if (r.mask?.type === "paint") masks.remove(r.mask.id);
+      hist.apply(removed.length > 1 ? "حذفِ گروه" : "حذفِ لایه", (s) => ({ ...s, layers: removeWithDescendants(s.layers, id).layers }));
+      setActiveId(rest[Math.max(0, Math.min(rest.length - 1, idx - 1 - (removed.length - 1)))]?.id ?? null);
     },
     mergeDown: async (id) => {
       const st = stateRef.current;
       const i = st.layers.findIndex((l) => l.id === id);
       const upper = st.layers[i];
-      const lower = st.layers[i - 1];
+      const sibs = siblingsOf(st.layers, id);
+      const lower = sibs[sibs.findIndex((l) => l.id === id) - 1]; // نزدیک‌ترین هم‌خواهرِ پایین‌تر (در همان گروه)
       const ok = (l?: Layer) => l && (l.type === "image" || l.type === "text" || l.type === "shape");
       const api = stageRef.current;
       if (!api || !ok(upper) || !ok(lower)) return null;
@@ -501,6 +640,7 @@ export default function ProWorkspace(props: Props) {
         nl.w = bw / w;
         nl.cx = (x0 + bw / 2) / w;
         nl.cy = (y0 + bh / 2) / h;
+        if (lower.parent) nl.parent = lower.parent;
         hist.apply("تلفیقِ لایه‌ها", (s) => {
           const arr = s.layers.filter((l) => l.id !== upper.id && l.id !== lower.id);
           const at = Math.max(0, s.layers.findIndex((l) => l.id === lower.id));
@@ -525,6 +665,65 @@ export default function ProWorkspace(props: Props) {
         arr.splice(Math.max(0, Math.min(arr.length, index)), 0, l);
         return { ...s, layers: arr };
       }),
+    newGroup: () => {
+      const st0 = stateRef.current;
+      const g = makeGroup(`گروه ${fa(st0.layers.filter((l) => l.type === "group").length + 1)}`);
+      const act = st0.layers.find((l) => l.id === activeIdRef.current);
+      const gs = new Set(st0.layers.filter((l) => l.type === "group").map((l) => l.id));
+      const par = act ? parentIdOf(act, gs) : null;
+      if (par) g.parent = par;
+      hist.apply("گروهِ جدید", (s) => {
+        const i = act ? s.layers.findIndex((x) => x.id === act.id) : -1;
+        const arr = [...s.layers];
+        arr.splice(i >= 0 ? i + 1 : arr.length, 0, g);
+        return { ...s, layers: canonical(arr) };
+      });
+      setActiveId(g.id);
+    },
+    group: (id) => {
+      const st0 = stateRef.current;
+      const g = makeGroup(`گروه ${fa(st0.layers.filter((l) => l.type === "group").length + 1)}`);
+      const r = wrapInGroup(st0.layers, id, g);
+      if (!r) {
+        setNotice({ tone: "info", text: "این لایه را نمی‌شود گروه کرد (لایهٔ عکس، یا بیش از ۴ سطح تودرتو)." });
+        return null;
+      }
+      hist.apply("گروه کردنِ لایه", (s) => {
+        const rr = wrapInGroup(s.layers, id, g);
+        return rr ? { ...s, layers: rr.layers } : s;
+      });
+      setActiveId(r.groupId);
+      return r.groupId;
+    },
+    ungroup: (id) => {
+      const st0 = stateRef.current;
+      const g = st0.layers.find((l) => l.id === id);
+      if (!g || g.type !== "group" || effectivelyLocked(st0.layers, g)) return;
+      if (g.mask?.type === "paint") masks.remove(g.mask.id);
+      const kids = st0.layers.filter((l) => l.parent === id);
+      hist.apply("بازکردنِ گروه", (s) => ({ ...s, layers: ungroupLayers(s.layers, id) }));
+      setActiveId(kids[kids.length - 1]?.id ?? null);
+    },
+    moveLayer: (id, parent, index) =>
+      hist.apply("جابه‌جاییِ لایه", (s) => {
+        const next = moveTo(s.layers, id, parent, index);
+        return next === s.layers ? s : { ...s, layers: next };
+      }),
+    moveSibling: (id, dir) =>
+      hist.apply("جابه‌جاییِ لایه", (s) => {
+        const next = treeMoveSibling(s.layers, id, dir);
+        return next === s.layers ? s : { ...s, layers: next };
+      }),
+    toggleClip: (id) => {
+      const l = stateRef.current.layers.find((x) => x.id === id);
+      if (!l || l.type === "base") return;
+      if (!l.clip && !clipTarget(stateRef.current.layers, id)) return;
+      hist.apply(l.clip ? "برداشتنِ برش به لایهٔ زیرین" : "برش به لایهٔ زیرین", (s) => ({
+        ...s, layers: s.layers.map((x) => (x.id === id ? ({ ...x, clip: !x.clip } as Layer) : x)),
+      }));
+    },
+    setCollapsed: (id, v) =>
+      hist.live((s) => ({ ...s, layers: s.layers.map((l) => (l.id === id && l.type === "group" ? { ...l, collapsed: v } : l)) })),
     addMask: (id, kind: MaskKind) => {
       let m: MaskSpec;
       if (kind === "reveal" || kind === "hide") {
@@ -618,7 +817,8 @@ export default function ProWorkspace(props: Props) {
       }
       if (r.state !== "READY" || !r.url) throw new Error(r.error || r.message || "سوژه پیدا نشد.");
       const img = await loadImg(r.url);
-      selection.fromImage(img, "new");
+      // ماسکِ سوژه از سرور در فضای عکس است؛ انتخاب در فضای بومِ نهایی ⇒ از همان قاب رد می‌شود
+      selection.fromImage(stage?.warpToCanvas(img) ?? img, "new");
       bumpSel();
       stage?.redraw();
       setStatus(r.method === "kit" ? "سوژه با کیتِ سرورِ پردازش انتخاب شد" : "سوژه با الگوریتمِ سبکِ سرورِ سایت انتخاب شد (روی پس‌زمینهٔ شلوغ ممکن است ناپاک باشد)");
@@ -627,6 +827,117 @@ export default function ProWorkspace(props: Props) {
     } finally {
       setBusyOp("");
     }
+  };
+
+  // ───────────────────────── قلم (Pen): مسیر ⇒ انتخاب / ماسک / لایهٔ شکل
+  const selModeOf = (e: { shiftKey: boolean; altKey: boolean }): "new" | "add" | "sub" => (e.altKey ? "sub" : e.shiftKey ? "add" : "new");
+  const penToSel = (mode: "new" | "add" | "sub"): boolean => {
+    if (!penToSelection(pen, selection, mode)) {
+      setNotice({ tone: "info", text: "برای انتخاب/ماسک، مسیر دست‌کم ۳ نقطه می‌خواهد." });
+      return false;
+    }
+    if (opts.feather >= 0.5) selection.feather(opts.feather);
+    pen.clear();
+    bumpPen();
+    bumpSel();
+    stage?.redraw();
+    return true;
+  };
+  const penMask = () => {
+    if (!activeId) return setNotice({ tone: "info", text: "اول یک لایه را انتخاب کنید." });
+    if (!penToSel("new")) return;
+    actions.maskFromSelection(activeId);
+    selection.clear();
+    bumpSel();
+    stage?.redraw();
+  };
+  const penShape = () => {
+    const fr = stage?.frame() ?? frameSpec;
+    const r = penToShape(pen, fr.Wf, fr.Hf);
+    if (!r) return setNotice({ tone: "info", text: "مسیر دست‌کم ۲ نقطه می‌خواهد." });
+    const l = makePathShape(r.path, r.box);
+    if (!r.path.closed) {
+      // مسیرِ باز پُر نمی‌شود؛ فقط خطِ دور
+      l.fill = null;
+      l.stroke = { color: "#ffffff", w: 0.006 };
+    }
+    pen.clear();
+    bumpPen();
+    addLayer(l, "لایهٔ شکلِ مسیر");
+    setTool("move");
+    setTab("layers");
+  };
+  const penKey = (key: string): boolean => {
+    if (!pen.active) return false;
+    if (key === "Enter") pen.finish();
+    else if (key === "Escape") pen.clear();
+    else if (key === "Backspace" || key === "Delete") pen.removeLast();
+    else return false;
+    bumpPen();
+    return true;
+  };
+
+  // ───────────────────────── پرکردنِ هوشمند: ترکیبِ فعلی + انتخاب ⇒ سرور ⇒ لایهٔ تصویریِ تازه
+  const gfCanvas = async (): Promise<{ cv: HTMLCanvasElement; w: number; h: number }> => {
+    stage?.redraw();
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    const full = stage?.readFull();
+    if (!full) throw new Error("بوم هنوز آماده نیست.");
+    const cv = document.createElement("canvas");
+    cv.width = full.w;
+    cv.height = full.h;
+    cv.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(full.data), full.w, full.h), 0, 0);
+    return { cv, w: full.w, h: full.h };
+  };
+  const gfSized = (src: HTMLCanvasElement, bg: string | null) => {
+    const k = Math.min(1, 2048 / Math.max(src.width, src.height));
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(src.width * k));
+    out.height = Math.max(1, Math.round(src.height * k));
+    const x = out.getContext("2d")!;
+    if (bg) {
+      x.fillStyle = bg;
+      x.fillRect(0, 0, out.width, out.height);
+    }
+    x.imageSmoothingQuality = "high";
+    x.drawImage(src, 0, 0, out.width, out.height);
+    return out;
+  };
+  const toPng = (cv: HTMLCanvasElement) => new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("ساختِ تصویر شکست خورد."))), "image/png"));
+  const gfGetImage = async (): Promise<Blob> => {
+    const { cv } = await gfCanvas();
+    return toPng(gfSized(cv, "#ffffff")); // بومِ شفاف (حاشیهٔ «جا دادن») روی سفید می‌نشیند؛ نشانِ انتخاب در این تصویر نیست
+  };
+  const gfGetMask = async (): Promise<Blob | null> => {
+    if (!selection.active || !selection.canvas) return null;
+    const cv = gfSized(selection.canvas, "#000000");
+    const d = cv.getContext("2d")!.getImageData(0, 0, cv.width, cv.height).data;
+    let any = false;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 127) { any = true; break; }
+    return any ? toPng(cv) : null;
+  };
+  const gfDone = (res: GenFillResult) => {
+    setExtraAssets((e) => (e.some((a) => a.id === res.asset.id) ? e : [...e, res.asset]));
+    const l = makeImage({ kind: "asset", asset: res.asset.id }, "پرکردن هوشمند");
+    l.cx = res.layer.cx;
+    l.cy = res.layer.cy;
+    l.w = res.layer.w;
+    addLayer(l, "پرکردنِ هوشمند");
+    selection.clear();
+    bumpSel();
+    stage?.redraw();
+  };
+  const gfJob = (job: string | null) => {
+    try {
+      if (job) window.localStorage.setItem(gfKey, job);
+      else window.localStorage.removeItem(gfKey);
+    } catch {
+      /* حافظهٔ مرورگر در دسترس نیست؛ فقط ادامه پس از بازکردنِ دوبارهٔ صفحه کار نمی‌کند */
+    }
+  };
+  const openGenFill = () => {
+    setGfOpen(true);
+    setPanelOpen(true);
   };
 
   const onWb = (nx: number, ny: number) => {
@@ -647,7 +958,10 @@ export default function ProWorkspace(props: Props) {
       const next: ProState = { ...s, adjust: { ...(pr.recipe!.adjust ?? {}) }, curve: (pr.recipe!.curve ?? {}) as never };
       const bg = pr.recipe!.background;
       if (bg?.remove && tools.kit_background) next.tools = { ...s.tools, kit_background: { ...defaultsOf(tools.kit_background), bg: bg.color === "transparent" ? "transparent" : "white", shadow: bg.shadow ?? 0 } };
-      if (pr.recipe!.output?.square && tools.kit_square) next.tools = { ...(next.tools ?? s.tools), kit_square: { ...defaultsOf(tools.kit_square), padding: Math.round((pr.recipe!.output.padding ?? 0.06) * 100) } };
+      if (pr.recipe!.output?.square) {
+        const pad = Math.max(0, Math.min(40, Math.round((pr.recipe!.output.padding ?? 0.06) * 100)));
+        next.tools = { ...(next.tools ?? s.tools), crop_format: { ...STORE_FRAME, padding: pad } };
+      }
       return next;
     });
   };
@@ -695,7 +1009,9 @@ export default function ProWorkspace(props: Props) {
     setBuildMsg(null);
     try {
       await saveProject();
-      const ops: Operation[] = buildProOperations(stateRef.current, { quick, projectId: projRef.current?.id });
+      // «سوژه (خودکار)»: پنجرهٔ برش را مرورگر حساب می‌کند و همان به خروجی می‌رود (پیش‌نمایش = خروجی)
+      const window = stageRef.current?.smartWindow(stateRef.current) ?? null;
+      const ops: Operation[] = buildProOperations(stateRef.current, { quick, projectId: projRef.current?.id, window });
       await props.onBuild(ops, "manual");
       setBuildMsg(quick ? "ساختِ سریع (سرورِ سایت) شروع شد." : "ساخت شروع شد.");
       setTab("export");
@@ -704,7 +1020,6 @@ export default function ProWorkspace(props: Props) {
     }
   }
   const nodeOps = buildProOperations(state, { quick: false }).filter((o) => o.tool.startsWith("kit_"));
-  const squareWithLayers = !!state.tools.kit_square && state.layers.some((l) => l.type !== "base");
 
   // ───────────────────────── کلیدهای میان‌بر
   const actionsRef = useRef(actions);
@@ -724,9 +1039,16 @@ export default function ProWorkspace(props: Props) {
         if (k === "t") { e.preventDefault(); setTool("move"); return; }
         if (k === "d") { e.preventDefault(); selClear(); return; }
         if (k === "e" && act) { e.preventDefault(); void actionsRef.current.mergeDown(act.id); return; }
+        if (k === "g" && act) {
+          e.preventDefault();
+          if (e.shiftKey) { if (act.type === "group") actionsRef.current.ungroup(act.id); } else if (act.type !== "base") actionsRef.current.group(act.id);
+          return;
+        }
         if (k === "i" && e.shiftKey) { e.preventDefault(); selInvert(); return; }
         return;
       }
+      // قلم (Pen): Enter = پایانِ مسیر، Esc = لغو، Backspace/Delete = حذفِ آخرین نقطه (پیش از «حذفِ لایه» ِ پایین)
+      if (toolRef.current === "pen" && penRef.current(e.key)) { e.preventDefault(); return; }
       if (e.key === "\\") return setCompare((c) => (c === "before" ? "off" : "before"));
       if (e.key === "0") return setZoomCmd({ id: Date.now(), kind: "fit" });
       if (e.key === "1") return setZoomCmd({ id: Date.now(), kind: "100" });
@@ -736,10 +1058,20 @@ export default function ProWorkspace(props: Props) {
       if (e.key === "]") return e.shiftKey ? setOpts({ hardness: Math.min(1, optsRef.current.hardness + 0.1) }) : setOpts({ size: Math.min(0.25, optsRef.current.size * 1.18) });
       if (k === "x") return setOpts({ erase: !optsRef.current.erase });
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (act && act.type !== "base" && !act.locked) { e.preventDefault(); actionsRef.current.remove(act.id); }
+        if (act && act.type !== "base" && !effectivelyLocked(stateRef.current.layers, act)) { e.preventDefault(); actionsRef.current.remove(act.id); }
         return;
       }
-      if (e.key.startsWith("Arrow") && act && "cx" in act && !act.locked) {
+      if (e.key.startsWith("Arrow") && act && act.type === "group" && !effectivelyLocked(stateRef.current.layers, act)) {
+        // گروه: همهٔ نوادگان با هم جابه‌جا می‌شوند
+        e.preventDefault();
+        const step = e.shiftKey ? 0.01 : 0.001;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        const ids = new Set(descendantIds(stateRef.current.layers, act.id));
+        hist.apply("جابه‌جاییِ گروه", (s) => ({ ...s, layers: s.layers.map((l) => (ids.has(l.id) && "cx" in l ? ({ ...l, cx: +(l.cx + dx).toFixed(5), cy: +(l.cy + dy).toFixed(5) } as Layer) : l)) }));
+        return;
+      }
+      if (e.key.startsWith("Arrow") && act && "cx" in act && !effectivelyLocked(stateRef.current.layers, act)) {
         e.preventDefault();
         const step = e.shiftKey ? 0.01 : 0.001;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
@@ -756,6 +1088,10 @@ export default function ProWorkspace(props: Props) {
   }, [hist.undo, hist.redo, stage]);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const penRef = useRef(penKey);
+  penRef.current = penKey;
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
@@ -766,6 +1102,7 @@ export default function ProWorkspace(props: Props) {
   const info = TOOLS.find((x) => x.id === tool)!;
 
   // ───────────────────────── نوارِ گزینه‌های ابزار
+  const redeyeLayer = activeLayer?.type === "redeye" && !activeLayer.locked ? activeLayer : null;
   const sizeSlider = (
     <>
       <label className="pro-opt">
@@ -822,6 +1159,97 @@ export default function ProWorkspace(props: Props) {
           <button type="button" className="ws-btn" onClick={selClear} disabled={!selection.active} data-testid="sel-clear">برداشتن (Ctrl+D)</button>
           <button type="button" className="ws-btn" onClick={() => activeId && actions.maskFromSelection(activeId)} disabled={!selection.active || !activeId} data-testid="sel-to-mask">ماسک روی لایهٔ فعال</button>
           <button type="button" className="ws-btn" onClick={adjustFromSelection} disabled={!selection.active} data-testid="sel-to-adjust">لایهٔ تنظیم از انتخاب</button>
+          <button type="button" className="ws-btn" onClick={openGenFill} disabled={!selection.active} data-testid="sel-genfill" title="جای انتخاب‌شده را با هوش مصنوعی عوض یا حذف کنید">پرکردنِ هوشمند</button>
+        </>
+      )}
+      {tool === "redeye" && (
+        <>
+          <label className="pro-opt">
+            <span>اندازه</span>
+            <input type="range" min={0.003} max={0.05} step={0.001} value={opts.eyeR} onChange={(e) => setOpts({ eyeR: Number(e.target.value) })} aria-label="اندازهٔ چشم (اگر خودکار پیدا نشد)" data-testid="eye-size" />
+            <b dir="ltr">{fa(Math.round(opts.eyeR * 1000) / 10)}%</b>
+          </label>
+          <label className="pro-opt">
+            <span>شدت</span>
+            <input type="range" min={0} max={1} step={0.01} value={redeyeLayer?.amount ?? opts.eyeAmount} aria-label="شدتِ اصلاح" data-testid="eye-amount"
+              onChange={(e) => { const v = Number(e.target.value); setOpts({ eyeAmount: v }); if (redeyeLayer) hist.live((s) => ({ ...s, layers: s.layers.map((l) => (l.id === redeyeLayer.id && l.type === "redeye" ? { ...l, amount: v } : l)) })); }}
+              onPointerUp={() => hist.end("شدتِ قرمزیِ چشم")} onKeyUp={() => hist.end("شدتِ قرمزیِ چشم")} />
+            <b dir="ltr">{fa(Math.round((redeyeLayer?.amount ?? opts.eyeAmount) * 100))}</b>
+          </label>
+          <label className="pro-opt">
+            <span>تیره‌کردن</span>
+            <input type="range" min={0} max={1} step={0.01} value={redeyeLayer?.darken ?? opts.eyeDarken} aria-label="تیره‌کردنِ مردمک" data-testid="eye-darken"
+              onChange={(e) => { const v = Number(e.target.value); setOpts({ eyeDarken: v }); if (redeyeLayer) hist.live((s) => ({ ...s, layers: s.layers.map((l) => (l.id === redeyeLayer.id && l.type === "redeye" ? { ...l, darken: v } : l)) })); }}
+              onPointerUp={() => hist.end("تیره‌کردنِ مردمک")} onKeyUp={() => hist.end("تیره‌کردنِ مردمک")} />
+            <b dir="ltr">{fa(Math.round((redeyeLayer?.darken ?? opts.eyeDarken) * 100))}</b>
+          </label>
+          <span className="ws-muted">روی مردمکِ قرمز کلیک کنید · {redeyeLayer ? `${fa(redeyeLayer.eyes.length)} چشم در لایهٔ فعال` : "هر کلیک چشمی به لایهٔ «قرمزیِ چشم» می‌افزاید"}</span>
+        </>
+      )}
+      {tool === "pen" && (
+        <>
+          <label className="pro-opt">
+            <span>لبهٔ نرم</span>
+            <input type="range" min={0} max={60} step={1} value={opts.feather} onChange={(e) => selFeather(Number(e.target.value))} aria-label="لبهٔ نرمِ انتخاب" data-testid="pen-feather" />
+            <b dir="ltr">{fa(opts.feather)}px</b>
+          </label>
+          <button type="button" className="ws-btn" onClick={(e) => penToSel(selModeOf(e))} disabled={pen.pts.length < 3} data-testid="pen-select" title="مسیر را به انتخاب تبدیل می‌کند؛ Shift = افزودن، Alt = کم کردن">انتخاب</button>
+          <button type="button" className="ws-btn" onClick={penMask} disabled={pen.pts.length < 3 || !activeId} data-testid="pen-mask" title="مسیر را ماسکِ لایهٔ فعال می‌کند">ماسک روی لایهٔ فعال</button>
+          <button type="button" className="ws-btn" onClick={penShape} disabled={pen.pts.length < 2} data-testid="pen-shape" title="مسیر را به یک لایهٔ شکل (پر/خطِ دور) تبدیل می‌کند">لایهٔ شکل</button>
+          <button type="button" className="ws-btn" onClick={() => { if (penToSel("new")) openGenFill(); }} disabled={pen.pts.length < 3} data-testid="pen-genfill" title="جای داخلِ مسیر را با هوش مصنوعی عوض یا حذف کنید">پرکردنِ هوشمند</button>
+          <button type="button" className="ws-btn" onClick={() => { pen.close(); bumpPen(); }} disabled={pen.pts.length < 3 || pen.closed} data-testid="pen-close">بستنِ مسیر</button>
+          <button type="button" className="ws-btn" onClick={() => penKey("Enter")} disabled={pen.pts.length < 2 || pen.finished} data-testid="pen-finish" title="Enter">پایانِ مسیرِ باز</button>
+          <button type="button" className="ws-btn" onClick={() => penKey("Backspace")} disabled={!pen.active} data-testid="pen-undo" title="Backspace">حذفِ آخرین نقطه</button>
+          <button type="button" className="ws-btn" onClick={() => penKey("Escape")} disabled={!pen.active} data-testid="pen-cancel" title="Esc">لغو</button>
+          <span className="ws-muted" data-testid="pen-info">{pen.active ? `${fa(pen.pts.length)} نقطه${pen.closed ? " · بسته" : pen.done ? " · باز (تمام‌شده)" : ""}` : "کلیک = نقطه · کلیک و کشیدن = منحنی · کلیک روی نقطهٔ اول = بستن · Alt+کلیک روی نقطه = گوشه/نرم"}</span>
+        </>
+      )}
+      {tool === "liquify" && (
+        <>
+          {([["push", "کشیدن"], ["bloat", "باد کردن"], ["pucker", "جمع کردن"], ["reconstruct", "بازسازی"]] as [ToolOpts["liq"], string][]).map(([k, t]) => (
+            <button key={k} type="button" className={chip(opts.liq === k)} onClick={() => setOpts({ liq: k })} data-liq={k} aria-pressed={opts.liq === k}>{t}</button>
+          ))}
+          <label className="pro-opt">
+            <span>اندازه</span>
+            <input type="range" min={0.01} max={0.25} step={0.005} value={opts.liqSize} onChange={(e) => setOpts({ liqSize: Number(e.target.value) })} aria-label="اندازهٔ قلمِ مایع‌سازی" data-testid="liq-size" />
+            <b dir="ltr">{fa(Math.round(opts.liqSize * 1000) / 10)}%</b>
+          </label>
+          <label className="pro-opt">
+            <span>فشار</span>
+            <input type="range" min={0.05} max={1} step={0.05} value={opts.liqStrength} onChange={(e) => setOpts({ liqStrength: Number(e.target.value) })} aria-label="فشارِ قلمِ مایع‌سازی" data-testid="liq-strength" />
+            <b dir="ltr">{fa(Math.round(opts.liqStrength * 100))}</b>
+          </label>
+          {opts.liq !== "push" && (
+            <label className="pro-opt">
+              <span>آهنگ</span>
+              <input type="range" min={0} max={1} step={0.05} value={opts.liqRate} onChange={(e) => setOpts({ liqRate: Number(e.target.value) })} aria-label="آهنگِ اثر (ثابت ماندن)" data-testid="liq-rate" />
+              <b dir="ltr">{fa(Math.round(opts.liqRate * 100))}</b>
+            </label>
+          )}
+          <button type="button" className="ws-btn" disabled={!liquify.active && !state.liquify} data-testid="liq-reset"
+            onClick={() => { liquify.resetAll(); hist.apply("بازنشانیِ مایع‌سازی", (s) => ({ ...s, liquify: null })); stage?.redraw(); }}>
+            بازنشانیِ همه
+          </button>
+          <span className="ws-muted" data-testid="liq-hint">
+            {frameSpec.trivial ? "روی عکس بکشید؛ هر ضربه یک گامِ برگشت است" : "قاب/برش فعال است: ضربه‌ها از قاب به عکس برمی‌گردند و حاشیهٔ قاب بی‌اثر است"}
+          </span>
+        </>
+      )}
+      {tool === "genfill" && (
+        <>
+          <label className="pro-opt">
+            <span>اندازه</span>
+            <input type="range" min={0.003} max={0.2} step={0.001} value={opts.size} onChange={(e) => setOpts({ size: Number(e.target.value) })} aria-label="اندازهٔ قلم" data-testid="gf-size" />
+            <b dir="ltr">{fa(Math.round(opts.size * 1000) / 10)}%</b>
+          </label>
+          <label className="pro-opt">
+            <span>سختی</span>
+            <input type="range" min={0} max={1} step={0.05} value={opts.hardness} onChange={(e) => setOpts({ hardness: Number(e.target.value) })} aria-label="سختیِ قلم" data-testid="gf-hardness" />
+            <b dir="ltr">{fa(Math.round(opts.hardness * 100))}</b>
+          </label>
+          <button type="button" className="ws-btn" onClick={selInvert} data-testid="gf-invert">معکوس</button>
+          <button type="button" className="ws-btn" onClick={selClear} disabled={!selection.active} data-testid="gf-clear">برداشتنِ ناحیه</button>
+          <span className="ws-muted">Alt + کشیدن = کم کردن · «اجرا» در پنلِ سمتِ راست</span>
         </>
       )}
       {tool === "crop" && (
@@ -876,6 +1304,7 @@ export default function ProWorkspace(props: Props) {
         </>
       )}
       {(tool === "move" || tool === "hand" || tool === "text" || tool === "wb") && <span className="ws-muted">{info.hint}</span>}
+      {(tool === "marquee" || tool === "ellipse" || tool === "lasso") && selection.active && <span className="ws-muted" data-testid="sel-active">انتخاب فعال است</span>}
       <span className="ws-spacer" />
       <select className="pro-grid-sel" value={opts.grid} onChange={(e) => setOpts({ grid: e.target.value as ToolOpts["grid"] })} aria-label="شبکهٔ راهنما" data-testid="grid-select">
         <option value="off">بی‌شبکه</option>
@@ -889,6 +1318,7 @@ export default function ProWorkspace(props: Props) {
   // ───────────────────────── زبانه‌ها
   const editTab = (
     <div className="ws-sections" data-testid="edit-sections">
+      <FrameCard state={state} hist={H} tool={tools.crop_format} spec={frameSpec} photoSize={[asset.width, asset.height]} />
       <div className="mb-2 flex flex-wrap gap-1">
         <button type="button" className="ws-chip" onClick={quickAuto} data-testid="auto-browser" title="از روی هیستوگرام نوردهی و کنتراست را می‌چیند">خودکار (مرورگر)</button>
         <button type="button" className={chip(state.kitAuto)} onClick={() => hist.apply("بهبودِ خودکارِ کیت", (s) => ({ ...s, kitAuto: !s.kitAuto }))} title="کیت روی سرورِ پردازش خودش نور و رنگ را درست می‌کند (در پیش‌نمایشِ دقیق دیده می‌شود)">
@@ -943,7 +1373,7 @@ export default function ProWorkspace(props: Props) {
 
   const smartTab = (
     <div data-testid="smart-tab">
-      <p className="ws-hint">این ابزارها روی سرورِ پردازش (کیتِ PersianAiKit.Photo) اجرا می‌شوند و فقط هنگامِ «ساخت» اعمال می‌شوند.</p>
+      <p className="ws-hint">این ابزارها روی سرورِ پردازش (کیتِ PersianAiKit.Photo) اجرا می‌شوند و فقط هنگامِ «ساخت» اعمال می‌شوند. قابِ مربع و اندازهٔ شبکه‌ها در زبانهٔ «تنظیم» ⇐ «قاب» است.</p>
       {KIT_TOOLS.map(({ key, title }) => {
         const t = tools[key];
         if (!t) return null;
@@ -967,13 +1397,15 @@ export default function ProWorkspace(props: Props) {
         <button type="button" className="ws-chip" onClick={() => hist.apply("عکسِ فروشگاهی", (s) => {
           const t: Record<string, Params> = { ...s.tools };
           if (tools.kit_background) t.kit_background = { ...defaultsOf(tools.kit_background), bg: "white", shadow: 25 };
-          if (tools.kit_square) t.kit_square = defaultsOf(tools.kit_square);
+          t.crop_format = STORE_FRAME;
           return { ...s, tools: t };
-        })}>عکسِ فروشگاهی (سفید + مربع)</button>
+        })} data-testid="smart-store">عکسِ فروشگاهی (سفید + مربع)</button>
         <button type="button" className="ws-chip" onClick={() => hist.apply("کالا بی‌پس‌زمینه", (s) => {
           const t: Record<string, Params> = { ...s.tools };
           if (tools.kit_background) t.kit_background = { ...defaultsOf(tools.kit_background), bg: "transparent", shadow: 0 };
-          delete t.kit_square;
+          const cf = effectiveCropFormat(t);
+          // قابِ «جا دادن» دورِ کالا را شفاف می‌کند تا PNG بی‌پس‌زمینه بماند
+          if (cf && cf.fit === "contain") t.crop_format = cropFormatOpParams({ ...cf, fill: "transparent", window: [] });
           return { ...s, tools: t, out: { ...s.out, format: "png" } };
         })}>کالا بی‌پس‌زمینه (PNG)</button>
       </div>
@@ -994,7 +1426,7 @@ export default function ProWorkspace(props: Props) {
       <LayerInspector
         state={state} hist={H} layer={activeLayer} actions={actions} fonts={fonts} kit={kit} assets={allAssets} storeLogo={props.storeLogo ?? null}
         layerBox={(id) => { const l = state.layers.find((x) => x.id === id); return l && stage ? stage.layerSize(l) : null; }}
-        canvasAspect={asset.height / asset.width}
+        canvasAspect={frameSpec.Hf / frameSpec.Wf}
       />
     </div>
   );
@@ -1051,24 +1483,18 @@ export default function ProWorkspace(props: Props) {
         </div>
       </div>
 
-      {tools.crop_format && (
-        <div className="ws-card">
-          <div className="ws-card-title">قالبِ شبکه‌های اجتماعی</div>
-          <label className="mb-2 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={!!state.tools.crop_format} onChange={(e) => setTools("قالبِ شبکه‌ها", "crop_format", e.target.checked ? defaultsOf(tools.crop_format) : null)} data-testid="social-enable" />
-            برش/جا دادن در اندازهٔ دقیقِ شبکه (روی سرورِ سایت)
-          </label>
-          {state.tools.crop_format && (
-            <div onPointerUp={() => hist.end("قالبِ شبکه‌ها")} onKeyUp={() => hist.end("قالبِ شبکه‌ها")}>
-              <OperationForm tool={tools.crop_format} params={state.tools.crop_format} kit={kit} spotImage={null} onChange={(p) => liveTools("crop_format", p)} />
-            </div>
-          )}
-        </div>
-      )}
+      <div className="ws-card" data-testid="frame-summary">
+        <div className="ws-card-title">قاب</div>
+        <p className="ws-hint">
+          {state.tools.crop_format
+            ? <>خروجی در قابِ <b dir="ltr">{fa(frameSpec.Wf)}×{fa(frameSpec.Hf)}</b> پیکسل ساخته می‌شود؛ لایه‌ها نسبت به همین قاب چیده شده‌اند.</>
+            : <>قابِ شبکه‌ها انتخاب نشده؛ خروجی هم‌اندازهٔ عکس (پس از برش) است: <b dir="ltr">{fa(frameSpec.Wf)}×{fa(frameSpec.Hf)}</b> پیکسل.</>}
+        </p>
+        <button type="button" className="ws-chip" onClick={() => setTab("edit")} data-testid="frame-open">تنظیمِ قاب (اندازهٔ شبکه‌ها، مربعِ فروشگاه)</button>
+      </div>
 
       <div className="ws-card" data-testid="build-card">
         <div className="ws-card-title">ساخت (خروجیِ کامل و دقیق)</div>
-        {squareWithLayers && <div className="mb-2"><Alert tone="warn">«قابِ مربع» جای عکس را عوض می‌کند و لایه‌ها نسبت به عکسِ قابِ‌شده چیده می‌شوند؛ برای مکانِ دقیق از «برش برای شبکه‌ها» استفاده کنید.</Alert></div>}
         {nodeOps.length > 0 && (
           <div className="mb-2">
             <Alert tone={nodeOn ? "info" : "warn"}>
@@ -1177,11 +1603,11 @@ export default function ProWorkspace(props: Props) {
 
         <div className="pw-canvas">
           <Stage
-            src={src} origW={asset.width} origH={asset.height} state={state} hist={H} tool={tool} opts={opts} setOpts={setOpts}
+            src={src} origW={asset.width} origH={asset.height} hasAlpha={!!asset.has_alpha} state={state} hist={H} tool={tool} opts={opts} setOpts={setOpts}
             activeId={activeId} setActiveId={setActiveId} masks={masks} selection={selection} assets={allAssets} storeLogo={props.storeLogo ?? null}
             compare={compare} exact={exactImg} zoomCmd={zoomCmd} aspect={aspectRatio}
             onZoom={setZoomPct} onStatus={setStatus} onReady={(api) => { setStage(api); (window as unknown as { __photoPro?: StageApi }).__photoPro = api; }} onHistogram={setHdata}
-            onSelectionChange={bumpSel} onMaskEdited={() => undefined} onWb={onWb} onSubject={() => void pickSubject()}
+            onSelectionChange={bumpSel} pen={pen} onPenChange={bumpPen} liquify={liquify} onMaskEdited={() => undefined} onWb={onWb} onSubject={() => void pickSubject()}
             onNeedTextFocus={() => window.setTimeout(() => actions.focusText(), 80)} onToolChange={setTool}
             onError={(m) => setNotice({ tone: "bad", text: m })} onImageSizes={() => stage?.redraw()}
           />
@@ -1198,6 +1624,16 @@ export default function ProWorkspace(props: Props) {
             ))}
           </div>
           <div className="pw-panel-scroll">
+            {/* همیشه سوار می‌ماند (پرسیدنِ کار با عوض‌کردنِ ابزار قطع نشود)؛ فقط وقتی لازم است دیده می‌شود */}
+            <div className="ws-card" data-testid="genfill-card" style={gfOpen || tool === "genfill" || gfBusy ? undefined : { display: "none" }}>
+              {gfOpen && tool !== "genfill" && !gfBusy && (
+                <button type="button" className="ws-link" onClick={() => setGfOpen(false)} data-testid="genfill-close">بستنِ پنل</button>
+              )}
+              <GenFillPanel
+                storeId={storeId} assetId={asset.id} getImage={gfGetImage} getMask={gfGetMask} onResult={gfDone}
+                onJobChange={gfJob} resumeJob={gfResume} onBusyChange={setGfBusy}
+              />
+            </div>
             {tab === "edit" && editTab}
             {tab === "layers" && layersTab}
             {tab === "presets" && (
@@ -1214,10 +1650,10 @@ export default function ProWorkspace(props: Props) {
         </div>
 
         <div className="pw-status" dir="rtl">
-          <span>{fa(asset.width)}×{fa(asset.height)} ← {fa(Math.round(state.crop.w * Wt))}×{fa(Math.round(state.crop.h * Ht))}</span>
+          <span data-testid="status-size" dir="ltr">{fa(asset.width)}×{fa(asset.height)} → {fa(frameSpec.Wf)}×{fa(frameSpec.Hf)}</span>
           <span data-testid="status-text">{status}</span>
           <span className="ws-spacer" />
-          <span>V جابه‌جایی · C برش · T متن · B قلم · G شیب · S مهر · M/E/L/W انتخاب · I تعادلِ سفیدی · Ctrl+Z · Ctrl+J · [ ] اندازهٔ قلم</span>
+          <span>V جابه‌جایی · C برش · T متن · B قلم · G شیب · S مهر · M/E/L/W انتخاب · I تعادلِ سفیدی · R قرمزیِ چشم · P قلم · Q مایع‌سازی · F پرکردنِ هوشمند · Ctrl+Z · Ctrl+J · Ctrl+G گروه · [ ] اندازهٔ قلم</span>
         </div>
       </div>
     </Workspace>

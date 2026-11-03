@@ -1,0 +1,12 @@
+/* لایهٔ تعاملیِ روی تصویر: ماسکِ آزاد و ناحیهٔ ردیابی */
+.pk-layer { position: absolute; inset: 0; z-index: 6; touch-action: none; }
+.pk-region { cursor: crosshair; background: rgba(0, 0, 0, 0.08); }
+.pk-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pk-path { fill: rgba(56, 189, 248, 0.12); stroke: #38bdf8; stroke-width: 1.6; }
+.pk-handle-line { stroke: #f59e0b; stroke-width: 1; stroke-dasharray: 3 3; }
+.pk-pt { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: #fff; border: 2px solid #0ea5e9; border-radius: 50%; cursor: grab; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.pk-pt.sharp { border-radius: 2px; }
+.pk-pt.is-sel { background: #0ea5e9; border-color: #fff; }
+.pk-h { position: absolute; width: 9px; height: 9px; margin: -4px 0 0 -4px; background: #f59e0b; border: 1px solid #fff; cursor: grab; transform: rotate(45deg); }
+.pk-rect { position: absolute; border: 2px solid #22c55e; background: rgba(34, 197, 94, 0.16); pointer-events: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.pk-hint { position: absolute; inset-inline: 6px; bottom: 6px; font-size: 11px; color: #fff; background: rgba(0, 0, 0, 0.55); border-radius: 6px; padding: 3px 8px; pointer-events: none; text-align: center; }

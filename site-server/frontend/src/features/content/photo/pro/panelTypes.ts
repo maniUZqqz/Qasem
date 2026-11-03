@@ -35,6 +35,21 @@ export type ProActions = {
   paintMask: (id: string) => void;
   /** شروعِ ویرایشِ متن روی بوم (فوکوس روی textarea بازرس) */
   focusText: () => void;
+  // ── گروه‌ها و برش (درخت: `parent` + فهرستِ تخت؛ نگاه کنید به tree.ts)
+  /** گروهِ خالیِ تازه، بالای لایهٔ فعال و هم‌سطحش */
+  newGroup: () => void;
+  /** لایه را در یک گروهِ تازه می‌پیچد (گروه جای لایه را می‌گیرد) ⇒ شناسهٔ گروه یا null */
+  group: (id: string) => string | null;
+  /** گروه را باز می‌کند: فرزندان به والدِ گروه می‌روند و خودِ گروه (با ماسکش) برداشته می‌شود */
+  ungroup: (id: string) => void;
+  /** انتقالِ لایه به والدِ تازه (null = سطحِ بالا)؛ index = جایگاه میانِ هم‌خواهرها (پایین = ۰، پس از برداشتنِ خودش) */
+  moveLayer: (id: string, parent: string | null, index: number) => void;
+  /** یک پله بالاتر (+۱) یا پایین‌تر (−۱) میانِ هم‌خواهرها */
+  moveSibling: (id: string, dir: 1 | -1) => void;
+  /** «برش به لایهٔ زیرین» روشن/خاموش */
+  toggleClip: (id: string) => void;
+  /** بسته/بازِ پوشه (فقط نما؛ در تاریخچه نمی‌رود) */
+  setCollapsed: (id: string, v: boolean) => void;
 };
 
 export type LayersPanelProps = {

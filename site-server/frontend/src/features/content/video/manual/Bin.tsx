@@ -8,6 +8,7 @@ const TABS: { key: keyof BinData; title: string }[] = [
   { key: "videos", title: "ویدیو" },
   { key: "audio", title: "صدا" },
   { key: "images", title: "عکس" },
+  { key: "stickers", title: "استیکر" },
 ];
 
 /** سطلِ رسانه: ویدیوهای فروشگاه (آپلودی، تدوین‌شده، ساخته‌شده)، صدای کتابخانه و عکس‌ها. بکشید روی تایم‌لاین یا «+». */
@@ -24,6 +25,7 @@ export default function Bin({
   const [tab, setTab] = useState<keyof BinData>("videos");
   const file = useRef<HTMLInputElement>(null);
   const items = bin?.[tab] ?? [];
+  const sticker = tab === "stickers";
   return (
     <div className="vw-bin" data-testid="bin" dir="rtl">
       <div className="ws-tabs">
@@ -43,7 +45,7 @@ export default function Bin({
         {loading && <Spinner size={16} />}
         {!loading && items.length === 0 && (
           <p className="ws-hint">
-            {tab === "videos" ? "هنوز ویدیویی نیست؛ بالا آپلود کنید." : tab === "audio" ? "صدایی در کتابخانه نیست (بخش «صدا» در پنل)." : "عکسی نیست."}
+            {tab === "videos" ? "هنوز ویدیویی نیست؛ بالا آپلود کنید." : tab === "audio" ? "صدایی در کتابخانه نیست (بخش «صدا» در پنل)." : sticker ? "استیکری در دسترس نیست." : "عکسی نیست."}
           </p>
         )}
         {items.map((it) => (
@@ -57,7 +59,7 @@ export default function Bin({
               onDoubleClick={() => onAdd(it)}
               title="بکشید روی تایم‌لاین، یا دوبار کلیک"
             >
-              <span aria-hidden>{it.kind === "video" ? "🎞" : it.kind === "audio" ? "🔊" : "🖼"}</span>
+              {sticker ? <img src={it.url} alt="" width={22} height={22} style={{ objectFit: "contain" }} /> : <span aria-hidden>{it.kind === "video" ? "🎞" : it.kind === "audio" ? "🔊" : "🖼"}</span>}
               <span className="t">{it.title}</span>
               <small dir="ltr">{it.kind === "image" ? "" : timecode(it.duration).slice(0, 5)}</small>
               <button type="button" className="ws-btn" onClick={() => onAdd(it)} aria-label="افزودن به تایم‌لاین" data-add={it.ref}>+</button>

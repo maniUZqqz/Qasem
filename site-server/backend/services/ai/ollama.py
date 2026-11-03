@@ -79,6 +79,12 @@ class OllamaUnavailable(OllamaError):
     """
 
 
+def _think_refused(exc) -> bool:
+    """The server refused the `think` switch ("… does not support thinking") — then the request is repeated without it."""
+    low = str(exc).lower()
+    return "think" in low and ("support" in low or "unknown" in low or "invalid" in low)
+
+
 def strip_reasoning(text: str) -> str:
     """Remove explicit <think>...</think> blocks from model output.
 
@@ -347,14 +353,23 @@ class OllamaProvider:
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive
 
+        # Per-model request profile (services/ai/model_catalog.py): Qwen3 answers without "thinking" (fast) and a
+        # 14B one gets a context window that fits a 12 GB card completely. Gemma 3 / QwQ / the coders need nothing.
+        from . import model_catalog
+
+        profile = model_catalog.request_profile(model)
+
         opts = {
             "temperature": 0.7,
         }
         if self.num_ctx:
-            opts["num_ctx"] = self.num_ctx
+            cap = profile.get("num_ctx_max")
+            opts["num_ctx"] = min(int(self.num_ctx), cap) if cap else self.num_ctx
 
         opts.update(options or {})
         payload["options"] = opts
+        if "think" in profile:
+            payload["think"] = profile["think"]
 
         # No Ollama on this machine: the model lives on a processing node, so
         # the same body goes through the compute queue (services/ai/ollama_remote.py)
@@ -363,10 +378,20 @@ class OllamaProvider:
             from . import ollama_remote
 
             remote_payload = {k: v for k, v in payload.items() if k != "images"}
-            data = ollama_remote.generate(
-                remote_payload, base_url=self.base_url, timeout_s=call_timeout, images=images,
-                on_tick=getattr(self, 'on_tick', None),
-            )
+            try:
+                data = ollama_remote.generate(
+                    remote_payload, base_url=self.base_url, timeout_s=call_timeout, images=images,
+                    on_tick=getattr(self, 'on_tick', None),
+                )
+            except OllamaError as exc:
+                if "think" not in remote_payload or not _think_refused(exc):
+                    raise
+                # an older Ollama / a tag without the switch: ask again without it, once
+                remote_payload.pop("think", None)
+                data = ollama_remote.generate(
+                    remote_payload, base_url=self.base_url, timeout_s=call_timeout, images=images,
+                    on_tick=getattr(self, 'on_tick', None),
+                )
             return self._answer_from(data, model, format_json)
 
         # Ollama switched off is not a transient error: answer in under a
@@ -422,6 +447,10 @@ class OllamaProvider:
                     f"Ollama request failed (model={model}): "
                     f"{exc} — {detail}"
                 )
+
+                if "think" in payload and _think_refused(last_error):
+                    payload.pop("think", None)
+                    continue
 
                 logger.warning(
                     "Ollama error (attempt %s/%s): %s",

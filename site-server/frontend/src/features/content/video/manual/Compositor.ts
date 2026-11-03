@@ -1,7 +1,11 @@
+import { pathOf } from "./bezier";
 import { applyColor, applyPostFx, blurPx, colorIsNeutral, postFx, type LookDef } from "./color";
+import { valueAt } from "./keyframes";
+import { applyLut, type Lut } from "./lut";
 import {
   AnyClip, Effect, MediaClip, Project, TextClip, Track, clipEnd, clipLength, propAt, srcTimeAt,
 } from "./model";
+import { shapeCanvas } from "./shapes";
 import { drawText } from "./textRender";
 
 /**
@@ -19,6 +23,12 @@ export type RenderArgs = {
   looks: LookDef[];
   /** شناسهٔ قطعه‌ای که رنگش موقتاً نادیده گرفته می‌شود (مقایسهٔ قبل/بعد) */
   compare?: string | null;
+  /** LUT های خوانده‌شده (کلید ⇒ جدول) */
+  luts?: Record<string, Lut>;
+  /** فریمِ ماتِ هر قطعه (شناسهٔ قطعه ⇒ ویدیوی خاکستری) برای حذفِ پس‌زمینه */
+  mattes?: Map<string, Source>;
+  /** عمقِ توالیِ تودرتو (برای جلوگیری از بی‌نهایت) */
+  depth?: number;
 };
 
 const BLEND_OP: Record<string, GlobalCompositeOperation> = {
@@ -324,11 +334,31 @@ export class Compositor {
   }
 
   // ───────────── یک کلیپ
+  private nested = new Map<string, Compositor>();
+
+  /** توالیِ تودرتو را روی بومِ کوچکِ خودش می‌کشد و همان بوم را مثلِ یک ویدیو برمی‌گرداند */
+  private nestedSource(clip: MediaClip, t: number, a: RenderArgs, bw: number): Source | undefined {
+    const sid = clip.ref.slice(4);
+    const seq = a.project.sequences?.[sid];
+    if (!seq || (a.depth ?? 0) >= 3) return undefined;
+    let comp = this.nested.get(sid);
+    if (!comp) {
+      comp = new Compositor();
+      this.nested.set(sid, comp);
+    }
+    const fmt = seq.format ?? a.project.format;
+    const w = Math.max(16, Math.min(1280, Math.round(bw)));
+    comp.setSize(w, Math.max(16, Math.round((w * fmt.height) / fmt.width)));
+    const tn = srcTimeAt(clip, Math.max(clip.at, Math.min(clipEnd(clip), t)));
+    comp.render({ ...a, project: { ...a.project, format: fmt, tracks: seq.tracks, markers: [], inout: null }, time: tn, depth: (a.depth ?? 0) + 1 });
+    return comp.canvas;
+  }
+
   private drawClip(ctx: CanvasRenderingContext2D, clip: MediaClip, t: number, a: RenderArgs, W: number, H: number) {
-    const src = a.sources.get(clip.id);
-    if (!ready(src)) return;
     const bw = Math.max(2, Math.round(clip.width * W));
     const bh = Math.max(2, Math.round(clip.height * H));
+    const src: Source | undefined = clip.shape ? shapeCanvas(clip.shape, bw, bh) : clip.ref.startsWith("seq:") ? this.nestedSource(clip, t, a, bw) : a.sources.get(clip.id);
+    if (!ready(src)) return;
     const opacity = propAt(clip, "opacity", t);
     let fade = 1;
     if (clip.fade_in > 0) fade *= Math.min(1, Math.max(0, (t - clip.at) / clip.fade_in));
@@ -347,8 +377,10 @@ export class Compositor {
     const color = !bypass && clip.color && !colorIsNeutral(clip.color, a.looks) ? clip.color : undefined;
     const fx = color ? postFx(color, a.looks) : null;
     const keyed = !!clip.chroma?.on;
-    const needPixels = !!color || keyed;
-    const mask = clip.mask && clip.mask.shape !== "none" ? clip.mask : null;
+    const lut = clip.lut && a.luts?.[clip.lut.key] ? { table: a.luts[clip.lut.key], amount: clip.lut.amount } : null;
+    const matte = clip.matte ? a.mattes?.get(clip.id) : undefined;
+    const needPixels = !!color || keyed || !!lut || ready(matte);
+    const mask = clip.mask && clip.mask.shape !== "none" && (clip.mask.shape !== "bezier" || (clip.mask.points?.length ?? 0) >= 3) ? clip.mask : null;
     const css = cssFilterOf(clip.effects);
     const rotate = clip.effects.find((e) => e.tool === "rotate");
     const vignette = clip.effects.find((e) => e.tool === "vignette");
@@ -381,8 +413,20 @@ export class Compositor {
       if (needPixels) {
         const img = lx.getImageData(0, 0, bw, bh);
         if (color) applyColor(img, color, a.looks);
+        if (lut) applyLut(img, lut.table, lut.amount);
         if (fx && (fx.sharpen > 0 || fx.vignette > 0 || fx.grain > 0)) applyPostFx(img, fx, this.frameNo);
         if (keyed && clip.chroma) chromaKey(img, clip.chroma);
+        if (matte && ready(matte)) {
+          // ماتِ حذفِ پس‌زمینه: همان جا دادنِ منبع در جعبه، روشنیِ آن می‌شود شفافیت
+          const M = this.get("matte", bw, bh);
+          M.x.setTransform(1, 0, 0, 1, 0, 0);
+          M.x.globalAlpha = 1;
+          M.x.fillStyle = "#000";
+          M.x.fillRect(0, 0, bw, bh);
+          drawFitted(M.x, matte, 0, 0, bw, bh, clip.fit);
+          const mm = M.x.getImageData(0, 0, bw, bh).data;
+          for (let i = 0; i < img.data.length; i += 4) img.data[i + 3] = (img.data[i + 3] * mm[i]) / 255;
+        }
         lx.putImageData(img, 0, 0);
       }
       if (vignette) {
@@ -405,7 +449,7 @@ export class Compositor {
         lx.restore();
         lx.filter = "none";
       }
-      if (mask) this.applyMask(lx, bw, bh, mask);
+      if (mask) this.applyMask(lx, bw, bh, mask, t - clip.at);
       layerCanvas = L.c;
     }
 
@@ -430,7 +474,7 @@ export class Compositor {
     ctx.restore();
   }
 
-  private applyMask(lx: CanvasRenderingContext2D, bw: number, bh: number, m: NonNullable<MediaClip["mask"]>) {
+  private applyMask(lx: CanvasRenderingContext2D, bw: number, bh: number, m: NonNullable<MediaClip["mask"]>, local = 0) {
     const M = this.get("mask", bw, bh);
     const mx = M.x;
     mx.setTransform(1, 0, 0, 1, 0, 0);
@@ -439,10 +483,22 @@ export class Compositor {
     mx.fillStyle = "#fff";
     const f = Math.max(0, m.feather) * Math.min(bw, bh) * 0.5;
     mx.filter = f > 0.5 ? `blur(${f}px)` : "none";
-    mx.beginPath();
-    if (m.shape === "ellipse") mx.ellipse(m.cx * bw, m.cy * bh, (m.w * bw) / 2, (m.h * bh) / 2, 0, 0, Math.PI * 2);
-    else mx.rect((m.cx - m.w / 2) * bw, (m.cy - m.h / 2) * bh, m.w * bw, m.h * bh);
-    mx.fill();
+    // ردیابیِ حرکت: مرکزِ ماسک در زمانِ قطعه جابه‌جا می‌شود (کسری از جعبه)
+    const kx = valueAt(m.kx, local, 0);
+    const ky = valueAt(m.ky, local, 0);
+    if (m.shape === "bezier" && m.points && m.points.length >= 3) {
+      mx.save();
+      mx.translate(kx * bw, ky * bh);
+      mx.fill(pathOf(m.points, bw, bh));
+      mx.restore();
+    } else {
+      mx.beginPath();
+      const cx = m.cx + kx;
+      const cy = m.cy + ky;
+      if (m.shape === "ellipse") mx.ellipse(cx * bw, cy * bh, (m.w * bw) / 2, (m.h * bh) / 2, 0, 0, Math.PI * 2);
+      else mx.rect((cx - m.w / 2) * bw, (cy - m.h / 2) * bh, m.w * bw, m.h * bh);
+      mx.fill();
+    }
     mx.filter = "none";
     lx.save();
     lx.globalCompositeOperation = m.invert ? "destination-out" : "destination-in";

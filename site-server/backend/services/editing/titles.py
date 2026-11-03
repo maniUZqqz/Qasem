@@ -235,6 +235,7 @@ def clean(raw: dict, index: int = 0) -> dict:
     out["caption"] = bool(pick("caption"))
     out["accent"] = _hex(pick("accent"), "#ff3d71")
     out["words"] = _clean_words(raw.get("words"), out["duration"])
+    out["path"] = _clean_path(raw.get("path"), out["duration"])
     return out
 
 
@@ -255,6 +256,44 @@ def _clean_words(raw, duration: float) -> list[dict]:
         words.append({"w": w, "s": round(s, 3), "e": round(e, 3)})
     words.sort(key=lambda w: w["s"])
     return words
+
+
+MAX_PATH = 80
+
+
+def _clean_path(raw, duration: float) -> list[dict]:
+    """A title that follows a motion track: [{t, dx, dy}] — seconds from the clip's start and the displacement of the
+    anchor as FRACTIONS of the frame. Linear between points (the tracker's samples are close together)."""
+    pts = []
+    for item in (raw if isinstance(raw, list) else [])[: MAX_PATH * 2]:
+        if not isinstance(item, dict):
+            continue
+        t = _num(item.get("t"), 0, 3600, None)
+        dx, dy = _num(item.get("dx"), -2, 2, None), _num(item.get("dy"), -2, 2, None)
+        if t is None or dx is None or dy is None:
+            continue
+        pts.append({"t": round(min(t, duration), 3), "dx": round(dx, 5), "dy": round(dy, 5)})
+    pts.sort(key=lambda p: p["t"])
+    out: list[dict] = []
+    for p in pts:
+        if out and abs(out[-1]["t"] - p["t"]) < 0.005:
+            out[-1] = p
+        else:
+            out.append(p)
+    return out[:MAX_PATH] if len(out) >= 2 else []
+
+
+def path_at(path: list[dict], t: float) -> tuple[float, float]:
+    """(dx, dy) fractions at second `t` of the clip (0, 0 without a path)."""
+    if not path:
+        return 0.0, 0.0
+    if t <= path[0]["t"]:
+        return path[0]["dx"], path[0]["dy"]
+    for a, b in zip(path, path[1:]):
+        if t < b["t"]:
+            u = (t - a["t"]) / max(1e-9, b["t"] - a["t"])
+            return a["dx"] + (b["dx"] - a["dx"]) * u, a["dy"] + (b["dy"] - a["dy"]) * u
+    return path[-1]["dx"], path[-1]["dy"]
 
 
 # ---------------------------------------------------------------- ASS pieces
@@ -296,11 +335,17 @@ def _f(value: float, digits: int = 2) -> str:
     return text if text not in ("", "-0") else "0"
 
 
-def ass_filter(path) -> str:
-    """The `ass` filter for a script file, with the bundled fonts directory (fontconfig supplies the rest)."""
+FONTS_TOKEN = "__FONTSDIR__"
+
+
+def ass_filter(path, *, portable: bool = False) -> str:
+    """The `ass` filter for a script file, with the bundled fonts directory (fontconfig supplies the rest).
+    `portable` leaves a token (`FONTS_TOKEN`) for the fonts folder: a render on another computer (the processing node)
+    puts its own copy of the same fonts there, so the titles are laid out with the same glyphs everywhere."""
     from services.video.ffmpeg import filter_path
 
-    return f"ass=filename={filter_path(path)}:fontsdir={filter_path(FONTS_DIR)}"
+    fonts = filter_path(FONTS_TOKEN) if portable else filter_path(FONTS_DIR)
+    return f"ass=filename={filter_path(path)}:fontsdir={fonts}"
 
 
 # ------------------------------------------------------------------ geometry
@@ -457,6 +502,10 @@ def _state(it: dict, t: float, d_in: float, d_out: float, W: int, H: int) -> dic
         st["dy"] += part["dy"]
         st["blur"] = max(st["blur"], part["blur"])
         st["reveal"] = min(st["reveal"], part["reveal"])
+    if it.get("path"):
+        fx, fy = path_at(it["path"], t)
+        st["dx"] += fx * W
+        st["dy"] += fy * H
     return st
 
 
@@ -604,6 +653,7 @@ def _item_ass(n: int, it: dict, W: int, H: int) -> tuple[list[str], list[str]]:
         marks.update(dur - d_out + d_out * i / steps for i in range(steps + 1))
     for s, e in spans:
         marks.update((min(s, dur), min(e, dur)))
+    marks.update(p["t"] for p in it.get("path") or [] if 0 < p["t"] < dur)
     cuts = sorted({round(min(max(m, 0.0), dur), 2) for m in marks})
 
     # --- the decorations (bar / line / quote mark) are drawn once per interval with the same motion as the text

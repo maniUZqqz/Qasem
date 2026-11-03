@@ -118,6 +118,9 @@ class PhotoProject(TimeStampedModel):
     title = models.CharField("عنوان", max_length=200, blank=True)
     data = models.JSONField(default=dict, blank=True)
     rev = models.PositiveIntegerField(default=1)
+    #: JSON ِ اصلیِ پروژه پیش از کوچِ «قاب‌اول» (fv=1 ⇐ fv=2)؛ خالی = کوچ نشده. ماسک‌های رنگ‌آمیزیِ اصلی هم کنارِ
+    #: فایل‌ها با نامِ ``v1-mask-<id>.png`` می‌مانند.
+    legacy = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]

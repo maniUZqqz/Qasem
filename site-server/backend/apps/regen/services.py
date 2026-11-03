@@ -384,7 +384,11 @@ def model_prompt(store, text: str) -> tuple[str, str]:
 
         provider = text_provider(store)
         models = models_for(TASK_REASONING)
-        data = provider.generate_json(models[0], f"User request:\n{text}", system=PROMPT_SYSTEM, timeout=120)
+        result = provider.generate_json(models[0], f"User request:\n{text}", system=PROMPT_SYSTEM, timeout=120)
+        # generate_json returns (parsed_dict, raw_text) — every provider (Ollama, the API client, the routed one).
+        # The old code treated that tuple as the dict, so the translation never worked and a Persian request
+        # always reached the video model untranslated.
+        data = result[0] if isinstance(result, (tuple, list)) and result else result
         out = str((data or {}).get("prompt") or "").strip() if isinstance(data, dict) else ""
         if len(out) > 15 and not re.search(r"[؀-ۿ]", out):
             return out[:1200], "ai"

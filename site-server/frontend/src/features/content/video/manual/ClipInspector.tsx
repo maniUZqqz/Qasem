@@ -2,12 +2,14 @@ import { useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
 import type { Catalogue, MediaItem } from "../api";
+import { defaultBezier } from "./bezier";
 import { transitionIsApproximate } from "./Compositor";
 import { Chips, ColorField, Num, Section, Slider, Toggle } from "./controls";
 import { KfChannel, RAMP_STEPS, RampKey, keyNear, rampSpeeds, removeKey, setKey, valueAt } from "./keyframes";
 import {
-  ATTR_GROUPS, AttrGroup, Blend, Chroma, Mask, MediaClip, Project, Track, clipLength, propAt, timecode,
+  ATTR_GROUPS, AttrGroup, Blend, Chroma, Mask, MediaClip, Project, ShapeSpec, Track, clipLength, propAt, timecode,
 } from "./model";
+import { SHAPES } from "./shapes";
 import "./clipinspector.css";
 
 type Edit = {
@@ -32,6 +34,9 @@ type Props = {
   onFreeze: () => void;
   onJLCut: (kind: "J" | "L") => void;
   linked: boolean;
+  /** ویرایشِ نقطه‌های ماسکِ آزاد روی تصویرِ مانیتور */
+  onEditMask?: (on: boolean) => void;
+  editingMask?: boolean;
 };
 
 const BLENDS_FALLBACK = [{ key: "normal", title: "عادی" }];
@@ -80,7 +85,7 @@ function RampEditor({ ramp, onLive, onEnd }: { ramp: RampKey[]; onLive: (r: Ramp
   );
 }
 
-export default function ClipInspector({ clip, track, ids, playhead, item, cat, edit, hasClipboard, onCopyAttrs, onPasteAttrs, onExtractAudio, onUnlink, onFreeze, onJLCut, linked }: Props) {
+export default function ClipInspector({ clip, track, ids, playhead, item, cat, edit, hasClipboard, onCopyAttrs, onPasteAttrs, onExtractAudio, onUnlink, onFreeze, onJLCut, linked, onEditMask, editingMask }: Props) {
   const id = clip.id;
   const audioOnly = track.kind === "audio";
   const len = clipLength(clip);
@@ -90,7 +95,7 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
 
   // کلیدفریم‌ها فقط روی قطعهٔ اصلی می‌نشینند (مقدارِ هر قطعه با دیگری فرق دارد)؛ بقیهٔ تنظیم‌ها روی همهٔ انتخاب‌شده‌ها
   const upd = (patch: Partial<MediaClip>) => (pr: Project): Project => {
-    const targets = "kf" in patch ? [id] : ids.length ? ids : [id];
+    const targets = "kf" in patch || "shape" in patch || "matte" in patch || "lut" in patch ? [id] : ids.length ? ids : [id];
     return { ...pr, tracks: pr.tracks.map((t) => ({ ...t, clips: t.clips.map((c) => (targets.includes(c.id) ? ({ ...c, ...patch } as typeof c) : c)) })) };
   };
   const live = (patch: Partial<MediaClip>) => edit.live(upd(patch));
@@ -182,14 +187,22 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
           {prop("crop_t", "برشِ بالا", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("t", v), digits: 0 })}
           {prop("crop_b", "برشِ پایین", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("b", v), digits: 0 })}
           <div className="ws-group-title">ماسک</div>
-          <Chips value={(mask?.shape ?? "none") as string} options={[{ key: "none", title: "بدون" }, { key: "rect", title: "مستطیل" }, { key: "ellipse", title: "بیضی" }]}
-            onPick={(k) => set("ماسک", { mask: k === "none" ? undefined : { ...DEFAULT_MASK, ...(mask ?? {}), shape: k as Mask["shape"] } })} />
+          <Chips value={(mask?.shape ?? "none") as string} options={[{ key: "none", title: "بدون" }, { key: "rect", title: "مستطیل" }, { key: "ellipse", title: "بیضی" }, { key: "bezier", title: "آزاد (Bézier)" }]}
+            onPick={(k) => set("ماسک", { mask: k === "none" ? undefined : { ...DEFAULT_MASK, ...(mask ?? {}), shape: k as Mask["shape"], ...(k === "bezier" && !(mask?.points?.length) ? { points: defaultBezier() } : {}) } })} />
+          {mask?.shape === "bezier" && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <button type="button" className={`ws-btn ${editingMask ? "is-on" : ""}`} onClick={() => onEditMask?.(!editingMask)} data-testid="bezier-edit">
+                {editingMask ? "پایانِ ویرایشِ نقطه‌ها" : "ویرایشِ نقطه‌ها روی تصویر"}
+              </button>
+              <span className="ws-hint">{timecode(playhead) && `${mask.points?.length ?? 0} نقطه`} — دوبار کلیک روی خط نقطهٔ تازه می‌گذارد.</span>
+            </div>
+          )}
           {mask && (
             <>
-              <Slider label="مرکز X" value={mask.cx * 100} min={0} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, cx: v / 100 } })} onEnd={() => edit.end("ماسک")} />
-              <Slider label="مرکز Y" value={mask.cy * 100} min={0} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, cy: v / 100 } })} onEnd={() => edit.end("ماسک")} />
-              <Slider label="پهنا" value={mask.w * 100} min={2} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, w: v / 100 } })} onEnd={() => edit.end("ماسک")} />
-              <Slider label="ارتفاع" value={mask.h * 100} min={2} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, h: v / 100 } })} onEnd={() => edit.end("ماسک")} />
+              {mask.shape !== "bezier" && <Slider label="مرکز X" value={mask.cx * 100} min={0} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, cx: v / 100 } })} onEnd={() => edit.end("ماسک")} />}
+              {mask.shape !== "bezier" && <Slider label="مرکز Y" value={mask.cy * 100} min={0} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, cy: v / 100 } })} onEnd={() => edit.end("ماسک")} />}
+              {mask.shape !== "bezier" && <Slider label="پهنا" value={mask.w * 100} min={2} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, w: v / 100 } })} onEnd={() => edit.end("ماسک")} />}
+              {mask.shape !== "bezier" && <Slider label="ارتفاع" value={mask.h * 100} min={2} max={100} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, h: v / 100 } })} onEnd={() => edit.end("ماسک")} />}
               <Slider label="نرمیِ لبه" value={mask.feather * 100} min={0} max={50} step={1} digits={0} unit="٪" onLive={(v) => live({ mask: { ...mask, feather: v / 100 } })} onEnd={() => edit.end("ماسک")} />
               <Toggle label="وارونه" checked={mask.invert} onChange={(v) => set("ماسک", { mask: { ...mask, invert: v } })} />
             </>
@@ -214,6 +227,22 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
               <p className="ws-hint">کیفیتِ لبه‌ها را با «پیش‌نمایشِ دقیق» ببینید؛ کلیدِ رنگی روی این قطعه باید بالای یک ترکِ تصویرِ دیگر باشد.</p>
             </div>
           )}
+        </Section>
+      )}
+
+      {clip.shape && (
+        <Section title="شکل" defaultOpen testId="sec-shape">
+          <Chips value={clip.shape.shape} options={SHAPES} onPick={(k) => set("نوعِ شکل", { shape: { ...clip.shape!, shape: k } })} />
+          <ColorField label="رنگِ پرکننده" value={clip.shape.fill} onChange={(v) => set("رنگِ شکل", { shape: { ...clip.shape!, fill: v } })} />
+          <Toggle label="گرادیان" checked={!!clip.shape.fill2} onChange={(v) => set("گرادیانِ شکل", { shape: { ...clip.shape!, fill2: v ? "#38bdf8" : undefined } })} />
+          {clip.shape.fill2 && <ColorField label="رنگِ دوم" value={clip.shape.fill2} onChange={(v) => set("رنگِ دومِ شکل", { shape: { ...clip.shape!, fill2: v } })} />}
+          {clip.shape.fill2 && <Slider label="زاویهٔ گرادیان" value={clip.shape.angle ?? 90} min={-180} max={180} step={5} unit="°" digits={0} def={90} onLive={(v) => live({ shape: { ...clip.shape!, angle: v } as ShapeSpec })} onEnd={() => edit.end("گرادیان")} />}
+          <Slider label="شفافیتِ رنگ" value={(clip.shape.fill_opacity ?? 1) * 100} min={0} max={100} step={1} unit="٪" digits={0} def={100} onLive={(v) => live({ shape: { ...clip.shape!, fill_opacity: v / 100 } })} onEnd={() => edit.end("شفافیتِ شکل")} />
+          <ColorField label="رنگِ لبه" value={clip.shape.stroke ?? "#ffffff"} onChange={(v) => set("رنگِ لبه", { shape: { ...clip.shape!, stroke: v } })} />
+          <Slider label="ضخامتِ لبه" value={clip.shape.stroke_w ?? 0} min={0} max={20} step={0.5} unit="٪" digits={1} def={0} onLive={(v) => live({ shape: { ...clip.shape!, stroke_w: v } })} onEnd={() => edit.end("لبهٔ شکل")} />
+          {clip.shape.shape === "rounded" && <Slider label="گردیِ گوشه" value={clip.shape.radius ?? 18} min={0} max={50} step={1} unit="٪" digits={0} def={18} onLive={(v) => live({ shape: { ...clip.shape!, radius: v } })} onEnd={() => edit.end("گوشه")} />}
+          {["star", "polygon", "burst"].includes(clip.shape.shape) && <Slider label="تعدادِ نقطه" value={clip.shape.points ?? 5} min={3} max={16} step={1} digits={0} def={5} onLive={(v) => live({ shape: { ...clip.shape!, points: v } })} onEnd={() => edit.end("نقطه‌های شکل")} />}
+          {["star", "burst"].includes(clip.shape.shape) && <Slider label="عمقِ نقطه‌ها" value={(clip.shape.inner ?? 0.45) * 100} min={15} max={90} step={1} unit="٪" digits={0} def={45} onLive={(v) => live({ shape: { ...clip.shape!, inner: v / 100 } })} onEnd={() => edit.end("عمقِ ستاره")} />}
         </Section>
       )}
 
@@ -288,7 +317,7 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
 
       <Section title="پیوند، J/L-cut و کپیِ ویژگی‌ها" testId="sec-link">
         <div className="flex flex-wrap gap-2">
-          {track.kind === "video" && clip.kind === "video" && clip.has_audio && clip.audio_on && (
+          {track.kind === "video" && clip.kind === "video" && clip.has_audio && clip.audio_on && !clip.ref.startsWith("seq:") && (
             <button type="button" className="ws-btn" onClick={onExtractAudio} data-testid="extract-audio">جدا کردنِ صدا از تصویر</button>
           )}
           {linked && <button type="button" className="ws-btn" onClick={onUnlink} data-testid="unlink">قطعِ پیوند</button>}

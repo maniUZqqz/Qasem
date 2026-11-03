@@ -19,6 +19,7 @@ from django.utils import timezone
 from PIL import Image, ImageDraw
 
 from . import catalog, develop_np, ops
+from . import frames
 from . import layers as layers_mod
 from . import textlayer
 from .models import PhotoAsset, PhotoEdit, PhotoPreset, PhotoProject
@@ -242,14 +243,28 @@ def plan(asset: PhotoAsset, recipe_key: str) -> dict:
     for o in operations:
         o["where"] = catalog.tools()[o["tool"]]["where"]
         o["title"] = catalog.tools()[o["tool"]]["title"]
-    return {"recipe": recipe_key, "operations": operations, "node": node, "findings": asset.findings or []}
+    out = {"recipe": recipe_key, "operations": operations, "node": node, "findings": asset.findings or []}
+    if any(o["tool"] == "kit_smart" for o in operations):
+        # «ویرایش با دستور»: کجا انجام می‌شود، راست و درست (سرورِ پردازش یا هوشِ مصنوعیِ سایت)
+        from . import smart
+
+        decision = smart.decide_path(asset.store)
+        for o in operations:
+            if o["tool"] == "kit_smart":
+                o["where"] = "node" if decision["path"] == "node" else "server"
+                o["reason"] = smart.path_help(decision)
+        out["smart"] = decision
+    return out
 
 
 def _next_number(asset: PhotoAsset) -> int:
     return (asset.edits.aggregate(m=Max("number"))["m"] or 0) + 1
 
 
-def create_edits(store, user, asset_ids, recipe_key: str, operations) -> list[PhotoEdit]:
+def create_edits(store, user, asset_ids, recipe_key: str, operations, order: int = catalog.ORDER_CURRENT) -> list[PhotoEdit]:
+    """یک نسخه برای هر عکس. ``order``: نسخهٔ ترتیبِ کارها (۲ = قاب‌اول، برای کارِ تازه؛ ۱ = ترتیبِ قدیمی، برای ساختِ دوبارهٔ
+    نسخه‌های قدیمی)؛ روی ``PhotoEdit.stats["order"]`` نشان می‌خورد تا «تلاشِ دوباره» عیناً همان را بسازد."""
+    order = 1 if int(order or 1) < 2 else catalog.ORDER_CURRENT
     ids = []
     for x in asset_ids or []:
         try:
@@ -268,16 +283,16 @@ def create_edits(store, user, asset_ids, recipe_key: str, operations) -> list[Ph
     if operations is None:
         if recipe_key == "suggest":
             for pk, a in assets.items():
-                per_asset[pk] = catalog.normalize_operations(plan(a, "suggest")["operations"])
+                per_asset[pk] = catalog.normalize_operations(plan(a, "suggest")["operations"], order)
         else:
             recipe = catalog.RECIPE_BY_KEY.get(recipe_key)
             if recipe is None:
                 raise PhotoError("دستورِ ناشناخته.")
-            ops_ = catalog.normalize_operations(plan(next(iter(assets.values())), recipe_key)["operations"])
+            ops_ = catalog.normalize_operations(plan(next(iter(assets.values())), recipe_key)["operations"], order)
             per_asset = {pk: ops_ for pk in assets}
     else:
         try:
-            ops_ = catalog.normalize_operations(operations)
+            ops_ = catalog.normalize_operations(operations, order)
             for o in ops_:      # عکسِ لایه‌های تصویری باید مالِ همین فروشگاه باشد
                 if o["tool"] == "compose":
                     layers_mod.normalize_layers(o["params"]["layers"], store=store, base="one")
@@ -296,7 +311,7 @@ def create_edits(store, user, asset_ids, recipe_key: str, operations) -> list[Ph
             asset = PhotoAsset.objects.select_for_update().get(pk=pk)
             out.append(PhotoEdit.objects.create(asset=asset, number=_next_number(asset), batch=batch, created_by=user,
                                                 recipe=recipe_key if recipe_key in catalog.RECIPE_BY_KEY else "",
-                                                operations=per_asset[pk], message="در صف"))
+                                                operations=per_asset[pk], message="در صف", stats={"order": order}))
     return out
 
 
@@ -310,6 +325,52 @@ def fail(edit: PhotoEdit, message: str) -> None:
     _set(edit, state=PhotoEdit.State.FAILED, error=message[:4000], message="ناموفق")
 
 
+def _prepare_smart(edit: PhotoEdit) -> bool:
+    """«ویرایش با دستور» (kit_smart) پیش از صف. ⇐ True = ادامه بده (کارها شاید بازنویسی شدند)، False = با این نسخه کاری نمانده.
+
+    * node: اولویتِ بینایی «اول لوکال» و یک سرورِ پردازشِ photo آنلاین ⇒ همان صفِ سرورِ پردازش (کیت)؛ فقط تصمیم ثبت می‌شود.
+    * site: هوشِ مصنوعی از خودِ سایت (لوکال ⇄ متیس، ترتیبِ تنظیماتِ هوش مصنوعی) ⇒ kit_smart ⇐ develop + ابزارهای سبکِ سایت؛
+      اصلِ کارها در stats["original_operations"] می‌ماند؛ کارهای کیتِ بی‌همتا (پس‌زمینه، قابِ مربع، بزرگ‌نمایی) در صف می‌روند.
+    """
+    import time
+
+    from . import smart
+
+    asset = edit.asset
+    ops_in = list(edit.operations or [])
+    base_stats = dict(edit.stats or {})
+    goal = next((o["params"].get("goal", "") for o in ops_in if o["tool"] == "kit_smart"), "")
+    decision = smart.decide_path(asset.store)
+    if decision["path"] == "node":
+        _set(edit, stats=base_stats | {"smart": {"path": "node", "pending": True, "goal": goal, "via": "", "model": "",
+                                                 "label": "", "fell_back": False, "reason": "", "adjust": {}, "notes": "",
+                                                 "fallback": False}})
+        return True
+    began = time.monotonic()
+    _set(edit, message="هوشِ مصنوعی عکس را می‌بیند…", progress=0.1,
+         stats=base_stats | {"smart_running": True, "smart_started": timezone.now().isoformat()})
+    try:
+        result = smart.run_site_smart(asset, goal, asset.store, base=smart.base_of(ops_in))
+    except Exception as exc:  # noqa: BLE001 — خطای برنامه (نه شکستِ هوش مصنوعی) هم نباید نسخه را بکشد
+        logger.exception("photoedit: smart edit %s: AI step crashed", edit.pk)
+        result = smart.fallback_result(asset, f"خطای داخلی: {exc}", goal)
+    try:
+        new_ops, result = smart.apply_site(asset, ops_in, result, order=int(base_stats.get("order") or 1))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("photoedit: smart edit %s: could not build operations", edit.pk)
+        fail(edit, f"ویرایشِ هوشمند ساخته نشد: {exc}")
+        return False
+    meta = result.get("meta") or {}
+    stats = base_stats | {"original_operations": ops_in, "smart": smart.stats_record(result, goal, time.monotonic() - began)}
+    msg = ("هوشِ مصنوعی جواب نداد؛ نور و رنگِ خودکارِ سبک اعمال می‌شود" if meta.get("fallback")
+           else f"{meta.get('label') or 'هوشِ مصنوعی'} تنظیم کرد")
+    # در این فاصله کاربر ممکن است لغوش کرده باشد؛ فقط نسخهٔ هنوز QUEUED بازنویسی می‌شود
+    won = PhotoEdit.objects.filter(pk=edit.pk, state=PhotoEdit.State.QUEUED).update(
+        operations=new_ops, stats=stats, message=msg[:300], progress=0.3, updated_at=timezone.now())
+    edit.refresh_from_db()
+    return bool(won)
+
+
 def start(edit: PhotoEdit) -> PhotoEdit:
     """کارهای کیت ⇐ یک کارِ photo.edit در صف (حتی وقتی هیچ گره‌ای آنلاین نیست)؛ بی کارِ کیت ⇐ همین حالا روی سرورِ سایت."""
     from apps.compute import services as compute
@@ -317,6 +378,11 @@ def start(edit: PhotoEdit) -> PhotoEdit:
     if edit.state != PhotoEdit.State.QUEUED:
         return edit
     node_ops, server_ops = catalog.split(edit.operations)
+    if any(o["tool"] == "kit_smart" for o in node_ops):
+        # «ویرایش با دستور»: مسیر (سرورِ پردازش یا سایت) را اولویتِ هوشِ مصنوعی و وضعِ گره می‌گوید
+        if not _prepare_smart(edit):
+            return edit
+        node_ops, server_ops = catalog.split(edit.operations)
     if not node_ops:
         return run_server_stage(edit)
     asset = edit.asset
@@ -381,8 +447,12 @@ def refresh(edit: PhotoEdit) -> bool:
         took = (job.finished_at - job.claimed_at).total_seconds() if (job.finished_at and job.claimed_at) else None
         edit.files = dict(edit.files) | {"node": f"{edit.dir_rel}/{dst.name}"}
         edit.stats = dict(edit.stats) | {"node": job.node.name if job.node else "", "node_seconds": took,
-                                         "kit": {k: kit.get(k) for k in ("recipe", "notes", "usedAi", "error", "steps")
+                                         "kit": {k: kit.get(k) for k in ("recipe", "notes", "usedAi", "error", "steps", "model")
                                                  if k in kit}}
+        if any(o["tool"] == "kit_smart" for o in edit.operations):    # «ویرایش با دستور» روی سرورِ پردازش: چه کسی جواب داد
+            from . import smart
+
+            edit.stats = dict(edit.stats) | {"smart": smart.node_record(kit, (edit.stats or {}).get("smart"))}
         edit.save(update_fields=["files", "stats", "updated_at"])
         return True
     if job.state in (ComputeJob.State.FAILED, ComputeJob.State.CANCELLED):
@@ -424,7 +494,18 @@ def server_ctx(store) -> dict:
         p = abs_path(pr.dir_rel) / f"mask-{mid}.png"
         return p if p.is_file() else None
 
-    return {"notes": [], "store_name": store.name, "logo_path": logo_path, "mask_path": mask_path, "scale": 1.0}
+    def liquify_path(project_id):
+        try:
+            pr = PhotoProject.objects.filter(pk=int(project_id), store=store).first()
+        except (TypeError, ValueError):
+            return None
+        if pr is None:
+            return None
+        p = abs_path(pr.dir_rel) / "liquify.bin"
+        return p if p.is_file() else None
+
+    return {"notes": [], "store_name": store.name, "logo_path": logo_path, "mask_path": mask_path,
+            "liquify_path": liquify_path, "scale": 1.0}
 
 
 def run_server_stage(edit: PhotoEdit) -> PhotoEdit:
@@ -506,7 +587,9 @@ def recover_stale(edit: PhotoEdit) -> bool:
             return False
         _set(edit, stats=dict(edit.stats) | {"server_retries": tries + 1})
         return True
-    if edit.state == PhotoEdit.State.QUEUED and edit.updated_at < now - timedelta(minutes=5):
+    # ویرایشِ هوشمندِ سایت تا چند دقیقه منتظرِ هوشِ مصنوعی می‌ماند؛ در آن مدت دوباره فرستاده نشود
+    wait = 12 if (edit.stats or {}).get("smart_running") else 5
+    if edit.state == PhotoEdit.State.QUEUED and edit.updated_at < now - timedelta(minutes=wait):
         return True
     return False
 
@@ -571,14 +654,17 @@ def preview_source(asset: PhotoAsset):
     return ops.load(src)
 
 
-def preview(asset: PhotoAsset, operations) -> tuple[bytes, dict]:
+def preview(asset: PhotoAsset, operations, order: int = catalog.ORDER_CURRENT) -> tuple[bytes, dict]:
     """کارهای سرورِ سایت (Pillow) روی نسخهٔ کوچکِ عکس، همین حالا و دقیق — برای متن، لوگو، واترمارک، برش، چرخش، رنگِ ساده.
+
+    ترتیبِ کارها همان ترتیبِ قراردادیِ ساختِ نهایی است (``catalog.normalize_operations`` با ``order``)، پس پیش‌نمایش و
+    خروجی یک ترتیب دارند.
 
     کارهای سرورِ پردازش (کیت) این‌جا اجرا نمی‌شوند: فهرستشان در ``skipped`` برمی‌گردد تا پنل بداند پیش‌نمایش کاملِ
     آن‌ها فقط با «ساخت» ِ نهایی روی سرورِ پردازش است.
     """
     try:
-        clean = catalog.normalize_operations(operations if operations is not None else [])
+        clean = catalog.normalize_operations(operations if operations is not None else [], order)
     except catalog.CatalogError as exc:
         raise PhotoError(str(exc)) from exc
     node_ops, server_ops = catalog.split(clean)
@@ -667,6 +753,16 @@ def save_to_library(edit: PhotoEdit, user) -> PhotoAsset:
 
 # ───────────────────────────── برای پنل
 
+def _needs_node(e: PhotoEdit, node_ops: list[dict]) -> bool:
+    """بی «ویرایش با دستور»: bool(node_ops). با آن، تا مسیر معلوم نشده (QUEUED) فقط وقتی سرورِ پردازش لازم است که
+    تصمیم «سرورِ پردازش» باشد یا کارِ کیتِ بی‌همتایی مانده باشد."""
+    if not node_ops or e.state != PhotoEdit.State.QUEUED or not any(o["tool"] == "kit_smart" for o in node_ops):
+        return bool(node_ops)
+    from . import smart
+
+    return bool(smart.residual_node_ops(e.operations or [])) or smart.decide_path(e.asset.store)["path"] == "node"
+
+
 def edit_dict(e: PhotoEdit) -> dict:
     f = e.files or {}
     st = e.stats or {}
@@ -679,13 +775,16 @@ def edit_dict(e: PhotoEdit) -> dict:
                        for o in e.operations or []],
         #: آنچه کیت/هوشِ مصنوعی واقعاً انتخاب کرد، به‌صورتِ کارهای جدا و قابل‌ویرایش (خالی = کیتی نبود یا هنوز برنگشته)
         "chosen": catalog.steps_from_kit_recipe((st.get("kit") or {}).get("recipe")) if e.state == PhotoEdit.State.READY else [],
-        "needs_node": bool(node_ops),
+        "needs_node": _needs_node(e, node_ops),
+        #: «ویرایش با دستور»: path (node/site)، via، model، label، fell_back، reason، adjust، notes، fallback
+        "smart": st.get("smart") or None,
         "state": e.state, "state_label": e.get_state_display(), "active": e.active,
         "progress": round(e.progress, 3), "message": e.message, "error": e.error,
         "urls": {k: media_url(f.get(k)) for k in ("result", "preview", "thumb", "node")},
         "size": [st["after"]["width"], st["after"]["height"]] if st.get("after") else None,
         "after": st.get("after"), "kit": st.get("kit") or {}, "server_notes": st.get("server_notes") or [],
         "node": st.get("node"), "node_seconds": st.get("node_seconds"), "bytes": st.get("bytes"),
+        "order": int(st.get("order") or 1),
         "format": st.get("format"), "saved": e.saved or {}, "created_at": e.created_at, "updated_at": e.updated_at,
     }
 
@@ -738,9 +837,98 @@ def mask_file(project: PhotoProject, mid: str) -> Path:
     return project_dir(project) / f"mask-{mid}.png"
 
 
-def project_dict(p: PhotoProject, *, full: bool = True) -> dict:
+def liquify_file(project: PhotoProject) -> Path:
+    return project_dir(project) / "liquify.bin"
+
+
+def liquify_info(project: PhotoProject) -> dict | None:
+    """نقشهٔ مایع‌سازیِ پروژه ⇒ {rev, gw, gh, url} یا None (فایل نیست/خراب است). rev = int(mtime)."""
+    from . import liquify as lq
+
+    path = liquify_file(project)
+    try:
+        gw, gh = lq.peek(path)
+        rev = int(path.stat().st_mtime)
+    except (OSError, lq.LiquifyError):
+        return None
+    return {"rev": rev, "gw": gw, "gh": gh, "url": f"{media_url(project.dir_rel + '/liquify.bin')}?v={rev}"}
+
+
+def save_liquify(project: PhotoProject, raw: bytes) -> dict:
+    """بایت‌های LQF1 ⇒ هدر و اندازه وارسی ⇒ liquify.bin (اتمیک) ⇒ {rev, gw, gh}. rev همیشه از قبلی بزرگ‌تر است."""
+    from . import liquify as lq
+
+    if not raw:
+        raise PhotoError("فایلِ مایع‌سازی خالی است.")
+    try:
+        gw, gh = lq.parse_header(raw)
+    except lq.LiquifyError as exc:
+        raise PhotoError(str(exc)) from exc
+    path = liquify_file(project)
+    try:
+        prev = int(path.stat().st_mtime)
+    except OSError:
+        prev = 0
+    ops.save_bytes(path, raw)
+    rev = int(path.stat().st_mtime)
+    if rev <= prev:                        # دو ذخیره در یک ثانیه ⇒ rev تکراری نشود (کلیدِ کشِ مرورگر)
+        rev = prev + 1
+        os.utime(path, (rev, rev))
+    return {"rev": rev, "gw": gw, "gh": gh}
+
+
+def delete_liquify(project: PhotoProject) -> bool:
+    path = liquify_file(project)
+    existed = path.is_file()
+    path.unlink(missing_ok=True)
+    return existed
+
+
+def ensure_frame_v2(project: PhotoProject) -> tuple[PhotoProject, dict | None]:
+    """پروژهٔ fv=1 را یک بار به مدلِ «قاب‌اول» (fv=2) کوچ می‌دهد: داده ذخیره می‌شود، ``rev``+۱ و JSON ِ اصل در
+    ``PhotoProject.legacy`` می‌ماند (ماسک‌های رنگ‌آمیزیِ اصل هم ``v1-mask-<id>.png``). ⇐ ``(پروژه، گزارش)``؛ گزارش
+    ``None`` یعنی از قبل fv=2 بود. کوچِ ناموفق چیزی ذخیره نمی‌کند (گزارش ``stamped=False`` و ``error`` دارد)."""
+    cur = project.data if isinstance(project.data, dict) else {}
+    if frames._fv(cur) >= frames.FV:
+        return project, None
+    with transaction.atomic():
+        locked = PhotoProject.objects.select_for_update().select_related("asset", "store").get(pk=project.pk)
+        before = locked.data if isinstance(locked.data, dict) else {}
+        if frames._fv(before) >= frames.FV:
+            return locked, None
+        asset = locked.asset
+        pdir = project_dir(locked)
+        new, rep = frames.migrate_v1_to_v2(before, asset.width, asset.height, pdir,
+                                           asset_path=abs_path(asset.original) if asset.original else None)
+        if not rep["stamped"]:
+            return locked, rep
+        try:
+            cleaned = _clean_project_data(new, locked.store)
+            locked.legacy = locked.legacy or json.loads(json.dumps(before))
+            locked.data = cleaned
+            locked.rev += 1
+            locked.save(update_fields=["data", "legacy", "rev"])   # updated_at دست نمی‌خورد (ترتیبِ فهرست)
+        except Exception as exc:  # noqa: BLE001 — ماسک‌های بازنویسی‌شده برگردند، داده همان fv=1 بماند
+            frames.restore_v1_masks(pdir, rep["mask_ids"])
+            if not isinstance(exc, PhotoError):
+                raise
+            rep.update(stamped=False, changed=False, error=str(exc),
+                       notes=list(rep["notes"]) + [f"کوچِ قاب‌اول انجام نشد: {exc}"])
+            return locked, rep
+    return locked, rep
+
+
+def project_dict(p: PhotoProject, *, full: bool = True, migrate: bool = True) -> dict:
+    """پروژه برای پنل. ``full`` + ``migrate``: پروژهٔ fv=1 همین‌جا یک بار به fv=2 کوچ داده می‌شود (``ensure_frame_v2``) و
+    کلیدِ ``migration`` (فقط همان بار) گزارش را دارد. پاسخِ ساخت/ذخیره/تعارض ``migrate=False`` می‌گیرند تا ``rev`` عوض نشود."""
+    report = None
+    if full and migrate:
+        p, report = ensure_frame_v2(p)
     out = {"id": p.pk, "asset": p.asset_id, "title": p.title, "rev": p.rev, "updated_at": p.updated_at,
            "thumb": media_url(p.asset.thumb)}
+    if report is not None:
+        out["migration"] = {"migrated": bool(report["stamped"]), "trivial": bool(report["trivial"]), "notes": report["notes"],
+                            "error": report["error"]}
     if full:
         masks = {}
         d = project_dir(p)
@@ -749,6 +937,7 @@ def project_dict(p: PhotoProject, *, full: bool = True) -> dict:
                 masks[f.stem[5:]] = f"{media_url(p.dir_rel + '/' + f.name)}?v={int(f.stat().st_mtime)}"
         out["data"] = p.data or {}
         out["masks"] = masks
+        out["liquify"] = liquify_info(p)          # {rev, gw, gh, url} یا None
     return out
 
 
@@ -763,6 +952,12 @@ def _clean_project_data(data, store) -> dict:
             raise PhotoError(str(exc)) from exc
     elif "layers" in data:
         raise PhotoError("layers باید فهرست باشد.")
+    if "liquify" in data:      # نشانِ نقشهٔ مایع‌سازیِ پروژه: null یا {"rev": int}
+        lq = data["liquify"]
+        try:
+            data["liquify"] = {"rev": int(lq["rev"])} if isinstance(lq, dict) and lq.get("rev") is not None else None
+        except (TypeError, ValueError):
+            data["liquify"] = None
     if len(json.dumps(data, ensure_ascii=False)) > MAX_PROJECT_BYTES:
         raise PhotoError("پروژه بزرگ‌تر از ۲ مگابایت است.")
     return data
@@ -1129,8 +1324,9 @@ def preset_dict(p: PhotoPreset) -> dict:
 
 
 def preset_operations(data, node_online: bool) -> list[dict]:
-    """داده‌ی پیش‌تنظیم ⇐ فهرستِ کارها برای ``create_edits``، با ترتیبِ قراردادی:
-    کارهای کیت (آنلاین) یا develop (خاموش) ⇐ compose (روکش‌ها روی عکسِ پایه) ⇐ ابزارهای سبک ⇐ resize ⇐ export."""
+    """داده‌ی پیش‌تنظیم ⇐ فهرستِ کارها برای ``create_edits``، با ترتیبِ قراردادیِ v2 (قاب‌اول):
+    کارهای کیت (آنلاین) یا develop (خاموش) ⇐ crop_format ⇐ auto_tone ⇐ look ⇐ color ⇐ compose (روکش‌ها روی بومِ نهایی)
+    ⇐ resize ⇐ export."""
     d = normalize_preset_data(data)
     adjust, curve, tools = dict(d["adjust"]), dict(d["curve"]), d["tools"]
     ops_: list[dict] = []
@@ -1163,14 +1359,342 @@ def preset_operations(data, node_online: bool) -> list[dict]:
         mcurve.update(curve)
         if merged or mcurve:
             add("develop", {"adjust": merged, "curve": mcurve, "spots": []})
+    for key in ("crop_format", "auto_tone", "look", "color"):    # قاب و رنگ پیش از روکش‌ها (مثلِ catalog.SERVER_ORDER_V2)
+        if key in tools:
+            add(key, tools[key])
     if d["layers"]:
         base = {"id": "base", "type": "base", "name": "عکس"}
         add("compose", {"project": 0, "layers": [base] + d["layers"]})
-    for key in ("crop_format", "auto_tone", "look", "color"):
-        if key in tools:
-            add(key, tools[key])
     out = d["output"]
     if out["long_edge"]:
         add("resize", {"long_edge": out["long_edge"]})
     add("export", {"format": out["format"], "quality": out["quality"], "max_kb": out["max_kb"]})
     return ops_
+
+
+# ═════════════════════════════ «پرکردنِ هوشمند» (FLUX inpaint روی سرورِ پردازش)
+
+GENFILL_ORIGIN = "photogenfill"
+GENFILL_PRIORITY = 105          # پایین‌تر از ویرایش‌های معمولی (۹۵) و تحلیل (۱۱۰)
+GENFILL_TIMEOUT_S = 1200
+GENFILL_MAX_ACTIVE = 4          # هم‌زمان در صف/اجرا برای هر فروشگاه
+GENFILL_TITLE = "پرکردن هوشمند"
+GENFILL_WAIT_MESSAGE = "سرورِ پردازش خاموش است؛ کار در صف می‌ماند و وقتی روشن شد انجام می‌شود"
+
+
+def _genfill_node() -> str:
+    """گرهٔ انتخاب‌شده در پنل («سرورِ تصویر و ویدیو»)؛ خالی = هر گره‌ای که ComfyUI دارد."""
+    try:
+        from services.comfyui import remote
+
+        return remote.node_name("agent://any")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def genfill_online() -> bool:
+    try:
+        from services.comfyui import remote
+
+        return bool(remote.comfy_nodes_online("agent://any"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _genfill_caps() -> dict:
+    """توانایی‌های گرهٔ ComfyUI ِ مناسب (آنلاین‌ها اول)؛ گره‌ای که مدل‌هایش را گزارش نکرده ⇐ {} (ناشناخته)."""
+    from apps.compute.models import ComputeNode
+
+    wanted = _genfill_node()
+    rows = [n for n in ComputeNode.objects.filter(enabled=True) if (not wanted or n.name == wanted) and n.has("comfyui")]
+    rows.sort(key=lambda n: (not n.online, -(n.last_seen.timestamp() if n.last_seen else 0)))
+    for n in rows:
+        caps = n.capabilities or {}
+        if isinstance(caps.get("comfy_models"), dict) and caps["comfy_models"]:
+            return caps
+    return {}
+
+
+def genfill_fake_caps() -> dict:
+    """آزمون/توسعه: توانایی‌های یک گرهٔ ComfyUI ِ ساختگی که فقط چک‌پوینتِ FLUX dev ِ مالک را دارد."""
+    from . import inpaint_graph
+
+    choice = inpaint_graph.choose({"comfy_models": {"checkpoints": [inpaint_graph.DEFAULT_DEV_CKPT], "unet": []}})
+    return {"comfyui": True, "comfy_nodes": sorted(set(choice["required_nodes"]) | {"KSamplerAdvanced", "ImageScale"}),
+            "comfy_models": {"checkpoints": [inpaint_graph.DEFAULT_DEV_CKPT], "unet": []}}
+
+
+def _genfill_seed(seed) -> int:
+    import secrets
+
+    if seed in (None, ""):
+        return secrets.randbelow(2 ** 31)
+    try:
+        return abs(int(seed)) % (2 ** 32)
+    except (TypeError, ValueError):
+        raise PhotoError("seed باید یک عدد باشد.") from None
+
+
+def genfill_request(store, user, asset: PhotoAsset, image_bytes: bytes, mask_bytes: bytes, prompt: str = "",
+                    seed=None) -> dict:
+    """بومِ فعلی + ماسک ⇐ کارِ comfy.graph (FLUX inpaint) در صف — حتی وقتی گره خاموش است. ⇐ {job, state, online, message, …}."""
+    import hashlib
+    import tempfile
+
+    from apps.compute import services as compute
+    from apps.compute.models import ComputeJob
+
+    from . import inpaint, inpaint_graph
+
+    active = ComputeJob.objects.filter(origin=GENFILL_ORIGIN, store=store, state__in=(
+        ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING)).count()
+    if active >= GENFILL_MAX_ACTIVE:
+        from services.imaging.text_overlay import to_persian_digits as fa
+
+        raise PhotoError(f"هم‌اکنون {fa(str(GENFILL_MAX_ACTIVE))} «پرکردنِ هوشمند» در صف یا در حالِ ساخت است؛ "
+                         "صبر کنید تمام شوند یا یکی را لغو کنید.")
+    try:
+        prep = inpaint.prepare(image_bytes, mask_bytes, prompt)
+    except inpaint.InpaintError as exc:
+        raise PhotoError(str(exc)) from exc
+    caps = _genfill_caps()
+    try:
+        choice = inpaint_graph.choose(caps)
+    except inpaint_graph.GraphError as exc:
+        raise PhotoError(str(exc)) from exc
+    seed = _genfill_seed(seed)
+    key = hashlib.sha256(prep.image_png + prep.mask_png).hexdigest()[:12]
+    names = {"image": f"nmgf_{key}_image.png", "mask": f"nmgf_{key}_mask.png", "full": f"nmgf_{key}_full.png"}
+    graph = inpaint_graph.build(choice, names["image"], names["mask"], prep.prompt, seed, prep.size)
+    missing = inpaint_graph.check_nodes(graph, caps.get("comfy_nodes"))
+    if missing:
+        raise PhotoError("روی سرورِ پردازش این نودهای ComfyUI نصب نیست و «پرکردنِ هوشمند» بدونشان کار نمی‌کند: "
+                         + "، ".join(missing))
+    meta = prep.meta() | {"asset": asset.pk, "user": getattr(user, "pk", None), "seed": seed, "full_mask": names["full"],
+                          "engine": {k: choice.get(k) for k in ("kind", "loader", "label", "assumed")}}
+    payload = {"graph": graph, "uploads": [names["image"], names["mask"]], "x_genfill": meta}
+    with tempfile.TemporaryDirectory(prefix="nmgf-") as tmp:
+        files = {}
+        for what, data in (("image", prep.image_png), ("mask", prep.mask_png), ("full", prep.full_mask_png)):
+            p = Path(tmp) / names[what]
+            p.write_bytes(data)
+            files[names[what]] = str(p)
+        try:
+            # payload شناسهٔ عکس را دارد ⇒ درخواستِ یکسانِ فروشگاهِ دیگر هرگز هم‌اثر نمی‌شود (dedupe فقط برای خودِ ما)
+            job = compute.enqueue("comfy.graph", payload, files, store=store, origin=GENFILL_ORIGIN,
+                                  priority=GENFILL_PRIORITY, timeout_s=GENFILL_TIMEOUT_S, node=_genfill_node(),
+                                  require_online=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("photoedit: genfill enqueue failed")
+            raise PhotoError(f"ثبت در صفِ سرورِ پردازش نشد: {exc}") from exc
+    online = genfill_online()
+    state = _job_state(job)
+    return {"job": str(job.uid), "state": state, "online": online,
+            "message": "آماده" if state == "COMPLETED" else ("در صفِ سرورِ پردازش" if online else GENFILL_WAIT_MESSAGE),
+            "engine": choice["label"], "notes": choice["notes"]}
+
+
+def _genfill_error_text(raw: str) -> str:
+    raw = (raw or "").strip()
+    low = raw.lower()
+    if "not in list" in low:
+        why = "نامِ مدل یا فایلِ لازم (چک‌پوینت/CLIP/VAE) روی سرورِ پردازش پیدا نشد."
+    elif "out of memory" in low or "oom" in low.split():
+        why = "حافظهٔ کارتِ گرافیک کم آمد؛ ناحیهٔ کوچک‌تری انتخاب کنید و دوباره امتحان کنید."
+    elif "missing_node_type" in low or "node_errors" in low and "does not exist" in low:
+        why = "یکی از نودهای لازمِ ComfyUI روی سرورِ پردازش نصب نیست."
+    elif "unavailable" in low or "refused" in low or "10061" in low:
+        why = "ComfyUI روی سرورِ پردازش پاسخ نداد."
+    else:
+        why = "ساختنِ تصویر روی سرورِ پردازش ناموفق بود."
+    return f"پرکردنِ هوشمند انجام نشد: {why}" + (f" (جزئیات: {raw[:300]})" if raw else "")
+
+
+def _genfill_dir(store, asset_id) -> Path:
+    a = PhotoAsset.objects.filter(store=store, pk=asset_id).first() if asset_id else None
+    d = abs_path(a.dir_rel if a else f"photoedit/s{store.pk}") / "genfill"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _take_lock(path: Path, stale_s: int = 120) -> bool:
+    import time
+
+    try:
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        return True
+    except FileExistsError:
+        try:
+            if time.time() - path.stat().st_mtime > stale_s:       # قفلِ جامانده از ری‌استارت
+                path.unlink(missing_ok=True)
+                return _take_lock(path, stale_s)
+        except OSError:
+            pass
+        return False
+
+
+def _asset_from_bytes(store, user, data: bytes, *, title: str, source_ref: str = "", product=None,
+                      kind=None) -> PhotoAsset:
+    """مثلِ add_upload ولی از بایت‌ها (نتیجه‌های ساخته‌شده روی سرور)."""
+    asset = PhotoAsset.objects.create(store=store, created_by=user, product=product, title=title[:200],
+                                      source_kind=kind or PhotoAsset.Kind.GENERATED, source_ref=source_ref[:60],
+                                      original="-")
+    tmp = abs_path(asset.dir_rel) / "upload.png"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_bytes(data)
+    try:
+        _finish_asset(asset, tmp)
+    except ops.OpError as exc:
+        shutil.rmtree(abs_path(asset.dir_rel), ignore_errors=True)
+        asset.delete()
+        raise PhotoError(str(exc)) from exc
+    tmp.unlink(missing_ok=True)
+    return asset
+
+
+def _genfill_finalize(store, job):
+    """خروجیِ گره ⇐ patch ِ RGBA ⇐ عکسِ کتابخانه. تکرارپذیر: بارِ دوم همان عکس را برمی‌گرداند. None = هم‌زمان کسِ دیگری می‌سازد."""
+    import time
+
+    from django.contrib.auth import get_user_model
+
+    from apps.compute import services as compute
+
+    from . import inpaint
+
+    meta = (job.payload or {}).get("x_genfill") or {}
+    uid12 = str(job.uid)[:12]
+    ref = f"genfill:{job.uid}"
+    folder = _genfill_dir(store, meta.get("asset"))
+    info = folder / f"{uid12}.json"
+
+    def existing():
+        a = PhotoAsset.objects.filter(store=store, source_ref=ref).first()
+        if a is not None and info.is_file():
+            try:
+                data = json.loads(info.read_text(encoding="utf-8"))
+                return a, data["layer"], data.get("size")
+            except (OSError, ValueError, KeyError):
+                return None
+        return None
+
+    hit = existing()
+    if hit:
+        return hit
+    lock = folder / f"{uid12}.lock"
+    if not _take_lock(lock):
+        for _ in range(40):          # کسِ دیگری (درخواستِ هم‌زمان) در حالِ ساختن است
+            time.sleep(0.25)
+            hit = existing()
+            if hit:
+                return hit
+        return None
+    try:
+        hit = existing()
+        if hit:
+            return hit
+        out_meta, src = _image_output(job)
+        if out_meta is None or src is None or not src.is_file():
+            raise PhotoError("سرورِ پردازش عکسی پس نفرستاد.")
+        mask_path = compute.job_root(job) / "inputs" / os.path.basename(str(meta.get("full_mask") or "-"))
+        if not mask_path.is_file():
+            raise PhotoError("ماسکِ این کار پیدا نشد؛ دوباره اجرا کنید.")
+        try:
+            rect, canvas = meta["rect"], meta["canvas"]
+            with Image.open(src) as res_im, Image.open(mask_path) as mk:
+                res_im.load()
+                mk.load()
+                pasted = inpaint.paste_back((rect[2] - rect[0], rect[3] - rect[1]), res_im, mk, meta.get("feather"),
+                                            origin=(rect[0], rect[1]), canvas=(canvas[0], canvas[1]),
+                                            grow=int(meta.get("grow_full") or 0))
+        except (inpaint.InpaintError, OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            raise PhotoError(f"چسباندنِ نتیجه انجام نشد: {exc}") from exc
+        buf = io.BytesIO()
+        pasted.patch.save(buf, "PNG", compress_level=4)
+        info.write_text(json.dumps({"layer": pasted.placement, "size": list(pasted.patch.size),
+                                    "bbox": list(pasted.bbox)}), encoding="utf-8")
+        user = get_user_model().objects.filter(pk=meta["user"]).first() if meta.get("user") else None
+        origin = PhotoAsset.objects.filter(store=store, pk=meta.get("asset") or 0).select_related("product").first()
+        asset = _asset_from_bytes(store, user, buf.getvalue(), title=GENFILL_TITLE, source_ref=ref,
+                                  product=origin.product if origin else None)
+        return asset, pasted.placement, list(pasted.patch.size)
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def genfill_status(store, uid) -> dict | None:
+    """وضعیتِ یک «پرکردنِ هوشمند»؛ وقتی گره تمام کرد ⇐ همین‌جا چسباندن و ساختنِ عکسِ کتابخانه (فقط یک بار)."""
+    job = _job_for(store, uid, GENFILL_ORIGIN)
+    if job is None:
+        return None
+    state = _job_state(job)
+    online = genfill_online()
+    node = job.node.name if job.node_id else None
+    out = {"job": str(job.uid), "state": state, "message": "", "progress": round(float(job.progress or 0), 3),
+           "node": node, "online": online}
+    if state == "QUEUED":
+        out.update(message="در صفِ سرورِ پردازش" if online else GENFILL_WAIT_MESSAGE, progress=max(out["progress"], 0.02))
+    elif state == "RUNNING":
+        out["message"] = f"روی «{node or 'سرورِ پردازش'}» در حالِ ساختن…"
+    elif state == "FAILED":
+        out.update(message="ناموفق", error=_genfill_error_text(job.error))
+    elif state == "CANCELLED":
+        out["message"] = "لغو شد"
+    elif state == "COMPLETED":
+        try:
+            built = _genfill_finalize(store, job)
+        except PhotoError as exc:
+            out.update(state="FAILED", message="ناموفق", error=str(exc))
+            return out
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("photoedit: genfill finalize of %s failed", job.uid)
+            out.update(state="FAILED", message="ناموفق", error=f"خطای داخلی: {exc}")
+            return out
+        if built is None:
+            out.update(state="RUNNING", message="در حالِ ساختنِ لایه…")
+            return out
+        asset, layer, size = built
+        took = (job.finished_at - job.claimed_at).total_seconds() if (job.finished_at and job.claimed_at) else None
+        out.update(state="READY", message="آماده", progress=1.0, asset=asset_dict(asset), layer=layer, size=size,
+                   seconds=round(took, 1) if took is not None else None)
+    return out
+
+
+def genfill_cancel(store, uid) -> bool:
+    return exact_cancel(store, uid, GENFILL_ORIGIN)
+
+
+def genfill_finish_for_test(job, node=None, *, result_scale: float = 1.0, error: str = ""):
+    """آزمون/توسعه: نقشِ گرهٔ ComfyUI را بازی می‌کند — کارِ photogenfill را برمی‌دارد، ناحیهٔ ماسک را با cv2.inpaint پر
+    می‌کند (``genfill_00001_.png``، با ``result_scale`` می‌شود اندازهٔ خروجی را عوض کرد) و مثلِ agent تمامش می‌کند.
+    ``error`` ⇐ کار ناموفق تمام می‌شود."""
+    import cv2
+    import numpy as np
+
+    from apps.compute import services as compute
+    from apps.compute.models import ComputeNode
+
+    node = node or ComputeNode.objects.filter(enabled=True).first() or ComputeNode.objects.create(
+        name="gpu-fake", last_seen=timezone.now(), capabilities=genfill_fake_caps())
+    if job.state != job.State.QUEUED:
+        raise PhotoError("این کار دیگر در صف نیست.")
+    job.node, job.state, job.attempts = node, job.State.RUNNING, job.attempts + 1
+    job.claimed_at = job.heartbeat_at = timezone.now()
+    job.save()
+    if error:
+        return compute.finish(job, node, False, error=error, meta={"retryable": False})
+    root = compute.job_root(job)
+    up = (job.payload or {}).get("uploads") or []
+    img = np.asarray(Image.open(root / "inputs" / up[0]).convert("RGB"))
+    mask = np.asarray(Image.open(root / "inputs" / up[1]).convert("L")) >= 128
+    mask = cv2.dilate(mask.astype(np.uint8) * 255, np.ones((5, 5), np.uint8))
+    filled = cv2.inpaint(np.ascontiguousarray(img[..., ::-1]), mask, 5, cv2.INPAINT_TELEA)[..., ::-1]
+    out = Image.fromarray(np.ascontiguousarray(filled))
+    if result_scale != 1.0:
+        out = out.resize((max(1, round(out.width * result_scale)), max(1, round(out.height * result_scale))))
+    name = "genfill_00001_.png"
+    out.save(compute.output_path(job, name), "PNG")
+    return compute.finish(job, node, True, meta={"primary": name, "engine": "comfyui"})
+
+
+# ─── پایانِ «پرکردنِ هوشمند» ───

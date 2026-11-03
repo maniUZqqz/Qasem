@@ -1,0 +1,10 @@
+/* تبِ «ابزارها» */
+.pp-stickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; max-height: 190px; overflow: auto; padding: 2px; }
+.pp-sticker { aspect-ratio: 1; background: var(--surface-2, rgba(128, 128, 128, 0.12)); border: 1px solid var(--border, rgba(128, 128, 128, 0.3)); border-radius: 8px; padding: 3px; cursor: pointer; }
+.pp-sticker:hover { border-color: var(--accent, #38bdf8); }
+.pp-sticker img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pp-list { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.pp-list li { display: flex; align-items: center; gap: 8px; justify-content: space-between; border-bottom: 1px dashed var(--border, rgba(128, 128, 128, 0.25)); padding: 3px 0; }
+.pp-chip-wrap { display: inline-flex; align-items: center; gap: 2px; }
+.pp-x { background: none; border: 0; color: var(--text-3, #888); cursor: pointer; font-size: 14px; line-height: 1; }
+.pp-x:hover { color: var(--bad, #ef4444); }

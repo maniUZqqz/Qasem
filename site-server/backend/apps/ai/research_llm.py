@@ -34,7 +34,7 @@ def status(store) -> tuple[bool, str]:
     try:
         from services.ai import factory, gateway, providers, routing
 
-        provider = gateway.text_provider(store)
+        provider = gateway.text_provider(store, kind=routing.RESEARCH)
         if isinstance(provider, routing.RoutedTextProvider):
             # دو مسیر (لوکال/متیس): کافی است یکی قابل‌استفاده باشد؛ بی‌هیچ درخواستی به متیس یا گره
             ok, note = provider.availability()
@@ -56,7 +56,8 @@ def ask_json(store, *, prompt_id: str, prompt: str, system: str, validate, job=N
     from apps.ai.models import AIRequest
     from apps.ai.services import recorded_json_call
     from services.ai.gateway import text_provider
-    from services.ai.router import TASK_REASONING, models_for
+    from services.ai.priority import RESEARCH
+    from services.ai.router import TASK_RESEARCH, models_for
 
     parsed, _ = recorded_json_call(
         job=job,
@@ -64,8 +65,9 @@ def ask_json(store, *, prompt_id: str, prompt: str, system: str, validate, job=N
         task_type=AIRequest.TaskType.REASONING,
         prompt_id=prompt_id,
         prompt_version="1",
-        provider=text_provider(store),
-        models=models_for(TASK_REASONING),
+        # پژوهش = مدلِ استدلالِ عمیق (qwq:32b)، نه مدلِ سریعِ متنِ روزمره
+        provider=text_provider(store, kind=RESEARCH),
+        models=models_for(TASK_RESEARCH),
         prompt=prompt,
         system=system,
         validate=validate,

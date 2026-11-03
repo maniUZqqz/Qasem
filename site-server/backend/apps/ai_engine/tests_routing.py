@@ -462,17 +462,34 @@ class RouteApiTests(Base):
         n = self.node(models=('qwq:32b',))
         r = self.c.get('/api/v1/studio/ai/route/')
         self.assertIs(r.data['node']['has_model'], False)
+        # an agent that does not know ollama.pull yet is told to update, no job is queued
+        r = self.c.post('/api/v1/studio/ai/route/pull/')
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn('Update.bat', r.data['error'] if 'error' in r.data else str(r.data))
+        self.assertEqual(ComputeJob.objects.count(), 0)
+        n.capabilities = {**n.capabilities, 'ollama_pull': True}
+        n.save()
         r = self.c.post('/api/v1/studio/ai/route/pull/')
         self.assertEqual(r.status_code, 202, r.data)
         job = ComputeJob.objects.get()
-        self.assertEqual(job.kind, 'ollama.chat')
-        self.assertEqual(job.payload['path'], '/api/pull')
-        self.assertEqual(job.payload['name'], CODER)
+        self.assertEqual(job.kind, 'ollama.pull')          # the robust download job (progress, resume, long lease)
+        self.assertEqual(job.payload['tag'], CODER)
+        self.assertGreaterEqual(job.lease_s, 1800)
+        self.assertEqual(r.data['pull']['tag'], CODER)
         self.assertTrue(n)
 
-    def test_pull_refused_when_off(self):
-        self.node(online=False)
+    def test_pull_when_off(self):
+        """the old button refused while the PC was off; the download is now a queued job that starts when the PC is on —
+        but an agent that does not know ollama.pull yet is told to update (no job that would fail later)."""
+        n = self.node(models=('qwq:32b',), online=False)
         r = self.c.post('/api/v1/studio/ai/route/pull/')
         self.assertEqual(r.status_code, 400)
-        self.assertIn('خاموش', r.data['error'])
+        self.assertIn('Update.bat', r.data['error'])
         self.assertEqual(ComputeJob.objects.count(), 0)
+        n.capabilities = {**n.capabilities, 'ollama_pull': True}
+        n.save()
+        r = self.c.post('/api/v1/studio/ai/route/pull/')
+        self.assertEqual(r.status_code, 202, r.data)
+        self.assertTrue(r.data['pull']['waiting_for_node'])
+        self.assertIn('خاموش', r.data['pull']['text'])
+        self.assertEqual(ComputeJob.objects.get().state, 'QUEUED')

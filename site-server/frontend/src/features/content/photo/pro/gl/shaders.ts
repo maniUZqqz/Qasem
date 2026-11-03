@@ -17,6 +17,81 @@ const sh = (body: string) => PRE + body;
 export const SH = {
   copy: sh(`uniform sampler2D uT; void main(){ oc = texture(uT, vUv); }`),
 
+  /**
+   * جلوه‌های لایه (سایه/درخشش/دورخط): همان قراردادِ fx.py. ۱) fxPad: تایلِ لایه (پیش‌ضرب‌شده) با حاشیهٔ متقارن، اگر لازم باشد با
+   * تغییرِ اندازه (تصویر) و قرینه ⇒ بافتِ «پدشده». ۲) fxAlpha: آلفا ⇒ R (با جابه‌جاییِ دوخطیِ سایه). ۳) fxDilate: بیشینه روی دیسکِ
+   * شعاعِ uS (هستهٔ ellipse ِ cv2: نیم‌پهنای ردیفِ dy = round(√(s²−dy²)))؛ شعاعِ بزرگ ⇒ چند گامِ ≤ ۱۲ پشتِ هم.
+   * ۴) محو = همان blur ِ گاوسی (روی نسخهٔ ۱/f). ۵) fxFinal: سایه، درخشش، دورخط، پیکسل‌های لایه با «over» ِ معمولی و گردکردنِ
+   * نقشهٔ هر جلوه به ۸ بیت پس از ضرب در opacity (مثلِ fx.maps)؛ خروجی پیش‌ضرب‌شده.
+   */
+  fxPad: sh(`uniform sampler2D uT; uniform vec2 uOut; uniform vec2 uM; uniform vec2 uIn; uniform vec2 uFlip;
+  void main(){
+    vec2 p = vUv * uOut - uM;
+    bool inside = p.x >= 0.0 && p.y >= 0.0 && p.x <= uIn.x && p.y <= uIn.y;
+    vec2 t = clamp(p / uIn, 0.0, 1.0);
+    if (uFlip.x < 0.0) t.x = 1.0 - t.x;
+    if (uFlip.y < 0.0) t.y = 1.0 - t.y;
+    vec4 c = texture(uT, t);
+    oc = inside ? c : vec4(0.0);
+  }`),
+  fxAlpha: sh(`uniform sampler2D uT; uniform vec2 uOff;
+  void main(){ float a = texture(uT, vUv - uOff).a; oc = vec4(a, a, a, a); }`),
+  fxDilate: sh(`uniform sampler2D uT; uniform vec2 uPx; uniform float uS;
+  void main(){
+    int S = int(uS + 0.5);
+    float m = texture(uT, vUv).r;
+    for (int dy = -S; dy <= S; dy++) {
+      int hw = int(floor(sqrt(float(S * S - dy * dy)) + 0.5));
+      for (int dx = -hw; dx <= hw; dx++) m = max(m, texture(uT, vUv + vec2(float(dx), float(dy)) * uPx).r);
+    }
+    oc = vec4(m, m, m, m);
+  }`),
+  fxFinal: sh(`uniform sampler2D uL; uniform sampler2D uSh; uniform sampler2D uGl; uniform sampler2D uSt;
+  uniform vec3 uShC; uniform vec3 uGlC; uniform vec3 uStC; uniform vec3 uOp;
+  uniform vec2 uOut; uniform vec2 uOff; uniform vec2 uPad;
+  float q(float a, float op){ return floor(a * op * 255.0 + 0.5) / 255.0; }
+  void main(){
+    vec2 uv = (vUv * uOut + uOff) / uPad;
+    vec3 pm = vec3(0.0); float ac = 0.0;
+    if (uOp.x > 0.0) { float al = q(texture(uSh, uv).r, uOp.x); pm = pm * (1.0 - al) + uShC * al; ac = al + ac * (1.0 - al); }
+    if (uOp.y > 0.0) { float al = q(texture(uGl, uv).r, uOp.y); pm = pm * (1.0 - al) + uGlC * al; ac = al + ac * (1.0 - al); }
+    if (uOp.z > 0.0) { float al = q(texture(uSt, uv).r, uOp.z); pm = pm * (1.0 - al) + uStC * al; ac = al + ac * (1.0 - al); }
+    vec4 L = texture(uL, uv);
+    pm = L.rgb + pm * (1.0 - L.a); ac = L.a + ac * (1.0 - L.a);
+    oc = vec4(pm, ac);
+  }`),
+
+  /**
+   * مرحلهٔ «قاب» (frame-first): عکسِ پایه (فضای عکس) ⇒ بومِ نهایی. uInv: uv بوم ⇒ uv عکس (پرسپکتیو/چرخش/صاف‌کردن/قرینه/برش/قابِ
+   * شبکه همه در یک هموگرافی؛ معکوسِ دقیق). نمونه‌برداری با میپ‌مپِ سه‌خطی (uBias کمی تیزتر) ⇒ بی لرزش روی عکسِ چرخیده؛ لبهٔ عکس
+   * clamp (مثلِ BORDER_REPLICATE ِ سرور). uContain: عکس داخلِ مستطیلِ uFg (پیکسلِ واقعیِ بوم) و بیرونش پُر می‌شود —
+   * uFill: ۰ سفید، ۱ سیاه، ۲ رنگ، ۳ محو (uBg، از frameBg)، ۴ شفاف. لبهٔ مستطیل با پوششِ نیم‌پیکسلی نرم می‌شود.
+   */
+  frame: sh(`uniform sampler2D uT; uniform sampler2D uBg; uniform mat3 uInv; uniform vec2 uCanvas; uniform vec2 uWork;
+  uniform float uContain; uniform vec4 uFg; uniform float uFill; uniform vec3 uFillColor; uniform float uBias;
+  void main(){
+    vec3 h = uInv * vec3(vUv, 1.0);
+    vec2 uv = h.xy / h.z;
+    vec4 s = texture(uT, uv, uBias);
+    if (uContain < 0.5) { oc = s; return; }
+    vec2 cp = vUv * uCanvas;
+    vec2 lo = cp - uFg.xy;
+    vec2 hi = uFg.xy + uFg.zw - cp;
+    float d = min(min(lo.x, hi.x), min(lo.y, hi.y)) * (uWork.x / uCanvas.x);
+    float cov = clamp(d + 0.5, 0.0, 1.0);
+    if (uFill > 3.5) { oc = vec4(s.rgb, s.a * cov); return; }
+    vec3 bg = uFill < 0.5 ? vec3(1.0) : (uFill < 1.5 ? vec3(0.0) : (uFill < 2.5 ? uFillColor : texture(uBg, vUv).rgb * 0.82));
+    oc = vec4(mix(bg, s.rgb, s.a * cov), 1.0);
+  }`),
+
+  /** پس‌زمینهٔ «محو»ِ قاب (۱/۸ بوم): نسخهٔ cover-scale شدهٔ عکسِ پس از هندسه، روی سفید flatten؛ گاوسِ ۶ و ×۰٫۸۲ بعداً */
+  frameBg: sh(`uniform sampler2D uT; uniform mat3 uInv;
+  void main(){
+    vec3 h = uInv * vec3(vUv, 1.0);
+    vec4 s = texture(uT, h.xy / h.z);
+    oc = vec4(mix(vec3(1.0), s.rgb, s.a), 1.0);
+  }`),
+
   /** کلیپ به ۰..۱ و تبدیل به ۸ بیت (برای readPixels) */
   quant: sh(`uniform sampler2D uT; void main(){ vec4 c = texture(uT, vUv); oc = vec4(clamp(c.rgb, 0.0, 1.0), c.a); }`),
 
@@ -315,6 +390,7 @@ export const SH = {
   comp: sh(`uniform sampler2D uDst; uniform sampler2D uSrc; uniform sampler2D uMask;
   uniform vec2 uDoc; uniform vec2 uC; uniform vec2 uS; uniform float uRot; uniform vec2 uFlip;
   uniform float uFull; uniform float uPremul; uniform float uOpacity; uniform float uMode;
+  uniform sampler2D uClip; uniform float uUseClip;
   uniform float uMType; uniform float uMInv; uniform vec4 uMP; uniform float uMFeather;
   float lum2(vec3 c){ return 0.3 * c.r + 0.59 * c.g + 0.11 * c.b; }
   vec3 clipC(vec3 c){ float l = lum2(c); float n = min(c.r, min(c.g, c.b)); float x = max(c.r, max(c.g, c.b));
@@ -378,6 +454,7 @@ export const SH = {
       if (uPremul > 0.5) s.rgb = s.a > 1e-4 ? s.rgb / s.a : vec3(0.0);
     }
     float as = s.a * uOpacity * maskVal(vUv);
+    if (uUseClip > 0.5) as *= texture(uClip, vUv).a;
     float ab = d.a;
     float ar = as + ab * (1.0 - as);
     if (ar <= 1e-6) { oc = vec4(0.0); return; }
@@ -411,6 +488,66 @@ export const SH = {
     float k = uOpacity * maskVal(vUv);
     if (uUseBrush > 0.5) k *= texture(uBrush, vUv).r;
     oc = vec4(mix(d.rgb, a.rgb, k), d.a);
+  }`),
+
+  /**
+   * مایع‌سازی (فضای عکس): out(u,v) = src(u+dx, v+dy). نقشه (uF، RG32F، gw×gh، آفستِ نرمال) با قرارداد «مرکزِ سلول» و نمونه‌برداریِ
+   * دوخطیِ دستی (texelFetch، بی نیاز به float-linear) بزرگ می‌شود — همان cv2.resize ِ liquify.py؛ نمونه از عکس دوخطی در میپِ ۰
+   * (مثلِ INTER_LINEAR) با لبهٔ clamp.
+   */
+  liquify: sh(`uniform sampler2D uT; uniform sampler2D uF; uniform vec2 uG;
+  vec2 fld(ivec2 c){ c = clamp(c, ivec2(0), ivec2(uG) - 1); return texelFetch(uF, c, 0).rg; }
+  void main(){
+    vec2 p = vUv * uG - 0.5;
+    vec2 f0 = floor(p);
+    vec2 t = p - f0;
+    ivec2 i0 = ivec2(f0);
+    vec2 a = mix(fld(i0), fld(i0 + ivec2(1, 0)), t.x);
+    vec2 b = mix(fld(i0 + ivec2(0, 1)), fld(i0 + ivec2(1, 1)), t.x);
+    vec2 d = mix(a, b, t.y);
+    oc = textureLod(uT, vUv + d, 0.0);
+  }`),
+
+  /**
+   * قرمزیِ چشم (لایهٔ redeye؛ همان فرمولِ redeye.py): چشم‌ها پشتِ هم به ترتیبِ فهرست؛ uE = [x_px, y_px, r_px] به ازای هر چشم (≤۱۶).
+   * k = پیدایی × ماسکِ لایه؛ نتیجه با رنگِ پیشین lerp می‌شود (مثلِ لایهٔ تنظیم).
+   */
+  redeye: sh(`uniform sampler2D uDst; uniform sampler2D uMask;
+  uniform vec2 uDoc; uniform float uOpacity; uniform float uAmount; uniform float uDarken; uniform float uN; uniform float uE[48];
+  uniform float uMType; uniform float uMInv; uniform vec4 uMP; uniform float uMFeather;
+  float maskVal(vec2 uv){
+    float m = 1.0;
+    if (uMType > 0.5 && uMType < 1.5) { m = texture(uMask, uv).r; }
+    else if (uMType > 1.5 && uMType < 2.5) {
+      vec2 a = uMP.xy * uDoc, b = uMP.zw * uDoc, ab = b - a;
+      float t = clamp(dot(uv * uDoc - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+      m = 1.0 - t * t * (3.0 - 2.0 * t);
+    } else if (uMType > 2.5) {
+      vec2 d = (uv * uDoc - uMP.xy * uDoc) / (uMP.zw * uDoc.x);
+      float dd = length(d), inner = max(0.0, 1.0 - uMFeather);
+      m = dd >= 1.0 ? 0.0 : (inner >= 0.9999 ? 1.0 : 1.0 - sst(inner, 1.0, dd));
+    }
+    return uMInv > 0.5 ? 1.0 - m : m;
+  }
+  void main(){
+    vec4 d = texture(uDst, vUv);
+    vec3 c = clamp(d.rgb, 0.0, 1.0);
+    vec2 p = vUv * uDoc;
+    int n = int(uN + 0.5);
+    for (int i = 0; i < 16; i++) {
+      if (i >= n) break;
+      vec2 e = vec2(uE[i * 3], uE[i * 3 + 1]);
+      float r = uE[i * 3 + 2];
+      float w = 1.0 - sst(0.75 * r, 1.2 * r, length(p - e));
+      float neutral = (c.g + c.b) * 0.5;
+      float ratio = c.r / max(1e-4, neutral + 0.04);
+      float m = sst(1.4, 2.4, ratio) * sst(0.15, 0.35, c.r) * w * uAmount;
+      float nr = c.r + (min(c.r, neutral * (1.0 - 0.5 * uDarken)) - c.r) * m;
+      float k = 1.0 - 0.4 * uDarken * m;
+      c = vec3(nr, c.g * k, c.b * k);
+    }
+    float k = uOpacity * maskVal(vUv);
+    oc = vec4(mix(d.rgb, c, k), d.a);
   }`),
 
   /** روتوش: نمونه از جابه‌جاییِ dst؛ ترمیم = + (تارِ مقصد − تارِ منبع) */

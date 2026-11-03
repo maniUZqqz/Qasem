@@ -91,8 +91,10 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
   const isAudio = c.type === "media" && (c.kind === "audio" || t.kind === "audio");
   const hasSound = c.type === "media" && (isAudio || (c.has_audio && c.audio_on));
   const wide = w > 28 && visible;
-  const wave = useWaveform(storeId, c.type === "media" && hasSound && wide ? c.ref : null);
-  const film = useFilmstrip(storeId, c.type === "media" && c.kind === "video" && !isAudio && wide && w > 60 ? c.ref : null);
+  // شکل‌ها و توالی‌های تودرتو فایلِ تحلیل‌پذیر ندارند
+  const analyzable = c.type === "media" && c.ref !== "shape" && !c.ref.startsWith("seq:");
+  const wave = useWaveform(storeId, analyzable && hasSound && wide ? c.ref : null);
+  const film = useFilmstrip(storeId, analyzable && c.type === "media" && c.kind === "video" && !isAudio && wide && w > 60 ? c.ref : null);
   const kindClass = c.type === "text" ? ((c as { caption?: boolean }).caption ? "kind-caption" : "kind-text") : isAudio ? "kind-audio" : c.kind === "image" ? "kind-image" : "";
   const label = c.type === "text" ? c.text : c.label;
   const inner = ROW - 8;
@@ -109,6 +111,7 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
       <i className="grip l" onPointerDown={(e) => onDown(e, c, t, "l")} data-grip="l" />
       <span className="tl-label">
         {linked && <b className="tl-link" title="صدا و تصویر پیوسته‌اند">⛓</b>}
+        {c.type === "media" && c.ref.startsWith("seq:") ? "▣ " : c.type === "media" && c.shape ? "◇ " : ""}
         {label}
         {c.type === "media" && (c.ramp?.length ?? 0) >= 2 ? " ⏱" : ""}
         {c.type === "media" && c.speed !== 1 && !(c.ramp?.length) ? ` ×${fa(c.speed)}` : ""}
@@ -132,7 +135,8 @@ type Props = {
   storeId: string;
   media: Record<string, MediaItem>;
   fps: number;
-  onProject: (p: Project, live: boolean) => void;
+  /** `base` = پروژهٔ پیش از شروعِ کشیدن؛ برای ریپلِ خودکار هنگامِ تغییرِ سرعت با ابزارِ «سرعت» (نتیجه از همان پایه ساخته می‌شود) */
+  onProject: (p: Project, live: boolean, base?: Project) => void;
   onCommit: (label: string) => void;
   onSelect: (ids: string[]) => void;
   onSeek: (t: number) => void;
@@ -272,7 +276,7 @@ export default function TimelineView(props: Props) {
           } else if (drag.tool === "ripple") next = rippleTrim(next, id, drag.side, t);
           else next = drag.side === "l" ? trimStart(next, id, t) : trimEnd(next, id, t);
         }
-        onProject(next, true);
+        onProject(next, true, drag.orig);
       } else if (drag.kind === "tool") {
         const d = Math.round(dtRaw / fpsStep) * fpsStep;
         const c = drag.orig.tracks.flatMap((x) => x.clips).find((x) => x.id === drag.id) as MediaClip | undefined;

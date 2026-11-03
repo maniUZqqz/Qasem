@@ -71,9 +71,15 @@ def clip_audio(b, track: Track, clip: Clip) -> str:
     """One clip's sound as a labelled stream positioned on the timeline."""
     from . import keyframes
 
-    idx, seek = b.main_input_for(clip)
+    if clip.nested is not None:                # a nested sequence's own mix, built into this graph
+        cur = b.nested_audio(clip)
+        seek = 0.0
+        if cur is None:
+            return None
+    else:
+        idx, seek = b.main_input_for(clip)
+        cur = f"{idx}:a"
     segs = clip.segments()
-    cur = f"{idx}:a"
     ch: list[str] = []
     if len(segs) == 1:
         a, e, v = segs[0]
@@ -204,8 +210,8 @@ def duck_gain_at(spans: list[tuple[float, float]], amount_db: float, attack_s: f
     return 1 - (1 - g) * env
 
 
-def build_audio(b) -> bool:
-    """Append the audio part of the graph to the builder; True when there is an `[aout]`."""
+def build_audio(b, final: str = "aout") -> bool:
+    """Append the audio part of the graph to the builder; True when there is a `[final]` (default `[aout]`)."""
     tl = b.tl
     soloing = any(t.solo for t in tl.tracks if t.kind != "text")
     buses: dict[str, list[str]] = {"speech": [], "music": [], "other": []}
@@ -217,7 +223,10 @@ def build_audio(b) -> bool:
         for clip in track.clips:
             if not carries(track, clip):
                 continue
-            labels.append(clip_audio(b, track, clip))
+            made = clip_audio(b, track, clip)
+            if made is None:
+                continue
+            labels.append(made)
             if track.role == "speech":
                 speech_clips.append(clip)
         if not labels:
@@ -257,5 +266,5 @@ def build_audio(b) -> bool:
         tail.append(f"volume={float(master['gain_db']):.2f}dB")
     if master.get("limiter", True):
         tail.append("alimiter=limit=0.95")
-    b.parts.append(f"[{mixed}]" + (",".join(tail) if tail else "anull") + "[aout]")
+    b.parts.append(f"[{mixed}]" + (",".join(tail) if tail else "anull") + f"[{final}]")
     return True

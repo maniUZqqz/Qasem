@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 from apps.jobs.models import Job
 from apps.jobs.services import dispatch_job
 from apps.stores import access
-from services.editing import audiofx, captions, color, export, media_cache, titles, transitions
+from services.editing import audiofx, captions, color, export, media_cache, noderender, shapes, stickers, titles, transitions
 from services.editing import keyframes
 from services.editing import timeline as tl
 
@@ -84,6 +84,9 @@ class EditorCatalogueView(APIView):
                 {"key": "bullet", "title": "گلوله (کند‌ـ‌تند‌ـ‌کند)", "ramp": [{"p": 0, "v": 0.5}, {"p": 0.5, "v": 3}, {"p": 1, "v": 0.5}]},
             ],
             "captions": captions.status(),
+            "shapes": shapes.catalogue()["shapes"],
+            "stickers": stickers.available(),
+            "render_where": noderender.status(),
             "limits": {"max_preview_seconds": MAX_PREVIEW_SECONDS, "max_tracks": tl.MAX_TRACKS, "max_clips": tl.MAX_CLIPS,
                        "ramp_steps": tl.RAMP_STEPS},
         })
@@ -209,6 +212,7 @@ class ProjectRendersView(APIView):
                 "id": job.id, "state": job.state, "percent": int(job.progress_step or 0) if job.total_steps == 100 else 0,
                 "label": job.current_step_label, "error": job.error if job.state == Job.State.FAILED else "",
                 "preset": (job.context or {}).get("preset", ""), "quality": (job.context or {}).get("quality", ""),
+                "where": (job.context or {}).get("where", ""),
                 "created_at": job.created_at, "active": job.state not in (Job.State.COMPLETED, Job.State.FAILED, Job.State.CANCELLED),
             })
         return Response({"jobs": rows, "exports": (project.render_info or {}).get("exports", [])})

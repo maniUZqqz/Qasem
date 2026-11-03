@@ -15,7 +15,24 @@ export type Effect = { tool: string; params: Params };
 
 export type Blend = "normal" | "multiply" | "screen" | "overlay" | "add" | "softlight" | "lighten" | "darken" | "difference";
 export type Crop = { l?: number; r?: number; t?: number; b?: number };
-export type Mask = { shape: "none" | "rect" | "ellipse"; cx: number; cy: number; w: number; h: number; feather: number; invert: boolean };
+/** نقطهٔ ماسکِ آزاد: لنگر (x,y) و دو دستگیره (ورودی ix,iy / خروجی ox,oy) به‌صورتِ جابه‌جایی از لنگر؛ همه کسری از جعبهٔ قطعه */
+export type BezierPt = { x: number; y: number; ix: number; iy: number; ox: number; oy: number };
+export type Mask = {
+  shape: "none" | "rect" | "ellipse" | "bezier"; cx: number; cy: number; w: number; h: number; feather: number; invert: boolean;
+  /** ماسکِ آزاد (bezier) */
+  points?: BezierPt[];
+  /** جابه‌جاییِ مرکزِ ماسک (کسری از جعبه) در زمانِ قطعه — از ردیابیِ حرکت پخته می‌شود */
+  kx?: Key[]; ky?: Key[];
+  /** وصل به ردیاب (برای ماسک: مرکزِ ماسک همیشه به اندازهٔ bx,by از نقطهٔ ردیابی‌شده می‌ماند) */
+  follow?: Follow;
+};
+export type ShapeKind = "rect" | "rounded" | "ellipse" | "triangle" | "star" | "polygon" | "heart" | "arrow" | "burst";
+export type ShapeSpec = {
+  shape: ShapeKind; fill: string; fill2?: string; angle?: number; fill_opacity?: number; stroke?: string; stroke_w?: number;
+  radius?: number; points?: number; inner?: number;
+};
+/** وصل‌بودن به یک ردیاب: همیشه به اندازهٔ (bx,by) (کسری از قاب) از نقطهٔ ردیابی‌شده فاصله دارد؛ کلیدها از مسیر پخته می‌شوند */
+export type Follow = { tracker: string; bx: number; by: number };
 export type Chroma = { on: boolean; color: string; similarity: number; blend: number; spill: number };
 export type ClipAudio = { pan?: number; eq?: string; comp?: number; enhance?: boolean; denoise?: boolean; normalize?: boolean };
 export type TransitionSpec = { kind: string; duration: number };
@@ -62,6 +79,13 @@ export type MediaClip = {
   rot?: number; scale?: number; px?: number; py?: number; flip_h?: boolean; flip_v?: boolean;
   blend?: Blend; crop?: Crop; mask?: Mask; kf?: Kf; chroma?: Chroma; color?: ColorParams;
   ramp?: RampKey[]; reverse?: boolean; freeze?: boolean; link?: string; audio?: ClipAudio;
+  /** شکل (تصویرِ کشیده‌شده): ref = "shape" و سرور PNG می‌سازد */
+  shape?: ShapeSpec;
+  /** LUT ِ .cube از کتابخانهٔ فروشگاه */
+  lut?: { key: string; amount: number };
+  /** ماتِ حذفِ پس‌زمینه (ویدیوی خاکستریِ ساخته‌شده روی سرورِ پردازش) */
+  matte?: { key: string };
+  follow?: Follow;
 };
 
 export type TextAnimIn = "none" | "fade" | "slide_up" | "slide_down" | "slide_left" | "slide_right" | "pop" | "zoom" | "typewriter" | "blur";
@@ -86,6 +110,9 @@ export type TextClip = {
   x?: number; y?: number; rotation?: number; scale?: number;
   anim_in?: TextAnimIn; anim_out?: TextAnimIn; anim_dur?: number;
   words?: TextWord[]; hl_color?: string; hl_mode?: "color" | "scale" | "box"; caption?: boolean; accent?: string;
+  /** مسیرِ ردیابی: جابه‌جاییِ لنگر (کسری از قاب) در زمانِ متن — از ردیاب پخته می‌شود */
+  path?: { t: number; dx: number; dy: number }[];
+  follow?: Follow;
 };
 
 export type AnyClip = MediaClip | TextClip;
@@ -111,7 +138,23 @@ export type ProgramOp = { id: string; tool: string; params: Params };
 export type Marker = { id: string; t: number; label: string; color: string; kind: "marker" | "beat" | "chapter" };
 export type Ducking = { on: boolean; amount_db: number; threshold: number; attack_ms: number; release_ms: number };
 export type Master = { gain_db: number; limiter: boolean };
-export type ExportBlock = { preset?: string; codec?: "h264" | "h265"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number };
+export type ExportBlock = { preset?: string; codec?: "h264" | "h265"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number; where?: "auto" | "server" };
+
+export type ExportWhere = "auto" | "server";
+export type MulticamInfo = {
+  angles: { ref: string; label: string; offset: number; duration: number; has_audio: boolean }[];
+  cuts: { t: number; angle: number }[];
+  /** زاویه‌ای که صدایش پخش می‌شود (-1 = بی‌صدا) */
+  audio: number;
+};
+/** توالیِ تودرتو: همان ترک‌های یک پروژه؛ یک قطعه با ref = "seq:<id>" آن را مثلِ یک ویدیو پخش می‌کند */
+export type Sequence = { name: string; tracks: Track[]; format?: { width: number; height: number; fps: number; preset: string }; multicam?: MulticamInfo };
+export type TrackerSample = { s: number; x: number; y: number; scale: number; rot: number };
+/** ردیابِ حرکت: مسیرِ یک نقطه/ناحیه در یک ویدیو (ثانیهٔ «منبع»، مرکز به‌صورتِ کسری از قابِ منبع) */
+export type Tracker = {
+  id: string; name: string; ref: string; size: [number, number]; region: { x: number; y: number; w: number; h: number };
+  s0: number; s1: number; lost_at: number | null; engine: string; samples: TrackerSample[];
+};
 
 export type Project = {
   format: { width: number; height: number; fps: number; preset: string };
@@ -122,6 +165,10 @@ export type Project = {
   master?: Master;
   ducking?: Ducking;
   export?: ExportBlock;
+  sequences?: Record<string, Sequence>;
+  trackers?: Tracker[];
+  /** false ⇒ درازترشدنِ یک قطعه (کندکردن، تغییرِ سرعت، منحنیِ سرعت) قطعه‌های بعدی را جلو نمی‌برد؛ نبودن = روشن */
+  auto_ripple?: boolean;
 };
 
 export const DEFAULT_DUCKING: Ducking = { on: false, amount_db: 12, threshold: 0.04, attack_ms: 40, release_ms: 500 };
@@ -426,11 +473,17 @@ export function moveClips(p: Project, ids: string[], dt: number, rows = 0): Proj
 }
 
 // ───────────── برشِ لبه‌ها
-/** لبهٔ چپِ قطعه را به `t` ببر (برش از ابتدا): شروعِ منبع جلو می‌رود */
-export function trimStart(p: Project, id: string, t: number): Project {
+/** پایانِ قطعهٔ پیشین روی همان ترک (لبه‌ای که این قطعه نمی‌تواند از آن عقب‌تر برود) */
+const prevEdge = (tr: Track, c: AnyClip): number => Math.max(0, ...tr.clips.filter((x) => x.id !== c.id && clipEnd(x) <= c.at + 0.001).map(clipEnd));
+/** آغازِ قطعهٔ بعدی روی همان ترک */
+const nextEdge = (tr: Track, c: AnyClip): number => Math.min(Infinity, ...tr.clips.filter((x) => x.id !== c.id && x.at >= clipEnd(c) - 0.001).map((x) => x.at));
+
+/** لبهٔ چپِ قطعه را به `t` ببر (برش از ابتدا): شروعِ منبع جلو می‌رود. `free` = از همسایه رد نشدن را وارسی نکن (ریپل/رول/اسلاید خودشان جبران می‌کنند). */
+export function trimStart(p: Project, id: string, t: number, free = false): Project {
   const f = findClip(p, id);
   if (!f) return p;
   const c = f.clip;
+  if (!free) t = Math.max(t, prevEdge(f.track, c));
   if (c.type === "text") {
     const next = Math.max(0, Math.min(clipEnd(c) - 0.1, t));
     return updateClip(p, id, { at: next, duration: c.duration - (next - c.at) });
@@ -453,11 +506,12 @@ export function trimStart(p: Project, id: string, t: number): Project {
   return c.reverse ? updateClip(p, id, { at: next, end: c.end - d * spd }) : updateClip(p, id, { at: next, start: c.start + d * spd });
 }
 
-/** لبهٔ راستِ قطعه را به `t` ببر */
-export function trimEnd(p: Project, id: string, t: number): Project {
+/** لبهٔ راستِ قطعه را به `t` ببر (تا قطعهٔ بعدی؛ بیشتر از آن فقط با `free`) */
+export function trimEnd(p: Project, id: string, t: number, free = false): Project {
   const f = findClip(p, id);
   if (!f) return p;
   const c = f.clip;
+  if (!free) t = Math.min(t, nextEdge(f.track, c));
   const minEnd = c.at + 0.1;
   if (c.type === "text") return updateClip(p, id, { duration: Math.max(minEnd, t) - c.at });
   if (c.kind === "image" || c.freeze) return updateClip(p, id, { end: c.start + (Math.max(minEnd, t) - c.at) });
@@ -483,7 +537,7 @@ export function rippleTrim(p: Project, id: string, side: "l" | "r", t: number): 
   if (!f) return p;
   const before = clipEnd(f.clip);
   const startAt = f.clip.at;
-  const q = side === "l" ? trimStart(p, id, t) : trimEnd(p, id, t);
+  const q = side === "l" ? trimStart(p, id, t, true) : trimEnd(p, id, t, true);
   const g = findClip(q, id);
   if (!g) return p;
   // لبهٔ راست: بقیه به اندازهٔ تغییرِ طول؛ لبهٔ چپ: قطعه سرِ جایش (startAt) می‌ماند و بقیه به اندازهٔ تغییرِ طول
@@ -501,12 +555,12 @@ export function rollEdit(p: Project, leftId: string, rightId: string, t: number)
   const lo = l.clip.at + 0.1;
   const hi = clipEnd(r.clip) - 0.1;
   const nt = Math.max(lo, Math.min(hi, t));
-  const a = trimEnd(p, leftId, nt);
+  const a = trimEnd(p, leftId, nt, true);
   const la = findClip(a, leftId);
   if (!la) return p;
   const got = clipEnd(la.clip);
   if (Math.abs(got - cut) < 0.001) return p;
-  return trimStart(a, rightId, got);
+  return trimStart(a, rightId, got, true);
 }
 
 /** Slip: همان طول و جا؛ فقط بازهٔ منبع به اندازهٔ `dSrc` ثانیه جابه‌جا می‌شود */
@@ -535,8 +589,8 @@ export function slideClip(p: Project, id: string, dt: number): Project {
   if (!prev) d = Math.max(d, -c.at);
   if (Math.abs(d) < 1e-4) return p;
   let q = p;
-  if (prev) q = trimEnd(q, prev.id, clipEnd(prev) + d);
-  if (next) q = trimStart(q, next.id, next.at + d);
+  if (prev) q = trimEnd(q, prev.id, clipEnd(prev) + d, true);
+  if (next) q = trimStart(q, next.id, next.at + d, true);
   return updateClip(q, id, { at: c.at + d } as Partial<MediaClip>);
 }
 
@@ -560,8 +614,10 @@ const sliceKf = (kf: Kf | undefined, t0: number, t1: number): Kf | undefined => 
   return out;
 };
 
-/** تقسیم در زمانِ `t` (S / Ctrl+K). ⇐ پروژهٔ تازه؛ اگر `t` داخلِ قطعه نبود همان پروژه. */
-export function splitAt(p: Project, id: string, t: number): Project {
+/** تقسیم در زمانِ `t` (S / Ctrl+K). ⇐ پروژهٔ تازه؛ اگر `t` داخلِ قطعه نبود همان پروژه.
+ *  `links`: نگاشتِ پیوندِ قدیم ⇒ پیوندِ تازهٔ نیمهٔ راست. بدونِ آن نیمهٔ راست از جفتش جدا می‌شود؛ با آن (splitMany) نیمه‌های راستِ صدا و تصویر
+ *  با هم پیوند می‌مانند و به نیمهٔ چپ نمی‌چسبند — وگرنه کشیدنِ یک نیمه هر چهار قطعه را می‌برد و J/L جفتِ غلط را می‌گرفت. */
+export function splitAt(p: Project, id: string, t: number, links?: Map<string, string>): Project {
   const f = findClip(p, id);
   if (!f) return p;
   const c = f.clip;
@@ -603,7 +659,24 @@ export function splitAt(p: Project, id: string, t: number): Project {
     left = { ...c, start: lStart, end: lEnd, fade_out: 0, kf: sliceKf(c.kf, 0, lt), ramp: lRamp };
     right = { ...c, id: uid(), at: t, start: rStart, end: rEnd, transition: null, fade_in: 0, kf: sliceKf(c.kf, lt, L), ramp: rRamp };
   }
+  if (right.type === "media") {
+    const old = (c as MediaClip).link;
+    let next: string | undefined;
+    if (old && links) {
+      if (!links.has(old)) links.set(old, uid("L"));
+      next = links.get(old);
+    }
+    right = { ...right, link: next };
+  }
   return map(p, (tr) => (tr.id === f.track.id ? { ...tr, clips: sortClips(tr.clips.map((x) => (x.id === id ? left : x)).concat(right)) } : tr));
+}
+
+/** چند قطعه (مثلاً یک جفتِ صدا/تصویر) را با هم در `t` می‌شکافد؛ نیمه‌های راست جفتِ تازهٔ خودشان را می‌سازند. */
+export function splitMany(p: Project, ids: string[], t: number): Project {
+  const links = new Map<string, string>();
+  let next = p;
+  for (const id of ids) next = splitAt(next, id, t, links);
+  return next;
 }
 
 /** حذف. `ripple` ⇒ قطعه‌های بعدیِ همان ترک جلو می‌آیند. قطعه‌های پیوندی با هم می‌روند. */
@@ -629,14 +702,14 @@ export function liftRange(p: Project, a: number, b: number, ripple: boolean): Pr
     for (const c of tr.clips) {
       if (c.type === "media" || c.type === "text") {
         if (clipEnd(c) > a + 0.05 && c.at < b - 0.05) {
-          if (c.at < a) q = splitAt(q, c.id, a);
+          if (c.at < a) q = splitMany(q, [c.id], a);
         }
       }
     }
   }
   for (const tr of q.tracks) {
     if (tr.locked) continue;
-    for (const c of tr.clips) if (clipEnd(c) > b + 0.05 && c.at < b - 0.05) q = splitAt(q, c.id, b);
+    for (const c of tr.clips) if (clipEnd(c) > b + 0.05 && c.at < b - 0.05) q = splitMany(q, [c.id], b);
   }
   const ids = q.tracks.flatMap((t) => (t.locked ? [] : t.clips.filter((c) => c.at >= a - 0.02 && clipEnd(c) <= b + 0.02).map((c) => c.id)));
   q = deleteClips(q, ids, false);

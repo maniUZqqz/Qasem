@@ -15,7 +15,7 @@ from django.utils import timezone
 from apps.compute.models import ComputeJob, ComputeNode
 from apps.photoedit import services
 
-ORIGINS = ("photoexact", "photosubject")
+ORIGINS = ("photoexact", "photosubject", "photogenfill")
 
 
 class Command(BaseCommand):
@@ -26,6 +26,8 @@ class Command(BaseCommand):
         parser.add_argument("--name", default="gpu-fake")
         parser.add_argument("--factor", type=float, default=1.2, help="روشن‌کردنِ عکس (فقط exact)")
         parser.add_argument("--job", default="", help="UID ِ کار؛ خالی = قدیمی‌ترین کارِ در صف")
+        parser.add_argument("--comfy", action="store_true",
+                            help="گره ComfyUI (چک‌پوینتِ FLUX dev) هم داشته باشد — برای «پرکردنِ هوشمند» (photogenfill)")
 
     def handle(self, *args, **opt):
         name = opt["name"]
@@ -41,6 +43,8 @@ class Command(BaseCommand):
                 raise CommandError("گرهٔ ساختگی نیست؛ اول «online» را بزنید.")
         node.enabled, node.last_seen = True, timezone.now()
         node.capabilities = (node.capabilities or {}) | {"photo": True}
+        if opt["comfy"]:
+            node.capabilities = node.capabilities | services.genfill_fake_caps()
         node.save()
         if opt["action"] == "online":
             self.stdout.write(f"node {name} online until {timezone.now() + timedelta(seconds=90):%H:%M:%S}")
@@ -51,5 +55,8 @@ class Command(BaseCommand):
         job = qs.first()
         if job is None:
             raise CommandError("کارِ در صفِ photoexact/photosubject نیست.")
-        done = services.exact_finish_for_test(job, node, factor=opt["factor"])
+        if job.origin == "photogenfill":
+            done = services.genfill_finish_for_test(job, node)
+        else:
+            done = services.exact_finish_for_test(job, node, factor=opt["factor"])
         self.stdout.write(f"finished {done.uid} ({done.origin}) -> {done.state}")

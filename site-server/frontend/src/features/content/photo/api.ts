@@ -86,6 +86,34 @@ export type Finding = { what: string; note: string; value: number };
 
 export type Facts = Record<string, number | boolean>;
 
+/** «ویرایش با دستور»: چه کسی (و روی کدام سرور) جواب داد — backend/apps/photoedit/smart.py ⇒ PhotoEdit.stats["smart"] */
+export type SmartInfo = {
+  /** node = سرورِ پردازش (کیت)، site = هوشِ مصنوعی از سرورِ سایت (لوکال ⇄ متیس) */
+  path: "node" | "site";
+  /** کدام مسیر جواب داد؛ خالی = هوشِ مصنوعی جواب نداد (جایگزینِ سبک) */
+  via: "local" | "metis" | "";
+  model: string;
+  /** «متیس (gpt-4o-mini)» · «لوکال (qwen3-vl:30b)» · «لوکال (سرورِ پردازش)» · «بدون هوش مصنوعی — …» */
+  label: string;
+  /** مسیرِ اول جواب نداد و پشتیبان جواب داد */
+  fell_back: boolean;
+  /** دلیلِ پشتیبان‌گیری یا شکست، به فارسی */
+  reason: string;
+  adjust: Record<string, number>;
+  notes: string;
+  /** هوشِ مصنوعی در کار نبود؛ فقط نور و رنگِ خودکارِ سبک */
+  fallback: boolean;
+  goal?: string;
+  preset?: string;
+  tools?: string[];
+  seconds?: number;
+  /** مسیرِ سرورِ پردازش هنوز جوابش نیامده */
+  pending?: boolean;
+};
+
+/** تصمیمِ مسیرِ «ویرایش با دستور» پیش از ساخت (از POST plan/) */
+export type SmartDecision = { path: "node" | "site"; first: "local" | "metis"; node_online: boolean; reason: string };
+
 export type Edit = {
   id: number;
   asset: number;
@@ -97,6 +125,8 @@ export type Edit = {
   /** آنچه کیت/هوشِ مصنوعی واقعاً انتخاب کرد، به‌صورتِ کارهای جدا و قابل‌ویرایش */
   chosen: Operation[];
   needs_node: boolean;
+  /** فقط برای «ویرایش با دستور»: کی جواب داد (null = ویرایشِ دیگر) */
+  smart?: SmartInfo | null;
   state: "QUEUED" | "NODE" | "SERVER" | "READY" | "FAILED" | "CANCELLED";
   state_label: string;
   active: boolean;
@@ -176,7 +206,14 @@ export type Sources = {
   }[];
 };
 
-export type Plan = { recipe: string; operations: Operation[]; node: NodeStatus; findings: Finding[] };
+export type Plan = {
+  recipe: string;
+  operations: Operation[];
+  node: NodeStatus;
+  findings: Finding[];
+  /** فقط وقتی دستور «ویرایش با دستور» دارد */
+  smart?: SmartDecision;
+};
 
 const base = (store: string) => `/stores/${store}/photo-editor`;
 
@@ -258,7 +295,12 @@ export type PreviewInfo = { size: [number, number]; notes: string[]; skipped: st
 // ───────────────────────────── ادیتورِ حرفه‌ای: پروژه، ماسک، پیش‌نمایشِ دقیق، پریست
 
 export type ProjectSummary = { id: number; asset: number; title: string; rev: number; updated_at: string; thumb: string | null };
-export type Project = ProjectSummary & { data: Record<string, unknown>; masks: Record<string, string> };
+export type Project = ProjectSummary & {
+  data: Record<string, unknown>;
+  masks: Record<string, string>;
+  /** نقشهٔ مایع‌سازیِ پروژه (liquify.bin)؛ نبود/null = ندارد */
+  liquify?: { rev: number; gw: number; gh: number; url: string } | null;
+};
 export type ExactStart = {
   online: boolean;
   state: "OFFLINE" | "NOOP" | "QUEUED" | "RUNNING" | "COMPLETED";
@@ -291,6 +333,34 @@ export type SubjectResult = {
 export type Preset = { id: number; name: string; kind: string; data: Record<string, unknown>; created_at: string; updated_at: string };
 export type FontInfo = { key: string; title: string; family: string; weights: number[]; rtl: boolean };
 
+// «پرکردنِ هوشمند» (FLUX inpaint) — backend/apps/photoedit/views.py GenFillView / GenFillStatusView؛ کلاینت: pro/genfill.ts
+export type GenFillState = "QUEUED" | "RUNNING" | "COMPLETED" | "READY" | "FAILED" | "CANCELLED";
+/** جای لایهٔ تصویری روی بوم (کسری از بوم): مرکز و پهنا — همان قراردادِ لایهٔ image */
+export type GenFillLayer = { cx: number; cy: number; w: number };
+export type GenFillStart = {
+  job: string;
+  state: GenFillState;
+  online: boolean;
+  message: string;
+  engine?: string;
+  notes?: string[];
+};
+export type GenFillStatus = {
+  job: string;
+  state: GenFillState;
+  message: string;
+  progress: number;
+  node: string | null;
+  online: boolean;
+  error?: string;
+  asset?: Asset;
+  layer?: GenFillLayer;
+  size?: [number, number];
+  seconds?: number | null;
+};
+/** وضعیتِ READY: عکسِ کتابخانه (RGBA، آلفا = ماسکِ نرم) + جایی که باید به‌صورتِ لایهٔ تصویری رویِ بوم بنشیند */
+export type GenFillResult = GenFillStatus & { state: "READY"; asset: Asset; layer: GenFillLayer };
+
 type PresetBody = { preset?: Preset } & Partial<Preset>;
 
 export const proApi = {
@@ -308,6 +378,16 @@ export const proApi = {
         headers: { "Content-Type": "image/png" },
       })
       .then((r) => r.data),
+  /** نقشهٔ مایع‌سازی (LQF1، بدنهٔ خام octet-stream، ≤ ۲ مگابایت) */
+  putLiquify: (store: string, pid: number, bytes: Uint8Array) =>
+    api
+      .put<{ rev: number; gw: number; gh: number }>(`${base(store)}/projects/${pid}/liquify/`, new Blob([bytes], { type: "application/octet-stream" }), {
+        headers: { "Content-Type": "application/octet-stream" },
+      })
+      .then((r) => r.data),
+  getLiquify: (store: string, pid: number) =>
+    api.get<ArrayBuffer>(`${base(store)}/projects/${pid}/liquify/`, { responseType: "arraybuffer" }).then((r) => r.data),
+  deleteLiquify: (store: string, pid: number) => api.delete(`${base(store)}/projects/${pid}/liquify/`).catch(() => undefined),
   exact: (store: string, asset: number, operations: { tool: string; params: Params }[], side = 1280) =>
     api.post<ExactStart>(`${base(store)}/exact/`, { asset, operations, side }).then((r) => r.data),
   exactStatus: (store: string, job: string) => api.get<ExactStatus>(`${base(store)}/exact/${job}/`).then((r) => r.data),

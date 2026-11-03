@@ -10,6 +10,7 @@ measurements are taken once on upload and cached on the row, and every later
 screen reads them instantly.
 """
 import contextlib
+import json
 import logging
 from pathlib import Path
 
@@ -574,6 +575,27 @@ def _percent(job: Job, lo: int, hi: int, label: str):
     return report
 
 
+def _percent_labelled(job: Job, lo: int, hi: int):
+    """Like `_percent` for a producer that brings its own label: `report(fraction, label)`."""
+    import time
+
+    state = {"t": 0.0, "p": -1, "label": ""}
+
+    def report(fraction: float, label: str) -> None:
+        now = time.monotonic()
+        p = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
+        if (p != state["p"] or label != state["label"]) and now - state["t"] > 0.7:
+            state.update(t=now, p=p, label=label)
+            job.mark_progress(p, f"{label} — {p}٪")
+
+    return report
+
+
+def _set_where(job: Job, where: str) -> None:
+    job.context = {**(job.context or {}), "where": where}
+    job.save(update_fields=["context", "updated_at"])
+
+
 def _snapshot_data(project: VideoProject, snapshot: str) -> dict:
     import json
 
@@ -614,20 +636,41 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
         work = _editing_root() / f"project_{project.pk}"
         (work / "exports").mkdir(parents=True, exist_ok=True)
         program_ops = tl.program_operations(data)
-        with _render_slot(job):
-            job.mark_progress(1, "در حال چیدنِ تایم‌لاین")
-            stage1 = work / f"program_{job.id}.mp4"
-            with editor_project.sources(project.store) as resolve:
-                timeline = tl.from_project(data, resolve)
-                spec_export = dict(timeline.export or {}) if quality != "draft" else None
-                spec = export_module.resolve(spec_export, timeline) if spec_export else None
-                hi = 85 if program_ops else 98
-                tl.render(timeline, stage1, quality=quality, export=spec_export or None,
-                          progress=_percent(job, 2, hi, "رندرِ تایم‌لاین"), cancel=lambda: _cancelled(job.id))
-            job.mark_progress(hi, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
+        job.mark_progress(1, "در حال چیدنِ تایم‌لاین")
+        stage1 = work / f"program_{job.id}.mp4"
+        where = {"where": "server", "node": "", "encoder": "libx264", "fallback": ""}
+        with editor_project.sources(project.store) as resolve:
+            timeline = tl.from_project(data, resolve)
+            spec_export = dict(timeline.export or {}) if quality != "draft" else None
+            spec = export_module.resolve(spec_export, timeline) if spec_export else None
+            hi = 85 if program_ops else 98
+            on_node = False
+            # the final render goes to the processing node when one is online (and the shop did not pick «فقط سرورِ سایت»);
+            # offline, failing or silent ⇒ the site renders it itself, and says so
+            if quality == "final" and (timeline.export or {}).get("where") != "server":
+                from services.editing import noderender
 
-            final = stage1
-            refusals: list[str] = []
+                try:
+                    _set_where(job, "node")
+                    got = noderender.render_on_node(job, timeline, spec_export or {}, stage1, progress=_percent_labelled(job, 2, hi),
+                                                    cancel=lambda: _cancelled(job.id), store=project.store)
+                    where = {"where": "node", "node": got["node"], "encoder": got.get("encoder", ""), "fallback": ""}
+                    on_node = True
+                except (noderender.NodeUnavailable, noderender.NodeFailed) as exc:
+                    quiet = isinstance(exc, noderender.NodeUnavailable) and "روشن نیست" in str(exc)
+                    where["fallback"] = "" if quiet else f"رندر روی سرورِ پردازش ممکن نشد ({exc}) و روی سرورِ سایت ساخته شد."
+                    logger.info("Node render of job %s not used: %s", job.id, exc)
+                    _set_where(job, "server")
+            if not on_node:
+                with _render_slot(job):
+                    job.mark_progress(2, "در حال رندر روی سرورِ سایت")
+                    tl.render(timeline, stage1, quality=quality, export=spec_export or None,
+                              progress=_percent(job, 2, hi, "رندرِ تایم‌لاین"), cancel=lambda: _cancelled(job.id))
+        job.mark_progress(hi, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
+
+        final = stage1
+        refusals: list[str] = []
+        with _render_slot(job) if program_ops else contextlib.nullcontext():
             if program_ops:
                 final = work / f"final_{job.id}.mp4"
                 stage2 = work / f"stage2_{job.id}"
@@ -659,6 +702,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             "seconds": round(probe_duration(dest), 2), "bytes": dest.stat().st_size, "size": f"{w}x{h}",
             "codec": spec.codec if spec else "h264", "note": spec.note if spec else "",
             "rendered_at": timezone.now().isoformat(),
+            "where": where["where"], "node": where["node"], "encoder": where["encoder"], "fallback": where["fallback"],
         }
         keep = [entry] + [e for e in old if e.get("job_id") != job.id][: KEEP_EXPORTS - 1]
         for gone in [e for e in old if e not in keep]:
@@ -671,6 +715,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
         project.error = ""
         project.render_info = {**entry, "refusals": refusals, "program_tools": [o["tool"] for o in program_ops], "exports": keep}
         project.save(update_fields=["output", "state", "error", "render_info", "updated_at"])
+        _set_where(job, where["where"] + (f":{where['node']}" if where["node"] else ""))
         job.mark_progress(100, "")
         result = {"project_id": project.pk, "output": entry["url"], **{k: v for k, v in project.render_info.items() if k != "exports"}}
         job.mark_completed(result)
@@ -784,3 +829,226 @@ def captions_task(self, job_id, ref, start, end, at, speed=1.0):
     finally:
         if wav is not None:
             wav.unlink(missing_ok=True)
+
+
+# ------------------------------------------------------------ motion tracking, matting, multicam sync (pro 2)
+
+TRACK_PROXY_SIDE = 480
+MATTE_PROXY_SIDE = 720
+MAX_MATTE_SECONDS = 20.0
+
+
+def _segment_file(path, s0: float, s1: float, side: int) -> tuple[Path, int, int]:
+    """A small, video-only copy of source seconds s0..s1 (the tracker and the matting model both work on small frames, and the
+    node should not have to download the original) → (file, width, height)."""
+    import subprocess
+    import tempfile
+
+    from services.editing.compose import _source_size
+    from services.video.ffmpeg import FFMPEG
+
+    sw, sh = _source_size(str(path))
+    k = min(1.0, side / max(sw, sh))
+    w, h = max(16, int(round(sw * k / 2)) * 2), max(16, int(round(sh * k / 2)) * 2)
+    folder = Path(tempfile.mkdtemp(prefix="nm-seg-"))
+    out = folder / "clip.mp4"
+    subprocess.run([FFMPEG, "-y", "-v", "error", "-ss", f"{s0:.3f}", "-t", f"{s1 - s0:.3f}", "-i", str(path), "-an", "-vf", f"scale={w}:{h}",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", str(out)],
+                   check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=600)
+    return out, w, h
+
+
+def _node_with(flag: str):
+    """An online node whose `capabilities.edit[flag]` is true, or None."""
+    try:
+        from apps.compute import services as compute
+
+        for node in compute.online_nodes("ffmpeg"):
+            if ((node.capabilities or {}).get("edit") or {}).get(flag):
+                return node
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _wait_node(job: Job, cjob, lo: int, hi: int, label: str, timeout_s: int):
+    """Wait for a compute job, mirroring its progress into `job` and passing a cancel on."""
+    from apps.compute import services as compute
+
+    def tick(j):
+        if _cancelled(job.id):
+            compute.cancel(j)
+        job.mark_progress(int(lo + (hi - lo) * max(0.0, min(1.0, j.progress))), f"{label} — {int(j.progress * 100)}٪")
+
+    return compute.wait(cjob, timeout_s, on_tick=tick, poll=1.5)
+
+
+@shared_task(bind=True)
+def track_task(self, job_id, ref, s0, s1, region, fps=15.0):
+    """Follow a point/region of a clip through source seconds s0..s1: on the processing node when it can (OpenCV there),
+    else here. The path (source seconds, centre as fractions of the frame, scale, rotation) is the job's result."""
+    import shutil
+
+    from apps.compute import services as compute
+    from services.editing import tracking
+    from services.video.ffmpeg import FFMPEG
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    folder = None
+    try:
+        job.total_steps = 100
+        job.mark_running("در حال آماده‌کردنِ ویدیو برای ردیابی")
+        item = editor_project.describe(job.store, ref)
+        if item["kind"] != "video":
+            raise tracking.TrackError("ردیابی فقط روی ویدیو ممکن است.")
+        s0 = max(0.0, float(s0))
+        s1 = min(float(s1), s0 + tracking.MAX_SECONDS)
+        if s1 <= s0 + 0.2:
+            raise tracking.TrackError("بازهٔ ردیابی خیلی کوتاه است.")
+        seg, w, h = _segment_file(item["path"], s0, s1, TRACK_PROXY_SIDE)
+        folder = seg.parent
+        job.mark_progress(8, "")
+        result, engine = None, "server"
+        node = _node_with("track")
+        if node is not None:
+            try:
+                cjob = compute.enqueue("edit.track", {"video": "clip.mp4", "region": region, "fps": float(fps), "size": [w, h], "duration": s1 - s0},
+                                       {"clip.mp4": seg}, store=job.store, origin="video-editor-track", timeout_s=300, node=node.name, dedupe=False)
+                cjob = _wait_node(job, cjob, 10, 95, "ردیابی روی سرورِ پردازش", 300)
+                result = json.loads(Path(compute.output_path(cjob, "track.json")).read_text(encoding="utf-8"))
+                engine = f"node:{node.name}"
+            except compute.ComputeCancelled:
+                raise _Cancelled() from None
+            except (compute.ComputeError, OSError, ValueError) as exc:
+                logger.info("node tracking not used for job %s: %s", job_id, exc)
+                job.mark_progress(10, "ردیابی روی سرورِ سایت")
+        if result is None:
+            result = tracking.track(seg, 0.0, s1 - s0, region, src_size=(w, h), fps=float(fps), ffmpeg=FFMPEG,
+                                    progress=lambda f: job.mark_progress(int(10 + 85 * f), f"ردیابی — {int(f * 100)}٪"), cancel=lambda: _cancelled(job.id))
+        for sample in result["samples"]:
+            sample["s"] = round(sample["s"] + s0, 3)
+        if result.get("lost_at") is not None:
+            result["lost_at"] = round(result["lost_at"] + s0, 3)
+        result.update({"engine": engine, "ref": ref, "s0": s0, "s1": s1})
+        job.mark_progress(100, "")
+        job.mark_completed(result)
+        return result
+    except (_Cancelled, tracking.TrackCancelled):
+        job.mark_cancelled()
+        return {"cancelled": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Track job %s: %s", job_id, exc)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+    finally:
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+MATTE_NEEDS = (
+    "حذفِ پس‌زمینهٔ ویدیو روی کامپیوترِ گرافیکی (سرورِ پردازش) انجام می‌شود و به این‌ها نیاز دارد: ۱) سرورِ پردازش روشن باشد؛ "
+    "۲) بستهٔ مدلِ «photo-background» (BiRefNet-lite، حدود ۲۲۴ مگابایت، مجوز MIT) روی آن نصب باشد — با Download-Models.bat یا از پنلِ «سرورهای پردازش»؛ "
+    "۳) سرویسِ عکس (PersianAiKit Photo) بتواند روشن شود. این‌جا چیزی دانلود نمی‌شود. "
+    "برای سرعتِ بهتر روی ویدیو، یک مدلِ ماتینگِ ویدیویی (مثلاً Robust Video Matting به‌صورتِ ONNX، حدود ۱۴ مگابایت) هم می‌شود افزود که فعلاً نصب نیست."
+)
+
+
+def matte_status() -> dict:
+    node = _node_with("matte")
+    if node is not None:
+        return {"ok": True, "node": node.name, "message": ""}
+    try:
+        from apps.compute import services as compute
+
+        online = compute.online_nodes("ffmpeg")
+    except Exception:  # noqa: BLE001
+        online = []
+    if not online:
+        return {"ok": False, "node": "", "message": "هیچ سرورِ پردازشی روشن نیست (START.bat را روی کامپیوترِ گرافیکی اجرا کنید). " + MATTE_NEEDS}
+    return {"ok": False, "node": online[0].name, "message": "سرورِ پردازشِ روشن مدلِ حذفِ پس‌زمینه را آماده ندارد. " + MATTE_NEEDS}
+
+
+@shared_task(bind=True)
+def matte_task(self, job_id, ref, s0, s1, fps=6.0):
+    """Background removal of source seconds s0..s1 of a clip: the node cuts a mask per frame (BiRefNet through the photo kit),
+    the result is a grey video kept for the shop (`mattes.py`); a clip then points at it (`clip.matte`)."""
+    import shutil
+
+    from apps.compute import services as compute
+    from services.editing import mattes
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    folder = None
+    try:
+        job.total_steps = 100
+        job.mark_running("در حال آماده‌کردنِ ویدیو برای حذفِ پس‌زمینه")
+        state = matte_status()
+        if not state["ok"]:
+            raise RuntimeError(state["message"])
+        node = _node_with("matte")
+        item = editor_project.describe(job.store, ref)
+        if item["kind"] != "video":
+            raise RuntimeError("حذفِ پس‌زمینه فقط روی ویدیو ممکن است.")
+        s0 = max(0.0, float(s0))
+        s1 = min(float(s1), s0 + MAX_MATTE_SECONDS)
+        if s1 <= s0 + 0.3:
+            raise RuntimeError("بازهٔ حذفِ پس‌زمینه خیلی کوتاه است.")
+        fps = max(2.0, min(12.0, float(fps)))
+        seg, w, h = _segment_file(item["path"], s0, s1, MATTE_PROXY_SIDE)
+        folder = seg.parent
+        frames = int((s1 - s0) * fps) + 1
+        job.mark_progress(6, "")
+        cjob = compute.enqueue("edit.matte", {"video": "clip.mp4", "fps": fps, "duration": s1 - s0, "size": [w, h]}, {"clip.mp4": seg}, store=job.store,
+                               origin="video-editor-matte", timeout_s=int(300 + frames * 40), node=node.name, dedupe=False)
+        cjob = _wait_node(job, cjob, 8, 94, "حذفِ پس‌زمینه روی سرورِ پردازش", int(300 + frames * 40))
+        out = compute.output_path(cjob, "matte.mp4")
+        if not out.is_file() or out.stat().st_size <= 0:
+            raise RuntimeError("سرورِ پردازش ماتی نفرستاد.")
+        row = mattes.store_file(job.store.pk, out, {"ref": ref, "s0": s0, "s1": s1, "fps": fps, "node": node.name, "engine": "birefnet-lite"})
+        job.mark_progress(100, "")
+        result = {**row, "engine": row["engine"], "frames": frames}
+        job.mark_completed(result)
+        shutil.rmtree(compute.job_root(cjob), ignore_errors=True)
+        return result
+    except (_Cancelled, compute.ComputeCancelled):
+        job.mark_cancelled()
+        return {"cancelled": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Matte job %s: %s", job_id, exc)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+    finally:
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+@shared_task(bind=True)
+def sync_task(self, job_id, refs):
+    """Offsets (seconds) of several recordings of the same event relative to the first, from their sound (multicam)."""
+    from services.editing import multicam
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    try:
+        job.total_steps = 100
+        job.mark_running("در حال هم‌زمان‌سازی با صدا")
+        paths = []
+        for ref in refs:
+            item = editor_project.describe(job.store, ref)
+            if item["kind"] == "image" or not item["has_audio"]:
+                raise multicam.TimelineError(f"«{item['title']}» صدا ندارد؛ هم‌زمان‌سازی با صدا ممکن نیست.")
+            paths.append(item["path"])
+        rows = multicam.sync(paths, progress=lambda f: job.mark_progress(int(5 + 90 * f), "در حال هم‌زمان‌سازی با صدا"))
+        result = {"offsets": [{"ref": r, **row} for r, row in zip(refs, rows)]}
+        job.mark_progress(100, "")
+        job.mark_completed(result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Sync job %s: %s", job_id, exc)
+        job.mark_failed(exc)
+        return {"error": str(exc)}

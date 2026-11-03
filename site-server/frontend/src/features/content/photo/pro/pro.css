@@ -43,3 +43,6 @@
   .pro-opt input[type="range"] { width: 90px; }
   .pw-grid.pro-grid { grid-template-rows: auto auto 58vh auto auto; }
 }
+
+/* گروه: کادرِ خط‌چینِ لایه‌های دیدنی (بی‌دستگیره) */
+.pv-gbox { fill: rgba(255, 255, 255, .04); stroke: #fff; stroke-width: 1.4; stroke-dasharray: 7 4; filter: drop-shadow(0 0 1px rgba(0, 0, 0, .8)); }

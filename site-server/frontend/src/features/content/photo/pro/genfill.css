@@ -1,0 +1,46 @@
+/* ============================================================
+   پنلِ «پرکردنِ هوشمند» — مستقل از Stage/ProWorkspace؛ فقط توکن‌های index.css و فونتِ ارثی (وزیرمتن)
+   ============================================================ */
+
+.gf-root { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%; font-family: inherit; }
+.gf-title { font-weight: 800; font-size: 13px; color: var(--text); }
+.gf-label { font-size: 12px; font-weight: 700; color: var(--text-2); }
+.gf-hint { font-size: 12px; color: var(--text-3); line-height: 1.8; margin: 0; }
+
+.gf-input {
+  width: 100%; box-sizing: border-box; min-height: 76px; resize: vertical; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px;
+  line-height: 1.8; text-align: start;
+}
+.gf-input::placeholder { color: var(--text-3); }
+.gf-input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
+.gf-input:disabled { opacity: .55; }
+
+.gf-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.gf-btn {
+  min-height: 38px; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 4px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.gf-btn:hover:not(:disabled) { border-color: var(--line-strong); color: var(--text); }
+.gf-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.gf-btn:disabled { opacity: .4; cursor: default; }
+.gf-btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; flex: 1 1 96px; }
+
+.gf-progress {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; font-size: 12px;
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--line);
+}
+.gf-progress.is-waiting { border-color: var(--warn); color: var(--warn); }
+.gf-progress-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gf-progress-text { flex: 1; min-width: 0; line-height: 1.7; overflow-wrap: anywhere; }
+.gf-elapsed { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.gf-bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.gf-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .4s ease; }
+.gf-sub { margin: 0; font-size: 12px; color: var(--text-3); line-height: 1.8; }
+
+.gf-msg { font-size: 12px; margin: 0; padding: 7px 10px; border-radius: 10px; line-height: 1.8; overflow-wrap: anywhere; background: var(--surface-2); color: var(--text-2); }
+.gf-msg.ok { background: var(--ok-soft, var(--surface-2)); color: var(--ok); }
+.gf-msg.bad { background: var(--bad-soft, var(--surface-2)); color: var(--bad); }
+
+@media (prefers-reduced-motion: reduce) { .gf-bar > i { transition: none; } }

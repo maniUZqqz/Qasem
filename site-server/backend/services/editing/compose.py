@@ -11,9 +11,20 @@ laid over the track for exactly that window; the two clips themselves only show 
 
 **Time is explicit**: the base is a `color` source of the project length, every layer carries timeline timestamps
 (`setpts=PTS+at/TB`) and an `enable='between(t,…)'` window, titles come from libass (`titles.build_ass`).
+
+**Nested sequences are inlined**: a clip whose `nested` is a Timeline gets a sub-`Builder` that shares this one's parts,
+inputs and label counter and returns the nested picture (and sound) as a stream label; the parent clip then trims / speeds /
+fits that stream exactly like a file input. A **matte** (background removal) is a grey video merged into the clip's alpha
+right at the source; a **free-form mask** is a grey PNG multiplied into the layer's alpha mask (moved by an `overlay`
+expression when a motion track is attached); a **LUT** is one `lut3d` after the colour block.
+
+**Portable graphs** (`portable=True`, for a render on the processing node): paths of files that sit INSIDE a filter option
+(the ASS documents, the fonts folder, LUTs) become tokens (`__FILE_n__`, `__FONTSDIR__`, `__ASSET_n__`) that the other
+computer substitutes with its own copies; everything else is the ordinary `-i` list.
 """
 from __future__ import annotations
 
+import functools
 import logging
 from dataclasses import dataclass, field
 
@@ -27,6 +38,7 @@ logger = logging.getLogger(__name__)
 #: Substituted by `export.render` with the path of a temp file per ASS document.
 FILE_TOKEN = "__FILE_{n}__"
 TEXTFILE_TOKEN = FILE_TOKEN  # name kept for callers of the old drawtext path
+ASSET_TOKEN = "__ASSET_{n}__"
 
 #: how a blend mode is done: the neutral canvas the layer is composited on first (so the area outside it changes
 #: nothing), and ffmpeg's blend mode
@@ -49,6 +61,8 @@ class Graph:
     has_audio: bool
     length: float = 0.0
     notes: list[str] = field(default_factory=list)
+    #: token → path of a file referenced INSIDE a filter option (portable graphs only; see the module doc)
+    assets: dict[str, str] = field(default_factory=dict)
 
 
 def _q(x: float) -> str:
@@ -59,18 +73,47 @@ def _even(x: float) -> int:
     return max(2, int(x) // 2 * 2)
 
 
+@functools.lru_cache(maxsize=128)
+def _source_size(path: str) -> tuple[int, int]:
+    """Displayed (width, height) of a video file — a phone clip with a rotation tag is shown turned, and so is its matte."""
+    from services.video.ffmpeg import probe
+
+    info = probe(path)
+    for stream in info.get("streams", []):
+        if stream.get("codec_type") == "video" and stream.get("width"):
+            w, h = int(stream["width"]), int(stream["height"])
+            rot = 0
+            try:
+                rot = int(float((stream.get("tags") or {}).get("rotate") or 0))
+            except (TypeError, ValueError):
+                rot = 0
+            for side in stream.get("side_data_list") or []:
+                if "rotation" in side:
+                    try:
+                        rot = int(float(side["rotation"]))
+                    except (TypeError, ValueError):
+                        pass
+            return (h, w) if abs(rot) % 180 == 90 else (w, h)
+    raise TimelineError("ابعادِ ویدیو خوانده نشد.")
+
+
 class Builder:
-    def __init__(self, timeline: Timeline, *, spans=None):
+    def __init__(self, timeline: Timeline, *, spans=None, portable: bool = False, parent: "Builder | None" = None):
         self.tl = timeline
         self.W, self.H, self.fps = timeline.width, timeline.height, timeline.fps
-        self.inputs: list[str] = []
-        self.args: list[list[str]] = []
-        self.parts: list[str] = []
+        self.parent = parent
+        self.root = parent.root if parent else self
+        if parent:                              # a nested sequence: one graph, one label space
+            self.inputs, self.args, self.parts = parent.inputs, parent.args, parent.parts
+            self.texts, self.notes, self.assets = parent.texts, parent.notes, parent.assets
+            self.portable = parent.portable
+        else:
+            self.inputs, self.args, self.parts = [], [], []
+            self.texts, self.notes, self.assets = {}, [], {}
+            self.portable = portable
         self.n = 0
-        self.texts: dict[str, str] = {}
         self.main_input: dict[int, int] = {}
         self.seeks: dict[int, float] = {}
-        self.notes: list[str] = []
         self.spans = spans                      # callable(path) -> [[s, e], …] for ducking (None ⇒ media_cache)
         self.vis: dict[int, tuple[float, float]] = {}
         self.audio_fade_in: dict[int, float] = {}
@@ -78,8 +121,30 @@ class Builder:
 
     # ------------------------------------------------------------ plumbing
     def lab(self, prefix: str = "x") -> str:
-        self.n += 1
-        return f"{prefix}{self.n}"
+        self.root.n += 1
+        return f"{prefix}{self.root.n}"
+
+    def file_opt(self, path) -> str:
+        """A file path for a filter option: the real quoted path, or (portable) a token the other computer fills in."""
+        from services.video.ffmpeg import filter_path
+
+        if not self.portable:
+            return filter_path(path)
+        token = ASSET_TOKEN.format(n=len(self.assets))
+        self.assets[token] = str(path)
+        return filter_path(token)
+
+    def nested_video(self, clip: Clip) -> str:
+        """The picture of a nested clip's sequence as a stream label (built again for every use: a label feeds one filter)."""
+        sub = Builder(clip.nested, spans=self.spans, parent=self)
+        return sub.build_video(final=self.lab("nv"))
+
+    def nested_audio(self, clip: Clip) -> str | None:
+        from . import audiofx
+
+        sub = Builder(clip.nested, spans=self.spans, parent=self)
+        out = self.lab("na")
+        return out if audiofx.build_audio(sub, final=out) else None
 
     def add_input(self, source: str, args: list[str]) -> int:
         self.inputs.append(source)
@@ -112,18 +177,19 @@ class Builder:
         return self.main_input[id(clip)], self.seeks[id(clip)]
 
     # ------------------------------------------------------------- the video
-    def build_video(self) -> str:
+    def build_video(self, final: str = "vout") -> str:
         tl = self.tl
         length = max(0.1, tl.length)
-        self.parts.append(f"color=c=black:s={self.W}x{self.H}:r={self.fps}:d={length:.3f}[base]")
-        current = "base"
+        base = self.lab("base")
+        self.parts.append(f"color=c=black:s={self.W}x{self.H}:r={self.fps}:d={length:.3f}[{base}]")
+        current = base
         for track in tl.tracks:
             if track.kind == "video" and not track.hidden:
                 current = self.video_track(track, current)
             elif track.kind == "text":
                 current = self.text_track(track, current)
-        self.parts.append(f"[{current}]null[vout]")
-        return "vout"
+        self.parts.append(f"[{current}]null[{final}]")
+        return final
 
     def plan_transitions(self, track: Track) -> list[tuple[Clip, Clip, float, str]]:
         """Pairs of neighbours that touch and have a transition into the second one."""
@@ -151,19 +217,45 @@ class Builder:
             vs, ve = self.vis.get(id(clip), (clip.at, clip.ends_at))
             if ve <= vs + 0.001:
                 continue
-            idx, seek = self.main_input_for(clip)
-            layer = self.layer(clip, idx, seek, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length)
+            if clip.nested is not None:
+                layer = self.layer(clip, None, 0.0, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length,
+                                   src=self.nested_video(clip))
+            else:
+                idx, seek = self.main_input_for(clip)
+                layer = self.layer(clip, idx, seek, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length)
             current = self.place(current, layer, clip, vs, ve, at=clip.at, off_start=0.0)
         for earlier, later, d, name in pairs:
             current = self.transition_window(earlier, later, d, name, current)
         return current
 
     # ---------------------------------------------------------------- layer
-    def layer(self, clip: Clip, idx: int, seek: float, segs: list, reverse: bool, *, at: float, off_start: float,
-              length: float, fades: bool = True, pad_head: float = 0.0, pad_tail: float = 0.0) -> str:
-        """The finished layer stream of one clip (or one piece of it): all of the per-clip filters, positioned in time."""
+    def apply_matte(self, clip: Clip, idx: int, seek: float) -> str:
+        """Merge the clip's matte (grey video) into the alpha of its source stream, right at the source."""
+        w, h = clip.src_w, clip.src_h
+        if not (w and h):
+            w, h = _source_size(clip.source)
+        segs = clip.segments()
+        span = (max(s[1] for s in segs) - seek) + 0.5 if segs else 1.0
+        into = seek - clip.matte_s0                      # where, in the matte file, the source second `seek` is
+        args = (["-ss", _q(into)] if into > 0.001 else []) + ["-t", _q(span)]
+        midx = self.add_input(clip.matte_file, args)
+        mk, out = self.lab("mk"), self.lab("mt")
+        chain = ["format=gray"]
+        if into < -0.001:
+            chain.append(f"tpad=start_mode=clone:start_duration={_q(-into)}")
+        chain += [f"scale={w}:{h}:flags=bilinear", "setsar=1"]
+        self.parts.append(f"[{midx}:v]" + ",".join(chain) + f"[{mk}]")
+        self.parts.append(f"[{idx}:v][{mk}]alphamerge[{out}]")
+        return out
+
+    def layer(self, clip: Clip, idx: int | None, seek: float, segs: list, reverse: bool, *, at: float, off_start: float,
+              length: float, fades: bool = True, pad_head: float = 0.0, pad_tail: float = 0.0, src: str | None = None) -> str:
+        """The finished layer stream of one clip (or one piece of it): all of the per-clip filters, positioned in time.
+        `src` is a ready stream label (a nested sequence) instead of the input `idx`."""
         W, H, fps = self.W, self.H, self.fps
-        cur = f"{idx}:v"
+        cur = src if src is not None else f"{idx}:v"
+        if clip.matte_file and src is None and clip.kind == "video":
+            cur = self.apply_matte(clip, idx, seek)
         ch: list[str] = []
 
         def flush(out: str | None = None) -> None:
@@ -178,6 +270,8 @@ class Builder:
         if clip.kind == "image":
             ch += [f"trim=0:{_q(length + pad_head + pad_tail)}", "setpts=PTS-STARTPTS"]
         elif clip.freeze:
+            if src is not None:                               # a nested stream starts at 0, not at the clip's in-point
+                ch += [f"trim=start={_q(clip.start)}", "setpts=PTS-STARTPTS"]
             ch += ["trim=start_frame=0:end_frame=1", "setpts=PTS-STARTPTS",
                    f"tpad=stop_mode=clone:stop_duration={_q(length + 0.1)}", f"trim=duration={_q(length)}", "setpts=PTS-STARTPTS"]
         elif len(segs) == 1:
@@ -226,6 +320,8 @@ class Builder:
         # 3 · colour and picture effects ----------------------------------
         if clip.color:
             ch += color_module.build_filters(clip.color)
+        if clip.lut_file:
+            ch.append(f"lut3d=file={self.file_opt(clip.lut_file)}:interp=tetrahedral")
         for effect in clip.effects:
             if effect.get("tool") != "rotate":
                 ch.append(_effect_fragment(effect))
@@ -290,14 +386,21 @@ class Builder:
             terms.append(f"clip({var}/{_f(fi)},0,1)")
         if fo > 0:
             terms.append(f"clip(({_q(length)}-{var})/{_f(fo)},0,1)")
-        spatial = bool(crop or mask or any(kf.get(k) for k in ("crop_l", "crop_r", "crop_t", "crop_b")))
+        bezier = bool(mask and mask.get("shape") == "bezier" and clip.mask_file)
+        shaped = mask if (mask and not bezier and mask.get("shape") != "bezier") else {}
+        spatial = bool(crop or shaped or any(kf.get(k) for k in ("crop_l", "crop_r", "crop_t", "crop_b")))
         if spatial:
             sides = {}
             for side, key in (("l", "crop_l"), ("r", "crop_r"), ("t", "crop_t"), ("b", "crop_b")):
                 sides[side] = keyframes.expr(kf.get(key), crop.get(side, 0.0), var)
             terms.append(f"gte(X/W,{sides['l']})*lte(X/W,1-({sides['r']}))*gte(Y/H,{sides['t']})*lte(Y/H,1-({sides['b']}))")
-        if mask:
+        if shaped:
+            mask = shaped
             cx, cy, w, h, f = (_f(mask[k]) for k in ("cx", "cy", "w", "h", "feather"))
+            if mask.get("kx"):                       # a motion track moves the cut-out: its displacement over time
+                cx = f"({cx}+{keyframes.expr(mask['kx'], 0.0, var)})"
+            if mask.get("ky"):
+                cy = f"({cy}+{keyframes.expr(mask['ky'], 0.0, var)})"
             soft = max(0.001, float(mask["feather"]))
             if mask["shape"] == "ellipse":
                 inside = f"clip((1-hypot((X/W-{cx})/({w}/2),(Y/H-{cy})/({h}/2)))/{_f(soft)},0,1)"
@@ -314,6 +417,8 @@ class Builder:
             f"color=c=black:s={mw}x{mh}:r={self.fps}:d={_q(length + 0.2)},format=gray,"
             f"geq=lum='255*clip({'*'.join(terms)},0,1)',scale={bw}:{bh}:flags=bilinear[{m}]"
         )
+        if bezier:
+            m = self.bezier_mask(clip, m, bw, bh, off_start, length)
         out = self.lab("a")
         if keyed:
             k1, k2, ka, m2 = self.lab("k"), self.lab("k"), self.lab("k"), self.lab("k")
@@ -322,6 +427,26 @@ class Builder:
         else:
             lay = self.lab("k")
             self.parts.append(f"[{cur}]format=yuva420p[{lay}];[{lay}][{m}]alphamerge[{out}]")
+        return out
+
+    def bezier_mask(self, clip: Clip, m: str, bw: int, bh: int, off_start: float, length: float) -> str:
+        """Multiply the free-form mask (a grey PNG, moved by the motion track if there is one) into the alpha mask `m`."""
+        mask = clip.mask
+        idx = self.add_input(clip.mask_file, ["-loop", "1", "-framerate", str(self.fps), "-t", _q(length + 0.3)])
+        mb, out = self.lab("mb"), self.lab("mm")
+        kx, ky = mask.get("kx"), mask.get("ky")
+        if kx or ky:
+            var = f"(t+{_q(off_start)})"
+            cv, mv = self.lab("cv"), self.lab("mv")
+            self.parts.append(f"color=c=black:s={bw}x{bh}:r={self.fps}:d={_q(length + 0.3)},format=yuv420p[{cv}]")
+            self.parts.append(f"[{idx}:v]scale={bw}:{bh}:flags=bilinear,format=yuv420p[{mv}]")
+            xe = f"x='{bw}*({keyframes.expr(kx, 0.0, var)})'" if kx else "x=0"
+            ye = f"y='{bh}*({keyframes.expr(ky, 0.0, var)})'" if ky else "y=0"
+            tail = ",negate" if mask.get("invert") else ""
+            self.parts.append(f"[{cv}][{mv}]overlay={xe}:{ye}:eof_action=pass,format=gray{tail}[{mb}]")
+        else:
+            self.parts.append(f"[{idx}:v]scale={bw}:{bh}:flags=bilinear,format=gray[{mb}]")
+        self.parts.append(f"[{m}][{mb}]blend=all_mode=multiply[{out}]")
         return out
 
     # --------------------------------------------------------------- place
@@ -394,7 +519,10 @@ class Builder:
             pieces.append((clip, segs, pad_head, pad_tail, off, piece_len))
         labels = []
         for clip, segs, pad_head, pad_tail, off, piece_len in pieces:
-            if clip.kind == "image":
+            nested_src = None
+            if clip.nested is not None:
+                idx, seek, nested_src = None, 0.0, self.nested_video(clip)
+            elif clip.kind == "image":
                 args = ["-loop", "1", "-framerate", str(fps), "-t", _q(d + 0.6)]
                 idx = self.add_input(clip.source, args)
                 seek = 0.0
@@ -402,7 +530,7 @@ class Builder:
                 args, seek = self.input_args_for(clip, segs)
                 idx = self.add_input(clip.source, args)
             piece = self.layer(clip, idx, seek, segs, clip.reverse, at=0.0, off_start=off, length=piece_len, fades=False,
-                               pad_head=pad_head, pad_tail=pad_tail)
+                               pad_head=pad_head, pad_tail=pad_tail, src=nested_src)
             canvas, out = self.lab("w"), self.lab("o")
             self.parts.append(f"color=c=black:s={W}x{H}:r={fps}:d={_q(d + 0.1)}[{canvas}]")
             vs, ve = 0.0, d + 0.1
@@ -425,16 +553,16 @@ class Builder:
         token = FILE_TOKEN.format(n=len(self.texts))
         self.texts[token] = titles.build_ass(items, self.W, self.H)
         out = self.lab("v")
-        self.parts.append(f"[{current}]{titles.ass_filter(token)}[{out}]")
+        self.parts.append(f"[{current}]{titles.ass_filter(token, portable=self.portable)}[{out}]")
         return out
 
 
-def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True) -> Graph:
+def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True, portable: bool = False) -> Graph:
     """The whole filtergraph plus what `export.render` needs to run it."""
     from . import audiofx
 
     timeline.validate(need_base=need_base)
-    b = Builder(timeline, spans=spans)
+    b = Builder(timeline, spans=spans, portable=portable)
     b.build_video()
     has_audio = audiofx.build_audio(b)
-    return Graph(b.inputs, b.args, ";".join(b.parts), b.texts, has_audio, timeline.length, b.notes)
+    return Graph(b.inputs, b.args, ";".join(b.parts), b.texts, has_audio, timeline.length, b.notes, b.assets)

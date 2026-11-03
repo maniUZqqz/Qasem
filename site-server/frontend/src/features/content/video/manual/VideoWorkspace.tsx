@@ -5,8 +5,9 @@ import Workspace from "../../../../components/Workspace";
 import { Badge, Spinner } from "../../../../components/ui";
 import { useHistory } from "../../../../hooks/useHistory";
 import { useJobRunner } from "../../../../hooks/useJobRunner";
+import type { Job } from "../../../../types";
 import type { ToolInfo } from "../../ToolPicker";
-import type { Bin as BinData, Catalogue, Check, MediaItem, ProjectRow } from "../api";
+import type { Bin as BinData, Catalogue, Check, LutRow, MatteRow, MatteStatus, MediaItem, ProjectRow, RenderWhere, SyncResult, TrackResult } from "../api";
 import { videoApi } from "../api";
 import { AudioEngine } from "./AudioEngine";
 import Bin from "./Bin";
@@ -14,12 +15,22 @@ import type { LookDef } from "./color";
 import ExactPreview from "./ExactPreview";
 import Inspector, { InspectorTab } from "./Inspector";
 import { KfChannel } from "./keyframes";
+import { frameToSource } from "./geom";
+import { Lut, parseCube } from "./lut";
+import { BezierOverlay, RegionOverlay } from "./PickOverlay";
+import type { FrameRect, SyncRow } from "./ProPanel";
+import {
+  AngleSource, autoRipple, beatFit, beatSnap, beatSplit, beatTimes, createMulticam, jlCut as jlCutOp, nestClips, removeCutAt, seqIdOf, setAngleAt,
+  setMulticamAudio, unnestClip, viewOf, writeView,
+} from "./ops";
+import { SHAPES, defaultShape } from "./shapes";
+import { attachTo, bakeFollowers, detach, trackerFromResult } from "./tracking";
 import { fetchBeats, srcToTimeline, useDuckSpans } from "./mediaAnalysis";
 import Monitor, { MonitorHandle } from "./Monitor";
 import {
-  AnyClip, AttrClip, AttrGroup, MediaClip, Project, TextClip, addMarker, addMedia, addText, addTextClips, addTrack, clearMarkers, clipEnd, clipLength, copyAttrs,
+  AnyClip, AttrClip, AttrGroup, MediaClip, Project, ShapeKind, TextClip, addMarker, addMedia, addText, addTextClips, addTrack, clearMarkers, clipEnd, clipLength, copyAttrs,
   deleteClips, duplicateClips, emptyProject, extractAudio, findClip, freeSpot, freezeFrameAt, fromApi, isMedia, linkClips, liftRange, moveClips, pasteAttrs, projectLength,
-  removeMarker, removeTrack, rippleTrim, splitAt, toApi, trimEnd, trimStart, uid, unlinkClips, updateClip, updateTrack, withLinked,
+  newMediaClip, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
 } from "./model";
 import Scopes from "./Scopes";
 import TimelineView, { Tool } from "./TimelineView";
@@ -46,7 +57,26 @@ const TOOLS: { key: Tool; label: string; title: string }[] = [
 
 export default function VideoWorkspace({ storeId, tools, startRef, onStartConsumed }: Props) {
   const hist = useHistory<Project>(emptyProject());
-  const project = hist.state;
+  const root = hist.state;
+  /** توالی‌هایی که باز کرده‌ایم (از ریشه به عمق)؛ خالی = خودِ پروژه. هر ویرایش روی «نما»ی توالیِ بازِ فعلی می‌نشیند */
+  const [path, setPath] = useState<string[]>([]);
+  const project = useMemo(() => viewOf(root, path), [root, path]);
+  const [luts, setLuts] = useState<LutRow[]>([]);
+  const [lutData, setLutData] = useState<Record<string, Lut>>({});
+  const [lutBusy, setLutBusy] = useState(false);
+  const [mattes, setMattes] = useState<MatteRow[]>([]);
+  const [matteStatus, setMatteStatus] = useState<MatteStatus | null>(null);
+  const [matteMsg, setMatteMsg] = useState<string | null>(null);
+  const [matteErr, setMatteErr] = useState<string | null>(null);
+  const [where, setWhere] = useState<RenderWhere | null>(null);
+  const [pickRegion, setPickRegion] = useState(false);
+  const [region, setRegion] = useState<FrameRect | null>(null);
+  const [editingMask, setEditingMask] = useState(false);
+  const [trackMsg, setTrackMsg] = useState<string | null>(null);
+  const [trackErr, setTrackErr] = useState<string | null>(null);
+  const [syncRows, setSyncRows] = useState<SyncRow[] | null>(null);
+  const [syncErr, setSyncErr] = useState<string | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [bin, setBin] = useState<BinData | null>(null);
   const [binLoading, setBinLoading] = useState(true);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
@@ -107,7 +137,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
 
   const media = useMemo(() => {
     const m: Record<string, MediaItem> = {};
-    for (const list of bin ? [bin.videos, bin.audio, bin.images] : []) for (const it of list) m[it.ref] = it;
+    for (const list of bin ? [bin.videos, bin.audio, bin.images, bin.stickers ?? []] : []) for (const it of list) m[it.ref] = it;
     return m;
   }, [bin]);
 
@@ -163,8 +193,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }, [ready, startRef, bin]);
 
   // ───────────── ذخیرهٔ خودکار
-  const dataKey = useMemo(() => JSON.stringify(toApi(project)), [project]);
-  const hasClips = project.tracks.some((t) => t.clips.length > 0);
+  const dataKey = useMemo(() => JSON.stringify(toApi(root)), [root]);
+  const hasClips = root.tracks.some((t) => t.clips.length > 0);
   const saveRef = useRef<{ key: string; title: string }>({ key: "", title: "" });
   saveRef.current = { key: dataKey, title };
   const saveNow = useCallback(async (): Promise<number | null> => {
@@ -203,6 +233,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     setSelection([]);
     setTime(0);
     setExact(null);
+    setPath([]);
     if (!id) {
       hist.reset(emptyProject());
       setProjectId(null);
@@ -249,9 +280,21 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   // ───────────── ویرایش
   const primaryId = selection[selection.length - 1] ?? null;
   const selected = findClip(project, primaryId);
-  const live = (fn: (p: Project) => Project) => hist.live(fn);
-  const apply = (label: string, fn: (p: Project) => Project) => hist.apply(label, fn);
+  const aspectOf = useCallback((ref: string) => {
+    const it = media[ref];
+    return it && it.width && it.height ? it.width / it.height : 0;
+  }, [media]);
+  /** هر ویرایش: ریپلِ خودکارِ بعدی‌ها هنگامِ کندکردن، پختنِ دوبارهٔ چیزهای وصل‌به‌ردیاب، و برگرداندنِ نما به ریشه */
+  const through = (r: Project, fn: (v: Project) => Project, base?: Project): Project => {
+    const v = viewOf(r, path);
+    return writeView(r, path, bakeFollowers(autoRipple(base ?? v, fn(v)), aspectOf));
+  };
+  const live = (fn: (p: Project) => Project) => hist.live((r) => through(r, fn));
+  const apply = (label: string, fn: (p: Project) => Project) => hist.apply(label, (r) => through(r, fn));
+  /** تغییر در سطحِ ریشه (ردیاب‌ها، تنظیمِ ریپل) */
+  const applyRoot = (label: string, fn: (p: Project) => Project) => hist.apply(label, fn);
   const edit = { live, end: hist.end, apply };
+  const rippleOn = root.auto_ripple !== false;
   const linkedSel = !!selected && selected.clip.type === "media" && !!selected.clip.link && project.tracks.flatMap((t) => t.clips).filter((c) => isMedia(c) && c.link === (selected.clip as MediaClip).link).length > 1;
 
   function trackFor(kind: "video" | "audio" | "text") {
@@ -259,6 +302,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
 
   function addFromBin(item: MediaItem, trackId?: string, at?: number) {
+    if (item.ref.startsWith("sticker:") && !trackId) {
+      addSticker(item);
+      return;
+    }
     const kind = item.kind === "audio" ? "audio" : "video";
     const tr = project.tracks.find((t) => t.id === trackId && t.kind === kind && !t.locked) ?? (item.kind === "audio" ? (project.tracks.find((t) => t.kind === "audio" && !t.locked && t.role === "music") ?? trackFor("audio")) : trackFor("video"));
     if (!tr) return;
@@ -286,14 +333,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   function splitHere(at = time) {
     const t = at;
     apply("تقسیم", (pr) => {
-      if (selection.length) {
-        let next = pr;
-        for (const id of withLinked(pr, selection)) next = splitAt(next, id, t);
-        return next;
-      }
-      let next = pr;
-      for (const tr of pr.tracks) if (!tr.locked) for (const c of tr.clips) next = splitAt(next, c.id, t);
-      return next;
+      if (selection.length) return splitMany(pr, withLinked(pr, selection), t);
+      return splitMany(pr, pr.tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.clips.map((c) => c.id)), t);
     });
   }
 
@@ -400,19 +441,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
 
   function jlCut(kind: "J" | "L") {
-    if (!selected || selected.clip.type !== "media" || !selected.clip.link) return;
-    const link = selected.clip.link;
-    const partner = project.tracks.flatMap((t) => t.clips).find((c): c is MediaClip => isMedia(c) && c.link === link && c.kind === "audio");
-    if (!partner) {
-      setNotice("برای J/L-cut اول صدا را از تصویر جدا کنید.");
+    if (!selected || selected.clip.type !== "media") return;
+    const r = jlCutOp(project, selected.clip.id, kind);
+    if (!r.ok) {
+      setNotice(r.message ?? "برش ممکن نشد.");
       return;
     }
-    const next = kind === "J" ? trimStart(project, partner.id, partner.at - 0.5) : trimEnd(project, partner.id, clipEnd(partner) + 0.5);
-    if (JSON.stringify(findClip(next, partner.id)?.clip) === JSON.stringify(partner)) {
-      setNotice(kind === "J" ? "صدا پیش از این نقطه چیزی در منبع ندارد؛ برای برش J قطعه باید از وسطِ منبع شروع شده باشد." : "منبع بعد از این نقطه صدایی ندارد؛ برای برش L قطعه باید پیش از پایانِ منبع تمام شده باشد.");
-      return;
-    }
-    apply(kind === "J" ? "برش J" : "برش L", () => next);
+    apply(kind === "J" ? "برش J" : "برش L", () => r.project);
+    if (r.movedToTrack) setNotice("صدای درازشده با قطعهٔ همسایه‌اش روی یک ترک هم‌زمان می‌شد؛ به یک ترکِ صدای دیگر رفت.");
   }
 
   async function uploadVideo(file: File) {
@@ -461,6 +497,365 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     }
   }
 
+  // ───────────── ابزارهای ویژه: LUT، مات، ردیاب، توالیِ تودرتو، مولتی‌کم، شکل و استیکر
+  const loadLuts = useCallback(async () => {
+    try {
+      setLuts(await videoApi.luts(storeId));
+    } catch {
+      /* بعداً دوباره */
+    }
+  }, [storeId]);
+  const loadMattes = useCallback(async () => {
+    try {
+      setMattes(await videoApi.mattes(storeId));
+    } catch {
+      /* بعداً دوباره */
+    }
+  }, [storeId]);
+  useEffect(() => {
+    void loadLuts();
+    void loadMattes();
+    void videoApi.matteStatus(storeId).then(setMatteStatus).catch(() => null);
+    void videoApi.renderWhere(storeId).then(setWhere).catch(() => null);
+  }, [storeId, loadLuts, loadMattes]);
+  useEffect(() => {
+    if (tab === "out") void videoApi.renderWhere(storeId).then(setWhere).catch(() => null);
+    if (tab !== "pro") setPickRegion(false);
+  }, [tab, storeId]);
+  useEffect(() => {
+    if (!selected || selected.clip.type !== "media" || selected.clip.mask?.shape !== "bezier") setEditingMask(false);
+  }, [selected]);
+
+  // LUT هایی که پروژه (و توالی‌هایش) به کار برده؛ متنشان یک بار خوانده می‌شود
+  const usedLuts = useMemo(() => {
+    const keys = new Set<string>();
+    const visit = (tracks: Project["tracks"]) => tracks.forEach((t) => t.clips.forEach((c) => { if (isMedia(c) && c.lut) keys.add(c.lut.key); }));
+    visit(root.tracks);
+    Object.values(root.sequences ?? {}).forEach((q) => visit(q.tracks));
+    return [...keys];
+  }, [root]);
+  const lutLoading = useRef(new Set<string>());
+  useEffect(() => {
+    for (const key of usedLuts) {
+      if (lutData[key] || lutLoading.current.has(key)) continue;
+      lutLoading.current.add(key);
+      videoApi.lutText(storeId, key).then((txt) => setLutData((cur) => ({ ...cur, [key]: parseCube(txt) }))).catch(() => lutLoading.current.delete(key));
+    }
+  }, [usedLuts, lutData, storeId]);
+  const matteMeta = useMemo(() => Object.fromEntries(mattes.map((m) => [m.key, { url: m.url, s0: m.s0 }])), [mattes]);
+
+  async function importLut(file: File) {
+    setLutBusy(true);
+    try {
+      const row = await videoApi.uploadLut(storeId, file);
+      await loadLuts();
+      setNotice(`LUT «${row.title}» (${row.size}³) وارد شد؛ قطعه‌ای را انتخاب و روی آن بزنید.`);
+    } catch (err) {
+      setNotice(errorMessage(err));
+    } finally {
+      setLutBusy(false);
+    }
+  }
+  async function deleteLut(key: string) {
+    try {
+      await videoApi.deleteLut(storeId, key);
+      const strip = (tracks: Project["tracks"]) => tracks.map((t) => ({ ...t, clips: t.clips.map((c) => (isMedia(c) && c.lut?.key === key ? ({ ...c, lut: undefined } as MediaClip) : c)) }));
+      applyRoot("حذفِ LUT", (r) => ({ ...r, tracks: strip(r.tracks), sequences: Object.fromEntries(Object.entries(r.sequences ?? {}).map(([k, q]) => [k, { ...q, tracks: strip(q.tracks) }])) }));
+      await loadLuts();
+    } catch (err) {
+      setNotice(errorMessage(err));
+    }
+  }
+
+  const jobResult = async <T,>(id: number | null): Promise<T | null> => {
+    if (id === null) return null;
+    const { data } = await api.get<Job>(`/jobs/${id}/`);
+    return (data.result as T | undefined) ?? null;
+  };
+
+  // ردیابی
+  const trackJob = useRef<{ id: number | null; ref: string; size: [number, number]; region: { x: number; y: number; w: number; h: number } }>({ id: null, ref: "", size: [0, 0], region: { x: 0, y: 0, w: 0, h: 0 } });
+  const trackRunner = useJobRunner(async () => {
+    try {
+      const r = await jobResult<TrackResult>(trackJob.current.id);
+      if (!r || !r.samples?.length) throw new Error("مسیری برنگشت.");
+      const n = (root.trackers?.length ?? 0) + 1;
+      const t = trackerFromResult(`ردیاب ${n}`, trackJob.current.ref, trackJob.current.size, trackJob.current.region, r);
+      applyRoot("ردیابِ تازه", (rt) => ({ ...rt, trackers: [...(rt.trackers ?? []), t] }));
+      setNotice(`ردیاب ${n} ساخته شد (${r.samples.length} نمونه، ${r.engine.startsWith("node") ? "روی سرورِ پردازش" : "روی سرورِ سایت"})${r.lost_at !== null ? " — ردیابی در ثانیهٔ " + r.lost_at.toFixed(1) + " از دست رفت و همان‌جا تمام شد" : ""}. حالا چیزی را به آن وصل کنید.`);
+    } catch (err) {
+      setTrackErr(errorMessage(err));
+    } finally {
+      setTrackMsg(null);
+    }
+  });
+  useEffect(() => {
+    if (trackRunner.error) {
+      setTrackErr(trackRunner.error);
+      setTrackMsg(null);
+    }
+  }, [trackRunner.error]);
+
+  async function startTrack(opts: { fps: number; seconds: number }) {
+    const c = selected && isMedia(selected.clip) ? selected.clip : null;
+    if (!c || c.kind !== "video" || !region) return;
+    if (c.reverse || c.freeze) {
+      setTrackErr("روی قطعهٔ وارونه یا فریمِ ثابت ردیابی ممکن نیست.");
+      return;
+    }
+    const item = media[c.ref];
+    const fa = project.format.width / project.format.height;
+    const sa = item?.width && item?.height ? item.width / item.height : fa;
+    const [ax, ay] = frameToSource(c, time, region.x, region.y, fa, sa);
+    const [bx, by] = frameToSource(c, time, region.x + region.w, region.y + region.h, fa, sa);
+    const reg = { x: Math.max(0, Math.min(ax, bx)), y: Math.max(0, Math.min(ay, by)), w: Math.max(0.02, Math.abs(bx - ax)), h: Math.max(0.02, Math.abs(by - ay)) };
+    const s0 = Math.max(c.start, Math.min(c.end - 0.3, srcTimeAt(c, Math.max(c.at, Math.min(clipEnd(c), time)))));
+    const s1 = Math.min(c.end, s0 + opts.seconds);
+    setTrackErr(null);
+    setTrackMsg("در حالِ ردیابی…");
+    setPickRegion(false);
+    try {
+      trackRunner.begin();
+      const r = await videoApi.track(storeId, { ref: c.ref, s0, s1, region: reg, fps: opts.fps });
+      trackJob.current = { id: r.job_id, ref: c.ref, size: [item?.width ?? 0, item?.height ?? 0], region: reg };
+      trackRunner.track(r.job_id);
+    } catch (err) {
+      trackRunner.fail(errorMessage(err));
+      setTrackErr(errorMessage(err));
+      setTrackMsg(null);
+    }
+  }
+  function attachSelected(trackerId: string, mask: boolean) {
+    if (!selected) return;
+    const r = attachTo(project, { clipId: selected.clip.id, mask }, trackerId, time, aspectOf);
+    if (r.message) setNotice(r.message);
+    else apply(mask ? "اتصالِ ماسک به ردیاب" : "اتصال به ردیاب", () => r.project);
+  }
+
+  // مات (حذفِ پس‌زمینه)
+  const matteJob = useRef<number | null>(null);
+  const matteRunner = useJobRunner(async () => {
+    try {
+      const r = await jobResult<MatteRow>(matteJob.current);
+      await loadMattes();
+      if (r?.key && selected && isMedia(selected.clip)) {
+        const id = selected.clip.id;
+        apply("ماتِ حذفِ پس‌زمینه", (pr) => updateClip(pr, id, { matte: { key: r.key } }));
+      }
+      setNotice("ماتِ حذفِ پس‌زمینه ساخته و روی قطعه اعمال شد؛ برای دیدنِ تمیزیِ لبه‌ها «پیش‌نمایشِ دقیق» را بزنید.");
+    } catch (err) {
+      setMatteErr(errorMessage(err));
+    } finally {
+      setMatteMsg(null);
+    }
+  });
+  useEffect(() => {
+    if (matteRunner.error) {
+      setMatteErr(matteRunner.error);
+      setMatteMsg(null);
+    }
+  }, [matteRunner.error]);
+  async function makeMatte(fps: number) {
+    const c = selected && isMedia(selected.clip) ? selected.clip : null;
+    if (!c || c.kind !== "video") return;
+    setMatteErr(null);
+    setMatteMsg("در حالِ ساختنِ مات روی سرورِ پردازش…");
+    try {
+      matteRunner.begin();
+      const r = await videoApi.startMatte(storeId, { ref: c.ref, s0: c.start, s1: Math.min(c.end, c.start + (matteStatus?.max_seconds ?? 20)), fps });
+      matteJob.current = r.job_id;
+      matteRunner.track(r.job_id);
+    } catch (err) {
+      matteRunner.fail(errorMessage(err));
+      setMatteErr(errorMessage(err));
+      setMatteMsg(null);
+    }
+  }
+
+  // مولتی‌کم
+  const syncJob = useRef<{ id: number | null; labels: Record<string, string> }>({ id: null, labels: {} });
+  const syncRunner = useJobRunner(async () => {
+    try {
+      const r = await jobResult<SyncResult>(syncJob.current.id);
+      if (!r) throw new Error("جوابی نیامد.");
+      setSyncRows(r.offsets.map((o) => ({ ref: o.ref, label: syncJob.current.labels[o.ref] ?? o.ref, offset: o.offset, confidence: o.confidence, ok: o.ok })));
+    } catch (err) {
+      setSyncErr(errorMessage(err));
+    } finally {
+      setSyncBusy(false);
+    }
+  });
+  useEffect(() => {
+    if (syncRunner.error) {
+      setSyncErr(syncRunner.error);
+      setSyncBusy(false);
+    }
+  }, [syncRunner.error]);
+  const selectedVideos = (): MediaClip[] => {
+    const seen = new Set<string>();
+    const out: MediaClip[] = [];
+    for (const id of selection) {
+      const f = findClip(project, id);
+      if (f && isMedia(f.clip) && f.clip.kind === "video" && !seqIdOf(f.clip) && !seen.has(f.clip.ref)) {
+        seen.add(f.clip.ref);
+        out.push(f.clip);
+      }
+    }
+    return out;
+  };
+  async function syncAngles() {
+    const vids = selectedVideos();
+    if (vids.length < 2) return;
+    setSyncErr(null);
+    setSyncRows(null);
+    setSyncBusy(true);
+    try {
+      syncRunner.begin();
+      const r = await videoApi.syncAngles(storeId, vids.map((v) => v.ref));
+      syncJob.current = { id: r.job_id, labels: Object.fromEntries(vids.map((v) => [v.ref, media[v.ref]?.title ?? v.label])) };
+      syncRunner.track(r.job_id);
+    } catch (err) {
+      syncRunner.fail(errorMessage(err));
+      setSyncErr(errorMessage(err));
+      setSyncBusy(false);
+    }
+  }
+  function makeMulticam(useSync: boolean) {
+    const vids = selectedVideos();
+    if (vids.length < 2) return;
+    const angles: AngleSource[] = vids.map((v) => ({ ref: v.ref, label: (media[v.ref]?.title ?? v.label).slice(0, 30), duration: media[v.ref]?.duration || v.src || v.end, has_audio: !!(media[v.ref]?.has_audio ?? v.has_audio) }));
+    const offsets = vids.map((v) => (useSync ? syncRows?.find((r) => r.ref === v.ref)?.offset ?? 0 : 0));
+    const at = Math.min(...vids.map((v) => v.at));
+    const gone = new Set(withLinked(project, selection));
+    const base: Project = { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => !gone.has(c.id)) })) };
+    const r = createMulticam(base, angles, offsets, at, Math.max(0, angles.findIndex((a) => a.has_audio)));
+    if (!r) {
+      setNotice("مولتی‌کم ساخته نشد.");
+      return;
+    }
+    apply("ساختِ مولتی‌کم", () => r.project);
+    setSelection([r.clipId]);
+    setSyncRows(null);
+    setNotice("مولتی‌کم ساخته شد؛ در تبِ «ابزارها» زاویه را انتخاب کنید یا با کلیدهای ۱ تا ۹ در حینِ پخش برش بزنید.");
+  }
+  const multicamSel = (() => {
+    if (!selected || !isMedia(selected.clip)) return null;
+    const sid = seqIdOf(selected.clip);
+    const seq = sid ? root.sequences?.[sid] : undefined;
+    return sid && seq?.multicam ? { sid, clip: selected.clip, info: seq.multicam } : null;
+  })();
+  function cutToAngle(angle: number) {
+    if (!multicamSel) return;
+    const tn = srcTimeAt(multicamSel.clip, Math.max(multicamSel.clip.at, Math.min(clipEnd(multicamSel.clip), time)));
+    const r = setAngleAt(project, multicamSel.sid, tn, angle);
+    if (r.message) setNotice(r.message);
+    else apply(`برش به زاویهٔ ${angle + 1}`, () => r.project);
+  }
+
+  // توالیِ تودرتو
+  function nestSelection() {
+    const r = nestClips(project, selection, "توالیِ تودرتو");
+    if (!r) return;
+    apply("ساختِ توالیِ تودرتو", () => r.project);
+    setSelection([r.clipId]);
+    setNotice("توالیِ تودرتو ساخته شد؛ «باز کردن برای ویرایش» داخلش می‌برد.");
+  }
+  function openSeq(id: string) {
+    setPlaying(false);
+    setPath((p) => [...p, id]);
+    setSelection([]);
+    setTime(0);
+    setExact(null);
+  }
+  function closeSeq() {
+    setPlaying(false);
+    setPath((p) => p.slice(0, -1));
+    setSelection([]);
+    setTime(0);
+  }
+
+  // قطعِ خودکار روی ضرب‌ها
+  function beatCut(mode: "split" | "fit" | "snap", every: number) {
+    const beats = beatTimes(project);
+    if (!beats.length) {
+      setNotice("اول ضرب‌ها را پیدا کنید.");
+      return;
+    }
+    if (mode === "snap") {
+      const r = beatSnap(project, beats);
+      if (!r.snapped) setNotice("برشی نزدیکِ ضرب (تا ۰٫۲۵ ثانیه) پیدا نشد.");
+      else {
+        apply("چسباندنِ برش‌ها به ضرب", () => r.project);
+        setNotice(`${r.snapped} برش به ضرب چسبید.`);
+      }
+      return;
+    }
+    if (!selection.length) {
+      setNotice("اول قطعه(ها) را انتخاب کنید.");
+      return;
+    }
+    if (mode === "split") {
+      const r = beatSplit(project, selection, beats, every);
+      if (!r.cuts) setNotice("ضربی داخلِ قطعهٔ انتخاب‌شده نیفتاد.");
+      else {
+        apply("برش روی ضرب‌ها", () => r.project);
+        setNotice(`${r.cuts} برش روی ضرب‌ها خورد.`);
+      }
+    } else {
+      const r = beatFit(project, selection, beats, every);
+      if (!r.made) setNotice("جایی برای چیدنِ قطعه‌ها نبود (ضرب کم است یا قطعه‌ای از نوعِ صدا انتخاب شده).");
+      else {
+        apply("مونتاژِ روی ضرب", () => r.project);
+        setNotice(`${r.made} قطعه روی بازه‌های بینِ ضرب‌ها نشست.`);
+      }
+    }
+  }
+
+  // شکل و استیکر: روی بالاترین ترکِ تصویر
+  function placeOnTop(pr: Project, clip: MediaClip): Project {
+    let q = pr;
+    let tr = [...q.tracks].reverse().find((t) => t.kind === "video" && !t.locked);
+    if (!tr || overlaps(tr, clip.at, clipLength(clip))) {
+      q = addTrack(q, "video");
+      tr = q.tracks.filter((t) => t.kind === "video").slice(-1)[0];
+    }
+    const tid = tr.id;
+    return { ...q, tracks: q.tracks.map((t) => (t.id === tid ? { ...t, clips: [...t.clips, clip].sort((a, b) => a.at - b.at) } : t)) };
+  }
+  function overlayBox() {
+    const bw = 0.4;
+    return { width: bw, height: Math.min(0.9, (bw * project.format.width) / project.format.height), x: 0.3, y: 0.3 };
+  }
+  function addShape(kind: ShapeKind) {
+    const box = overlayBox();
+    const id = uid();
+    const clip: MediaClip = {
+      id, type: "media", ref: "shape", label: SHAPES.find((x) => x.key === kind)?.title ?? kind, kind: "image", at: time, start: 0, end: 3, src: 0, opacity: 1, ...box, y: Math.max(0, 0.5 - box.height / 2), volume: 1, speed: 1,
+      fit: "stretch", fade_in: 0, fade_out: 0, audio_on: false, has_audio: false, effects: [], transition: null, shape: defaultShape(kind),
+    };
+    apply("شکل", (pr) => placeOnTop(pr, clip));
+    setSelection([id]);
+    setTab("clip");
+  }
+  function addSticker(item: MediaItem) {
+    const box = overlayBox();
+    const id = uid();
+    const clip: MediaClip = { ...newMediaClip(item, time), id, end: 4, ...box, y: Math.max(0, 0.5 - box.height / 2), fit: "contain" };
+    apply(`استیکر «${item.title}»`, (pr) => placeOnTop(pr, clip));
+    setSelection([id]);
+    setTab("clip");
+  }
+
+  const pickOverlay = pickRegion ? (
+    <RegionOverlay rect={region} onRect={setRegion} />
+  ) : editingMask && selected && isMedia(selected.clip) && selected.clip.mask?.shape === "bezier" ? (
+    <BezierOverlay
+      project={project} clip={selected.clip} time={time}
+      onLive={(points) => { const c = selected.clip as MediaClip; live((pr) => updateClip(pr, c.id, { mask: { ...c.mask!, points } })); }}
+      onEnd={(l) => hist.end(l)}
+    />
+  ) : undefined;
+
   // ───────────── کلیدهای میان‌بر
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -505,6 +900,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       if (lower === "x" && e.altKey) { apply("پاک‌کردنِ ورودی/خروجی", (pr) => ({ ...pr, inout: null })); return; }
       if (lower === "m") { apply("نشانگر", (pr) => addMarker(pr, time, "")); return; }
       if (lower === "t") { newText(); return; }
+      if (/^[1-9]$/.test(k) && multicamSel) { e.preventDefault(); cutToAngle(Number(k) - 1); return; }
       const toolKey: Record<string, Tool> = { v: "select", c: "razor", a: "trackfwd", b: "ripple", n: "roll", y: "slip", u: "slide", r: "rate" };
       if (toolKey[lower]) { setTool(toolKey[lower]); return; }
       if (k === "+" || k === "=") { setPx((v) => Math.min(400, v * 1.25)); return; }
@@ -531,8 +927,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   };
 
   const onGizmo = (id: string, patch: Partial<MediaClip> | Partial<TextClip>, final: boolean) => {
-    if (final) hist.apply("جابه‌جایی روی تصویر", (pr) => updateClip(pr, id, patch));
-    else hist.live((pr) => updateClip(pr, id, patch));
+    if (final) apply("جابه‌جایی روی تصویر", (pr) => updateClip(pr, id, patch));
+    else live((pr) => updateClip(pr, id, patch));
   };
 
   return (
@@ -557,6 +953,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         <Monitor
           ref={monitor}
           project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
+          luts={lutData} matteMeta={matteMeta} pickOverlay={pickOverlay}
           onTime={setTime} onEnded={() => { setPlaying(false); setTime(totalRef.current); }}
           onSeek={seek} onPlay={togglePlay} onStep={step}
           onRate={(r) => { void engine.resume(); setRate(r); setPlaying(true); }}
@@ -574,7 +971,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           }
           overlay={exact ? (
             <div className="vw-exact" data-testid="exact-overlay">
-              <ExactPreview storeId={storeId} projectId={projectId} getData={() => toApi(project)} t0={exact.t0} t1={exact.t1} ensureSaved={saveNow} onClose={() => setExact(null)} />
+              <ExactPreview storeId={storeId} projectId={projectId} getData={() => toApi(root)} t0={exact.t0} t1={exact.t1} ensureSaved={saveNow} onClose={() => setExact(null)} />
             </div>
           ) : undefined}
           footer={scopesOpen ? <div className="vw-scopes" data-testid="scopes"><Scopes getFrame={() => monitor.current?.getFrame() ?? null} version={scopeVer} /></div> : undefined}
@@ -595,6 +992,26 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           onRender={doRender} renderBusy={renderStarting}
           onSubtitles={(r) => void importSubtitles(r)} hasSubtitleSource={hasSubtitleSource}
           onInsertCaptions={insertCaptions} onNotice={setNotice} onBeats={() => void addBeatMarkers()} beatsBusy={beatsBusy}
+          onEditMask={setEditingMask} editingMask={editingMask} exportWhere={where}
+          pro={{
+            project, root, path, selection, selected, playhead: time, media, bin, edit,
+            onAddShape: addShape, onAddMedia: (it) => addFromBin(it),
+            onNest: nestSelection, onOpenSeq: openSeq, onCloseSeq: closeSeq,
+            onUnnest: () => { if (selected) { const r = unnestClip(project, selected.clip.id); if (r.message) setNotice(r.message); else { apply("بازکردنِ توالی", () => r.project); setSelection([]); } } },
+            syncBusy, syncRows, syncError: syncErr, onSync: () => void syncAngles(), onCreateMulticam: makeMulticam,
+            onAngle: cutToAngle,
+            onRemoveCut: (i) => multicamSel && apply("حذفِ برشِ مولتی‌کم", (pr) => removeCutAt(pr, multicamSel.sid, i)),
+            onMulticamAudio: (a) => multicamSel && apply("صدای مولتی‌کم", (pr) => setMulticamAudio(pr, multicamSel.sid, a)),
+            onBeats: () => void addBeatMarkers(), beatsBusy, onBeatCut: beatCut,
+            pickRegion, region, onPickRegion: (on) => { setPickRegion(on); if (on) setRegion(null); },
+            trackBusy: trackMsg, trackError: trackErr, onTrack: (o) => void startTrack(o),
+            onAttach: attachSelected,
+            onDetach: (mask) => selected && apply("جدا کردن از ردیاب", (pr) => detach(pr, selected.clip.id, mask)),
+            onDeleteTracker: (id) => applyRoot("حذفِ ردیاب", (r) => ({ ...r, trackers: (r.trackers ?? []).filter((t) => t.id !== id) })),
+            luts, lutBusy, onImportLut: (f) => void importLut(f), onDeleteLut: (k) => void deleteLut(k),
+            matteStatus, mattes, matteBusy: matteMsg, matteError: matteErr, onMakeMatte: (fps) => void makeMatte(fps),
+            onDeleteMatte: (k) => { void videoApi.deleteMatte(storeId, k).then(loadMattes).catch((err) => setNotice(errorMessage(err))); },
+          }}
         />
         <div className="vw-timeline" dir="rtl">
           <div className="tl-toolbar" data-testid="tl-toolbar">
@@ -603,6 +1020,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             <span className="ws-sep" />
             {TOOLS.map((tt) => tlButton(tt.label, tt.title, () => setTool(tt.key), { on: tool === tt.key, cls: "tool", test: `tool-${tt.key}` }))}
             <span className="ws-sep" />
+            {tlButton("⇥ بعدی‌ها جلو بروند", "جابه‌جایی خودکارِ بعدی‌ها: وقتی قطعه‌ای را کند می‌کنید (یا سرعت/منحنی/فریمِ ثابت) و دراز می‌شود، قطعه‌های بعدیِ همان ترک و صدای پیوندی‌شان خودکار جلو می‌روند (مثلِ ریپل). کوتاه‌کردن چیزی را عقب نمی‌کشد.", () => applyRoot("جابه‌جایی خودکارِ بعدی‌ها", (r) => ({ ...r, auto_ripple: r.auto_ripple === false ? undefined : false })), { on: rippleOn, test: "tl-auto-ripple" })}
             {tlButton("✂ تقسیم (S)", "تقسیم در سرِ پخش (S یا Ctrl+K)", () => splitHere(), { disabled: !hasClips, test: "tl-split" })}
             {tlButton("حذف", "حذف (Delete)", () => removeSelected(false), { disabled: !selection.length, test: "tl-delete" })}
             {tlButton("حذفِ بی‌فاصله", "حذف و بستنِ جا (Shift+Delete)", () => removeSelected(true), { disabled: !selection.length, test: "tl-ripple" })}
@@ -628,17 +1046,17 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           </div>
           <TimelineView
             project={project} selection={selection} playhead={time} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps}
-            onProject={(p, liveDrag) => (liveDrag ? hist.live(() => p) : hist.apply("ویرایش", () => p))}
+            onProject={(p, liveDrag, base) => (liveDrag ? hist.live((r) => through(r, () => p, base)) : hist.apply("ویرایش", (r) => through(r, () => p, base)))}
             onCommit={(l) => hist.end(l)}
             onSelect={(ids) => { setSelection(ids); if (ids.length === 1) { const f = findClip(project, ids[0]); if (f?.clip.type === "text") setTab("text"); else if (tab === "text") setTab("clip"); } }}
             onSeek={seek}
             onDropRef={(trackId, ref, at) => { const it = media[ref]; if (it) addFromBin(it, trackId, at); }}
             onTrack={(id, patch) => apply("ترک", (pr) => updateTrack(pr, id, patch))}
             onRemoveTrack={(id) => apply("حذفِ ترک", (pr) => removeTrack(pr, id))}
-            onRazor={(id, t) => apply("برش با تیغه", (pr) => { let next = pr; for (const x of withLinked(pr, [id])) next = splitAt(next, x, t); return next; })}
+            onRazor={(id, t) => apply("برش با تیغه", (pr) => splitMany(pr, withLinked(pr, [id]), t))}
             onTrackForward={(t) => setSelection(project.tracks.flatMap((tr) => (tr.locked ? [] : tr.clips.filter((c) => clipEnd(c) > t).map((c) => c.id))))}
             onMarkerClick={(id, alt) => { const m = (project.markers ?? []).find((x) => x.id === id); if (alt) apply("حذفِ نشانگر", (pr) => removeMarker(pr, id)); else if (m) seek(m.t); }}
-            onInOut={(a, b) => hist.apply("بازهٔ ورودی/خروجی", (pr) => ({ ...pr, inout: { in: a, out: b } }))}
+            onInOut={(a, b) => apply("بازهٔ ورودی/خروجی", (pr) => ({ ...pr, inout: { in: a, out: b } }))}
             onKeyPick={(id, ch: KfChannel, t) => { setSelection([id]); const f = findClip(project, id); if (f) seek(f.clip.at + t); setTab("clip"); void ch; }}
           />
         </div>

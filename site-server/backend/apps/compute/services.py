@@ -166,10 +166,14 @@ def _kinds_q(node: ComputeNode) -> Q:
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
             q |= Q(kind__startswith=prefix)
+    if (node.capabilities or {}).get("ollama_pull"):
+        # a model download needs the agent, not a running Ollama: the agent starts it (or says clearly it cannot)
+        q |= Q(kind="ollama.pull")
     return q
 
 
-CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama"}
+CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
+                       "edit": "ffmpeg"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
@@ -260,6 +264,11 @@ def progress(job: ComputeJob, data: dict) -> dict:
     if data.get("message"):
         job.message = str(data["message"])[:300]
         fields.append("message")
+    live = data.get("meta")
+    if isinstance(live, dict) and live and len(json.dumps(live, default=str)) < 2000:
+        # پیشرفتِ زنده (مثلاً دانلودِ مدل: بایتِ گرفته‌شده/کل، سرعت، مرحله) — پنل از result["live"] می‌خواند؛ finish آن را نگه می‌دارد
+        job.result = {**(job.result or {}), "live": live}
+        fields.append("result")
     job.save(update_fields=fields)
     return {"cancel": job.cancel_requested}
 
@@ -397,7 +406,7 @@ def summary() -> dict:
     caps = {}
     for n in online:
         for k, v in (n.capabilities or {}).items():
-            if v is True:  # فقط پرچم‌ها؛ slots (عدد)، comfy_nodes/ollama_models (فهرست) و gpu (متن) قابلیت نیستند
+            if v is True and not k.endswith("_stale") and k != "ollama_pull":  # فقط پرچم‌ها (نه «ollama_pull»: ویژگیِ عامل است)؛ slots (عدد)، comfy_nodes/ollama_models (فهرست) و gpu (متن) قابلیت نیستند
                 caps[k] = caps.get(k, 0) + 1
     return {"nodes": len(nodes), "online": len(online), "capabilities": caps,
             "queued": ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).count(),

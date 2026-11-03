@@ -27,4 +27,7 @@ urlpatterns = [
     path(P + "presets/<int:pk>/", views.PresetView.as_view(), name="photoedit-preset"),
     path(P + "presets/<int:pk>/apply/", views.PresetApplyView.as_view(), name="photoedit-preset-apply"),
     path(P + "fonts/", views.FontsView.as_view(), name="photoedit-fonts"),
+    path(P + "genfill/", views.GenFillView.as_view(), name="photoedit-genfill"),
+    path(P + "genfill/<uuid:uid>/", views.GenFillStatusView.as_view(), name="photoedit-genfill-status"),
+    path(P + "projects/<int:pk>/liquify/", views.LiquifyView.as_view(), name="photoedit-liquify"),
 ]

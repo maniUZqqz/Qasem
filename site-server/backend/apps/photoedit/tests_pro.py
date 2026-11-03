@@ -724,14 +724,18 @@ class OpsWiringTests(SimpleTestCase):
                              for r in catalog.RECIPES for o in r["operations"]))
 
     def test_order_is_kept_and_export_last(self):
-        clean = catalog.normalize_operations([
+        """ترتیبِ قدیمی (order=1: فراخواننده تعیین می‌کند) و ترتیبِ قراردادیِ تازه (order=2، پیش‌فرض)."""
+        raw = [
             {"tool": "export", "params": {"format": "png"}},
             {"tool": "resize", "params": {"long_edge": 800}},
             {"tool": "compose", "params": {"layers": [base_layer()]}},
             {"tool": "develop", "params": {"adjust": {"exposure": 1}}},
             {"tool": "kit_auto", "params": {}},
-        ])
+        ]
+        clean = catalog.normalize_operations(raw, order=1)
         self.assertEqual([o["tool"] for o in clean], ["kit_auto", "resize", "compose", "develop", "export"])
+        v2 = catalog.normalize_operations(raw)
+        self.assertEqual([o["tool"] for o in v2], ["kit_auto", "develop", "compose", "resize", "export"])
         with self.assertRaises(catalog.CatalogError):
             catalog.normalize_operations([{"tool": "compose", "params": {"layers": [{"id": "x", "type": "shape"}]}}])
         p = catalog.normalize_params("perspective", {"tl": [0.1, "x"], "tr": [5, 0]})
@@ -970,16 +974,17 @@ class PresetApiTests(ApiTestBase):
     def test_operations_node_offline_and_online(self):
         off = services.preset_operations(self.DATA, False)
         tools = [o["tool"] for o in off]
-        self.assertEqual(tools, ["develop", "compose", "look", "resize", "export"])
+        # ترتیبِ قراردادیِ v2: رنگ (look) پیش از compose تا متنِ سفیدِ روکش رنگ نخورد
+        self.assertEqual(tools, ["develop", "look", "compose", "resize", "export"])
         dev = off[0]["params"]
         self.assertEqual(dev["adjust"]["exposure"], 0.4)
         self.assertIn("rgb", dev["curve"])
         self.assertGreater(len(dev["adjust"]), 2, "فیلترِ «کیت» به لغزنده‌هایش تبدیل می‌شود")
-        comp = off[1]["params"]["layers"]
+        comp = off[2]["params"]["layers"]
         self.assertEqual([l["type"] for l in comp], ["base", "image", "text"])
         on = services.preset_operations(self.DATA, True)
         tools = [o["tool"] for o in on]
-        self.assertEqual(tools, ["kit_auto", "kit_preset", "kit_adjust", "compose", "look", "resize", "export"])
+        self.assertEqual(tools, ["kit_auto", "kit_preset", "kit_adjust", "look", "compose", "resize", "export"])
         self.assertEqual(on[-1]["params"]["quality"], 88)
         # بی روکش ⇒ بی compose
         self.assertNotIn("compose", [o["tool"] for o in services.preset_operations({"adjust": {"contrast": 5}}, False)])

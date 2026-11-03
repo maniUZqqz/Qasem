@@ -20,11 +20,16 @@ type PresetData = {
 };
 
 const CLIP_KEY = "nm.photo.clip";
-const OVERLAY_TYPES = ["image", "text", "shape", "adjust"];
+const OVERLAY_TYPES = ["image", "text", "shape", "adjust", "group"];
 
-const toolOk = (k: string) => k === "look" || k === "auto_tone" || k.startsWith("kit_");
+// crop_format = قابِ شبکه‌ها / مربعِ فروشگاه (جای kit_square ِ قدیمی)؛ پنجرهٔ «سوژه» مالِ همین عکس است و در پریست نمی‌ماند
+const toolOk = (k: string) => k === "look" || k === "auto_tone" || k === "crop_format" || k.startsWith("kit_");
 const pickTools = (tools: Record<string, Params>): Record<string, Params> =>
-  Object.fromEntries(Object.entries(tools).filter(([k]) => toolOk(k)));
+  Object.fromEntries(
+    Object.entries(tools)
+      .filter(([k]) => toolOk(k))
+      .map(([k, v]) => [k, k === "crop_format" ? { ...v, window: [] } : v]),
+  );
 
 const isOverlay = (l: unknown): l is Layer =>
   typeof l === "object" && l !== null && OVERLAY_TYPES.includes(String((l as { type?: unknown }).type));
@@ -34,11 +39,21 @@ const overlayLayers = (layers: Layer[]): Layer[] =>
   layers.filter((l) => OVERLAY_TYPES.includes(l.type)).map((l) => (l.mask?.type === "paint" ? { ...l, mask: null } : l));
 
 /** لایه‌های پریست ⇐ لایه‌های تازه با شناسهٔ نو */
-const freshLayers = (ls: unknown[] | undefined): Layer[] =>
-  (ls ?? []).filter(isOverlay).map((l) => {
+const freshLayers = (ls: unknown[] | undefined): Layer[] => {
+  const src = (ls ?? []).filter(isOverlay);
+  const ids = new Map<string, string>(src.map((l) => [l.id, nid()]));
+  return src.map((l) => {
     const copy = JSON.parse(JSON.stringify(l)) as Layer;
-    return { ...copy, id: nid(), mask: copy.mask?.type === "paint" ? null : copy.mask } as Layer;
+    const fresh = { ...copy, id: ids.get(l.id)!, mask: copy.mask?.type === "paint" ? null : copy.mask } as Layer;
+    // گروه‌ها: parent به شناسهٔ تازهٔ گروه نگاشته می‌شود (گروهِ ناموجود ⇒ سطحِ بالا)
+    if (copy.parent) {
+      const np = ids.get(copy.parent);
+      if (np) fresh.parent = np;
+      else delete fresh.parent;
+    }
+    return fresh;
   });
+};
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 

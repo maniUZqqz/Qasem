@@ -53,6 +53,12 @@ background while the node already takes jobs. Each voice model can be switched o
                   on demand; with auto-switch ComfyUI / Ollama memory is freed first, and an idle engine stops after
                   NM_AUDIO_IDLE_S seconds (default 900) so the GPU is free for video again.
   ollama.chat     text/vision with Ollama (:11434) — payload is the /api/chat or /api/generate body
+  ollama.pull     {tag, expected_bytes}: download one Ollama model (the panel's «دانلود مدل»). Only tags on the site's
+                  allow-list (GET /api/v1/compute/ollama/pullable/, asked every time, fail closed); runs POST /api/pull
+                  (the code path of `ollama pull`) and streams percent / MB / speed back with progress(meta=...).
+                  Ollama resumes by itself (<blob>-partial files + Range requests, 16 parts, stalls retried); on a broken
+                  stream the agent asks again (up to NM_PULL_TRIES, default 30, backing off to 60 s) so the download goes
+                  on from the bytes already on disk. Runs in the background: it does not take a job slot.
   *.http          generic relay to that service: {method, path, json|form, files:{field: input name}}
   node.update     update this folder's code from the site (update.py) and restart when idle
 
@@ -64,9 +70,13 @@ a running node notices new code and restarts by itself when idle.
     python agent.py --prepare   data folder + moving older copies' downloads + registration (START.bat does this)
 Agent 2.1 - every big download (editors, Blender, the update package) goes through nm_fetch.py: it resumes after every
 break, waits and retries for up to 30 minutes without a single new byte, and checks size + sha256 at the end.
+Video editor jobs (edit_render.py / edit_jobs.py / edit_track.py): edit.render = the editor's FINAL render on this computer
+(downloads the originals resumably, NVENC when the card can, uploads the result resumably), edit.track = motion tracking
+(OpenCV, when cv2 is present), edit.matte = background removal per frame through the photo kit's BiRefNet-lite.
 """
 import glob
 import hashlib
+import http.client as http_client       # (not `import http.client`: this file has its own http() function)
 import json
 import mimetypes
 import os
@@ -85,7 +95,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.1"
+VERSION = "2.3"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -973,6 +983,8 @@ class ServiceManager:
 
     def prepare_for(self, kind, auto_switch, tick=None, payload=None):
         """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
+        if kind == "ollama.pull":
+            return        # a download loads no model: nothing to free, and h_ollama_pull starts / waits for the server itself
         audio = audio_engine_for(kind, payload)
         if audio:
             return self.prepare_audio(audio, auto_switch, tick, purpose=audio_purpose(kind, payload))
@@ -1119,6 +1131,22 @@ class Capabilities:
                 caps["ollama_models"] = [m.get("name") for m in tags.get("models", []) if m.get("name")]
             except Exception:  # noqa: BLE001
                 pass
+        if "ollama_models" not in caps:
+            # Ollama is off (or did not answer): the models are still on disk — read them from the manifests so the
+            # panel knows what is installed (and what «دانلود مدل» has to fetch) even while the server is stopped
+            names = ollama_models_on_disk()
+            if names:
+                caps["ollama_models"] = names
+                caps["ollama_models_source"] = "disk"
+        caps["ollama_pull"] = True              # this agent can run ollama.pull (the panel checks this flag, not the version)
+        try:                       # video editor: is ffmpeg here, and what can this node do for it (probed once, in the background)
+            import edit_render
+
+            caps["ffmpeg"] = bool(edit_render.ffmpeg_exe(sys.modules[__name__]))
+            caps["edit"] = edit_render.caps(sys.modules[__name__])
+        except Exception as e:  # noqa: BLE001 - never let this keep the heartbeat from going out
+            caps["ffmpeg"] = False
+            warn("video editor capabilities could not be read: %s" % e)
         self.cache = caps
         return caps
 
@@ -1411,9 +1439,12 @@ class Job:
             raise RuntimeError("input file '%s' is not in the job package" % name)
         return open(p, "rb").read()
 
-    def progress(self, fraction, message=""):
+    def progress(self, fraction, message="", meta=None):
         try:
-            r = self.site.post("/api/v1/compute/jobs/%s/progress/" % self.uid, {"progress": fraction, "message": message})
+            data = {"progress": fraction, "message": message}
+            if meta:
+                data["meta"] = meta          # live numbers for the panel (ollama.pull: bytes done / total, speed, phase)
+            r = self.site.post("/api/v1/compute/jobs/%s/progress/" % self.uid, data)
             if isinstance(r, dict) and r.get("cancel"):
                 self.cancelled = True
         except SiteError as e:
@@ -2895,6 +2926,258 @@ def h_ollama(job):
     return {"primary": name, "engine": "ollama"}
 
 
+# ───────────────────────────────────────────── Ollama model downloads (ollama.pull)
+
+#: kinds that run in the background: a long download must not take the node's only job slot (chat / render keep working)
+BACKGROUND_KINDS = ("ollama.pull",)
+PULL_LOCK = threading.Lock()                    # one download at a time: two would only share the same line
+_PULL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/:")
+
+
+def valid_pull_tag(tag):
+    """name[:tag] of an Ollama model, nothing else (no spaces, no '..', no leading '-', at most one namespace)."""
+    if not tag or not isinstance(tag, str) or len(tag) > 140 or any(c not in _PULL_CHARS for c in tag):
+        return False
+    if tag.count(":") != 1 or ".." in tag or "//" in tag or tag[0] in "-./:" or tag[-1] in "-./:":
+        return False
+    name, _, ver = tag.partition(":")
+    return bool(name) and bool(ver) and name.count("/") <= 1 and ver[0] not in "-."
+
+
+def ollama_models_dir():
+    return (os.environ.get("OLLAMA_MODELS") or "").strip() or os.path.join(os.path.expanduser("~"), ".ollama", "models")
+
+
+def ollama_models_on_disk(root=None):
+    """Names of the models installed in Ollama's folder, read from its manifests (models/manifests/<host>/<namespace>/
+    <model>/<tag>) — works while the server is stopped. «registry.ollama.ai/library/qwen3/14b» is «qwen3:14b»."""
+    base = os.path.join(root or ollama_models_dir(), "manifests")
+    names = []
+    try:
+        for host in sorted(os.listdir(base)):
+            hdir = os.path.join(base, host)
+            for ns in sorted(os.listdir(hdir)) if os.path.isdir(hdir) else []:
+                ndir = os.path.join(hdir, ns)
+                for model in sorted(os.listdir(ndir)) if os.path.isdir(ndir) else []:
+                    mdir = os.path.join(ndir, model)
+                    for tag in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:
+                        if os.path.isfile(os.path.join(mdir, tag)):
+                            name = model if ns == "library" else "%s/%s" % (ns, model)
+                            if host != "registry.ollama.ai":
+                                name = "%s/%s" % (host, name)
+                            names.append("%s:%s" % (name, tag))
+    except OSError:
+        return []
+    return names
+
+
+def ollama_model_names():
+    """Installed Ollama models: the server's own list when it runs, else the disk."""
+    try:
+        tags = http("GET", service_url("ollama") + "/api/tags", timeout=10)
+        names = [m.get("name") for m in tags.get("models", []) if m.get("name")]
+        if names:
+            return names
+    except Exception:  # noqa: BLE001
+        pass
+    return ollama_models_on_disk()
+
+
+class PullBroken(Exception):
+    """One /api/pull stream broke (network, stall, server restart): ask again — Ollama continues from the partial files."""
+
+
+def pull_error(text):
+    """A fatal reason for this error line / HTTP body ('CODE: english | فارسی'), or None when it may pass by retrying."""
+    low = (text or "").lower()
+    if "no space left" in low or "not enough space" in low or "disk full" in low or "insufficient disk" in low:
+        return ("DISK_FULL: the disk of this computer is full (%s) | دیسکِ این کامپیوتر پر شده است؛ جا باز کنید و دوباره دانلود را بزنید "
+                "(آنچه گرفته شده می‌ماند)" % (text or "")[:120])
+    if ("file does not exist" in low or "manifest unknown" in low or "not found" in low or "invalid model name" in low
+            or "unauthorized" in low or "pull model manifest: 4" in low):
+        return ("NOT_FOUND: Ollama's registry has no such model (%s) | این مدل در Ollama پیدا نشد؛ نامِ مدل را بررسی کنید" % (text or "")[:120])
+    return None
+
+
+def pull_allowed(site, tag):
+    """The site's allow-list decides — asked on every job, fail closed (an unreachable site pulls nothing)."""
+    try:
+        reply = site.get_json("/api/v1/compute/ollama/pullable/", timeout=30)
+    except Exception as e:  # noqa: BLE001
+        raise JobError("NOT_ALLOWED: could not read the site's list of allowed models (%s) | فهرستِ مدل‌های مجاز از سایت خوانده نشد؛ "
+                       "اینترنت را بررسی کنید و دوباره بزنید" % e)
+    tags = (reply or {}).get("tags") if isinstance(reply, dict) else None
+    if not isinstance(tags, (dict, list)) or tag not in tags:
+        raise JobError("NOT_ALLOWED: '%s' is not on the site's allow-list | «%s» در فهرستِ مجازِ دانلودِ سایت نیست" % (tag, tag),
+                       retryable=False)
+
+
+class PullTracker:
+    """Per-layer bytes of one download + what the panel shows: percent / MB / speed / phase (progress(meta=...))."""
+
+    def __init__(self, job, tag, expected=0, max_attempts=1, interval=None):
+        if interval is None:                    # one report to the site every ~4 s (NM_PULL_REPORT_S; the tests use 0)
+            try:
+                interval = float(os.environ.get("NM_PULL_REPORT_S") or 4.0)
+            except ValueError:
+                interval = 4.0
+        self.job, self.tag, self.expected, self.max_attempts, self.interval = job, tag, int(expected or 0), max_attempts, interval
+        self.layers = {}                       # digest -> [completed, total]
+        self.phase, self.attempt = "manifest", 1
+        self.speed = 0.0                       # bytes / second (smoothed)
+        self._last_at, self._last_done, self._reported = time.time(), 0, 0.0
+
+    def feed(self, obj):
+        status = str(obj.get("status") or "")
+        digest = obj.get("digest")
+        if digest and obj.get("total"):
+            row = self.layers.setdefault(digest, [0, 0])
+            row[1] = int(obj["total"])
+            row[0] = max(row[0], int(obj.get("completed") or 0))
+            self.phase = "downloading"
+        elif status.startswith("verifying"):
+            self.phase = "verifying"
+        elif status.startswith("writing") or status.startswith("removing"):
+            self.phase = "writing"
+        elif status == "pulling manifest":
+            self.phase = "manifest"
+        elif status == "success":
+            self.phase = "done"
+
+    def done(self):
+        return sum(c for c, _t in self.layers.values())
+
+    def total(self):
+        return max(sum(t for _c, t in self.layers.values()), self.expected)
+
+    def report(self, force=False):
+        now = time.time()
+        if not force and now - self._reported < self.interval:
+            return
+        done, total = self.done(), self.total()
+        if now - self._last_at >= 1.0:
+            rate = max(0.0, (done - self._last_done) / (now - self._last_at))
+            self.speed = rate if not self.speed else 0.5 * self.speed + 0.5 * rate
+            self._last_at, self._last_done = now, done
+        self._reported = now
+        frac = min(0.98, max(0.02, done / total)) if total else 0.02
+        msg = "pull %s: %d / %d MB%s" % (self.tag, done // 1000000, total // 1000000,
+                                         (" (%.1f MB/s)" % (self.speed / 1e6)) if self.speed else "")
+        self.job.progress(frac, msg[:200], {"kind": "pull", "tag": self.tag, "done": done, "total": total,
+                                           "speed_mbs": round(self.speed / 1e6, 1), "phase": self.phase,
+                                           "attempt": self.attempt, "max_attempts": self.max_attempts})
+
+
+def _ollama_up_for_pull():
+    base = service_url("ollama")
+    if listening(base, 1.0):
+        return
+    if MANAGER is not None and MANAGER.startable("ollama") and (STATE.get("desired") or {}).get("ollama") is not False:
+        if MANAGER.start("ollama"):
+            return
+    raise PullBroken("Ollama is not running at %s" % base)
+
+
+def _pull_once(job, tag, tracker):
+    """One POST /api/pull stream until «success». Raises PullBroken (try again), JobError (fatal) or Cancelled."""
+    body = json.dumps({"model": tag, "name": tag, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(service_url("ollama") + "/api/pull", data=body, method="POST",
+                                 headers={"Content-Type": "application/json", "Accept": "application/x-ndjson"})
+    try:
+        resp = urllib.request.urlopen(req, timeout=60)           # 60 s without a byte = a stalled stream
+    except urllib.error.HTTPError as e:
+        detail = e.read()[:400].decode("utf-8", "replace")
+        fatal = pull_error(detail) or (pull_error("not found") if e.code in (400, 404) else None)
+        if fatal:
+            raise JobError(fatal, retryable=False)
+        raise PullBroken("HTTP %s from Ollama: %s" % (e.code, detail[:160]))
+    with resp:
+        for raw in resp:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line.decode("utf-8"))
+            except ValueError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            if obj.get("error"):
+                fatal = pull_error(str(obj["error"]))
+                if fatal:
+                    raise JobError(fatal, retryable=False)
+                raise PullBroken(str(obj["error"])[:300])
+            tracker.feed(obj)
+            tracker.report(force=obj.get("status") == "success")
+            if obj.get("status") == "success":
+                return
+    raise PullBroken("the download stream ended before 'success'")
+
+
+def _pull_pause(tracker, seconds):
+    """Wait between attempts but keep telling the site we are alive (so the lease never runs out) and honour «cancel»."""
+    end = time.time() + seconds
+    while time.time() < end:
+        tracker.report(force=True)
+        time.sleep(max(0.0, min(5.0, end - time.time())))
+
+
+def h_ollama_pull(job):
+    """The panel's «دانلود مدل»: pull one allow-listed Ollama model, with progress, retries and resume."""
+    tag = str(job.payload.get("tag") or "").strip()
+    if not valid_pull_tag(tag):
+        raise JobError("BAD_TAG: '%s' is not a model name | نامِ مدل درست نیست" % tag[:60], retryable=False)
+    pull_allowed(job.site, tag)
+    if not listening(service_url("ollama"), 1.0) and not (
+            MANAGER is not None and MANAGER.startable("ollama") and (STATE.get("desired") or {}).get("ollama") is not False):
+        raise JobError("OLLAMA_DOWN: Ollama is not running on this computer and the agent cannot start it | Ollama روی این کامپیوتر روشن نیست "
+                       "و عامل هم نمی‌تواند روشنش کند؛ برنامهٔ Ollama را باز کنید و دوباره دانلود را بزنید", retryable=False)
+    tries = max(1, int(os.environ.get("NM_PULL_TRIES") or 30))
+    tracker = PullTracker(job, tag, int(job.payload.get("expected_bytes") or 0), tries)
+    t0 = time.time()
+    while not PULL_LOCK.acquire(timeout=5):         # another download is running: wait (and keep the lease alive)
+        tracker.phase = "waiting"
+        tracker.report(force=True)
+    try:
+        if any(str(n).lower() == tag.lower() for n in ollama_model_names()):
+            log("ollama.pull: %s is already installed" % tag)
+            tracker.phase = "done"
+            attempt = 0
+        else:
+            log("ollama.pull: downloading %s (about %d MB)" % (tag, tracker.expected // 1000000))
+            stalled, attempt = 0, 0
+            for attempt in range(1, tries + 1):
+                tracker.attempt = attempt
+                before = tracker.done()
+                try:
+                    _ollama_up_for_pull()
+                    _pull_once(job, tag, tracker)
+                    break
+                except (Cancelled, JobLost, JobError):
+                    raise
+                except (PullBroken, OSError, http_client.HTTPException) as e:   # URLError / socket.timeout are OSErrors
+                    stalled = 0 if tracker.done() > before else stalled + 1
+                    warn("ollama.pull %s: attempt %d/%d broke (%s); Ollama keeps the bytes already downloaded" % (
+                        tag, attempt, tries, str(e)[:160]))
+                    if stalled >= 6 or attempt >= tries:
+                        raise JobError("NO_PROGRESS: the download of %s keeps failing (%s) | دانلودِ %s چند بار پشتِ هم قطع شد و جلو نرفت؛ "
+                                       "اینترنتِ این کامپیوتر را بررسی کنید و دوباره دانلود را بزنید (از همان‌جا ادامه می‌یابد)"
+                                       % (tag, str(e)[:100], tag), retryable=False)
+                    tracker.phase = "retry"
+                    _pull_pause(tracker, min(60, 5 * 2 ** min(attempt - 1, 4)))
+            if not any(str(n).lower() == tag.lower() for n in ollama_model_names()):
+                raise JobError("NOT_INSTALLED: Ollama reported success but %s is not in its list | مدل بعد از دانلود در فهرستِ Ollama "
+                               "دیده نشد" % tag)
+    finally:
+        PULL_LOCK.release()
+    seconds = round(time.time() - t0, 1)
+    with open(job.out("pull.json"), "w", encoding="utf-8") as fh:
+        json.dump({"tag": tag, "bytes": tracker.done(), "seconds": seconds, "attempts": attempt,
+                   "models": ollama_model_names()}, fh, ensure_ascii=False, indent=2)
+    log("ollama.pull: %s installed (%d MB in %ss, %d attempt(s))" % (tag, tracker.done() // 1000000, seconds, attempt))
+    return {"primary": "pull.json", "engine": "ollama", "tag": tag, "bytes": tracker.done(), "attempts": attempt}
+
+
 def h_relay(job):
     service = job.kind.split(".", 1)[0]
     if service == "comfy":
@@ -2923,7 +3206,28 @@ HANDLERS = {
     "node.update": h_node_update,
     "ollama.chat": h_ollama,
     "ollama.generate": h_ollama,
+    "ollama.pull": h_ollama_pull,
 }
+
+def h_edit_render(job):
+    import edit_render
+
+    return edit_render.run(job, sys.modules[__name__])
+
+
+def h_edit_track(job):
+    import edit_jobs
+
+    return edit_jobs.run_track(job, sys.modules[__name__])
+
+
+def h_edit_matte(job):
+    import edit_jobs
+
+    return edit_jobs.run_matte(job, sys.modules[__name__])
+
+
+HANDLERS.update({"edit.render": h_edit_render, "edit.track": h_edit_track, "edit.matte": h_edit_matte})
 
 
 def run_job(site, data):
@@ -3139,12 +3443,14 @@ def main():
                         announced = True
                 last_hb = now
                 SITE_LOG.flush()
-            if len(running) < CONFIG["slots"] and not draining:
+            # background kinds (a model download) do not take a job slot
+            if len([t for t in running if not getattr(t, "nm_background", False)]) < CONFIG["slots"] and not draining:
                 r = site.post("/api/v1/compute/claim/", {})
                 take_control(r)
                 job = r.get("job") if isinstance(r, dict) else None
                 if job:
                     t = threading.Thread(target=run_job, args=(site, job), daemon=True)
+                    t.nm_background = job.get("kind") in BACKGROUND_KINDS
                     t.start()
                     running.append(t)
                     last_hb = 0

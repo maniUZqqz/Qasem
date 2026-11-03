@@ -7,9 +7,25 @@
 * چرخش ``rot``: درجه، ساعتگرد، دورِ مرکزِ لایه.
 * لایه‌ها از پایین به بالا؛ دقیقاً یک لایهٔ ``base`` (عکسِ پایه که کارهای پیش از ``compose`` رویش انجام شده).
 
-نوع‌ها: base، image، text، shape، adjust (تنظیمِ ناحیه‌ای/سراسری)، retouch (کلون و ترمیمِ قلمی).
+نوع‌ها: base، image، text، shape (rect/ellipse/line/path)، adjust (تنظیمِ ناحیه‌ای/سراسری)، retouch (کلون و ترمیمِ قلمی)،
+group (گروهِ ایزوله)، redeye (قرمزیِ چشم).
 ماسک: ``paint`` (فایلِ PNG ِ خاکستری در پوشهٔ پروژه)، ``linear``، ``radial``؛ ضریبِ نهاییِ هر لایه = پیدایی × ماسک.
 تصویرِ بوم در حافظه uint8 RGBA (آلفای مستقیم) است؛ ترکیب نوار‌به‌نوار با float32 انجام می‌شود (سرورِ سایت ۳ گیگ حافظه دارد).
+
+مدلِ «pro 2» (همه اختیاری؛ پروژه‌ای که از آن‌ها استفاده نکند دقیقاً مثلِ قبل ساخته می‌شود)
+------------------------------------------------------------------------------------------
+* ``parent`` (شناسهٔ یک ``group`` یا None) — فهرست تخت می‌ماند؛ درخت از روی parent ساخته می‌شود: لایه‌های بی‌والد = سطحِ بالا،
+  فرزندانِ گروه = لایه‌هایی که parent==id گروه دارند، به ترتیبِ فهرست. والد باید گروهِ موجود باشد، بی‌حلقه، عمقِ گروه‌ها ≤ ۴.
+  ``base`` والد/clip ندارد. ترتیبِ فهرستی بینِ گروه و فرزندانش مهم نیست (فقط ترتیبِ هم‌خواهرها).
+* ``group``: فرزندان در یک انباشتگرِ شفافِ هم‌اندازهٔ بوم رسم می‌شوند؛ adjust/retouch/redeye داخلِ گروه فقط روی همان انباشتگر
+  اثر دارند (RGBِ آلفای مستقیم؛ پیکسل‌های شفاف rgb=0 دارند ⇒ کلیدهای فضایی مثلِ clarity نزدیکِ لبهٔ محتوا تیره می‌شوند)؛ بعد نتیجه
+  با blend/opacity/mask ِ خودِ گروه روی انباشتگرِ والد می‌نشیند. گروهِ پنهان ⇒ فرزندانش هم نیستند. گروهِ بی‌فرزند یا بی‌پیکسل ⇒ رد می‌شود.
+* ``clip``: لایه (image|text|shape|group) به **نزدیک‌ترین هم‌خواهرِ پایین‌تر که image|text|shape|group باشد** (حتی پنهان) بریده می‌شود؛
+  اگر نباشد نادیده. آلفای لایه × «شکلِ هدف» که = آلفای تایلِ هدف (با افکتِ پخته) × ماسکِ هدف × (اگر خودِ هدف clip است، شکلِ هدفِ
+  خودش) — **پیدایی (opacity) و blend ِ هدف نه**. هدفِ پنهان یا بی‌پیکسل ⇒ لایهٔ بریده‌شده دیده نمی‌شود (مثلِ فوتوشاپ).
+  ``clip`` برای adjust/retouch/redeye همیشه False نرمال می‌شود.
+* ``fx`` (image|text|shape): سایه/درخشش/خطِ دور، پخته در تایلِ لایه پیش از blend/opacity/mask (``fx.py``).
+* ``redeye`` (``redeye.py``) و شکلِ ``path`` (``paths.py``).
 """
 from __future__ import annotations
 
@@ -23,18 +39,29 @@ from PIL import Image, ImageDraw
 
 from . import blend as blendmod
 from . import catalog, develop_np, textlayer
+from . import fx as fxmod
+from . import paths as pathsmod
+from . import redeye as redeyemod
 from .blend import BLEND_MODES
 
-MAX_LAYERS = 60
+MAX_LAYERS = 80
 MAX_STROKES = 400
 MAX_POINTS_PER_STROKE = 2000
 MAX_POINTS_TOTAL = 20000
 MAX_CANVAS_PIXELS = 36_000_000
 FLOAT_WORK_PIXELS = 16_000_000
 STRIP_PIXELS = 1_500_000
+MAX_GROUP_DEPTH = 4
+MAX_EYES = redeyemod.MAX_EYES
+MAX_PATH_POINTS = pathsmod.MAX_POINTS
+FX_MAX_PIXELS = 25_000_000       # تایلِ لایه + حاشیهٔ افکت بزرگ‌تر از این ⇒ افکت نادیده (با یادداشت)
 
-LAYER_TYPES = ("base", "image", "text", "shape", "adjust", "retouch")
-TYPE_TITLES = {"base": "عکس", "image": "تصویر", "text": "متن", "shape": "شکل", "adjust": "تنظیم", "retouch": "روتوش"}
+LAYER_TYPES = ("base", "image", "text", "shape", "adjust", "retouch", "group", "redeye")
+TYPE_TITLES = {"base": "عکس", "image": "تصویر", "text": "متن", "shape": "شکل", "adjust": "تنظیم", "retouch": "روتوش",
+               "group": "گروه", "redeye": "قرمزیِ چشم"}
+#: لایه‌هایی که می‌توانند «بُرش به لایهٔ پایین» (clip) بشوند و هدفِ بُرش باشند
+CLIP_TYPES = ("image", "text", "shape", "group")
+FX_TYPES = ("image", "text", "shape")
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,24}$")
 MASK_ID_RE = re.compile(r"^[a-z0-9_-]{1,24}$")
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -136,11 +163,64 @@ def _norm_text(src: dict, out: dict) -> None:
                    if isinstance(tl, dict) else None)
 
 
+def _norm_fx(v) -> dict | None:
+    """افکتِ لایه: {shadow, stroke, glow} هرکدام None یا شیء؛ هر سه None ⇒ None. (اشیاء با opacity/w صفر می‌مانند و فقط اثر ندارند.)"""
+    if not isinstance(v, dict):
+        return None
+    sh, st, gl = v.get("shadow"), v.get("stroke"), v.get("glow")
+    out = {"shadow": None, "stroke": None, "glow": None}
+    if isinstance(sh, dict):
+        out["shadow"] = {"color": _color(sh.get("color"), "#000000"), "opacity": _r(_num(sh.get("opacity"), 0, 1, 0.5)),
+                         "blur": _r(_num(sh.get("blur"), 0, 0.2, 0.012)), "dx": _r(_num(sh.get("dx"), -0.5, 0.5, 0.01)),
+                         "dy": _r(_num(sh.get("dy"), -0.5, 0.5, 0.01))}
+    if isinstance(st, dict):
+        out["stroke"] = {"color": _color(st.get("color"), "#ffffff"), "w": _r(_num(st.get("w"), 0, 0.05, 0.004)),
+                         "opacity": _r(_num(st.get("opacity"), 0, 1, 1.0))}
+    if isinstance(gl, dict):
+        out["glow"] = {"color": _color(gl.get("color"), "#ffd479"), "opacity": _r(_num(gl.get("opacity"), 0, 1, 0.8)),
+                       "blur": _r(_num(gl.get("blur"), 0, 0.2, 0.02)), "size": _r(_num(gl.get("size"), 0, 0.05, 0.006))}
+    return out if any(out.values()) else None
+
+
+def _handle(v):
+    if isinstance(v, (list, tuple)) and len(v) >= 2:
+        dx, dy = _r(_num(v[0], -3, 3, 0)), _r(_num(v[1], -3, 3, 0))
+        return None if dx == 0 and dy == 0 else [dx, dy]
+    return None
+
+
+def _norm_path(v) -> dict:
+    """مسیرِ قلم: {closed, pts:[{x, y, hi, ho}]} — واحدها کسری از جعبهٔ لایه (w × h)؛ ≤ ۲۰۰ نقطه."""
+    if not isinstance(v, dict):
+        return {"closed": True, "pts": []}
+    pts_in = v.get("pts") if isinstance(v.get("pts"), list) else []
+    if len(pts_in) > MAX_PATH_POINTS:
+        raise LayerError(f"مسیر بیشتر از {MAX_PATH_POINTS} نقطه نمی‌شود.")
+    pts = []
+    for p in pts_in:
+        if isinstance(p, dict):
+            pts.append({"x": _r(_num(p.get("x"), -2, 3, 0.5)), "y": _r(_num(p.get("y"), -2, 3, 0.5)),
+                        "hi": _handle(p.get("hi")), "ho": _handle(p.get("ho"))})
+    return {"closed": _bool(v.get("closed"), True), "pts": pts}
+
+
+def _norm_redeye(src: dict, out: dict) -> None:
+    eyes_in = src.get("eyes") if isinstance(src.get("eyes"), list) else []
+    if len(eyes_in) > MAX_EYES:
+        raise LayerError(f"بیشتر از {MAX_EYES} چشم در یک لایه نمی‌شود.")
+    out["eyes"] = [{"x": _r(_num(e.get("x"), 0, 1, 0.5)), "y": _r(_num(e.get("y"), 0, 1, 0.5)),
+                    "r": _r(_num(e.get("r"), 0.002, 0.1, 0.012))} for e in eyes_in if isinstance(e, dict)]
+    out["amount"] = _r(_num(src.get("amount"), 0, 1, 1.0))
+    out["darken"] = _r(_num(src.get("darken"), 0, 1, 0.6))
+
+
 def _norm_shape(src: dict, out: dict) -> None:
-    out["shape"] = src.get("shape") if src.get("shape") in ("rect", "ellipse", "line") else "rect"
+    out["shape"] = src.get("shape") if src.get("shape") in ("rect", "ellipse", "line", "path") else "rect"
     out["w"] = _r(_num(src.get("w"), 0.0005, 4, 0.3))
-    out["h"] = _r(_num(src.get("h"), 0.0, 4, 0.15))
+    out["h"] = _r(_num(src.get("h"), 0.0005 if out["shape"] == "path" else 0.0, 4, 0.15))
     out["radius"] = _r(_num(src.get("radius"), 0, 1, 0))
+    if out["shape"] == "path":
+        out["path"] = _norm_path(src.get("path"))
     if "fill" in src and src["fill"] is None:
         out["fill"] = None
     else:
@@ -178,6 +258,31 @@ def _norm_retouch(src: dict, out: dict) -> None:
     out["strokes"] = strokes
 
 
+def _check_tree(out: list[dict]) -> None:
+    """parent باید گروهِ موجود باشد؛ بی‌حلقه؛ عمقِ گروه‌های تودرتو ≤ MAX_GROUP_DEPTH."""
+    by_id = {o["id"]: o for o in out}
+    for o in out:
+        p = o.get("parent")
+        if p is None:
+            continue
+        tgt = by_id.get(p)
+        if tgt is None:
+            raise LayerError(f"گروهِ «{p}» برای لایهٔ «{o['name']}» پیدا نشد.")
+        if tgt["type"] != "group":
+            raise LayerError(f"والدِ لایهٔ «{o['name']}» باید یک «گروه» باشد.")
+    for o in out:
+        seen, cur, depth = {o["id"]}, o.get("parent"), 0
+        while cur is not None:
+            if cur in seen:
+                raise LayerError("گروه‌ها حلقه دارند (یک گروه داخلِ خودش یا فرزندش است).")
+            seen.add(cur)
+            depth += 1
+            cur = by_id[cur].get("parent")
+        # depth = تعدادِ گروه‌های بالاسرِ این لایه؛ گروهِ سطحِ بالا ⇒ عمقِ ۱
+        if o["type"] == "group" and depth + 1 > MAX_GROUP_DEPTH:
+            raise LayerError(f"گروه‌ها بیشتر از {MAX_GROUP_DEPTH} سطح تودرتو نمی‌شوند.")
+
+
 def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
     """لایه‌ها را وارسی و به بازه می‌برد؛ کلیدِ ناشناخته دور ریخته می‌شود.
 
@@ -209,8 +314,20 @@ def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
             raise LayerError(f"حالتِ ترکیبِ «{blend}» ناشناخته است.")
         o = {"id": lid, "type": t, "name": str(src.get("name") or TYPE_TITLES[t])[:60],
              "visible": _bool(src.get("visible"), True), "locked": _bool(src.get("locked")),
-             "opacity": _r(_num(src.get("opacity"), 0, 1, 1)), "blend": "normal" if t in ("adjust", "retouch") else blend,
+             "opacity": _r(_num(src.get("opacity"), 0, 1, 1)),
+             "blend": "normal" if t in ("adjust", "retouch", "redeye") else blend,
              "mask": normalize_mask(src.get("mask"))}
+        if t == "base":
+            if src.get("parent"):
+                raise LayerError("لایهٔ «عکس» نمی‌تواند داخلِ گروه باشد.")
+        else:
+            par = src.get("parent")
+            if par is not None and par != "" and not (isinstance(par, str) and _ID_RE.match(par)):
+                raise LayerError("شناسهٔ گروهِ والد نامعتبر است.")
+            o["parent"] = par or None
+            o["clip"] = _bool(src.get("clip")) and t in CLIP_TYPES
+        if t in FX_TYPES:
+            o["fx"] = _norm_fx(src.get("fx"))
         if t in ("image", "text", "shape"):
             o["cx"] = _r(_num(src.get("cx"), -3, 4, 0.5))
             o["cy"] = _r(_num(src.get("cy"), -3, 4, 0.5))
@@ -240,7 +357,12 @@ def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
             o["curve"] = catalog.normalize_curve(src.get("curve"))
         elif t == "retouch":
             _norm_retouch(src, o)
+        elif t == "group":
+            o["collapsed"] = _bool(src.get("collapsed"))
+        elif t == "redeye":
+            _norm_redeye(src, o)
         out.append(o)
+    _check_tree(out)
     n_base = sum(1 for o in out if o["type"] == "base")
     if base == "one" and n_base != 1:
         raise LayerError("پروژه باید دقیقاً یک لایهٔ «عکس» داشته باشد.")
@@ -260,18 +382,28 @@ def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
 def mask_ids(layers) -> set[str]:
     """شناسهٔ ماسک‌های رنگ‌آمیزی‌شده‌ای که لایه‌ها به آن‌ها اشاره دارند."""
     out = set()
-    for l in layers or []:
-        m = l.get("mask") if isinstance(l, dict) else None
+    stack = list(layers or [])
+    while stack:
+        l = stack.pop()
+        if not isinstance(l, dict):
+            continue
+        m = l.get("mask")
         if isinstance(m, dict) and m.get("type") == "paint" and m.get("id"):
             out.add(str(m["id"]))
+        if isinstance(l.get("children"), list):          # فهرستِ تودرتو (اگر کسی بفرستد)؛ مدلِ ما تخت است و همهٔ لایه‌ها در فهرست‌اند
+            stack.extend(l["children"])
     return out
 
 
 def preset_layers(layers) -> list[dict]:
-    """لایه‌های قابلِ استفاده در پیش‌تنظیم: بدونِ لایهٔ عکس و روتوش، بدونِ ماسکِ رنگ‌آمیزی (مختصاتشان به یک عکس بسته است)."""
+    """لایه‌های قابلِ استفاده در پیش‌تنظیم: بدونِ لایهٔ عکس، روتوش و قرمزیِ چشم، بدونِ ماسکِ رنگ‌آمیزی (مختصاتشان به یک عکس بسته است).
+
+    گروه‌ها (با parent و clip) می‌مانند؛ چون فقط لایه‌های غیرِ گروه و بی‌اثر در هدف حذف می‌شوند، والدِ هیچ لایه‌ای از دست نمی‌رود
+    و هدفِ clip هم عوض نمی‌شود (base/retouch/redeye هرگز هدفِ clip نیستند).
+    """
     clean = []
     for l in layers if isinstance(layers, list) else []:
-        if not isinstance(l, dict) or l.get("type") in ("base", "retouch"):
+        if not isinstance(l, dict) or l.get("type") in ("base", "retouch", "redeye"):
             continue
         l = dict(l)
         m = l.get("mask")
@@ -395,6 +527,20 @@ def _render_image(layer, ctx, state, W, H):
     sw, sh = img.size
     wpx = layer["w"] * W
     hpx = wpx * sh / sw
+    if fxmod.active(layer.get("fx")):
+        nw, nh = max(1, int(round(wpx))), max(1, int(round(hpx)))
+        m = fxmod.margin(layer["fx"], W)
+        if (nw + 2 * m) * (nh + 2 * m) <= FX_MAX_PIXELS:
+            # افکت‌ها به پیکسلِ بوم اند ⇒ عکس اول به اندازهٔ بومیِ لایه می‌آید؛ قرینه پیش از افکت (جهتِ سایه قرینه نشود)
+            im = img if (nw, nh) == (sw, sh) else img.resize(
+                (nw, nh), Image.Resampling.LANCZOS if nw * nh < sw * sh else Image.Resampling.BICUBIC)
+            if layer["flip_h"]:
+                im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            if layer["flip_v"]:
+                im = im.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+            tile, pivot = fxmod.bake(im, (nw / 2, nh / 2), layer["fx"], W)
+            return place(tile, pivot, wpx / nw, hpx / nh, layer["cx"] * W, layer["cy"] * H, layer["rot"], False, False, W, H)
+        ctx["notes"].append(f"افکتِ لایهٔ «{layer['name']}» برای اندازهٔ بزرگِ لایه نادیده گرفته شد")
     if wpx < sw * 0.75:
         nw, nh = max(1, int(round(wpx))), max(1, int(round(hpx)))
         img = img.resize((nw, nh), Image.Resampling.LANCZOS)
@@ -429,6 +575,8 @@ def _render_shape(layer, ctx, W, H):
     tw, th = int(math.ceil(wpx)) + 2 * pad, int(math.ceil(box_h)) + 2 * pad
     if tw < 2 or th < 2:
         return None
+    if layer["shape"] == "path":
+        return _render_path(layer, ctx, W, H, wpx, hpx, sw_px, pad, tw, th)
     ss = 2 if tw * th * 4 <= 16_000_000 else 1
     big = (tw * ss, th * ss)
     fill_mask = Image.new("L", big, 0)
@@ -459,6 +607,13 @@ def _render_shape(layer, ctx, W, H):
         stroke_mask = stroke_mask.reduce(ss)
         if fill_mask is not None:
             fill_mask = fill_mask.reduce(ss)
+    tile = _paint_shape(layer, fill_mask, stroke_mask, tw, th)
+    return _finish_tile(layer, tile, (tw / 2, th / 2), ctx, W, H)
+
+
+def _paint_shape(layer, fill_mask, stroke_mask, tw, th):
+    """ماسک‌های پر و خط (L، هم‌اندازهٔ تایل) ⇒ تایلِ RGBA ِ رنگی."""
+    stroke = layer["stroke"]
     tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
     fill = layer["fill"]
     if fill and fill_mask is not None:
@@ -470,12 +625,46 @@ def _render_shape(layer, ctx, W, H):
             rgb = Image.new("RGBA", (tw, th), col + (0,))
             rgb.putalpha(fill_mask.point(lambda v: int(round(v * fill["opacity"]))))
         tile = Image.alpha_composite(tile, rgb)
-    if stroke:
+    if stroke and stroke_mask is not None:
         col = tuple(int(stroke["color"][i:i + 2], 16) for i in (1, 3, 5))
         st = Image.new("RGBA", (tw, th), col + (0,))
         st.putalpha(stroke_mask)
         tile = Image.alpha_composite(tile, st)
-    return place(tile, (tw / 2, th / 2), 1.0, 1.0, layer["cx"] * W, layer["cy"] * H, layer["rot"], False, False, W, H)
+    return tile
+
+
+def _bake_fx(tile, pivot, layer, ctx, W):
+    """افکتِ لایه را در تایل می‌پزد؛ تایلِ خیلی بزرگ ⇒ افکت نادیده (با یادداشت)."""
+    fx = layer.get("fx")
+    if not fxmod.active(fx):
+        return tile, pivot
+    m = fxmod.margin(fx, W)
+    if (tile.width + 2 * m) * (tile.height + 2 * m) > FX_MAX_PIXELS:
+        ctx["notes"].append(f"افکتِ لایهٔ «{layer['name']}» برای اندازهٔ بزرگِ لایه نادیده گرفته شد")
+        return tile, pivot
+    return fxmod.bake(tile, pivot, fx, W)
+
+
+def _finish_tile(layer, tile, pivot, ctx, W, H):
+    """افکت (اگر باشد) + جاگذاری با cx, cy, rot ِ لایه (بدونِ قرینه) ⇒ (آرایه، x0، y0) یا None."""
+    tile, pivot = _bake_fx(tile, pivot, layer, ctx, W)
+    return place(tile, pivot, 1.0, 1.0, layer["cx"] * W, layer["cy"] * H, layer["rot"], False, False, W, H)
+
+
+def _render_path(layer, ctx, W, H, wpx, hpx, sw_px, pad, tw, th):
+    """شکلِ ``path``: نقطه‌ها کسری از جعبهٔ w × h ⇒ پیکسلِ تایل = pad + x·wpx (مرکزِ جعبه = محورِ لایه)."""
+    path = layer.get("path") or {}
+    poly = pathsmod.flatten(path, wpx, hpx)
+    if len(poly) < 2:
+        return None
+    poly = [(x + pad, y + pad) for x, y in poly]
+    ss = 2 if tw * th * 4 <= 16_000_000 else 1
+    to_l = lambda cov: Image.fromarray(np.clip(np.rint(cov * 255.0), 0, 255).astype(np.uint8), "L")
+    fill_mask = to_l(pathsmod.fill_coverage(poly, tw, th, ss)) if layer["fill"] else None
+    stroke_mask = (to_l(pathsmod.stroke_coverage(poly, bool(path.get("closed")), sw_px, tw, th, ss))
+                   if layer["stroke"] else None)
+    tile = _paint_shape(layer, fill_mask, stroke_mask, tw, th)
+    return _finish_tile(layer, tile, (pad + wpx / 2, pad + hpx / 2), ctx, W, H)
 
 
 def _render_text(layer, ctx, W, H):
@@ -486,7 +675,12 @@ def _render_text(layer, ctx, W, H):
     tl = layer.get("tile")
     if tl:
         pat = textlayer.tile_pattern(tile, (W, H), tl["angle"], tl["gap"])
+        if fxmod.active(layer.get("fx")):
+            pat, (px, py) = _bake_fx(pat, (0, 0), layer, ctx, W)      # حاشیه‌ای که بیرونِ بوم می‌افتد بریده می‌شود
+            px, py = int(round(px)), int(round(py))
+            pat = pat.crop((px, py, px + W, py + H))
         return _tile_to_np(pat), 0, 0
+    tile, pivot = _bake_fx(tile, pivot, layer, ctx, W)
     return place(tile, pivot, 1.0, 1.0, layer["cx"] * W, layer["cy"] * H, layer["rot"], False, False, W, H)
 
 
@@ -498,9 +692,40 @@ def _strips(y0, y1, w):
         yield a, min(y1, a + step)
 
 
-def _composite_tile(acc, tile, x0, y0, mode, opacity, mask_spec, ctx, state, W, H, first):
+class _Shape:
+    """«شکلِ برش» ِ یک لایه: آلفای مؤثرش (آلفای تایل × ماسک × برشِ خودش) به uint8، روی کادرِ تایل؛ بیرونِ کادر صفر."""
+    __slots__ = ("arr", "x0", "y0")
+
+    def __init__(self, arr, x0, y0):
+        self.arr, self.x0, self.y0 = arr, x0, y0
+
+    def region(self, x0, y0, x1, y1) -> np.ndarray:
+        out = np.zeros((y1 - y0, x1 - x0), np.float32)
+        ax0, ay0 = max(x0, self.x0), max(y0, self.y0)
+        ax1, ay1 = min(x1, self.x0 + self.arr.shape[1]), min(y1, self.y0 + self.arr.shape[0])
+        if ax1 > ax0 and ay1 > ay0:
+            out[ay0 - y0:ay1 - y0, ax0 - x0:ax1 - x0] = (
+                self.arr[ay0 - self.y0:ay1 - self.y0, ax0 - self.x0:ax1 - self.x0].astype(np.float32) * np.float32(1 / 255.0))
+        return out
+
+
+def _shape_of(tile, x0, y0, mask_spec, clip, ctx, state, W, H) -> _Shape:
     th, tw = tile.shape[:2]
-    if first and mode == "normal" and not mask_spec and opacity >= 0.999 and (tw, th) == (W, H):
+    arr = np.empty((th, tw), np.uint8)
+    for a, b in _strips(0, th, tw):
+        s = tile[a:b, :, 3].astype(np.float32) * np.float32(1 / 255.0)
+        m = _mask_region(mask_spec, ctx, state, x0, y0 + a, x0 + tw, y0 + b, W, H)
+        if m is not None:
+            s *= m
+        if clip is not None:
+            s *= clip.region(x0, y0 + a, x0 + tw, y0 + b)
+        arr[a:b] = np.clip(np.rint(s * 255.0), 0, 255).astype(np.uint8)
+    return _Shape(arr, x0, y0)
+
+
+def _composite_tile(acc, tile, x0, y0, mode, opacity, mask_spec, ctx, state, W, H, first, clip=None):
+    th, tw = tile.shape[:2]
+    if first and clip is None and mode == "normal" and not mask_spec and opacity >= 0.999 and (tw, th) == (W, H):
         acc[...] = tile
         return
     for a, b in _strips(0, th, tw):
@@ -509,6 +734,8 @@ def _composite_tile(acc, tile, x0, y0, mode, opacity, mask_spec, ctx, state, W, 
         m = _mask_region(mask_spec, ctx, state, x0, y0 + a, x0 + tw, y0 + b, W, H)
         if m is not None:
             a_s *= m
+        if clip is not None:
+            a_s *= clip.region(x0, y0 + a, x0 + tw, y0 + b)
         if not a_s.any():
             continue
         cs = t[..., :3].astype(np.float32) / 255.0
@@ -546,16 +773,21 @@ def _radial_bbox(spec, W, H):
     return x0, y0, x1, y1
 
 
-def _apply_adjust(acc, layer, ctx, state, W, H):
+def _apply_adjust(acc, layer, ctx, state, W, H, box=None):
+    """box: فقط برای انباشتگرِ گروه — کادرِ محتوا (x0, y0, x1, y1)؛ کلیدهای غیرفضایی بیرونِ آن حساب نمی‌شوند (آنجا شفاف است)."""
     adj = develop_np.normalize_adjust(layer.get("adjust"))
     curve = catalog.normalize_curve(layer.get("curve"))
     if not adj and not curve:
         return
     x0, y0, x1, y1 = 0, 0, W, H
     spatial = bool(SPATIAL_KEYS & set(adj))
+    if box is not None and not spatial:
+        x0, y0, x1, y1 = box
     bb = _radial_bbox(layer.get("mask"), W, H)
     if bb and not spatial and (bb[2] - bb[0]) * (bb[3] - bb[1]) < 0.6 * W * H:
-        x0, y0, x1, y1 = bb
+        x0, y0, x1, y1 = max(x0, bb[0]), max(y0, bb[1]), min(x1, bb[2]), min(y1, bb[3])
+        if x1 <= x0 or y1 <= y0:
+            return
     w, h = x1 - x0, y1 - y0
     rgb = acc[y0:y1, x0:x1, :3].astype(np.float32) / 255.0
     scale = float(ctx.get("scale") or 1.0)
@@ -657,8 +889,108 @@ def _apply_retouch(acc, layer, ctx, state, W, H):
         acc[y0:y1, x0:x1, :3] = np.clip(new + 0.5, 0, 255).astype(np.uint8)
 
 
+def _apply_redeye(acc, layer, ctx, state, W, H):
+    """قرمزیِ چشم فقط روی کادرِ چشم‌ها (redeye.py)؛ نتیجه با پیدایی × ماسکِ لایه با رنگِ پیشین ترکیب می‌شود (مثلِ تنظیم)."""
+    eyes = layer.get("eyes") or []
+    box = redeyemod.union_box(eyes, W, H)
+    if not eyes or box is None:
+        return
+    x0, y0, x1, y1 = box
+    rgb = acc[y0:y1, x0:x1, :3].astype(np.float32) / 255.0
+    redeyemod.fix_region(rgb, x0, y0, eyes, float(layer["amount"]), float(layer["darken"]), W, H)
+    _lerp_region(acc, rgb, x0, y0, layer["opacity"], layer.get("mask"), ctx, state, W, H)
+
+
+def _union(a, b):
+    if a is None:
+        return b
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+
+
+def _layer_tile(layer, ctx, state, W, H, by_parent):
+    """لایهٔ پیکسل‌ساز (base|image|text|shape|group) ⇒ (تایل uint8 h×w×4، x0، y0) یا None."""
+    t = layer["type"]
+    if t == "base":
+        return _tile_to_np(state["base"]), 0, 0
+    if t == "image":
+        return _render_image(layer, ctx, state, W, H)
+    if t == "text":
+        return _render_text(layer, ctx, W, H)
+    if t == "group":
+        return _render_group(layer, ctx, state, W, H, by_parent)
+    return _render_shape(layer, ctx, W, H)
+
+
+def _render_group(layer, ctx, state, W, H, by_parent):
+    """گروهِ ایزوله: فرزندان در انباشتگرِ شفافِ تازه ⇒ نتیجه (برش‌خورده به کادرِ محتوا؛ نمایی از انباشتگر) ⇒ (تایل، x0، y0)."""
+    kids = by_parent.get(layer["id"]) or []
+    if not kids:
+        return None
+    g = np.zeros((H, W, 4), np.uint8)
+    dirty = _render_level(g, kids, ctx, state, W, H, by_parent, True)
+    if dirty is None:
+        return None
+    x0, y0, x1, y1 = dirty
+    return g[y0:y1, x0:x1], x0, y0
+
+
+def _render_level(acc, items, ctx, state, W, H, by_parent, in_group=False):
+    """یک سطح از درخت (فهرستِ هم‌خواهرها از پایین به بالا) روی ``acc`` ⇒ کادرِ «کثیف» (x0, y0, x1, y1) یا None."""
+    first = True
+    dirty = None
+    target_of: dict[str, str] = {}
+    targets: set[str] = set()
+    last_t = None
+    for l in items:
+        if l["type"] in CLIP_TYPES:
+            if l.get("clip") and last_t is not None:
+                target_of[l["id"]] = last_t
+                targets.add(last_t)
+            last_t = l["id"]
+    shapes: dict[str, _Shape] = {}
+    for layer in items:
+        if not layer["visible"]:
+            continue
+        t = layer["type"]
+        try:
+            if t == "adjust":
+                if not first:
+                    _apply_adjust(acc, layer, ctx, state, W, H, box=dirty if in_group else None)
+                continue
+            if t == "retouch":
+                if not first:
+                    _apply_retouch(acc, layer, ctx, state, W, H)
+                continue
+            if t == "redeye":
+                if not first:
+                    _apply_redeye(acc, layer, ctx, state, W, H)
+                continue
+            clip = None
+            tid = target_of.get(layer["id"])
+            if tid is not None:
+                clip = shapes.get(tid)
+                if clip is None:        # هدف پنهان یا بی‌پیکسل ⇒ چیزی دیده نمی‌شود
+                    continue
+            r = _layer_tile(layer, ctx, state, W, H, by_parent)
+            if r is None:
+                continue
+            tile, x0, y0 = r
+            _composite_tile(acc, tile, x0, y0, layer["blend"], layer["opacity"], layer.get("mask"), ctx, state, W, H,
+                            first, clip)
+            if layer["id"] in targets:
+                shapes[layer["id"]] = _shape_of(tile, x0, y0, layer.get("mask"), clip, ctx, state, W, H)
+            dirty = _union(dirty, (x0, y0, x0 + tile.shape[1], y0 + tile.shape[0]))
+            first = False
+            del tile, r
+        except MemoryError:
+            ctx["notes"].append(f"حافظه برای لایهٔ «{layer['name']}» کافی نبود")
+    return dirty
+
+
 def compose(base: Image.Image, layers: list[dict], ctx: dict, project: int = 0) -> Image.Image:
-    """بومِ بوم‌اندازهٔ ``base`` ⇐ ترکیبِ لایه‌ها از پایین به بالا. ``layers`` همان خروجیِ normalize_layers است."""
+    """بومِ بوم‌اندازهٔ ``base`` ⇐ ترکیبِ لایه‌ها از پایین به بالا. ``layers`` همان خروجیِ normalize_layers است.
+
+    درخت: سطحِ بالا = لایه‌های بی‌parent؛ فرزندانِ هر گروه = لایه‌هایی با parent==id (به ترتیبِ فهرست)."""
     ctx.setdefault("notes", [])
     layers = normalize_layers(layers, base="one")
     if base.mode not in ("RGB", "RGBA"):
@@ -670,42 +1002,11 @@ def compose(base: Image.Image, layers: list[dict], ctx: dict, project: int = 0) 
         W, H = base.size
         ctx["notes"].append("عکس خیلی بزرگ بود؛ لایه‌ها روی نسخهٔ ۳۶ مگاپیکسلی ترکیب شدند")
     acc = np.zeros((H, W, 4), np.uint8)
-    state = {"paint": {}, "images": {}, "project": project}
-    first = True
-    for layer in layers:
-        if not layer["visible"]:
-            continue
-        t = layer["type"]
-        try:
-            if t == "adjust":
-                if not first:
-                    _apply_adjust(acc, layer, ctx, state, W, H)
-                continue
-            if t == "retouch":
-                if not first:
-                    _apply_retouch(acc, layer, ctx, state, W, H)
-                continue
-            if t == "base":
-                tile, x0, y0 = _tile_to_np(base), 0, 0
-            elif t == "image":
-                r = _render_image(layer, ctx, state, W, H)
-                if r is None:
-                    continue
-                tile, x0, y0 = r
-            elif t == "text":
-                r = _render_text(layer, ctx, W, H)
-                if r is None:
-                    continue
-                tile, x0, y0 = r
-            else:
-                r = _render_shape(layer, ctx, W, H)
-                if r is None:
-                    continue
-                tile, x0, y0 = r
-            _composite_tile(acc, tile, x0, y0, layer["blend"], layer["opacity"], layer.get("mask"), ctx, state, W, H, first)
-            first = False
-        except MemoryError:
-            ctx["notes"].append(f"حافظه برای لایهٔ «{layer['name']}» کافی نبود")
+    state = {"paint": {}, "images": {}, "project": project, "base": base}
+    by_parent: dict = {}
+    for l in layers:
+        by_parent.setdefault(l.get("parent"), []).append(l)
+    _render_level(acc, by_parent.get(None, []), ctx, state, W, H, by_parent)
     img = Image.fromarray(acc, "RGBA")
     if acc[..., 3].min() == 255:
         return img.convert("RGB")

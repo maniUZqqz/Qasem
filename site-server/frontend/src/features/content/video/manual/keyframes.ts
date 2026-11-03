@@ -25,7 +25,8 @@ export const KF_TITLE: Record<KfChannel, string> = {
   px: "جابه‌جایی افقی", py: "جابه‌جایی عمودی", scale: "اندازه", rot: "چرخش", opacity: "شفافیت", volume: "بلندی صدا",
   crop_l: "برش چپ", crop_r: "برش راست", crop_t: "برش بالا", crop_b: "برش پایین",
 };
-export const MAX_KEYS = 24;
+/** همان MAX_KEYS ِ سرور (مسیرِ ردیابیِ حرکت هم کلید می‌شود) */
+export const MAX_KEYS = 96;
 
 export function ease(kind: Easing, u: number): number {
   const x = u < 0 ? 0 : u > 1 ? 1 : u;

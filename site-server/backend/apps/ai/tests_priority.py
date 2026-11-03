@@ -327,6 +327,14 @@ class OrderTests(Base):
             self.routed(FakeMetis()).generate("x", "y")
         self.assertEqual(local.calls[0][1], "gemma3:27b")
         self.setting(model_text="not-installed:1b")
+        # qwq:32b is in the chain of the everyday text: it stands in (local stays first), and the answer says so
+        p0 = self.routed(FakeMetis())
+        with self.local_patch(FakeLocal()):
+            p0.generate("x", "y")
+        self.assertEqual((p0.answered_via, p0.answered_by, p0.fell_back), ("local", TEXT_MODEL, False))
+        self.assertIn("not-installed:1b", p0.model_note)
+        # a node with none of the chain's models: straight to Metis
+        ComputeNode.objects.all().update(capabilities={"ollama": True, "ollama_models": ["llama3:8b"]})
         metis = FakeMetis()
         p = self.routed(metis)
         with self.local_patch(FakeLocal()) as m:
@@ -406,7 +414,7 @@ class BreakerTests(Base):
         self.assertIsNone(priority.open_failure("local", TEXT_MODEL))
 
     def test_after_the_first_failure_the_rest_of_the_job_skips_the_dead_path(self):
-        self.node()
+        self.node(models=(TEXT_MODEL,))
         local = FakeLocal(exc=OllamaError("model not found (404)"))
         metis = FakeMetis()
         p = self.routed(metis)
@@ -818,17 +826,20 @@ class SettingTests(TestCase):
 
     def test_env_defaults_when_no_model_is_picked(self):
         self.assertEqual(priority.local_model(priority.CODE), CODER)
-        self.assertEqual(priority.local_model(priority.TEXT), TEXT_MODEL)
+        self.assertEqual(priority.local_model(priority.TEXT), "gemma3:12b")        # everyday text: fast, good Persian
+        self.assertEqual(priority.local_model(priority.RESEARCH), TEXT_MODEL)      # research keeps qwq:32b
         self.assertEqual(priority.local_model(priority.VISION), VISION_MODEL)
 
     def test_owner_confirmed_tags_are_the_defaults_even_if_env_is_silent(self):
         from django.conf import settings
-        silent = {**settings.UPMARKET_AI, "MODEL_CODER": "", "MODEL_REASONING": "", "MODEL_VISION": ""}
+        silent = {**settings.UPMARKET_AI, "MODEL_CODER": "", "MODEL_REASONING": "", "MODEL_VISION": "", "MODEL_TEXT": ""}
         with override_settings(UPMARKET_AI=silent):
             self.assertEqual(priority.local_model(priority.CODE), "qwen3-coder:30b")
-            self.assertEqual(priority.local_model(priority.TEXT), "qwq:32b")
+            self.assertEqual(priority.local_model(priority.TEXT), "gemma3:12b")
+            self.assertEqual(priority.local_model(priority.RESEARCH), "qwq:32b")
             self.assertEqual(priority.local_model(priority.VISION), "qwen3-vl:30b")
-        self.assertEqual(priority.DEFAULT_MODELS, {"code": "qwen3-coder:30b", "text": "qwq:32b", "vision": "qwen3-vl:30b"})
+        self.assertEqual(priority.DEFAULT_MODELS, {"code": "qwen3-coder:30b", "text": "gemma3:12b", "research": "qwq:32b",
+                                                   "vision": "qwen3-vl:30b"})
 
     def test_answer_labels(self):
         self.assertEqual(priority.answer_label("local", "qwq:32b"), "لوکال (qwq:32b)")
@@ -861,8 +872,10 @@ class ApiTests(TestCase):
         d = r.data
         self.assertEqual(d["priority"], "local_first")
         self.assertTrue(d["local"]["online"])
-        self.assertEqual(set(d["kinds"]), {"text", "code", "vision"})
-        self.assertEqual(d["kinds"]["text"]["model"], TEXT_MODEL)
+        self.assertEqual(set(d["kinds"]), {"text", "research", "code", "vision"})
+        self.assertEqual(d["kinds"]["text"]["model"], "gemma3:12b")
+        self.assertEqual(d["kinds"]["text"]["effective_model"], TEXT_MODEL)       # gemma3 is not on this node: qwq stands in
+        self.assertEqual(d["kinds"]["research"]["model"], TEXT_MODEL)
         self.assertIs(d["kinds"]["code"]["installed"], True)
         self.assertEqual(d["kinds"]["vision"]["metis_model"], "gpt-4o-mini")
         self.assertTrue(d["metis"]["configured"])
@@ -948,7 +961,7 @@ class ApiTests(TestCase):
     @override_settings(AI_ROUTE_FORCE=True)
     def test_ai_status_card_names_both_paths_for_text_and_vision(self):
         rows = {x["capability"]: x for x in self.c.get("/api/v1/ai/status/").data["capabilities"]}
-        for cap, model in (("TEXT", TEXT_MODEL), ("VISION", VISION_MODEL)):
+        for cap, model in (("TEXT", "gemma3:12b"), ("VISION", VISION_MODEL)):
             self.assertEqual(rows[cap]["kind"], "ROUTED")
             self.assertTrue(rows[cap]["local"])
             self.assertEqual(rows[cap]["model"], model)

@@ -100,14 +100,23 @@ def _tools() -> list[dict]:
                     _bool("flip_h", "قرینهٔ افقی"), _bool("flip_v", "قرینهٔ عمودی")]},
         {"key": "crop_format", "title": "برش برای شبکه‌ها", "where": "server", "icon": "image",
          "help": "اندازهٔ دقیقِ هر شبکه. «پر کردن» برش می‌زند (جای سوژه را خودش پیدا می‌کند)؛ «جا دادن» چیزی را نمی‌بُرد و "
-                 "دورش را با نسخهٔ محوِ خودِ عکس یا یک رنگ پر می‌کند.",
-         "params": [_sel("format", "قالب", _opt(*[(k, v[2]) for k, v in SOCIAL_FORMATS.items()]), "square"),
+                 "دورش را با نسخهٔ محوِ خودِ عکس، یک رنگ یا شفاف پر می‌کند. «قابِ مربعِ دلخواه» ضلعش را خودتان می‌گویید.",
+         "params": [_sel("format", "قالب", _opt(*[(k, v[2]) for k, v in SOCIAL_FORMATS.items()],
+                                               ("custom", "مربعِ دلخواه (ضلع به پیکسل)")), "square"),
+                    _num("size", "ضلعِ قابِ دلخواه (پیکسل)", 200, 4000, 2000, 10, "px",
+                         "فقط وقتی قالب «مربعِ دلخواه» است"),
                     _sel("fit", "روش", _opt(("cover", "پر کردن (برش)"), ("contain", "جا دادن (بی‌برش)")), "cover"),
                     _sel("focus", "سوژه کجاست", _opt(("smart", "خودکار"), ("center", "وسط"), ("top", "بالا"),
                                                     ("bottom", "پایین"), ("left", "چپ"), ("right", "راست")), "smart"),
                     _sel("fill", "پرکردنِ دور (جا دادن)", _opt(("blur", "محوِ خودِ عکس"), ("white", "سفید"),
-                                                             ("black", "سیاه"), ("color", "رنگِ دلخواه")), "blur"),
-                    _color("fill_color", "رنگِ دلخواه", "#f3f4f6")]},
+                                                             ("black", "سیاه"), ("color", "رنگِ دلخواه"),
+                                                             ("transparent", "شفاف")), "blur"),
+                    _color("fill_color", "رنگِ دلخواه", "#f3f4f6"),
+                    _num("padding", "حاشیه (فقط جا دادن)", 0, 40, 0, 1, "%",
+                         "کالا تا (۱ − ۲×حاشیه) از قاب بزرگ می‌شود"),
+                    {"key": "window", "title": "پنجرهٔ برش", "type": "window", "default": [],
+                     "help": "[چپ، بالا، پهنا، ارتفاع] به کسری از عکسِ ورودی (فقط پر کردن)؛ اگر باشد جای «سوژه کجاست» را می‌گیرد "
+                             "تا پیش‌نمایشِ مرورگر و خروجی یکی باشند."}]},
         {"key": "crop_rect", "title": "برشِ دلخواه (مستطیل)", "where": "server", "icon": "image",
          "help": "هر ناحیه از عکس را با مختصاتِ نسبی ببُرید (چپ، بالا، پهنا، ارتفاع به درصدِ عکس). در حالتِ «دستی» "
                  "همین را با کشیدنِ قاب روی عکس می‌سازید.",
@@ -187,8 +196,9 @@ def _tools() -> list[dict]:
          "help": "۲ یا ۴ برابر با بازسازیِ جزئیات (برای عکسِ کوچک یا فشرده). سقفِ خروجی ۴۰۹۶ پیکسل.",
          "params": [_sel("factor", "چند برابر", _opt(("2", "۲ برابر"), ("4", "۴ برابر")), "2")]},
         {"key": "kit_smart", "title": "ویرایشِ هوشمند با دستور", "where": "node", "icon": "bulb",
-         "help": "هوشِ مصنوعیِ بینای سرورِ پردازش عکسِ کوچک و اندازه‌گیری‌ها را می‌بیند و لغزنده‌های کیت را تنظیم می‌کند؛ یک "
-                 "بار نتیجه را می‌بیند و اصلاح می‌کند. بی مدلِ بینا ⇐ همان بهبودِ خودکار.",
+         "help": "بگویید چه می‌خواهید؛ هوشِ مصنوعیِ بینا عکس و اندازه‌گیری‌ها را می‌بیند و لغزنده‌ها را تنظیم می‌کند. اگر «اول لوکال» است و "
+                 "سرورِ پردازش روشن است، روی سرورِ پردازش (کیت)؛ وگرنه از سرورِ سایت: اول متیس یا لوکال طبقِ «تنظیماتِ هوش مصنوعی» "
+                 "و اگر هیچ‌کدام جواب نداد، فقط نور و رنگِ خودکارِ سبک.",
          "params": [_text("goal", "چه می‌خواهید؟", "", "مثلاً: گرم و روشن، مناسبِ اینستاگرامِ کافه", 300)]},
 
         # ─────────────── ابزارهای پنهانِ ادیتورِ حرفه‌ای (سرورِ سایت؛ در دستورها و پیشنهاد نمی‌آیند)
@@ -207,6 +217,9 @@ def _tools() -> list[dict]:
                     {"key": "tr", "title": "بالا-راست", "type": "point", "default": [1, 0], "help": ""},
                     {"key": "br", "title": "پایین-راست", "type": "point", "default": [1, 1], "help": ""},
                     {"key": "bl", "title": "پایین-چپ", "type": "point", "default": [0, 1], "help": ""}]},
+        {"key": "liquify", "title": "مایع‌سازی (Liquify)", "where": "server", "icon": "refresh", "hidden": True,
+         "help": "نقشهٔ جابه‌جاییِ پروژه (liquify.bin) روی عکسِ پایه اعمال می‌شود؛ بی نقشه، عکس دست‌نخورده می‌ماند.",
+         "params": [_num("project", "شمارهٔ پروژه (برای نقشهٔ مایع‌سازی)", 0, 10 ** 9, 0, 1)]},
     ]
 
 
@@ -265,12 +278,14 @@ RECIPES = [
      "operations": [_o("logo", source="store", position="br", size=18, opacity=90, margin=4),
                     _o("watermark", optional=True, on=False, text="", mode="tiled", size=4, opacity=20),
                     _o("export", format="jpeg", quality=92)]},
-    {"key": "smart", "title": "ویرایش با دستور (هوشِ مصنوعی)", "help": "بگویید چه می‌خواهید؛ هوشِ مصنوعیِ بینا تنظیم می‌کند.",
+    {"key": "smart", "title": "ویرایش با دستور (هوشِ مصنوعی)", "help": "بگویید چه می‌خواهید؛ هوشِ مصنوعیِ بینا تنظیم می‌کند — بی سرورِ پردازشِ روشن هم کار می‌کند (از سرورِ سایت).",
      "operations": [_o("kit_smart", goal=""), _o("export", format="jpeg", quality=92)]},
     {"key": "manual", "title": "دستی", "help": "ابزارها را خودتان یکی‌یکی اضافه کنید.", "operations": []},
 ]
 #: هر دستور در کدام «حالت» ِ ادیتور زندگی می‌کند: auto (یک‌کلیک)، prompt (نیمه‌خودکار با دستور)، manual (دستی)
 RECIPE_MODE = {"smart": "prompt", "manual": "manual"}
+#: دستورهایی که کارِ سرورِ پردازششان یک مسیرِ جایگزین روی سرورِ سایت دارد (ویرایش با دستور: هوشِ مصنوعیِ بینا از سایت)
+SITE_FALLBACK_RECIPES = {"smart"}
 RECIPE_BY_KEY = {r["key"]: r for r in RECIPES}
 
 
@@ -280,7 +295,8 @@ def recipe_list() -> list[dict]:
         ops = [dict(o, params=normalize_params(o["tool"], o["params"], strict=False)) for o in r["operations"]]
         out.append({"key": r["key"], "title": r["title"], "help": r["help"], "operations": ops,
                     "mode": RECIPE_MODE.get(r["key"], "auto"),
-                    "needs_node": any(tools()[o["tool"]]["where"] == "node" and not o["optional"] for o in ops)})
+                    "needs_node": r["key"] not in SITE_FALLBACK_RECIPES
+                    and any(tools()[o["tool"]]["where"] == "node" and not o["optional"] for o in ops)})
     return out
 
 
@@ -323,6 +339,37 @@ def normalize_curve(v) -> dict:
         if len(ordered) >= 2 and any(abs(a - b) > 1e-6 for a, b in ordered):
             out[ch] = [[a, b] for a, b in ordered]
     return out
+
+
+WINDOW_MIN = 0.02      # کمترین پهنا/ارتفاعِ پنجرهٔ برش (کسری از عکس)
+WINDOW_SLACK = 1e-3    # خطای گردکردنِ مرورگر (x+w کمی بیش از ۱) پذیرفته و به لبه چسبانده می‌شود
+
+
+def normalize_window(v) -> list:
+    """پنجرهٔ برشِ [x, y, w, h] به کسری از عکسِ ورودی ⇐ فهرستِ ۴ عددی (۶ رقم اعشار) یا ``[]`` (= بی‌پنجره).
+
+    هر چهار عدد به ۰..۱ می‌رود؛ پهنا و ارتفاع ≥ ۰٫۰۲ و x+w ≤ ۱ و y+h ≤ ۱ باید باشد وگرنه کلِ پنجره دور ریخته می‌شود
+    (نه این‌که نصفه‌نیمه درست شود). x+w تا ۰٫۰۰۱ بیش از ۱ (خطای گردکردنِ مرورگر) به لبه چسبانده می‌شود.
+    """
+    if not isinstance(v, (list, tuple)) or len(v) != 4:
+        return []
+    nums = []
+    for item in v:
+        if isinstance(item, bool):
+            return []
+        x = _clamp(item, 0.0, 1.0, None)
+        if x is None:
+            return []
+        nums.append(x)
+    x, y, w, h = nums
+    if w < WINDOW_MIN or h < WINDOW_MIN:
+        return []
+    if x + w > 1 + WINDOW_SLACK or y + h > 1 + WINDOW_SLACK:
+        return []
+    w, h = min(w, 1.0 - x), min(h, 1.0 - y)
+    if w < WINDOW_MIN or h < WINDOW_MIN:
+        return []
+    return [round(x, 6), round(y, 6), round(w, 6), round(h, 6)]
 
 
 def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True) -> dict:
@@ -380,13 +427,29 @@ def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True)
                     spots.append({"x": round(_clamp(s.get("x"), 0, 1, 0.5), 4), "y": round(_clamp(s.get("y"), 0, 1, 0.5), 4),
                                   "r": round(_clamp(s.get("r"), 0.002, 0.2, 0.02), 4)})
             out[k] = spots
+        elif t == "window":
+            out[k] = normalize_window(v)
     if tool_key == "kit_preset" and out.get("preset") not in kit_presets():
         out["preset"] = "clean"
     return out
 
 
-def normalize_operations(ops) -> list[dict]:
-    """[{tool, params, on?}] ⇐ فقط آن‌هایی که روشن‌اند، با پارامترهای وارسی‌شده؛ کارهای سرورِ پردازش اول."""
+#: ترتیبِ قراردادیِ نسخهٔ ۲ برای کارهای سرورِ سایت: «قاب» (هندسه ⇐ برشِ شبکه‌ها) اول، بعد رنگ، بعد لایه‌ها و روکش‌ها
+#: روی بومِ نهایی، آخرش اندازه و خروجی. ابزارهای رنگ پیش از compose می‌آیند تا متنِ سفید رنگ نخورد.
+SERVER_ORDER_V2 = ("develop", "liquify", "perspective", "rotate", "crop_rect", "crop_format", "auto_tone", "look",
+                   "color", "compose", "text", "logo", "watermark", "resize", "export")
+_RANK_V2 = {k: i for i, k in enumerate(SERVER_ORDER_V2)}
+#: نسخهٔ ترتیب که روی ``PhotoEdit.stats["order"]`` نشان می‌خورد (نبودنش ⇐ ۱ = ترتیبِ قدیمی)
+ORDER_CURRENT = 2
+
+
+def normalize_operations(ops, order: int = ORDER_CURRENT) -> list[dict]:
+    """[{tool, params, on?}] ⇐ فقط آن‌هایی که روشن‌اند، با پارامترهای وارسی‌شده؛ کارهای سرورِ پردازش اول.
+
+    ``order=2`` (پیش‌فرض، برای کارِ تازه): کارهای سرورِ سایت به ترتیبِ ``SERVER_ORDER_V2`` پایدار مرتب می‌شوند
+    (هم‌رده‌ها به ترتیبِ فراخواننده)، ``export`` همیشه آخر. ``order=1``: ترتیبِ فراخواننده دقیقاً مثلِ قدیم
+    (فقط export آخر) — برای ساختِ دوبارهٔ نسخه‌های قدیمی.
+    """
     if not isinstance(ops, list):
         raise CatalogError("operations باید فهرست باشد.")
     if len(ops) > 30:
@@ -415,7 +478,11 @@ def normalize_operations(ops) -> list[dict]:
     if sum(1 for o in node if o["tool"] == "kit_smart") > 1:
         raise CatalogError("«ویرایشِ هوشمند» یک بار کافی است.")
     exports = [o for o in server if o["tool"] == "export"]
-    server = [o for o in server if o["tool"] != "export"] + exports[-1:]   # قالبِ خروجی همیشه آخر
+    body = [o for o in server if o["tool"] != "export"]
+    if int(order or 1) >= 2:
+        mid = _RANK_V2["compose"]
+        body.sort(key=lambda o: _RANK_V2.get(o["tool"], mid))    # sort پایدار است
+    server = body + exports[-1:]   # قالبِ خروجی همیشه آخر
     return node + server
 
 

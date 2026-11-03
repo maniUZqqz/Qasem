@@ -23,7 +23,7 @@ IMAGE = "IMAGE"
 VIDEO = "VIDEO"
 
 # task type used by services.ai.router → capability
-TASK_CAPABILITY = {"REASONING": TEXT, "CODE": TEXT, "VISION": VISION}
+TASK_CAPABILITY = {"REASONING": TEXT, "RESEARCH": TEXT, "CODE": TEXT, "VISION": VISION}
 
 
 @dataclass(frozen=True)

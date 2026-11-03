@@ -40,14 +40,18 @@ class AiPriority(models.Model):
     priority = models.CharField("اولویتِ هوش مصنوعی", max_length=12, choices=ORDERS, default="local_first",
                                 help_text="اگر اولی در دسترس نبود (سرورِ پردازش خاموش، مدل نصب نیست، مهلت، اعتبارِ متیس تمام، قطعِ اتصال) "
                                           "همان لحظه خودکار دومی جواب می‌دهد.")
-    priority_text = models.CharField("اولویتِ کارهای متن و استدلال", max_length=12, choices=OVERRIDES, blank=True, default="",
+    priority_text = models.CharField("اولویتِ کارهای متنِ روزمره", max_length=12, choices=OVERRIDES, blank=True, default="",
                                      help_text="خالی = مثلِ تنظیمِ کلی")
+    priority_research = models.CharField("اولویتِ کارهای پژوهش و استدلالِ عمیق", max_length=12, choices=OVERRIDES, blank=True,
+                                         default="", help_text="خالی = مثلِ تنظیمِ کلی")
     priority_code = models.CharField("اولویتِ کارهای کد و سایت‌ساز", max_length=12, choices=OVERRIDES, blank=True, default="",
                                      help_text="خالی = مثلِ تنظیمِ کلی")
     priority_vision = models.CharField("اولویتِ کارهای بینایی (تصویر)", max_length=12, choices=OVERRIDES, blank=True, default="",
                                        help_text="خالی = مثلِ تنظیمِ کلی")
-    model_text = models.CharField("مدلِ لوکالِ متن و استدلال", max_length=120, blank=True, default="",
-                                  help_text="خالی = پیش‌فرض (MODEL_REASONING در .env، مثلاً qwq:32b)")
+    model_text = models.CharField("مدلِ لوکالِ متنِ روزمره (محتوا، کپشن، چت)", max_length=120, blank=True, default="",
+                                  help_text="خالی = پیش‌فرض (MODEL_TEXT در .env، وگرنه gemma3:12b)")
+    model_research = models.CharField("مدلِ لوکالِ پژوهش و استدلالِ عمیق", max_length=120, blank=True, default="",
+                                      help_text="خالی = پیش‌فرض (MODEL_REASONING در .env، مثلاً qwq:32b)")
     model_code = models.CharField("مدلِ لوکالِ کد و سایت‌ساز", max_length=120, blank=True, default="",
                                   help_text="خالی = پیش‌فرض (MODEL_CODER در .env، مثلاً qwen3-coder:30b)")
     model_vision = models.CharField("مدلِ لوکالِ بینایی", max_length=120, blank=True, default="",

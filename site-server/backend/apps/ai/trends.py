@@ -360,7 +360,8 @@ def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
     from apps.ai.services import recorded_json_call
     from apps.products.models import Product
     from services.ai.gateway import text_provider
-    from services.ai.router import TASK_REASONING, models_for
+    from services.ai.priority import RESEARCH
+    from services.ai.router import TASK_RESEARCH, models_for
 
     trends = current(regions)
     if trend_ids:
@@ -407,8 +408,8 @@ def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
         task_type=AIRequest.TaskType.REASONING,
         prompt_id="trend_ideas",
         prompt_version="1",
-        provider=text_provider(store),
-        models=models_for(TASK_REASONING),
+        provider=text_provider(store, kind=RESEARCH),
+        models=models_for(TASK_RESEARCH),
         prompt=build_idea_prompt(store, products, trends),
         system=IDEA_SYSTEM,
         validate=lambda parsed: (

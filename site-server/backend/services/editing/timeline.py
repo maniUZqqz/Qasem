@@ -28,7 +28,9 @@ only loses resolution.
 (`has_audio`, `volume`, fades, EQ, pan), a speed (or a keyframed speed ramp, reverse, freeze), a fit, picture effects
 and a Lumetri-style colour block, keyframed position/scale/rotation/opacity/crop/volume, chroma key, blend mode, a
 mask, a transition into it (xfade library), and a track can hold titles/captions (`TextClip`, rendered by libass).
-Stills are clips too (`kind="image"`). `from_project` turns the panel's JSON into a Timeline, resolving every `ref`
+Stills are clips too (`kind="image"`); so are shapes and stickers (a drawn PNG, `shapes.py`). A clip can carry a 3D LUT,
+a free-form mask (`masks.py`), a background-removal matte (`matte`), and can be a whole **nested sequence**
+(`ref="seq:<id>"`, built recursively here and inlined into the parent's graph by `compose.py`). `from_project` turns the panel's JSON into a Timeline, resolving every `ref`
 through a callback — the browser never names a file path.
 """
 from __future__ import annotations
@@ -40,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import color as color_module
-from . import keyframes
+from . import keyframes, luts, masks, shapes
 from .errors import TimelineError
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,8 @@ PROXY_PRESET = "veryfast"
 #: it describes, and nobody is hand-building a 40-track edit in this panel.
 MAX_TRACKS = 12
 MAX_CLIPS = 120
+#: sequences inside sequences (a nested clip's own timeline may hold nested clips, up to this deep)
+MAX_NEST = 3
 
 FITS = ("stretch", "cover", "contain")
 TRACK_KINDS = ("video", "audio", "text")
@@ -66,7 +70,7 @@ ROLES = ("", "speech", "music", "sfx")
 TEXT_POSITIONS = ("top", "middle", "bottom")
 BLENDS = ("normal", "multiply", "screen", "overlay", "add", "softlight", "lighten", "darken", "difference")
 EQ_PRESETS = ("flat", "voice", "bright", "warm", "phone", "bass_cut", "bass_boost", "deess")
-MASK_SHAPES = ("none", "rect", "ellipse")
+MASK_SHAPES = ("none", "rect", "ellipse", "bezier")
 
 #: Legacy transition kinds ("fade" = dip to black, "crossfade" = dissolve) + the xfade library.
 LEGACY_TRANSITIONS = ("fade", "crossfade")
@@ -191,6 +195,17 @@ class Clip:
     segs: list | None = None
     #: Length of the whole source file (0 = unknown) — how much footage exists beyond the in/out points (handles).
     src_len: float = 0.0
+    #: Pixel size of the source picture (0 = unknown) — a matte video is scaled to it.
+    src_w: int = 0
+    src_h: int = 0
+    #: A (possibly blended) .cube handed to `lut3d`, after the colour block.
+    lut_file: str = ""
+    #: The grey PNG of a free-form mask, and the matte (background removal) video + the source second it starts at.
+    mask_file: str = ""
+    matte_file: str = ""
+    matte_s0: float = 0.0
+    #: A nested sequence: this clip's picture and sound are that timeline's (its time = the nested timeline's time).
+    nested: object = None
 
     @property
     def source_length(self) -> float:
@@ -235,6 +250,8 @@ class Clip:
             )
         if self.kind == "image" and self.end is None:
             raise TimelineError(f"{where}: برای عکس باید مدتِ نمایش مشخص باشد.")
+        if self.nested is not None and self.end is None:
+            raise TimelineError(f"{where}: توالیِ تودرتو مدت ندارد (خالی است).")
         if not 0 <= self.opacity <= 1:
             raise TimelineError(f"{where}: شفافیت باید بین ۰ و ۱ باشد.")
         for name, value in (("x", self.x), ("y", self.y)):
@@ -368,7 +385,11 @@ class Timeline:
 
     @property
     def clip_count(self) -> int:
-        return sum(len(t.clips) for t in self.tracks)
+        n = 0
+        for t in self.tracks:
+            for c in t.clips:
+                n += 1 + (getattr(c, "nested", None).clip_count if getattr(c, "nested", None) is not None else 0)
+        return n
 
     def validate(self, *, need_base: bool = True) -> None:
         if not self.tracks:
@@ -387,6 +408,8 @@ class Timeline:
         for track in self.tracks:
             for index, clip in enumerate(track.clips):
                 clip.validate(index)
+                if getattr(clip, "nested", None) is not None:
+                    clip.nested.validate(need_base=False)
             clashes = track.overlaps()
             if clashes:
                 first, second = clashes[0]
@@ -584,6 +607,18 @@ def _clean_extras(rc: dict) -> dict:
         out["mask"] = {"shape": shape, "cx": _num(mask_in.get("cx"), 0, 1, 0.5), "cy": _num(mask_in.get("cy"), 0, 1, 0.5),
                        "w": _num(mask_in.get("w"), 0.02, 1, 0.6), "h": _num(mask_in.get("h"), 0.02, 1, 0.6),
                        "feather": _num(mask_in.get("feather"), 0, 0.5, 0.05), "invert": _bool(mask_in.get("invert"))}
+        if shape == "bezier":
+            pts = masks.clean_points(mask_in.get("points"))
+            if pts:
+                out["mask"]["points"] = pts
+            else:
+                out["mask"] = {}
+        # a motion track moves the mask: the displacement of its centre (fractions of the clip's box) over the clip's time
+        if out["mask"]:
+            for axis in ("kx", "ky"):
+                keys = keyframes.clean_keys(mask_in.get(axis), -2.0, 2.0)
+                if keys:
+                    out["mask"][axis] = keys
     else:
         out["mask"] = {}
 
@@ -631,7 +666,9 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
                "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
                "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
     e = data.get("export") if isinstance(data.get("export"), dict) else {}
-    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps")}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where")}
+    if export.get("where") not in (None, "auto", "server"):
+        export.pop("where")
     markers = []
     for item in (data.get("markers") if isinstance(data.get("markers"), list) else [])[:400]:
         if isinstance(item, dict):
@@ -647,11 +684,13 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
     return master, ducking, export, markers, inout
 
 
-def from_project(data: dict, resolve) -> Timeline:
+def from_project(data: dict, resolve, *, _depth: int = 0, _chain: tuple = ()) -> Timeline:
     """The panel's project JSON → a validated Timeline.
 
-    `resolve(ref)` returns ``{"path", "kind", "has_audio", "duration"}`` or raises TimelineError. Everything the browser
-    sends is clamped here; unknown keys are dropped, unknown tools refused.
+    `resolve(ref)` returns ``{"path", "kind", "has_audio", "duration"}`` (plus ``width``/``height`` for videos) or raises
+    TimelineError. Everything the browser sends is clamped here; unknown keys are dropped, unknown tools refused.
+    Refs of the form ``seq:<id>`` are the project's own nested sequences (`data["sequences"]`), built recursively;
+    ``lut:<key>`` and ``matte:<key>`` are the shop's imported LUTs and background-removal mattes.
     """
     from . import tools as tools_module
     from . import titles
@@ -691,7 +730,34 @@ def from_project(data: dict, resolve) -> Timeline:
                 ))
                 continue
             ref = str(rc.get("ref") or "")
-            info = resolve(ref)
+            shape_in = rc.get("shape") if isinstance(rc.get("shape"), dict) else None
+            nested_tl = None
+            if shape_in is not None and kind == "video":
+                # a shape is a drawn PNG used as a still: it carries every picture property (keyframes, masks, fades …)
+                spec = shapes.clean(shape_in)
+                box_w = max(8, int(_num(rc.get("width"), 0.02, 1, 1.0) * width))
+                box_h = max(8, int(_num(rc.get("height"), 0.02, 1, 1.0) * height))
+                info = {"path": str(shapes.render_cached(spec, box_w, box_h)), "kind": "image", "has_audio": False, "duration": 0.0}
+            elif ref.startswith("seq:"):
+                if kind != "video":
+                    raise TimelineError(f"«{label or ref}»: توالیِ تودرتو را فقط روی ترکِ تصویر می‌شود گذاشت.")
+                sid = ref[4:]
+                seqs = data.get("sequences") if isinstance(data.get("sequences"), dict) else {}
+                seq = seqs.get(sid)
+                if not isinstance(seq, dict):
+                    raise TimelineError(f"«{label or ref}»: توالیِ تودرتو پیدا نشد (شاید پاک شده).")
+                if _depth >= MAX_NEST or sid in _chain:
+                    raise TimelineError(f"«{label or ref}»: توالی‌های تودرتو بیش از {MAX_NEST} سطح یا حلقه‌ای‌اند.")
+                sub_format = seq.get("format") if isinstance(seq.get("format"), dict) else {"width": width, "height": height, "fps": fps}
+                nested_tl = from_project({"format": sub_format, "tracks": seq.get("tracks"), "sequences": seqs, "master": seq.get("master")},
+                                         resolve, _depth=_depth + 1, _chain=_chain + (sid,))
+                nested_tl.validate(need_base=False)
+                from . import audiofx
+
+                info = {"path": "", "kind": "video", "duration": nested_tl.length,
+                        "has_audio": any(audiofx.carries(t, c) for t in nested_tl.tracks for c in t.clips)}
+            else:
+                info = resolve(ref)
             src_kind = info.get("kind", "video")
             if kind == "audio" and src_kind == "image":
                 raise TimelineError(f"«{label or ref}»: عکس را روی ترکِ صدا نمی‌شود گذاشت.")
@@ -726,6 +792,24 @@ def from_project(data: dict, resolve) -> Timeline:
             extras = _clean_extras(rc)
             if src_kind == "image":
                 extras["ramp"], extras["reverse"] = [], False
+            lut_file = ""
+            lut_in = rc.get("lut") if isinstance(rc.get("lut"), dict) else None
+            if lut_in and lut_in.get("key"):
+                got = resolve("lut:" + str(lut_in["key"]))
+                lut_file = str(luts.blended(got["path"], _num(lut_in.get("amount"), 0, 1, 1.0)))
+            matte_file, matte_s0 = "", 0.0
+            matte_in = rc.get("matte") if isinstance(rc.get("matte"), dict) else None
+            if matte_in and matte_in.get("key") and src_kind == "video" and nested_tl is None:
+                got = resolve("matte:" + str(matte_in["key"]))
+                matte_file, matte_s0 = str(got["path"]), float(got.get("s0") or 0.0)
+            mask_file = ""
+            m = extras.get("mask") or {}
+            if m.get("shape") == "bezier" and m.get("points"):
+                moving = bool(m.get("kx") or m.get("ky"))
+                cw = max(8, int(_num(rc.get("width"), 0.02, 1, 1.0) * width))
+                ch = max(8, int(_num(rc.get("height"), 0.02, 1, 1.0) * height))
+                # a moving mask is drawn plain and inverted AFTER it moves (the uncovered edge must stay «outside»)
+                mask_file = str(masks.render_cached({**m, "invert": False} if moving else m, cw, ch))
             track.clips.append(Clip(
                 source=str(info["path"]), at=_num(rc.get("at"), 0, 86400, 0), start=0.0 if src_kind == "image" else start,
                 end=end, opacity=_num(rc.get("opacity"), 0, 1, 1.0),
@@ -737,6 +821,8 @@ def from_project(data: dict, resolve) -> Timeline:
                 fit=str(rc.get("fit")) if str(rc.get("fit")) in FITS else "cover",
                 fade_in=_num(rc.get("fade_in"), 0, 30, 0.0), fade_out=_num(rc.get("fade_out"), 0, 30, 0.0),
                 effects=effects, transition=transition, src_len=duration if src_kind != "image" else 0.0, **extras,
+                src_w=int(info.get("width") or 0), src_h=int(info.get("height") or 0), lut_file=lut_file, mask_file=mask_file,
+                matte_file=matte_file, matte_s0=matte_s0, nested=nested_tl,
             ))
         timeline.tracks.append(track)
     return timeline
@@ -788,6 +874,14 @@ def _cut_clip(clip, t0: float, t1: float):
             words = [{**w, "s": round(w["s"] - lt0, 3), "e": round(w["e"] - lt0, 3)} for w in new.spec.get("words", [])
                      if w["e"] > lt0 and w["s"] < lt1]
             new.spec = {**new.spec, "words": [{**w, "s": max(0.0, w["s"]), "e": min(b - a, w["e"])} for w in words]}
+            if new.spec.get("path"):
+                from . import titles
+
+                pts = new.spec["path"]
+                e0, e1 = titles.path_at(pts, lt0), titles.path_at(pts, lt1)
+                inner = [{"t": round(p["t"] - lt0, 3), "dx": p["dx"], "dy": p["dy"]} for p in pts if lt0 < p["t"] < lt1]
+                path = [{"t": 0.0, "dx": e0[0], "dy": e0[1]}, *inner, {"t": round(lt1 - lt0, 3), "dx": e1[0], "dy": e1[1]}]
+                new.spec = {**new.spec, "path": path[: titles.MAX_PATH]}
         return new
     new = copy.deepcopy(clip)
     new.at = a - t0
@@ -798,6 +892,12 @@ def _cut_clip(clip, t0: float, t1: float):
         sliced = keyframes.sliced(keys, lt0, lt1)
         if sliced:
             new.kf[channel] = sliced
+    if new.mask and (new.mask.get("kx") or new.mask.get("ky")):
+        m = dict(new.mask)
+        for axis in ("kx", "ky"):
+            if m.get(axis):
+                m[axis] = keyframes.sliced(m[axis], lt0, lt1) or m[axis]
+        new.mask = m
     if new.freeze or new.kind == "image":
         new.end = new.start + (b - a)
         if new.kind == "image":

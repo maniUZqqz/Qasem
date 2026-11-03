@@ -1,9 +1,26 @@
 import { useEffect, useState } from "react";
 
 import { Alert, Badge, Button, Spinner, fa } from "../../../components/ui";
-import type { Asset, Edit, Kit, Operation, Tool } from "./api";
+import type { Asset, Edit, Kit, Operation, SmartInfo, Tool } from "./api";
 import CompareSlider from "./CompareSlider";
 import StepList from "./StepList";
+
+/** متنِ نشانِ «چه کسی جواب داد»: «پاسخ از: متیس (gpt-4o-mini)» · «پاسخ از: لوکال (qwen3-vl:30b)» · «بدون هوش مصنوعی — …» */
+export function smartChipText(s: SmartInfo): string {
+  if (s.fallback) return s.label || "بدون هوش مصنوعی — نور و رنگِ خودکارِ سبک";
+  return `پاسخ از: ${s.label || (s.via === "metis" ? "متیس" : "لوکال")}`;
+}
+
+/** نشانِ کوچکِ «پاسخ از: …» برای نتیجهٔ «ویرایش با دستور»؛ مسیرِ پشتیبان زرد/آبی، بی هوش مصنوعی هشداری است. */
+export function SmartChip({ smart }: { smart?: SmartInfo | null }) {
+  if (!smart || smart.pending) return null;
+  const tone = smart.fallback ? "warn" : smart.fell_back ? "info" : "ok";
+  return (
+    <span title={smart.reason || undefined} data-testid="smart-chip" data-via={smart.via || "none"} data-path={smart.path}>
+      <Badge tone={tone}>{smartChipText(smart)}</Badge>
+    </span>
+  );
+}
 
 /** کارهای یک نسخه برای ویرایش‌شدن: «بهبودِ خودکار» و «ویرایشِ هوشمند» به همان گام‌هایی باز می‌شوند که کیت واقعاً به کار برد. */
 export function stepsOf(edit: Edit): Operation[] {
@@ -53,7 +70,18 @@ export default function ResultCard({
 
   const notes = edit.kit?.notes;
   const noteText = Array.isArray(notes) ? notes.join(" ") : notes;
-  const goal = edit.operations.find((o) => o.tool === "kit_smart")?.params.goal as string | undefined;
+  // «ویرایش با دستور» روی سرورِ سایت: کارها به develop بازنویسی شده‌اند، پس دستور از ثبتِ هوش مصنوعی می‌آید
+  const smart = edit.smart && !edit.smart.pending ? edit.smart : null;
+  const goal = (edit.operations.find((o) => o.tool === "kit_smart")?.params.goal as string | undefined) || edit.smart?.goal;
+  const smartLine = !smart
+    ? null
+    : smart.fallback
+      ? smart.path === "node"
+        ? "مدلِ بینا روی سرورِ پردازش در دسترس نبود؛ همان بهبودِ خودکارِ کیت اعمال شد."
+        : "هوشِ مصنوعی در دسترس نبود؛ فقط نور و رنگِ خودکارِ سبک اعمال شد و دستورِ شما اجرا نشد — کمی بعد دوباره امتحان کنید."
+      : smart.path === "site"
+        ? "هوشِ مصنوعیِ بینا عکس را دید و لغزنده‌ها را تنظیم کرد؛ نتیجه روی سرورِ سایت ساخته شد."
+        : "هوش مصنوعیِ بینا عکس را دید و این مراحل را انتخاب کرد.";
 
   return (
     <div className="mt-4" data-testid="result-card" data-edit={edit.id}>
@@ -62,6 +90,7 @@ export default function ResultCard({
         <Badge tone={edit.state === "READY" ? "ok" : edit.state === "FAILED" ? "bad" : "info"}>{edit.state_label}</Badge>
         {edit.size && <Badge tone="neutral">{fa(edit.size[0])}×{fa(edit.size[1])}</Badge>}
         {edit.node && <Badge tone="neutral">روی {edit.node}</Badge>}
+        {edit.state === "READY" && <SmartChip smart={edit.smart} />}
       </div>
       {goal && <p className="mb-2 text-sm" style={{ color: "var(--text-2)" }}>دستور: «{goal}»</p>}
 
@@ -75,14 +104,23 @@ export default function ResultCard({
       {edit.state === "READY" && edit.urls.preview && (
         <>
           <CompareSlider before={asset.preview} after={edit.urls.preview} beforeSize={[asset.width, asset.height]} afterSize={edit.size} />
-          {aiNotes && (
+          {(aiNotes || smart?.fallback || smart?.fell_back) && (
             <div className="mt-3 ai-note" data-testid="ai-note">
-              {edit.kit?.usedAi === true
-                ? "هوش مصنوعیِ بینا عکس را دید و این مراحل را انتخاب کرد."
-                : edit.kit?.usedAi === false
-                  ? "مدلِ بینا روی سرورِ پردازش در دسترس نبود؛ همان بهبودِ خودکارِ کیت اعمال شد."
-                  : null}
-              {noteText ? <div>{noteText}</div> : null}
+              {smartLine ??
+                (edit.kit?.usedAi === true
+                  ? "هوش مصنوعیِ بینا عکس را دید و این مراحل را انتخاب کرد."
+                  : edit.kit?.usedAi === false
+                    ? "مدلِ بینا روی سرورِ پردازش در دسترس نبود؛ همان بهبودِ خودکارِ کیت اعمال شد."
+                    : null)}
+              {smart?.notes ? <div data-testid="smart-notes">«{smart.notes}»</div> : noteText ? <div>{noteText}</div> : null}
+              {smart?.fallback && smart.reason ? (
+                <div style={{ color: "var(--warn)" }} data-testid="smart-reason">چرا: {smart.reason}</div>
+              ) : null}
+              {smart && !smart.fallback && smart.fell_back ? (
+                <div style={{ color: "var(--text-3)" }} data-testid="smart-reason">
+                  مسیرِ اولِ هوش مصنوعی جواب نداد و پشتیبان جواب داد{smart.reason ? ` — ${smart.reason}` : ""}.
+                </div>
+              ) : null}
               {edit.kit?.error ? <div style={{ color: "var(--warn)" }}>{String(edit.kit.error)}</div> : null}
             </div>
           )}

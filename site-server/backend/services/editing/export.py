@@ -148,6 +148,21 @@ def encode_args(spec: ExportSpec, *, draft: bool = False) -> list[str]:
     return args or VIDEO_DELIVERY
 
 
+def nvenc_args(spec: ExportSpec) -> list[str]:
+    """The same encode on the processing node's NVIDIA encoder. `cq` runs about one step above x264's crf for a similar
+    look; the node falls back to `encode_args` (CPU) when its ffmpeg or card cannot do this."""
+    cq = str(min(51, int(spec.crf) + 1))
+    if spec.codec == "h265":
+        args = ["-c:v", "hevc_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", cq, "-b:v", "0", "-pix_fmt", "yuv420p",
+                "-tag:v", "hvc1", "-movflags", "+faststart"]
+    else:
+        args = ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", cq, "-b:v", "0", "-pix_fmt", "yuv420p",
+                "-profile:v", "high", "-movflags", "+faststart"]
+    if spec.max_kbps:
+        args += ["-maxrate", f"{spec.max_kbps}k", "-bufsize", f"{spec.max_kbps * 2}k"]
+    return args
+
+
 # --------------------------------------------------------------------- runner
 
 

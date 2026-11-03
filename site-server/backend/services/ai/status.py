@@ -75,9 +75,13 @@ def snapshot() -> dict:
     now = timezone.now()
     states = _states()
 
+    from . import model_catalog, model_pull
+
     kinds = {}
     for kind in priority.KINDS:
         st = routing.node_state(kind)
+        wanted = priority.local_model(kind, cfg)
+        entry = model_catalog.info(wanted)
         kinds[kind] = {
             "label": priority.KIND_LABEL[kind],
             "override": cfg.overrides.get(kind, "") or "",
@@ -85,11 +89,19 @@ def snapshot() -> dict:
             "order": cfg.order(kind),
             "selected_model": cfg.models.get(kind, "") or "",
             "default_model": priority.env_model(kind),
-            "model": priority.local_model(kind, cfg),
-            "installed": st["has_model"],
+            "model": wanted,
+            # خودِ مدلِ انتخابی نصب است؟ (True/False/None=نامعلوم)
+            "installed": st["wanted_installed"],
+            # مدلی که الان واقعاً جواب می‌دهد: مدلِ انتخابی، یا (اگر نصب نیست) اولین جایگزینِ نصب‌شده
+            "effective_model": st["model"],
+            "substitute": st["substitute"],
+            "chain": st["chain"],
+            "usable": st["has_model"],
             "ready": st["ready"],
             "reason": st["reason"],
             "metis_model": priority.metis_model(kind),
+            "pullable": model_catalog.is_pullable(wanted),
+            "size_mb": entry.get("size_mb") or 0,
         }
 
     base = routing.node_state(TEXT)
@@ -98,11 +110,17 @@ def snapshot() -> dict:
     metis_row = states.get(METIS)
     ok_times = [r.last_ok_at for r in local_rows if r.last_ok_at]
 
+    known = routing.node_models()
+    installed_by_tag = {tag: any(model_pull._same(tag, m) for m in known) if known else None
+                        for tag in model_catalog.pullable()}
     local = {
         "online": base["online"],
         "node": base["node"] or ", ".join(n["name"] for n in base["nodes"] if n["online"]),
         "nodes": [{"name": n["name"], "online": n["online"]} for n in base["nodes"]],
-        "known_models": routing.node_models(),
+        "known_models": known,
+        "models_reported_at": base.get("models_reported_at"),
+        "models_stale": base.get("models_stale", False),
+        "pull_nodes": model_pull.node_summary(),
         "reason": "" if base["online"] else base["reason"],
         "last_ok_at": _iso(max(ok_times) if ok_times else None),
         "last_error": ({"kind": worst_local.fail_kind, "message": worst_local.fail_message, "at": _iso(worst_local.last_fail_at)}
@@ -150,6 +168,9 @@ def snapshot() -> dict:
         "local": local,
         "metis": metis,
         "recent": recent,
+        # مدل‌های مجازِ دانلود (با اندازه) و دانلودهای فعال/اخیر — دکمهٔ «دانلود مدل» در کارت
+        "models": model_pull.catalog_view(installed_by_tag),
+        "pulls": model_pull.jobs_view(),
     }
 
 
@@ -168,7 +189,7 @@ def update(data: dict) -> None:
             row.priority = data["priority"]
     for kind in priority.KINDS:
         key = "priority_%s" % kind
-        if key in data:
+        if key in data:   # priority_text / priority_research / priority_code / priority_vision
             value = data[key] or ""
             if value not in orders | {""}:
                 errors[key] = "اولویتِ %s درست نیست." % priority.KIND_LABEL[kind]
@@ -215,16 +236,34 @@ def _test_local(kind: str) -> dict:
     from . import routing
 
     state = routing.node_state(kind)
-    model = state["model"]
+    model = state["model"]          # مدلی که واقعاً جواب می‌دهد (با جایگزین، اگر مدلِ انتخابی نصب نیست)
     if not state["online"]:
         return _result(False, LOCAL, kind, state["reason"] or "سرورِ پردازش خاموش است.", model=model, failure="offline")
     if state["has_model"] is False:
-        return _result(False, LOCAL, kind, "مدلِ %s روی سرورِ پردازش نصب نیست." % model, model=model, failure="no_model")
+        return _result(False, LOCAL, kind, state["reason"] or "مدلِ %s روی سرورِ پردازش نصب نیست." % model,
+                       model=model, failure="no_model")
     started = time.monotonic()
     try:
-        prov = routing.node_provider(state["node"], kind, claim_s=25, run_s=180)
+        prov = routing.node_provider(state["node"], kind, claim_s=25, run_s=180, model=model)
         images = [_PIXEL] if kind == VISION else None
-        prov.generate(model, "Reply with one word: OK", images=images, options={"num_predict": 8, "temperature": 0})
+        # متن/پژوهش/کد: خروجیِ JSON هم سنجیده می‌شود (بیشترِ کارهای سایت JSON می‌خواهند)؛ بینایی: یک واژه
+        as_json = kind != VISION
+        prompt = 'Reply with the JSON {"ok": true}' if as_json else "Reply with one word: OK"
+        answer = prov.generate(model, prompt, images=images, format_json=as_json,
+                               options={"num_predict": 24 if as_json else 8, "temperature": 0})
+        if as_json:
+            import json
+
+            from .ollama import extract_json_block
+
+            try:
+                parsed = json.loads(answer)
+            except (ValueError, TypeError):
+                parsed = extract_json_block(answer) if isinstance(answer, str) else None
+            if not isinstance(parsed, dict):
+                from .ollama import OllamaMalformedOutput
+
+                raise OllamaMalformedOutput("%s در حالتِ JSON پاسخِ قابل‌خواندن نداد: %s" % (model, (answer or "")[:80]))
     except Exception as exc:  # noqa: BLE001 — گزارشِ صادقانهٔ علت
         failure = priority.classify(exc, LOCAL, model)
         if failure.kind == "no_model":
@@ -234,7 +273,11 @@ def _test_local(kind: str) -> dict:
     seconds = round(time.monotonic() - started, 1)
     priority.ok(LOCAL, model)
     priority.reset(LOCAL)
-    return _result(True, LOCAL, kind, "لوکال جواب داد (%s، %s ثانیه)." % (model, seconds), model=model, seconds=seconds)
+    note = ""
+    if state.get("substitute"):
+        note = " توجه: مدلِ انتخابی (%s) نصب نیست و این مدلِ جایگزین جواب داد." % state["wanted"]
+    return _result(True, LOCAL, kind, "لوکال جواب داد (%s، %s ثانیه%s).%s" % (
+        model, seconds, "؛ خروجیِ JSON هم درست بود" if kind != VISION else "", note), model=model, seconds=seconds)
 
 
 def _test_metis(kind: str) -> dict:

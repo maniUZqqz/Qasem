@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { errorMessage } from "../../../../api/client";
 import { Alert, Badge, Spinner, fa } from "../../../../components/ui";
-import type { Catalogue, Check, ExportRow, RenderJobRow } from "../api";
+import type { Catalogue, Check, ExportRow, RenderJobRow, RenderWhere } from "../api";
 import { videoApi } from "../api";
 import { Chips, Section } from "./controls";
 import { ExportBlock, Project, projectLength, timecode } from "./model";
@@ -20,6 +20,8 @@ type Props = {
   onExport: (block: ExportBlock) => void;
   onRender: (quality: "draft" | "final") => Promise<void>;
   busy: boolean;
+  /** آیا سرورِ پردازش برای رندرِ نهایی آماده است (از کاتالوگ یا تازه) */
+  where?: RenderWhere | null;
 };
 
 const mb = (bytes: number) => `${fa((bytes / 1048576).toFixed(1))} مگابایت`;
@@ -31,7 +33,11 @@ function outSize(w: number, h: number, short: number | null): [number, number] {
   return [Math.max(2, Math.round((w * k) / 2) * 2), Math.max(2, Math.round((h * k) / 2) * 2)];
 }
 
-export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onRender, busy }: Props) {
+/** «روی چه ساخته شد» برای فهرستِ خروجی‌ها */
+const whereText = (e: { where?: string; node?: string; encoder?: string }) =>
+  e.where === "node" ? `سرورِ پردازش${e.node ? ` «${e.node}»` : ""}${e.encoder ? ` · ${e.encoder}` : ""}` : e.where === "server" ? "سرورِ سایت" : "";
+
+export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onRender, busy, where }: Props) {
   const block: ExportBlock = project.export ?? {};
   const preset = cat.presets.find((p) => p.key === block.preset);
   const codec = block.codec ?? (preset?.codec as ExportBlock["codec"]) ?? "h264";
@@ -136,6 +142,15 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
         {longWarn && <p className="xp-warn">{longWarn}</p>}
       </Section>
 
+      <Section title="محلِ رندرِ نهایی" defaultOpen testId="xp-where">
+        <Chips value={(block.where ?? "auto") as "auto" | "server"} options={[{ key: "auto", title: "خودکار (سرورِ پردازش اگر روشن بود)" }, { key: "server", title: "فقط سرورِ سایت" }]} onPick={(k) => set({ where: k })} />
+        {where?.online ? (
+          <p className="ws-hint" data-testid="xp-where-online">سرورِ پردازشِ «{where.node}» روشن است{where.gpu ? ` (${where.gpu})` : ""}؛ خروجیِ نهایی {block.where === "server" ? "با انتخابِ شما روی سرورِ سایت" : `آن‌جا${where.nvenc ? " با NVENC (کارتِ گرافیک)" : ""}`} ساخته می‌شود. اگر خاموش شد یا خطا داد، خودکار روی سرورِ سایت ساخته می‌شود.</p>
+        ) : (
+          <p className="ws-hint" data-testid="xp-where-offline">خروجیِ نهایی روی سرورِ سایت ساخته می‌شود. {where?.message ?? ""}</p>
+        )}
+      </Section>
+
       <Section title="تنظیمِ دقیق" testId="xp-manual">
         <div className="tx-sub">کدک</div>
         <Chips value={codec} options={cat.codecs.map((c) => ({ key: c.key as "h264" | "h265", title: c.title }))} onPick={(k) => set({ codec: k })} />
@@ -187,6 +202,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
                 </div>
                 <div className="xp-bar" role="progressbar" aria-valuenow={j.percent} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${queued ? 4 : j.percent}%` }} /></div>
                 <div className="ws-muted">{j.label || (queued ? "در صفِ رندر…" : "در حالِ رندر…")}</div>
+                {j.where && <div className="ws-muted" data-testid="job-where">محل: {j.where.startsWith("node") ? "سرورِ پردازش" : "سرورِ سایت"}</div>}
               </div>
             );
           })}
@@ -209,6 +225,8 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
             <b>{presetTitle(latest)}</b> · <span dir="ltr">{latest.size}</span> · {timecode(latest.seconds).slice(0, 5)} · {mb(latest.bytes)}
             {latest.codec === "h265" ? " · H.265" : ""}
           </div>
+          {whereText(latest) && <div className="ws-muted" data-testid="export-where">ساخته‌شده روی: {whereText(latest)}</div>}
+          {latest.fallback && <p className="xp-warn" data-testid="export-fallback">{latest.fallback}</p>}
           {latest.note && <p className="xp-warn">{latest.note}</p>}
           <a className="ws-btn" href={latest.url} download target="_blank" rel="noreferrer" data-testid="export-download">دانلود</a>
         </div>

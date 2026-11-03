@@ -4,7 +4,8 @@ import type { PointerEvent as RPointerEvent, ReactNode } from "react";
 import Icon from "../../../../components/Icon";
 import { Select, Spinner, fa } from "../../../../components/ui";
 import type { LayersPanelProps, MaskKind } from "./panelTypes";
-import { BLEND_MODES, BlendMode, LAYER_ICON, Layer, ProState } from "./types";
+import { CLIP_TYPES, canMoveTo, clipTarget, descendantIds, effectivelyLocked, parentIdOf, siblingsOf, treeRows } from "./tree";
+import { BLEND_MODES, BlendMode, GroupLayer, LAYER_ICON, Layer, ProState } from "./types";
 import "./panels.css";
 
 /** آیکون‌های کوچکِ هم‌ضخامت با آیکون‌های پنل */
@@ -22,9 +23,14 @@ const D_LOCK = "M6 11h12v9H6v-9Zm2 0V8a4 4 0 0 1 8 0v3";
 const D_UNLOCK = "M6 11h12v9H6v-9Zm2 0V8a4 4 0 0 1 7.6-1.7";
 const D_GRIP = "M8 7h8M8 12h8M8 17h8";
 const D_MASK = "M4 4h16v16H4V4Zm8 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z";
+/** پیکانِ خمیده: «بریده به لایهٔ زیرین» */
+const D_CLIP = "M5 4v9a3 3 0 0 0 3 3h10M14 12l4 4-4 4";
+const D_CHEV_OPEN = "M6 9l6 6 6-6";
+const D_CHEV_SHUT = "M15 6l-6 6 6 6";
 
 const MASK_LABEL: Record<string, string> = { paint: "نقاشی", linear: "شیب خطی", radial: "شیب شعاعی" };
 const TRIPLE = new Set(["image", "text", "shape"]);
+const INDENT = 16;
 
 const mapLayer = (id: string, fn: (l: Layer) => Layer) => (s: ProState): ProState => ({
   ...s,
@@ -32,23 +38,27 @@ const mapLayer = (id: string, fn: (l: Layer) => Layer) => (s: ProState): ProStat
 });
 
 type Menu = null | "add" | "pick" | "mask";
+type Drop = { rowId: string; pos: "above" | "below" | "into" };
 
-/** پنلِ لایه‌ها (مثلِ فتوشاپ): بالاترین لایه بالای فهرست است. */
+/** پنلِ لایه‌ها (مثلِ فتوشاپ): بالاترین لایه بالای فهرست است؛ گروه‌ها درخت‌اند. */
 export default function LayersPanel(props: LayersPanelProps) {
   const { state, hist, activeId, setActiveId, actions, assets, storeLogo } = props;
   const layers = state.layers;
   const n = layers.length;
-  const display = useMemo(() => [...layers].reverse(), [layers]);
+  const rows = useMemo(() => treeRows(layers), [layers]);
   const active = layers.find((l) => l.id === activeId) ?? null;
-  const activeIndex = active ? layers.indexOf(active) : -1;
+  const activeLocked = !!active && effectivelyLocked(layers, active);
+  const activeIsGroup = active?.type === "group";
+  const activeKids = activeIsGroup && active ? descendantIds(layers, active.id) : [];
 
   const [menu, setMenu] = useState<Menu>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [merging, setMerging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [drag, setDrag] = useState<{ id: string; target: number } | null>(null);
-  const dragRef = useRef<{ id: string; target: number } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; drop: Drop | null } | null>(null);
+  const dragRef = useRef<{ id: string; drop: Drop | null } | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -73,6 +83,11 @@ export default function LayersPanel(props: LayersPanelProps) {
     };
   }, [menu]);
 
+  // تأییدِ حذفِ گروه خودش بسته می‌شود وقتی لایهٔ فعال عوض شد
+  useEffect(() => {
+    if (confirmDel && confirmDel !== activeId) setConfirmDel(null);
+  }, [activeId, confirmDel]);
+
   const toggle = (l: Layer, key: "visible" | "locked") =>
     hist.apply(
       key === "visible" ? (l.visible ? `پنهان کردنِ «${l.name}»` : `نمایشِ «${l.name}»`) : l.locked ? `بازکردنِ قفلِ «${l.name}»` : `قفل کردنِ «${l.name}»`,
@@ -80,7 +95,7 @@ export default function LayersPanel(props: LayersPanelProps) {
     );
 
   const startRename = (l: Layer) => {
-    if (l.locked) return;
+    if (effectivelyLocked(layers, l)) return;
     setRenaming(l.id);
     setDraft(l.name);
   };
@@ -92,35 +107,63 @@ export default function LayersPanel(props: LayersPanelProps) {
     hist.apply("تغییر نام", mapLayer(id, (l) => ({ ...l, name })));
   };
 
-  // ───────────────────────── کشیدن برای جابه‌جایی (pointer؛ با لمس هم کار می‌کند)
-  const targetAt = (y: number): number => {
-    let t = display.length - 1;
-    for (let i = 0; i < display.length; i++) {
-      const el = rowRefs.current[display[i].id];
+  // ───────────────────────── کشیدن برای جابه‌جایی (pointer؛ با لمس هم کار می‌کند) — درونِ گروه و بیرونِ گروه
+  const dropAt = (y: number, dragId: string): Drop | null => {
+    const bad = new Set([dragId, ...descendantIds(layers, dragId)]);
+    let found: Drop | null = null;
+    for (let i = 0; i < rows.length; i++) {
+      const l = rows[i].layer;
+      const el = rowRefs.current[l.id];
       if (!el) continue;
       const r = el.getBoundingClientRect();
-      if (y < r.bottom) {
-        t = i;
+      const last = i === rows.length - 1;
+      if (y < r.bottom || last) {
+        if (bad.has(l.id)) return null;
+        const frac = r.height > 0 ? Math.max(0, Math.min(1, (y - r.top) / r.height)) : 0.5;
+        let pos: Drop["pos"];
+        if (l.type === "group") pos = frac < 0.28 ? "above" : frac > 0.72 ? "below" : "into";
+        else pos = frac < 0.5 ? "above" : "below";
+        // زیرِ سرگروهِ بازِ دارای فرزند = بالای فرزندانش = درونِ گروه
+        if (pos === "below" && l.type === "group" && !(l as GroupLayer).collapsed && rows[i].kids > 0) pos = "into";
+        if (pos === "below" && l.type === "base") pos = "above";
+        found = { rowId: l.id, pos };
         break;
       }
     }
-    return t;
+    return found;
+  };
+  /** {rowId,pos} ⇒ { والد، جایگاه میانِ هم‌خواهرها (پایین = ۰، پس از برداشتنِ لایهٔ کشیده‌شده) } یا null اگر ممکن نیست */
+  const resolveDrop = (dragId: string, drop: Drop): { parent: string | null; index: number } | null => {
+    const target = layers.find((l) => l.id === drop.rowId);
+    if (!target) return null;
+    if (drop.pos === "into" && target.type === "group") {
+      if (!canMoveTo(layers, dragId, target.id)) return null;
+      const cnt = layers.filter((l) => l.id !== dragId && parentIdOf(l, new Set(layers.filter((x) => x.type === "group").map((x) => x.id))) === target.id).length;
+      return { parent: target.id, index: cnt };
+    }
+    const gs = new Set(layers.filter((x) => x.type === "group").map((x) => x.id));
+    const par = parentIdOf(target, gs);
+    if (!canMoveTo(layers, dragId, par)) return null;
+    const sibs = siblingsOf(layers, target.id).filter((l) => l.id !== dragId);
+    const i = sibs.findIndex((l) => l.id === target.id);
+    return { parent: par, index: drop.pos === "above" ? i + 1 : i };
   };
   const gripDown = (e: RPointerEvent<HTMLButtonElement>, l: Layer) => {
-    if (l.locked || e.button > 0) return;
+    if (effectivelyLocked(layers, l) || l.type === "base" || e.button > 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     setActiveId(l.id);
-    const d = { id: l.id, target: display.findIndex((x) => x.id === l.id) };
+    const d = { id: l.id, drop: null as Drop | null };
     dragRef.current = d;
     setDrag(d);
   };
   const gripMove = (e: RPointerEvent<HTMLButtonElement>) => {
     const d = dragRef.current;
     if (!d) return;
-    const t = targetAt(e.clientY);
-    if (t !== d.target) {
-      const next = { ...d, target: t };
+    const drop = dropAt(e.clientY, d.id);
+    const same = drop?.rowId === d.drop?.rowId && drop?.pos === d.drop?.pos;
+    if (!same) {
+      const next = { ...d, drop };
       dragRef.current = next;
       setDrag(next);
     }
@@ -130,9 +173,9 @@ export default function LayersPanel(props: LayersPanelProps) {
     dragRef.current = null;
     setDrag(null);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
-    if (!d) return;
-    const idx = n - 1 - d.target;
-    if (idx !== layers.findIndex((x) => x.id === d.id)) actions.reorder(d.id, idx);
+    if (!d || !d.drop) return;
+    const r = resolveDrop(d.id, d.drop);
+    if (r) actions.moveLayer(d.id, r.parent, r.index);
   };
   const gripCancel = () => {
     dragRef.current = null;
@@ -154,8 +197,15 @@ export default function LayersPanel(props: LayersPanelProps) {
     if (commit) hist.end("شفافیتِ لایه");
   };
 
-  const lowerSibling = activeIndex > 0 ? layers[activeIndex - 1] : null;
-  const canMerge = !!active && !!lowerSibling && !active.locked && !lowerSibling.locked && TRIPLE.has(active.type) && TRIPLE.has(lowerSibling.type);
+  const lowerSibling = (() => {
+    if (!active) return null;
+    const sibs = siblingsOf(layers, active.id);
+    const i = sibs.findIndex((l) => l.id === active.id);
+    return i > 0 ? sibs[i - 1] : null;
+  })();
+  const canMerge = !!active && !!lowerSibling && !activeLocked && !lowerSibling.locked && TRIPLE.has(active.type) && TRIPLE.has(lowerSibling.type);
+  const canClip = !!active && CLIP_TYPES.has(active.type);
+  const clipTgt = active && canClip ? clipTarget(layers, active.id) : null;
 
   const doMerge = async () => {
     if (!active || merging) return;
@@ -203,6 +253,11 @@ export default function LayersPanel(props: LayersPanelProps) {
     </button>
   );
 
+  const askDelete = (l: Layer) => {
+    if (l.type === "group" && descendantIds(layers, l.id).length > 0) setConfirmDel(l.id);
+    else actions.remove(l.id);
+  };
+
   return (
     <div className="pn-root" data-testid="layers-panel">
       <div className="pn-head" ref={headRef}>
@@ -230,6 +285,7 @@ export default function LayersPanel(props: LayersPanelProps) {
             <button type="button" data-testid="layer-add-upload" onClick={() => fileRef.current?.click()}>آپلودِ تصویر…</button>
             {addItem("layer-add-logo", "لوگوی فروشگاه", actions.addLogo, !storeLogo)}
             <hr />
+            {addItem("layer-add-group", "گروهِ جدید (پوشه)", actions.newGroup)}
             {addItem("layer-add-adjust", "لایهٔ تنظیم (نور و رنگِ محلی)", actions.addAdjust)}
             {addItem("layer-add-retouch", "لایهٔ روتوش (کلون / ترمیم)", actions.addRetouch)}
             {addItem("layer-add-watermark", "واترمارک (تکرار روی عکس)", actions.addWatermark)}
@@ -255,21 +311,39 @@ export default function LayersPanel(props: LayersPanelProps) {
       </div>
 
       <div className="pn-list" role="list" aria-label="فهرستِ لایه‌ها" data-testid="layer-list">
-        {display.map((l, di) => {
+        {rows.map(({ layer: l, depth, kids, hidden }) => {
           const isActive = l.id === activeId;
+          const isGroup = l.type === "group";
+          const collapsed = isGroup && (l as GroupLayer).collapsed;
+          const locked = effectivelyLocked(layers, l);
+          const dropHere = drag?.drop?.rowId === l.id && drag.id !== l.id ? drag.drop.pos : null;
           const cls = [
-            "pn-row", isActive ? "is-active" : "", l.visible ? "" : "is-off", drag?.id === l.id ? "is-dragging" : "",
-            drag && drag.id !== l.id && drag.target === di ? (di < display.findIndex((x) => x.id === drag.id) ? "drop-top" : "drop-bottom") : "",
+            "pn-row", isActive ? "is-active" : "", hidden ? "is-off" : "", isGroup ? "is-group" : "", l.clip ? "is-clip" : "", depth ? "is-child" : "",
+            drag?.id === l.id ? "is-dragging" : "",
+            dropHere === "above" ? "drop-top" : dropHere === "below" ? "drop-bottom" : dropHere === "into" ? "drop-into" : "",
           ].join(" ");
-          const idx = layers.indexOf(l);
+          const sibs = siblingsOf(layers, l.id);
+          const si = sibs.findIndex((x) => x.id === l.id);
           return (
-            <div key={l.id} ref={(el) => { rowRefs.current[l.id] = el; }} role="listitem" className={cls} data-testid="layer-row" data-layer-id={l.id} data-type={l.type} data-active={isActive ? "1" : "0"}>
+            <div
+              key={l.id} ref={(el) => { rowRefs.current[l.id] = el; }} role="listitem" className={cls} style={depth ? { marginInlineStart: depth * INDENT } : undefined}
+              data-testid="layer-row" data-layer-id={l.id} data-type={l.type} data-active={isActive ? "1" : "0"} data-depth={depth} data-clip={l.clip ? "1" : "0"}
+            >
               <button
-                type="button" className="pn-grip" aria-label={`جابه‌جایی «${l.name}» (بکشید)`} disabled={l.locked} data-testid="layer-grip"
+                type="button" className="pn-grip" aria-label={`جابه‌جایی «${l.name}» (بکشید)`} disabled={locked || l.type === "base"} data-testid="layer-grip"
                 onPointerDown={(e) => gripDown(e, l)} onPointerMove={gripMove} onPointerUp={gripUp} onPointerCancel={gripCancel}
               >
                 <Ico d={D_GRIP} size={15} />
               </button>
+              {isGroup && (
+                <button
+                  type="button" className="pn-ico pn-chev" data-testid="layer-group-toggle" aria-expanded={!collapsed}
+                  aria-label={collapsed ? `بازکردنِ پوشهٔ «${l.name}»` : `بستنِ پوشهٔ «${l.name}»`}
+                  onClick={() => actions.setCollapsed(l.id, !collapsed)}
+                >
+                  <Ico d={collapsed ? D_CHEV_SHUT : D_CHEV_OPEN} size={15} />
+                </button>
+              )}
               <button
                 type="button" className={`pn-ico ${l.visible ? "" : "is-off"}`} data-testid="layer-visible" aria-pressed={l.visible}
                 aria-label={l.visible ? `پنهان کردنِ «${l.name}»` : `نمایشِ «${l.name}»`} onClick={() => toggle(l, "visible")}
@@ -282,6 +356,11 @@ export default function LayersPanel(props: LayersPanelProps) {
               >
                 <Ico d={l.locked ? D_LOCK : D_UNLOCK} />
               </button>
+              {l.clip && (
+                <span className="pn-clipmark" data-testid="layer-clip-mark" title="بریده به لایهٔ زیرین">
+                  <Ico d={D_CLIP} size={14} />
+                </span>
+              )}
               {renaming === l.id ? (
                 <div className="pn-select">
                   <span className="pn-thumb">{thumbOf(l)}</span>
@@ -301,6 +380,7 @@ export default function LayersPanel(props: LayersPanelProps) {
                 >
                   <span className="pn-thumb">{thumbOf(l)}</span>
                   <span className="pn-name">{l.name}</span>
+                  {isGroup && <span className="pn-kids" data-testid="layer-group-count">{fa(kids)}</span>}
                 </button>
               )}
               {l.mask && (
@@ -321,16 +401,16 @@ export default function LayersPanel(props: LayersPanelProps) {
                   <button type="button" className="pn-btn icon" data-testid="layer-dup" disabled={l.type === "base"} aria-label="کپی از لایه (Ctrl+J)" title="کپی از لایه (Ctrl+J)" onClick={() => actions.duplicate(l.id)}>
                     <Icon name="copy" size={15} />
                   </button>
-                  <button type="button" className="pn-btn icon danger" data-testid="layer-del" disabled={l.type === "base" || l.locked} aria-label="حذفِ لایه" title="حذفِ لایه (Delete)" onClick={() => actions.remove(l.id)}>
+                  <button type="button" className="pn-btn icon danger" data-testid="layer-del" disabled={l.type === "base" || locked} aria-label="حذفِ لایه" title="حذفِ لایه (Delete)" onClick={() => askDelete(l)}>
                     <Icon name="trash" size={15} />
                   </button>
-                  <button type="button" className="pn-btn icon" data-testid="layer-up" disabled={l.locked || idx >= n - 1} aria-label="یک پله بالاتر" title="یک پله بالاتر" onClick={() => actions.reorder(l.id, idx + 1)}>
+                  <button type="button" className="pn-btn icon" data-testid="layer-up" disabled={locked || l.type === "base" || si >= sibs.length - 1} aria-label="یک پله بالاتر" title="یک پله بالاتر" onClick={() => actions.moveSibling(l.id, 1)}>
                     <Icon name="up" size={15} />
                   </button>
-                  <button type="button" className="pn-btn icon" data-testid="layer-down" disabled={l.locked || idx <= 0} aria-label="یک پله پایین‌تر" title="یک پله پایین‌تر" onClick={() => actions.reorder(l.id, idx - 1)}>
+                  <button type="button" className="pn-btn icon" data-testid="layer-down" disabled={locked || l.type === "base" || si <= 0 || sibs[si - 1]?.type === "base"} aria-label="یک پله پایین‌تر" title="یک پله پایین‌تر" onClick={() => actions.moveSibling(l.id, -1)}>
                     <Icon name="down" size={15} />
                   </button>
-                  <button type="button" className="pn-btn sm" data-testid="layer-rename" disabled={l.locked} onClick={() => startRename(l)}>تغییر نام</button>
+                  <button type="button" className="pn-btn sm" data-testid="layer-rename" disabled={locked} onClick={() => startRename(l)}>تغییر نام</button>
                 </div>
               )}
             </div>
@@ -338,16 +418,26 @@ export default function LayersPanel(props: LayersPanelProps) {
         })}
       </div>
 
+      {confirmDel && active && confirmDel === active.id && (
+        <div className="pn-confirm" role="alertdialog" data-testid="group-del-confirm">
+          <span>گروهِ «{active.name}» همراهِ {fa(activeKids.length)} لایهٔ داخلش حذف شود؟ (با برگشت برمی‌گردد)</span>
+          <div className="pn-actions">
+            <button type="button" className="pn-btn danger" data-testid="group-del-yes" onClick={() => { setConfirmDel(null); actions.remove(active.id); }}>حذفِ گروه و لایه‌هایش</button>
+            <button type="button" className="pn-btn" data-testid="group-del-no" onClick={() => setConfirmDel(null)}>انصراف</button>
+          </div>
+        </div>
+      )}
+
       {active ? (
         <div className="pn-strip" data-testid="layer-strip">
           <div className="pn-strip-row">
             <label className="ws-slider" style={{ margin: 0 }}>
               <span className="ws-slider-head">
-                <span>{active.type === "adjust" ? "شدتِ اثر" : "شفافیت"}</span>
+                <span>{active.type === "adjust" || active.type === "redeye" ? "شدتِ اثر" : "شفافیت"}</span>
                 <span className="ws-slider-val" dir="ltr">{fa(Math.round(active.opacity * 100))}%</span>
               </span>
               <input
-                type="range" min={0} max={100} step={1} value={Math.round(active.opacity * 100)} disabled={active.locked} aria-label="شفافیتِ لایه"
+                type="range" min={0} max={100} step={1} value={Math.round(active.opacity * 100)} disabled={activeLocked} aria-label="شفافیتِ لایه"
                 data-testid="layer-opacity" onChange={(e) => setOpacity(Number(e.target.value), false)}
                 onPointerUp={() => hist.end("شفافیتِ لایه")} onKeyUp={() => hist.end("شفافیتِ لایه")} onBlur={() => hist.end("شفافیتِ لایه")}
               />
@@ -356,12 +446,22 @@ export default function LayersPanel(props: LayersPanelProps) {
           <label className="ws-field" style={{ margin: 0 }}>
             <span>حالتِ ترکیب</span>
             <Select
-              className="pn-select-full" value={active.blend} disabled={active.locked || active.type === "adjust" || active.type === "retouch"} aria-label="حالتِ ترکیب"
+              className="pn-select-full" value={active.blend} disabled={activeLocked || active.type === "adjust" || active.type === "retouch" || active.type === "redeye"} aria-label="حالتِ ترکیب"
               data-testid="layer-blend" onChange={(e) => hist.apply("حالتِ ترکیب", mapLayer(active.id, (l) => ({ ...l, blend: e.target.value as BlendMode })))}
             >
               {BLEND_MODES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
             </Select>
           </label>
+          {canClip && (
+            <label className="pn-check" title="آلفای این لایه در آلفای نزدیک‌ترین لایهٔ تصویر/متن/شکل/گروهِ پایین‌تر (هم‌سطح) ضرب می‌شود">
+              <input
+                type="checkbox" checked={!!active.clip} disabled={activeLocked || (!active.clip && !clipTgt)} data-testid="layer-clip"
+                onChange={() => actions.toggleClip(active.id)}
+              />
+              <span>برش به لایهٔ زیرین (Clipping)</span>
+            </label>
+          )}
+          {canClip && !clipTgt && !active.clip && <p className="pn-hint" style={{ margin: 0 }} data-testid="layer-clip-hint">زیرِ این لایه (در همین سطح) تصویر، متن، شکل یا گروهی نیست.</p>}
         </div>
       ) : (
         <p className="pn-hint">یک لایه را انتخاب کنید.</p>
@@ -373,7 +473,7 @@ export default function LayersPanel(props: LayersPanelProps) {
         </button>
         {active && !active.mask && (
           <span style={{ position: "relative" }}>
-            <button type="button" className="pn-btn" data-testid="mask-add" aria-haspopup="menu" aria-expanded={menu === "mask"} disabled={active.locked} onClick={() => setMenu(menu === "mask" ? null : "mask")}>
+            <button type="button" className="pn-btn" data-testid="mask-add" aria-haspopup="menu" aria-expanded={menu === "mask"} disabled={activeLocked} onClick={() => setMenu(menu === "mask" ? null : "mask")}>
               <Ico d={D_MASK} size={14} /> افزودنِ ماسک
             </button>
             {menu === "mask" && (
@@ -391,15 +491,26 @@ export default function LayersPanel(props: LayersPanelProps) {
             {active.mask.type === "paint" && (
               <button type="button" className="pn-btn" data-testid="mask-paint" onClick={() => actions.paintMask(active.id)}>نقاشی روی ماسک</button>
             )}
-            <button type="button" className={`pn-btn ${active.mask.invert ? "is-on" : ""}`} data-testid="mask-invert" aria-pressed={active.mask.invert} disabled={active.locked} onClick={invertMask}>معکوس</button>
-            <button type="button" className="pn-btn danger" data-testid="mask-remove" disabled={active.locked} onClick={() => actions.removeMask(active.id)}>حذفِ ماسک</button>
+            <button type="button" className={`pn-btn ${active.mask.invert ? "is-on" : ""}`} data-testid="mask-invert" aria-pressed={active.mask.invert} disabled={activeLocked} onClick={invertMask}>معکوس</button>
+            <button type="button" className="pn-btn danger" data-testid="mask-remove" disabled={activeLocked} onClick={() => actions.removeMask(active.id)}>حذفِ ماسک</button>
           </>
         )}
-        <button type="button" className="pn-btn" data-testid="mask-from-selection" disabled={!active || active.locked} onClick={() => active && actions.maskFromSelection(active.id)} title="ناحیهٔ انتخاب‌شده را ماسکِ این لایه کن">
+        <button type="button" className="pn-btn" data-testid="mask-from-selection" disabled={!active || activeLocked} onClick={() => active && actions.maskFromSelection(active.id)} title="ناحیهٔ انتخاب‌شده را ماسکِ این لایه کن">
           ماسک از انتخاب
+        </button>
+      </div>
+
+      <div className="pn-head" style={{ flexWrap: "wrap" }} data-testid="group-tools">
+        <button type="button" className="pn-btn" data-testid="group-new" onClick={actions.newGroup} title="یک گروهِ (پوشهٔ) خالی بالای لایهٔ فعال؛ لایه‌ها را با کشیدن داخلش بگذارید">
+          گروهِ جدید
+        </button>
+        <button type="button" className="pn-btn" data-testid="group-wrap" disabled={!active || active.type === "base" || activeLocked} onClick={() => active && actions.group(active.id)} title="لایهٔ فعال را داخلِ یک گروهِ تازه می‌گذارد (Ctrl+G)">
+          گروه کردنِ لایهٔ فعال
+        </button>
+        <button type="button" className="pn-btn" data-testid="group-ungroup" disabled={!activeIsGroup || activeLocked} onClick={() => active && actions.ungroup(active.id)} title="فرزندان به جای گروه می‌آیند و خودِ گروه برداشته می‌شود (Ctrl+Shift+G)">
+          بازکردنِ گروه
         </button>
       </div>
     </div>
   );
-
 }

@@ -14,14 +14,15 @@ class AiPriorityForm(forms.ModelForm):
         model = AiPriority
         fields = "__all__"
         widgets = {
-            "model_text": forms.TextInput(attrs={"dir": "ltr", "style": "width:20em", "placeholder": "qwq:32b"}),
+            "model_text": forms.TextInput(attrs={"dir": "ltr", "style": "width:20em", "placeholder": "gemma3:12b"}),
+            "model_research": forms.TextInput(attrs={"dir": "ltr", "style": "width:20em", "placeholder": "qwq:32b"}),
             "model_code": forms.TextInput(attrs={"dir": "ltr", "style": "width:20em", "placeholder": "qwen3-coder:30b"}),
             "model_vision": forms.TextInput(attrs={"dir": "ltr", "style": "width:20em", "placeholder": "qwen3-vl:30b"}),
         }
 
     def clean(self):
         data = super().clean()
-        for key in ("model_text", "model_code", "model_vision"):
+        for key in ("model_text", "model_research", "model_code", "model_vision"):
             value = (data.get(key) or "").strip()
             if any(c.isspace() for c in value):
                 self.add_error(key, "نامِ مدل فاصله ندارد (مثلاً qwq:32b).")
@@ -33,7 +34,7 @@ class AiPriorityForm(forms.ModelForm):
 class AiPriorityAdmin(admin.ModelAdmin):
     name_en = "AI priority (local / Metis)"
     description = (
-        "هر کارِ هوش مصنوعیِ NM می‌تواند هم روی سرورِ پردازش (لوکال: qwen3-coder / qwq:32b / qwen3-vl) و هم با متیس (API) "
+        "هر کارِ هوش مصنوعیِ NM می‌تواند هم روی سرورِ پردازش (لوکال: gemma3:12b / qwq:32b / qwen3-coder / qwen3-vl) و هم با متیس (API) "
         "انجام شود. این‌جا می‌گویی کدام اول باشد؛ اگر اولی در دسترس نبود (گره خاموش، مدل نصب نیست، مهلت، اعتبار تمام (۴۰۲)، "
         "۴۰۱/۴۰۳، ۵xx، قطعِ اتصال) خودکار دومی جواب می‌دهد. وضعِ زنده و دکمهٔ «آزمون» در پنل است: ادمین ⇐ موتورهای AI."
     )
@@ -41,14 +42,15 @@ class AiPriorityAdmin(admin.ModelAdmin):
     readonly_fields = ["live_status", "updated_at"]
     fieldsets = [
         ("اولویتِ کلی", {"fields": ["priority", "live_status"]}),
-        ("اولویتِ هر نوعِ کار (اختیاری)", {"fields": ["priority_text", "priority_code", "priority_vision"],
+        ("اولویتِ هر نوعِ کار (اختیاری)", {"fields": ["priority_text", "priority_research", "priority_code", "priority_vision"],
                                           "description": "خالی = مثلِ اولویتِ کلی."}),
-        ("مدلِ لوکالِ هر نوعِ کار", {"fields": ["model_text", "model_code", "model_vision"],
-                                    "description": "خالی = پیش‌فرض (qwq:32b ⇐ متن، qwen3-coder:30b ⇐ کد، qwen3-vl:30b ⇐ بینایی). "
-                                                   "در پنل از روی مدل‌هایی که سرورِ پردازش گزارش کرده انتخاب می‌شود."}),
+        ("مدلِ لوکالِ هر نوعِ کار", {"fields": ["model_text", "model_research", "model_code", "model_vision"],
+                                    "description": "خالی = پیش‌فرض (gemma3:12b ⇐ متنِ روزمره، qwq:32b ⇐ پژوهش، qwen3-coder:30b ⇐ کد، "
+                                                   "qwen3-vl:30b ⇐ بینایی). در پنل از روی مدل‌هایی که سرورِ پردازش گزارش کرده انتخاب می‌شود "
+                                                   "و دکمهٔ «دانلود مدل» هم همان‌جاست."}),
         ("پیشرفته", {"fields": ["breaker_minutes", "updated_at"], "classes": ["collapse"]}),
     ]
-    list_display = ["__str__", "priority_text", "priority_code", "priority_vision", "updated_at"]
+    list_display = ["__str__", "priority_text", "priority_research", "priority_code", "priority_vision", "updated_at"]
     actions = ["test_local", "test_metis"]
 
     def has_add_permission(self, request):

@@ -66,9 +66,14 @@ export default function StepList({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold" style={{ color: "var(--text)" }}>{op.title ?? t.title}</span>
-                      <Badge tone={where === "server" ? "ok" : nodeOn ? "info" : "warn"}>
-                        {where === "server" ? "سرورِ سایت" : nodeOn ? "سرورِ پردازش" : "سرورِ پردازش — منتظر"}
-                      </Badge>
+                      {op.tool === "kit_smart" ? (
+                        // «ویرایش با دستور» سرورِ پردازش را لازم ندارد: هوشِ مصنوعی از سایت هم صدا زده می‌شود (طبقِ تنظیماتِ هوش مصنوعی)
+                        <Badge tone="info">{where === "node" && nodeOn ? "سرورِ پردازش یا هوشِ مصنوعیِ سایت" : "هوشِ مصنوعی از سرورِ سایت"}</Badge>
+                      ) : (
+                        <Badge tone={where === "server" ? "ok" : nodeOn ? "info" : "warn"}>
+                          {where === "server" ? "سرورِ سایت" : nodeOn ? "سرورِ پردازش" : "سرورِ پردازش — منتظر"}
+                        </Badge>
+                      )}
                       {op.optional && <Badge tone="neutral">اختیاری</Badge>}
                     </div>
                     <p className="text-sm" style={{ color: "var(--text-2)" }}>{op.reason || t.help}</p>

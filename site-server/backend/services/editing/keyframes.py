@@ -18,7 +18,10 @@ a moving title or a fading logo is one filter option, not a frame-by-frame bake.
 from __future__ import annotations
 
 EASINGS = ("linear", "ease_in", "ease_out", "ease_in_out", "hold")
-MAX_KEYS = 24
+#: A motion-tracking path bakes into keys too (see `ops.ts` / the tracker): 24 was enough for hand-made animation only.
+MAX_KEYS = 96
+#: up to this many keys `expr` nests `if()`s in a chain (the original shape, easy to read); more are searched as a binary tree
+CHAIN_KEYS = 12
 
 EASING_TITLES = {
     "linear": "خطی", "ease_in": "شروعِ آرام", "ease_out": "پایانِ آرام", "ease_in_out": "آرام در دو سو", "hold": "ثابت (پرش)",
@@ -103,8 +106,18 @@ def expr(keys: list[dict], default: float, var: str = "t") -> str:
             seg = f"{_n(a['v'])}+({_n(b['v'] - a['v'])})*({curve})"
         segments.append((b["t"], seg))
     out = _n(keys[-1]["v"])
-    for end_t, seg in reversed(segments):
-        out = f"if(lt(({var}),{_n(end_t)}),{seg},{out})"
+    if len(segments) <= CHAIN_KEYS:
+        for end_t, seg in reversed(segments):
+            out = f"if(lt(({var}),{_n(end_t)}),{seg},{out})"
+    else:
+        # a long path (motion tracking): a chain would nest 90 deep; a binary search over the segments nests ~7
+        def tree(lo: int, hi: int) -> str:
+            if lo == hi:
+                return segments[lo][1]
+            mid = (lo + hi) // 2
+            return f"if(lt(({var}),{_n(segments[mid][0])}),{tree(lo, mid)},{tree(mid + 1, hi)})"
+
+        out = f"if(lt(({var}),{_n(segments[-1][0])}),{tree(0, len(segments) - 1)},{out})"
     # before the first key the value is the first key's
     return f"if(lt(({var}),{_n(keys[0]['t'])}),{_n(keys[0]['v'])},{out})"
 

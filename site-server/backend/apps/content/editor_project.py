@@ -10,6 +10,10 @@ Refs:
     pimg:<id>           a product photo                                  (ProductImage)
     photo:<id>          a photo from the photo editor library            (PhotoAsset.original)
     gimg:<id>           a generated image                                (GeneratedImage)
+    sticker:<key>       a built-in sticker (transparent PNG)                (services/editing/stickers.py)
+    lut:<key>           the shop's imported .cube colour LUT                 (never on the timeline itself: a clip's `lut`)
+    matte:<key>         a background-removal matte video (grey)             (never on the timeline itself: a clip's `matte`)
+    seq:<id>            a nested sequence of this project                    (resolved by timeline.from_project)
 """
 from __future__ import annotations
 
@@ -20,6 +24,7 @@ from pathlib import Path
 
 from django.conf import settings
 
+from services.editing import luts, mattes, stickers
 from services.editing import timeline as tl
 from services.media import files as media
 
@@ -29,6 +34,7 @@ logger = logging.getLogger(__name__)
 BROWSER_VIDEO = (".mp4", ".m4v", ".webm")
 #: Taller than this and scrubbing in the panel gets heavy: a proxy is offered.
 PROXY_OVER_HEIGHT = 576
+SIZE_STICKER = stickers.SIZE
 
 _PROBE_CACHE: dict[tuple[str, float], dict] = {}
 
@@ -102,6 +108,20 @@ def locate(store, ref: str) -> dict:
 
     from .models import GeneratedImage, UploadedVideo, VideoScript
 
+    head, _, tail = str(ref or "").partition(":")
+    if head == "sticker":
+        path = stickers.path_of(tail)
+        return {"path": path, "title": stickers.title_of(tail), "kind": "image", "source": "sticker", "obj": None}
+    if head == "lut":
+        path = luts.path_of(store.pk, tail)
+        if path is None:
+            raise RefError("LUT پیدا نشد (شاید پاک شده).")
+        return {"path": path, "title": "LUT", "kind": "lut", "source": "lut", "obj": None}
+    if head == "matte":
+        row = mattes.get(store.pk, tail)
+        if row is None:
+            raise RefError("ماتِ حذفِ پس‌زمینه پیدا نشد (شاید پاک شده).")
+        return {"path": mattes.path_of(store.pk, tail), "title": "مات", "kind": "matte", "source": "matte", "obj": None, "matte": row}
     kind, pk = parse_ref(ref)
     if kind in ("video", "edited"):
         up = UploadedVideo.objects.filter(pk=pk, store=store).first()
@@ -152,6 +172,15 @@ def describe(store, ref: str) -> dict:
     path = found.get("path") or _field_path(found.get("field"))
     if path is None:
         raise RefError(f"فایلِ «{ref}» روی سرور پیدا نشد.")
+    if found["source"] in ("sticker", "lut", "matte"):
+        out = {"ref": ref, "title": found["title"], "kind": found["kind"], "source": found["source"], "duration": 0.0, "has_audio": False,
+               "width": SIZE_STICKER if found["source"] == "sticker" else 0, "height": SIZE_STICKER if found["source"] == "sticker" else 0,
+               "path": path, "proxy": "not_needed", "proxy_url": None, "auth": False}
+        if found["source"] == "sticker":
+            out["url"] = _rel_url(path)
+        if found.get("matte"):
+            out["s0"] = found["matte"]["s0"]
+        return out
     facts = _probe(path) if found["kind"] != "image" else {}
     kind, pk = parse_ref(ref)
     duration = facts.get("duration", 0.0)
@@ -212,7 +241,12 @@ def bin_items(store, limit: int = 40) -> dict:
     images = [item for p in ProductImage.objects.filter(product__store=store).order_by("-id")[:limit]
               if (item := safe(f"pimg:{p.pk}"))]
     images += [item for a in PhotoAsset.objects.filter(store=store)[:limit] if (item := safe(f"photo:{a.pk}"))]
-    return {"videos": videos, "audio": audio, "images": images}
+    sticker_items = []
+    for row in stickers.available():
+        item = safe(f"sticker:{row['key']}")
+        if item:
+            sticker_items.append({**item, "title": row["title"], "group": row["group"]})
+    return {"videos": videos, "audio": audio, "images": images, "stickers": sticker_items}
 
 
 @contextlib.contextmanager
@@ -229,12 +263,15 @@ def sources(store):
             path = found["path"]
         else:
             path = stack.enter_context(media.reading(found["field"]))
-        facts = _probe(Path(path)) if found["kind"] != "image" else {}
+        facts = _probe(Path(path)) if found["kind"] in ("video", "audio") else {}
         info = {
             "path": str(path), "kind": found["kind"],
             "has_audio": bool(facts.get("has_audio")) if found["kind"] == "video" else found["kind"] == "audio",
             "duration": float(facts.get("duration") or 0.0),
+            "width": int(facts.get("width") or 0), "height": int(facts.get("height") or 0),
         }
+        if found.get("matte"):
+            info["s0"] = float(found["matte"].get("s0") or 0.0)
         cache[ref] = info
         return info
 
@@ -249,7 +286,8 @@ def check(store, data: dict) -> dict:
     def resolve(ref):
         item = describe(store, ref)
         return {"path": str(item["path"]), "kind": item["kind"], "has_audio": item["has_audio"],
-                "duration": item["duration"]}
+                "duration": item["duration"], "width": item.get("width", 0), "height": item.get("height", 0),
+                "s0": item.get("s0", 0.0)}
 
     try:
         line = tl.from_project(data, resolve)

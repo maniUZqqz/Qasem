@@ -52,9 +52,11 @@ export type MediaItem = {
   auth: boolean;
   proxy: "ready" | "needed" | "not_needed";
   proxy_url: string | null;
+  /** استیکرها: "emoji" | "badge" */
+  group?: string;
 };
 
-export type Bin = { videos: MediaItem[]; audio: MediaItem[]; images: MediaItem[] };
+export type Bin = { videos: MediaItem[]; audio: MediaItem[]; images: MediaItem[]; stickers: MediaItem[] };
 
 export type ProjectRow = {
   id: number;
@@ -92,6 +94,9 @@ export type Catalogue = {
   eq: Choice[];
   ramp_presets: { key: string; title: string; ramp: { p: number; v: number }[] }[];
   captions: CaptionsStatus;
+  shapes: { key: string; title: string }[];
+  stickers: { key: string; title: string; group: string }[];
+  render_where: RenderWhere;
   limits: { max_preview_seconds: number; max_tracks: number; max_clips: number; ramp_steps: number };
 };
 
@@ -101,8 +106,19 @@ export type Beats = { beats: number[]; bpm: number | null; duration: number };
 
 export type RenderJobRow = {
   id: number; state: string; percent: number; label: string; error: string; preset: string; quality: string; created_at: string; active: boolean;
+  /** "node" | "server" | "node:<name>" | "" */
+  where?: string;
 };
-export type ExportRow = { job_id: number; url: string; rel: string; preset: string; quality: string; seconds: number; bytes: number; size: string; codec: string; note: string; rendered_at: string };
+export type ExportRow = {
+  job_id: number; url: string; rel: string; preset: string; quality: string; seconds: number; bytes: number; size: string; codec: string; note: string;
+  rendered_at: string; where?: "node" | "server"; node?: string; encoder?: string; fallback?: string;
+};
+export type RenderWhere = { online: boolean; message: string; node: string; nvenc: boolean; gpu?: string };
+export type LutRow = { key: string; title: string; size: number; bytes: number; created: number };
+export type MatteRow = { key: string; ref: string; s0: number; s1: number; fps: number; node: string; engine: string; bytes: number; created: number; url: string };
+export type MatteStatus = { ok: boolean; node: string; message: string; max_seconds: number };
+export type TrackResult = { samples: { s: number; x: number; y: number; scale: number; rot: number }[]; lost_at: number | null; engine: string; s0: number; s1: number; fps: number; ref: string };
+export type SyncResult = { offsets: { ref: string; offset: number; confidence: number; ok: boolean }[] };
 
 const base = (store: string) => `/stores/${store}/editor`;
 
@@ -137,4 +153,25 @@ export const videoApi = {
     api.post<{ job_id: number }>(`${base(store)}/captions/`, body).then((r) => r.data),
   renders: (store: string, id: number) => api.get<{ jobs: RenderJobRow[]; exports: ExportRow[] }>(`${base(store)}/projects/${id}/renders/`).then((r) => r.data),
   cancelJob: (jobId: number) => api.post(`/jobs/${jobId}/cancel/`),
+  // ───────────── ابزارهای ویژه (pro 2)
+  luts: (store: string) => api.get<{ luts: LutRow[] }>(`${base(store)}/luts/`).then((r) => r.data.luts),
+  uploadLut: (store: string, file: File, title?: string) => {
+    const body = new FormData();
+    body.append("file", file);
+    if (title) body.append("title", title);
+    return api.post<{ lut: LutRow }>(`${base(store)}/luts/`, body).then((r) => r.data.lut);
+  },
+  deleteLut: (store: string, key: string) => api.delete(`${base(store)}/luts/${key}/`),
+  lutText: (store: string, key: string) => api.get<string>(`${base(store)}/luts/${key}/file/`, { responseType: "text", transformResponse: (d) => d }).then((r) => r.data),
+  /** ردیابیِ حرکت — job؛ نتیجه TrackResult */
+  track: (store: string, body: { ref: string; s0: number; s1: number; region: { x: number; y: number; w: number; h: number }; fps?: number }) =>
+    api.post<{ job_id: number }>(`${base(store)}/track/`, body).then((r) => r.data),
+  /** هم‌زمان‌سازیِ چند ضبط با صدا — job؛ نتیجه SyncResult */
+  syncAngles: (store: string, refs: string[]) => api.post<{ job_id: number }>(`${base(store)}/multicam/sync/`, { refs }).then((r) => r.data),
+  matteStatus: (store: string) => api.get<MatteStatus>(`${base(store)}/matte/status/`).then((r) => r.data),
+  mattes: (store: string) => api.get<{ mattes: MatteRow[] }>(`${base(store)}/mattes/`).then((r) => r.data.mattes),
+  /** حذفِ پس‌زمینهٔ یک بازهٔ ویدیو (سرورِ پردازش) — job؛ نتیجه MatteRow */
+  startMatte: (store: string, body: { ref: string; s0: number; s1: number; fps?: number }) => api.post<{ job_id: number }>(`${base(store)}/mattes/`, body).then((r) => r.data),
+  deleteMatte: (store: string, key: string) => api.delete(`${base(store)}/mattes/${key}/`),
+  renderWhere: (store: string) => api.get<RenderWhere>(`${base(store)}/render-where/`).then((r) => r.data),
 };

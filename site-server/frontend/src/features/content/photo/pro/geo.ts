@@ -27,8 +27,8 @@ export function apply(m: M3, x: number, y: number): [number, number] {
   return [(m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w];
 }
 
-const tr = (x: number, y: number): M3 => [1, 0, x, 0, 1, y, 0, 0, 1];
-const sc = (x: number, y: number): M3 => [x, 0, 0, 0, y, 0, 0, 0, 1];
+export const tr = (x: number, y: number): M3 => [1, 0, x, 0, 1, y, 0, 0, 1];
+export const sc = (x: number, y: number): M3 => [x, 0, 0, 0, y, 0, 0, 0, 1];
 const rot = (deg: number): M3 => {
   const a = (deg * Math.PI) / 180;
   const c = Math.cos(a);
@@ -77,6 +77,19 @@ export type GeoState = {
 };
 
 export type ViewState = { s: number | null; x: number; y: number };
+
+/** هندسهٔ بی‌اثر — برای نمای «بوم» (frame-first) که فقط زوم و جابه‌جایی دارد: `new Geo(Wf, Hf, GEO_IDENTITY, true, …)` */
+export const GEO_IDENTITY: GeoState = {
+  turn: 0, straighten: 0, flipH: false, flipV: false, persp: null, crop: { x: 0, y: 0, w: 1, h: 1 },
+};
+
+/** اندازهٔ عکس پس از پرسپکتیو، چرخش و صاف کردن (پیش از برش) — همان ریاضیِ سازندهٔ Geo، بی‌نیاز به نمونه */
+export function photoGeoSizes(Wo: number, Ho: number, g: Pick<GeoState, "turn" | "straighten" | "persp">): { Wt: number; Ht: number } {
+  const [pw, ph] = g.persp ? quadOutSize(g.persp, Wo, Ho) : [Wo, Ho];
+  const turned = g.turn === 90 || g.turn === 270;
+  const [Wt, Ht] = innerRect(turned ? ph : pw, turned ? pw : ph, g.straighten);
+  return { Wt, Ht };
+}
 
 /** همهٔ نگاشت‌های بین صفحه و سند */
 export class Geo {

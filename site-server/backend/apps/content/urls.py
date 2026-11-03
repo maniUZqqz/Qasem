@@ -35,6 +35,17 @@ from .views_editor_pro import (
     ProjectPreviewView,
     ProjectRendersView,
 )
+from .views_editor_pro2 import (
+    EditorLutDetailView,
+    EditorLutFileView,
+    EditorLutsView,
+    EditorMatteDetailView,
+    EditorMattesView,
+    EditorSyncView,
+    EditorTrackView,
+    MatteStatusView,
+    RenderWhereView,
+)
 from .views_timeline import (
     EditorBinView,
     EditorProxyView,
@@ -139,6 +150,15 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/<int:pk>/renders/", ProjectRendersView.as_view(), name="editor-project-renders"),
     path("stores/<int:store_id>/editor/captions/status/", CaptionsStatusView.as_view(), name="editor-captions-status"),
     path("stores/<int:store_id>/editor/captions/", CaptionsView.as_view(), name="editor-captions"),
+    path("stores/<int:store_id>/editor/luts/", EditorLutsView.as_view(), name="editor-luts"),
+    path("stores/<int:store_id>/editor/luts/<str:key>/", EditorLutDetailView.as_view(), name="editor-lut"),
+    path("stores/<int:store_id>/editor/luts/<str:key>/file/", EditorLutFileView.as_view(), name="editor-lut-file"),
+    path("stores/<int:store_id>/editor/track/", EditorTrackView.as_view(), name="editor-track"),
+    path("stores/<int:store_id>/editor/multicam/sync/", EditorSyncView.as_view(), name="editor-multicam-sync"),
+    path("stores/<int:store_id>/editor/matte/status/", MatteStatusView.as_view(), name="editor-matte-status"),
+    path("stores/<int:store_id>/editor/mattes/", EditorMattesView.as_view(), name="editor-mattes"),
+    path("stores/<int:store_id>/editor/mattes/<str:key>/", EditorMatteDetailView.as_view(), name="editor-matte"),
+    path("stores/<int:store_id>/editor/render-where/", RenderWhereView.as_view(), name="editor-render-where"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
     path(

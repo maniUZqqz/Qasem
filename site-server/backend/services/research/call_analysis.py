@@ -25,7 +25,8 @@ from apps.ai.models import AIRequest
 from apps.ai.services import recorded_json_call
 from services.ai import gateway
 from services.ai.gateway import text_provider
-from services.ai.router import TASK_REASONING, models_for
+from services.ai.priority import RESEARCH
+from services.ai.router import TASK_RESEARCH, models_for
 from services.audio.transcribe import TranscriptionUnavailable, transcribe
 
 logger = logging.getLogger(__name__)
@@ -129,8 +130,8 @@ def run(recording) -> None:
             prompt_version=PROMPT_VERSION,
             # CUSTOMER, not PRODUCT: this is a recording of a third party, and
             # the store's data policy decides whether it may leave the machine.
-            provider=text_provider(recording.store, gateway.CUSTOMER),
-            models=models_for(TASK_REASONING),
+            provider=text_provider(recording.store, gateway.CUSTOMER, kind=RESEARCH),
+            models=models_for(TASK_RESEARCH),
             system=SYSTEM,
             prompt=TEMPLATE.format(
                 company=recording.prospect.company,

@@ -19,6 +19,7 @@
     GET|POST  stores/<id>/photo-editor/projects/                 ?asset=ID ⇐ {projects}؛ POST {asset, title?, data?} ⇐ 201 {project}
     GET|PUT|PATCH|DELETE  stores/<id>/photo-editor/projects/<pid>/   {data?, title?, rev?} ⇐ {project}؛ rev کهنه ⇐ 409
     PUT|GET|DELETE  stores/<id>/photo-editor/projects/<pid>/masks/<mid>/   بدنهٔ خامِ عکس یا multipart file ⇐ {id, url, w, h}
+    GET|PUT|DELETE  stores/<id>/photo-editor/projects/<pid>/liquify/   نقشهٔ مایع‌سازی (LQF1، ≤ ۲MB) ⇐ PUT {rev, gw, gh}
     POST   stores/<id>/photo-editor/exact/                       {asset, operations, side?} ⇐ {online, state, job?} (کیت روی کپیِ کوچک)
     GET|DELETE  stores/<id>/photo-editor/exact/<uid>/            وضعیت + نشانیِ نتیجه / لغوِ درخواستِ کهنه
     POST   stores/<id>/photo-editor/subject/                     {asset, rect?} ⇐ ماسکِ سوژه (گره یا grabCut)
@@ -27,6 +28,8 @@
     PATCH|DELETE  stores/<id>/photo-editor/presets/<id>/         تغییرِ نام/داده، حذف
     POST   stores/<id>/photo-editor/presets/<id>/apply/          {assets: [...]} ⇐ نسخه برای هر عکس (مثلِ edits/)
     GET    stores/<id>/photo-editor/fonts/                       فونت‌های فارسیِ موجود روی سرور
+    POST   stores/<id>/photo-editor/genfill/                     multipart {image, mask, asset, prompt?, seed?} ⇐ «پرکردنِ هوشمند» (FLUX) در صف
+    GET|DELETE  stores/<id>/photo-editor/genfill/<uid>/          وضعیت (READY ⇐ asset + layer) / لغو
 """
 from __future__ import annotations
 
@@ -307,7 +310,11 @@ class EditView(APIView):
             if action == "cancel":
                 services.cancel(e)
             elif action == "retry":
-                again = services.create_edits(e.asset.store, request.user, [e.asset_id], e.recipe, e.operations)
+                # «ویرایش با دستور» روی سرورِ سایت: کارها بازنویسی شده‌اند؛ تلاشِ دوباره از اصلِ کارها (دوباره از هوش مصنوعی می‌پرسد).
+                # نسخهٔ قدیمی (stats.order نیست ⇒ ۱) عیناً با همان ترتیبِ قدیمی ساخته می‌شود؛ نسخهٔ تازه با ترتیبِ خودش
+                again = services.create_edits(e.asset.store, request.user, [e.asset_id], e.recipe,
+                                              (e.stats or {}).get("original_operations") or e.operations,
+                                              order=int((e.stats or {}).get("order") or 1))
                 _dispatch(start_edit_task, again[0].pk)
                 again[0].refresh_from_db()
                 extra["new"] = services.edit_dict(again[0])
@@ -386,7 +393,7 @@ class ProjectListView(APIView):
             p = services.create_project(store, asset, str(request.data.get("title") or ""), request.data.get("data"))
         except services.PhotoError as exc:
             return _err(str(exc))
-        return Response({"project": services.project_dict(p)}, status=status.HTTP_201_CREATED)
+        return Response({"project": services.project_dict(p, migrate=False)}, status=status.HTTP_201_CREATED)
 
 
 class ProjectView(APIView):
@@ -411,11 +418,12 @@ class ProjectView(APIView):
                                           rev=None if rev in (None, "") else int(rev))
         except services.ProjectConflict as exc:
             p.refresh_from_db()
-            return Response({"error": {"code": "conflict", "message": str(exc)}, "project": services.project_dict(p)},
+            return Response({"error": {"code": "conflict", "message": str(exc)},
+                             "project": services.project_dict(p, migrate=False)},
                             status=status.HTTP_409_CONFLICT)
         except (services.PhotoError, ValueError) as exc:
             return _err(str(exc))
-        return Response({"project": services.project_dict(saved)})
+        return Response({"project": services.project_dict(saved, migrate=False)})
 
     patch = put
 
@@ -622,3 +630,112 @@ class PresetApplyView(APIView):
             e.refresh_from_db()
         return Response({"batch": edits[0].batch, "edits": [services.edit_dict(e) for e in edits],
                          "node": services.node_status(), "preset": p.pk}, status=status.HTTP_201_CREATED)
+
+
+# ═════════════════════════════ «پرکردنِ هوشمند» (FLUX inpaint)
+
+class GenFillView(APIView):
+    """POST multipart {image, mask, asset, prompt?, seed?} ⇐ کارِ FLUX در صف (حتی با گرهٔ خاموش) ⇐ {job, state, online, message}."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        asset = _asset(store, request.data.get("asset"))
+        if asset is None:
+            return _not_found()
+        image, mask = request.FILES.get("image"), request.FILES.get("mask")
+        if image is None or mask is None:
+            return _err("تصویر و ماسک را بفرستید (فیلدهای image و mask).")
+        try:
+            out = services.genfill_request(store, request.user, asset, image.read(), mask.read(),
+                                           str(request.data.get("prompt") or ""), request.data.get("seed"))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("photoedit: genfill request failed")
+            return _err(f"«پرکردنِ هوشمند» ثبت نشد: {exc}")
+        return Response(out, status=status.HTTP_201_CREATED)
+
+
+class GenFillStatusView(APIView):
+    """GET ⇐ وضعیت؛ وقتی تمام شد ⇐ {state:"READY", asset, layer:{cx,cy,w}}. DELETE ⇐ لغو."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        out = services.genfill_status(store, uid)
+        return _not_found() if out is None else Response(out)
+
+    def delete(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        return Response(status=status.HTTP_204_NO_CONTENT) if services.genfill_cancel(store, uid) else _not_found()
+
+
+# ─── پایانِ «پرکردنِ هوشمند» ───
+
+
+class LiquifyRawParser(BaseParser):
+    """بدنهٔ خامِ نقشهٔ مایع‌سازی؛ بیش از سقف + ۱ بایت نمی‌خواند (بزرگ‌تر ⇐ ۴۱۳ در view)."""
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        from .liquify import MAX_BYTES
+
+        return stream.read(MAX_BYTES + 1) if stream is not None else b""
+
+
+class LiquifyView(APIView):
+    """GET|PUT|DELETE stores/<id>/photo-editor/projects/<pid>/liquify/ — نقشهٔ جابه‌جاییِ liquify.bin (فرمتِ LQF1، حداکثر ۲ مگابایت).
+
+    PUT: بدنهٔ خامِ octet-stream ⇐ ``{rev, gw, gh}`` (rev = int(mtime)، همیشه صعودی)؛ هدر/اندازهٔ نادرست ⇐ ۴۰۰، بزرگ‌تر از ۲ مگابایت ⇐ ۴۱۳.
+    GET: بایت‌های فایل (۴۰۴ اگر نیست)؛ DELETE: حذف (۲۰۴، تکرارپذیر)."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [LiquifyRawParser]
+
+    def _project(self, request, store_id, pk, write):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=write)
+        return PhotoProject.objects.filter(pk=pk, store=store).select_related("asset", "store").first()
+
+    def put(self, request, store_id, pk):
+        from .liquify import MAX_BYTES
+
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        try:
+            declared = int(request.META.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            declared = 0
+        too_big = _err("نقشهٔ مایع‌سازی بزرگ‌تر از ۲ مگابایت است.", "too_large", status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        if declared > MAX_BYTES:
+            return too_big
+        raw = request.data if isinstance(request.data, (bytes, bytearray)) else b""
+        if len(raw) > MAX_BYTES:
+            return too_big
+        try:
+            info = services.save_liquify(p, bytes(raw))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        return Response(info)
+
+    def get(self, request, store_id, pk):
+        p = self._project(request, store_id, pk, False)
+        if p is None:
+            return _not_found()
+        path = services.liquify_file(p)
+        if not path.is_file():
+            return _not_found()
+        resp = HttpResponse(path.read_bytes(), content_type="application/octet-stream")
+        resp["Cache-Control"] = "no-store"
+        info = services.liquify_info(p)
+        if info:
+            resp["X-Liquify-Rev"] = str(info["rev"])
+        return resp
+
+    def delete(self, request, store_id, pk):
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        services.delete_liquify(p)
+        return Response(status=status.HTTP_204_NO_CONTENT)

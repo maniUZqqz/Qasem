@@ -264,7 +264,10 @@ class RemoteOllamaTests(TestCase):
     def test_registry_lists_the_models_the_node_reported(self):
         names = [m["name"] for m in models_registry.installed()]
         self.assertEqual(names, ["qwq:32b", "qwen3-vl:30b", "qwen3-coder:30b"])
-        self.assertEqual(models_registry.candidates("REASONING")[:2], ["qwq:32b", "qwen3-vl:30b"])
+        # research = the old MODEL_REASONING (qwq); everyday text prefers gemma3:12b, which this node does not have: skipped
+        self.assertEqual(models_registry.candidates("RESEARCH")[:2], ["qwq:32b", "qwen3-vl:30b"])
+        self.assertNotIn("gemma3:12b", models_registry.candidates("REASONING"))
+        self.assertEqual(models_registry.candidates("REASONING")[:1], ["qwen3-vl:30b"])
         self.assertEqual(models_registry.candidates("VISION")[0], "qwen3-vl:30b")
         self.assertNotIn("qwq:32b", models_registry.candidates("VISION"))
 

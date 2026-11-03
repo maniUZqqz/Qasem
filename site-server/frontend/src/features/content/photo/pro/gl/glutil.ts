@@ -149,6 +149,28 @@ export class GLCtx {
     return tex;
   }
 
+  /** بافتِ RG32F (w×h، بی فیلتر؛ فقط با texelFetch خوانده می‌شود) — برای نقشهٔ مایع‌سازی. data: w·h·2 عدد، سطرِ اول بالا */
+  fromFloatRG(data: Float32Array, w: number, h: number): Tex {
+    const gl = this.gl;
+    const t = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, w, h, 0, gl.RG, gl.FLOAT, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const tex: Tex = { t, w, h, fbo: null, float: true };
+    this.owned.add(tex);
+    return tex;
+  }
+
+  /** محتوای تازه برای بافتِ fromFloatRG (هم‌اندازه) */
+  reuploadFloatRG(tex: Tex, data: Float32Array): void {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, tex.t);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, tex.w, tex.h, gl.RG, gl.FLOAT, data);
+  }
+
   /** از استخر: بافتِ میانیِ هم‌اندازه. با release برمی‌گردد. */
   take(w: number, h: number, float = true): Tex {
     w = Math.max(1, Math.round(w));

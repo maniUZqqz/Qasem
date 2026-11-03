@@ -62,7 +62,9 @@ def job_json(j: ComputeJob, with_payload=False) -> dict:
          "created": j.created_at, "claimed": j.claimed_at, "finished": j.finished_at, "final": j.final,
          "dedupe": bool(j.dedupe_of_id), "timeout_s": j.timeout_s,
          "outputs": [{**o, "url": SV.output_url(j, o["name"])} for o in j.outputs()],
-         "meta": (j.result or {}).get("meta") or {}}
+         "meta": (j.result or {}).get("meta") or {},
+         # پیشرفتِ زندهٔ کارهای طولانی (دانلودِ مدل: done/total بایت، سرعت، مرحله) که عامل با progress می‌فرستد
+         "live": (j.result or {}).get("live") or {}}
     if with_payload:
         d["payload"] = j.payload
         d["inputs"] = list((j.inputs or {}).keys())
@@ -107,18 +109,30 @@ def _control(node) -> dict:
         from services.ai import priority
         cfg = priority.config()
         out["ai"] = {"priority": cfg.priority, "vision_model": priority.local_model(priority.VISION, cfg),
-                     "text_model": priority.local_model(priority.TEXT, cfg), "code_model": priority.local_model(priority.CODE, cfg)}
+                     "text_model": priority.local_model(priority.TEXT, cfg), "code_model": priority.local_model(priority.CODE, cfg),
+                     "research_model": priority.local_model(priority.RESEARCH, cfg)}
     except Exception:  # noqa: BLE001 — این راهنما نباید heartbeat را بیندازد
         pass
     return out
+
+
+def _store_caps(node, incoming: dict) -> None:
+    """گزارشِ تازهٔ گره را ذخیره می‌کند. فهرستِ مدل‌های Ollama را وقتی Ollama خاموش است عاملِ قدیمی نمی‌فرستد (و ذخیره‌شدهٔ
+    قبلی پاک می‌شد ⇒ پنل «نامعلوم» می‌گفت)؛ آخرین فهرست می‌ماند و `ollama_models_stale` می‌گوید قدیمی است."""
+    caps = dict(incoming)
+    old = node.capabilities or {}
+    if "ollama_models" not in caps and old.get("ollama_models"):
+        caps["ollama_models"] = old["ollama_models"]
+        caps["ollama_models_stale"] = True
+    node.capabilities = caps
+    node.save(update_fields=["capabilities"])
 
 
 @node_api("POST")
 def heartbeat(request):
     node = _node(request)
     if isinstance(request.data, dict) and request.data:
-        node.capabilities = dict(request.data)
-        node.save(update_fields=["capabilities"])
+        _store_caps(node, request.data)
     return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **_control(node)})
 
 
@@ -126,8 +140,7 @@ def heartbeat(request):
 def claim(request):
     node = _node(request)
     if isinstance(request.data, dict) and request.data.get("capabilities"):
-        node.capabilities = dict(request.data["capabilities"])
-        node.save(update_fields=["capabilities"])
+        _store_caps(node, request.data["capabilities"])
     job = SV.claim(node)
     control = _control(node)
     if not job:
@@ -172,6 +185,12 @@ def finish(request, uid):
     data = request.data if isinstance(request.data, dict) else {}
     job = SV.finish(job, node, bool(data.get("ok")), str(data.get("error") or ""), data.get("meta") or {},
                     data.get("outputs") or [])
+    if job.kind == "ollama.pull" and job.state == ComputeJob.State.COMPLETED:
+        try:        # مدلِ تازه نصب شد: «نصب نیست»ِ احتمالیِ ثبت‌شده در مسیریابِ هوش مصنوعی پاک شود
+            from services.ai import model_pull
+            model_pull.pull_completed(job)
+        except Exception:  # noqa: BLE001 — پاکسازیِ حافظهٔ شکست نباید پایانِ کار را بیندازد
+            pass
     return Response({"ok": True, "state": job.state})
 
 
@@ -236,6 +255,10 @@ def submit(request):
     import tempfile
 
     kind = (request.data.get("kind") or "echo").strip()
+    if kind == "ollama.pull":
+        # دانلودِ مدل فقط از کارتِ «اولویتِ هوش مصنوعی» و فقط برچسب‌های فهرستِ مجازِ سایت (services.ai.model_pull)
+        return Response({"error": "دانلودِ مدل را از کارتِ «اولویتِ هوش مصنوعی» (ادمین ⇐ موتورهای AI) بزنید؛ فقط مدل‌های فهرستِ مجاز."},
+                        status=400)
     raw = request.data.get("payload") or "{}"
     try:
         payload = _json.loads(raw) if isinstance(raw, str) else dict(raw)

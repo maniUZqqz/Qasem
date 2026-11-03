@@ -90,19 +90,18 @@ def ai_route(request):
 
 @studio_api('POST')
 def ai_route_pull(request):
-    """مدل روی گره نیست ⇒ دانلودش از راهِ همان صفِ کارها. گره باید روشن باشد؛ برای گرهِ خاموش کار صف نمی‌شود."""
-    from apps.compute import services as compute
-    from services.ai import priority, routing
-    state = routing.node_state(priority.CODE)
-    if not state['online']:
-        return bad('سرورِ پردازش الان خاموش است. وقتی روشن شد این دکمه را بزن. دانلود حدودِ ۱۹ گیگابایت است.')
+    """مدلِ کدِ سایت‌ساز روی گره نیست ⇒ دانلودش. همان «دانلود مدل» ِ کارتِ اولویتِ هوش مصنوعی (services.ai.model_pull):
+    کارِ ollama.pull با درصد و سرعت، ادامه‌پذیر و با اجارهٔ بلند؛ گرهٔ خاموش هم کار را در صف می‌گذارد و وقتی روشن شد شروع می‌شود."""
+    from services.ai import model_pull, routing
     model = routing.coder_model()
     try:
-        job = compute.enqueue('ollama.chat', {'path': '/api/pull', 'name': model, 'model': model, 'stream': False}, origin='ollama-pull',
-                              priority=200, timeout_s=6 * 3600, dedupe=False)
-    except compute.ComputeError as exc:
+        job = model_pull.start_pull(model)
+    except model_pull.PullError as exc:
         return bad(str(exc))
-    return Response({'ok': True, 'job': str(job.uid), 'message': 'دانلودِ %s روی سرورِ پردازش شروع شد (حدودِ ۱۹ گیگابایت). پیشرفتش در «سرورهای پردازش» دیده می‌شود.' % model}, status=202)
+    view = model_pull.job_view(job)
+    return Response({'ok': True, 'job': str(job.uid), 'pull': view,
+                     'message': 'دانلودِ %s در صف گذاشته شد: %s پیشرفتش در ادمین ⇐ موتورهای AI (کارتِ اولویتِ هوش مصنوعی) دیده می‌شود.'
+                                % (model, view['text'])}, status=202)
 
 
 # ──────────────────────────────────────────────── تنظیمات

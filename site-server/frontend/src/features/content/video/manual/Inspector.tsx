@@ -12,13 +12,14 @@ import { Num } from "./controls";
 import EffectsTab from "./EffectsTab";
 import ExportPanel from "./ExportPanel";
 import MixerPanel from "./MixerPanel";
+import ProPanel, { ProProps } from "./ProPanel";
 import {
   AnyClip, AttrGroup, DEFAULT_DUCKING, DEFAULT_MASTER, ExportBlock, FORMATS, MediaClip, Project, TextClip, Track, clipLength, timecode, updateClips, updateTrack,
 } from "./model";
 import TextPanel from "./TextPanel";
 import "./inspector.css";
 
-export type InspectorTab = "clip" | "color" | "audio" | "text" | "fx" | "mixer" | "captions" | "out";
+export type InspectorTab = "clip" | "color" | "audio" | "text" | "fx" | "mixer" | "captions" | "pro" | "out";
 
 type Edit = {
   live: (fn: (p: Project) => Project) => void;
@@ -66,6 +67,13 @@ export type InspectorProps = {
   onNotice: (m: string) => void;
   onBeats: () => void;
   beatsBusy: boolean;
+  /** تبِ «ابزارها» (شکل/استیکر، تودرتو، مولتی‌کم، ضرب، ردیابی، LUT، مات) */
+  pro: ProProps;
+  /** ماسکِ آزاد */
+  onEditMask: (on: boolean) => void;
+  editingMask: boolean;
+  /** هر دو را برای صفحهٔ «خروجی» */
+  exportWhere?: import("../api").RenderWhere | null;
 };
 
 const TABS: { key: InspectorTab; title: string }[] = [
@@ -76,6 +84,7 @@ const TABS: { key: InspectorTab; title: string }[] = [
   { key: "fx", title: "افکت‌ها" },
   { key: "mixer", title: "میکسر" },
   { key: "captions", title: "زیرنویس" },
+  { key: "pro", title: "ابزارها" },
   { key: "out", title: "خروجی" },
 ];
 
@@ -103,6 +112,7 @@ export default function Inspector(p: InspectorProps) {
             onImportSrt={p.hasSubtitleSource && selected && selected.clip.type === "media" ? () => p.onSubtitles((selected.clip as MediaClip).ref) : undefined}
             hasSrtSource={p.hasSubtitleSource} />
         )}
+        {tab === "pro" && <ProPanel {...p.pro} />}
         {tab === "out" && <OutTab {...p} />}
       </div>
     </div>
@@ -138,7 +148,7 @@ function ClipTab(p: KindProps) {
     <ClipInspector
       clip={selected.clip} track={selected.track} ids={p.selection} playhead={p.playhead} item={p.media[selected.clip.ref]} cat={p.cat} edit={p.edit}
       hasClipboard={p.hasClipboard} onCopyAttrs={p.onCopyAttrs} onPasteAttrs={p.onPasteAttrs} onExtractAudio={p.onExtractAudio}
-      onUnlink={p.onUnlink} onFreeze={p.onFreeze} onJLCut={p.onJLCut} linked={p.linked}
+      onUnlink={p.onUnlink} onFreeze={p.onFreeze} onJLCut={p.onJLCut} linked={p.linked} onEditMask={p.onEditMask} editingMask={p.editingMask}
     />
   );
 }
@@ -257,7 +267,7 @@ function OutTab(p: InspectorProps) {
 
       {p.cat ? (
         <ExportPanel
-          storeId={p.storeId} projectId={projectId} project={project} check={p.check} cat={p.cat.export} busy={p.renderBusy}
+          storeId={p.storeId} projectId={projectId} project={project} check={p.check} cat={p.cat.export} busy={p.renderBusy} where={p.exportWhere ?? p.cat.render_where}
           onExport={(block: ExportBlock) => edit.apply("تنظیماتِ خروجی", (pr) => ({ ...pr, export: block }))}
           onRender={p.onRender}
         />

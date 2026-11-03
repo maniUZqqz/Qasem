@@ -16,7 +16,13 @@ from .views_competitors import (
     ProfitReportView,
 )
 from .views_policy import StoreAIPolicyView
-from .views_priority import AIPriorityResetView, AIPriorityTestView, AIPriorityView
+from .views_priority import (
+    AIModelPullCancelView,
+    AIModelPullView,
+    AIPriorityResetView,
+    AIPriorityTestView,
+    AIPriorityView,
+)
 from .views_providers import AIProviderHealthView, AIStatusView
 
 
@@ -41,6 +47,9 @@ urlpatterns = [
     path("ai/priority/", AIPriorityView.as_view(), name="ai-priority"),
     path("ai/priority/test/", AIPriorityTestView.as_view(), name="ai-priority-test"),
     path("ai/priority/reset/", AIPriorityResetView.as_view(), name="ai-priority-reset"),
+    # «دانلود مدل» ِ لوکال از پنل (کارِ ollama.pull؛ فقط فهرستِ مجازِ سایت)
+    path("ai/models/pull/", AIModelPullView.as_view(), name="ai-model-pull"),
+    path("ai/models/pull/cancel/", AIModelPullCancelView.as_view(), name="ai-model-pull-cancel"),
     path("products/<int:pk>/analyze/", ProductAnalyzeView.as_view(), name="product-analyze"),
     # ---- competitors (§3) ------------------------------------------------
     path(

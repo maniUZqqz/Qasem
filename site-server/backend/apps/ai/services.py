@@ -71,6 +71,10 @@ def _note_route(request_row, provider) -> None:
     request_row.fell_back = fell_back is True
     reason = getattr(provider, "fallback_reason", "")
     request_row.fallback_reason = reason[:400] if request_row.fell_back and isinstance(reason, str) else ""
+    # مدلِ انتخابی نصب نبود و مدلِ جایگزینِ همین مسیر جواب داد: در همان ستون می‌ماند تا کارت نشانش بدهد
+    note = getattr(provider, "model_note", "")
+    if not request_row.fell_back and isinstance(note, str) and note:
+        request_row.fallback_reason = note[:400]
 
 
 def _single_call(

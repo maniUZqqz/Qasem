@@ -3,7 +3,8 @@
 
 هر کارِ هوش مصنوعی در NM باید با هر دو مسیر بتواند انجام شود:
 
-  · لوکال = Ollama روی سرورِ پردازشِ مالک (از صفِ apps.compute) با مدل‌های qwen3-coder / qwq:32b / qwen3-vl
+  · لوکال = Ollama روی سرورِ پردازشِ مالک (از صفِ apps.compute) با مدل‌های gemma3:12b (متنِ روزمره) / qwq:32b (پژوهش) /
+    qwen3-coder (کد) / qwen3-vl (بینایی)؛ اگر مدلِ انتخابی نصب نبود، مدلِ مناسبِ بعدیِ نصب‌شده (model_catalog.CHAINS)
   · متیس  = API ِ ابری (سازگار با OpenAI)
 
 یک تنظیم (apps.ai.AiPriority) می‌گوید کدام اول باشد؛ اگر اولی در دسترس نبود (گره خاموش، مدل نصب‌نشده، مهلت،
@@ -35,16 +36,19 @@ PROVIDER_LABEL = {LOCAL: "لوکال", METIS: "متیس"}
 
 CODE = "code"
 TEXT = "text"
+RESEARCH = "research"
 VISION = "vision"
-KINDS = (TEXT, CODE, VISION)
-KIND_LABEL = {TEXT: "متن و استدلال", CODE: "کد و سایت‌ساز", VISION: "بینایی (تصویر)"}
+#: متنِ روزمره (سریع) / پژوهش و استدلالِ عمیق (کند و دقیق) / کد / بینایی — ۱۴۰۵/۰۸/۱۲: متن از پژوهش جدا شد
+KINDS = (TEXT, RESEARCH, CODE, VISION)
+KIND_LABEL = {TEXT: "متنِ روزمره (محتوا، کپشن، چت)", RESEARCH: "پژوهش و استدلالِ عمیق",
+              CODE: "کد و سایت‌ساز", VISION: "بینایی (تصویر)"}
 
 LOCAL_FIRST = "local_first"
 METIS_FIRST = "metis_first"
 ORDERS = (LOCAL_FIRST, METIS_FIRST)
 
-#: services.ai.router task type → نوعِ کار
-TASK_KIND = {"REASONING": TEXT, "CODE": CODE, "VISION": VISION}
+#: services.ai.router task type → نوعِ کار (REASONING = متنِ روزمره؛ RESEARCH = پژوهش)
+TASK_KIND = {"REASONING": TEXT, "RESEARCH": RESEARCH, "CODE": CODE, "VISION": VISION}
 
 
 def kind_of_task(task_type: str) -> str:
@@ -79,28 +83,41 @@ def config() -> Config:
         return Config()
     return Config(
         priority=row.priority if row.priority in ORDERS else LOCAL_FIRST,
-        overrides={CODE: row.priority_code, TEXT: row.priority_text, VISION: row.priority_vision},
+        overrides={CODE: row.priority_code, TEXT: row.priority_text, VISION: row.priority_vision,
+                   RESEARCH: getattr(row, "priority_research", "") or ""},
         models={CODE: (row.model_code or "").strip(), TEXT: (row.model_text or "").strip(),
-                VISION: (row.model_vision or "").strip()},
+                VISION: (row.model_vision or "").strip(),
+                RESEARCH: (getattr(row, "model_research", "") or "").strip()},
         breaker_minutes=max(1, int(row.breaker_minutes or 5)),
     )
 
 
-#: برچسب‌های دقیقِ مدل‌های مالک روی سرورِ پردازش (تأییدِ مالک ۱۴۰۵/۰۸/۱۲؛ در گزارشِ گره هم هستند). اگر .env چیزی نگفته بود این‌ها.
-DEFAULT_MODELS = {CODE: "qwen3-coder:30b", TEXT: "qwq:32b", VISION: "qwen3-vl:30b"}
+#: نگاشتِ پیش‌فرضِ نوعِ کار ⇒ مدلِ لوکال (۱۴۰۵/۰۸/۱۲؛ مهاجرتِ ai 0020 همین‌ها را ذخیره می‌کند مگر مالک دستی عوض کرده باشد).
+#: متنِ روزمره Gemma 3 12B (سریع و فارسیِ خوب، کاملاً روی ۱۲ گیگابایت)؛ پژوهش QwQ 32B؛ کد Qwen3 Coder؛ بینایی Qwen3 VL.
+DEFAULT_MODELS = {TEXT: "gemma3:12b", RESEARCH: "qwq:32b", CODE: "qwen3-coder:30b", VISION: "qwen3-vl:30b"}
+
+#: کلیدِ .env هر نوع (متنِ روزمره MODEL_TEXT ندارد مگر در .env گذاشته شود؛ پژوهش همان MODEL_REASONING ِ قدیمی است)
+_ENV_KEY = {CODE: "MODEL_CODER", TEXT: "MODEL_TEXT", RESEARCH: "MODEL_REASONING", VISION: "MODEL_VISION"}
 
 
 def env_model(kind: str) -> str:
-    """مدلِ پیش‌فرضِ لوکال برای این نوعِ کار — از .env (MODEL_CODER / MODEL_REASONING / MODEL_VISION)، وگرنه DEFAULT_MODELS."""
+    """مدلِ پیش‌فرضِ لوکال برای این نوعِ کار — از .env (MODEL_TEXT / MODEL_REASONING / MODEL_CODER / MODEL_VISION)، وگرنه DEFAULT_MODELS."""
     conf = settings.UPMARKET_AI
-    key = {CODE: "MODEL_CODER", TEXT: "MODEL_REASONING", VISION: "MODEL_VISION"}.get(kind, "MODEL_REASONING")
-    return conf.get(key, "") or DEFAULT_MODELS.get(kind, "")
+    return conf.get(_ENV_KEY.get(kind, "MODEL_TEXT"), "") or DEFAULT_MODELS.get(kind, "")
 
 
 def local_model(kind: str, cfg: Config | None = None) -> str:
     """مدلِ لوکالِ این نوعِ کار: انتخابِ مالک، وگرنه پیش‌فرضِ .env."""
     cfg = cfg or config()
     return (cfg.models or {}).get(kind) or env_model(kind)
+
+
+def local_chain(kind: str, cfg: Config | None = None) -> list[str]:
+    """مدلِ لوکالِ این نوعِ کار + مدل‌های مناسبِ بعدی (services.ai.model_catalog.CHAINS). اگر اولی روی گره نصب نبود،
+    اولین نصب‌شده جواب می‌دهد — پیش از آن‌که کار به متیس برود."""
+    from . import model_catalog
+
+    return model_catalog.chain_for(kind, local_model(kind, cfg))
 
 
 def metis_model(kind: str) -> str:
@@ -309,6 +326,33 @@ def open_failure(provider: str, model: str = "") -> dict | None:
         return None
     row = rows[0]
     return {"kind": row.fail_kind, "message": row.fail_message, "until": row.open_until, "key": row.key}
+
+
+def blocked_models(models) -> set:
+    """کدام مدل‌های لوکال را خودِ گره تازه گفته «نصب نیست» (فهرستِ مدل‌ها کهنه بود) و هنوز مدتِ کنارگذاشتن نگذشته؟
+    فقط شکستِ «مدل نیست»؛ مهلت و خطای دیگر کلِ مسیرِ لوکال را جابه‌جا می‌کند، نه مدل را."""
+    names = [m for m in models if m]
+    if not names:
+        return set()
+    try:
+        keys = {"%s:%s" % (LOCAL, m): m for m in names}
+        rows = _state_model().objects.filter(key__in=list(keys), fail_kind="no_model", open_until__gt=timezone.now())
+        return {keys[k] for k in rows.values_list("key", flat=True)}
+    except Exception as exc:  # noqa: BLE001
+        logger.info("AI breaker read failed: %s", exc)
+        return set()
+
+
+def model_blocked(model: str) -> bool:
+    return model in blocked_models([model])
+
+
+def clear_model(model: str) -> None:
+    """مدلی که تازه نصب شد: «مدل نیست»ِ قبلی‌اش فراموش شود."""
+    try:
+        _state_model().objects.filter(key="%s:%s" % (LOCAL, model)).update(open_until=None)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("AI breaker reset failed: %s", exc)
 
 
 def reset(provider: str | None = None) -> int:

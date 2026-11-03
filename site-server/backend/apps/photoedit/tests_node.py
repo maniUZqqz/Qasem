@@ -354,6 +354,8 @@ class FullLoopTests(ApiTestBase):
 
     def test_story_with_smart_edit_round_trip(self):
         ids = self.upload(photo(900, 900, dark=True))
+        # «اول لوکال» + سرورِ پردازشِ photo آنلاین ⇒ مسیرِ سرورِ پردازش (بی گرهٔ آنلاین، «ویرایش با دستور» از سایت می‌رود: tests_smart)
+        node = ComputeNode.objects.create(name="DESKTOP-FAKE", last_seen=timezone.now(), capabilities={"photo": True})
         r = self.api.post(f"{self.base}/edits/", {"assets": ids, "recipe": "smart", "operations": [
             {"tool": "kit_smart", "params": {"goal": "روشن و گرم"}},
             {"tool": "crop_format", "params": {"format": "story", "fit": "contain", "fill": "blur"}},
@@ -361,7 +363,6 @@ class FullLoopTests(ApiTestBase):
             {"tool": "export", "params": {"format": "jpeg", "quality": 88}}]}, format="json")
         e = PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
         self.assertEqual(e.state, "NODE")
-        node = ComputeNode.objects.create(name="DESKTOP-FAKE", last_seen=timezone.now(), capabilities={"photo": True})
         self._run_node(ComputeJob.objects.get(uid=e.compute_job), node)
         d = self.api.get(f"{self.base}/edits/{e.pk}/").json()["edit"]
         self.assertEqual(d["state"], "READY", d)

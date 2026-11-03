@@ -9,7 +9,8 @@ from apps.products.models import Product
 from services.ai.gateway import text_provider, vision_provider
 from services.ai.prompts import market_analysis as market_prompts
 from services.ai.prompts import product_analysis as prompts
-from services.ai.router import TASK_REASONING, TASK_VISION, models_for
+from services.ai.priority import RESEARCH
+from services.ai.router import TASK_RESEARCH, TASK_VISION, models_for
 
 from .models import AIRequest, MarketResearch, ProductIntelligence
 from .services import recorded_json_call as _recorded_json_call
@@ -32,7 +33,7 @@ def analyze_product_task(self, job_id, product_id):
         # vision and reasoning may now be served by different providers —
         # one local, one API — so each stage resolves its own
         vision = vision_provider(product.store)
-        reasoner = text_provider(product.store)
+        reasoner = text_provider(product.store, kind=RESEARCH)
         images = list(product.images.all())
         job.total_steps = len(images) + 1
         job.mark_running("در حال تحلیل تصاویر محصول")
@@ -59,7 +60,7 @@ def analyze_product_task(self, job_id, product_id):
             job.mark_progress(index, f"تصویر {index} از {len(images)} تحلیل شد")
 
         job.mark_progress(len(images), "در حال تولید استراتژی و هوش محصول")
-        reasoning_models = models_for(TASK_REASONING)
+        reasoning_models = models_for(TASK_RESEARCH)
         # the vision model is still resident here — evict it or the reasoning
         # model lands half on the CPU and the run times out (beter.md v2 #9)
         gpu.before_ollama_work(reasoning_models[0])
@@ -116,7 +117,7 @@ def analyze_market_task(self, job_id, product_id, research_inputs=""):
             Product.objects.select_related("store").prefetch_related("attributes").get(id=product_id)
         )
         intelligence = ProductIntelligence.objects.filter(product=product).first()
-        provider = text_provider(product.store)
+        provider = text_provider(product.store, kind=RESEARCH)
         job.total_steps = 2
         job.mark_running("در حال جستجوی خودکار رقبا در وب (دیجی‌کالا/ترب)")
 
@@ -126,7 +127,7 @@ def analyze_market_task(self, job_id, product_id, research_inputs=""):
         query = f"{product.name} {product.brand}".strip()
         web_results = research_product(query, web_query=f"خرید {query}")
         job.mark_progress(1, "در حال تحلیل بازار و رقبا")
-        reasoning_models = models_for(TASK_REASONING)
+        reasoning_models = models_for(TASK_RESEARCH)
         gpu.before_ollama_work(reasoning_models[0])
 
         parsed, request_row = _recorded_json_call(

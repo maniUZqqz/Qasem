@@ -1,0 +1,9 @@
+/* اسکوپ‌ها — فقط توکن‌های پنل */
+.sc-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sc-tabs { flex-wrap: wrap; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.sc-tabs button { flex: 1 1 auto; min-height: 32px; font-size: 11px; padding: 4px 6px; }
+.sc-canvas {
+  width: 100%; height: auto; aspect-ratio: 16 / 9; display: block;
+  border-radius: 8px; border: 1px solid var(--line); background: #0a0d14;
+}
+.sc-empty { margin: 0; }

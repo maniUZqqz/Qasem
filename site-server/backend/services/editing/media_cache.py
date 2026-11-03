@@ -91,6 +91,8 @@ def _write_atomic(dest: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+        # mkstemp makes 0600; the filmstrip sprite is served by nginx (another user), so make it world-readable
+        os.chmod(tmp, 0o644)
         os.replace(tmp, dest)
     except BaseException:
         try:

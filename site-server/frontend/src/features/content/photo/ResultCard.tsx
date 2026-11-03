@@ -28,6 +28,7 @@ export default function ResultCard({
   nodeOn,
   busy,
   onRerender,
+  onOpenManual,
   aiNotes = false,
   children,
 }: {
@@ -38,6 +39,8 @@ export default function ResultCard({
   nodeOn: boolean;
   busy: boolean;
   onRerender: (steps: Operation[], recipe: string) => void;
+  /** ادامه در حالتِ دستی: همین مراحل به‌صورتِ لغزنده و لایه باز می‌شوند */
+  onOpenManual?: (steps: Operation[]) => void;
   aiNotes?: boolean;
   children?: React.ReactNode;
 }) {
@@ -103,6 +106,11 @@ export default function ResultCard({
                 {dirty ? "ساختنِ دوباره با این تغییرها" : "ساختنِ دوباره"}
               </Button>
               {edit.urls.result && <a href={edit.urls.result} download><Button variant="secondary">دانلود</Button></a>}
+              {onOpenManual && (
+                <Button variant="ghost" onClick={() => onOpenManual(steps.filter((s) => s.on !== false))} data-testid="open-manual">
+                  ادامه در حالتِ دستی (لایه‌ها و لغزنده‌ها)
+                </Button>
+              )}
             </div>
             {!nodeOn && steps.some((s) => s.on !== false && (s.where ?? tools[s.tool]?.where) === "node") && (
               <p className="mt-2 text-xs" style={{ color: "var(--warn)" }}>

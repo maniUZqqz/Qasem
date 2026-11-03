@@ -1,0 +1,22 @@
+/* مانیتورِ برنامه (بومِ پیش‌نمایشِ فوری) و دستگیره‌های جابه‌جایی */
+.vw-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #000; }
+.vw-gizmo {
+  position: absolute; border: 1.5px solid var(--brand); box-sizing: border-box; cursor: move; touch-action: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+}
+.vw-gizmo .h {
+  position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--brand); border-radius: 3px;
+  touch-action: none; box-sizing: border-box;
+}
+.vw-gizmo .h.tl { left: -7px; top: -7px; cursor: nwse-resize; }
+.vw-gizmo .h.tr { right: -7px; top: -7px; cursor: nesw-resize; }
+.vw-gizmo .h.bl { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.vw-gizmo .h.br { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.vw-gizmo .h.rot { left: 50%; top: -26px; margin-left: -6px; border-radius: 50%; cursor: grab; }
+.vw-gizmo .h.rot::after { content: ""; position: absolute; left: 3px; top: 10px; width: 1.5px; height: 12px; background: var(--brand); }
+.vw-exact { position: absolute; inset: 0; z-index: 8; background: #000; display: flex; flex-direction: column; }
+@media (max-width: 520px) {
+  .vw-gizmo .h { width: 18px; height: 18px; }
+  .vw-gizmo .h.tl { left: -10px; top: -10px; } .vw-gizmo .h.tr { right: -10px; top: -10px; }
+  .vw-gizmo .h.bl { left: -10px; bottom: -10px; } .vw-gizmo .h.br { right: -10px; bottom: -10px; }
+}

@@ -1,0 +1,21 @@
+/* بازرسِ قطعه: نمودارِ سرعت، کتابخانهٔ گذارها */
+.ramp-svg { width: 100%; height: auto; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; touch-action: none; user-select: none; }
+.ramp-svg .g { stroke: var(--line-strong); stroke-width: 0.6; stroke-dasharray: 3 3; }
+.ramp-svg text { font-size: 8px; fill: var(--text-3); }
+.ramp-svg .curve { fill: none; stroke: var(--brand); stroke-width: 2; }
+.ramp-svg .pt { fill: #fff; stroke: var(--brand); stroke-width: 2.5; cursor: grab; }
+.tr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.tr-cell {
+  display: flex; align-items: center; gap: 6px; text-align: right; padding: 5px 7px; border-radius: 7px; font-size: 11px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); cursor: pointer;
+}
+.tr-cell:hover { border-color: var(--brand); color: var(--text); }
+.tr-cell.is-on { border-color: var(--brand); background: var(--brand-soft); color: var(--text); font-weight: 700; }
+.tr-ico { flex: none; width: 16px; height: 12px; border-radius: 2px; background: linear-gradient(90deg, var(--brand) 50%, var(--text-3) 50%); }
+.tr-ico.g-wipe { background: linear-gradient(90deg, var(--brand) 55%, var(--text-3) 55%); }
+.tr-ico.g-slide { background: linear-gradient(90deg, var(--text-3) 0 40%, var(--brand) 40%); }
+.tr-ico.g-shape { background: radial-gradient(circle, var(--brand) 40%, var(--text-3) 42%); }
+.tr-ico.g-dissolve { background: linear-gradient(90deg, var(--text-3), var(--brand)); }
+.tr-ico.g-zoom { background: radial-gradient(circle, var(--text-3) 30%, var(--brand) 32%); }
+.tr-ico.g-cover { background: linear-gradient(90deg, var(--text-3) 30%, var(--brand) 30%); }
+.tr-ico.g-slice { background: repeating-linear-gradient(90deg, var(--brand) 0 3px, var(--text-3) 3px 6px); }

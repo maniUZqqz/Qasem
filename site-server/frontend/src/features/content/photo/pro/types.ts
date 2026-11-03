@@ -141,7 +141,7 @@ const common = (type: LayerType, name: string): Common => ({
 export const makeBase = (): BaseLayer => ({ ...common("base", "عکس"), type: "base" });
 
 export const makeText = (cx = 0.5, cy = 0.5, text = "متن شما"): TextLayer => ({
-  ...common("text", "متن"), type: "text", text, font: "vazirmatn", weight: 700, size: 0.06, color: "#ffffff",
+  ...common("text", "متن"), type: "text", text, font: "vazirmatn", weight: 700, size: 0.05, color: "#ffffff",
   align: "center", dir: "auto", line_height: 1.3, letter_spacing: 0, width: 0, cx, cy, rot: 0, stroke: null,
   shadow: { color: "#000000", opacity: 0.5, blur: 0.08, dx: 0.03, dy: 0.03 }, box: null, tile: null,
 });
@@ -267,7 +267,7 @@ export function proStateFromOperations(ops: { tool: string; params: Params }[]):
 
 // ───────────────────────────── از حالت به کارهای ادیتور (قراردادِ API)
 
-const NODE_KEYS = ["kit_background", "kit_square", "kit_upscale", "kit_denoise", "kit_sharpen"];
+const NODE_KEYS = ["kit_preset", "kit_background", "kit_square", "kit_upscale", "kit_denoise", "kit_sharpen"];
 const SERVER_KEYS = ["crop_format", "auto_tone", "look", "color"];
 
 export const hasOverlayLayers = (s: ProState) => s.layers.some((l) => l.type !== "base");

@@ -18,6 +18,8 @@ type Common = {
   run: (recipe: string, ops: Operation[] | null) => Promise<string | null>;
   latest: (assetId: number) => Edit | null;
   asset: Asset | null;
+  /** باز کردنِ مراحلِ یک نسخه در حالتِ دستی */
+  openManual?: (steps: Operation[]) => void;
 };
 
 /** یک دستور آماده (بی نیاز به متن) را مستقیم بساز؛ دستوری که متن می‌خواهد (بنر، ویرایش با دستور) اول فرمش را می‌خواهد. */
@@ -146,7 +148,7 @@ export function PhotoAutoPanel(p: Common) {
         {p.asset && last && p.selected.length === 1 && (
           <ResultCard
             key={last.id} asset={p.asset} edit={last} tools={p.tools} kit={p.data.kit} nodeOn={p.nodeOn} busy={p.busy}
-            onRerender={(steps, recipe) => void p.run(recipe, steps).then((e) => e && setError(e))}
+            onRerender={(steps, recipe) => void p.run(recipe, steps).then((e) => e && setError(e))} onOpenManual={p.openManual}
           />
         )}
       </div>
@@ -234,7 +236,7 @@ export function PhotoPromptPanel(p: Common) {
         {p.asset && lastSmart && p.selected.length === 1 && (
           <ResultCard
             key={lastSmart.id} asset={p.asset} edit={lastSmart} tools={p.tools} kit={p.data.kit} nodeOn={p.nodeOn} busy={p.busy} aiNotes
-            onRerender={(steps, recipe) => void p.run(recipe === "smart" ? "manual" : recipe, steps).then((e) => e && setError(e))}
+            onRerender={(steps, recipe) => void p.run(recipe === "smart" ? "manual" : recipe, steps).then((e) => e && setError(e))} onOpenManual={p.openManual}
           >
             {lastSmart.state === "READY" && (
               <div className="mt-4" data-testid="follow-up">

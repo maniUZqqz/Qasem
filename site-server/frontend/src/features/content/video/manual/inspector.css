@@ -1,0 +1,3 @@
+/* نوارِ تبِ بازرس: افقی و قابلِ اسکرول (هشت تب در ۳۲۰ پیکسل) */
+.ins-tabs { overflow-x: auto; scrollbar-width: thin; flex: none; }
+.ins-tabs button { flex: none; padding-inline: 10px; white-space: nowrap; font-size: 12px; }

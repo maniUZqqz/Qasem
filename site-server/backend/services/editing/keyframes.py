@@ -115,16 +115,39 @@ def shifted(keys: list[dict], dt: float) -> list[dict]:
 
 
 def sliced(keys: list[dict], t0: float, t1: float) -> list[dict]:
-    """Keys re-based so t=0 is the old `t0`, with edge keys added so the cut part keeps its exact values."""
+    """Keys re-based so t=0 is the old `t0`. The cut part keeps its exact values: the edges get keys of their own, and an
+    eased segment that is cut in the middle is re-sampled (a handful of linear keys follow the original curve closely)."""
     if not keys:
         return []
-    out = [{"t": 0.0, "v": round(value_at(keys, t0, keys[0]["v"]), 4), "e": "linear"}]
+    pts: list[tuple[float, float, str]] = []
+
+    def edge(t: float, kind: str) -> None:
+        pts.append((t, value_at(keys, t, keys[0]["v"]), kind))
+
+    def run(a: float, b: float, kind: str) -> None:
+        """Samples of one original segment between a and b (exclusive of a, inclusive of b)."""
+        if kind in ("linear", "hold") or b - a < 0.05:
+            return
+        for i in range(1, 6):
+            t = a + (b - a) * i / 6
+            pts.append((t, value_at(keys, t, keys[0]["v"]), "linear"))
+
+    edge(t0, _inherit_ease(keys, t0))
     inner = [k for k in keys if t0 < k["t"] < t1]
-    for k in inner:
-        out.append({**k, "t": round(k["t"] - t0, 3)})
-    if inner:
-        out[0]["e"] = _inherit_ease(keys, t0)
-    out.append({"t": round(t1 - t0, 3), "v": round(value_at(keys, t1, keys[-1]["v"]), 4), "e": "linear"})
+    # the part of the segment that starts before t0 and ends at the first inner key (or at t1)
+    first_end = inner[0]["t"] if inner else t1
+    prev = [k for k in keys if k["t"] <= t0]
+    if prev and _inherit_ease(keys, t0) not in ("linear", "hold"):
+        pts[0] = (t0, pts[0][1], "linear")
+        run(t0, first_end, prev[-1]["e"])
+    for i, k in enumerate(inner):
+        pts.append((k["t"], k["v"], k["e"]))
+        nxt = inner[i + 1]["t"] if i + 1 < len(inner) else t1
+        if i + 1 == len(inner) and k["e"] not in ("linear", "hold"):
+            pts[-1] = (k["t"], k["v"], "linear")
+            run(k["t"], nxt, k["e"])
+    pts.append((t1, value_at(keys, t1, keys[-1]["v"]), "linear"))
+    out = [{"t": round(t - t0, 3), "v": round(v, 4), "e": e} for t, v, e in sorted(pts, key=lambda p: p[0])]
     return out[:MAX_KEYS]
 
 

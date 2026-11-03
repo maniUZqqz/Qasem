@@ -605,6 +605,8 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
     project = None
     work = None
     try:
+        if job.state == Job.State.CANCELLED:             # cancelled before the worker even picked it up
+            raise _Cancelled()
         project = VideoProject.objects.select_related("store").get(pk=project_id)
         data = _snapshot_data(project, snapshot)
         job.total_steps = 100
@@ -706,6 +708,8 @@ def preview_range_task(self, job_id, project_id, snapshot, t0, t1, height=360):
 
     job = Job.objects.get(id=job_id)
     try:
+        if job.state == Job.State.CANCELLED:
+            raise _Cancelled()
         project = VideoProject.objects.select_related("store").get(pk=project_id)
         data = _snapshot_data(project, snapshot)
         job.total_steps = 100

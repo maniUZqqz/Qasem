@@ -1,9 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { api } from "../../../../api/client";
 import Icon from "../../../../components/Icon";
 import type { MediaItem } from "../api";
-import { AnyClip, MediaClip, Project, TextClip, clipEnd, clipLength, timecode } from "./model";
+import type { AudioEngine } from "./AudioEngine";
+import type { LookDef } from "./color";
+import { Compositor, Source, planTransitions, sourceTimeFor } from "./Compositor";
+import { setKey } from "./keyframes";
+import {
+  AnyClip, MediaClip, Project, TextClip, clipEnd, clipLength, findClip, isMedia, projectLength, propAt, speedAt, timecode,
+} from "./model";
+import { onTextFontsReady } from "./textRender";
+import "./monitor.css";
 
 /** آدرسِ قابلِ پخش: نسخهٔ سبک (پروکسی) اگر هست؛ صداهای کتابخانه نیاز به توکن دارند ⇐ blob */
 export function useMediaUrls(media: Record<string, MediaItem>, refs: string[]): Record<string, string> {
@@ -45,140 +53,71 @@ export function useMediaUrls(media: Record<string, MediaItem>, refs: string[]): 
   return urls;
 }
 
-/** تقریبِ پیش‌نمایشیِ افکت‌های یک قطعه با CSS (خروجیِ دقیق از ffmpeg روی سرور می‌آید) */
-function cssFilter(effects: MediaClip["effects"]): string {
-  const f: string[] = [];
-  for (const e of effects) {
-    const a = Number(e.params.amount ?? 0);
-    if (e.tool === "brightness") f.push(`brightness(${1 + a * 1.4})`);
-    else if (e.tool === "contrast") f.push(`contrast(${a || 1})`);
-    else if (e.tool === "saturation") f.push(`saturate(${a || 1})`);
-    else if (e.tool === "white_balance") {
-      const t = Number(e.params.temperature ?? 0);
-      f.push(t >= 0 ? `sepia(${Math.min(1, t * 2)}) saturate(1.1)` : `hue-rotate(${t * 60}deg) saturate(1.05)`);
-    } else if (e.tool === "sharpen") f.push(`contrast(${1 + Number(e.params.amount ?? 0) * 0.08})`);
-  }
-  return f.join(" ") || "none";
-}
+export type MonitorHandle = {
+  getFrame: () => ImageData | null;
+  getCanvas: () => HTMLCanvasElement | null;
+  invalidate: () => void;
+};
 
-function alphaAt(c: MediaClip, t: number): number {
-  let a = c.opacity;
-  const len = clipLength(c);
-  if (c.fade_in > 0) a *= Math.min(1, Math.max(0, (t - c.at) / c.fade_in));
-  if (c.fade_out > 0) a *= Math.min(1, Math.max(0, (clipEnd(c) - t) / c.fade_out));
-  if (c.transition) {
-    const d = c.transition.duration / (c.transition.kind === "crossfade" ? 1 : 2);
-    a *= Math.min(1, Math.max(0, (t - c.at) / Math.min(d, len)));
-  }
-  return a;
-}
-
-function MediaLayer({
-  clip, url, time, playing, rate, muted,
-}: { clip: MediaClip; url: string | undefined; time: number; playing: boolean; rate: number; muted: boolean }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const end = clipEnd(clip);
-  const active = time >= clip.at && time < end;
-  useEffect(() => {
-    const v = ref.current;
-    if (!v || clip.kind === "image") return;
-    const expected = clip.start + Math.max(0, time - clip.at) * clip.speed;
-    v.muted = muted || !clip.audio_on || !active;
-    v.volume = Math.max(0, Math.min(1, clip.volume));
-    if (active) {
-      v.playbackRate = Math.max(0.0625, Math.min(16, clip.speed * Math.abs(rate || 1)));
-      if (playing && rate > 0) {
-        if (v.paused) void v.play().catch(() => undefined);
-        if (Math.abs(v.currentTime - expected) > 0.45) v.currentTime = expected;
-      } else {
-        if (!v.paused) v.pause();
-        if (Math.abs(v.currentTime - expected) > 0.04) v.currentTime = expected;
-      }
-    } else {
-      if (!v.paused) v.pause();
-      if (Math.abs(v.currentTime - clip.start) > 0.2) v.currentTime = clip.start;
-    }
-  });
-  const rotate = clip.effects.find((e) => e.tool === "rotate");
-  const vignette = clip.effects.find((e) => e.tool === "vignette");
-  const blurs = clip.effects.filter((e) => e.tool === "blur_region");
-  const fit = clip.fit === "stretch" ? "fill" : clip.fit;
-  return (
-    <div
-      className="vw-layer" data-clip={clip.id} data-active={active ? "1" : "0"}
-      style={{
-        left: `${clip.x * 100}%`, top: `${clip.y * 100}%`, width: `${clip.width * 100}%`, height: `${clip.height * 100}%`,
-        opacity: active ? alphaAt(clip, time) : 0, pointerEvents: "none",
-      }}
-    >
-      {clip.kind === "image" ? (
-        url ? <img src={url} alt="" style={{ objectFit: fit, filter: cssFilter(clip.effects) }} /> : null
-      ) : (
-        url ? (
-          <video
-            ref={ref} src={url} preload="auto" playsInline
-            style={{ objectFit: fit, filter: cssFilter(clip.effects), transform: rotate ? `rotate(${rotate.params.degrees}deg)` : undefined }}
-          />
-        ) : null
-      )}
-      {vignette && (
-        <i style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at center, transparent ${60 - Number(vignette.params.strength ?? 0.4) * 30}%, rgba(0,0,0,${0.35 + Number(vignette.params.strength ?? 0.4) * 0.6}) 100%)` }} />
-      )}
-      {blurs.map((b, i) => (
-        <i key={i} style={{ position: "absolute", left: `${Number(b.params.x)}%`, top: `${Number(b.params.y)}%`, width: `${Number(b.params.width)}%`, height: `${Number(b.params.height)}%`, backdropFilter: `blur(${6 + Number(b.params.strength ?? 6) * 2}px)` }} />
-      ))}
-    </div>
-  );
-}
-
-function AudioLayer({ clip, url, time, playing, rate, muted }: { clip: MediaClip; url: string | undefined; time: number; playing: boolean; rate: number; muted: boolean }) {
-  const ref = useRef<HTMLMediaElement>(null);
-  const active = time >= clip.at && time < clipEnd(clip);
-  useEffect(() => {
-    const v = ref.current;
-    if (!v) return;
-    const expected = clip.start + Math.max(0, time - clip.at) * clip.speed;
-    v.muted = muted || !active;
-    v.volume = Math.max(0, Math.min(1, clip.volume * clip.opacity));
-    if (active && playing && rate > 0) {
-      v.playbackRate = Math.max(0.0625, Math.min(16, clip.speed * rate));
-      if (v.paused) void v.play().catch(() => undefined);
-      if (Math.abs(v.currentTime - expected) > 0.45) v.currentTime = expected;
-    } else if (!v.paused) v.pause();
-  });
-  return url ? <audio ref={ref} src={url} preload="auto" /> : null;
-}
-
-function TextLayer({ clip, time }: { clip: TextClip; time: number }) {
-  if (time < clip.at || time >= clipEnd(clip)) return null;
-  const pos = clip.position === "top" ? { top: "8%" } : clip.position === "middle" ? { top: "50%", transform: "translateY(-50%)" } : { bottom: "8%" };
-  return (
-    <div className="vw-text" data-text={clip.id} style={{ ...pos, fontSize: `${clip.size}cqh`, color: clip.color, opacity: clip.opacity }}>
-      <span style={{ background: clip.box ? "rgba(0,0,0,.45)" : "transparent" }}>{clip.text}</span>
-    </div>
-  );
-}
-
-export default function Monitor({
-  project, media, time, playing, rate, onSeek, onPlay, onStep, onRate, selectedProxyHint,
-}: {
+type Props = {
   project: Project;
   media: Record<string, MediaItem>;
   time: number;
   playing: boolean;
   rate: number;
+  selection: string[];
+  looks: LookDef[];
+  compare: string | null;
+  engine: AudioEngine | null;
+  duckSpans: [number, number][];
+  /** پخش: زمانِ فعلی را به‌صورتِ ملایم خبر می‌دهد */
+  onTime: (t: number) => void;
+  onEnded: () => void;
   onSeek: (t: number) => void;
   onPlay: () => void;
   onStep: (frames: number) => void;
   onRate: (r: number) => void;
-  selectedProxyHint?: React.ReactNode;
-}) {
+  /** جابه‌جایی/اندازه/چرخش با دستگیره‌های روی تصویر */
+  onGizmo: (id: string, patch: Partial<MediaClip> | Partial<TextClip>, final: boolean) => void;
+  onFrame?: () => void;
+  selectedProxyHint?: ReactNode;
+  overlay?: ReactNode;
+  extraTransport?: ReactNode;
+  badge?: ReactNode;
+  footer?: ReactNode;
+};
+
+const NEAR_BEFORE = 3;
+const NEAR_AFTER = 1.5;
+
+const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
+  const {
+    project, media, time, playing, rate, selection, looks, compare, engine, duckSpans, onTime, onEnded, onPlay, onStep, onRate, onSeek, onGizmo,
+  } = props;
   const stage = useRef<HTMLDivElement>(null);
+  const holder = useRef<HTMLDivElement>(null);
+  const compositor = useRef<Compositor | null>(null);
+  const elements = useRef(new Map<string, { el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement; ref: string; routed: boolean }>());
   const [size, setSize] = useState({ w: 320, h: 400 });
   const [safe, setSafe] = useState(false);
-  const refs = Array.from(new Set(project.tracks.flatMap((t) => t.clips.filter((c): c is MediaClip => c.type === "media").map((c) => c.ref))));
-  const urls = useMediaUrls(media, refs);
+  const rafRender = useRef(0);
+  const latest = useRef({ project, time, playing, rate, looks, compare, engine, duckSpans });
+  latest.current = { project, time, playing, rate, looks, compare, engine, duckSpans };
+  const timeRef = useRef(time);
+  const [frameVersion, setFrameVersion] = useState(0);
 
+  const mediaClips = useMemo(() => project.tracks.flatMap((t) => t.clips.filter(isMedia).map((c) => ({ c, t }))), [project]);
+  const refs = useMemo(() => Array.from(new Set(mediaClips.map((x) => x.c.ref))), [mediaClips]);
+  const urls = useMediaUrls(media, refs);
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
+
+  const ar = project.format.width / project.format.height;
+  const fw = Math.max(60, Math.min(size.w, size.h * ar));
+  const fh = fw / ar;
+  const total = projectLength(project);
+
+  // ───────── اندازهٔ قاب
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
@@ -188,32 +127,279 @@ export default function Monitor({
     return () => ro.disconnect();
   }, []);
 
-  const ar = project.format.width / project.format.height;
-  const fw = Math.max(60, Math.min(size.w, size.h * ar));
-  const fh = fw / ar;
-  const fps = project.format.fps;
-  const total = Math.max(0, ...project.tracks.flatMap((t) => t.clips.map(clipEnd)));
+  useEffect(() => {
+    if (!compositor.current) compositor.current = new Compositor();
+    const cv = compositor.current.canvas;
+    cv.className = "vw-canvas";
+    cv.setAttribute("data-testid", "program-canvas");
+    const host = holder.current;
+    if (host && cv.parentElement !== host) host.prepend(cv);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    let w = fw * dpr;
+    let h = fh * dpr;
+    const k = Math.min(1, 900 / Math.max(w, h));
+    w *= k;
+    h *= k;
+    compositor.current.setSize(w, h);
+    requestRender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fw, fh]);
 
-  // قطعه‌های نزدیک (فعال یا تا ۴ ثانیهٔ دیگر) برای پیش‌بارگذاری
-  const near = (c: AnyClip) => time >= c.at - 4 && time < clipEnd(c) + 0.5;
+  // ───────── منبع‌ها (element ِ هر کلیپ)
+  const releaseElement = useCallback((id: string) => {
+    const e = elements.current.get(id);
+    if (!e) return;
+    latest.current.engine?.unregister(id);
+    if (e.el instanceof HTMLMediaElement) {
+      e.el.pause();
+      e.el.removeAttribute("src");
+      e.el.load();
+    }
+    elements.current.delete(id);
+  }, []);
+
+  const ensureElement = useCallback((clip: MediaClip, track: { muted: boolean }): HTMLVideoElement | HTMLAudioElement | HTMLImageElement | null => {
+    const url = urlsRef.current[clip.ref];
+    if (!url) return null;
+    const cur = elements.current.get(clip.id);
+    if (cur && cur.ref === clip.ref) return cur.el;
+    if (cur) releaseElement(clip.id);
+    let el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement;
+    if (clip.kind === "image") {
+      el = new Image();
+      el.addEventListener("load", () => requestRender());
+      el.src = url;
+    } else {
+      el = document.createElement(clip.kind === "audio" ? "audio" : "video");
+      el.preload = "auto";
+      if (el instanceof HTMLVideoElement) el.playsInline = true;
+      el.muted = true;
+      for (const ev of ["seeked", "loadeddata", "canplay"]) el.addEventListener(ev, () => requestRender());
+      el.src = url;
+    }
+    let routed = false;
+    if (el instanceof HTMLMediaElement && latest.current.engine && (clip.kind === "audio" || (clip.has_audio && clip.audio_on))) {
+      routed = latest.current.engine.register(clip.id, el);
+    }
+    elements.current.set(clip.id, { el, ref: clip.ref, routed });
+    void track;
+    return el;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [releaseElement]);
+
+  /** element ها را با زمان هماهنگ می‌کند (پخش/توقف/جست‌وجو) و فهرستِ منبعِ آمادهٔ رسم را برمی‌گرداند */
+  const syncMedia = useCallback((t: number, isPlaying: boolean, r: number): Map<string, Source> => {
+    const { project: pr } = latest.current;
+    const sources = new Map<string, Source>();
+    const keep = new Set<string>();
+    for (const tr of pr.tracks) {
+      if (tr.kind === "text") continue;
+      const pairs = tr.kind === "video" ? planTransitions(tr) : [];
+      for (const c of tr.clips) {
+        if (!isMedia(c)) continue;
+        let lo = c.at - NEAR_BEFORE;
+        let hi = clipEnd(c) + NEAR_AFTER;
+        for (const p of pairs) {
+          if (p.a === c) hi = Math.max(hi, p.cut + p.d / 2 + 0.2);
+          if (p.b === c) lo = Math.min(lo, p.cut - p.d / 2 - 0.2);
+        }
+        if (t < lo || t > hi) continue;
+        keep.add(c.id);
+        const el = ensureElement(c, tr);
+        if (!el) continue;
+        const inWindow = t >= c.at - 0.001 && t < clipEnd(c);
+        const nearTransition = pairs.some((p) => (p.a === c || p.b === c) && t >= p.cut - p.d / 2 - 0.05 && t < p.cut + p.d / 2 + 0.05);
+        const active = inWindow || nearTransition;
+        if (el instanceof HTMLImageElement) {
+          sources.set(c.id, el);
+          continue;
+        }
+        const entry = elements.current.get(c.id);
+        const routed = !!entry?.routed;
+        const carries = c.kind === "audio" || (c.has_audio && c.audio_on);
+        if (!routed) {
+          el.muted = !carries || tr.muted || !active;
+          el.volume = Math.max(0, Math.min(1, propAt(c, "volume", t) * (c.kind === "audio" ? c.opacity : 1)));
+        }
+        const want = sourceTimeFor(c, t);
+        const forward = isPlaying && r > 0 && !c.reverse && !c.freeze && inWindow;
+        if (forward) {
+          const speed = Math.max(0.0625, Math.min(16, speedAt(c, t) * r));
+          if (Math.abs(el.playbackRate - speed) > 0.01) el.playbackRate = speed;
+          if (el.paused) void el.play().catch(() => undefined);
+          if (Math.abs(el.currentTime - want) > 0.35) el.currentTime = want;
+        } else {
+          if (!el.paused) el.pause();
+          if (el.readyState >= 1 && Math.abs(el.currentTime - want) > (isPlaying ? 0.06 : 0.02)) el.currentTime = want;
+        }
+        if (el instanceof HTMLVideoElement && el.videoWidth > 0 && el.readyState >= 1) sources.set(c.id, el);
+      }
+    }
+    for (const id of [...elements.current.keys()]) if (!keep.has(id)) releaseElement(id);
+    return sources;
+  }, [ensureElement, releaseElement]);
+
+  const draw = useCallback((t: number, isPlaying: boolean, r: number) => {
+    const comp = compositor.current;
+    if (!comp) return;
+    const sources = syncMedia(t, isPlaying, r);
+    const L = latest.current;
+    comp.render({ project: L.project, time: t, sources, looks: L.looks, compare: L.compare });
+    L.engine?.sync(L.project, t, isPlaying, L.duckSpans);
+    props.onFrame?.();
+  }, [props, syncMedia]);
+
+  const requestRender = useCallback(() => {
+    if (latest.current.playing || rafRender.current) return;
+    rafRender.current = requestAnimationFrame(() => {
+      rafRender.current = 0;
+      draw(timeRef.current, false, 1);
+      setFrameVersion((v) => v + 1);
+    });
+  }, [draw]);
+
+  useImperativeHandle(ref, () => ({
+    getFrame: () => compositor.current?.getImageData() ?? null,
+    getCanvas: () => compositor.current?.canvas ?? null,
+    invalidate: () => requestRender(),
+  }), [requestRender]);
+
+  // ───────── وقتی ایستاده‌ایم: با هر تغییرِ زمان/پروژه/آدرس دوباره بکش
+  useEffect(() => {
+    if (playing) return;
+    timeRef.current = time;
+    draw(time, false, 1);
+    setFrameVersion((v) => v + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [time, playing, project, urls, looks, compare, fw, fh, duckSpans]);
+
+  useEffect(() => onTextFontsReady(() => requestRender()), [requestRender]);
+
+  // برای آزمونِ مرورگر و عیب‌یابی: وضعیتِ element های پخش
+  useEffect(() => {
+    Object.assign(window, {
+      __nmVideoDebug: () => [...elements.current].map(([id, e]) => (e.el instanceof HTMLMediaElement
+        ? { id, routed: e.routed, paused: e.el.paused, t: Math.round(e.el.currentTime * 100) / 100, muted: e.el.muted, vol: e.el.volume, ready: e.el.readyState, rate: e.el.playbackRate }
+        : { id, image: true })),
+    });
+  }, []);
+
+  // ───────── حلقهٔ پخش
+  useEffect(() => {
+    if (!playing) {
+      for (const [, e] of elements.current) if (e.el instanceof HTMLMediaElement && !e.el.paused) e.el.pause();
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    let sent = 0;
+    let t = timeRef.current;
+    const tick = (now: number) => {
+      const dt = Math.min(0.25, (now - last) / 1000);
+      last = now;
+      const rr = latest.current.rate;
+      t += dt * rr;
+      const end = projectLength(latest.current.project);
+      if ((rr > 0 && t >= end) || (rr < 0 && t <= 0)) {
+        t = rr > 0 ? end : 0;
+        timeRef.current = t;
+        draw(t, false, 1);
+        onTime(t);
+        onEnded();
+        return;
+      }
+      timeRef.current = t;
+      draw(t, true, rr);
+      if (now - sent > 70) {
+        sent = now;
+        onTime(t);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing]);
+
+  useEffect(
+    () => () => {
+      for (const id of [...elements.current.keys()]) releaseElement(id);
+      if (rafRender.current) cancelAnimationFrame(rafRender.current);
+    },
+    [releaseElement],
+  );
+
+  // ───────── دستگیره‌های روی تصویر
+  const sel = selection.length ? findClip(project, selection[selection.length - 1]) : null;
+  const gizmo = useMemo(() => {
+    if (!sel) return null;
+    const c = sel.clip;
+    if (c.type === "text") {
+      if (time < c.at || time >= clipEnd(c)) return null;
+      return { kind: "text" as const, clip: c, cx: (c.x ?? 0.5) * fw, cy: (c.y ?? (c.position === "top" ? 0.12 : c.position === "middle" ? 0.5 : 0.86)) * fh, w: fw * 0.6, h: fh * 0.08, rot: c.rotation ?? 0 };
+    }
+    if (sel.track.kind !== "video" || c.kind === "audio") return null;
+    if (time < c.at || time >= clipEnd(c)) return null;
+    const px = propAt(c, "px", time), py = propAt(c, "py", time), sc = propAt(c, "scale", time), rot = propAt(c, "rot", time);
+    return { kind: "media" as const, clip: c, cx: (c.x + c.width / 2 + px) * fw, cy: (c.y + c.height / 2 + py) * fh, w: c.width * fw * sc, h: c.height * fh * sc, rot };
+  }, [sel, time, fw, fh, frameVersion]);
+
+  const drag = useRef<null | { mode: "move" | "scale" | "rot"; sx: number; sy: number; c0: AnyClip; cx: number; cy: number; d0: number; a0: number }>(null);
+
+  const patchFor = (c: AnyClip, mode: "move" | "scale" | "rot", x: number, y: number, st: NonNullable<typeof drag.current>): Partial<MediaClip> | Partial<TextClip> => {
+    const rel = time - c.at;
+    if (c.type === "text") {
+      if (mode === "move") return { x: Math.max(0, Math.min(1, (st.cx + x - st.sx) / fw)), y: Math.max(0, Math.min(1, (st.cy + y - st.sy) / fh)) };
+      if (mode === "scale") return { scale: Math.max(0.1, Math.min(4, (c.scale ?? 1) * 1)) };
+      return { rotation: Math.round(Math.atan2(y - st.cy, x - st.cx) * (180 / Math.PI) + 90) };
+    }
+    const m = c as MediaClip;
+    const kf = m.kf ?? {};
+    if (mode === "move") {
+      const dx = (x - st.sx) / fw, dy = (y - st.sy) / fh;
+      const bx = propAt(st.c0 as MediaClip, "px", time) + dx, by = propAt(st.c0 as MediaClip, "py", time) + dy;
+      const hasX = !!kf.px?.length, hasY = !!kf.py?.length;
+      return {
+        ...(hasX || hasY ? { kf: { ...kf, px: hasX ? setKey(kf.px, rel, bx, "px") : kf.px, py: hasY ? setKey(kf.py, rel, by, "py") : kf.py } } : {}),
+        ...(hasX ? {} : { px: bx }), ...(hasY ? {} : { py: by }),
+      };
+    }
+    if (mode === "scale") {
+      const d = Math.hypot(x - st.cx, y - st.cy);
+      const s = Math.max(0.05, Math.min(8, propAt(st.c0 as MediaClip, "scale", time) * (d / Math.max(4, st.d0))));
+      return kf.scale?.length ? { kf: { ...kf, scale: setKey(kf.scale, rel, s, "scale") } } : { scale: Math.round(s * 1000) / 1000 };
+    }
+    const a = Math.round(Math.atan2(y - st.cy, x - st.cx) * (180 / Math.PI) + 90);
+    return kf.rot?.length ? { kf: { ...kf, rot: setKey(kf.rot, rel, a, "rot") } } : { rot: a };
+  };
+
+  const begin = (e: React.PointerEvent, mode: "move" | "scale" | "rot") => {
+    if (!gizmo) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const box = holder.current!.getBoundingClientRect();
+    const x = e.clientX - box.left, y = e.clientY - box.top;
+    drag.current = { mode, sx: x, sy: y, c0: gizmo.clip, cx: gizmo.cx, cy: gizmo.cy, d0: Math.hypot(x - gizmo.cx, y - gizmo.cy), a0: 0 };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const move = (e: React.PointerEvent) => {
+    const st = drag.current;
+    if (!st) return;
+    const box = holder.current!.getBoundingClientRect();
+    onGizmo(st.c0.id, patchFor(st.c0, st.mode, e.clientX - box.left, e.clientY - box.top, st), false);
+  };
+  const end = (e: React.PointerEvent) => {
+    const st = drag.current;
+    if (!st) return;
+    drag.current = null;
+    const box = holder.current!.getBoundingClientRect();
+    onGizmo(st.c0.id, patchFor(st.c0, st.mode, e.clientX - box.left, e.clientY - box.top, st), true);
+  };
 
   return (
     <div className="vw-monitor" data-testid="monitor">
       <div className="vw-stage" ref={stage}>
-        <div className="vw-frame" style={{ width: fw, height: fh }} data-testid="program-frame">
-          {project.tracks.map((t) => {
-            if (t.kind === "video") {
-              return t.clips.filter((c): c is MediaClip => c.type === "media" && near(c)).map((c) => (
-                <MediaLayer key={c.id} clip={c} url={urls[c.ref]} time={time} playing={playing} rate={rate} muted={t.muted} />
-              ));
-            }
-            if (t.kind === "audio") {
-              return t.clips.filter((c): c is MediaClip => c.type === "media" && near(c)).map((c) => (
-                <AudioLayer key={c.id} clip={c} url={urls[c.ref]} time={time} playing={playing} rate={rate} muted={t.muted} />
-              ));
-            }
-            return t.clips.filter((c): c is TextClip => c.type === "text").map((c) => <TextLayer key={c.id} clip={c} time={time} />);
-          })}
+        <div className="vw-frame" ref={holder} style={{ width: fw, height: fh }} data-testid="program-frame">
           {safe && (
             <>
               <i style={{ position: "absolute", inset: "5%", border: "1px dashed rgba(255,255,255,.55)", pointerEvents: "none" }} />
@@ -221,16 +407,34 @@ export default function Monitor({
             </>
           )}
           {total === 0 && (
-            <div className="grid h-full w-full place-items-center px-4 text-center text-xs" style={{ color: "var(--text-3)" }}>
+            <div className="grid h-full w-full place-items-center px-4 text-center text-xs" style={{ color: "var(--text-3)", position: "absolute", inset: 0 }}>
               ویدیو یا عکسی را از «رسانه‌ها» بکشید روی تایم‌لاین
             </div>
           )}
+          {gizmo && !playing && !props.overlay && (
+            <div
+              className="vw-gizmo" data-testid="gizmo"
+              style={{ left: gizmo.cx - gizmo.w / 2, top: gizmo.cy - gizmo.h / 2, width: gizmo.w, height: gizmo.h, transform: `rotate(${gizmo.rot}deg)` }}
+              onPointerDown={(e) => begin(e, "move")} onPointerMove={move} onPointerUp={end}
+            >
+              {gizmo.kind === "media" && (
+                <>
+                  <i className="h tl" data-handle="scale" onPointerDown={(e) => begin(e, "scale")} onPointerMove={move} onPointerUp={end} />
+                  <i className="h tr" data-handle="scale" onPointerDown={(e) => begin(e, "scale")} onPointerMove={move} onPointerUp={end} />
+                  <i className="h bl" data-handle="scale" onPointerDown={(e) => begin(e, "scale")} onPointerMove={move} onPointerUp={end} />
+                  <i className="h br" data-handle="scale" onPointerDown={(e) => begin(e, "scale")} onPointerMove={move} onPointerUp={end} />
+                </>
+              )}
+              <i className="h rot" data-handle="rot" onPointerDown={(e) => begin(e, "rot")} onPointerMove={move} onPointerUp={end} />
+            </div>
+          )}
+          {props.overlay}
         </div>
       </div>
       <div className="vw-transport" dir="rtl">
         <button type="button" className="ws-btn" onClick={() => onSeek(0)} title="ابتدا (Home)" aria-label="ابتدا"><Icon name="back" size={14} /></button>
         <button type="button" className="ws-btn" onClick={() => onStep(-1)} title="یک فریم عقب (←)" data-testid="vw-prev-frame">−۱ فریم</button>
-        <button type="button" className={`ws-btn primary`} onClick={onPlay} title="پخش / توقف (Space یا K)" data-testid="vw-play" aria-pressed={playing}>
+        <button type="button" className="ws-btn primary" onClick={onPlay} title="پخش / توقف (Space یا K)" data-testid="vw-play" aria-pressed={playing}>
           <Icon name="play" size={14} /> {playing ? "توقف" : "پخش"}
         </button>
         <button type="button" className="ws-btn" onClick={() => onStep(1)} title="یک فریم جلو (→)" data-testid="vw-next-frame">+۱ فریم</button>
@@ -238,11 +442,17 @@ export default function Monitor({
         <button type="button" className="ws-btn" onClick={() => onRate(rate < 0 ? 1 : -1)} title="عقب‌رفتن (J)" data-testid="vw-rev">◀ J</button>
         <button type="button" className="ws-btn" onClick={() => onRate(rate >= 1 && rate < 4 ? rate * 2 : 1)} title="جلورفتنِ سریع‌تر (L)" data-testid="vw-fwd">L ▶</button>
         <span className="ws-muted" dir="ltr">{Math.abs(rate) !== 1 ? `${rate}×` : ""}</span>
-        <span className="vw-time" data-testid="vw-time">{timecode(time, fps)} / {timecode(total, fps)}</span>
+        <span className="vw-time" data-testid="vw-time">{timecode(time, project.format.fps)} / {timecode(total, project.format.fps)}</span>
         <span className="ws-spacer" />
+        {props.badge}
         <label className="ws-check"><input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} /> حاشیهٔ امن</label>
-        {selectedProxyHint}
+        {props.extraTransport}
+        {props.selectedProxyHint}
       </div>
+      {props.footer}
     </div>
   );
-}
+});
+
+export default Monitor;
+export { clipLength };

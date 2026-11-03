@@ -23,6 +23,7 @@ BUNDLED_DIR = Path(tov.FONTS_DIR)
 WEIGHT_FILES = {300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold"}
 HAS_RAQM = features.check("raqm")
 MAX_LINES = 40
+AUTO_WRAP = 0.94
 
 
 @lru_cache(maxsize=1)
@@ -145,7 +146,15 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     elif width_px > 0:
         lines = wrap_lines(probe, text, font, width_px)
     else:
-        lines = text.split("\n")[:MAX_LINES]
+        # auto width: a line longer than 94% of the canvas width is wrapped (the browser does the same)
+        lines = []
+        limit = AUTO_WRAP * canvas_w
+        for para in text.split("\n"):
+            if _len(probe, para, font, is_rtl_text(para)) > limit:
+                lines.extend(wrap_lines(probe, para, font, limit))
+            else:
+                lines.append(para)
+        lines = lines[:MAX_LINES]
     spacing_px = float(layer.get("letter_spacing") or 0) * size_px
     forced = layer.get("dir", "auto")
     align = layer.get("align", "center")

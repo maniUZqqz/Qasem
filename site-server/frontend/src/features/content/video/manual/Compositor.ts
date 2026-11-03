@@ -1,0 +1,459 @@
+import { applyColor, applyPostFx, blurPx, colorIsNeutral, postFx, type LookDef } from "./color";
+import {
+  AnyClip, Effect, MediaClip, Project, TextClip, Track, clipEnd, clipLength, propAt, srcTimeAt,
+} from "./model";
+import { drawText } from "./textRender";
+
+/**
+ * مونتاژگرِ پیش‌نمایشِ فوری (Canvas 2D). همان ترتیبِ لایه‌هایی که سرور (compose.py) می‌سازد:
+ * هر کلیپ ← جا دادن (fit) ← رنگ ← کلیدِ رنگی ← برش/ماسک/شفافیت ← چرخش و اندازه دورِ مرکز ← حالتِ ترکیب.
+ * گذارها پنجره‌ای دورِ برش‌اند [برش − d/2, برش + d/2]. چیزهایی که مرورگر دقیق نشان نمی‌دهد
+ * (ثابت‌کردنِ تصویر، رفعِ نویز، بیشترِ گذارها، کیفیتِ کلیدِ رنگی) با «پیش‌نمایشِ دقیق» از سرور می‌آید.
+ */
+export type Source = HTMLVideoElement | HTMLImageElement | HTMLCanvasElement;
+
+export type RenderArgs = {
+  project: Project;
+  time: number;
+  sources: Map<string, Source>;
+  looks: LookDef[];
+  /** شناسهٔ قطعه‌ای که رنگش موقتاً نادیده گرفته می‌شود (مقایسهٔ قبل/بعد) */
+  compare?: string | null;
+};
+
+const BLEND_OP: Record<string, GlobalCompositeOperation> = {
+  normal: "source-over", multiply: "multiply", screen: "screen", overlay: "overlay", add: "lighter",
+  softlight: "soft-light", lighten: "lighten", darken: "darken", difference: "difference",
+};
+
+/** گروهِ هر نوعِ گذار برای پیش‌نمایشِ تقریبی */
+const TRANSITION_PREVIEW: Record<string, string> = {
+  fade: "dissolve", crossfade: "dissolve", dissolve: "dissolve", pixelize: "dissolve", distance: "dissolve", fadefast: "dissolve", fadeslow: "dissolve",
+  fadegrays: "dissolve", hblur: "dissolve", hlslice: "dissolve", hrslice: "dissolve", vuslice: "dissolve", vdslice: "dissolve", squeezeh: "dissolve", squeezev: "dissolve",
+  fadeblack: "dipblack", fadewhite: "dipwhite",
+  wipeleft: "wipeleft", wiperight: "wiperight", wipeup: "wipeup", wipedown: "wipedown", wipetl: "diagtl", wipetr: "diagtr", wipebl: "diagbl", wipebr: "diagbr",
+  slideleft: "slideleft", slideright: "slideright", slideup: "slideup", slidedown: "slidedown",
+  smoothleft: "slideleft", smoothright: "slideright", smoothup: "slideup", smoothdown: "slidedown",
+  coverleft: "coverleft", coverright: "coverright", coverup: "coverup", coverdown: "coverdown",
+  revealleft: "revealleft", revealright: "revealright", revealup: "revealup", revealdown: "revealdown",
+  circleopen: "circleopen", circleclose: "circleclose", circlecrop: "circleopen", rectcrop: "horzopen", radial: "circleopen",
+  vertopen: "vertopen", vertclose: "vertclose", horzopen: "horzopen", horzclose: "horzclose",
+  diagtl: "diagtl", diagtr: "diagtr", diagbl: "diagbl", diagbr: "diagbr", zoomin: "zoomin",
+};
+
+/** آیا پیش‌نمایشِ این گذار تقریبی است؟ (برای برچسب در رابط) */
+export const transitionIsApproximate = (kind: string) => !["fade", "crossfade", "fadeblack", "fadewhite", "wipeleft", "wiperight", "wipeup", "wipedown", "slideleft", "slideright", "slideup", "slidedown", "circleopen", "circleclose", "horzopen", "vertopen", "horzclose", "vertclose"].includes(kind);
+
+export type Pair = { a: MediaClip; b: MediaClip; d: number; kind: string; cut: number };
+
+export function planTransitions(track: Track): Pair[] {
+  const out: Pair[] = [];
+  const sorted = [...track.clips].filter((c): c is MediaClip => c.type === "media" && c.kind !== "audio").sort((x, y) => x.at - y.at);
+  for (let i = 1; i < sorted.length; i++) {
+    const a = sorted[i - 1];
+    const b = sorted[i];
+    const tr = b.transition;
+    if (!tr || Math.abs(b.at - clipEnd(a)) > 0.15) continue;
+    const d = Math.max(0.1, Math.min(tr.duration, 2, 0.9 * Math.min(clipLength(a), clipLength(b))));
+    out.push({ a, b, d, kind: tr.kind, cut: b.at });
+  }
+  return out;
+}
+
+const cssFilterOf = (effects: Effect[]): string => {
+  const f: string[] = [];
+  for (const e of effects) {
+    const a = Number(e.params.amount ?? 0);
+    if (e.tool === "brightness") f.push(`brightness(${1 + a * 1.4})`);
+    else if (e.tool === "contrast") f.push(`contrast(${a || 1})`);
+    else if (e.tool === "saturation") f.push(`saturate(${a || 1})`);
+    else if (e.tool === "white_balance") {
+      const t = Number(e.params.temperature ?? 0);
+      f.push(t >= 0 ? `sepia(${Math.min(1, t * 2)}) saturate(1.1)` : `hue-rotate(${t * 60}deg) saturate(1.05)`);
+    }
+  }
+  return f.join(" ");
+};
+
+const dims = (s: Source): [number, number] => {
+  if (s instanceof HTMLVideoElement) return [s.videoWidth, s.videoHeight];
+  if (s instanceof HTMLImageElement) return [s.naturalWidth, s.naturalHeight];
+  return [s.width, s.height];
+};
+
+const ready = (s: Source | undefined): s is Source => {
+  if (!s) return false;
+  if (s instanceof HTMLVideoElement) return s.readyState >= 2 && s.videoWidth > 0;
+  if (s instanceof HTMLImageElement) return s.complete && s.naturalWidth > 0;
+  return true;
+};
+
+/** منبع را داخلِ مستطیلِ (x,y,w,h) می‌کشد: cover / contain / stretch */
+function drawFitted(ctx: CanvasRenderingContext2D, s: Source, x: number, y: number, w: number, h: number, fit: MediaClip["fit"]) {
+  const [sw, sh] = dims(s);
+  if (!sw || !sh) return;
+  if (fit === "stretch") {
+    ctx.drawImage(s, x, y, w, h);
+    return;
+  }
+  const k = fit === "cover" ? Math.max(w / sw, h / sh) : Math.min(w / sw, h / sh);
+  const dw = sw * k;
+  const dh = sh * k;
+  if (fit === "cover") {
+    // برشِ منبع (نه کشیدنِ بیرون از مستطیل)
+    const cw = w / k;
+    const ch = h / k;
+    ctx.drawImage(s, (sw - cw) / 2, (sh - ch) / 2, cw, ch, x, y, w, h);
+  } else {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(x, y, w, h);
+    ctx.drawImage(s, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+}
+
+const hex = (c: string): [number, number, number] => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+
+/** کلیدِ رنگی مثلِ ffmpeg chromakey (فاصله در Cb/Cr) + despill */
+function chromaKey(img: ImageData, key: NonNullable<MediaClip["chroma"]>) {
+  const [kr, kg, kb] = hex(key.color);
+  const cb0 = 128 - 0.168736 * kr - 0.331264 * kg + 0.5 * kb;
+  const cr0 = 128 + 0.5 * kr - 0.418688 * kg - 0.081312 * kb;
+  const d = img.data;
+  const sim = key.similarity;
+  const bl = Math.max(0.0001, key.blend);
+  const spill = key.spill;
+  const greenish = kg >= kb;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+    const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+    const diff = Math.sqrt(((cb - cb0) ** 2 + (cr - cr0) ** 2) / (255 * 255 * 2));
+    const a = Math.min(1, Math.max(0, (diff - sim) / bl));
+    d[i + 3] = d[i + 3] * a;
+    if (spill > 0.01) {
+      if (greenish) {
+        const avg = (r + b) / 2;
+        if (g > avg) d[i + 1] = g - (g - avg) * spill;
+      } else {
+        const avg = (r + g) / 2;
+        if (b > avg) d[i + 2] = b - (b - avg) * spill;
+      }
+    }
+  }
+}
+
+function clipPathRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+}
+
+type Scratch = { c: HTMLCanvasElement; x: CanvasRenderingContext2D };
+
+export class Compositor {
+  readonly canvas: HTMLCanvasElement;
+  readonly ctx: CanvasRenderingContext2D;
+  private scratch = new Map<string, Scratch>();
+  private frameNo = 0;
+  w = 0;
+  h = 0;
+
+  constructor(canvas?: HTMLCanvasElement) {
+    this.canvas = canvas ?? document.createElement("canvas");
+    this.ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
+  }
+
+  setSize(w: number, h: number) {
+    const W = Math.max(16, Math.round(w));
+    const H = Math.max(16, Math.round(h));
+    if (this.canvas.width !== W || this.canvas.height !== H) {
+      this.canvas.width = W;
+      this.canvas.height = H;
+      this.scratch.clear();
+    }
+    this.w = W;
+    this.h = H;
+  }
+
+  private get(name: string, w: number, h: number): Scratch {
+    let s = this.scratch.get(name);
+    if (!s || s.c.width !== w || s.c.height !== h) {
+      const c = document.createElement("canvas");
+      c.width = Math.max(2, w);
+      c.height = Math.max(2, h);
+      s = { c, x: c.getContext("2d", { willReadFrequently: true })! };
+      this.scratch.set(name, s);
+    }
+    return s;
+  }
+
+  /** فریمِ زیرِ سرِ پخش برای اسکوپ‌ها */
+  getImageData(): ImageData | null {
+    try {
+      return this.ctx.getImageData(0, 0, this.w, this.h);
+    } catch {
+      return null;
+    }
+  }
+
+  render(a: RenderArgs): void {
+    const { ctx, w, h } = this;
+    const t = a.time;
+    this.frameNo++;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.filter = "none";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    for (const track of a.project.tracks) {
+      if (track.kind === "video") {
+        if (track.hidden) continue;
+        this.videoTrack(track, a);
+      } else if (track.kind === "text") {
+        for (const c of track.clips) if (c.type === "text") drawText(ctx, c as TextClip, t, w, h);
+      }
+    }
+  }
+
+  private visible(clip: MediaClip, pairs: Pair[]): [number, number] {
+    let vs = clip.at;
+    let ve = clipEnd(clip);
+    for (const p of pairs) {
+      if (p.a === clip) ve = Math.min(ve, p.cut - p.d / 2);
+      if (p.b === clip) vs = Math.max(vs, p.cut + p.d / 2);
+    }
+    return [vs, ve];
+  }
+
+  private videoTrack(track: Track, a: RenderArgs) {
+    const t = a.time;
+    const pairs = planTransitions(track);
+    for (const c of [...track.clips].sort((x, y) => x.at - y.at)) {
+      if (c.type !== "media" || c.kind === "audio") continue;
+      const [vs, ve] = this.visible(c, pairs);
+      if (t < vs - 1e-6 || t >= ve) continue;
+      this.drawClip(this.ctx, c, t, a, this.w, this.h);
+    }
+    for (const p of pairs) {
+      if (t >= p.cut - p.d / 2 && t < p.cut + p.d / 2) this.drawTransition(p, a);
+    }
+  }
+
+  // ───────────── گذار
+  private drawTransition(p: Pair, a: RenderArgs) {
+    const { w, h } = this;
+    const u = Math.max(0, Math.min(1, (a.time - (p.cut - p.d / 2)) / p.d));
+    const A = this.get("tA", w, h);
+    const B = this.get("tB", w, h);
+    for (const s of [A, B]) {
+      s.x.setTransform(1, 0, 0, 1, 0, 0);
+      s.x.globalAlpha = 1;
+      s.x.globalCompositeOperation = "source-over";
+      s.x.fillStyle = "#000";
+      s.x.fillRect(0, 0, w, h);
+    }
+    this.drawClip(A.x, p.a, Math.min(a.time, clipEnd(p.a) - 0.001), a, w, h);
+    this.drawClip(B.x, p.b, Math.max(a.time, p.b.at), a, w, h);
+    const ctx = this.ctx;
+    const kind = TRANSITION_PREVIEW[p.kind] ?? "dissolve";
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const draw = (s: Scratch, dx = 0, dy = 0, alpha = 1) => {
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(s.c, dx, dy);
+      ctx.globalAlpha = 1;
+    };
+    const clipTo = (fn: () => void, s: Scratch) => {
+      ctx.save();
+      ctx.beginPath();
+      fn();
+      ctx.clip();
+      ctx.drawImage(s.c, 0, 0);
+      ctx.restore();
+    };
+    const R = Math.hypot(w, h) / 2;
+    switch (kind) {
+      case "dipblack":
+      case "dipwhite": {
+        ctx.fillStyle = kind === "dipblack" ? "#000" : "#fff";
+        ctx.fillRect(0, 0, w, h);
+        if (u < 0.5) draw(A, 0, 0, 1 - u * 2);
+        else draw(B, 0, 0, (u - 0.5) * 2);
+        break;
+      }
+      case "wipeleft": draw(A); clipTo(() => ctx.rect(w * (1 - u), 0, w * u, h), B); break;
+      case "wiperight": draw(A); clipTo(() => ctx.rect(0, 0, w * u, h), B); break;
+      case "wipeup": draw(A); clipTo(() => ctx.rect(0, h * (1 - u), w, h * u), B); break;
+      case "wipedown": draw(A); clipTo(() => ctx.rect(0, 0, w, h * u), B); break;
+      case "diagtl": draw(A); clipTo(() => { ctx.moveTo(0, 0); ctx.lineTo(2 * w * u, 0); ctx.lineTo(0, 2 * h * u); }, B); break;
+      case "diagtr": draw(A); clipTo(() => { ctx.moveTo(w, 0); ctx.lineTo(w - 2 * w * u, 0); ctx.lineTo(w, 2 * h * u); }, B); break;
+      case "diagbl": draw(A); clipTo(() => { ctx.moveTo(0, h); ctx.lineTo(2 * w * u, h); ctx.lineTo(0, h - 2 * h * u); }, B); break;
+      case "diagbr": draw(A); clipTo(() => { ctx.moveTo(w, h); ctx.lineTo(w - 2 * w * u, h); ctx.lineTo(w, h - 2 * h * u); }, B); break;
+      case "slideleft": draw(A, -w * u); draw(B, w * (1 - u)); break;
+      case "slideright": draw(A, w * u); draw(B, -w * (1 - u)); break;
+      case "slideup": draw(A, 0, -h * u); draw(B, 0, h * (1 - u)); break;
+      case "slidedown": draw(A, 0, h * u); draw(B, 0, -h * (1 - u)); break;
+      case "coverleft": draw(A); draw(B, w * (1 - u)); break;
+      case "coverright": draw(A); draw(B, -w * (1 - u)); break;
+      case "coverup": draw(A); draw(B, 0, h * (1 - u)); break;
+      case "coverdown": draw(A); draw(B, 0, -h * (1 - u)); break;
+      case "revealleft": draw(B); draw(A, -w * u); break;
+      case "revealright": draw(B); draw(A, w * u); break;
+      case "revealup": draw(B); draw(A, 0, -h * u); break;
+      case "revealdown": draw(B); draw(A, 0, h * u); break;
+      case "circleopen": draw(A); clipTo(() => ctx.arc(w / 2, h / 2, R * u, 0, Math.PI * 2), B); break;
+      case "circleclose": draw(B); clipTo(() => ctx.arc(w / 2, h / 2, R * (1 - u), 0, Math.PI * 2), A); break;
+      case "horzopen": draw(A); clipTo(() => ctx.rect(0, h * (0.5 - u / 2), w, h * u), B); break;
+      case "vertopen": draw(A); clipTo(() => ctx.rect(w * (0.5 - u / 2), 0, w * u, h), B); break;
+      case "horzclose": draw(B); clipTo(() => { ctx.rect(0, 0, w, h); ctx.rect(0, h * (0.5 - (1 - u) / 2) + h * (1 - u), w, -h * (1 - u)); }, A); break;
+      case "vertclose": draw(B); clipTo(() => { ctx.rect(0, 0, w, h); ctx.rect(w * (0.5 - (1 - u) / 2) + w * (1 - u), 0, -w * (1 - u), h); }, A); break;
+      case "zoomin": {
+        draw(A);
+        ctx.save();
+        ctx.globalAlpha = u;
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(0.6 + 0.4 * u, 0.6 + 0.4 * u);
+        ctx.drawImage(B.c, -w / 2, -h / 2);
+        ctx.restore();
+        break;
+      }
+      default: draw(A); draw(B, 0, 0, u);
+    }
+    ctx.restore();
+  }
+
+  // ───────────── یک کلیپ
+  private drawClip(ctx: CanvasRenderingContext2D, clip: MediaClip, t: number, a: RenderArgs, W: number, H: number) {
+    const src = a.sources.get(clip.id);
+    if (!ready(src)) return;
+    const bw = Math.max(2, Math.round(clip.width * W));
+    const bh = Math.max(2, Math.round(clip.height * H));
+    const opacity = propAt(clip, "opacity", t);
+    let fade = 1;
+    if (clip.fade_in > 0) fade *= Math.min(1, Math.max(0, (t - clip.at) / clip.fade_in));
+    if (clip.fade_out > 0) fade *= Math.min(1, Math.max(0, (clipEnd(clip) - t) / clip.fade_out));
+    const alpha = Math.max(0, Math.min(1, opacity * fade));
+    if (alpha <= 0.001) return;
+    const px = propAt(clip, "px", t);
+    const py = propAt(clip, "py", t);
+    const scale = propAt(clip, "scale", t);
+    const rot = propAt(clip, "rot", t);
+    const cl = propAt(clip, "crop_l", t), cr = propAt(clip, "crop_r", t), ct = propAt(clip, "crop_t", t), cb = propAt(clip, "crop_b", t);
+    const cx = (clip.x + clip.width / 2 + px) * W;
+    const cy = (clip.y + clip.height / 2 + py) * H;
+
+    const bypass = a.compare === clip.id;
+    const color = !bypass && clip.color && !colorIsNeutral(clip.color, a.looks) ? clip.color : undefined;
+    const fx = color ? postFx(color, a.looks) : null;
+    const keyed = !!clip.chroma?.on;
+    const needPixels = !!color || keyed;
+    const mask = clip.mask && clip.mask.shape !== "none" ? clip.mask : null;
+    const css = cssFilterOf(clip.effects);
+    const rotate = clip.effects.find((e) => e.tool === "rotate");
+    const vignette = clip.effects.find((e) => e.tool === "vignette");
+    const blurs = clip.effects.filter((e) => e.tool === "blur_region");
+
+    // ۱) محتوای لایه در بومِ کمکیِ هم‌اندازهٔ جعبه
+    const needLayer = needPixels || !!mask || !!vignette || blurs.length > 0 || !!rotate;
+    let layerCanvas: HTMLCanvasElement | null = null;
+    if (needLayer) {
+      const L = this.get(`layer`, bw, bh);
+      const lx = L.x;
+      lx.setTransform(1, 0, 0, 1, 0, 0);
+      lx.globalCompositeOperation = "source-over";
+      lx.globalAlpha = 1;
+      lx.clearRect(0, 0, bw, bh);
+      lx.filter = css || "none";
+      lx.save();
+      if (clip.flip_h || clip.flip_v) {
+        lx.translate(clip.flip_h ? bw : 0, clip.flip_v ? bh : 0);
+        lx.scale(clip.flip_h ? -1 : 1, clip.flip_v ? -1 : 1);
+      }
+      if (rotate) {
+        lx.translate(bw / 2, bh / 2);
+        lx.rotate((Number(rotate.params.degrees) * Math.PI) / 180);
+        lx.translate(-bw / 2, -bh / 2);
+      }
+      drawFitted(lx, src, 0, 0, bw, bh, clip.fit);
+      lx.restore();
+      lx.filter = "none";
+      if (needPixels) {
+        const img = lx.getImageData(0, 0, bw, bh);
+        if (color) applyColor(img, color, a.looks);
+        if (fx && (fx.sharpen > 0 || fx.vignette > 0 || fx.grain > 0)) applyPostFx(img, fx, this.frameNo);
+        if (keyed && clip.chroma) chromaKey(img, clip.chroma);
+        lx.putImageData(img, 0, 0);
+      }
+      if (vignette) {
+        const s = Number(vignette.params.strength ?? 0.4);
+        const g = lx.createRadialGradient(bw / 2, bh / 2, Math.min(bw, bh) * (0.3 - s * 0.1), bw / 2, bh / 2, Math.hypot(bw, bh) / 2);
+        g.addColorStop(0, "rgba(0,0,0,0)");
+        g.addColorStop(1, `rgba(0,0,0,${0.35 + s * 0.6})`);
+        lx.fillStyle = g;
+        lx.fillRect(0, 0, bw, bh);
+      }
+      for (const b of blurs) {
+        const bx = (Number(b.params.x) / 100) * bw, by = (Number(b.params.y) / 100) * bh;
+        const bww = (Number(b.params.width) / 100) * bw, bhh = (Number(b.params.height) / 100) * bh;
+        lx.save();
+        lx.beginPath();
+        lx.rect(bx, by, bww, bhh);
+        lx.clip();
+        lx.filter = `blur(${2 + Number(b.params.strength ?? 6) * 1.6}px)`;
+        lx.drawImage(L.c, 0, 0);
+        lx.restore();
+        lx.filter = "none";
+      }
+      if (mask) this.applyMask(lx, bw, bh, mask);
+      layerCanvas = L.c;
+    }
+
+    // ۲) نشاندن روی بوم با چرخش/اندازه دورِ مرکز
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = BLEND_OP[clip.blend ?? "normal"] ?? "source-over";
+    ctx.translate(cx, cy);
+    if (rot) ctx.rotate((rot * Math.PI) / 180);
+    const s = Math.max(0.01, scale);
+    ctx.scale(s, s);
+    if (cl > 0 || cr > 0 || ct > 0 || cb > 0) clipPathRect(ctx, -bw / 2 + cl * bw, -bh / 2 + ct * bh, bw * (1 - cl - cr), bh * (1 - ct - cb));
+    const bl = fx ? blurPx(fx, bw, bh) : 0;
+    if (layerCanvas) {
+      if (bl > 0) ctx.filter = `blur(${bl}px)`;
+      ctx.drawImage(layerCanvas, -bw / 2, -bh / 2);
+    } else {
+      if (css) ctx.filter = css;
+      if (clip.flip_h || clip.flip_v) ctx.scale(clip.flip_h ? -1 : 1, clip.flip_v ? -1 : 1);
+      drawFitted(ctx, src, -bw / 2, -bh / 2, bw, bh, clip.fit);
+    }
+    ctx.restore();
+  }
+
+  private applyMask(lx: CanvasRenderingContext2D, bw: number, bh: number, m: NonNullable<MediaClip["mask"]>) {
+    const M = this.get("mask", bw, bh);
+    const mx = M.x;
+    mx.setTransform(1, 0, 0, 1, 0, 0);
+    mx.globalCompositeOperation = "source-over";
+    mx.clearRect(0, 0, bw, bh);
+    mx.fillStyle = "#fff";
+    const f = Math.max(0, m.feather) * Math.min(bw, bh) * 0.5;
+    mx.filter = f > 0.5 ? `blur(${f}px)` : "none";
+    mx.beginPath();
+    if (m.shape === "ellipse") mx.ellipse(m.cx * bw, m.cy * bh, (m.w * bw) / 2, (m.h * bh) / 2, 0, 0, Math.PI * 2);
+    else mx.rect((m.cx - m.w / 2) * bw, (m.cy - m.h / 2) * bh, m.w * bw, m.h * bh);
+    mx.fill();
+    mx.filter = "none";
+    lx.save();
+    lx.globalCompositeOperation = m.invert ? "destination-out" : "destination-in";
+    lx.drawImage(M.c, 0, 0);
+    lx.restore();
+  }
+}
+
+/** ثانیه‌ای از منبع که باید دیده شود (به‌همراهِ نگه‌داشتنِ فریمِ لبه‌ها وقتی بیرونِ قطعه‌ایم) */
+export function sourceTimeFor(c: MediaClip, t: number): number {
+  return srcTimeAt(c, Math.max(c.at, Math.min(clipEnd(c), t)));
+}
+
+export type { AnyClip };

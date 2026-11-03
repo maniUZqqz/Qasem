@@ -1,0 +1,10 @@
+/* فضای کارِ ویدیو: چیدمانِ تکمیلی (اسکوپ‌ها، ارتفاعِ تایم‌لاین، نوارِ ابزارِ افقی در موبایل) */
+.vw-scopes { border-top: 1px solid var(--line); max-height: 230px; overflow: auto; flex: none; }
+.vw-timeline { max-height: 46vh; overflow-y: auto; }
+.ws-root.is-full .vw-timeline { max-height: 40vh; }
+.tl-toolbar { position: sticky; top: 0; z-index: 12; background: color-mix(in srgb, var(--void) 76%, #000); }
+@media (max-width: 1000px) {
+  .tl-toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .tl-toolbar .ws-btn, .tl-toolbar .ws-sep { flex: none; }
+  .vw-timeline { max-height: none; }
+}

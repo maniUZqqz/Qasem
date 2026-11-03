@@ -68,6 +68,42 @@ export type ProjectRow = {
 
 export type Check = { ok: boolean; error: string; length?: number; gaps?: { start: number; end: number }[]; size?: string };
 
+// ───────────── کاتالوگِ ادیتورِ حرفه‌ای (GET editor/catalogue/)
+export type Choice = { key: string; title: string } & Record<string, unknown>;
+export type CaptionsStatus = { node: boolean; local: boolean; ok: boolean; message: string };
+export type ExportPreset = { key: string; title: string; group: string; short: number | null; fps: number | null; codec: string; quality: string; audio_kbps: number; max_seconds: number | null; aspect: string | null };
+export type Catalogue = {
+  color: {
+    sliders: { key: string; min: number; max: number; default: number; step: number; title: string; group: string }[];
+    wheels: { key: string; title: string }[];
+    curves: { key: string; title: string }[];
+    hsl: { key: string; title: string; color: string }[];
+    look_amount: { min: number; max: number; default: number };
+    looks: { key: string; title: string; params: Record<string, unknown> }[];
+    samples: number;
+  };
+  titles: {
+    fonts: Choice[]; templates: Choice[]; animations_in: Choice[]; animations_out: Choice[]; hl_modes: Choice[]; aligns: Choice[]; line2_ratio: number;
+  };
+  transitions: { legacy: Choice[]; groups: Choice[]; kinds: { key: string; title: string; group: string }[] };
+  export: { presets: ExportPreset[]; codecs: Choice[]; qualities: Choice[]; resolutions: number[]; fps: number[]; audio_kbps: number[] };
+  easings: Choice[];
+  blends: Choice[];
+  eq: Choice[];
+  ramp_presets: { key: string; title: string; ramp: { p: number; v: number }[] }[];
+  captions: CaptionsStatus;
+  limits: { max_preview_seconds: number; max_tracks: number; max_clips: number; ramp_steps: number };
+};
+
+export type Waveform = { peaks: number[]; per_second: number; duration: number; silent?: boolean };
+export type Filmstrip = { url: string; count: number; interval: number; w: number; h: number; duration: number };
+export type Beats = { beats: number[]; bpm: number | null; duration: number };
+
+export type RenderJobRow = {
+  id: number; state: string; percent: number; label: string; error: string; preset: string; quality: string; created_at: string; active: boolean;
+};
+export type ExportRow = { job_id: number; url: string; rel: string; preset: string; quality: string; seconds: number; bytes: number; size: string; codec: string; note: string; rendered_at: string };
+
 const base = (store: string) => `/stores/${store}/editor`;
 
 export const videoApi = {
@@ -85,6 +121,20 @@ export const videoApi = {
   saveProject: (store: string, id: number, body: { title?: string; data?: unknown }) =>
     api.put<{ project: ProjectRow; check: Check | null }>(`${base(store)}/projects/${id}/`, body).then((r) => r.data),
   deleteProject: (store: string, id: number) => api.delete(`${base(store)}/projects/${id}/`),
-  render: (store: string, id: number, quality: "draft" | "final") =>
-    api.post<{ job_id: number }>(`${base(store)}/projects/${id}/render/`, { quality }).then((r) => r.data),
+  render: (store: string, id: number, quality: "draft" | "final", extra: { export?: Record<string, unknown>; data?: unknown } = {}) =>
+    api.post<{ job_id: number }>(`${base(store)}/projects/${id}/render/`, { quality, ...extra }).then((r) => r.data),
+  catalogue: (store: string) => api.get<Catalogue>(`${base(store)}/catalogue/`).then((r) => r.data),
+  waveform: (store: string, ref: string) => api.get<Waveform>(`${base(store)}/analysis/`, { params: { ref, kind: "waveform" } }).then((r) => r.data),
+  filmstrip: (store: string, ref: string) => api.get<Filmstrip>(`${base(store)}/analysis/`, { params: { ref, kind: "filmstrip" } }).then((r) => r.data),
+  beats: (store: string, ref: string) => api.get<Beats>(`${base(store)}/analysis/`, { params: { ref, kind: "beats" } }).then((r) => r.data),
+  speech: (store: string, ref: string) => api.get<{ spans: [number, number][] }>(`${base(store)}/analysis/`, { params: { ref, kind: "speech" } }).then((r) => r.data.spans),
+  /** «پیش‌نمایشِ دقیقِ این بازه» — job؛ نتیجه {url, t0, t1, size, seconds, notes} */
+  preview: (store: string, id: number, body: { t0: number; t1: number; height?: number; data?: unknown }) =>
+    api.post<{ job_id: number; t0: number; t1: number }>(`${base(store)}/projects/${id}/preview/`, body).then((r) => r.data),
+  captionsStatus: (store: string) => api.get<CaptionsStatus>(`${base(store)}/captions/status/`).then((r) => r.data),
+  /** زیرنویسِ خودکار — job؛ نتیجه {clips: TextClip[], text, engine, count} */
+  captions: (store: string, body: { ref: string; start: number; end: number; at: number; speed?: number }) =>
+    api.post<{ job_id: number }>(`${base(store)}/captions/`, body).then((r) => r.data),
+  renders: (store: string, id: number) => api.get<{ jobs: RenderJobRow[]; exports: ExportRow[] }>(`${base(store)}/projects/${id}/renders/`).then((r) => r.data),
+  cancelJob: (jobId: number) => api.post(`/jobs/${jobId}/cancel/`),
 };

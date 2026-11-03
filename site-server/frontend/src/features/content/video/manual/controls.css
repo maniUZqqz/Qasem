@@ -1,0 +1,17 @@
+/* کنترل‌های مشترکِ ادیتورِ حرفه‌ایِ ویدیو (لغزنده، لوزیِ کلیدفریم، بخشِ تاشو) — فقط از توکن‌های پنل */
+.pro-slider .ws-slider-head { align-items: center; }
+.pro-slider-tools { display: inline-flex; align-items: center; gap: 6px; }
+.pro-reset {
+  border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px;
+}
+.pro-reset:hover { color: var(--brand); }
+.kf-diamond {
+  width: 12px; height: 12px; padding: 0; flex: none; cursor: pointer;
+  border: 1.5px solid var(--text-3); background: transparent; transform: rotate(45deg); border-radius: 2px;
+}
+.kf-diamond:hover { border-color: var(--brand); }
+.kf-diamond.has { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 40%, transparent); }
+.kf-diamond.here { border-color: var(--brand); background: var(--brand); }
+.pro-sec .ws-acc-head { font-size: 13px; }
+.pro-sec-body { padding: 4px 2px 8px; }
+.pro-color input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: none; cursor: pointer; }

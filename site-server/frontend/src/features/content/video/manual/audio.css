@@ -1,0 +1,59 @@
+/* میکسر و تبِ صدا — فقط از توکن‌های پنل (روشن/تیره) */
+.mx-root { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mx-strips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 8px; align-items: stretch; -webkit-overflow-scrolling: touch; }
+.mx-strip {
+  flex: none; width: 78px; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 4px 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+}
+.mx-strip.is-muted { opacity: .55; }
+.mx-master { width: 96px; border-color: var(--line-strong); }
+.mx-name { max-width: 100%; font-size: 11px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-role {
+  min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: none;
+  color: var(--text-3); font-size: 10px; cursor: pointer;
+}
+.mx-role:hover { color: var(--text); border-color: var(--brand); }
+.mx-role.r-speech { background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: var(--ok); color: var(--text); }
+.mx-role.r-music { background: color-mix(in srgb, var(--brand) 22%, transparent); border-color: var(--brand); color: var(--text); }
+.mx-role.r-sfx { background: color-mix(in srgb, var(--warn) 22%, transparent); border-color: var(--warn); color: var(--text); }
+.mx-master .mx-role.is-on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.mx-body { display: flex; align-items: stretch; justify-content: center; gap: 6px; height: 140px; direction: ltr; }
+.mx-fader { position: relative; width: 30px; height: 140px; touch-action: none; cursor: ns-resize; outline: none; border-radius: 6px; }
+.mx-fader:focus-visible { box-shadow: 0 0 0 2px var(--brand); }
+.mx-rail { position: absolute; left: 50%; top: 4px; bottom: 4px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--line-strong); }
+.mx-zero { position: absolute; left: 3px; right: 3px; height: 1px; background: var(--text-3); pointer-events: none; }
+.mx-thumb {
+  position: absolute; left: 2px; right: 2px; height: 12px; border-radius: 4px; background: var(--brand);
+  border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); pointer-events: none;
+}
+.mx-meter {
+  position: relative; width: 8px; height: 140px; flex: none; border-radius: 3px; overflow: hidden;
+  background: linear-gradient(to top, var(--ok) 0 66%, var(--warn) 66% 90%, var(--bad) 90% 100%);
+}
+.mx-meter .cover { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: color-mix(in srgb, var(--void) 88%, #000); }
+.mx-meter .peak { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: #fff; opacity: .85; }
+.mx-db { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mx-pan { width: 62px; height: 4px; margin: 6px 0 0; -webkit-appearance: none; appearance: none; background: var(--line-strong); border-radius: 99px; outline: none; }
+.mx-pan::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--brand); border: 2px solid #fff; cursor: pointer; }
+.mx-pan::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--brand); border: 2px solid #fff; cursor: pointer; }
+.mx-pan-val { font-size: 10px; color: var(--text-3); }
+.mx-ms { display: flex; gap: 4px; }
+.mx-btn {
+  width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-2);
+  color: var(--text-2); font-size: 11px; font-weight: 800; cursor: pointer; padding: 0;
+}
+.mx-btn.m.is-on { background: var(--warn); border-color: var(--warn); color: #000; }
+.mx-btn.s.is-on { background: var(--ok); border-color: var(--ok); color: #000; }
+.mx-lim { font-size: 11px; }
+.mx-warn { font-size: 12px; color: var(--warn); line-height: 1.7; margin: 2px 0 6px; }
+.mx-duck { margin-top: 2px; }
+
+.ap-root { min-width: 0; }
+.ap-extract, .ap-beats { margin-top: 10px; }
+
+@media (max-width: 420px) {
+  .mx-strip { width: 72px; }
+  .mx-master { width: 90px; }
+  .mx-btn { width: 32px; height: 32px; }
+  .mx-role { min-height: 32px; }
+}

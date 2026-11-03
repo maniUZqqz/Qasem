@@ -19,6 +19,7 @@ import {
 import CompareSlider from "./CompareSlider";
 import { PhotoAutoPanel, PhotoPromptPanel } from "./ModePanels";
 import PhotoWorkspace from "./manual/PhotoWorkspace";
+import ProWorkspace from "./pro/ProWorkspace";
 import SourcePicker from "./SourcePicker";
 import {
   ACTIVE_STATES,
@@ -27,6 +28,7 @@ import {
   NodeStatus,
   Operation,
   Overview,
+  Params,
   Sources,
   Tool,
   photoApi,
@@ -41,6 +43,19 @@ import {
  * حذفِ پس‌زمینه، بزرگ‌نمایی، ترمیم، ویرایش با دستور) به سرورِ پردازش می‌رود و اگر خاموش است «منتظر» می‌ماند.
  * هر کار برچسبِ جایش را دارد تا کسی منتظرِ چیزی نماند که نمی‌داند منتظرش است.
  */
+let webgl2: boolean | null = null;
+/** ادیتورِ حرفه‌ای به WebGL2 نیاز دارد؛ مرورگرِ بی‌آن همان فضای کارِ قبلی را می‌گیرد */
+function hasWebGL2(): boolean {
+  if (webgl2 === null) {
+    try {
+      webgl2 = !!document.createElement("canvas").getContext("webgl2");
+    } catch {
+      webgl2 = false;
+    }
+  }
+  return webgl2;
+}
+
 export default function PhotoEditorPage() {
   const { id = "" } = useParams<{ id: string }>();
   const [mode, setMode] = useEditorMode("nm.photo.mode");
@@ -50,6 +65,7 @@ export default function PhotoEditorPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
+  const [manualStart, setManualStart] = useState<{ n: number; ops: { tool: string; params: Params }[] } | null>(null);
   const [picker, setPicker] = useState<null | "products" | "generated">(null);
   const [tracking, setTracking] = useState<Edit[]>([]);
   const [lastBatch, setLastBatch] = useState<string | null>(null);
@@ -229,6 +245,10 @@ export default function PhotoEditorPage() {
 
   const panelProps = {
     storeId: id, data, tools, selected, nodeOn, busy, run: runEdits, latest, asset: focusAsset,
+    openManual: (steps: Operation[]) => {
+      setManualStart({ n: Date.now(), ops: steps.map((o) => ({ tool: o.tool, params: o.params })) });
+      setMode("manual");
+    },
   };
 
   return (
@@ -282,6 +302,28 @@ export default function PhotoEditorPage() {
 
       {mode === "manual" && focusAsset && (
         <div className="mb-6">
+          {hasWebGL2() ? (
+          <ProWorkspace
+            key={`${focusAsset.id}-${manualStart?.n ?? 0}`}
+            storeId={id}
+            asset={focusAsset}
+            assets={assets}
+            onPick={(aid) => setSelected([aid])}
+            tools={tools}
+            kit={data.kit}
+            nodeOn={nodeOn}
+            nodeNames={(node ?? data.node).nodes}
+            lastEdit={latest(focusAsset.id)}
+            busy={busy}
+            onBuild={async (ops, recipe) => {
+              const err = await runEdits(recipe, ops, [focusAsset.id]);
+              if (err) throw new Error(err);
+            }}
+            onOpenVersions={() => void openDetail(focusAsset.id)}
+            startFrom={manualStart?.ops ?? null}
+            storeLogo={data.store_logo}
+          />
+          ) : (
           <PhotoWorkspace
             key={focusAsset.id}
             storeId={id}
@@ -299,7 +341,9 @@ export default function PhotoEditorPage() {
               if (err) throw new Error(err);
             }}
             onOpenVersions={() => void openDetail(focusAsset.id)}
+            startFrom={manualStart?.ops ?? null}
           />
+          )}
         </div>
       )}
 

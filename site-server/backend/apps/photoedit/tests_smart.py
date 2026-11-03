@@ -55,9 +55,11 @@ class PlainProvider(FakeLeg):
 
 
 def node_state(ready: bool):
-    return {"model": "qwen3-vl:30b", "kind": "vision", "online": ready, "ready": ready, "has_model": True if ready else None,
-            "node": "gpu-1" if ready else "", "nodes": [], "known_models": [],
-            "reason": "" if ready else "سرورِ پردازش خاموش است."}
+    # همان کلیدهایی که `routing.node_state` حالا برمی‌گرداند (wanted/chain/substitute/… را `_precheck` می‌خواند)
+    return {"model": "qwen3-vl:30b", "wanted": "qwen3-vl:30b", "chain": ["qwen3-vl:30b"], "substitute": "",
+            "kind": "vision", "online": ready, "ready": ready, "has_model": True if ready else None,
+            "wanted_installed": True if ready else None, "node": "gpu-1" if ready else "", "nodes": [], "known_models": [],
+            "reason": "" if ready else "سرورِ پردازش خاموش است.", "models_reported_at": None, "models_stale": False}
 
 
 class Routed:

@@ -187,13 +187,25 @@ export class ProEngine {
   private lqOut: Tex | null = null;
   private lqKey = "";
 
+  private onContextLost = (e: Event) => {
+    e.preventDefault(); // وگرنه مرورگر هرگز بافت را بازنمی‌گرداند
+    this.ok = false;
+  };
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.g = new GLCtx(canvas);
-    canvas.addEventListener("webglcontextlost", (e) => {
-      e.preventDefault();
-      this.ok = false;
-    });
+    canvas.addEventListener("webglcontextlost", this.onContextLost);
+  }
+
+  /**
+   * کنارگذاشتنِ موتور (Stage هنگامِ بازیابیِ بافتِ WebGL یک موتورِ تازه روی همان بوم می‌سازد). به منابعِ GL دست نمی‌زند:
+   * پس از از دست رفتنِ بافت همهٔ دستگیره‌ها نامعتبرند. حالتِ ماسک‌ها/انتخاب/مایع‌سازی جای دیگری (CPU) است و می‌ماند.
+   */
+  dispose(): void {
+    this.ok = false;
+    this.onNeedRender = null;
+    this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
   }
 
   // ───────────────────────── منابع
@@ -291,6 +303,12 @@ export class ProEngine {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
+        if (!this.ok) {
+          // بافتِ GL از دست رفته یا موتور کنار گذاشته شده؛ موتورِ تازه خودش تصویر را دوباره می‌گیرد
+          this.imageLoads.delete(key);
+          resolve(null);
+          return;
+        }
         const k = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
         let src: CanvasImageSource = img;
         let w = img.naturalWidth;
@@ -358,6 +376,7 @@ export class ProEngine {
     }
     if (l.type === "shape") return { w: l.w, h: Math.max(l.h, (l.stroke?.w ?? 0) + 0.002) };
     if (l.type === "text") {
+      if (!this.Wc) return null; // اندازهٔ بوم هنوز نیست (موتورِ تازه پس از بازیابیِ بافت، پیش از setFrame) ⇒ وگرنه NaN
       const r = this.textRaster(l);
       return r ? { w: r.cw, h: r.ch } : null;
     }
@@ -1194,7 +1213,7 @@ export class ProEngine {
   readSmall(maxSide = 256): { data: Uint8ClampedArray; w: number; h: number } | null {
     const g = this.g;
     const src = this.lastMode === "photo" ? this.dev : this.view;
-    if (!src) return null;
+    if (!src || !this.ok) return null;
     const k = Math.min(1, maxSide / Math.max(src.w, src.h));
     const w = Math.max(1, Math.round(src.w * k));
     const h = Math.max(1, Math.round(src.h * k));
@@ -1209,7 +1228,7 @@ export class ProEngine {
   /** بافتِ کاملِ بومِ نهایی (پس از render) ⇐ RGBA ِ خام (برای تلفیق لایه‌ها: آلفای مستقیم) */
   readFull(): { data: Uint8ClampedArray; w: number; h: number } | null {
     const g = this.g;
-    if (!this.view) return null;
+    if (!this.view || !this.ok) return null;
     const t = g.create(this.view.w, this.view.h, false);
     g.pass("quant", SH.quant, t, { uT: this.view });
     const data = g.read(t);

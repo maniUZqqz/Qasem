@@ -143,6 +143,14 @@ export default function Stage(p: Props) {
   const [ready, setReady] = useState(0);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [glErr, setGlErr] = useState<string | null>(null);
+  /** بافتِ WebGL از دست رفت (مثلاً ریستِ کارت گرافیک/فشارِ حافظه) ⇒ پیام روی بوم تا بازیابی؛ engineKey با هر بازیابی بالا می‌رود
+   *  و موتور روی همان بوم از نو ساخته می‌شود (حالت: تاریخچه/لایه/ماسک/انتخاب/مایع‌سازی همه در React و CPU اند و می‌مانند) */
+  const [engineKey, setEngineKey] = useState(0);
+  const [glLost, setGlLost] = useState(false);
+  const [glWaited, setGlWaited] = useState(false);
+  /** «بازیابی»ِ دستی: عنصرِ canvas عوض می‌شود تا بافتِ WebGL تازه ساخته شود */
+  const [canvasGen, setCanvasGen] = useState(0);
+  const baseImg = useRef<{ src: string; img: HTMLImageElement } | null>(null);
   const [tick, setTick] = useState(0);
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [cursor, setCursor] = useState<[number, number] | null>(null);
@@ -171,44 +179,82 @@ export default function Stage(p: Props) {
   useEffect(() => {
     const cv = canvas.current;
     if (!cv) return;
-    let eng: ProEngine;
-    try {
-      eng = new ProEngine(cv);
-    } catch (e) {
-      setGlErr((e as Error).message);
-      return;
-    }
-    engineRef.current = eng;
-    eng.onNeedRender = () => {
-      dirty.current.render = true;
-      setTick((t) => t + 1);
+    let eng: ProEngine | null = null;
+    // از دست رفتنِ بافت: موتورِ فعلی بی‌اعتبار می‌شود؛ با «بازگشتِ بافت» (webglcontextrestored) engineKey بالا می‌رود و این افکت
+    // موتورِ تازه می‌سازد. preventDefault شرطِ بازگشتِ بافت است. (شنونده‌ها پیش از ساختِ موتور ثبت می‌شوند تا بازگشت را هیچ‌وقت از دست ندهیم.)
+    const onLost = (e: Event) => {
+      e.preventDefault();
+      if (eng) eng.ok = false;
+      setGlLost(true);
     };
-    p.onReady({
-      engine: eng,
-      geo: () => geoRef.current,
-      frame: () => specRef.current,
-      smartWindow: (s) => {
-        const spec = makeFrameSpec(propsRef.current.origW, propsRef.current.origH, frameInputOf(s));
-        return spec.smartPending ? eng.smartWindow(spec) : null;
-      },
-      warpToCanvas: (img) => eng.warpToCanvas(img),
-      redraw: () => {
-        dirty.current.render = true;
-        dirty.current.present = true;
-        schedule();
-      },
-      layerSize: (l) => eng.layerSize(l),
-      thumbnail: (a, c, size) => eng.thumbnail(a, c, size),
-      readFull: () => eng.readFull(),
-    });
-    return () => {
+    const onRestored = () => setEngineKey((k) => k + 1);
+    cv.addEventListener("webglcontextlost", onLost);
+    cv.addEventListener("webglcontextrestored", onRestored);
+    const teardown = () => {
+      cv.removeEventListener("webglcontextlost", onLost);
+      cv.removeEventListener("webglcontextrestored", onRestored);
+      eng?.dispose();
       engineRef.current = null;
       cancelAnimationFrame(raf.current);
       raf.current = 0; // وگرنه (StrictMode ِ توسعه) schedule برای همیشه «در انتظار» می‌ماند
       if (drag.current?.k === "liq") window.clearInterval(drag.current.timer);
     };
+    try {
+      eng = new ProEngine(cv);
+    } catch (e) {
+      setGlLost(false); // پیامِ خطا (glErr) دیده شود
+      setGlErr((e as Error).message);
+      return teardown;
+    }
+    if (eng.g.lost) {
+      // هنوز از دست‌رفته است (مثلاً «بازیابی»ِ دستی زود زده شد): منتظرِ webglcontextrestored می‌مانیم
+      eng.ok = false;
+      setGlLost(true);
+      return teardown;
+    }
+    // (پیامِ «در حال بازیابی» تا گذاشتنِ عکسِ پایه روی موتورِ تازه می‌ماند؛ `ready` فقط بالا می‌رود تا افکت‌های وابسته به آن دوباره اجرا شوند)
+    const eng0 = eng;
+    setGlErr(null);
+    engineRef.current = eng0;
+    eng0.onNeedRender = () => {
+      dirty.current.render = true;
+      setTick((t) => t + 1);
+    };
+    // StageApi تازه (موتورِ تازه): ProWorkspace آن را در state و window.__photoPro می‌گذارد
+    p.onReady({
+      engine: eng0,
+      geo: () => geoRef.current,
+      frame: () => specRef.current,
+      smartWindow: (s) => {
+        const spec = makeFrameSpec(propsRef.current.origW, propsRef.current.origH, frameInputOf(s));
+        return spec.smartPending ? eng0.smartWindow(spec) : null;
+      },
+      warpToCanvas: (img) => eng0.warpToCanvas(img),
+      redraw: () => {
+        dirty.current.render = true;
+        dirty.current.present = true;
+        schedule();
+      },
+      layerSize: (l) => eng0.layerSize(l),
+      thumbnail: (a, c, size) => eng0.thumbnail(a, c, size),
+      readFull: () => eng0.readFull(),
+    });
+    return teardown;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [engineKey]);
+
+  // بافت از دست رفته و چند ثانیه گذشت ⇒ دکمهٔ «بازیابی» (اگر مرورگر خودش بازنگرداند)
+  useEffect(() => {
+    if (!glLost) return;
+    const t = window.setTimeout(() => setGlWaited(true), 5000);
+    return () => window.clearTimeout(t);
+  }, [glLost, engineKey]);
+
+  /** مرورگر بافت را خودش برنگرداند: بومِ تازه (⇒ بافتِ تازه) + موتورِ تازه؛ حالت همان می‌ماند */
+  const retryGl = () => {
+    setCanvasGen((g) => g + 1);
+    setEngineKey((k) => k + 1);
+  };
 
   const schedule = useCallback(() => {
     if (raf.current) return;
@@ -225,14 +271,29 @@ export default function Stage(p: Props) {
     if (!eng) return;
     let stop = false;
     setLoadErr(null);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      if (stop) return;
+    const apply = (img: HTMLImageElement) => {
+      if (stop || !eng.ok) return; // بافت در این فاصله دوباره رفت ⇒ پس از بازگشت، افکت از نو اجرا می‌شود
       eng.setBase(img, PW, PH, WORK_MAX, !!p.hasAlpha);
       dirty.current.render = true;
       dirty.current.present = true;
       setReady((v) => v + 1);
+      setGlLost(false);
+      setGlWaited(false);
+    };
+    // بازیابیِ بافتِ GL: همان عکسِ بارگذاری‌شده دوباره به موتورِ تازه داده می‌شود (بی‌شبکه)
+    const have = baseImg.current;
+    if (have && have.src === p.src) {
+      apply(have.img);
+      return () => {
+        stop = true;
+      };
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (stop) return;
+      baseImg.current = { src: p.src, img };
+      apply(img);
     };
     img.onerror = () => !stop && setLoadErr("عکس بارگذاری نشد.");
     img.src = p.src;
@@ -240,7 +301,7 @@ export default function Stage(p: Props) {
       stop = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.src, glErr]);
+  }, [p.src, glErr, engineKey]);
 
   useEffect(() => {
     const eng = engineRef.current;
@@ -386,7 +447,9 @@ export default function Stage(p: Props) {
         if (photoModeRef.current) eng.renderPhoto(stateRef.current);
         else eng.render(stateRef.current, { masks: pr.masks.map });
       } catch (e) {
-        pr.onError((e as Error).message);
+        // بافت همین الان رفته (رویدادش هنوز نرسیده) ⇒ خطای ناشی از آن را به کاربر نشان نده؛ بازیابی خودش ادامه می‌دهد
+        if (eng.g.lost) eng.ok = false;
+        else pr.onError((e as Error).message);
       }
       dirty.current.present = true;
       const now = performance.now();
@@ -1313,10 +1376,16 @@ export default function Stage(p: Props) {
       onContextMenu={(e) => e.preventDefault()}
       style={{ cursor: cursorStyle, touchAction: "none" }}
     >
-      <canvas ref={canvas} className="pv-canvas" style={{ width: box.w, height: box.h }} data-testid="photo-canvas" />
+      <canvas key={canvasGen} ref={canvas} className="pv-canvas" style={{ width: box.w, height: box.h }} data-testid="photo-canvas" />
       {glErr && <div className="vp-msg">{glErr}</div>}
       {loadErr && <div className="vp-msg">{loadErr}</div>}
-      {!glErr && !loadErr && !ready && <div className="vp-msg">در حالِ بارگذاری…</div>}
+      {!glErr && !loadErr && !glLost && !ready && <div className="vp-msg">در حالِ بارگذاری…</div>}
+      {glLost && (
+        <div className="pv-lost" role="status" data-testid="gl-lost" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+          <span>اتصال به کارت گرافیک قطع شد؛ در حال بازیابی…</span>
+          {glWaited && <button type="button" className="ws-btn" onClick={retryGl} data-testid="gl-retry">بازیابی</button>}
+        </div>
+      )}
 
       <svg className="pv-svg" width={box.w} height={box.h} aria-hidden="true">
         {grid && gridKind !== "off" && <GridLines kind={gridKind} fr={fr} />}

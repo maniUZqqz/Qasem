@@ -421,6 +421,8 @@ class ProjectView(APIView):
             return Response({"error": {"code": "conflict", "message": str(exc)},
                              "project": services.project_dict(p, migrate=False)},
                             status=status.HTTP_409_CONFLICT)
+        except PhotoProject.DoesNotExist:   # پروژه همین لحظه از تبِ دیگری پاک شد
+            return _not_found()
         except (services.PhotoError, ValueError) as exc:
             return _err(str(exc))
         return Response({"project": services.project_dict(saved, migrate=False)})

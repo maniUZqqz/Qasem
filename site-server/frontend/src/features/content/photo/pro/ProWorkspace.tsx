@@ -730,11 +730,17 @@ export default function ProWorkspace(props: Props) {
         const mid = nid();
         masks.create(mid, kind === "reveal");
         m = { type: "paint", id: mid, invert: false, rev: 0 };
-        if (kind === "reveal") setOpts({ erase: true });
+        // سفید ⇒ با قلم پاک می‌کنیم (سیاه)؛ سیاه ⇒ با قلم باز می‌کنیم (سفید) — پرچمِ «پاک‌کن» هر بار صریح تنظیم می‌شود
+        setOpts({ erase: kind === "reveal" });
       } else if (kind === "linear") m = { type: "linear", p0: [0.5, 0.3], p1: [0.5, 0.7], invert: false };
       else m = { type: "radial", c: [0.5, 0.5], rx: 0.3, ry: 0.2, feather: 0.6, invert: false };
       patch(id, { mask: m } as Partial<Layer>, "افزودنِ ماسک");
       if (m.type !== "paint") setTool("move");
+      else {
+        // ماسکِ نقاشی‌شده ⇒ همان لحظه قلمِ ماسک (نوارِ گزینه‌ها: اندازه/سختی/شدت/پاک‌کن)؛ کاربر لازم نیست «نقاشی روی ماسک» را بزند
+        setActiveId(id);
+        setTool("brush");
+      }
     },
     removeMask: (id) => {
       const l = stateRef.current.layers.find((x) => x.id === id);
@@ -1094,6 +1100,23 @@ export default function ProWorkspace(props: Props) {
   penRef.current = penKey;
   const optsRef = useRef(opts);
   optsRef.current = opts;
+
+  // قلم: Esc مسیرِ در حالِ ساخت را لغو می‌کند و نباید تمام‌صفحه را هم ببندد. قابِ تمام‌صفحه (components/Workspace.tsx، مشترک با ویرایشگرِ
+  // ویدئو) به defaultPrevented نگاه نمی‌کند ⇒ اینجا در فازِ capture می‌گیریم و انتشار را قطع می‌کنیم. بی مسیرِ در حالِ ساخت
+  // هیچ کاری نمی‌کنیم و Esc مثلِ قبل تمام‌صفحه را می‌بندد.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || toolRef.current !== "pen") return;
+      const t = e.target as HTMLElement | null;
+      if (t instanceof HTMLInputElement && t.type !== "range" && t.type !== "checkbox") return;
+      if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t?.isContentEditable) return;
+      if (!penRef.current("Escape")) return; // مسیری در جریان نیست
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onEsc, true);
+    return () => window.removeEventListener("keydown", onEsc, true);
+  }, []);
 
   const modified =
     Object.keys(state.adjust).length + (state.curve.rgb || state.curve.red || state.curve.green || state.curve.blue ? 1 : 0) + state.spots.length +

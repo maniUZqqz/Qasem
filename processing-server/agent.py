@@ -95,7 +95,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.3"
+VERSION = "2.4"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -1111,7 +1111,8 @@ class Capabilities:
                     self.comfy_nodes_at = time.time()
                     models = {}
                     for node_name, label in (("UpscaleModelLoader", "upscale"), ("FrameInterpolationModelLoader", "frame_interpolation"),
-                                             ("CheckpointLoaderSimple", "checkpoints"), ("UNETLoader", "unet"), ("LoraLoader", "loras")):
+                                             ("CheckpointLoaderSimple", "checkpoints"), ("UNETLoader", "unet"), ("LoraLoader", "loras"),
+                                             ("DualCLIPLoader", "clip"), ("VAELoader", "vae")):
                         req = (((info.get(node_name) or {}).get("input") or {}).get("required") or {}) if isinstance(info, dict) else {}
                         for spec in req.values():
                             if isinstance(spec, list) and spec and isinstance(spec[0], list):

@@ -285,7 +285,7 @@ def _profile_for(instruction: str, facts: dict) -> str:
 
 
 def build_editor_prompt(facts: dict, findings: list[dict], instruction: str, *,
-                        store=None) -> str:
+                        store=None, previous: list[dict] | None = None) -> str:
     import json
 
     habits = preferences.habits(store)
@@ -328,6 +328,17 @@ def build_editor_prompt(facts: dict, findings: list[dict], instruction: str, *,
     lines += [
         "",
         f"Tools you may use:\n{dumps(catalogue)}",
+    ]
+    if previous:
+        # A follow-up ("گرم‌ترش کن"): the model edits the plan it gave before instead of starting again.
+        keep = [{"tool": o.get("tool"), "params": o.get("params", {})} for o in previous if isinstance(o, dict)][:12]
+        lines += [
+            "",
+            f"The plan the shop is looking at right now:\n{dumps(keep)}",
+            "The next request is a CHANGE to this plan: keep what still fits, adjust or remove the rest, "
+            "and return the complete new plan.",
+        ]
+    lines += [
         "",
         f"The shop asked for:\n{instruction or 'یک تدوین تمیز و ساده'}",
         "",
@@ -351,29 +362,101 @@ def build_editor_prompt(facts: dict, findings: list[dict], instruction: str, *,
     return "\n".join(lines)
 
 
-def ask_model(facts: dict, findings: list[dict], instruction: str, *,
-              store=None, job=None) -> list[dict]:
-    """One call to the cheap model. Returns raw operations, still unvalidated.
+@dataclass
+class ModelAnswer:
+    """What the model call did, in terms the owner can act on — not only the operations.
 
-    Failure here is not failure of the edit. Everything code could work out on
-    its own is already in `findings`, so a missing or unreachable model costs
-    the *direction* — not the editing.
+    The editor used to swallow every failure and quietly hand back the threshold-based plan, so a shop with no
+    credit and no processing server typed a sentence of direction and got something unrelated with no hint why.
     """
+
+    operations: list[dict] = field(default_factory=list)
+    asked: bool = False
+    ok: bool = False
+    #: "node" = Qwen on the owner's processing server, "api" = the paid API (Metis), "" = nobody answered
+    via: str = ""
+    answered_by: str = ""
+    fell_back: bool = False
+    fallback_reason: str = ""
+    error_code: str = ""
+    error: str = ""
+
+    def info(self) -> dict:
+        return {
+            "asked": self.asked, "ok": self.ok, "via": self.via, "model": self.answered_by,
+            "fell_back": self.fell_back, "fallback_reason": self.fallback_reason,
+            "error_code": self.error_code, "error": self.error,
+        }
+
+
+def explain_failure(exc: Exception, provider=None) -> tuple[str, str]:
+    """An AI error → (code, Persian sentence). Names the real cause: no credit (HTTP 402), the processing server
+    being off, a missing model, the shop's data policy — each needs a different action from the owner."""
+    text = str(exc)
+    low = text.lower()
+    node_reason = ""
+    try:
+        node_reason = str(getattr(provider, "node_broken", "") or "")
+        if not node_reason and callable(getattr(provider, "_node_reason", None)):
+            # The node was never even tried (off, no model, «فقط Metis»): the router knows why.
+            node_reason = str(provider._node_reason() or "")
+    except Exception:  # noqa: BLE001
+        node_reason = ""
+    node_part = f" Qwen روی سرورِ پردازش هم در دسترس نبود: {node_reason}" if node_reason else ""
+
+    from services.ai.gateway import GatewayError
+    from services.ai.ollama import OllamaMalformedOutput, OllamaTimeout, OllamaUnavailable
+
+    if "402" in text or "credit" in low or "insufficient" in low or "payment required" in low or "quota" in low:
+        return "no_credit", (
+            "اعتبارِ حسابِ سرویسِ هوش مصنوعی (Metis) تمام شده است (خطای ۴۰۲)." + node_part
+            + " حساب را شارژ کنید یا سرورِ پردازش را روشن کنید تا Qwen خودش جواب بدهد. "
+              "تا آن موقع پیشنهادِ خودکارِ بی‌هوش‌مصنوعی نشان داده می‌شود."
+        )
+    if "401" in text or "کلید api" in low:
+        return "bad_key", "کلیدِ سرویسِ هوش مصنوعی پذیرفته نشد (۴۰۱)؛ کلید را در تنظیمات درست کنید." + node_part
+    if "429" in text or "سهمیه" in text:
+        return "rate_limit", "سهمیهٔ سرویسِ هوش مصنوعی تمام شده است (۴۲۹)؛ کمی بعد دوباره بپرسید." + node_part
+    if isinstance(exc, GatewayError):
+        return "policy", (
+            "سیاستِ دادهٔ این فروشگاه اجازهٔ استفاده از سرویسِ هوش مصنوعیِ بیرونی را نمی‌دهد و سرورِ پردازش هم آماده نیست."
+            + node_part
+        )
+    if isinstance(exc, OllamaTimeout):
+        return "timeout", "هوش مصنوعی به‌موقع جواب نداد." + node_part
+    if isinstance(exc, OllamaMalformedOutput):
+        return "bad_output", "هوش مصنوعی جوابِ قابل‌فهم نداد." + node_part
+    if isinstance(exc, OllamaUnavailable) or "خاموش" in text or "تنظیم نشده" in text:
+        return "unavailable", ("هیچ سرویسِ هوش مصنوعی در دسترس نیست: " + text[:200]) + node_part
+    return "error", ("پرسیدن از هوش مصنوعی ناموفق بود: " + text[:200]) + node_part
+
+
+def ask_model_ex(facts: dict, findings: list[dict], instruction: str, *,
+                 store=None, job=None, previous: list[dict] | None = None) -> ModelAnswer:
+    """One call to the cheap model, with an honest account of what happened. Operations are still unvalidated.
+
+    Routing is the owner's: ``text_provider(store)`` already prefers Qwen on the processing server and uses the
+    paid API only as a fallback (``services.ai.routing``). Failure here is not failure of the edit — everything
+    code could work out is already in `findings` — but it is never silent any more: the answer says why.
+    """
+    answer = ModelAnswer(asked=True)
+    provider = None
     try:
         from apps.ai.models import AIRequest
         from apps.ai.services import recorded_json_call
         from services.ai.gateway import text_provider
         from services.ai.router import TASK_REASONING, models_for
 
+        provider = text_provider(store)
         parsed, _ = recorded_json_call(
             job=job,
             store=store,
             task_type=AIRequest.TaskType.REASONING,
             prompt_id="video_editor",
-            prompt_version="2",
-            provider=text_provider(store),
+            prompt_version="3" if previous else "2",
+            provider=provider,
             models=models_for(TASK_REASONING),
-            prompt=build_editor_prompt(facts, findings, instruction, store=store),
+            prompt=build_editor_prompt(facts, findings, instruction, store=store, previous=previous),
             system=EDITOR_SYSTEM,
             validate=lambda parsed: (
                 isinstance((parsed or {}).get("operations"), list),
@@ -383,7 +466,23 @@ def ask_model(facts: dict, findings: list[dict], instruction: str, *,
         )
     except Exception as exc:  # noqa: BLE001
         logger.info("Editor model unavailable: %s", exc)
-        return []
+        answer.error_code, answer.error = explain_failure(exc, provider)
+        return answer
+
+    answered_by = getattr(provider, "answered_by", "")
+    answer.answered_by = answered_by if isinstance(answered_by, str) else ""
+    answer.fell_back = getattr(provider, "fell_back", False) is True
+    reason = getattr(provider, "fallback_reason", "")
+    answer.fallback_reason = reason if isinstance(reason, str) else ""
+    try:
+        from services.ai import routing
+
+        node_model = routing.coder_model()
+    except Exception:  # noqa: BLE001
+        node_model = ""
+    answer.via = ("node" if (answer.answered_by and answer.answered_by == node_model and not answer.fell_back)
+                  else "api" if answer.answered_by else "")
+    answer.ok = True
 
     if store is not None and instruction:
         try:
@@ -391,7 +490,6 @@ def ask_model(facts: dict, findings: list[dict], instruction: str, *,
         except Exception as exc:  # noqa: BLE001 — remembering is a courtesy
             logger.debug("Could not remember direction: %s", exc)
 
-    operations = []
     for raw in (parsed or {}).get("operations") or []:
         if not isinstance(raw, dict):
             continue
@@ -401,8 +499,18 @@ def ask_model(facts: dict, findings: list[dict], instruction: str, *,
                 continue
         except (TypeError, ValueError):
             pass
-        operations.append({k: v for k, v in raw.items() if k != "confidence"})
-    return operations[:MAX_DIRECTED_OPERATIONS]
+        answer.operations.append({k: v for k, v in raw.items() if k != "confidence"})
+    answer.operations = answer.operations[:MAX_DIRECTED_OPERATIONS]
+    return answer
+
+
+def ask_model(facts: dict, findings: list[dict], instruction: str, *,
+              store=None, job=None, previous: list[dict] | None = None, info: dict | None = None) -> list[dict]:
+    """`ask_model_ex` for callers that only want the operations. `info`, when given, is filled with what happened."""
+    answer = ask_model_ex(facts, findings, instruction, store=store, job=job, previous=previous)
+    if info is not None:
+        info.update(answer.info())
+    return answer.operations
 
 
 # -------------------------------------------------------------- planning
@@ -428,6 +536,8 @@ def plan(
     job=None,
     subtitle_file=None,
     exclude=(),
+    previous: list[dict] | None = None,
+    ai_info: dict | None = None,
 ) -> Plan:
     """Measure, decide, and return the plan — without touching the video."""
     source = Path(source)
@@ -446,7 +556,12 @@ def plan(
     elif mode == DIRECTED:
         # Direction is the one input a threshold cannot hold, so this is the
         # mode the model actually earns its call in.
-        raw = ask_model(facts, findings, instruction, store=store, job=job)
+        kwargs = {"store": store, "job": job}
+        if previous:
+            kwargs["previous"] = previous
+        if ai_info is not None:
+            kwargs["info"] = ai_info
+        raw = ask_model(facts, findings, instruction, **kwargs)
         asked = True
         if not raw:
             raw = suggest(facts, store=store, exclude=exclude)

@@ -21,7 +21,7 @@ from services.editing import agent, analysis, edl, preferences
 from services.media import files as media
 from services.video import subtitles
 
-from .models import UploadedVideo
+from .models import UploadedVideo, VideoProject
 
 logger = logging.getLogger(__name__)
 
@@ -476,5 +476,101 @@ def transcribe_upload_task(self, job_id, upload_id):
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("Transcription job %s failed", job_id)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+
+
+@shared_task(bind=True)
+def make_proxy_task(self, job_id, ref):
+    """A small, browser-playable copy of a big (or browser-unfriendly) clip, for scrubbing in the «دستی» workspace.
+    The export always uses the original — the proxy keeps the frame rate so a cut lands on the same frame."""
+    from services.editing import timeline as tl
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    try:
+        job.total_steps = 1
+        job.mark_running("در حال ساختنِ پیش‌نمایشِ سبک")
+        kind, pk = editor_project.parse_ref(ref)
+        found = editor_project.locate(job.store, ref)
+        out = editor_project.proxy_path(kind, pk)
+        with media.reading(found["field"]) as source:
+            if not (out.is_file() and out.stat().st_size > 0):
+                tl.make_proxy(source, out, force=True)
+            result = {"ref": ref, "proxy_url": editor_project._rel_url(out), "savings": tl.proxy_savings(source, out)}
+        job.mark_progress(1, "")
+        job.mark_completed(result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Proxy job %s failed", job_id)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+
+
+@shared_task(bind=True)
+def render_project_task(self, job_id, project_id, quality="final"):
+    """The «دستی» workspace's Export: timeline → one ffmpeg graph (stage one), then the program-wide tools through the
+    single-source EDL pipeline (stage two) — so every one of the 21 tools has a place, per clip or on the whole video."""
+    from django.utils import timezone
+
+    from services.editing import timeline as tl
+    from services.video.ffmpeg import probe_duration
+
+    from . import editor_project
+
+    job = Job.objects.get(id=job_id)
+    project = None
+    try:
+        project = VideoProject.objects.select_related("store").get(pk=project_id)
+        job.total_steps = 3
+        job.mark_running("در حال چیدنِ تایم‌لاین")
+        work = Path(settings.MEDIA_ROOT) / "generated" / "editing" / f"project_{project.pk}"
+        work.mkdir(parents=True, exist_ok=True)
+        program_ops = tl.program_operations(project.data or {})
+        stage1 = work / "program.mp4"
+        with editor_project.sources(project.store) as resolve:
+            timeline = tl.from_project(project.data or {}, resolve)
+            tl.render(timeline, stage1, quality=quality)
+        job.mark_progress(2, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
+
+        final = stage1
+        refusals: list[str] = []
+        if program_ops:
+            final = work / "final.mp4"
+            plan = agent.plan(stage1, work / "stage2", mode=agent.MANUAL, operations=program_ops,
+                              store=project.store, job=job)
+            plan.edl.store = project.store
+            if not plan.facts.get("readable", True):
+                raise RuntimeError(plan.edl.refusals[0] if plan.edl.refusals else "خروجیِ مرحلهٔ اول خوانده نشد")
+            if edl.needs_stabilization_pass(plan.edl):
+                try:
+                    edl.detect_stabilization(stage1, work / "stage2", plan.edl)
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("Stabilisation detect failed: %s", exc)
+                    plan.edl.stabilize = ""
+                    plan.edl.refusals.append("ثابت‌کردن تصویر روی این ویدیو ممکن نشد و از تدوین حذف شد")
+            edl.render(plan.edl, final)
+            refusals = list(plan.edl.refusals)
+
+        media.store(project.output, final)
+        project.state = VideoProject.State.READY
+        project.error = ""
+        project.render_info = {
+            "seconds": round(probe_duration(final), 2), "bytes": Path(final).stat().st_size, "quality": quality,
+            "refusals": refusals, "program_tools": [o["tool"] for o in program_ops],
+            "size": f"{timeline.width}x{timeline.height}", "rendered_at": timezone.now().isoformat(),
+        }
+        project.save(update_fields=["output", "state", "error", "render_info", "updated_at"])
+        job.mark_progress(3, "")
+        result = {"project_id": project.pk, "output": project.output.url if project.output else None, **project.render_info}
+        job.mark_completed(result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Project render job %s failed", job_id)
+        if project is not None:
+            project.state = VideoProject.State.FAILED
+            project.error = str(exc)[:1500]
+            project.save(update_fields=["state", "error", "updated_at"])
         job.mark_failed(exc)
         return {"error": str(exc)}

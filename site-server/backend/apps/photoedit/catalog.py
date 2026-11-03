@@ -108,6 +108,11 @@ def _tools() -> list[dict]:
                     _sel("fill", "پرکردنِ دور (جا دادن)", _opt(("blur", "محوِ خودِ عکس"), ("white", "سفید"),
                                                              ("black", "سیاه"), ("color", "رنگِ دلخواه")), "blur"),
                     _color("fill_color", "رنگِ دلخواه", "#f3f4f6")]},
+        {"key": "crop_rect", "title": "برشِ دلخواه (مستطیل)", "where": "server", "icon": "image",
+         "help": "هر ناحیه از عکس را با مختصاتِ نسبی ببُرید (چپ، بالا، پهنا، ارتفاع به درصدِ عکس). در حالتِ «دستی» "
+                 "همین را با کشیدنِ قاب روی عکس می‌سازید.",
+         "params": [_num("x", "از چپ (٪)", 0, 95, 0, 0.1, "%"), _num("y", "از بالا (٪)", 0, 95, 0, 0.1, "%"),
+                    _num("w", "پهنا (٪)", 5, 100, 100, 0.1, "%"), _num("h", "ارتفاع (٪)", 5, 100, 100, 0.1, "%")]},
         {"key": "resize", "title": "تغییرِ اندازه", "where": "server", "icon": "image",
          "help": "ضلعِ بلندتر به پیکسل (کوچک کردن؛ بزرگ کردنِ واقعی با «بزرگ‌نماییِ هوشمند» روی سرورِ پردازش است).",
          "params": [_num("long_edge", "ضلعِ بلندتر (پیکسل)", 200, 8000, 1600, 10, "px")]},
@@ -152,7 +157,8 @@ def _tools() -> list[dict]:
         {"key": "kit_adjust", "title": "تنظیمِ دستیِ حرفه‌ای (Camera Raw)", "where": "node", "icon": "settings",
          "help": "۵۸ لغزندهٔ کیت: نور، رنگ، رنگ‌به‌رنگ (HSL)، رنگ‌دهیِ سایه/روشنی، سطوح، بافت/وضوح/مه، شارپ و نویز، "
                  "وینیت و دانه، اعوجاجِ لنز.",
-         "params": [{"key": "adjust", "title": "لغزنده‌ها", "type": "adjust", "default": {}, "help": ""}]},
+         "params": [{"key": "adjust", "title": "لغزنده‌ها", "type": "adjust", "default": {}, "help": ""},
+                    {"key": "curve", "title": "منحنیِ تُن (Curves)", "type": "curve", "default": {}, "help": ""}]},
         {"key": "kit_denoise", "title": "نویزگیری", "where": "node", "icon": "sparkle",
          "help": "Non-Local Means ِ کیت روی روشنایی و رنگ — عکسِ شب و ISO بالا.",
          "params": [_num("luma", "نویزِ روشنایی", 0, 100, 40), _num("color", "نویزِ رنگ", 0, 100, 40)]},
@@ -246,6 +252,8 @@ RECIPES = [
      "operations": [_o("kit_smart", goal=""), _o("export", format="jpeg", quality=92)]},
     {"key": "manual", "title": "دستی", "help": "ابزارها را خودتان یکی‌یکی اضافه کنید.", "operations": []},
 ]
+#: هر دستور در کدام «حالت» ِ ادیتور زندگی می‌کند: auto (یک‌کلیک)، prompt (نیمه‌خودکار با دستور)، manual (دستی)
+RECIPE_MODE = {"smart": "prompt", "manual": "manual"}
 RECIPE_BY_KEY = {r["key"]: r for r in RECIPES}
 
 
@@ -254,6 +262,7 @@ def recipe_list() -> list[dict]:
     for r in RECIPES:
         ops = [dict(o, params=normalize_params(o["tool"], o["params"], strict=False)) for o in r["operations"]]
         out.append({"key": r["key"], "title": r["title"], "help": r["help"], "operations": ops,
+                    "mode": RECIPE_MODE.get(r["key"], "auto"),
                     "needs_node": any(tools()[o["tool"]]["where"] == "node" and not o["optional"] for o in ops)})
     return out
 
@@ -271,6 +280,32 @@ def _clamp(v, lo, hi, default):
     if x != x:  # NaN
         return default
     return max(lo, min(hi, x))
+
+
+CURVE_CHANNELS = ("rgb", "red", "green", "blue")
+
+
+def normalize_curve(v) -> dict:
+    """{rgb|red|green|blue: [[ورودی، خروجی], …]} ⇐ نقطه‌های ۰ تا ۲۵۵، مرتب، بی تکرار، حداکثر ۱۶ نقطه؛ منحنیِ بی‌اثر (خطِ راست) دور ریخته می‌شود."""
+    out: dict = {}
+    if not isinstance(v, dict):
+        return out
+    for ch in CURVE_CHANNELS:
+        pts = v.get(ch)
+        if not isinstance(pts, (list, tuple)):
+            continue
+        clean: dict[float, float] = {}
+        for pt in pts:
+            if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                continue
+            x, y = _clamp(pt[0], 0, 255, None), _clamp(pt[1], 0, 255, None)
+            if x is None or y is None:
+                continue
+            clean.setdefault(round(x, 2), round(y, 2))
+        ordered = sorted(clean.items())[:16]
+        if len(ordered) >= 2 and any(abs(a - b) > 1e-6 for a, b in ordered):
+            out[ch] = [[a, b] for a, b in ordered]
+    return out
 
 
 def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True) -> dict:
@@ -310,6 +345,8 @@ def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True)
                 if abs(x - c["default"]) > 1e-9:
                     adj[key] = round(x, 3)
             out[k] = adj
+        elif t == "curve":
+            out[k] = normalize_curve(v)
         elif t == "spots":
             spots = []
             for s in (v or [])[:60] if isinstance(v, list) else []:
@@ -342,7 +379,11 @@ def normalize_operations(ops) -> list[dict]:
             raise CatalogError("برای «متن روی عکس» متن بنویسید (یا این کار را بردارید).")
         if key == "kit_heal" and not params["spots"]:
             raise CatalogError("برای «ترمیمِ لکه» روی عکس کلیک کنید تا لکه‌ها علامت بخورند.")
-        clean.append({"tool": key, "params": params})
+        item = {"tool": key, "params": params}
+        reason = str(o.get("reason") or "").strip()
+        if reason:
+            item["reason"] = reason[:300]
+        clean.append(item)
     node = [o for o in clean if tools()[o["tool"]]["where"] == "node"]
     server = [o for o in clean if tools()[o["tool"]]["where"] == "server"]
     if sum(1 for o in node if o["tool"] == "kit_smart") > 1:
@@ -382,6 +423,8 @@ def kit_payload(node_ops: list[dict], *, has_server_after: bool, final_format: s
             recipe["preset"] = p["preset"]
         elif t == "kit_adjust":
             adjust.update(p["adjust"])
+            if p.get("curve"):
+                recipe["curve"] = (recipe.get("curve") or {}) | p["curve"]
         elif t == "kit_denoise":
             adjust.update({"noiseLuma": p["luma"], "noiseColor": p["color"]})
         elif t == "kit_sharpen":
@@ -443,3 +486,75 @@ def suggest(facts: dict, findings: list[dict], *, node_online: bool) -> list[dic
         add("resize", what["huge"]["note"] + " ⇐ کوچک‌تر برای وب و شبکه‌ها.", long_edge=2400)
     add("export", "قالبِ خروجی", format="png" if facts.get("has_alpha") else "jpeg", quality=90)
     return ops
+
+
+# ───────────────────────────── آنچه کیت/هوشِ مصنوعی انتخاب کرد ⇐ کارهای قابل‌ویرایش
+
+def _fa(text: str) -> str:
+    from services.imaging.text_overlay import to_persian_digits
+
+    return to_persian_digits(str(text))
+
+
+def _num_text(v: float) -> str:
+    v = round(float(v), 2)
+    return _fa(("%+g" % v).replace("-", "−"))
+
+
+def steps_from_kit_recipe(recipe: dict | None) -> list[dict]:
+    """«نسخهٔ ویرایش»ی که کیت واقعاً به کار برد (خودکار یا انتخابِ هوشِ مصنوعی) ⇐ کارهای جدا، هرکدام با دلیلش،
+    تا کاربر هرکدام را خاموش یا اصلاح کند و دوباره بسازد (بی‌این‌که هوشِ مصنوعی دوباره صدا زده شود).
+
+    فقط چیزهایی که «ظاهرِ عکس» را عوض می‌کنند؛ قالب و کیفیتِ خروجی و اندازه با «قالب و حجمِ خروجی» جدا می‌ماند.
+    """
+    if not isinstance(recipe, dict) or not recipe:
+        return []
+    steps: list[dict] = []
+
+    def add(tool: str, params: dict, title: str | None, reason: str, group: str = ""):
+        p = normalize_params(tool, params, strict=False)
+        steps.append({"tool": tool, "params": p, "title": title or tools()[tool]["title"], "reason": reason,
+                      "where": tools()[tool]["where"], "on": True, "group": group})
+
+    preset = recipe.get("preset")
+    if preset in kit_presets():
+        info = kit_presets()[preset]
+        add("kit_preset", {"preset": preset}, f"فیلتر: {info['title']}", info["help"], "preset")
+    adjust = recipe.get("adjust") if isinstance(recipe.get("adjust"), dict) else {}
+    params = kit_params()
+    groups = {g["key"]: g for g in kit()["groups"]}
+    by_group: dict[str, dict] = {}
+    for key, val in adjust.items():
+        c = params.get(key)
+        if c is None:
+            continue
+        x = _clamp(val, c["min"], c["max"], c["default"])
+        if abs(x - c["default"]) > 1e-9:
+            by_group.setdefault(c["group"], {})[key] = round(x, 3)
+    for gkey in [g["key"] for g in kit()["groups"]]:
+        sub = by_group.get(gkey)
+        if not sub:
+            continue
+        bits = [f"{params[k]['title']} {_num_text(v)}" for k, v in list(sub.items())[:6]]
+        more = f" و {_fa(len(sub) - 6)} مورد دیگر" if len(sub) > 6 else ""
+        add("kit_adjust", {"adjust": sub}, f"{groups[gkey]['title']}", "، ".join(bits) + more, gkey)
+    curve = normalize_curve(recipe.get("curve"))
+    if curve:
+        add("kit_adjust", {"curve": curve}, "منحنیِ تُن (Curves)", "منحنیِ " + "، ".join(curve) + " تغییر کرده", "curve")
+    spots = recipe.get("spots")
+    if isinstance(spots, list) and spots:
+        add("kit_heal", {"spots": spots}, None, f"{_fa(len(spots))} لکه ترمیم می‌شود", "spots")
+    bg = recipe.get("background") if isinstance(recipe.get("background"), dict) else None
+    if bg and bg.get("remove"):
+        color = str(bg.get("color") or "#ffffff").lower()
+        kind = "transparent" if color == "transparent" else "white" if color == "#ffffff" else "color"
+        add("kit_background", {"method": bg.get("method", "auto"), "bg": kind, "color": color if kind == "color" else "#f5f5f5",
+                               "shadow": bg.get("shadow", 0), "cleanup": bg.get("cleanup", -1)}, None,
+            "پس‌زمینه برداشته می‌شود", "background")
+    out = recipe.get("output") if isinstance(recipe.get("output"), dict) else {}
+    if out.get("square"):
+        add("kit_square", {"long_edge": out.get("longEdge") or 2000, "padding": round(float(out.get("padding", 0.06)) * 100)}, None,
+            "کالا وسطِ قابِ مربع", "square")
+    if int(out.get("upscale") or 1) > 1:
+        add("kit_upscale", {"factor": str(int(out["upscale"]))}, None, "بزرگ‌نماییِ هوشمند", "upscale")
+    return steps

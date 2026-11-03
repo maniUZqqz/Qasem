@@ -11,6 +11,7 @@ urlpatterns = [
     path(P + "assets/<int:pk>/", views.AssetView.as_view(), name="photoedit-asset"),
     path(P + "assets/<int:pk>/analyze/", views.AssetAnalyzeView.as_view(), name="photoedit-asset-analyze"),
     path(P + "plan/", views.PlanView.as_view(), name="photoedit-plan"),
+    path(P + "preview/", views.PreviewView.as_view(), name="photoedit-preview"),
     path(P + "edits/", views.EditListView.as_view(), name="photoedit-edits"),
     path(P + "edits/<int:pk>/", views.EditView.as_view(), name="photoedit-edit"),
     path(P + "edits/<int:pk>/<str:action>/", views.EditView.as_view(), name="photoedit-edit-action"),

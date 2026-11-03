@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../../api/client";
+import ModeSwitch, { useEditorMode } from "../../../components/ModeSwitch";
 import {
   Alert,
   Badge,
@@ -16,7 +17,8 @@ import {
   fa,
 } from "../../../components/ui";
 import CompareSlider from "./CompareSlider";
-import OperationForm from "./OperationForm";
+import { PhotoAutoPanel, PhotoPromptPanel } from "./ModePanels";
+import PhotoWorkspace from "./manual/PhotoWorkspace";
 import SourcePicker from "./SourcePicker";
 import {
   ACTIVE_STATES,
@@ -32,7 +34,7 @@ import {
 } from "./api";
 
 /**
- * ادیتورِ عکس — همتای «ادیتور ویدیو».
+ * ادیتورِ عکس — سه حالت: «خودکار» (یک کلیک)، «نیمه‌خودکار» (دستور به هوشِ مصنوعی) و «دستی» (فضای کاملِ فتوشاپ‌مانند).
  *
  * دو جا کار می‌کند و صفحه این را پنهان نمی‌کند: کارهای سبک (برش برای شبکه‌ها، اندازه، متن، لوگو، واترمارک،
  * نور و رنگِ ساده) همین حالا روی سرورِ سایت انجام می‌شود؛ کارهای کیتِ PersianAiKit.Photo (بهبودِ حرفه‌ای،
@@ -41,17 +43,13 @@ import {
  */
 export default function PhotoEditorPage() {
   const { id = "" } = useParams<{ id: string }>();
+  const [mode, setMode] = useEditorMode("nm.photo.mode");
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
-  const [recipe, setRecipe] = useState("suggest");
-  const [ops, setOps] = useState<Operation[] | null>(null);
-  const [opsEdited, setOpsEdited] = useState(false);
-  const [openOp, setOpenOp] = useState<number | null>(null);
-  const [planBusy, setPlanBusy] = useState(false);
   const [picker, setPicker] = useState<null | "products" | "generated">(null);
   const [tracking, setTracking] = useState<Edit[]>([]);
   const [lastBatch, setLastBatch] = useState<string | null>(null);
@@ -135,34 +133,6 @@ export default function PhotoEditorPage() {
     return () => window.clearInterval(t);
   }, [id, activeIds.join(","), analysisPending, detail, load, openDetail]);
 
-  // دستور ⇐ کارها (برای اولین عکسِ انتخاب‌شده؛ «پیشنهادی» برای هر عکس جدا حساب می‌شود)
-  useEffect(() => {
-    if (selected.length === 0) {
-      setOps(null);
-      return;
-    }
-    let stop = false;
-    setPlanBusy(true);
-    photoApi
-      .plan(id, selected[0], recipe)
-      .then((p) => {
-        if (stop) return;
-        setOps(p.operations);
-        setOpsEdited(false);
-        // کاری که بی متن معنی ندارد (ویرایش با دستور، متن روی عکس) ⇐ فرمش از اول باز
-        const need = p.operations.findIndex(
-          (o) => (o.tool === "kit_smart" && !o.params.goal) || (o.tool === "text" && !o.params.text),
-        );
-        setOpenOp(need >= 0 ? need : null);
-        setNode(p.node);
-      })
-      .catch((err) => !stop && setError(errorMessage(err)))
-      .finally(() => !stop && setPlanBusy(false));
-    return () => {
-      stop = true;
-    };
-  }, [id, recipe, selected.join(",")]);
-
   async function upload(files: File[]) {
     if (!files.length) return;
     setBusy(true);
@@ -181,68 +151,50 @@ export default function PhotoEditorPage() {
     }
   }
 
-  function updateOp(index: number, next: Operation) {
-    setOps((cur) => (cur ? cur.map((o, i) => (i === index ? next : o)) : cur));
-    setOpsEdited(true);
-  }
-
-  function addTool(key: string) {
-    const t = tools[key];
-    if (!t) return;
-    const params: Record<string, unknown> = {};
-    t.params.forEach((p) => (params[p.key] = p.default));
-    const op: Operation = { tool: key, params, on: true, title: t.title, where: t.where, reason: t.help };
-    setOps((cur) => {
-      const list = [...(cur ?? [])];
-      const exportAt = list.findIndex((o) => o.tool === "export");
-      if (exportAt >= 0 && key !== "export") list.splice(exportAt, 0, op);
-      else list.push(op);
-      setOpenOp(exportAt >= 0 && key !== "export" ? exportAt : list.length - 1);
-      return list;
-    });
-    setOpsEdited(true);
-  }
-
-  async function apply() {
-    if (!ops || selected.length === 0) return;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const sendOps = recipe === "suggest" && !opsEdited && selected.length > 1 ? null : ops;
-      const res = sendOps
-        ? await photoApi.apply(id, selected, recipe, sendOps)
-        : await photoApi.applyRecipe(id, selected, recipe);
-      setNode(res.node);
-      setTracking((cur) => [...res.edits, ...cur.filter((e) => !res.edits.some((x) => x.id === e.id))]);
-      setLastBatch(res.batch);
-      // تازه ثبت‌شده‌ها هنوز «در صف» اند؛ این‌که کجا می‌روند از کارهایشان پیداست
-      const waiting = res.edits.filter((e) => e.state === "NODE" || (e.state === "QUEUED" && e.needs_node)).length;
-      const ready = res.edits.filter((e) => e.state === "READY").length;
-      const working = res.edits.filter(
-        (e) => e.state === "SERVER" || (e.state === "QUEUED" && !e.needs_node),
-      ).length;
-      setNotice(
-        [
-          ready ? `${fa(ready)} عکس آماده شد.` : "",
-          working ? `${fa(working)} عکس روی سرورِ سایت در کار است (چند ثانیه).` : "",
-          waiting
-            ? res.node.online
-              ? `${fa(waiting)} عکس به سرورِ پردازش رفت.`
-              : `${fa(waiting)} عکس منتظرِ سرورِ پردازش می‌ماند (الان خاموش است).`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-      await load();
-      if (selected.length === 1) await openDetail(selected[0], true, res.edits[0]?.id);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+  /**
+   * ساختِ نسخه برای عکس‌های انتخاب‌شده (هر سه حالت از همین‌جا می‌گذرند).
+   * ops = null ⇒ سرور برای هر عکس از روی اندازه‌گیریِ خودش می‌چیند («پیشنهادی»). ⇐ جملهٔ خطا، یا null اگر شروع شد.
+   */
+  const runEdits = useCallback(
+    async (recipe: string, ops: Operation[] | null, assetIds?: number[]): Promise<string | null> => {
+      const ids = assetIds ?? selected;
+      if (ids.length === 0) return "اول یک عکس انتخاب کنید.";
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const res = ops ? await photoApi.apply(id, ids, recipe, ops) : await photoApi.applyRecipe(id, ids, recipe);
+        setNode(res.node);
+        setTracking((cur) => [...res.edits, ...cur.filter((e) => !res.edits.some((x) => x.id === e.id))]);
+        setLastBatch(res.batch);
+        // تازه ثبت‌شده‌ها هنوز «در صف» اند؛ این‌که کجا می‌روند از کارهایشان پیداست
+        const waiting = res.edits.filter((e) => e.state === "NODE" || (e.state === "QUEUED" && e.needs_node)).length;
+        const ready = res.edits.filter((e) => e.state === "READY").length;
+        const working = res.edits.filter((e) => e.state === "SERVER" || (e.state === "QUEUED" && !e.needs_node)).length;
+        setNotice(
+          [
+            ready ? `${fa(ready)} عکس آماده شد.` : "",
+            working ? `${fa(working)} عکس روی سرورِ سایت در کار است (چند ثانیه).` : "",
+            waiting
+              ? res.node.online
+                ? `${fa(waiting)} عکس به سرورِ پردازش رفت.`
+                : `${fa(waiting)} عکس منتظرِ سرورِ پردازش می‌ماند (الان خاموش است).`
+              : "",
+          ].filter(Boolean).join(" "),
+        );
+        await load();
+        if (ids.length === 1) await openDetail(ids[0], false, res.edits[0]?.id);
+        return null;
+      } catch (err) {
+        const msg = errorMessage(err);
+        setError(msg);
+        return msg;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id, selected, load, openDetail],
+  );
 
   async function downloadZip(batch: string) {
     try {
@@ -263,16 +215,27 @@ export default function PhotoEditorPage() {
 
   const assets = data.assets;
   const nodeOn = (node ?? data.node).online;
-  const selectedNodeOps = (ops ?? []).filter((o) => o.on !== false && tools[o.tool]?.where === "node");
-  const singleImage =
-    selected.length === 1 ? assets.find((a) => a.id === selected[0])?.preview ?? null : null;
   const batchEdits = lastBatch ? tracking.filter((e) => e.batch === lastBatch) : [];
+  const focusAsset = selected.length ? assets.find((a) => a.id === selected[0]) ?? null : null;
+
+  /** تازه‌ترین نسخهٔ یک عکس: از نسخه‌های در حالِ پیگیری یا آخرین نسخهٔ کتابخانه */
+  const latest = (assetId: number): Edit | null => {
+    const lib = assets.find((a) => a.id === assetId)?.last_edit ?? null;
+    const cands = [...tracking.filter((e) => e.asset === assetId), ...(lib ? [lib] : [])];
+    let best: Edit | null = null;
+    for (const e of cands) if (!best || e.number > best.number) best = e;
+    return best;
+  };
+
+  const panelProps = {
+    storeId: id, data, tools, selected, nodeOn, busy, run: runEdits, latest, asset: focusAsset,
+  };
 
   return (
     <>
       <PageHeader
         title="ادیتور عکس"
-        subtitle="عکس بدهید — برای اینستاگرام، استوری و فروشگاه آماده‌اش می‌کنیم: نور و رنگ، پس‌زمینه، قاب، متن و لوگو"
+        subtitle="عکس بدهید — برای اینستاگرام، استوری و فروشگاه آماده‌اش می‌کنیم: خودکار، با یک دستور، یا خودتان مثلِ فتوشاپ"
         actions={
           <>
             <Link to={`/stores/${id}/editor`}>
@@ -306,6 +269,39 @@ export default function PhotoEditorPage() {
           </Alert>
         )}
       </div>
+
+      <ModeSwitch
+        mode={mode}
+        onChange={setMode}
+        hints={{
+          auto: "عکس را می‌سنجد و خودش ادیت می‌زند — یک کلیک",
+          prompt: "بگویید چه می‌خواهید؛ هوش مصنوعی درستش می‌کند",
+          manual: "فضای کامل مثلِ فتوشاپ: برش، لغزنده‌ها، منحنی، ترمیم…",
+        }}
+      />
+
+      {mode === "manual" && focusAsset && (
+        <div className="mb-6">
+          <PhotoWorkspace
+            key={focusAsset.id}
+            storeId={id}
+            asset={focusAsset}
+            assets={assets}
+            onPick={(aid) => setSelected([aid])}
+            tools={tools}
+            kit={data.kit}
+            nodeOn={nodeOn}
+            nodeNames={(node ?? data.node).nodes}
+            lastEdit={latest(focusAsset.id)}
+            busy={busy}
+            onBuild={async (ops, recipe) => {
+              const err = await runEdits(recipe, ops, [focusAsset.id]);
+              if (err) throw new Error(err);
+            }}
+            onOpenVersions={() => void openDetail(focusAsset.id)}
+          />
+        </div>
+      )}
 
       <Card>
         <SectionTitle>عکسِ تازه</SectionTitle>
@@ -361,6 +357,7 @@ export default function PhotoEditorPage() {
           <div className="-mt-1 mb-3 flex flex-wrap items-center gap-2">
             <span className="text-xs" style={{ color: "var(--text-3)" }}>
               {fa(selected.length)} از {fa(assets.length)} انتخاب شده — روی عکس بزنید تا انتخاب شود
+              {mode === "manual" ? " (در حالتِ دستی، اولین عکسِ انتخاب‌شده باز می‌شود)" : ""}
             </span>
             <Button
               size="sm"
@@ -400,150 +397,11 @@ export default function PhotoEditorPage() {
         )}
       </div>
 
-      {selected.length > 0 && (
-        <Card className="mt-6">
-          <div data-testid="recipe-card">
-            <SectionTitle>
-              دستورِ ویرایش — {fa(selected.length)} عکس
-            </SectionTitle>
-            <div className="mb-2 flex flex-wrap gap-2">
-              {data.recipes.map((r) => (
-                <Button
-                  key={r.key}
-                  size="sm"
-                  variant={recipe === r.key ? "primary" : "secondary"}
-                  onClick={() => setRecipe(r.key)}
-                  title={r.help}
-                >
-                  {r.title}
-                </Button>
-              ))}
-            </div>
-            <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
-              {data.recipes.find((r) => r.key === recipe)?.help}
-              {recipe === "suggest" && selected.length > 1 && !opsEdited &&
-                " (برای هر عکس از روی اندازه‌گیریِ خودش؛ این‌جا کارهای عکسِ اول دیده می‌شود.)"}
-            </p>
-
-            {planBusy && <Spinner size={18} />}
-            {ops && !planBusy && (
-              <>
-                {ops.length === 0 ? (
-                  <Alert tone="info">هنوز کاری انتخاب نکرده‌اید — از پایین ابزار اضافه کنید.</Alert>
-                ) : (
-                  <div className="flex flex-col gap-2" data-testid="operations">
-                    {ops.map((op, index) => {
-                      const t = tools[op.tool];
-                      if (!t) return null;
-                      const off = op.on === false;
-                      return (
-                        <div
-                          key={`${op.tool}-${index}`}
-                          className="rounded-xl p-3"
-                          style={{ border: "1px solid var(--line)", opacity: off ? 0.55 : 1 }}
-                        >
-                          <div className="flex flex-wrap items-start gap-3">
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              checked={!off}
-                              aria-label={t.title}
-                              onChange={() => updateOp(index, { ...op, on: off })}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-bold" style={{ color: "var(--text)" }}>{t.title}</span>
-                                <Badge tone={t.where === "server" ? "ok" : nodeOn ? "info" : "warn"}>
-                                  {t.where === "server" ? "سرورِ سایت" : nodeOn ? "سرورِ پردازش" : "سرورِ پردازش — منتظر"}
-                                </Badge>
-                                {op.optional && <Badge tone="neutral">اختیاری</Badge>}
-                              </div>
-                              <p className="text-sm" style={{ color: "var(--text-2)" }}>{op.reason || t.help}</p>
-                            </div>
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => setOpenOp(openOp === index ? null : index)}>
-                                {openOp === index ? "بستنِ تنظیمات" : "تنظیمات"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                title="برداشتنِ این کار"
-                                onClick={() => {
-                                  setOps((cur) => (cur ? cur.filter((_o, i) => i !== index) : cur));
-                                  setOpsEdited(true);
-                                  setOpenOp(null);
-                                }}
-                              >
-                                ×
-                              </Button>
-                            </div>
-                          </div>
-                          {openOp === index && (
-                            <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--line)" }}>
-                              <OperationForm
-                                tool={t}
-                                params={op.params}
-                                kit={data.kit}
-                                spotImage={singleImage}
-                                onChange={(params) => updateOp(index, { ...op, params })}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) addTool(e.target.value);
-                    }}
-                    aria-label="افزودنِ ابزار"
-                    className="!w-auto"
-                  >
-                    <option value="">+ افزودنِ ابزار…</option>
-                    <optgroup label="سرورِ سایت (همین حالا)">
-                      {data.tools.filter((t) => t.where === "server").map((t) => (
-                        <option key={t.key} value={t.key}>{t.title}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="سرورِ پردازش (کیتِ PersianAiKit.Photo)">
-                      {data.tools.filter((t) => t.where === "node").map((t) => (
-                        <option key={t.key} value={t.key}>{t.title}</option>
-                      ))}
-                    </optgroup>
-                  </Select>
-                </div>
-
-                {selectedNodeOps.length > 0 && !nodeOn && (
-                  <div className="mt-3">
-                    <Alert tone="warn">
-                      {fa(selectedNodeOps.length)} کار به سرورِ پردازش نیاز دارد ({selectedNodeOps
-                        .map((o) => tools[o.tool]?.title)
-                        .join("، ")}). این نسخه‌ها «منتظرِ سرورِ پردازش» می‌مانند تا روشن شود؛ برای نتیجهٔ همین حالا
-                      تیکِ آن‌ها را بردارید.
-                    </Alert>
-                  </div>
-                )}
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => void apply()}
-                    disabled={busy || ops.filter((o) => o.on !== false).length === 0}
-                    data-testid="apply"
-                  >
-                    اعمال روی {fa(selected.length)} عکس
-                  </Button>
-                  <Button variant="ghost" onClick={() => setSelected([])}>
-                    بی‌خیال
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
+      {mode === "auto" && <PhotoAutoPanel {...panelProps} />}
+      {mode === "prompt" && <PhotoPromptPanel {...panelProps} />}
+      {mode === "manual" && !focusAsset && (
+        <Card className="mt-4">
+          <EmptyState icon="image" title="یک عکس انتخاب کنید" description="از کتابخانه یک عکس بزنید تا فضای کارِ دستی برایش باز شود." />
         </Card>
       )}
 

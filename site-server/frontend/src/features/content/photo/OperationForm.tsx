@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { Input, Select, fa } from "../../../components/ui";
 import type { Kit, ParamSpec, Params, Tool } from "./api";
+import CurveEditor from "./manual/CurveEditor";
+import type { Curve } from "./manual/engine";
 
 type Spot = { x: number; y: number; r: number };
 
@@ -151,6 +153,12 @@ function ParamField({
       return (
         <div className="sm:col-span-2">
           <AdjustSliders kit={kit} value={(value as Record<string, number>) ?? {}} onChange={onChange} />
+        </div>
+      );
+    case "curve":
+      return (
+        <div className="sm:col-span-2">
+          <CurveEditor value={(value as Curve) ?? {}} onChange={(c) => onChange(c)} />
         </div>
       );
     case "spots":

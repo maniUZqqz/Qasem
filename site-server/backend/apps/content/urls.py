@@ -27,6 +27,14 @@ from .views_sound import (
     StoreVoiceView,
     VoicePreviewView,
 )
+from .views_timeline import (
+    EditorBinView,
+    EditorProxyView,
+    EditorSubtitlesView,
+    ProjectDetailView,
+    ProjectListView,
+    ProjectRenderView,
+)
 from .views_editing import (
     EditApplyView,
     MusicLibraryView,
@@ -109,6 +117,14 @@ urlpatterns = [
     path("audio/sounds/", SoundCatalogueView.as_view(), name="sound-catalogue"),
     # One shoot, every platform (`ایده‌ها.md` §10).
     path("video-scripts/<int:pk>/cuts/", VideoCutsView.as_view(), name="video-cuts"),
+
+    # ---- the «دستی» workspace: media bin, timeline projects, render -----
+    path("stores/<int:store_id>/editor/bin/", EditorBinView.as_view(), name="editor-bin"),
+    path("stores/<int:store_id>/editor/proxy/", EditorProxyView.as_view(), name="editor-proxy"),
+    path("stores/<int:store_id>/editor/subtitles/", EditorSubtitlesView.as_view(), name="editor-subtitles"),
+    path("stores/<int:store_id>/editor/projects/", ProjectListView.as_view(), name="editor-projects"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/", ProjectDetailView.as_view(), name="editor-project"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/render/", ProjectRenderView.as_view(), name="editor-project-render"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
     path(

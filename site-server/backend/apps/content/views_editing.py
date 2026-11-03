@@ -178,13 +178,28 @@ class EditPlanView(APIView):
         facts = upload.facts
         findings = analysis.obvious_problems(facts)
 
+        ai = None
         if mode == agent.MANUAL:
             raw = list(request.data.get("operations") or [])
         elif mode == agent.DIRECTED:
-            raw = agent.ask_model(
+            # The model's own account of what happened is part of the answer: «Qwen روی سرورِ پردازش جواب داد»,
+            # or why nothing did (no credit — HTTP 402 —, processing server off, policy). It is never swallowed.
+            previous = request.data.get("previous")
+            previous = [o for o in previous if isinstance(o, dict)][:12] if isinstance(previous, list) else None
+            answer = agent.ask_model_ex(
                 facts, findings, str(request.data.get("instruction", "")),
-                store=store,
-            ) or agent.suggest(facts, store=store)
+                store=store, previous=previous or None,
+            )
+            ai = answer.info()
+            raw = answer.operations
+            if previous and not answer.ok:
+                # A follow-up that could not be answered leaves the plan the shop is looking at exactly as it is.
+                raw = [{"tool": o.get("tool"), "params": o.get("params", {}), "reason": o.get("reason", "")}
+                       for o in previous]
+                ai["kept_previous"] = True
+            elif not raw and not previous:
+                raw = agent.suggest(facts, store=store)
+                ai["used_fallback_plan"] = True
         else:
             raw = agent.suggest(facts, store=store)
 
@@ -193,6 +208,7 @@ class EditPlanView(APIView):
         )
         return Response({
             "mode": mode,
+            "ai": ai,
             "operations": [o.as_dict() for o in accepted],
             "refusals": refusals,
             "findings": findings,

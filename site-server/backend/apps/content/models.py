@@ -373,3 +373,33 @@ class UploadedVideo(TimeStampedModel):
 
     def __str__(self):
         return self.title or f"Upload #{self.pk}"
+
+
+class VideoProject(TimeStampedModel):
+    """A hand-built edit: the «دستی» workspace's timeline (tracks, clips, text, program tools) and its last render.
+
+    `data` is the panel's own JSON (see `services.editing.timeline.from_project`); clips refer to media by `ref`
+    ("video:12", "edited:12", "script:7", "audio:3", "image:product_image:9") and never by path — the server resolves
+    the refs when it renders, so a project cannot be made to read an arbitrary file.
+    """
+
+    class State(models.TextChoices):
+        DRAFT = "DRAFT", "پیش‌نویس"
+        RENDERING = "RENDERING", "در حال رندر"
+        READY = "READY", "رندر شد"
+        FAILED = "FAILED", "خطا"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="video_projects")
+    title = models.CharField(max_length=200, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    state = models.CharField(max_length=12, choices=State.choices, default=State.DRAFT)
+    output = models.FileField(upload_to="generated/projects/", null=True, blank=True)
+    #: {"seconds", "size", "quality", "refusals", "rendered_at"} of the last render
+    render_info = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return self.title or f"Project #{self.pk}"

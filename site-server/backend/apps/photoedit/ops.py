@@ -400,6 +400,18 @@ def op_crop_format(img, p, ctx):
     return bg
 
 
+def op_crop_rect(img, p, ctx):
+    """برشِ مستطیلی با مختصاتِ نسبی (٪ از عکسی که همین‌جا هست)؛ کمتر از ۸ پیکسل نمی‌شود."""
+    w, h = img.size
+    x0 = max(0, min(w - 8, int(round(w * p["x"] / 100))))
+    y0 = max(0, min(h - 8, int(round(h * p["y"] / 100))))
+    x1 = max(x0 + 8, min(w, x0 + int(round(w * p["w"] / 100))))
+    y1 = max(y0 + 8, min(h, y0 + int(round(h * p["h"] / 100))))
+    if (x0, y0, x1, y1) == (0, 0, w, h):
+        return img
+    return img.crop((x0, y0, x1, y1))
+
+
 def op_resize(img, p, ctx):
     long_edge = int(p["long_edge"])
     if max(img.size) <= long_edge:
@@ -542,7 +554,7 @@ def op_watermark(img, p, ctx):
 
 OPS = {
     "auto_tone": op_auto_tone, "color": op_color, "look": op_look, "rotate": op_rotate,
-    "crop_format": op_crop_format, "resize": op_resize, "text": op_text, "logo": op_logo, "watermark": op_watermark,
+    "crop_format": op_crop_format, "crop_rect": op_crop_rect, "resize": op_resize, "text": op_text, "logo": op_logo, "watermark": op_watermark,
 }
 
 

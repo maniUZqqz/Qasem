@@ -7,7 +7,7 @@ export type Where = "server" | "node";
 export type ParamSpec = {
   key: string;
   title: string;
-  type: "number" | "select" | "bool" | "text" | "color" | "adjust" | "spots";
+  type: "number" | "select" | "bool" | "text" | "color" | "adjust" | "spots" | "curve";
   default: unknown;
   help?: string;
   min?: number;
@@ -37,7 +37,11 @@ export type Operation = {
   reason?: string;
   title?: string;
   where?: Where;
+  /** گروهِ لغزنده‌های کیت (نور، رنگ، …) وقتی این کار از «انتخابِ کیت/هوش مصنوعی» آمده */
+  group?: string;
 };
+
+export type EditorModeKey = "auto" | "prompt" | "manual";
 
 export type Recipe = {
   key: string;
@@ -45,6 +49,8 @@ export type Recipe = {
   help: string;
   operations: Operation[];
   needs_node: boolean;
+  /** هر دستور در کدام حالتِ ادیتور زندگی می‌کند */
+  mode: EditorModeKey;
 };
 
 export type KitParam = {
@@ -62,7 +68,14 @@ export type KitParam = {
 export type Kit = {
   groups: { key: string; title: string; help: string }[];
   params: KitParam[];
-  presets: { key: string; title: string; help: string; kind: string }[];
+  presets: { key: string; title: string; help: string; kind: string; recipe?: KitRecipe }[];
+};
+
+export type KitRecipe = {
+  adjust?: Record<string, number>;
+  curve?: Record<string, [number, number][]>;
+  background?: { remove?: boolean; color?: string; shadow?: number; method?: string };
+  output?: { square?: boolean; padding?: number; longEdge?: number; format?: string; quality?: number };
 };
 
 export type NodeStatus = { online: boolean; nodes: string[] };
@@ -78,7 +91,9 @@ export type Edit = {
   batch: string;
   recipe: string;
   recipe_title: string;
-  operations: { tool: string; params: Params; title: string; where: Where }[];
+  operations: { tool: string; params: Params; title: string; where: Where; reason?: string }[];
+  /** آنچه کیت/هوشِ مصنوعی واقعاً انتخاب کرد، به‌صورتِ کارهای جدا و قابل‌ویرایش */
+  chosen: Operation[];
   needs_node: boolean;
   state: "QUEUED" | "NODE" | "SERVER" | "READY" | "FAILED" | "CANCELLED";
   state_label: string;
@@ -202,9 +217,41 @@ export const photoApi = {
   action: (store: string, id: number, action: string, body: Record<string, unknown> = {}) =>
     api.post<{ edit: Edit; new?: Edit }>(`${base(store)}/edits/${id}/${action}/`, body).then((r) => r.data),
   removeEdit: (store: string, id: number) => api.delete(`${base(store)}/edits/${id}/`),
+  /** پیش‌نمایشِ دقیقِ کارهای سرورِ سایت (متن، لوگو، برش، چرخش…) — کارهای کیت در info.skipped می‌آیند */
+  preview: async (store: string, asset: number, operations: Operation[]) => {
+    let r;
+    try {
+      r = await api.post<Blob>(
+        `${base(store)}/preview/`,
+        { asset, operations: operations.map((o) => ({ tool: o.tool, params: o.params, on: o.on !== false })) },
+        { responseType: "blob" },
+      );
+    } catch (err) {
+      // خطای ۴۰۰ هم به‌صورتِ blob می‌آید؛ جملهٔ فارسیِ سرور را بیرون بکشیم
+      const data = (err as { response?: { data?: unknown } }).response?.data;
+      if (data instanceof Blob) {
+        try {
+          const j = JSON.parse(await data.text());
+          if (j?.error?.message) throw new Error(String(j.error.message));
+        } catch (inner) {
+          if (inner instanceof Error && inner.message && !(inner instanceof SyntaxError)) throw inner;
+        }
+      }
+      throw err;
+    }
+    let info: PreviewInfo = { size: [0, 0], notes: [], skipped: [] };
+    try {
+      info = JSON.parse(decodeURIComponent(String(r.headers["x-preview-info"] ?? "{}")));
+    } catch {
+      /* هدر نبود */
+    }
+    return { blob: r.data, info };
+  },
   zip: (store: string, batch: string) =>
     api.get<Blob>(`${base(store)}/batches/${batch}/zip/`, { responseType: "blob" }).then((r) => r.data),
 };
+
+export type PreviewInfo = { size: [number, number]; notes: string[]; skipped: string[] };
 
 export const ACTIVE_STATES = ["QUEUED", "NODE", "SERVER"];
 

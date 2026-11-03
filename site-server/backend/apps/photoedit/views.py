@@ -8,6 +8,7 @@
     DELETE stores/<id>/photo-editor/assets/<pk>/
     POST   stores/<id>/photo-editor/assets/<pk>/analyze/      تحلیلِ کیت روی سرورِ پردازش (photo.analyze)
     POST   stores/<id>/photo-editor/plan/                     {asset, recipe} ⇐ کارها با دلیل و تیکِ پیش‌فرض
+    POST   stores/<id>/photo-editor/preview/                  {asset, operations} ⇐ JPEG ِ پیش‌نمایشِ دقیقِ کارهای سرورِ سایت
     POST   stores/<id>/photo-editor/edits/                    {assets: [...], recipe, operations?} ⇐ یک نسخه برای هر عکس
     GET    stores/<id>/photo-editor/edits/?ids=1,2            وضعیت (کارِ گره را هم وارسی می‌کند)
     GET|DELETE stores/<id>/photo-editor/edits/<pk>/
@@ -86,7 +87,7 @@ class OverviewView(APIView):
             "tools": catalog.tool_list(),
             "recipes": catalog.recipe_list(),
             "kit": {"groups": catalog.kit()["groups"], "params": catalog.kit()["params"],
-                    "presets": [{k: p[k] for k in ("key", "title", "help", "kind")} for p in catalog.kit()["presets"]]},
+                    "presets": [{k: p[k] for k in ("key", "title", "help", "kind", "recipe") if k in p} for p in catalog.kit()["presets"]]},
             "node": services.node_status(),
             "store_logo": services.media_url(store.logo.name) if getattr(store, "logo", None) else None,
             "limits": {"max_upload_mb": services.MAX_UPLOAD_MB, "max_batch": services.MAX_BATCH},
@@ -197,6 +198,28 @@ class PlanView(APIView):
             return Response(services.plan(a, str(request.data.get("recipe") or "suggest")))
         except services.PhotoError as exc:
             return _err(str(exc))
+
+
+class PreviewView(APIView):
+    """POST {asset, operations} ⇐ JPEG ِ پیش‌نمایشِ دقیقِ کارهای سرورِ سایت (کارهای کیت در هدر «skipped» می‌آیند)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        import json
+        from urllib.parse import quote
+
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        a = PhotoAsset.objects.filter(pk=request.data.get("asset") or 0, store=store).select_related("store").first()
+        if a is None:
+            return _not_found()
+        try:
+            data, info = services.preview(a, request.data.get("operations") or [])
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        resp = HttpResponse(data, content_type="image/jpeg")
+        resp["X-Preview-Info"] = quote(json.dumps(info, ensure_ascii=False))
+        resp["Cache-Control"] = "no-store"
+        return resp
 
 
 class EditListView(APIView):

@@ -15,6 +15,8 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from PIL import Image
+
 from . import catalog, ops
 from .models import PhotoAsset, PhotoEdit
 
@@ -529,6 +531,54 @@ def refresh_analysis(asset: PhotoAsset) -> None:
     asset.save(update_fields=["kit_analysis", "updated_at"])
 
 
+# ───────────────────────────── پیش‌نمایشِ دقیقِ کارهای سبک
+
+PREVIEW_SIDE_LIVE = 1280
+
+
+def preview_source(asset: PhotoAsset):
+    """تصویرِ ورودیِ پیش‌نمایش: عکسِ شفاف از خودِ اصل، عکسِ بزرگ از نسخهٔ ۱۶۰۰ پیکسلی (حافظهٔ سرور کم است)."""
+    src = abs_path(asset.original)
+    big = (asset.width or 0) * (asset.height or 0) > 6_000_000
+    pv = abs_path(f"{asset.dir_rel}/preview.jpg")
+    if big and not asset.has_alpha and pv.is_file():
+        src = pv
+    if not src.is_file():
+        raise PhotoError("فایلِ اصلِ عکس پیدا نشد.")
+    return ops.load(src)
+
+
+def preview(asset: PhotoAsset, operations) -> tuple[bytes, dict]:
+    """کارهای سرورِ سایت (Pillow) روی نسخهٔ کوچکِ عکس، همین حالا و دقیق — برای متن، لوگو، واترمارک، برش، چرخش، رنگِ ساده.
+
+    کارهای سرورِ پردازش (کیت) این‌جا اجرا نمی‌شوند: فهرستشان در ``skipped`` برمی‌گردد تا پنل بداند پیش‌نمایش کاملِ
+    آن‌ها فقط با «ساخت» ِ نهایی روی سرورِ پردازش است.
+    """
+    try:
+        clean = catalog.normalize_operations(operations if operations is not None else [])
+    except catalog.CatalogError as exc:
+        raise PhotoError(str(exc)) from exc
+    node_ops, server_ops = catalog.split(clean)
+    server_ops = [o for o in server_ops if o["tool"] != "export"]
+    img = preview_source(asset)
+    img.thumbnail((PREVIEW_SIDE_LIVE, PREVIEW_SIDE_LIVE), Image.Resampling.LANCZOS)
+    store = asset.store
+
+    def logo_path(p):
+        if p.get("source") == "asset" and p.get("asset"):
+            a = PhotoAsset.objects.filter(store=store, pk=int(p["asset"])).first()
+            return abs_path(a.original) if a and abs_path(a.original).is_file() else None
+        return _store_logo(store)
+
+    ctx = {"notes": [], "store_name": store.name, "logo_path": logo_path}
+    try:
+        out, _export = ops.run(img, server_ops, ctx)
+    except ops.OpError as exc:
+        raise PhotoError(str(exc)) from exc
+    data = ops.jpeg_bytes(out, PREVIEW_SIDE_LIVE, 88)
+    return data, {"size": list(out.size), "notes": ctx["notes"], "skipped": catalog.titles(node_ops)}
+
+
 # ───────────────────────────── ذخیره و استفاده
 
 def _result(edit: PhotoEdit) -> Path:
@@ -609,7 +659,10 @@ def edit_dict(e: PhotoEdit) -> dict:
         "id": e.id, "asset": e.asset_id, "number": e.number, "batch": e.batch, "recipe": e.recipe,
         "recipe_title": catalog.RECIPE_BY_KEY.get(e.recipe, {}).get("title", "دستی") if e.recipe else "دستی",
         "operations": [{"tool": o["tool"], "params": o["params"], "title": catalog.tools().get(o["tool"], {}).get("title", o["tool"]),
-                        "where": catalog.tools().get(o["tool"], {}).get("where", "server")} for o in e.operations or []],
+                        "where": catalog.tools().get(o["tool"], {}).get("where", "server"), "reason": o.get("reason", "")}
+                       for o in e.operations or []],
+        #: آنچه کیت/هوشِ مصنوعی واقعاً انتخاب کرد، به‌صورتِ کارهای جدا و قابل‌ویرایش (خالی = کیتی نبود یا هنوز برنگشته)
+        "chosen": catalog.steps_from_kit_recipe((st.get("kit") or {}).get("recipe")) if e.state == PhotoEdit.State.READY else [],
         "needs_node": bool(node_ops),
         "state": e.state, "state_label": e.get_state_display(), "active": e.active,
         "progress": round(e.progress, 3), "message": e.message, "error": e.error,

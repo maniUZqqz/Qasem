@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import Icon from "../../../../components/Icon";
 import { Alert, Button, fa } from "../../../../components/ui";
@@ -104,13 +105,16 @@ export default function ExtractionProgress({
   );
 
   if (!floating) return body;
-  return (
+  // Portalled to <body>: the page root keeps a CSS transform after its entrance animation, and a transformed ancestor
+  // makes `position: fixed` relative to the page instead of the screen.
+  return createPortal(
     <div
       className="u-card p-4"
       style={{ position: "fixed", insetBlockEnd: 16, insetInlineStart: 16, zIndex: 40, width: "min(24rem, calc(100vw - 2rem))", background: "var(--void-2)", borderColor: "var(--line-strong)" }}
       role="status"
     >
       {body}
-    </div>
+    </div>,
+    document.body,
   );
 }

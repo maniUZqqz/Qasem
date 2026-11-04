@@ -138,7 +138,7 @@ export default function TemplateEditor({
         </>
       }
     >
-      <form id="template-form" onSubmit={submit} className="grid gap-5 lg:grid-cols-2">
+      <form id="template-form" onSubmit={submit} className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
         {/* ----------------------------------------------------------- the form */}
         <div className="space-y-4">
           <Field label="نامِ قالب (فقط برای خودتان)">

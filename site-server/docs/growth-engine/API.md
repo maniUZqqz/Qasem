@@ -148,7 +148,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://87.107.160.17:8040/api/v1/growt
 
 ## ۶. پیام‌رسانی (`outreach`)
 
-> طبقِ `DESIGN-EXT.md` بخش ۳؛ پس از پایانِ ماژول با `outreach/views.py` و `serializers.py` تطبیق داده شود.
+> این بخش با اجرای زنده روی سرور (Celery و Redis واقعی، فقط به فروشگاه‌های آزمایشیِ خودمان) تطبیق داده شد: ساختِ قالب و کمپین، add-leads (با دلیل‌ها)، prepare، approve (با `refused`)، ویرایش و باطل‌شدنِ تأیید، start، ارسال، سقفِ روزانه، توقفِ اضطراری، outcomeهای دستی و تاریخچه.
 
 **قالب‌ها:** `GET|POST outreach/templates/` · `GET|PATCH|DELETE outreach/templates/<id>/` (حذفِ قالبِ استفاده‌شده رد می‌شود؛ بایگانی با `is_active:false`) · `POST outreach/templates/preview/ {"body","subject?","lead_id?"}` ← `{text,subject,warnings,unknown_placeholders}` · `GET outreach/placeholders/` ← `[{key,label,example_source}]`.
 

@@ -205,9 +205,9 @@ export default function ReviewDialog({
           )}
           {approve.error && <Flash tone="bad">{approve.error.message}</Flash>}
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
             {/* --------------------------------------------------------- message */}
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               <h3 className="text-sm font-extrabold" style={{ color: "var(--text)" }}>
                 متنِ دقیقِ پیام
               </h3>
@@ -244,7 +244,7 @@ export default function ReviewDialog({
             </div>
 
             {/* --------------------------------------------------------- the form */}
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               <h3 className="text-sm font-extrabold" style={{ color: "var(--text)" }}>
                 فرمِ مقصد و آنچه دقیقاً فرستاده می‌شود
               </h3>

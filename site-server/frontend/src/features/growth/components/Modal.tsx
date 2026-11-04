@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import Icon from "../../../components/Icon";
 import { Button } from "../../../components/ui";
@@ -52,7 +53,10 @@ export default function Modal({
 
   if (!open) return null;
   const width = { sm: "28rem", md: "36rem", lg: "52rem", xl: "72rem" }[size];
-  return (
+  // Portalled to <body>: the page root keeps a CSS transform after its entrance animation (`u-rise`), and a transformed
+  // ancestor makes `position: fixed` relative to the whole page instead of the screen - the dialog then sat in the middle
+  // of a long page, out of view.
+  return createPortal(
     <div className="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={title} data-testid={testId}>
       <div className="absolute inset-0" style={{ background: "rgb(2 4 10 / .72)" }} onClick={() => !busy && onClose()} />
       <div
@@ -76,7 +80,8 @@ export default function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

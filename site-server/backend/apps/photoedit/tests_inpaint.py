@@ -545,7 +545,7 @@ class GenFillApiTests(ApiTestBase):
         return services.genfill_finish_for_test(ComputeJob.objects.get(uid=uid), None, **kw)
 
     def test_offline_request_waits_in_the_queue(self):
-        r = self.post(prompt="آسمان آبی", seed="12")
+        r = self.post(prompt="blue sky over the sea", seed="12")      # انگلیسی ⇒ بی ترجمه؛ فارسی: tests_translate.py
         self.assertEqual(r.status_code, 201, r.content)
         body = r.json()
         self.assertEqual(body["state"], "QUEUED")
@@ -559,7 +559,7 @@ class GenFillApiTests(ApiTestBase):
         self.assertEqual(ig.validate(g), [])
         self.assertEqual(g["10"]["inputs"]["ckpt_name"], CKPT)               # گره چیزی گزارش نکرده ⇒ چک‌پوینتِ مالک
         self.assertEqual(g["25"]["inputs"]["seed"], 12)
-        self.assertIn("آسمان آبی", g["20"]["inputs"]["text"])
+        self.assertIn("blue sky over the sea", g["20"]["inputs"]["text"])
         up = job.payload["uploads"]
         self.assertEqual(g["1"]["inputs"]["image"], up[0])
         self.assertEqual(g["2"]["inputs"]["image"], up[1])

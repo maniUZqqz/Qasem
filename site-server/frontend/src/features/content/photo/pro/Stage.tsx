@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset } from "../api";
 import { FULL, Rect } from "../manual/model";
 import { nextCrop } from "../manual/Viewport";
-import { FrameInput, FrameSpec, makeFrameSpec } from "./frame";
+import { FrameInput, FrameSpec, cropFormatOpParams, makeFrameSpec, normalizeCropFormat, normalizeView } from "./frame";
 import { GEO_IDENTITY, Geo, GeoState, ViewState, mul } from "./geo";
 import { ProEngine, WORK_MAX } from "./gl/engine";
 import { maskLine } from "./gl/raster";
@@ -79,6 +79,7 @@ type Drag =
   | { k: "split" }
   | { k: "crop"; handle: Handle; sx: number; sy: number; rect: Rect }
   | { k: "move"; id: string; start: Pt2; c0: Pt2; moved: boolean }
+  | { k: "photo"; start: Pt2; c0: Pt2; zoom: number; fw: number; fh: number; tw: number; th: number; moved: boolean }
   | { k: "gmove"; id: string; hitId: string; start: Pt2; orig: [string, Pt2][]; box: { x0: number; y0: number; x1: number; y1: number } | null; moved: boolean }
   | { k: "scale"; id: string; handle: string; d0: number; layer: Layer }
   | { k: "rotate"; id: string; a0: number; rot0: number }
@@ -825,6 +826,19 @@ export default function Stage(p: Props) {
         if (inDoc) {
           const base = stateRef.current.layers.find((l) => l.type === "base");
           p.setActiveId(base?.id ?? null);
+          // «کالا وسطِ قاب»: کشیدن روی عکس (نه روی لایه‌ای رویش) عکس را در قاب جابه‌جا می‌کند
+          const sp = specRef.current;
+          const geo = sp?.social;
+          if (sp && sp.cf && sp.cf.fit === "contain" && sp.cf.subject === "auto" && geo && geo.mode === "contain" && !p.state.layers.some((l) => l.type === "base" && l.locked)) {
+            const [tw, th] = geo.size;
+            const scale = geo.view ? geo.view.scale : geo.fg[0] / sp.gw; // پیکسلِ بوم به ازای پیکسلِ عکس
+            const fw = sp.gw * scale;
+            const fh = sp.gh * scale;
+            const left = geo.view ? geo.view.left : geo.pos[0];
+            const top = geo.view ? geo.view.top : geo.pos[1];
+            const baseScale = Math.min(tw / sp.gw, th / sp.gh) * (1 - (2 * sp.cf.padding) / 100);
+            beginDrag(e, { k: "photo", start: pt, c0: [(tw / 2 - left) / fw, (th / 2 - top) / fh], zoom: scale / baseScale, fw, fh, tw, th, moved: false });
+          }
         }
         return;
       }
@@ -1076,6 +1090,20 @@ export default function Stage(p: Props) {
         patchLayer(d.id, { cx: +sx2.toFixed(5), cy: +sy2.toFixed(5) } as Partial<Layer>);
         break;
       }
+      case "photo": {
+        // pt بر پایهٔ بومِ نهایی (۰..۱) است؛ جابه‌جاییِ عکس در قاب = مرکزِ دوربین در جهتِ مخالف (به کسری از عکس)
+        if (!d.moved && Math.hypot(pt[0] - d.start[0], pt[1] - d.start[1]) * Wo * g.s < 3) break;
+        d.moved = true;
+        const view = normalizeView([d.zoom, d.c0[0] - ((pt[0] - d.start[0]) * d.tw) / d.fw, d.c0[1] - ((pt[1] - d.start[1]) * d.th) / d.fh]);
+        if (view.length !== 3) break;
+        p.hist.live((s) => {
+          const raw = s.tools.crop_format;
+          if (!raw) return s;
+          const cf = normalizeCropFormat(raw);
+          return { ...s, tools: { ...s.tools, crop_format: cropFormatOpParams({ ...cf, view }) } };
+        });
+        break;
+      }
       case "gmove": {
         const dx0 = pt[0] - d.start[0];
         const dy0 = pt[1] - d.start[1];
@@ -1266,6 +1294,9 @@ export default function Stage(p: Props) {
         break;
       case "move":
         if (d.moved) p.hist.end("جابه‌جایی");
+        break;
+      case "photo":
+        if (d.moved) p.hist.end("جابه‌جاییِ عکس در قاب");
         break;
       case "gmove":
         if (d.moved) p.hist.end("جابه‌جاییِ گروه");

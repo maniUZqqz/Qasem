@@ -149,6 +149,10 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
         ) : (
           <p className="ws-hint" data-testid="xp-where-offline">خروجیِ نهایی روی سرورِ سایت ساخته می‌شود. {where?.message ?? ""}</p>
         )}
+        <p className="ws-hint" data-testid="xp-draft-where">
+          «پیش‌نویسِ سریع» پیش‌فرض روی سرورِ سایت ساخته می‌شود. فقط وقتی سنگین باشد (سایت حدس می‌زند بیش از حدود ۴۵ ثانیه طول بکشد) و سرورِ پردازش روشن و بی‌کار باشد و
+          فایل‌های اصلی را از قبل داشته باشد (یا حجمشان کم باشد)، خودکار آن‌جا ساخته می‌شود؛ تنظیمی لازم نیست. زیرِ هر خروجی نوشته می‌شود «ساخته‌شده روی: …».
+        </p>
       </Section>
 
       <Section title="تنظیمِ دقیق" testId="xp-manual">
@@ -238,7 +242,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
             <ul className="xp-list">
               {exports.slice(1).map((e) => (
                 <li key={e.job_id}>
-                  <span>{presetTitle(e)} · <span dir="ltr">{e.size}</span> · {mb(e.bytes)}</span>
+                  <span>{presetTitle(e)} · <span dir="ltr">{e.size}</span> · {mb(e.bytes)}{whereText(e) ? ` · ساخته‌شده روی: ${whereText(e)}` : ""}</span>
                   <a href={e.url} download target="_blank" rel="noreferrer">دانلود</a>
                 </li>
               ))}

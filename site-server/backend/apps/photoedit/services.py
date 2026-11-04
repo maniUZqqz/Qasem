@@ -1380,6 +1380,20 @@ GENFILL_TIMEOUT_S = 1200
 GENFILL_MAX_ACTIVE = 4          # هم‌زمان در صف/اجرا برای هر فروشگاه
 GENFILL_TITLE = "پرکردن هوشمند"
 GENFILL_WAIT_MESSAGE = "سرورِ پردازش خاموش است؛ کار در صف می‌ماند و وقتی روشن شد انجام می‌شود"
+#: ``node_wanted`` ِ کاری که منتظرِ ترجمهٔ توضیحِ فارسی به انگلیسی است. ``compute.claim`` فقط کارهایی با node_wanted خالی یا
+#: نامِ همان گره می‌دهد ⇒ هیچ گره‌ای این کار را نمی‌گیرد تا ترجمه برسد (بی هیچ تغییری در apps.compute و عاملِ گره).
+#: ترجمه که رسید، گراف عوض و node_wanted به مقدارِ اصلی برمی‌گردد (genfill_release).
+GENFILL_HOLD = "~translating"
+GENFILL_TR_RETRY_S = 30             # فاصلهٔ تلاش‌های دوبارهٔ ترجمه وقتی مترجمی نیست
+GENFILL_TR_GIVE_UP_H = 72           # بعد از این‌همه ساعت بی‌مترجم، کار با پیامِ روشن ناموفق می‌شود
+GENFILL_TR_STALE_S = 240            # اگر این‌قدر از آخرین تلاش گذشته، زنجیرهٔ تلاش مرده فرض می‌شود و پنل دوباره راهش می‌اندازد
+GENFILL_TR_WAIT = ("توضیح فارسی است و پیش از ساختن باید به انگلیسی ترجمه شود، ولی الان هیچ مترجمی در دسترس نیست. کار گم نمی‌شود: "
+                   "به‌محضِ روشن‌شدنِ سرورِ پردازش یا شارژِ متیس خودکار ترجمه و ساخته می‌شود. اگر نمی‌خواهید منتظر بمانید، "
+                   "توضیح را همین‌جا انگلیسی بنویسید.")
+
+
+def _tr_wait_message(reason: str = "") -> str:
+    return GENFILL_TR_WAIT + (f" (علت: {reason})" if reason else "")
 
 
 def _genfill_node() -> str:
@@ -1435,9 +1449,45 @@ def _genfill_seed(seed) -> int:
         raise PhotoError("seed باید یک عدد باشد.") from None
 
 
+def _tr_public(tr) -> dict:
+    """بخشی از وضعیتِ ترجمه که به پنل می‌رود."""
+    tr = tr if isinstance(tr, dict) else {}
+    return {k: tr.get(k, d) for k, d in (("state", "none"), ("source", ""), ("fa", ""), ("en", ""), ("label", ""),
+                                         ("message", ""), ("attempts", 0))}
+
+
+def _genfill_prompt_plan(store, prompt: str, prompt_en) -> tuple[str, dict, bool]:
+    """توضیحِ کاربر ⇒ (متنی که در گراف می‌نشیند، وضعیتِ ترجمه، آیا باید کار منتظرِ ترجمه بماند).
+
+    بی حرفِ فارسی (انگلیسی یا خالی) ⇒ دست‌نخورده. فارسی + انگلیسیِ نوشته/ویرایش‌شدهٔ کاربر ⇒ همان (و برای دفعهٔ بعد کَش می‌شود).
+    فارسی بی انگلیسی ⇒ کَش؛ نبود ⇒ کار «منتظرِ ترجمه» ثبت می‌شود (مترجمِ لوکال/متیس بعداً صدا زده می‌شود)."""
+    from . import inpaint, translate
+
+    fa = translate.normalize(prompt)
+    if not translate.needs_translation(fa):
+        return fa, {"state": "none", "fa": fa, "en": fa, "source": "none"}, False
+    en_user = " ".join(str(prompt_en or "").split())
+    hit = translate.cache_get(store, fa)
+    if en_user:
+        if not translate.valid_english(en_user, max_len=inpaint.MAX_PROMPT):
+            raise PhotoError("متنِ انگلیسی باید حرفِ لاتین داشته باشد، بدونِ حرفِ فارسی، و کوتاه باشد.")
+        if hit is not None and hit.en == en_user:
+            return en_user, {"state": "ok", **hit.as_dict()}, False
+        translate.remember_user(store, fa, en_user)
+        return en_user, {"state": "ok", "fa": fa, "en": en_user, "source": "user", "label": "نوشتهٔ شما"}, False
+    if hit is not None:
+        return hit.en, {"state": "ok", **hit.as_dict()}, False
+    return fa, {"state": "waiting", "fa": fa, "en": "", "source": "", "label": "", "attempts": 0, "since": timezone.now().isoformat(),
+                "last_try": None, "message": GENFILL_TR_WAIT}, True
+
+
 def genfill_request(store, user, asset: PhotoAsset, image_bytes: bytes, mask_bytes: bytes, prompt: str = "",
-                    seed=None) -> dict:
-    """بومِ فعلی + ماسک ⇐ کارِ comfy.graph (FLUX inpaint) در صف — حتی وقتی گره خاموش است. ⇐ {job, state, online, message, …}."""
+                    seed=None, prompt_en=None) -> dict:
+    """بومِ فعلی + ماسک ⇐ کارِ comfy.graph (FLUX inpaint) در صف — حتی وقتی گره خاموش است. ⇐ {job, state, online, message, …}.
+
+    ``prompt`` فارسی باشد ⇒ پیش از ساختن به انگلیسیِ تحت‌اللفظی ترجمه می‌شود (``translate``): ``prompt_en`` (متنی که پنل نشان داد و
+    کاربر شاید ویرایش کرد) یا کَشِ ترجمه ⇒ همان‌جا؛ وگرنه کار با ``node_wanted=GENFILL_HOLD`` در صف می‌نشیند (هیچ گره‌ای
+    برنمی‌دارد) و یک کارِ celery تا پیدا شدنِ مترجم ترجمه را امتحان می‌کند، بعد گراف را عوض و کار را آزاد می‌کند."""
     import hashlib
     import tempfile
 
@@ -1453,8 +1503,9 @@ def genfill_request(store, user, asset: PhotoAsset, image_bytes: bytes, mask_byt
 
         raise PhotoError(f"هم‌اکنون {fa(str(GENFILL_MAX_ACTIVE))} «پرکردنِ هوشمند» در صف یا در حالِ ساخت است؛ "
                          "صبر کنید تمام شوند یا یکی را لغو کنید.")
+    effective, tr, hold = _genfill_prompt_plan(store, prompt, prompt_en)
     try:
-        prep = inpaint.prepare(image_bytes, mask_bytes, prompt)
+        prep = inpaint.prepare(image_bytes, mask_bytes, effective)
     except inpaint.InpaintError as exc:
         raise PhotoError(str(exc)) from exc
     caps = _genfill_caps()
@@ -1471,7 +1522,8 @@ def genfill_request(store, user, asset: PhotoAsset, image_bytes: bytes, mask_byt
         raise PhotoError("روی سرورِ پردازش این نودهای ComfyUI نصب نیست و «پرکردنِ هوشمند» بدونشان کار نمی‌کند: "
                          + "، ".join(missing))
     meta = prep.meta() | {"asset": asset.pk, "user": getattr(user, "pk", None), "seed": seed, "full_mask": names["full"],
-                          "engine": {k: choice.get(k) for k in ("kind", "loader", "label", "assumed")}}
+                          "engine": {k: choice.get(k) for k in ("kind", "loader", "label", "assumed")},
+                          "prompt_fa": tr.get("fa", ""), "tr": tr, "node_wanted": _genfill_node()}
     payload = {"graph": graph, "uploads": [names["image"], names["mask"]], "x_genfill": meta}
     with tempfile.TemporaryDirectory(prefix="nmgf-") as tmp:
         files = {}
@@ -1481,22 +1533,164 @@ def genfill_request(store, user, asset: PhotoAsset, image_bytes: bytes, mask_byt
             files[names[what]] = str(p)
         try:
             # payload شناسهٔ عکس را دارد ⇒ درخواستِ یکسانِ فروشگاهِ دیگر هرگز هم‌اثر نمی‌شود (dedupe فقط برای خودِ ما)
+            # منتظرِ ترجمه: از همان لحظهٔ ثبت node_wanted=HOLD (نه بعداً) تا گرهٔ آنلاین در فاصلهٔ ثبت و نگه‌داشتن آن را نگیرد
             job = compute.enqueue("comfy.graph", payload, files, store=store, origin=GENFILL_ORIGIN,
-                                  priority=GENFILL_PRIORITY, timeout_s=GENFILL_TIMEOUT_S, node=_genfill_node(),
-                                  require_online=False)
+                                  priority=GENFILL_PRIORITY, timeout_s=GENFILL_TIMEOUT_S,
+                                  node=GENFILL_HOLD if hold else _genfill_node(), require_online=False)
         except Exception as exc:  # noqa: BLE001
             logger.exception("photoedit: genfill enqueue failed")
             raise PhotoError(f"ثبت در صفِ سرورِ پردازش نشد: {exc}") from exc
     online = genfill_online()
     state = _job_state(job)
-    return {"job": str(job.uid), "state": state, "online": online,
-            "message": "آماده" if state == "COMPLETED" else ("در صفِ سرورِ پردازش" if online else GENFILL_WAIT_MESSAGE),
-            "engine": choice["label"], "notes": choice["notes"]}
+    holding = state == "QUEUED" and job.node_wanted == GENFILL_HOLD
+    if holding:
+        _genfill_kick(job.uid)         # زیرِ آزمون (celery eager) همین‌جا اجرا می‌شود و شاید کار را آزاد کند
+        job.refresh_from_db()
+        state = _job_state(job)
+        holding = state == "QUEUED" and job.node_wanted == GENFILL_HOLD
+    final_tr = ((job.payload or {}).get("x_genfill") or {}).get("tr") or tr
+    if holding:
+        message = final_tr.get("message") or GENFILL_TR_WAIT
+    else:
+        message = "آماده" if state == "COMPLETED" else ("در صفِ سرورِ پردازش" if online else GENFILL_WAIT_MESSAGE)
+    return {"job": str(job.uid), "state": state, "online": online, "message": message,
+            "engine": choice["label"], "notes": choice["notes"], "translation": _tr_public(final_tr)}
+
+
+def _genfill_kick(uid) -> None:
+    """کارِ celery ِ «ترجمه ⇐ آزادکردن» را راه می‌اندازد (بی‌بروکر: لاگ؛ تلاشِ بعدیِ پنل دوباره راهش می‌اندازد)."""
+    from . import tasks
+
+    try:
+        tasks.genfill_translate_job_task.delay(str(uid))
+    except Exception:  # noqa: BLE001
+        logger.warning("photoedit: celery unavailable, genfill translation of %s waits for the next panel poll", uid)
+
+
+def _genfill_meta_of(job) -> dict:
+    return ((job.payload or {}).get("x_genfill")) or {}
+
+
+def _genfill_patch(job, *, tr_update: dict | None = None, graph_text: str | None = None, prompt: str | None = None,
+                   release: bool = False, fail: str = "") -> bool:
+    """کارِ منتظرِ ترجمه را اتمی تغییر می‌دهد (فقط اگر هنوز QUEUED و HOLD باشد). ⇒ اعمال شد؟
+
+    ``release``: node_wanted به گرهٔ اصلی برمی‌گردد (از این لحظه گره می‌تواند بگیرد)؛ ``fail``: کار با این پیام ناموفق می‌شود."""
+    import copy
+
+    from apps.compute.models import ComputeJob
+
+    fresh = ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED, node_wanted=GENFILL_HOLD).first()
+    if fresh is None:
+        return False
+    payload = copy.deepcopy(fresh.payload or {})
+    meta = payload.setdefault("x_genfill", {})
+    if tr_update:
+        meta["tr"] = {**(meta.get("tr") or {}), **tr_update}
+    if prompt is not None:
+        meta["prompt"] = prompt
+    if graph_text is not None:
+        try:
+            payload["graph"]["20"]["inputs"]["text"] = graph_text
+        except (KeyError, TypeError):
+            return False
+    fields: dict = {"payload": payload}
+    if release:
+        fields["node_wanted"] = meta.get("node_wanted") or ""
+        fields["message"] = ""
+    elif fail:
+        fields.update(state=ComputeJob.State.FAILED, error=fail[:4000], message="ناموفق", finished_at=timezone.now(),
+                      node_wanted=meta.get("node_wanted") or "")
+    return ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED, node_wanted=GENFILL_HOLD).update(**fields) == 1
+
+
+def genfill_release(job, tr) -> bool:
+    """ترجمه (یا انگلیسیِ نوشتهٔ کاربر) رسید ⇒ گراف به‌روز و کار برای گره آزاد می‌شود. ⇒ آزاد شد؟ (کسِ دیگری زودتر آزاد/لغو کرده ⇒ False)"""
+    from . import inpaint_graph
+
+    en = " ".join(str(tr.en).split())
+    done = {"state": "ok", "en": en, "source": tr.source, "via": tr.via, "model": tr.model, "label": tr.label or "نوشتهٔ شما",
+            "message": "", "fa": tr.fa}
+    return _genfill_patch(job, tr_update=done, graph_text=inpaint_graph.effective_prompt(en), prompt=en, release=True)
+
+
+def genfill_translate_step(uid) -> str:
+    """یک گامِ ترجمهٔ کارِ منتظر (از celery). ⇒ "done" | "waiting" | "failed" | "busy" | "gone".
+
+    waiting = مترجمی نیست (دوباره امتحان می‌شود)؛ failed = مترجم دو بار خروجیِ بی‌مصرف داد یا ۷۲ ساعت گذشت (کار ناموفق شد)."""
+    from datetime import datetime
+
+    from apps.compute.models import ComputeJob
+
+    from . import translate
+
+    job = ComputeJob.objects.filter(uid=uid, origin=GENFILL_ORIGIN).select_related("store").first()
+    if job is None or job.state != ComputeJob.State.QUEUED or job.node_wanted != GENFILL_HOLD:
+        return "gone"
+    meta = _genfill_meta_of(job)
+    tr = meta.get("tr") or {}
+    fa = meta.get("prompt_fa") or tr.get("fa") or ""
+    lock = _genfill_dir(job.store, meta.get("asset")) / f"{str(job.uid)[:12]}.tr.lock"
+    if not _take_lock(lock, stale_s=600):
+        return "busy"
+    try:
+        now = timezone.now()
+        try:
+            since = datetime.fromisoformat(tr.get("since") or "")
+        except ValueError:
+            since = now
+        if since.tzinfo is None:
+            since = timezone.make_aware(since)
+        if now - since > timedelta(hours=GENFILL_TR_GIVE_UP_H):
+            msg = ("ترجمه: در ۷۲ ساعت هیچ مترجمی در دسترس نشد و این «پرکردنِ هوشمند» لغو شد؛ دوباره اجرا کنید "
+                   "(یا توضیح را انگلیسی بنویسید).")
+            _genfill_patch(job, tr_update={"state": "failed", "message": msg}, fail=msg)
+            return "failed"
+        _genfill_patch(job, tr_update={"last_try": now.isoformat(), "attempts": int(tr.get("attempts") or 0) + 1})
+        try:
+            res = translate.translate(fa, store=job.store)
+        except translate.Unavailable as exc:
+            _genfill_patch(job, tr_update={"state": "waiting", "message": _tr_wait_message(exc.reason)})
+            return "waiting"
+        except translate.Failed as exc:
+            msg = f"ترجمه: {exc}"
+            _genfill_patch(job, tr_update={"state": "failed", "message": msg}, fail=msg)
+            return "failed"
+        except Exception as exc:  # noqa: BLE001 — خطای پیش‌بینی‌نشده نباید کار را بکشد؛ بعداً دوباره
+            logger.exception("photoedit: genfill translation step of %s crashed", job.uid)
+            _genfill_patch(job, tr_update={"state": "waiting", "message": _tr_wait_message(translate.explain(exc))})
+            return "waiting"
+        return "done" if genfill_release(job, res) else "gone"
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def genfill_set_english(store, uid, text) -> dict | None:
+    """کاربر برای کارِ منتظرِ ترجمه خودش انگلیسی نوشت ⇒ همان‌جا آزاد می‌شود. ⇒ وضعیت یا None (کار نیست)."""
+    from . import translate
+
+    job = _job_for(store, uid, GENFILL_ORIGIN)
+    if job is None:
+        return None
+    en = " ".join(str(text or "").split())
+    from . import inpaint
+
+    if not translate.valid_english(en, max_len=inpaint.MAX_PROMPT):
+        raise PhotoError("متنِ انگلیسی باید حرفِ لاتین داشته باشد، بدونِ حرفِ فارسی، و کوتاه باشد.")
+    meta = _genfill_meta_of(job)
+    fa = meta.get("prompt_fa") or ""
+    if not genfill_release(job, translate.Translation(fa=fa, en=en, source="user", label="نوشتهٔ شما")):
+        raise PhotoError("این کار دیگر منتظرِ ترجمه نیست (شاید ترجمه شد، لغو شد یا تمام شده است).")
+    if fa:
+        translate.remember_user(store, fa, en)
+    return genfill_status(store, uid)
 
 
 def _genfill_error_text(raw: str) -> str:
     raw = (raw or "").strip()
     low = raw.lower()
+    if raw.startswith("ترجمه"):          # شکستِ مرحلهٔ ترجمه (genfill_translate_step): پیامش خودش کامل است
+        return raw
     if "not in list" in low:
         why = "نامِ مدل یا فایلِ لازم (چک‌پوینت/CLIP/VAE) روی سرورِ پردازش پیدا نشد."
     elif "out of memory" in low or "oom" in low.split():
@@ -1630,9 +1824,13 @@ def genfill_status(store, uid) -> dict | None:
     state = _job_state(job)
     online = genfill_online()
     node = job.node.name if job.node_id else None
+    tr = _genfill_meta_of(job).get("tr")
     out = {"job": str(job.uid), "state": state, "message": "", "progress": round(float(job.progress or 0), 3),
-           "node": node, "online": online}
-    if state == "QUEUED":
+           "node": node, "online": online, "translation": _tr_public(tr)}
+    if state == "QUEUED" and job.node_wanted == GENFILL_HOLD:
+        _genfill_nudge(job, tr)
+        out.update(message=(tr or {}).get("message") or GENFILL_TR_WAIT, progress=max(out["progress"], 0.02))
+    elif state == "QUEUED":
         out.update(message="در صفِ سرورِ پردازش" if online else GENFILL_WAIT_MESSAGE, progress=max(out["progress"], 0.02))
     elif state == "RUNNING":
         out["message"] = f"روی «{node or 'سرورِ پردازش'}» در حالِ ساختن…"
@@ -1658,6 +1856,22 @@ def genfill_status(store, uid) -> dict | None:
         out.update(state="READY", message="آماده", progress=1.0, asset=asset_dict(asset), layer=layer, size=size,
                    seconds=round(took, 1) if took is not None else None)
     return out
+
+
+def _genfill_nudge(job, tr) -> None:
+    """هر بار که پنل می‌پرسد: اگر زنجیرهٔ تلاشِ ترجمه مرده باشد (ری‌استارتِ celery، پاک‌شدنِ صف) دوباره راهش می‌اندازد."""
+    from datetime import datetime
+
+    tr = tr if isinstance(tr, dict) else {}
+    ref = tr.get("last_try") or tr.get("since")
+    try:
+        last = datetime.fromisoformat(ref) if ref else None
+    except ValueError:
+        last = None
+    if last is not None and last.tzinfo is None:
+        last = timezone.make_aware(last)
+    if last is None or (timezone.now() - last).total_seconds() > GENFILL_TR_STALE_S:
+        _genfill_kick(job.uid)
 
 
 def genfill_cancel(store, uid) -> bool:

@@ -1,5 +1,5 @@
 import { api } from "../../../../api/client";
-import type { GenFillResult, GenFillStart, GenFillStatus } from "../api";
+import type { GenFillPreview, GenFillResult, GenFillStart, GenFillStatus } from "../api";
 
 /**
  * کلاینتِ «پرکردنِ هوشمند» (FLUX inpaint روی سرورِ پردازش).
@@ -7,6 +7,8 @@ import type { GenFillResult, GenFillStart, GenFillStatus } from "../api";
  *   POST   stores/<id>/photo-editor/genfill/          multipart {image, mask, asset, prompt?, seed?}
  *   GET    stores/<id>/photo-editor/genfill/<job>/    وضعیت؛ READY ⇒ {asset, layer:{cx,cy,w}}
  *   DELETE stores/<id>/photo-editor/genfill/<job>/    لغو
+ *   POST   stores/<id>/photo-editor/genfill/translate/  {prompt} ⇒ ترجمهٔ پیش‌نمایشِ توضیحِ فارسی (none|ok|pending|unavailable|failed)
+ *   POST   stores/<id>/photo-editor/genfill/<job>/prompt/  {prompt_en} ⇒ انگلیسیِ نوشتهٔ کاربر برای کارِ منتظرِ ترجمه
  *
  * هیچ وابستگی‌ای به Stage / ProWorkspace ندارد؛ تصویر و ماسک را خودِ فراخواننده می‌دهد.
  */
@@ -22,7 +24,17 @@ export type GenFillArgs = {
   mask: Blob;
   /** خالی = حذفِ شیء و پر کردن با پس‌زمینه */
   prompt?: string;
+  /** ترجمهٔ انگلیسیِ prompt که پنل نشان داد (و کاربر شاید ویرایش کرد)؛ نبود ⇒ سرور خودش ترجمه می‌کند یا کار منتظرِ مترجم می‌ماند */
+  promptEn?: string;
   seed?: number;
+};
+
+/** حرفِ فارسی/عربی دارد؟ (مثلِ translate.needs_translation در سرور) */
+export const hasPersian = (t: string): boolean => /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(t);
+/** انگلیسیِ قابل‌استفاده: بی حرفِ فارسی و دست‌کم دو حرفِ لاتین (مثلِ translate.valid_english) */
+export const validEnglish = (t: string): boolean => {
+  const x = t.trim();
+  return x.length > 0 && x.length <= 500 && !hasPersian(x) && (x.match(/[A-Za-z]/g) ?? []).length >= 2;
 };
 
 export class GenFillError extends Error {
@@ -44,12 +56,30 @@ export function startGenFill(store: string, a: GenFillArgs, signal?: AbortSignal
   body.append("mask", a.mask, "mask.png");
   body.append("asset", String(a.assetId));
   body.append("prompt", a.prompt ?? "");
+  if (a.promptEn) body.append("prompt_en", a.promptEn);
   if (a.seed !== undefined) body.append("seed", String(a.seed));
   return api.post<GenFillStart>(url(store), body, { signal }).then((r) => r.data);
 }
 
 export const genFillStatus = (store: string, job: string, signal?: AbortSignal): Promise<GenFillStatus> =>
   api.get<GenFillStatus>(url(store, job), { signal }).then((r) => r.data);
+
+/**
+ * ترجمهٔ پیش‌نمایشِ توضیحِ فارسی: تا وقتی سرور «pending» می‌گوید هر ~۱٫۲ ثانیه دوباره می‌پرسد (ترجمه روی celery انجام می‌شود).
+ * abort ⇒ DOMException("AbortError"). بعد از maxMs هنوز pending ⇒ همان pending برمی‌گردد.
+ */
+export async function previewTranslation(store: string, prompt: string, signal?: AbortSignal, maxMs = 120000): Promise<GenFillPreview> {
+  const t0 = Date.now();
+  for (;;) {
+    const res = await api.post<GenFillPreview>(`${url(store)}translate/`, { prompt }, { signal }).then((r) => r.data);
+    if (res.state !== "pending" || Date.now() - t0 > maxMs) return res;
+    await sleep(1200, signal);
+  }
+}
+
+/** کارِ منتظرِ ترجمه: کاربر خودش انگلیسی نوشت ⇒ کار همین حالا آزاد می‌شود (جوابِ سرور = وضعیتِ تازه) */
+export const sendEnglishPrompt = (store: string, job: string, promptEn: string): Promise<GenFillStatus> =>
+  api.post<GenFillStatus>(`${url(store, job)}prompt/`, { prompt_en: promptEn }).then((r) => r.data);
 
 /** لغوِ بی‌خطا (اگر کار نبود/تمام شده بود ساکت می‌ماند) */
 export const cancelGenFill = (store: string, job: string): Promise<void> =>
@@ -102,7 +132,7 @@ export async function runGenFill(store: string, a: GenFillArgs, opts: RunOptions
     const start = await startGenFill(store, a, signal);
     job = start.job;
     onJob?.(job);
-    onUpdate?.({ job, state: start.state, message: start.message, progress: 0, node: null, online: start.online });
+    onUpdate?.({ job, state: start.state, message: start.message, progress: 0, node: null, online: start.online, translation: start.translation });
   } else {
     onJob?.(job);
   }

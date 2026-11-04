@@ -30,6 +30,8 @@
     GET    stores/<id>/photo-editor/fonts/                       فونت‌های فارسیِ موجود روی سرور
     POST   stores/<id>/photo-editor/genfill/                     multipart {image, mask, asset, prompt?, seed?} ⇐ «پرکردنِ هوشمند» (FLUX) در صف
     GET|DELETE  stores/<id>/photo-editor/genfill/<uid>/          وضعیت (READY ⇐ asset + layer) / لغو
+    POST   stores/<id>/photo-editor/genfill/translate/           {prompt} ⇐ ترجمهٔ پیش‌نمایشِ توضیحِ فارسی (state: none|ok|pending|unavailable|failed)
+    POST   stores/<id>/photo-editor/genfill/<uid>/prompt/        {prompt_en} ⇐ انگلیسیِ نوشتهٔ کاربر برای کارِ منتظرِ ترجمه (آزادش می‌کند)
 """
 from __future__ import annotations
 
@@ -651,13 +653,43 @@ class GenFillView(APIView):
             return _err("تصویر و ماسک را بفرستید (فیلدهای image و mask).")
         try:
             out = services.genfill_request(store, request.user, asset, image.read(), mask.read(),
-                                           str(request.data.get("prompt") or ""), request.data.get("seed"))
+                                           str(request.data.get("prompt") or ""), request.data.get("seed"),
+                                           str(request.data.get("prompt_en") or ""))
         except services.PhotoError as exc:
             return _err(str(exc))
         except Exception as exc:  # noqa: BLE001
             logger.exception("photoedit: genfill request failed")
             return _err(f"«پرکردنِ هوشمند» ثبت نشد: {exc}")
         return Response(out, status=status.HTTP_201_CREATED)
+
+
+class GenFillTranslateView(APIView):
+    """POST {prompt} ⇐ ترجمهٔ پیش‌نمایشِ توضیحِ فارسی به انگلیسی (برای نمایش و ویرایش پیش از «اجرا»). همیشه ۲۰۰ و بی‌انتظار:
+    ``state`` = none (فارسی نیست) | ok (+en, label) | pending (دوباره بپرسید) | unavailable / failed (+message فارسی)."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def post(self, request, store_id):
+        from . import tasks, translate
+
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        text = str(request.data.get("prompt") or "")
+        out = translate.preview_request(store, text, lambda sid, fa: _dispatch(tasks.genfill_preview_task, sid, fa))
+        return Response(out)
+
+
+class GenFillPromptView(APIView):
+    """POST {prompt_en} ⇐ کاربر برای «پرکردنِ» منتظرِ ترجمه خودش انگلیسی نوشت ⇒ کار همین حالا آزاد می‌شود ⇒ وضعیت."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def post(self, request, store_id, uid):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        try:
+            out = services.genfill_set_english(store, uid, request.data.get("prompt_en"))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        return _not_found() if out is None else Response(out)
 
 
 class GenFillStatusView(APIView):

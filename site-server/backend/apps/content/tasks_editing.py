@@ -596,6 +596,15 @@ def _set_where(job: Job, where: str) -> None:
     job.save(update_fields=["context", "updated_at"])
 
 
+def _note_placement(job: Job, decision) -> None:
+    """Keep what `placement.decide` said (where, why, the two estimates) in the job's context — for whoever wonders why a draft
+    stayed on the site."""
+    job.context = {**(job.context or {}), "placement": {
+        "where": decision.where, "reason": decision.reason, "site_s": round(decision.site_seconds, 1),
+        "node_s": None if decision.node_seconds is None else round(decision.node_seconds, 1), "uncached_bytes": decision.uncached_bytes}}
+    job.save(update_fields=["context", "updated_at"])
+
+
 def _snapshot_data(project: VideoProject, snapshot: str) -> dict:
     import json
 
@@ -646,14 +655,29 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             hi = 85 if program_ops else 98
             on_node = False
             # the final render goes to the processing node when one is online (and the shop did not pick «فقط سرورِ سایت»);
-            # offline, failing or silent ⇒ the site renders it itself, and says so
-            if quality == "final" and (timeline.export or {}).get("where") != "server":
+            # a quick draft only when placement.py finds it heavy and cheap to move (otherwise the site, quietly); offline,
+            # failing or silent ⇒ the site renders it itself, and says so
+            bundle, budget, grace = None, None, None
+            send = quality == "final" and (timeline.export or {}).get("where") != "server"
+            if quality == "draft" and (timeline.export or {}).get("where") != "server":
+                from services.editing import noderender, placement
+
+                try:
+                    decision, bundle = noderender.plan_draft(timeline)
+                except Exception:  # noqa: BLE001 — never let the placement guess cost the shop their draft
+                    logger.exception("draft placement failed for job %s", job.id)
+                    decision = placement.Decision("server", "error")
+                _note_placement(job, decision)
+                send = decision.on_node
+                budget, grace = decision.budget, placement.DRAFT_QUEUE_GRACE
+            if send:
                 from services.editing import noderender
 
                 try:
                     _set_where(job, "node")
                     got = noderender.render_on_node(job, timeline, spec_export or {}, stage1, progress=_percent_labelled(job, 2, hi),
-                                                    cancel=lambda: _cancelled(job.id), store=project.store)
+                                                    cancel=lambda: _cancelled(job.id), store=project.store, profile=quality, bundle=bundle,
+                                                    budget=budget, queue_grace=grace)
                     where = {"where": "node", "node": got["node"], "encoder": got.get("encoder", ""), "fallback": ""}
                     on_node = True
                 except (noderender.NodeUnavailable, noderender.NodeFailed) as exc:
@@ -948,17 +972,28 @@ def track_task(self, job_id, ref, s0, s1, region, fps=15.0):
 
 
 MATTE_NEEDS = (
-    "حذفِ پس‌زمینهٔ ویدیو روی کامپیوترِ گرافیکی (سرورِ پردازش) انجام می‌شود و به این‌ها نیاز دارد: ۱) سرورِ پردازش روشن باشد؛ "
-    "۲) بستهٔ مدلِ «photo-background» (BiRefNet-lite، حدود ۲۲۴ مگابایت، مجوز MIT) روی آن نصب باشد — با Download-Models.bat یا از پنلِ «سرورهای پردازش»؛ "
-    "۳) سرویسِ عکس (PersianAiKit Photo) بتواند روشن شود. این‌جا چیزی دانلود نمی‌شود. "
-    "برای سرعتِ بهتر روی ویدیو، یک مدلِ ماتینگِ ویدیویی (مثلاً Robust Video Matting به‌صورتِ ONNX، حدود ۱۴ مگابایت) هم می‌شود افزود که فعلاً نصب نیست."
+    "حذفِ پس‌زمینهٔ ویدیو روی کامپیوترِ گرافیکی (سرورِ پردازش) انجام می‌شود و به این‌ها نیاز دارد: ۱) سرورِ پردازش روشن باشد (و با Update.bat به نسخهٔ ۲٫۵ رسیده باشد)؛ "
+    "۲) یکی از این دو: مدلِ ویدیوییِ Robust Video Matting (RVM، حدود ۱۴ مگابایت، مجوز GPL-3.0 برای استفادهٔ داخلی؛ خودکار از همین سایت گرفته می‌شود و به numpy و onnxruntime "
+    "در پایتونِ آن کامپیوتر نیاز دارد) که سریع است و لبه‌ها نمی‌پرند؛ یا بستهٔ مدلِ «photo-background» (BiRefNet-lite، حدود ۲۲۴ مگابایت، مجوز MIT) با Download-Models.bat "
+    "یا از پنلِ «سرورهای پردازش» و سرویسِ عکس (PersianAiKit Photo) که بتواند روشن شود — که فریم‌به‌فریم و کندتر است."
 )
+#: with Robust Video Matting the node cuts every frame in one pass, so the matte can follow the source's frame rate and a longer stretch
+RVM_FPS = 24.0
+MAX_MATTE_SECONDS_RVM = 60.0
+
+
+def matte_engine(node) -> str:
+    """"rvm" (the video model, fast and steady) | "birefnet" (frame by frame through the photo kit) | "rvm-pending" (the runtime is
+    there, the model is fetched by the first job) — what the node's heartbeat says."""
+    return str((((node.capabilities or {}).get("edit") or {}).get("matte_engine")) or "birefnet")
 
 
 def matte_status() -> dict:
     node = _node_with("matte")
     if node is not None:
-        return {"ok": True, "node": node.name, "message": ""}
+        engine = matte_engine(node)
+        return {"ok": True, "node": node.name, "message": "", "engine": engine,
+                "max_seconds": MAX_MATTE_SECONDS_RVM if engine == "rvm" else MAX_MATTE_SECONDS}
     try:
         from apps.compute import services as compute
 
@@ -993,24 +1028,29 @@ def matte_task(self, job_id, ref, s0, s1, fps=6.0):
         item = editor_project.describe(job.store, ref)
         if item["kind"] != "video":
             raise RuntimeError("حذفِ پس‌زمینه فقط روی ویدیو ممکن است.")
+        fast = matte_engine(node) == "rvm"
         s0 = max(0.0, float(s0))
-        s1 = min(float(s1), s0 + MAX_MATTE_SECONDS)
+        s1 = min(float(s1), s0 + (MAX_MATTE_SECONDS_RVM if fast else MAX_MATTE_SECONDS))
         if s1 <= s0 + 0.3:
             raise RuntimeError("بازهٔ حذفِ پس‌زمینه خیلی کوتاه است.")
-        fps = max(2.0, min(12.0, float(fps)))
+        fps = RVM_FPS if fast else max(2.0, min(12.0, float(fps)))
         seg, w, h = _segment_file(item["path"], s0, s1, MATTE_PROXY_SIDE)
         folder = seg.parent
         frames = int((s1 - s0) * fps) + 1
+        budget = int(300 + frames * (3 if fast else 40))
         job.mark_progress(6, "")
         cjob = compute.enqueue("edit.matte", {"video": "clip.mp4", "fps": fps, "duration": s1 - s0, "size": [w, h]}, {"clip.mp4": seg}, store=job.store,
-                               origin="video-editor-matte", timeout_s=int(300 + frames * 40), node=node.name, dedupe=False)
-        cjob = _wait_node(job, cjob, 8, 94, "حذفِ پس‌زمینه روی سرورِ پردازش", int(300 + frames * 40))
+                               origin="video-editor-matte", timeout_s=budget, node=node.name, dedupe=False)
+        cjob = _wait_node(job, cjob, 8, 94, "حذفِ پس‌زمینه روی سرورِ پردازش", budget)
         out = compute.output_path(cjob, "matte.mp4")
         if not out.is_file() or out.stat().st_size <= 0:
             raise RuntimeError("سرورِ پردازش ماتی نفرستاد.")
-        row = mattes.store_file(job.store.pk, out, {"ref": ref, "s0": s0, "s1": s1, "fps": fps, "node": node.name, "engine": "birefnet-lite"})
+        meta = (cjob.result or {}).get("meta") or {}                 # which model the node really used (it may have fallen back)
+        model = str(meta.get("model") or ("rvm-mobilenetv3" if fast else "birefnet-lite"))
+        fps = float(meta.get("fps") or fps)
+        row = mattes.store_file(job.store.pk, out, {"ref": ref, "s0": s0, "s1": s1, "fps": fps, "node": node.name, "engine": model})
         job.mark_progress(100, "")
-        result = {**row, "engine": row["engine"], "frames": frames}
+        result = {**row, "engine": row["engine"], "frames": int(meta.get("frames") or frames)}
         job.mark_completed(result)
         shutil.rmtree(compute.job_root(cjob), ignore_errors=True)
         return result

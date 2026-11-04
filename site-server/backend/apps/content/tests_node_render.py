@@ -4,7 +4,9 @@ in chunks - while the site's `render_project_task` builds the job, waits, mirror
 
 Covers: the file really comes from the node and plays; the originals are cached on the node (second export downloads nothing);
 no node ⇒ the site renders (quietly); a node that fails / never answers / is cancelled ⇒ fallback with a sentence or a stop;
-titles (Persian, libass) get their fonts shipped and pass the node's self-test; the NVENC card that cannot encode falls back to x264."""
+titles (Persian, libass) get their fonts shipped and pass the node's self-test; the NVENC card that cannot encode falls back to x264.
+Quick drafts (placement.py): light ones stay on the site; a heavy one goes to the node only when the node is online, free and either holds
+the originals or they are small — and falls back to the site (with a sentence) when the node fails, is silent or too slow."""
 import json
 import os
 import shutil
@@ -24,7 +26,7 @@ from apps.compute import services as compute
 from apps.compute.models import ComputeNode
 from apps.jobs.models import Job
 from apps.stores.models import Store
-from services.editing import export, noderender
+from services.editing import export, noderender, placement
 from services.editing import timeline as tl
 from services.video.ffmpeg import FFMPEG, probe
 
@@ -142,7 +144,10 @@ class NodeRenderTests(LiveServerTestCase):
         return {"format": {"width": 320, "height": 240, "fps": 25, **fmt}, "tracks": tracks, "export": {"preset": "draft"}}
 
     def start_node(self, **kw):
+        cache = kw.pop("cache", None)
         caps = {"ffmpeg": True, "gpu": "RTX test", "edit": {"v": 1, "render": True, "nvenc": {"h264": kw.get("nvenc", False)}, "ffmpeg": "8"}}
+        if cache is not None:
+            caps["edit"]["cache"] = cache                      # what an agent 2.5 reports: the originals it already holds
         node = ComputeNode.objects.create(name="gpu-fake", token="fake-tok", last_seen=timezone.now(), capabilities=caps)
         fake = FakeNode(self.live_server_url, "fake-tok", self.node_tmp, caps=caps, **kw)
         fake.start()
@@ -158,6 +163,22 @@ class NodeRenderTests(LiveServerTestCase):
         job = Job.objects.get(pk=r.json()["job_id"])
         project = VideoProject.objects.get(pk=pid)
         return job, project
+
+    def render_draft(self, data):
+        r = self.client.post(f"{self.base}/editor/projects/", json.dumps({"title": "p", "data": data}), content_type="application/json")
+        self.assertEqual(r.status_code, 201, r.content)
+        pid = r.json()["project"]["id"]
+        r = self.client.post(f"{self.base}/editor/projects/{pid}/render/", json.dumps({"quality": "draft", "data": data}), content_type="application/json")
+        self.assertEqual(r.status_code, 202, r.content)
+        return Job.objects.get(pk=r.json()["job_id"]), VideoProject.objects.get(pk=pid)
+
+    def prefixes(self):
+        """What the node's heartbeat says it holds once it has rendered these two originals."""
+        return [noderender._sha256(Path(MEDIA) / f"uploads/videos/nr_{n}.mp4")[:16] for n in ("a", "b")]
+
+    def heavy(self, **extra):
+        """Make this tiny test draft count as heavy and the transfer cheap (the real numbers are in placement.py)."""
+        return mock.patch.multiple(placement, HEAVY_SITE_SECONDS=0.001, NODE_FIXED_SECONDS=0.0, LINK_DOWN_BPS=1e12, LINK_UP_BPS=1e12, **extra)
 
     def played(self, project):
         out = Path(MEDIA) / project.render_info["rel"]
@@ -219,6 +240,151 @@ class NodeRenderTests(LiveServerTestCase):
         self.assertEqual(job.state, "COMPLETED", job.error)
         self.assertEqual(fake.jobs, [])
         self.assertEqual(VideoProject.objects.get(pk=pid).render_info["where"], "server")
+        self.assertEqual(job.context["placement"]["reason"], "light")
+
+    # ------------------------------------------------------------------ quick drafts (placement.py)
+    def test_a_heavy_draft_whose_originals_the_node_holds_is_made_there_and_says_so(self):
+        _node, fake = self.start_node(cache=self.prefixes())
+        with self.heavy():
+            job, project = self.render_draft(self.data())
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        info = project.render_info
+        self.assertEqual((info["where"], info["node"], info["quality"], info["fallback"]), ("node", "gpu-fake", "draft", ""))
+        self.assertEqual(len(fake.jobs), 1)
+        self.assertEqual(job.context["where"], "node:gpu-fake")
+        self.assertEqual((job.context["placement"]["where"], job.context["placement"]["reason"], job.context["placement"]["uncached_bytes"]), ("node", "node", 0))
+        played = self.played(project)
+        self.assertEqual((played["w"], played["h"], played["audio"]), (320, 240, True), "a draft keeps the project's size")
+        self.assertAlmostEqual(played["dur"], 4.0, delta=0.3)
+        # the node rendered the DRAFT encode (x264 veryfast crf 27, 160 kbit/s sound) - not the project's export preset
+        from apps.compute.models import ComputeJob
+
+        payload = ComputeJob.objects.filter(kind="edit.render").latest("created_at").payload
+        self.assertEqual(payload["encode"]["cpu"], export.DRAFT_VIDEO)
+        self.assertEqual(payload["audio_args"], ["-c:a", "aac", "-b:a", "160k", "-ar", "48000"])
+        # the renders list says it, which is what the «ساخته‌شده روی: …» label reads
+        rows = self.client.get(f"{self.base}/editor/projects/{project.pk}/renders/").json()
+        self.assertEqual((rows["exports"][0]["where"], rows["exports"][0]["node"], rows["exports"][0]["quality"]), ("node", "gpu-fake", "draft"))
+
+    def test_a_heavy_draft_stays_on_the_site_when_the_node_would_have_to_download_the_originals_slowly(self):
+        _node, fake = self.start_node(cache=[])                # online and ready, but holds nothing
+        with self.heavy(), mock.patch.object(placement, "LINK_DOWN_BPS", 10.0):
+            job, project = self.render_draft(self.data())
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual((project.render_info["where"], project.render_info["fallback"]), ("server", ""))
+        self.assertEqual(fake.jobs, [])
+        self.assertEqual(job.context["placement"]["reason"], "transfer_bound")
+        self.assertGreater(job.context["placement"]["uncached_bytes"], 100_000)
+
+    def test_the_same_slow_line_does_not_matter_once_the_node_holds_the_originals(self):
+        _node, fake = self.start_node(cache=self.prefixes())
+        with self.heavy(), mock.patch.object(placement, "LINK_DOWN_BPS", 10.0):
+            job, project = self.render_draft(self.data())
+        self.assertEqual((project.render_info["where"], len(fake.jobs)), ("node", 1))
+
+    def test_an_old_agent_that_reports_no_cache_is_treated_as_holding_nothing(self):
+        _node, fake = self.start_node()                        # no "cache" key at all
+        with self.heavy(), mock.patch.object(placement, "LINK_DOWN_BPS", 10.0):
+            job, project = self.render_draft(self.data())
+        self.assertEqual((project.render_info["where"], fake.jobs), ("server", []))
+        self.assertEqual(job.context["placement"]["reason"], "transfer_bound")
+
+    def test_small_originals_are_worth_uploading_even_when_the_node_holds_none(self):
+        _node, fake = self.start_node(cache=[])
+        with self.heavy():                                     # the line is fast: the few hundred KB of the test clips cost nothing
+            job, project = self.render_draft(self.data())
+        self.assertEqual((project.render_info["where"], len(fake.jobs)), ("node", 1))
+
+    def test_a_busy_node_is_not_given_a_draft(self):
+        node, fake = self.start_node(cache=self.prefixes())
+        from apps.compute.models import ComputeJob
+
+        ComputeJob.objects.create(kind="edit.render", state="RUNNING", node=node, node_wanted=node.name, payload={})
+        with self.heavy():
+            job, project = self.render_draft(self.data())
+        self.assertEqual((project.render_info["where"], fake.jobs), ("server", []))
+        self.assertEqual(job.context["placement"]["reason"], "busy")
+
+    def test_a_draft_never_goes_to_the_node_when_the_shop_chose_the_site_only(self):
+        _node, fake = self.start_node(cache=self.prefixes())
+        data = self.data()
+        data["export"] = {"preset": "draft", "where": "server"}
+        with self.heavy():
+            job, project = self.render_draft(data)
+        self.assertEqual((project.render_info["where"], fake.jobs), ("server", []))
+        self.assertNotIn("placement", job.context, "not even asked")
+
+    def test_no_node_online_a_heavy_draft_is_made_on_the_site_quietly(self):
+        with self.heavy():
+            job, project = self.render_draft(self.data())
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual((project.render_info["where"], project.render_info["fallback"]), ("server", ""))
+        self.assertEqual(job.context["placement"]["reason"], "offline")
+
+    def test_a_node_that_fails_the_draft_is_replaced_by_the_site_with_a_sentence(self):
+        self.start_node(missing_filter=True, cache=self.prefixes())
+        with self.heavy():
+            job, project = self.render_draft(self.data())
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        info = project.render_info
+        self.assertEqual(info["where"], "server")
+        self.assertIn("ممکن نشد", info["fallback"])
+        self.assertIn("lacks filters", info["fallback"])
+        self.assertTrue(self.played(project)["audio"])
+        self.assertEqual(job.context["where"], "server")
+
+    def test_a_node_that_never_picks_the_draft_up_is_given_up_on_quickly(self):
+        ComputeNode.objects.create(name="gpu-sleepy", token="sleepy", last_seen=timezone.now(),
+                                   capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "cache": self.prefixes()}})
+        stop = threading.Event()
+
+        def keep_alive():
+            while not stop.is_set():
+                ComputeNode.objects.filter(name="gpu-sleepy").update(last_seen=timezone.now())
+                time.sleep(0.5)
+
+        t = threading.Thread(target=keep_alive, daemon=True)
+        t.start()
+        try:
+            with self.heavy(DRAFT_QUEUE_GRACE=2.0):
+                started = time.monotonic()
+                job, project = self.render_draft(self.data())
+                took = time.monotonic() - started
+        finally:
+            stop.set()
+            t.join(5)
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual(project.render_info["where"], "server")
+        self.assertIn("برنداشت", project.render_info["fallback"])
+        self.assertLess(took, noderender.QUEUE_GRACE, "a draft gives up on a silent node sooner than a final render does")
+
+    def test_a_node_that_is_too_slow_for_the_draft_is_given_up_on_at_its_budget(self):
+        """The node is claimed and 'runs' but never finishes: the site takes the draft back when the node's budget is used up."""
+        node = ComputeNode.objects.create(name="gpu-slow", token="slow", last_seen=timezone.now(),
+                                          capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "cache": self.prefixes()}})
+        from apps.compute.models import ComputeJob
+
+        stop = threading.Event()
+
+        def claim_and_stall():
+            while not stop.is_set():
+                ComputeNode.objects.filter(name="gpu-slow").update(last_seen=timezone.now())
+                ComputeJob.objects.filter(kind="edit.render", state="QUEUED").update(state="RUNNING", node=node, heartbeat_at=timezone.now())
+                ComputeJob.objects.filter(kind="edit.render", state="RUNNING", node=node).update(heartbeat_at=timezone.now())
+                time.sleep(0.3)
+
+        t = threading.Thread(target=claim_and_stall, daemon=True)
+        t.start()
+        try:
+            with self.heavy(NODE_MIN_BUDGET=2.0, BUDGET_FACTOR=0.0):
+                job, project = self.render_draft(self.data())
+        finally:
+            stop.set()
+            t.join(5)
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual(project.render_info["where"], "server")
+        self.assertIn("در زمانِ مقرر", project.render_info["fallback"])
+        self.assertTrue(ComputeJob.objects.filter(kind="edit.render", cancel_requested=True).exists(), "the node is told to stop")
 
     def test_the_shop_can_ask_for_the_site_only(self):
         _node, fake = self.start_node()

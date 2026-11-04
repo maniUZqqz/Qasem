@@ -43,4 +43,21 @@
 .gf-msg.ok { background: var(--ok-soft, var(--surface-2)); color: var(--ok); }
 .gf-msg.bad { background: var(--bad-soft, var(--surface-2)); color: var(--bad); }
 
+/* ترجمهٔ توضیحِ فارسی ⇒ انگلیسی (ویرایش‌پذیر؛ همین متن به مدل می‌رود) */
+.gf-tr { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+.gf-tr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.gf-en {
+  width: 100%; min-width: 0; box-sizing: border-box; min-height: 38px; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; text-align: left;
+}
+.gf-en::placeholder { color: var(--text-3); }
+.gf-en:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
+.gf-tr-row .gf-en { width: auto; flex: 1 1 160px; }
+.gf-en:disabled { opacity: .55; }
+.gf-en.is-bad { border-color: var(--bad); }
+.gf-tr-line { display: flex; align-items: center; gap: 6px; }
+.gf-tr-hint { margin-top: 4px; color: var(--text-2); }
+.gf-msg .gf-btn { margin-top: 6px; min-height: 34px; }
+.gf-wait { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+
 @media (prefers-reduced-motion: reduce) { .gf-bar > i { transition: none; } }

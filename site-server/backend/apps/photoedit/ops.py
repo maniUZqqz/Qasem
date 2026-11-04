@@ -332,22 +332,31 @@ def op_rotate(img, p, ctx):
     return img
 
 
-def _energy_offset(img: Image.Image, crop_w: int, crop_h: int) -> tuple[int, int]:
-    """جای پنجرهٔ برش که بیشترین «جزئیات» (یا خودِ کالا اگر شفاف است) را در بر بگیرد."""
+def _energy_arrays(img: Image.Image, center: bool = True):
+    """(e, sx, sy, alpha): نقشهٔ «انرژی» روی کوچک‌نمای ۳۲۰ پیکسلیِ ``img`` — آلفا اگر عکس شفاف باشد (خودِ کالا)، وگرنه گرادیانِ
+    روشنایی. ``center``: کمی سهمِ وسط (عکاس سوژه را وسط می‌گذارد؛ برای «جای پنجره» روشن، برای «جعبهٔ کالا» خاموش).
+    sx/sy = نسبتِ کوچک‌نما به عکس. مرورگر همین را در smartFocus.energyMap بازتولید می‌کند."""
     side = 320
     t = thumbnail(img, side)
     sx, sy = t.width / img.width, t.height / img.height
     if t.mode == "RGBA":
         e = np.asarray(t.getchannel("A"), dtype=np.float32)
-    else:
-        g = np.asarray(ImageOps.grayscale(t), dtype=np.float32)
-        gx = np.abs(np.diff(g, axis=1, append=g[:, -1:]))
-        gy = np.abs(np.diff(g, axis=0, append=g[-1:, :]))
-        e = gx + gy
+        return e, sx, sy, True
+    g = np.asarray(ImageOps.grayscale(t), dtype=np.float32)
+    gx = np.abs(np.diff(g, axis=1, append=g[:, -1:]))
+    gy = np.abs(np.diff(g, axis=0, append=g[-1:, :]))
+    e = gx + gy
+    if center:
         # کمی سهمِ وسط (عکاس معمولاً سوژه را وسط می‌گذارد) تا لبه‌ی پرجزئیاتِ پس‌زمینه برنده نشود
         yy, xx = np.mgrid[0:e.shape[0], 0:e.shape[1]]
         cy, cx = (e.shape[0] - 1) / 2, (e.shape[1] - 1) / 2
         e *= 1.0 + 0.6 * np.exp(-(((yy - cy) / (0.45 * e.shape[0])) ** 2 + ((xx - cx) / (0.45 * e.shape[1])) ** 2))
+    return e, sx, sy, False
+
+
+def _energy_offset(img: Image.Image, crop_w: int, crop_h: int) -> tuple[int, int]:
+    """جای پنجرهٔ برش که بیشترین «جزئیات» (یا خودِ کالا اگر شفاف است) را در بر بگیرد."""
+    e, sx, sy, _alpha = _energy_arrays(img, True)
     cw, ch = max(1, int(round(crop_w * sx))), max(1, int(round(crop_h * sy)))
     col, row = e.sum(axis=0), e.sum(axis=1)
     best_x = best_y = 0
@@ -362,6 +371,76 @@ def _energy_offset(img: Image.Image, crop_w: int, crop_h: int) -> tuple[int, int
     return int(best_x / sx), int(best_y / sy)
 
 
+# ───────────────────────────── «کالا وسطِ قاب» (قابِ جا دادن با دوربین)
+# تشخیص همان نقشهٔ انرژیِ «سوژه (خودکار)» است (بی سهمِ وسط): جعبهٔ پیکسل‌های پرانرژی با بریدنِ ۰٫۳٪ِ کناری (لکهٔ تنها دور افتد).
+# مرورگر همین را در smartFocus.subjectView با همین ثابت‌ها می‌سازد و خودش جای دوربین را به‌صورتِ ``view`` به کار می‌فرستد؛ این‌جا فقط
+# وقتی لازم است که ``view`` نیامده باشد (کارِ بی‌مرورگر).
+SUBJECT_MIN_FRAC = 0.004     # پیکسل‌های «سوژه» کمتر از این کسرِ کوچک‌نما ⇒ نویز ⇒ کلِ عکس
+SUBJECT_TRIM = 0.003         # از هر سو این کسرِ جرم بریده می‌شود
+SUBJECT_ALPHA_MIN = 32       # آلفای کمتر از این «سوژه» نیست (عکسِ شفاف)
+SUBJECT_ENERGY_MIN = 12.0    # انرژیِ کمتر از این (نویزِ JPEG) هیچ‌وقت سوژه نیست
+SUBJECT_ENERGY_REL = 0.2     # … و کمتر از این کسر از صدکِ ۹۹
+SUBJECT_ZOOM_MAX = 6.0
+SUBJECT_ZOOM_MIN = 1.08      # بزرگ‌نماییِ کمتر از این ⇒ کلِ عکس (همان جا دادنِ قدیمی)
+
+
+def _rhu(x: float, nd: int) -> float:
+    """گردکردنِ «نیم به بالا» (مثلِ Math.round ِ مرورگر؛ نه نیم به زوجِ round پایتون) تا مرورگر و سرور عددِ یکسان بدهند."""
+    k = 10 ** nd
+    return math.floor(x * k + 0.5) / k
+
+
+def _subject_box(e, alpha: bool):
+    """جعبهٔ (x0, y0, x1, y1) ِ پیکسل‌های سوژه در کوچک‌نما (x1/y1 انحصاری) یا None (تشخیص نشد)."""
+    if alpha:
+        mask = e >= SUBJECT_ALPHA_MIN
+    else:
+        p99 = float(np.percentile(e, 99))
+        mask = e > max(SUBJECT_ENERGY_MIN, SUBJECT_ENERGY_REL * p99)
+    total = int(mask.sum())
+    if total < SUBJECT_MIN_FRAC * mask.size:
+        return None
+    trim = SUBJECT_TRIM * total
+
+    def span(v):
+        c = np.cumsum(v)
+        lo = int(np.argmax(c > trim))
+        r = np.cumsum(v[::-1])
+        hi = len(v) - 1 - int(np.argmax(r > trim))
+        return lo, hi + 1
+
+    x0, x1 = span(mask.sum(axis=0))
+    y0, y1 = span(mask.sum(axis=1))
+    if not alpha:
+        # انرژی تفاضلِ رو‌به‌جلو است: لبه‌ای بینِ پیکسلِ i و i+1 در اندیسِ i می‌افتد ⇒ مرزِ بالا/چپ یک پیکسل جلوتر است (x1/y1 از قبل مرز است)
+        x0, y0 = min(x0 + 1, x1 - 1), min(y0 + 1, y1 - 1)
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
+
+
+def subject_view_from_box(w: int, h: int, box, tw: int, th: int):
+    """جعبهٔ کالا (پیکسلِ عکسِ w×h) ⇒ ``[zoom, cx, cy]`` یا None (کالا تقریباً کلِ عکس است).
+
+    zoom نسبت به «کلِ عکس در قاب» (``min(tw/w, th/h)``): ``min(tw/bw, th/bh) / min(tw/w, th/h)`` — کالا به‌اندازه‌ای بزرگ
+    می‌شود که بُعدِ بزرگ‌ترش همهٔ جای قاب (منهای حاشیه) را پر کند؛ حاشیه خودش در قاب می‌نشیند (``padding``)."""
+    x0, y0, x1, y1 = box
+    bw, bh = max(1.0, x1 - x0), max(1.0, y1 - y0)
+    zoom = min(tw / bw, th / bh) / min(tw / w, th / h)
+    zoom = min(SUBJECT_ZOOM_MAX, zoom)
+    if zoom < SUBJECT_ZOOM_MIN:
+        return None
+    return [_rhu(zoom, 4), _rhu((x0 + x1) / 2 / w, 5), _rhu((y0 + y1) / 2 / h, 5)]
+
+
+def subject_view(img: Image.Image, tw: int, th: int):
+    """جای دوربینِ «کالا وسطِ قاب» برای ``img`` (پس از هندسه) و قابِ tw×th؛ تشخیص نشد/کالا کلِ عکس است ⇒ None."""
+    e, sx, sy, alpha = _energy_arrays(img, False)
+    box = _subject_box(e, alpha)
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    return subject_view_from_box(img.width, img.height, (x0 / sx, y0 / sy, x1 / sx, y1 / sy), tw, th)
+
+
 def crop_format_target(p) -> tuple[int, int, str]:
     """(عرض، ارتفاع، برچسب) قابِ خروجیِ ``crop_format``؛ ``format="custom"`` ⇐ مربعِ ``size × size``."""
     if p.get("format") == "custom":
@@ -370,13 +449,16 @@ def crop_format_target(p) -> tuple[int, int, str]:
     return SOCIAL_FORMATS[p["format"]]
 
 
-def crop_format_geometry(p, w: int, h: int, energy=None) -> dict:
+def crop_format_geometry(p, w: int, h: int, energy=None, subject=None) -> dict:
     """هندسهٔ قطعیِ ``crop_format`` برای ورودیِ w×h — یک منبعِ حقیقت برای ``op_crop_format``، ``frames.py`` و مرورگر.
 
     ⇐ cover:   ``{"mode": "cover", "size": (tw, th), "label", "box": (x0, y0, x1, y1) پیکسلِ ورودی،
                  "exact": True وقتی box از window آمده (اعشاری)، "upscale": بزرگ‌شدگی, "approx": bool}``
-    ⇐ contain: ``{"mode": "contain", "size", "label", "fg": (nw, nh), "pos": (left, top)}``
+    ⇐ contain: ``{"mode": "contain", "size", "label", "fg": (nw, nh), "pos": (left, top)}``؛ با «کالا وسطِ قاب»
+                 (``subject="auto"`` و دوربینی که ``view`` یا ``subject()`` داده) کلید‌های ``"view": {"scale", "left", "top"}`` (اعشاری،
+                 جای عکس در بوم؛ ممکن است از بوم بیرون بزند) هم می‌آید و ``fg``/``pos`` فقط گردشدهٔ همان‌اند.
     ``energy(cw, ch) ⇐ (x, y)`` فقط برای cover با focus=smart و بی window لازم است؛ نبودنش ⇐ وسط و ``approx=True``.
+    ``subject() ⇐ [zoom, cx, cy] | None`` فقط برای contain با subject=auto و بی view؛ نبودنش ⇐ کلِ عکس و ``approx=True``.
     """
     tw, th, label = crop_format_target(p)
     if p["fit"] == "cover":
@@ -406,8 +488,28 @@ def crop_format_geometry(p, w: int, h: int, energy=None) -> dict:
                 "upscale": scale, "approx": approx}
     pad = max(0.0, min(40.0, float(p.get("padding") or 0))) / 100.0
     scale = min(tw / w, th / h) * (1.0 - 2.0 * pad)
+    view, approx = None, False
+    if p.get("subject") == "auto":
+        given = p.get("view") or []
+        if len(given) == 3:
+            view = [float(v) for v in given]
+        elif subject is not None:
+            view = subject()
+        else:
+            approx = True
+    if view is not None and (view[0] > 1.0 + 1e-9 or abs(view[1] - 0.5) > 1e-9 or abs(view[2] - 0.5) > 1e-9):
+        zoom, cx, cy = view
+        s2 = scale * zoom
+        fw, fh = w * s2, h * s2
+        left, top = tw / 2.0 - cx * fw, th / 2.0 - cy * fh
+        return {"mode": "contain", "size": (tw, th), "label": label, "fg": (max(1, int(round(fw))), max(1, int(round(fh)))),
+                "pos": (int(math.floor(left)), int(math.floor(top))),
+                "view": {"scale": s2, "left": left, "top": top, "zoom": zoom, "cx": cx, "cy": cy}}
     nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
-    return {"mode": "contain", "size": (tw, th), "label": label, "fg": (nw, nh), "pos": ((tw - nw) // 2, (th - nh) // 2)}
+    geo = {"mode": "contain", "size": (tw, th), "label": label, "fg": (nw, nh), "pos": ((tw - nw) // 2, (th - nh) // 2)}
+    if approx:
+        geo["approx"] = True
+    return geo
 
 
 def op_crop_format(img, p, ctx):
@@ -427,7 +529,8 @@ def op_crop_format(img, p, ctx):
       سفید flatten می‌شود.
     """
     w, h = img.size
-    geo = crop_format_geometry(p, w, h, lambda cw, ch: _energy_offset(img, cw, ch))
+    tw0, th0, _lbl = crop_format_target(p)
+    geo = crop_format_geometry(p, w, h, lambda cw, ch: _energy_offset(img, cw, ch), lambda: subject_view(img, tw0, th0))
     tw, th = geo["size"]
     if geo["mode"] == "cover":
         if geo["exact"]:
@@ -444,8 +547,16 @@ def op_crop_format(img, p, ctx):
             ctx["notes"].append(f"عکس از {geo['label']} کوچک‌تر بود و بزرگ شد (برای کیفیتِ بهتر «بزرگ‌نماییِ هوشمند» را اضافه کنید)")
         return out
     # contain: کلِ عکس دیده می‌شود (با حاشیهٔ اختیاری)، دورش پر می‌شود
-    fg = img.resize(geo["fg"], Image.Resampling.LANCZOS)
-    pos = geo["pos"]
+    if geo.get("view"):
+        # «کالا وسطِ قاب»: عکس بزرگ‌تر از قاب می‌شود و از آن بیرون می‌زند ⇒ فقط بخشِ داخلِ قاب ساخته می‌شود (حافظه و دقت)
+        got = _view_part(img, geo["view"], tw, th)
+        if got is None:
+            fg, pos = Image.new("RGBA" if img.mode == "RGBA" else "RGB", (1, 1), (0, 0, 0, 0)), (tw, th)     # بیرونِ کامل
+        else:
+            fg, pos = got
+    else:
+        fg = img.resize(geo["fg"], Image.Resampling.LANCZOS)
+        pos = geo["pos"]
     fill = p["fill"]
     if fill == "transparent":
         canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
@@ -465,6 +576,27 @@ def op_crop_format(img, p, ctx):
     # کالای شفاف روی همان زمینه می‌نشیند (قالبِ شبکه‌ها شفافیت نمی‌خواهد؛ شفاف‌خواه «transparent» را بگذارد)
     bg.paste(fg.convert("RGB"), pos, fg.getchannel("A") if fg.mode == "RGBA" else None)
     return bg
+
+
+def _view_part(img: Image.Image, v: dict, tw: int, th: int):
+    """بخشِ دیدنیِ عکس در قاب tw×th برای دوربینِ ``v`` ({scale, left, top}: جای عکس در بوم، اعشاری) ⇒ (تصویرِ همان بخش، گوشهٔ بالا-چپ
+    در بوم) یا None (عکس کاملاً بیرونِ قاب است). برشِ صحیحِ دربرگیرنده و بعد تغییرِ اندازهٔ اعشاریِ همان بخش (مثلِ cover با window)."""
+    w, h = img.size
+    s, left, top = float(v["scale"]), float(v["left"]), float(v["top"])
+    dx0, dy0 = max(0, int(round(left))), max(0, int(round(top)))
+    dx1, dy1 = min(tw, int(round(left + w * s))), min(th, int(round(top + h * s)))
+    if dx1 <= dx0 or dy1 <= dy0:
+        return None
+    x0, y0 = max(0.0, (dx0 - left) / s), max(0.0, (dy0 - top) / s)
+    x1, y1 = min(float(w), (dx1 - left) / s), min(float(h), (dy1 - top) / s)
+    if x1 - x0 < 1e-6 or y1 - y0 < 1e-6:
+        return None
+    ix0, iy0 = int(math.floor(x0 + 1e-6)), int(math.floor(y0 + 1e-6))
+    ix1, iy1 = min(w, int(math.ceil(x1 - 1e-6))), min(h, int(math.ceil(y1 - 1e-6)))
+    sub = img.crop((ix0, iy0, ix1, iy1))
+    part = sub.resize((dx1 - dx0, dy1 - dy0), Image.Resampling.LANCZOS,
+                      box=(x0 - ix0, y0 - iy0, min(float(sub.width), x1 - ix0), min(float(sub.height), y1 - iy0)))
+    return part, (dx0, dy0)
 
 
 def op_crop_rect(img, p, ctx):

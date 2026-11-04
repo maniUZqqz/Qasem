@@ -116,7 +116,8 @@ export type ExportRow = {
 export type RenderWhere = { online: boolean; message: string; node: string; nvenc: boolean; gpu?: string };
 export type LutRow = { key: string; title: string; size: number; bytes: number; created: number };
 export type MatteRow = { key: string; ref: string; s0: number; s1: number; fps: number; node: string; engine: string; bytes: number; created: number; url: string };
-export type MatteStatus = { ok: boolean; node: string; message: string; max_seconds: number };
+/** engine: «rvm» = مدلِ ویدیوییِ Robust Video Matting (سریع، بدونِ پرش)، «birefnet» = فریم‌به‌فریم، «rvm-pending» = اجراکننده هست و مدل در اولین کار گرفته می‌شود */
+export type MatteStatus = { ok: boolean; node: string; message: string; max_seconds: number; engine?: "rvm" | "birefnet" | "rvm-pending" };
 export type TrackResult = { samples: { s: number; x: number; y: number; scale: number; rot: number }[]; lost_at: number | null; engine: string; s0: number; s1: number; fps: number; ref: string };
 export type SyncResult = { offsets: { ref: string; offset: number; confidence: number; ok: boolean }[] };
 

@@ -22,13 +22,13 @@ type PresetData = {
 const CLIP_KEY = "nm.photo.clip";
 const OVERLAY_TYPES = ["image", "text", "shape", "adjust", "group"];
 
-// crop_format = قابِ شبکه‌ها / مربعِ فروشگاه (جای kit_square ِ قدیمی)؛ پنجرهٔ «سوژه» مالِ همین عکس است و در پریست نمی‌ماند
+// crop_format = قابِ شبکه‌ها / مربعِ فروشگاه (جای kit_square ِ قدیمی)؛ پنجرهٔ «سوژه» و جای دوربین (view) مالِ همین عکس‌اند و در پریست نمی‌مانند
 const toolOk = (k: string) => k === "look" || k === "auto_tone" || k === "crop_format" || k.startsWith("kit_");
 const pickTools = (tools: Record<string, Params>): Record<string, Params> =>
   Object.fromEntries(
     Object.entries(tools)
       .filter(([k]) => toolOk(k))
-      .map(([k, v]) => [k, k === "crop_format" ? { ...v, window: [] } : v]),
+      .map(([k, v]) => [k, k === "crop_format" ? { ...v, window: [], view: [] } : v]),
   );
 
 const isOverlay = (l: unknown): l is Layer =>

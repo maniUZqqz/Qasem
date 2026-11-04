@@ -4,8 +4,12 @@ import { CF_DEFAULT, CropFormat, FrameSpec, cropFormatOpParams, normalizeCropFor
 import type { Hist } from "./panelTypes";
 import type { ProState } from "./types";
 
-/** «قابِ مربعِ فروشگاه (سفید)» — جای kit_square ِ قدیمی: مربعِ ۲۰۰۰، جا دادنِ کلِ کالا، زمینهٔ سفید، حاشیهٔ ۶٪ */
-export const STORE_FRAME: Params = cropFormatOpParams(normalizeCropFormat({ format: "custom", size: 2000, fit: "contain", focus: "center", fill: "white", padding: 6 }));
+/**
+ * «قابِ مربعِ فروشگاه (سفید)»: مربعِ ۲۰۰۰، زمینهٔ سفید، حاشیهٔ ۶٪ و — پیش‌فرض — «کالا وسطِ قاب» (subject=auto): کالا را همان تشخیصِ «سوژه
+ * (خودکار)» پیدا می‌کند و کامل و با حاشیه وسطِ قاب می‌گذارد؛ کاربر می‌تواند عکس را در قاب بکشد یا «کلِ عکس» را بزند.
+ * پروژه‌های قدیمی که این قاب را بی subject ذخیره کرده‌اند همان «کلِ عکس» می‌مانند.
+ */
+export const STORE_FRAME: Params = cropFormatOpParams(normalizeCropFormat({ format: "custom", size: 2000, fit: "contain", focus: "center", fill: "white", padding: 6, subject: "auto" }));
 
 const FALLBACK_FORMATS: [string, string][] = [
   ["square", "مربع ۱:۱ (پستِ اینستاگرام)"], ["portrait", "عمودی ۴:۵ (پستِ عمودی)"], ["story", "۹:۱۶ (استوری، ریلز، شورتز)"],
@@ -36,7 +40,9 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
   const cf: CropFormat | null = raw ? normalizeCropFormat(raw) : null;
   const formats: [string, string][] = tool?.params.find((p) => p.key === "format")?.options?.map((o) => [o.value, o.label] as [string, string]) ?? FALLBACK_FORMATS;
 
-  const make = (patch: Partial<CropFormat>): Params => cropFormatOpParams(normalizeCropFormat({ ...(cf ?? CF_DEFAULT), ...patch, window: [] }));
+  // جای دستیِ دوربین (view) با عوض‌شدنِ قالب/روش/«جای کالا» پاک می‌شود؛ با عوض‌شدنِ اندازه/حاشیه/زمینه می‌ماند (keepView)
+  const make = (patch: Partial<CropFormat>, keepView = false): Params =>
+    cropFormatOpParams(normalizeCropFormat({ ...(cf ?? CF_DEFAULT), ...patch, window: [], view: patch.view ?? (keepView ? cf?.view ?? [] : []) }));
   const setTools = (label: string, params: Params | null, extra?: (s: ProState) => ProState) =>
     hist.apply(label, (s) => {
       const t = { ...s.tools };
@@ -49,7 +55,7 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
 
   const pickFormat = (v: string) => (v === "none" ? setTools("بدونِ قاب", null) : setTools("قاب: " + (formats.find((f) => f[0] === v)?.[1] ?? v), make({ format: v })));
   const pickFill = (v: string) =>
-    setTools("پرکردنِ قاب", make({ fill: v as CropFormat["fill"] }), v === "transparent" ? (s) => (s.out.format === "jpeg" ? { ...s, out: { ...s.out, format: "png" } } : s) : undefined);
+    setTools("پرکردنِ قاب", make({ fill: v as CropFormat["fill"] }, true), v === "transparent" ? (s) => (s.out.format === "jpeg" ? { ...s, out: { ...s.out, format: "png" } } : s) : undefined);
 
   return (
     <div className="ws-card" data-testid="frame-card">
@@ -69,7 +75,7 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
           <span>ضلعِ قابِ دلخواه (پیکسل)</span>
           <div className="flex items-center gap-2">
             <input type="range" min={200} max={4000} step={10} value={cf.size} aria-label="ضلعِ قاب" data-testid="frame-size"
-              onChange={(e) => live(make({ size: Number(e.target.value) }))} onPointerUp={() => hist.end("اندازهٔ قاب")} onKeyUp={() => hist.end("اندازهٔ قاب")} />
+              onChange={(e) => live(make({ size: Number(e.target.value) }, true))} onPointerUp={() => hist.end("اندازهٔ قاب")} onKeyUp={() => hist.end("اندازهٔ قاب")} />
             <b dir="ltr" className="ws-muted" style={{ minWidth: 48 }}>{fa(cf.size)}</b>
           </div>
         </label>
@@ -94,6 +100,24 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
             </label>
           ) : (
             <>
+              <div className="ws-field" data-testid="frame-subject">
+                <span>جای کالا در قاب</span>
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" className={chip(cf.subject === "auto")} onClick={() => setTools("قاب: کالا وسطِ قاب", make({ subject: "auto" }))} data-testid="frame-subject-auto">کالا وسطِ قاب</button>
+                  <button type="button" className={chip(cf.subject !== "auto")} onClick={() => setTools("قاب: کلِ عکس", make({ subject: "" }))} data-testid="frame-subject-whole">کلِ عکس</button>
+                </div>
+                {cf.subject === "auto" && (
+                  <p className="ws-hint" data-testid="frame-subject-hint">
+                    کالا کامل و با حاشیه وسطِ قاب می‌نشیند. جایش را می‌توانید با ابزارِ «جابه‌جایی» (V) و کشیدنِ عکس در قاب تنظیم کنید.
+                    {cf.view.length === 3 && (
+                      <>
+                        {" "}
+                        <button type="button" className="ws-link" onClick={() => setTools("قاب: کالا وسطِ قاب (خودکار)", make({ subject: "auto" }, false))} data-testid="frame-subject-reset">بازگشت به جای خودکار</button>
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
               <label className="ws-field">
                 <span>پرکردنِ دورِ عکس</span>
                 <Select value={cf.fill} onChange={(e) => pickFill(e.target.value)} aria-label="پرکردنِ دور" data-testid="frame-fill">
@@ -104,7 +128,7 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
                 <label className="ws-field">
                   <span>رنگِ زمینه</span>
                   <input type="color" value={cf.fill_color} aria-label="رنگِ زمینه" data-testid="frame-fill-color" className="h-9 w-16 cursor-pointer rounded"
-                    onChange={(e) => live(make({ fill_color: e.target.value }))} onPointerUp={() => hist.end("رنگِ قاب")} onBlur={() => hist.end("رنگِ قاب")} />
+                    onChange={(e) => live(make({ fill_color: e.target.value }, true))} onPointerUp={() => hist.end("رنگِ قاب")} onBlur={() => hist.end("رنگِ قاب")} />
                 </label>
               )}
               {cf.fill === "transparent" && <p className="ws-hint">زمینهٔ شفاف فقط در خروجیِ PNG یا WebP می‌ماند (JPEG روی سفید می‌نشیند).</p>}
@@ -112,7 +136,7 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
                 <span>حاشیه (٪ از قاب)</span>
                 <div className="flex items-center gap-2">
                   <input type="range" min={0} max={40} step={1} value={cf.padding} aria-label="حاشیه" data-testid="frame-padding"
-                    onChange={(e) => live(make({ padding: Number(e.target.value) }))} onPointerUp={() => hist.end("حاشیهٔ قاب")} onKeyUp={() => hist.end("حاشیهٔ قاب")} />
+                    onChange={(e) => live(make({ padding: Number(e.target.value) }, true))} onPointerUp={() => hist.end("حاشیهٔ قاب")} onKeyUp={() => hist.end("حاشیهٔ قاب")} />
                   <b dir="ltr" className="ws-muted" style={{ minWidth: 30 }}>{fa(cf.padding)}%</b>
                 </div>
               </label>
@@ -132,6 +156,7 @@ export default function FrameCard({ state, hist, tool, spec, photoSize }: Props)
         بومِ نهایی: <b dir="ltr">{fa(spec.Wf)}×{fa(spec.Hf)}</b> پیکسل
         {" "}(عکسِ اصل <span dir="ltr">{fa(photoSize[0])}×{fa(photoSize[1])}</span>)
         {cf && cf.fit === "cover" && cf.focus === "smart" ? " — جای سوژه را مرورگر پیدا می‌کند و همان در خروجی می‌آید" : ""}
+        {cf && cf.fit === "contain" && cf.subject === "auto" ? " — کالا را مرورگر پیدا می‌کند و وسطِ قاب می‌گذارد؛ همان در خروجی می‌آید" : ""}
       </p>
     </div>
   );

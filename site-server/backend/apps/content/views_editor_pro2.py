@@ -142,7 +142,7 @@ class MatteStatusView(APIView):
 
     def get(self, request, store_id):
         access.get_store(request.user, store_id, access.CONTENT, write=False)
-        return Response({**matte_status(), "max_seconds": MAX_MATTE_SECONDS})
+        return Response({"max_seconds": MAX_MATTE_SECONDS, **matte_status()})
 
 
 class EditorMattesView(APIView):
@@ -173,7 +173,7 @@ class EditorMattesView(APIView):
         if not state["ok"]:
             return _err("matte_unavailable", state["message"], status.HTTP_503_SERVICE_UNAVAILABLE)
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "matte", "ref": ref})
-        failed = dispatch_job(job, matte_task, job.id, ref, s0, min(s1, s0 + MAX_MATTE_SECONDS), fps)
+        failed = dispatch_job(job, matte_task, job.id, ref, s0, min(s1, s0 + state.get("max_seconds", MAX_MATTE_SECONDS)), fps)
         if failed is not None:
             return failed
         return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)

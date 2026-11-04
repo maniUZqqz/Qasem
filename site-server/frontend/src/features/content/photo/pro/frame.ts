@@ -47,11 +47,34 @@ export type CropFormat = {
   padding: number;
   /** [x, y, w, h] به کسری از تصویرِ ورودیِ مرحله (پس از هندسه)؛ [] = بی‌پنجره */
   window: number[];
+  /** فقط «جا دادن»: "auto" = «کالا وسطِ قاب» (کالا کامل و با حاشیه وسطِ قاب)؛ "" = کلِ عکس (رفتارِ قدیم و پیش‌فرضِ پروژه‌های قدیمی) */
+  subject: "" | "auto";
+  /** جای دوربین [zoom, cx, cy] (cx/cy = کسری از عکسی که وسطِ قاب می‌افتد)؛ [] = خودکار (مرورگر حساب می‌کند). با کشیدنِ عکس در قاب ثبت می‌شود */
+  view: number[];
 };
 
 export const CF_DEFAULT: CropFormat = {
-  format: "square", size: 2000, fit: "cover", focus: "smart", fill: "blur", fill_color: "#f3f4f6", padding: 0, window: [],
+  format: "square", size: 2000, fit: "cover", focus: "smart", fill: "blur", fill_color: "#f3f4f6", padding: 0, window: [], subject: "", view: [],
 };
+
+export const VIEW_ZOOM_MAX = 8;
+export const VIEW_CENTER: [number, number] = [-1, 2];
+
+/** جای دوربین ⇐ [zoom، cx، cy] (zoom ۴ رقم در [۱، ۸]؛ مرکز ۵ رقم در [−۱، ۲]) یا [] — مثلِ catalog.normalize_view */
+export function normalizeView(v: unknown): number[] {
+  if (!Array.isArray(v) || v.length !== 3) return [];
+  const nums: number[] = [];
+  for (const item of v) {
+    if (typeof item === "boolean") return [];
+    const x = num(item, NaN);
+    if (!Number.isFinite(x)) return [];
+    nums.push(x);
+  }
+  const zoom = Math.min(VIEW_ZOOM_MAX, Math.max(1, nums[0]));
+  const cx = Math.min(VIEW_CENTER[1], Math.max(VIEW_CENTER[0], nums[1]));
+  const cy = Math.min(VIEW_CENTER[1], Math.max(VIEW_CENTER[0], nums[2]));
+  return [Math.round(zoom * 1e4) / 1e4, r5(cx), r5(cy)];
+}
 
 /** پنجرهٔ برش ⇐ ۴ عدد (۶ رقم اعشار) یا [] — مثلِ catalog.normalize_window */
 export function normalizeWindow(v: unknown): number[] {
@@ -87,6 +110,8 @@ export function normalizeCropFormat(raw: Params | null | undefined): CropFormat 
     fill_color: col,
     padding: pyRound(clamp(num(p.padding, 0), 0, 40)),
     window: normalizeWindow(p.window),
+    subject: p.subject === "auto" ? "auto" : "",
+    view: normalizeView(p.view),
   };
 }
 
@@ -104,10 +129,14 @@ export function effectiveCropFormat(tools: Record<string, Params> | undefined): 
   return null;
 }
 
-/** پارامترهای کار (برای operations): هر کلیدی که سرور می‌شناسد؛ window فقط اگر چهارتایی باشد */
-export function cropFormatOpParams(cf: CropFormat, window?: number[] | null): Params {
-  const w = window && window.length === 4 ? normalizeWindow(window) : cf.window;
-  return { format: cf.format, size: cf.size, fit: cf.fit, focus: cf.focus, fill: cf.fill, fill_color: cf.fill_color, padding: cf.padding, window: w };
+/**
+ * پارامترهای کار (برای operations): هر کلیدی که سرور می‌شناسد. `auto` = آنچه مرورگر خودکار حساب کرده: چهارتایی ⇒ پنجرهٔ «سوژه
+ * (خودکار)» ِ cover؛ سه‌تایی ⇒ جای دوربینِ «کالا وسطِ قاب» (فقط contain با subject=auto؛ view ِ صریحِ پروژه بر آن می‌چربد).
+ */
+export function cropFormatOpParams(cf: CropFormat, auto?: number[] | null): Params {
+  const w = auto && auto.length === 4 ? normalizeWindow(auto) : cf.window;
+  const v = cf.subject === "auto" ? (cf.view.length === 3 ? cf.view : auto && auto.length === 3 ? normalizeView(auto) : []) : [];
+  return { format: cf.format, size: cf.size, fit: cf.fit, focus: cf.focus, fill: cf.fill, fill_color: cf.fill_color, padding: cf.padding, window: w, subject: cf.subject, view: v };
 }
 
 export function cropFormatTarget(p: CropFormat): [number, number] {
@@ -118,12 +147,24 @@ export function cropFormatTarget(p: CropFormat): [number, number] {
   return SOCIAL_FORMATS[p.format] ?? SOCIAL_FORMATS.square;
 }
 
+/** «کالا وسطِ قاب»: جای اعشاریِ عکس در بوم (پیکسلِ بوم؛ ممکن است از بوم بیرون بزند) و دوربینِ سازندهٔ آن */
+export type CfView = { scale: number; left: number; top: number; zoom: number; cx: number; cy: number };
+
 export type CfGeo =
   | { mode: "cover"; size: [number, number]; box: [number, number, number, number]; exact: boolean; upscale: number; approx: boolean }
-  | { mode: "contain"; size: [number, number]; fg: [number, number]; pos: [number, number] };
+  | { mode: "contain"; size: [number, number]; fg: [number, number]; pos: [number, number]; view?: CfView; approx?: boolean };
 
-/** ops.crop_format_geometry — `energy(cw, ch)` فقط برای cover/smart بی‌پنجره؛ نبودنش ⇒ وسط و approx=true */
-export function cropFormatGeometry(p: CropFormat, w: number, h: number, energy?: (cw: number, ch: number) => [number, number]): CfGeo {
+/**
+ * ops.crop_format_geometry — `energy(cw, ch)` فقط برای cover/smart بی‌پنجره؛ نبودنش ⇒ وسط و approx=true.
+ * `subject()` ⇒ [zoom, cx, cy] | null فقط برای contain با subject=auto و بی view؛ نبودنش ⇒ کلِ عکس و approx=true.
+ */
+export function cropFormatGeometry(
+  p: CropFormat,
+  w: number,
+  h: number,
+  energy?: (cw: number, ch: number) => [number, number],
+  subject?: () => number[] | null,
+): CfGeo {
   const [tw, th] = cropFormatTarget(p);
   if (p.fit === "cover") {
     if (p.window.length === 4) {
@@ -159,9 +200,30 @@ export function cropFormatGeometry(p: CropFormat, w: number, h: number, energy?:
   }
   const pad = clamp(p.padding, 0, 40) / 100;
   const scale = Math.min(tw / w, th / h) * (1 - 2 * pad);
+  let view: number[] | null = null;
+  let approx = false;
+  if (p.subject === "auto") {
+    if (p.view.length === 3) view = p.view;
+    else if (subject) view = subject();
+    else approx = true;
+  }
+  if (view && (view[0] > 1 + 1e-9 || Math.abs(view[1] - 0.5) > 1e-9 || Math.abs(view[2] - 0.5) > 1e-9)) {
+    const [zoom, cx, cy] = view;
+    const s2 = scale * zoom;
+    const fw = w * s2;
+    const fh = h * s2;
+    const left = tw / 2 - cx * fw;
+    const top = th / 2 - cy * fh;
+    return {
+      mode: "contain", size: [tw, th], fg: [Math.max(1, pyRound(fw)), Math.max(1, pyRound(fh))], pos: [Math.floor(left), Math.floor(top)],
+      view: { scale: s2, left, top, zoom, cx, cy },
+    };
+  }
   const nw = Math.max(1, pyRound(w * scale));
   const nh = Math.max(1, pyRound(h * scale));
-  return { mode: "contain", size: [tw, th], fg: [nw, nh], pos: [Math.floor((tw - nw) / 2), Math.floor((th - nh) / 2)] };
+  const geo: CfGeo = { mode: "contain", size: [tw, th], fg: [nw, nh], pos: [Math.floor((tw - nw) / 2), Math.floor((th - nh) / 2)] };
+  if (approx) geo.approx = true;
+  return geo;
 }
 
 // ───────────────────────────── مرحلهٔ هندسه: پرسپکتیو ⇐ چرخش/قرینه ⇐ برش
@@ -291,13 +353,20 @@ export function geometryStage(Wo: number, Ho: number, g: GeomInput): { H: M3; si
 }
 
 /** crop_format روی ورودیِ w×h ⇒ H، اندازهٔ بوم و هندسه؛ مثلِ frames.social_stage */
-export function socialStage(w: number, h: number, cf: CropFormat, energy?: (cw: number, ch: number) => [number, number]): { H: M3; size: [number, number]; geo: CfGeo } {
-  const geo = cropFormatGeometry(cf, w, h, energy);
+export function socialStage(
+  w: number,
+  h: number,
+  cf: CropFormat,
+  energy?: (cw: number, ch: number) => [number, number],
+  subject?: () => number[] | null,
+): { H: M3; size: [number, number]; geo: CfGeo } {
+  const geo = cropFormatGeometry(cf, w, h, energy, subject);
   const [tw, th] = geo.size;
   if (geo.mode === "cover") {
     const [x0, y0, x1, y1] = geo.box;
     return { H: mul(sc(tw / (x1 - x0), th / (y1 - y0)), tr(-x0, -y0)), size: [tw, th], geo };
   }
+  if (geo.view) return { H: mul(tr(geo.view.left, geo.view.top), sc(geo.view.scale, geo.view.scale)), size: [tw, th], geo };
   const [nw, nh] = geo.fg;
   const [left, top] = geo.pos;
   return { H: mul(tr(left, top), sc(nw / w, nh / h)), size: [tw, th], geo };
@@ -325,7 +394,7 @@ export type FrameSpec = {
   social: CfGeo | null;
   /** بی‌هندسه و بی‌قاب: بوم = خودِ عکس (بی پاسِ قاب) */
   trivial: boolean;
-  /** قابِ cover با «سوژه (خودکار)» بی پنجره ⇒ جایِ وسط جایگزین است تا پنجره حساب شود */
+  /** قابِ cover با «سوژه (خودکار)» بی پنجره، یا قابِ «جا دادن» با «کالا وسطِ قاب» بی view ⇒ جایِ وسط جایگزین است تا مرورگر حساب کند */
   smartPending: boolean;
 };
 
@@ -334,16 +403,22 @@ export function geometrySig(g: GeomInput): string {
 }
 
 /**
- * هندسهٔ کاملِ قاب. `window` (پنجرهٔ «سوژه (خودکار)») اگر داده شود جایگزینِ `cf.window` می‌شود — فقط برای cover/smart.
+ * هندسهٔ کاملِ قاب. `window` = آنچه مرورگر خودکار حساب کرده: چهارتایی (پنجرهٔ «سوژه (خودکار)») جایگزینِ `cf.window` در cover/smart؛
+ * سه‌تایی (جای دوربینِ «کالا وسطِ قاب») جایگزینِ `cf.view` در contain با subject=auto.
  */
 export function makeFrameSpec(Wo: number, Ho: number, input: FrameInput, window?: number[] | null): FrameSpec {
   const g = geometryStage(Wo, Ho, input);
   const [gw, gh] = g.size;
   let cf = effectiveCropFormat(input.tools);
   const wantsSmart = !!cf && cf.fit === "cover" && cf.focus === "smart" && cf.window.length !== 4;
-  if (cf && wantsSmart && window) {
+  const wantsSubject = !!cf && cf.fit === "contain" && cf.subject === "auto" && cf.view.length !== 3;
+  if (cf && wantsSmart && window && window.length === 4) {
     const w = normalizeWindow(window);
     if (w.length === 4) cf = { ...cf, window: w };
+  }
+  if (cf && wantsSubject && window && window.length === 3) {
+    const v = normalizeView(window);
+    if (v.length === 3) cf = { ...cf, view: v };
   }
   const trivial = !cf && g.H.every((v, i) => Math.abs(v - [1, 0, 0, 0, 1, 0, 0, 0, 1][i]) < 1e-12) && gw === Math.round(Wo) && gh === Math.round(Ho);
   let H = g.H;
@@ -355,7 +430,7 @@ export function makeFrameSpec(Wo: number, Ho: number, input: FrameInput, window?
     size = s.size;
     social = s.geo;
   }
-  const smartPending = !!cf && cf.fit === "cover" && cf.focus === "smart" && cf.window.length !== 4;
+  const smartPending = !!cf && ((cf.fit === "cover" && cf.focus === "smart" && cf.window.length !== 4) || (cf.fit === "contain" && cf.subject === "auto" && cf.view.length !== 3));
   const key = JSON.stringify([Math.round(Wo), Math.round(Ho), geometrySig(input), cf]);
   return { key, Wo, Ho, Wf: size[0], Hf: size[1], H, geoH: g.H, gw, gh, cf, social, trivial, smartPending };
 }
@@ -397,8 +472,10 @@ export function frameUniforms(spec: FrameSpec): FrameUniforms {
   };
   if (!cf || !geo || geo.mode !== "contain") return base;
   const [tw, th] = geo.size;
-  const [nw, nh] = geo.fg;
-  const [left, top] = geo.pos;
+  // «کالا وسطِ قاب»: مستطیلِ عکس اعشاری است و ممکن است از بوم بیرون بزند (شیدر هر دو را درست می‌پوشاند)
+  const fgRect: [number, number, number, number] = geo.view
+    ? [geo.view.left, geo.view.top, spec.gw * geo.view.scale, spec.gh * geo.view.scale]
+    : [geo.pos[0], geo.pos[1], geo.fg[0], geo.fg[1]];
   const fill = { white: 0, black: 1, color: 2, blur: 3, transparent: 4 }[cf.fill];
   // پس‌زمینهٔ «محو»: تصویرِ پس از هندسه (gw×gh) cover-scale ⇒ برشِ مرکزی tw×th ⇒ ۱/۸ ⇒ گاوس ۶ ⇒ ×۰٫۸۲
   const cover = Math.max(tw / spec.gw, th / spec.gh);
@@ -408,7 +485,7 @@ export function frameUniforms(spec: FrameSpec): FrameUniforms {
   const t0 = Math.floor((ch - th) / 2);
   const bgInv = mul(photoUv, mul(inv(spec.geoH), mul(sc(spec.gw / cw, spec.gh / ch), mul(tr(l0, t0), sc(tw, th)))));
   return {
-    inv: inverse, contain: true, fg: [left, top, nw, nh], fill, color: hex3(cf.fill_color),
+    inv: inverse, contain: true, fg: fgRect, fill, color: hex3(cf.fill_color),
     bgSize: [Math.max(1, Math.floor(tw / 8)), Math.max(1, Math.floor(th / 8))], bgInv,
   };
 }

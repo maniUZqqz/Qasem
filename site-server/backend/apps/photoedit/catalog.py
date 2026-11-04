@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -116,7 +117,15 @@ def _tools() -> list[dict]:
                          "کالا تا (۱ − ۲×حاشیه) از قاب بزرگ می‌شود"),
                     {"key": "window", "title": "پنجرهٔ برش", "type": "window", "default": [],
                      "help": "[چپ، بالا، پهنا، ارتفاع] به کسری از عکسِ ورودی (فقط پر کردن)؛ اگر باشد جای «سوژه کجاست» را می‌گیرد "
-                             "تا پیش‌نمایشِ مرورگر و خروجی یکی باشند."}]},
+                             "تا پیش‌نمایشِ مرورگر و خروجی یکی باشند."},
+                    _sel("subject", "جای کالا در قابِ «جا دادن»", _opt(("", "کلِ عکس (همان‌طور که هست)"),
+                                                                        ("auto", "کالا وسطِ قاب (خودکار)")), "",
+                         "«کالا وسطِ قاب»: کالا (با همان تشخیصِ «سوژه (خودکار)») کامل و با حاشیهٔ «حاشیه» وسطِ قاب می‌نشیند؛ "
+                         "بیرونِ عکس با «پرکردنِ دور» پر می‌شود. پیش‌فرض (کلِ عکس) همان رفتارِ قدیمی است."),
+                    {"key": "view", "title": "جای دوربین", "type": "view", "default": [],
+                     "help": "[بزرگ‌نمایی، مرکزِ x، مرکزِ y] (مرکز = کسری از عکسِ ورودی که وسطِ قاب می‌افتد)؛ فقط با «کالا وسطِ قاب». "
+                             "اگر باشد جایگزینِ تشخیصِ خودکار می‌شود (کشیدنِ عکس در قاب، یا همان که مرورگر حساب کرده) تا پیش‌نمایش "
+                             "و خروجی یکی باشند."}]},
         {"key": "crop_rect", "title": "برشِ دلخواه (مستطیل)", "where": "server", "icon": "image",
          "help": "هر ناحیه از عکس را با مختصاتِ نسبی ببُرید (چپ، بالا، پهنا، ارتفاع به درصدِ عکس). در حالتِ «دستی» "
                  "همین را با کشیدنِ قاب روی عکس می‌سازید.",
@@ -341,8 +350,34 @@ def normalize_curve(v) -> dict:
     return out
 
 
+VIEW_ZOOM_MAX = 8.0    # بیشترین بزرگ‌نماییِ «جای دوربین» (قابِ جا دادن با کالا وسط)
+VIEW_CENTER = (-1.0, 2.0)  # بازهٔ مرکزِ دوربین (کسری از عکس؛ بیرونِ [۰,۱] یعنی عکس از وسطِ قاب کنار رفته)
 WINDOW_MIN = 0.02      # کمترین پهنا/ارتفاعِ پنجرهٔ برش (کسری از عکس)
 WINDOW_SLACK = 1e-3    # خطای گردکردنِ مرورگر (x+w کمی بیش از ۱) پذیرفته و به لبه چسبانده می‌شود
+
+
+def normalize_view(v) -> list:
+    """جای دوربینِ قابِ «جا دادن» ``[zoom, cx, cy]`` ⇐ فهرستِ ۳ عددی (zoom ۴ رقم، مرکز ۵ رقم) یا ``[]`` (= بی‌دوربین).
+
+    zoom به [۱، ۸]، مرکز به [−۱، ۲] می‌رود؛ هر مقدارِ غیرعددی/بولی/ناپایان ⇒ کلِ فهرست دور ریخته می‌شود."""
+    if not isinstance(v, (list, tuple)) or len(v) != 3:
+        return []
+    nums = []
+    for item in v:
+        if isinstance(item, bool):
+            return []
+        x = _clamp(item, -1e6, 1e6, None)
+        if x is None:
+            return []
+        nums.append(x)
+    zoom = min(VIEW_ZOOM_MAX, max(1.0, nums[0]))
+    cx = min(VIEW_CENTER[1], max(VIEW_CENTER[0], nums[1]))
+    cy = min(VIEW_CENTER[1], max(VIEW_CENTER[0], nums[2]))
+    def rhu(x, nd):          # نیم به بالا، مثلِ Math.round ِ مرورگر (نه نیم به زوجِ round)
+        k = 10 ** nd
+        return math.floor(x * k + 0.5) / k
+
+    return [rhu(zoom, 4), rhu(cx, 5), rhu(cy, 5)]
 
 
 def normalize_window(v) -> list:
@@ -429,6 +464,8 @@ def normalize_params(tool_key: str, params: dict | None, *, strict: bool = True)
             out[k] = spots
         elif t == "window":
             out[k] = normalize_window(v)
+        elif t == "view":
+            out[k] = normalize_view(v)
     if tool_key == "kit_preset" and out.get("preset") not in kit_presets():
         out["preset"] = "clean"
     return out

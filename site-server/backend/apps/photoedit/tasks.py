@@ -76,3 +76,26 @@ def finish_edit_task(edit_id: int) -> None:
     edit = _edit(edit_id)
     if edit is not None and edit.state == PhotoEdit.State.SERVER:
         services.run_server_stage(edit)
+
+
+# ───────────────────────────── ترجمهٔ توضیحِ «پرکردنِ هوشمند» (فارسی ⇒ انگلیسی)
+
+@shared_task(ignore_result=True)
+def genfill_translate_job_task(uid: str) -> None:
+    """کارِ منتظرِ ترجمه را یک گام جلو می‌برد؛ مترجمی نبود ⇒ بعد از GENFILL_TR_RETRY_S ثانیه دوباره (مثلِ poll ِ بالا؛ زیرِ
+    celery eager تکرار نمی‌شود). گرهٔ خاموش و متیسِ بی‌اعتبار فقط یعنی «بعداً»: کار گم نمی‌شود."""
+    result = services.genfill_translate_step(uid)
+    if result == "waiting" and not _eager():
+        genfill_translate_job_task.apply_async((uid,), countdown=services.GENFILL_TR_RETRY_S)
+
+
+@shared_task(ignore_result=True)
+def genfill_preview_task(store_id: int, text: str) -> None:
+    """ترجمهٔ پیش‌نمایشِ پنل (پیش از «اجرا»)؛ نتیجه یا دلیلِ شکست در فایلِ کَش/وضعیت می‌ماند و پنل می‌خواندش."""
+    from apps.stores.models import Store
+
+    from . import translate
+
+    store = Store.objects.filter(pk=store_id).first()
+    if store is not None:
+        translate.run_preview(store, text)

@@ -369,7 +369,8 @@ export function buildProOperations(s: ProState, opts: { quick?: boolean; project
   }
   const cf = effectiveCropFormat(s.tools);
   if (cf) {
-    const smart = cf.fit === "cover" && cf.focus === "smart" && cf.window.length !== 4;
+    // خودکار = پنجرهٔ «سوژه (خودکار)» (cover) یا جای دوربینِ «کالا وسطِ قاب» (contain)؛ مرورگر حساب می‌کند و همان به خروجی می‌رود
+    const smart = (cf.fit === "cover" && cf.focus === "smart" && cf.window.length !== 4) || (cf.fit === "contain" && cf.subject === "auto" && cf.view.length !== 3);
     add("crop_format", cropFormatOpParams(cf, smart ? opts.window : null));
   }
   for (const k of TONE_KEYS) if (s.tools[k]) add(k, s.tools[k]);

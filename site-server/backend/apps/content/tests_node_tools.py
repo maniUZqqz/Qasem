@@ -4,14 +4,17 @@ and a render that uses it."""
 import http.server
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import LiveServerTestCase, override_settings
 from django.utils import timezone
@@ -28,6 +31,22 @@ from .tests_node_render import DATA, HAVE_FFMPEG, HAVE_NODE_CODE, MEDIA, FakeNod
 if HAVE_NODE_CODE:
     import agent
     import edit_render
+    import edit_rvm
+
+try:
+    import numpy  # noqa: F401
+    import onnxruntime  # noqa: F401
+    HAVE_ORT = True
+except Exception:  # noqa: BLE001
+    HAVE_ORT = False
+
+
+def rvm_model():
+    """The real RVM model (the site's mirror of it, or $NM_RVM_TEST_MODEL) when it is on this machine and is the manifest's file."""
+    for cand in (os.environ.get("NM_RVM_TEST_MODEL", ""), str(Path(settings.BASE_DIR).parent / "data" / "up3d" / "downloads" / "rvm_mobilenetv3_fp32.onnx")):
+        if cand and os.path.isfile(cand) and edit_rvm.verified(cand):
+            return cand
+    return None
 
 
 class StubPhotoKit:
@@ -183,7 +202,7 @@ class NodeToolsTests(LiveServerTestCase):
     def test_matte_without_a_node_says_exactly_what_is_needed(self):
         st = self.client.get(f"{self.base}/editor/matte/status/").json()
         self.assertFalse(st["ok"])
-        for word in ("photo-background", "BiRefNet", "روشن نیست", "دانلود نمی‌شود", "Robust Video Matting"):
+        for word in ("photo-background", "BiRefNet", "روشن نیست", "Robust Video Matting", "onnxruntime", "GPL-3.0"):
             self.assertIn(word, st["message"], word)
         self.assertEqual(self.post("/editor/mattes/", {"ref": f"video:{self.plain_up.pk}", "s0": 0, "s1": 3}).status_code, 503)
 
@@ -194,6 +213,48 @@ class NodeToolsTests(LiveServerTestCase):
         self.assertIn("آماده ندارد", st["message"])
         self.assertIn("photo-background", st["message"])
 
+    def test_the_status_says_which_engine_the_node_has_and_how_long_a_stretch_it_takes(self):
+        ComputeNode.objects.create(name="gpu-fake", token="fake-tok", last_seen=timezone.now(),                  # a heartbeat that stays as it is
+                                   capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "matte": True, "matte_engine": "rvm"}})
+        st = self.client.get(f"{self.base}/editor/matte/status/").json()
+        self.assertEqual((st["ok"], st["engine"], st["max_seconds"]), (True, "rvm", 60.0))
+        ComputeNode.objects.filter(name="gpu-fake").update(capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "matte": True, "matte_engine": "birefnet"}})
+        st = self.client.get(f"{self.base}/editor/matte/status/").json()
+        self.assertEqual((st["ok"], st["engine"], st["max_seconds"]), (True, "birefnet", 20.0))
+        ComputeNode.objects.filter(name="gpu-fake").update(capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "matte": True}})      # an agent before 2.5
+        st = self.client.get(f"{self.base}/editor/matte/status/").json()
+        self.assertEqual((st["engine"], st["max_seconds"]), ("birefnet", 20.0))
+        ComputeNode.objects.filter(name="gpu-fake").update(capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True, "matte": True, "matte_engine": "rvm-pending"}})
+        st = self.client.get(f"{self.base}/editor/matte/status/").json()
+        self.assertEqual((st["ok"], st["engine"], st["max_seconds"]), (True, "rvm-pending", 20.0), "the first job fetches the model; until then the old limits")
+
+    def test_matte_with_the_video_model_follows_24_frames_a_second_and_is_kept_with_its_engine(self):
+        model = rvm_model() if HAVE_ORT else None
+        if not model:
+            self.skipTest("needs numpy + onnxruntime and the real RVM model (the site's mirror) on this machine")
+        dest = Path(self.node_tmp) / "models" / "video-matting"
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy(model, dest / "rvm_mobilenetv3_fp32.onnx")
+        find = lambda agent=None, probe=True: (sys.executable, {"ort": "t", "providers": ["CPUExecutionProvider"]})  # noqa: E731
+        self.start_node({"v": 1, "render": True, "matte": True, "matte_engine": "rvm"}, extra_patches=[mock.patch.object(edit_rvm, "find_python", find)])
+        job = self.job_of(self.post("/editor/mattes/", {"ref": f"video:{self.plain_up.pk}", "s0": 0.5, "s1": 1.5, "fps": 6}))
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual((job.result["engine"], job.result["fps"]), ("rvm-mobilenetv3", 24.0), "the requested 6 per second is not used with the video model")
+        from apps.compute.models import ComputeJob
+
+        cj = ComputeJob.objects.filter(kind="edit.matte").latest("created_at")
+        self.assertEqual((cj.payload["fps"], cj.payload["size"]), (24.0, [320, 240]))
+        rows = self.client.get(f"{self.base}/editor/mattes/").json()["mattes"]
+        self.assertEqual((rows[0]["engine"], rows[0]["fps"], rows[0]["s0"]), ("rvm-mobilenetv3", 24.0, 0.5))
+        from services.editing import mattes
+
+        out = mattes.path_of(self.store.pk, job.result["key"])
+        self.assertTrue(out and out.is_file())
+        info = probe(out)
+        v = next(x for x in info["streams"] if x["codec_type"] == "video")
+        self.assertEqual((v["r_frame_rate"], int(v["width"]), int(v["height"])), ("24/1", 320, 240))
+        self.assertAlmostEqual(float(info["format"]["duration"]), 1.0, delta=0.1)
+
     def test_matte_goes_to_the_node_is_kept_and_cuts_the_picture(self):
         mask = Path(self.node_tmp) / "mask.png"
         subprocess.run([FFMPEG, "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:d=0.1", "-vf", "drawbox=x=0:y=0:w=80:h=120:color=white:t=fill,format=gray",
@@ -203,7 +264,9 @@ class NodeToolsTests(LiveServerTestCase):
         model.mkdir(parents=True, exist_ok=True)
         (model / "birefnet-lite.onnx").write_bytes(b"fake")
         try:
-            self.start_node({"v": 1, "render": True, "matte": True}, extra_patches=[mock.patch.object(agent, "service_url", lambda key: kit.url)])
+            # this test is the older per-frame path through the photo kit: RVM is switched off on the fake node (and so can never fetch anything)
+            self.start_node({"v": 1, "render": True, "matte": True}, extra_patches=[mock.patch.object(agent, "service_url", lambda key: kit.url),
+                                                                                       mock.patch.dict(os.environ, {"NM_RVM": "0"})])
             st = self.client.get(f"{self.base}/editor/matte/status/").json()
             self.assertTrue(st["ok"], st)
             job = self.job_of(self.post("/editor/mattes/", {"ref": f"video:{self.plain_up.pk}", "s0": 0.5, "s1": 2.5, "fps": 6}))

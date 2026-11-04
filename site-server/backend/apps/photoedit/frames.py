@@ -184,14 +184,17 @@ def geometry_stage(asset_w: int, asset_h: int, state: dict) -> tuple[np.ndarray,
     return H, (w, h)
 
 
-def social_stage(w: int, h: int, params: dict, energy=None) -> tuple[np.ndarray, tuple[int, int], dict]:
+def social_stage(w: int, h: int, params: dict, energy=None, subject=None) -> tuple[np.ndarray, tuple[int, int], dict]:
     """``crop_format`` روی ورودیِ w×h ⇒ (H، (Wf, Hf)، هندسهٔ ops.crop_format_geometry)."""
     p = catalog.normalize_params("crop_format", params, strict=False)
-    geo = ops.crop_format_geometry(p, w, h, energy)
+    geo = ops.crop_format_geometry(p, w, h, energy, subject)
     tw, th = geo["size"]
     if geo["mode"] == "cover":
         x0, y0, x1, y1 = geo["box"]
         H = _S(tw / (x1 - x0), th / (y1 - y0)) @ _T(-x0, -y0)
+    elif geo.get("view"):                    # «کالا وسطِ قاب»: جای اعشاریِ عکس در بوم (ممکن است بیرون بزند)
+        v = geo["view"]
+        H = _T(v["left"], v["top"]) @ _S(v["scale"], v["scale"])
     else:
         nw, nh = geo["fg"]
         left, top = geo["pos"]
@@ -199,23 +202,23 @@ def social_stage(w: int, h: int, params: dict, energy=None) -> tuple[np.ndarray,
     return H, (tw, th), geo
 
 
-def frame_stages(asset_w: int, asset_h: int, state: dict, *, energy=None) -> dict:
+def frame_stages(asset_w: int, asset_h: int, state: dict, *, energy=None, subject=None) -> dict:
     """همهٔ مرحله‌های قاب: ``{"H", "size", "geo_H", "geo_size", "social": geo|None}``."""
     Hg, (wg, hg) = geometry_stage(asset_w, asset_h, state)
     cf = _social_params(state)
     if cf is None:
         return {"H": Hg, "size": (wg, hg), "geo_H": Hg, "geo_size": (wg, hg), "social": None}
-    Hs, size, geo = social_stage(wg, hg, cf, energy)
+    Hs, size, geo = social_stage(wg, hg, cf, energy, subject)
     return {"H": Hs @ Hg, "size": size, "geo_H": Hg, "geo_size": (wg, hg), "social": geo}
 
 
-def frame_geometry(asset_w: int, asset_h: int, state: dict, *, energy=None) -> tuple[np.ndarray, tuple[int, int]]:
+def frame_geometry(asset_w: int, asset_h: int, state: dict, *, energy=None, subject=None) -> tuple[np.ndarray, tuple[int, int]]:
     """هندسهٔ مرحلهٔ قاب برای عکسی ``asset_w × asset_h`` و حالتِ پروژه (``turn, straighten, flipH, flipV, crop, persp,
     tools.crop_format``) ⇒ ``(H، (Wf, Hf))``: H هموگرافیِ ۳×۳ از پیکسلِ سند به پیکسلِ بومِ نهایی.
 
     ``energy(cw, ch) ⇐ (x, y)`` فقط برای cover/smart بی پنجره (روی تصویرِ پیش از «قابِ شبکه»)؛ نبودنش ⇐ وسط.
     """
-    s = frame_stages(asset_w, asset_h, state, energy=energy)
+    s = frame_stages(asset_w, asset_h, state, energy=energy, subject=subject)
     return s["H"], s["size"]
 
 

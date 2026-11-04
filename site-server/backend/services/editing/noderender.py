@@ -1,4 +1,5 @@
-"""The final render on the processing node (the owner's GPU PC) when it is online. §23.4
+"""The final render — and, when it is heavy and cheap to move, the quick draft — on the processing node (the owner's GPU PC) when it is
+online. §23.4 (which drafts go there is decided by `placement.py`; a draft that is not worth the trip is rendered on the site)
 
 The site builds the SAME filtergraph it would run itself — `compose.build_graph(..., portable=True)` — and hands the node a
 job (`edit.render`, kind prefix `edit.` ⇒ capability «ffmpeg»):
@@ -30,7 +31,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import compose, export, titles
+from . import compose, export, placement, titles
 from .errors import TimelineError
 
 logger = logging.getLogger(__name__)
@@ -187,11 +188,13 @@ class Bundle:
     spec: object | None
 
 
-def build(timeline, export_block: dict | None) -> Bundle:
-    """The job for this timeline, built exactly like `export.render` builds its command."""
+def build(timeline, export_block: dict | None, *, profile: str = "final") -> Bundle:
+    """The job for this timeline, built exactly like `export.render` builds its command. `profile="draft"` is the quick draft:
+    the project's own size, x264 veryfast crf 27 and 160 kbit/s sound — what `export.render(quality="draft")` does on the site."""
     from services.video.ffmpeg import AUDIO_DELIVERY, VIDEO_DELIVERY
 
-    spec = export.resolve(export_block, timeline) if export_block else None
+    draft = profile == "draft"
+    spec = export.resolve(export_block, timeline) if export_block and not draft else None
     work = timeline
     if spec is not None:
         w, h = export.size_for(timeline, spec.short_side)
@@ -216,7 +219,11 @@ def build(timeline, export_block: dict | None) -> Bundle:
     assets = {token: fid_for(path) for token, path in built.assets.items()}
     fonts = [fid_for(p) for p in font_files()] if built.texts else []
     spec_for_encode = spec or export.ExportSpec()
-    if spec is not None:
+    if draft:
+        spec_for_encode = export.ExportSpec(preset="veryfast", crf=27, audio_kbps=160)
+        audio_args = ["-c:a", "aac", "-b:a", f"{spec_for_encode.audio_kbps}k", "-ar", "48000"]
+        cpu = export.encode_args(spec_for_encode, draft=True)
+    elif spec is not None:
         audio_args = ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
         cpu = export.encode_args(spec)
     else:
@@ -252,22 +259,62 @@ def _label(message: str) -> str:
     return message or "سرورِ پردازش…"
 
 
-def render_on_node(job_row, timeline, export_block, dest, *, progress=None, cancel=None, store=None) -> dict:
+def node_busy(node) -> bool:
+    """The node is working on (or has just claimed) a job: a draft sent now would wait behind it."""
+    try:
+        return node.jobs.filter(state__in=("CLAIMED", "RUNNING")).exists()
+    except Exception:  # noqa: BLE001 — a doubt means «busy»: the draft stays on the site
+        return True
+
+
+def node_cache(node) -> list | None:
+    """The 16-hex sha256 prefixes of the originals the node says it holds, or None when its agent does not report them yet."""
+    cache = ((node.capabilities or {}).get("edit") or {}).get("cache")
+    return list(cache) if isinstance(cache, list) else None
+
+
+def plan_draft(timeline):
+    """Where should this quick draft be rendered? → (placement.Decision, Bundle | None). Cheap first: a light draft (or no usable
+    node) is decided without reading a single file; only a heavy one builds the job (which hashes the originals) to learn what
+    the node would still have to download."""
+    est = placement.estimate_site_seconds(timeline)
+    node, _why = pick_node()
+    if node is None:
+        return placement.decide(est, node_online=False), None
+    if est <= placement.HEAVY_SITE_SECONDS:
+        return placement.decide(est, node_online=True), None
+    if node_busy(node):
+        return placement.decide(est, node_online=True, node_busy=True), None
+    try:
+        bundle = build(timeline, None, profile="draft")
+    except TimelineError:
+        return placement.Decision("server", "unreadable", est), None
+    out_bytes = placement.estimate_output_bytes(bundle.length, bundle.size[0], bundle.size[1], timeline.fps)
+    left = placement.uncached_bytes(bundle.files, node_cache(node))
+    return placement.decide(est, node_online=True, uncached_bytes=left, out_bytes=out_bytes), bundle
+
+
+def render_on_node(job_row, timeline, export_block, dest, *, progress=None, cancel=None, store=None, profile: str = "final",
+                   bundle: Bundle | None = None, budget: float | None = None, queue_grace: float | None = None) -> dict:
     """Render `timeline` on a node into `dest`. `progress(fraction, label)` / `cancel()` as in `export.render`.
-    → {"where": "node", "node", "encoder", "seconds", "ffmpeg"}. Raises NodeUnavailable / NodeFailed / export.RenderCancelled."""
+    `profile="draft"` renders the quick draft (a `bundle` already built by `plan_draft`, a `budget` in seconds and a short
+    `queue_grace` may be given). → {"where": "node", "node", "encoder", "seconds", "ffmpeg"}.
+    Raises NodeUnavailable / NodeFailed / export.RenderCancelled."""
     from apps.compute import services as compute
     from apps.compute import transfer
 
     node, why = pick_node()
     if node is None:
         raise NodeUnavailable(why)
-    try:
-        bundle = build(timeline, export_block)
-    except TimelineError as exc:
-        raise NodeUnavailable(str(exc)) from exc
+    if bundle is None:
+        try:
+            bundle = build(timeline, export_block, profile=profile)
+        except TimelineError as exc:
+            raise NodeUnavailable(str(exc)) from exc
     length = max(1.0, bundle.length)
     total_bytes = sum(f["size"] for f in bundle.files.values())
-    budget = int(900 + length * 40 + total_bytes / 1_000_000 * 4)
+    budget = int(budget) if budget else int(900 + length * 40 + total_bytes / 1_000_000 * 4)
+    grace = QUEUE_GRACE if queue_grace is None else queue_grace
     try:
         # held for a moment (node_wanted names nobody) so the node cannot claim it before its files are registered
         cjob = compute.enqueue(KIND, bundle.payload, None, store=store, origin="video-editor-render", timeout_s=budget,
@@ -294,7 +341,7 @@ def render_on_node(job_row, timeline, export_block, dest, *, progress=None, canc
                 raise NodeFailed(cjob.error or "رندر روی سرورِ پردازش ناموفق بود.")
             if state == cjob.State.CANCELLED:
                 raise NodeFailed("کار روی سرورِ پردازش لغو شد.")
-            if state == cjob.State.QUEUED and now - started > QUEUE_GRACE:
+            if state == cjob.State.QUEUED and now - started > grace:
                 compute.cancel(cjob)
                 raise NodeUnavailable("سرورِ پردازش کار را برنداشت (مشغول است یا عاملش جواب نمی‌دهد).")
             if state != cjob.State.QUEUED:

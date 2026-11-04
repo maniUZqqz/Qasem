@@ -337,6 +337,32 @@ export type FontInfo = { key: string; title: string; family: string; weights: nu
 export type GenFillState = "QUEUED" | "RUNNING" | "COMPLETED" | "READY" | "FAILED" | "CANCELLED";
 /** جای لایهٔ تصویری روی بوم (کسری از بوم): مرکز و پهنا — همان قراردادِ لایهٔ image */
 export type GenFillLayer = { cx: number; cy: number; w: number };
+/**
+ * ترجمهٔ توضیحِ فارسی به انگلیسی (FLUX فارسی را خوب نمی‌فهمد): none = ترجمه لازم نبود (انگلیسی/خالی)، ok = ترجمه شد
+ * (یا انگلیسیِ نوشتهٔ کاربر)، waiting = هیچ مترجمی در دسترس نیست و کار منتظر مانده، failed = ترجمه درنیامد.
+ */
+export type GenFillTranslation = {
+  state: "none" | "ok" | "waiting" | "failed";
+  /** auto (مترجم) | cache | user (نوشتهٔ کاربر) */
+  source: string;
+  fa: string;
+  en: string;
+  /** «لوکال (gemma3:12b)» … */
+  label: string;
+  message: string;
+  attempts: number;
+};
+/** جوابِ پیش‌نمایشِ ترجمه (POST genfill/translate/) */
+export type GenFillPreview = {
+  state: "none" | "ok" | "pending" | "unavailable" | "failed";
+  needed: boolean;
+  fa: string;
+  en?: string;
+  label?: string;
+  source?: string;
+  cached?: boolean;
+  message?: string;
+};
 export type GenFillStart = {
   job: string;
   state: GenFillState;
@@ -344,6 +370,7 @@ export type GenFillStart = {
   message: string;
   engine?: string;
   notes?: string[];
+  translation?: GenFillTranslation;
 };
 export type GenFillStatus = {
   job: string;
@@ -357,6 +384,7 @@ export type GenFillStatus = {
   layer?: GenFillLayer;
   size?: [number, number];
   seconds?: number | null;
+  translation?: GenFillTranslation;
 };
 /** وضعیتِ READY: عکسِ کتابخانه (RGBA، آلفا = ماسکِ نرم) + جایی که باید به‌صورتِ لایهٔ تصویری رویِ بوم بنشیند */
 export type GenFillResult = GenFillStatus & { state: "READY"; asset: Asset; layer: GenFillLayer };

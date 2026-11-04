@@ -335,14 +335,27 @@ function Matte(p: ProProps & { clip: MediaClip | null }) {
   const mine = c ? p.mattes.filter((m) => m.ref === c.ref) : [];
   const can = !!c && c.kind === "video" && !seqIdOf(c);
   const st = p.matteStatus;
+  const fast = st?.engine === "rvm";            // مدلِ ویدیویی: همهٔ فریم‌ها پشتِ هم و با حافظهٔ زمانی؛ نرخِ نمونه را خودِ سرور می‌گذارد
   return (
     <Section title="حذفِ پس‌زمینهٔ ویدیو" testId="sec-matte" badge={c?.matte ? <span className="ws-dot" /> : undefined}>
       {st && !st.ok && <p className="xp-warn" data-testid="matte-status">{st.message}</p>}
-      {st?.ok && <p className="ws-hint">سرورِ پردازشِ «{st.node}» آماده است. هر فریم جدا بریده می‌شود (حدود چند ثانیه برای هر فریم)؛ تا {fa(st.max_seconds)} ثانیه در هر بار.</p>}
+      {st?.ok && (
+        <p className="ws-hint" data-testid="matte-engine" data-engine={st.engine ?? "birefnet"}>
+          سرورِ پردازشِ «{st.node}» آماده است.{" "}
+          {fast
+            ? "با مدلِ ویدیوییِ RVM همهٔ فریم‌ها پشتِ هم و با حافظهٔ فریمِ قبل بریده می‌شود؛ سریع است و لبه‌ها نمی‌پرند."
+            : st.engine === "rvm-pending"
+              ? "مدلِ ویدیوییِ RVM (۱۴ مگابایت) در اولین کار خودکار از سایت گرفته می‌شود؛ هر فریم جدا بریده می‌شود."
+              : "هر فریم جدا بریده می‌شود (حدود چند ثانیه برای هر فریم)."}{" "}
+          تا {fa(st.max_seconds)} ثانیه در هر بار.
+        </p>
+      )}
       <div className="flex flex-wrap gap-2 items-center">
-        <label className="ws-field"><span>نمونه در ثانیه</span>
-          <select className="u-input" defaultValue={6} onChange={(e) => { fps.current = Number(e.target.value); }} aria-label="نمونه در ثانیه">{[4, 6, 8, 12].map((n) => <option key={n} value={n}>{fa(n)}</option>)}</select>
-        </label>
+        {!fast && (
+          <label className="ws-field"><span>نمونه در ثانیه</span>
+            <select className="u-input" defaultValue={6} onChange={(e) => { fps.current = Number(e.target.value); }} aria-label="نمونه در ثانیه">{[4, 6, 8, 12].map((n) => <option key={n} value={n}>{fa(n)}</option>)}</select>
+          </label>
+        )}
         <button type="button" className="ws-btn primary" disabled={!can || !st?.ok || !!p.matteBusy} onClick={() => p.onMakeMatte(fps.current)} data-testid="matte-start">
           {p.matteBusy ? <><Spinner size={12} /> {p.matteBusy}</> : "ساختِ مات از بازهٔ این قطعه"}
         </button>

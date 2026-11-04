@@ -2,9 +2,9 @@ import type { Adjust, Curve } from "../../manual/engine";
 import type { Layer, MaskSpec, ProState, Quad } from "../types";
 import type { M3 } from "../geo";
 import type { FrameSpec } from "../frame";
-import { canvasToPhoto, cropFormatGeometry, frameUniforms, normalizeWindow } from "../frame";
+import { canvasToPhoto, cropFormatGeometry, cropFormatTarget, frameUniforms, normalizeWindow } from "../frame";
 import type { EnergyMap } from "../smartFocus";
-import { energyMap, energyOffset, thumbSize } from "../smartFocus";
+import { energyMap, energyOffset, subjectView, thumbSize } from "../smartFocus";
 import { GLCtx, Tex, UValue } from "./glutil";
 import { LUT_N, buildCurveLut, newCanvas, rasterShape, rasterStrokes, rasterText } from "./raster";
 import { SH } from "./shaders";
@@ -891,15 +891,19 @@ export class ProEngine {
   // ───────────────────────── «سوژه (خودکار)» برای قابِ cover
 
   /**
-   * پنجرهٔ برشِ «سوژه (خودکار)» [x, y, w, h] (کسری از تصویرِ پس از هندسه) یا null (قاب cover/smart نیست / هنوز عکس نیامده).
+   * جای «خودکار»ِ قاب، یا null (قاب خودکار نیست / هنوز عکس نیامده):
+   *  - cover + «سوژه (خودکار)»: پنجرهٔ برش [x, y, w, h] (کسری از تصویرِ پس از هندسه)؛
+   *  - contain + «کالا وسطِ قاب»: جای دوربین [zoom, cx, cy] (کالا کامل و با حاشیه وسطِ قاب؛ کالا کلِ عکس است ⇒ [1، ۰٫۵، ۰٫۵]).
    * روی کوچک‌نمایِ ۳۲۰ پیکسلیِ عکسِ *بی‌ظهور* پس از پرسپکتیو/چرخش/برش حساب می‌شود (پس با لغزنده‌ها عوض نمی‌شود) و به‌ازای
-   * امضای هندسه کَش می‌شود؛ پیش‌نمایش و خروجی (کارِ crop_format با window) هر دو همین را می‌بینند.
+   * امضای هندسه کَش می‌شود؛ پیش‌نمایش و خروجی (کارِ crop_format با window/view) هر دو همین را می‌بینند.
    * cacheOnly: فقط اگر از پیش حساب شده باشد (هنگامِ کشیدنِ دستگیره‌های برش گران نشود).
    */
   smartWindow(spec: FrameSpec, cacheOnly = false): number[] | null {
     const cf = spec.cf;
-    if (!cf || cf.fit !== "cover" || cf.focus !== "smart" || !this.baseSrc || !this.ok) return null;
-    const key = `${this.baseVer}|${JSON.stringify(spec.geoH.map((v) => Math.round(v * 1e6) / 1e6))}|${spec.gw}x${spec.gh}`;
+    const subject = !!cf && cf.fit === "contain" && cf.subject === "auto";
+    if (!cf || (!subject && (cf.fit !== "cover" || cf.focus !== "smart")) || !this.baseSrc || !this.ok) return null;
+    // «کالا وسطِ قاب» نقشهٔ انرژیِ بی سهمِ وسط می‌خواهد (جعبهٔ کالا)؛ «جای پنجره» با سهمِ وسط — کَشِ جدا
+    const key = `${subject ? "s" : "c"}|${this.baseVer}|${JSON.stringify(spec.geoH.map((v) => Math.round(v * 1e6) / 1e6))}|${spec.gw}x${spec.gh}`;
     let em = this.energies.get(key);
     if (!em) {
       if (cacheOnly) return null;
@@ -911,11 +915,15 @@ export class ProEngine {
       this.framePass(this.baseSrc, t, geoOnly);
       const data = g.read(t);
       g.destroy(t);
-      em = energyMap(data, tw, th, this.baseHasAlpha);
+      em = energyMap(data, tw, th, this.baseHasAlpha, !subject);
       if (this.energies.size > 8) this.energies.clear();
       this.energies.set(key, em);
     }
     const map = em;
+    if (subject) {
+      const [tw0, th0] = cropFormatTarget(cf);
+      return subjectView(map, this.baseHasAlpha, spec.gw, spec.gh, tw0, th0) ?? [1, 0.5, 0.5];
+    }
     // پنجره: هندسهٔ cover بی‌پنجره با energy ⇒ جعبه ⇒ کسری
     const noWin = { ...cf, window: [] as number[] };
     const geo = cropFormatGeometry(noWin, spec.gw, spec.gh, (cw, ch) => energyOffset(map, spec.gw, spec.gh, cw, ch));

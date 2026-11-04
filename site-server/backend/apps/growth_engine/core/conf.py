@@ -17,7 +17,7 @@ DEFAULTS = {
     "BULK_MAX_IDS": 500,
     "EXPORT_MAX_ROWS": 50_000,
     # --- outbound HTTP (integrations/safe_http.py) -----------------------------------------------
-    "HTTP_USER_AGENT": "NMarketingBot/1.0 (+https://nmarketing.ir/bot; business contact lookup)",
+    "HTTP_USER_AGENT": "NMarketingBot/1.0 (+http://87.107.160.17:8040/; business contact lookup)",
     "HTTP_ROBOTS_TOKEN": "NMarketingBot",
     "HTTP_CONNECT_TIMEOUT": 5.0,
     "HTTP_READ_TIMEOUT": 12.0,

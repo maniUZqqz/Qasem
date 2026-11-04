@@ -876,4 +876,10 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update(
 GROWTH_ENGINE = {
     "CSV_MAX_BYTES": int(os.getenv("GROWTH_CSV_MAX_MB", "5")) * 1024 * 1024,
     "CSV_MAX_ROWS": int(os.getenv("GROWTH_CSV_MAX_ROWS", "10000")),
+    # the address in the User-Agent must be a real page that says who is fetching (nmarketing.ir does not exist yet)
+    **({"HTTP_USER_AGENT": os.getenv("GROWTH_HTTP_USER_AGENT")} if os.getenv("GROWTH_HTTP_USER_AGENT") else {}),
 }
+
+
+# --- NM-Mobile (برنامهٔ همراهِ اندروید): گوشی‌ها، دروازهٔ پیامک، تماس‌ها، قیمتِ پایین، شناساییِ تماس‌گیرنده
+INSTALLED_APPS += ["apps.mobile"]

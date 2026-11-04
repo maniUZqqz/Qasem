@@ -154,6 +154,7 @@ export const PAGES: PanelPage[] = [
   { key: "studio_builder", section: "tools", label: "سایت‌ساز", icon: "box", to: "/tools/studio", staffOnly: true },
   { key: "video3d", section: "tools", label: "ویدیوی سه‌بعدی", icon: "film", to: "/tools/3d", staffOnly: true },
   { key: "compute", section: "tools", label: "سرورهای پردازش", icon: "cpu", to: "/tools/compute", end: true, staffOnly: true },
+  { key: "mobile", section: "tools", label: "دستگاه‌های موبایل", icon: "link", to: "/tools/mobile", end: true, staffOnly: true },
   { key: "django_admin", section: "tools", label: "ادمینِ جنگو", icon: "settings", to: "/admin/", staffOnly: true, external: true },
 ];
 

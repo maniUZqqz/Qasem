@@ -13,6 +13,7 @@ from apps.growth_engine.sources import provenance
 
 from .choices import ActivityKind, BusinessType, ContactKind, LeadOrigin, LeadStatus
 from .models import BusinessProfile, ContactPoint, Lead, LeadActivity, LeadNote, LeadTag
+from .services import scoring
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -51,14 +52,23 @@ class LeadListSerializer(serializers.ModelSerializer):
     phone = serializers.SerializerMethodField()
     email = serializers.SerializerMethodField()
     do_not_contact = serializers.SerializerMethodField()
+    reach = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
         fields = [
             "id", "display_name", "business_name", "website", "instagram_url", "category", "city", "country",
             "country_name", "status", "status_label", "origin", "origin_label", "is_archived", "tags", "phone",
-            "email", "created_at", "updated_at", "do_not_contact",
+            "email", "created_at", "updated_at", "do_not_contact", "reach",
         ]
+
+    def get_reach(self, obj):
+        """The rule-based reachability score with its reasons (see ``services/scoring``)."""
+        return scoring.score(obj, self._all_contacts(obj), suppressed=obj.pk in self.context.get("suppressed_ids", ()))
+
+    def _all_contacts(self, obj):
+        cached = getattr(obj, "list_contacts", None)
+        return cached if cached is not None else list(obj.contacts.all())
 
     def get_do_not_contact(self, obj):
         """True when the compliance module's list blocks this lead. The view passes the page's ids in the context."""

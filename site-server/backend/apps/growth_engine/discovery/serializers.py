@@ -26,13 +26,17 @@ class JobSerializer(serializers.ModelSerializer):
         return obj.created_by.username if obj.created_by_id else ""
 
     def get_can_resume(self, obj):
-        return bool(obj.stored_name) and (obj.status == DiscoveryJob.Status.FAILED or obj.is_stalled)
+        resumable = obj.status == DiscoveryJob.Status.FAILED or obj.is_stalled
+        return resumable and (bool(obj.stored_name) or obj.kind == DiscoveryJob.Kind.SEARCH)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # the mapping is useful to see; nothing else in params is secret, but keep the payload small
         params = data.get("params") or {}
-        data["params"] = {k: params.get(k) for k in ("mapping", "default_country", "default_city", "tags", "extract_after") if k in params}
+        keep = ("mapping", "default_country", "default_city", "tags", "extract_after", "provider", "category", "category_label", "city", "country",
+                "max_results", "require_contact", "attribution", "attribution_url", "empty_note")
+        data["params"] = {k: params.get(k) for k in keep if k in params}
+        data["attribution"] = params.get("attribution", "")
         return data
 
 
@@ -84,3 +88,23 @@ class ResolveSerializer(serializers.Serializer):
     all = serializers.BooleanField(required=False)
     target_lead = serializers.IntegerField(required=False, min_value=1)
     overwrite_fields = serializers.ListField(child=serializers.CharField(max_length=40), required=False, max_length=20)
+
+
+class SearchRequestSerializer(serializers.Serializer):
+    """The panel's «کشف خودکار» form. Validation of the values themselves is in ``services/search.validate_request``."""
+
+    provider = serializers.CharField(max_length=24)
+    category = serializers.CharField(max_length=200, allow_blank=True, required=False, default="")
+    city = serializers.CharField(max_length=200, allow_blank=True, required=False, default="")
+    country = serializers.CharField(max_length=60, allow_blank=True, required=False, default="")
+    max_results = serializers.IntegerField(required=False, min_value=1, max_value=5000, default=100)
+    require_contact = serializers.BooleanField(required=False, default=True)
+    extract_after = serializers.BooleanField(required=False, default=False)
+    tags = serializers.ListField(child=serializers.CharField(max_length=50, allow_blank=True), required=False, max_length=20)
+
+
+class ProviderUpdateSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False)
+    settings = serializers.DictField(required=False)
+    secrets = serializers.DictField(child=serializers.CharField(allow_blank=True, max_length=400), required=False)
+    clear_secrets = serializers.ListField(child=serializers.CharField(max_length=40), required=False, max_length=10)

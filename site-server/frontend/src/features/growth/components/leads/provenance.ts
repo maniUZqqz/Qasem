@@ -11,6 +11,15 @@ export function parseRef(ref: string | undefined | null): SourceInfo {
     const row = cut >= 0 ? Number(rest.slice(cut + 1)) : NaN;
     return { kind: "csv", file, row: Number.isFinite(row) ? row : null };
   }
+  if (ref.startsWith("osm:")) {
+    const object = ref.slice(4);
+    return { kind: "osm", object, url: `https://www.openstreetmap.org/${object}` };
+  }
+  if (ref.startsWith("search:")) {
+    const rest = ref.slice(7);
+    const cut = rest.indexOf(":");
+    return { kind: "search", provider: cut >= 0 ? rest.slice(0, cut) : rest, host: cut >= 0 ? rest.slice(cut + 1) : "" };
+  }
   if (ref.startsWith("extract:")) {
     const run = Number(ref.slice(8));
     return { kind: "extract", run: Number.isFinite(run) ? run : null };

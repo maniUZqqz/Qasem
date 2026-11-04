@@ -23,6 +23,8 @@ from .models import Campaign, MessageTemplate, OutreachItem, OutreachJob
 from .serializers import (
     AddLeadsSerializer,
     CampaignCreateSerializer,
+    ChannelReorderSerializer,
+    ChannelUpdateSerializer,
     CampaignPatchSerializer,
     ItemIdsSerializer,
     ItemPatchSerializer,
@@ -34,7 +36,9 @@ from .serializers import (
     job_json,
     template_json,
 )
-from .services import approval, campaigns, items, manual, preparing, rendering, sending, templates
+from .channels import email as email_channel
+from .channels import sms as sms_channel
+from .services import approval, campaigns, channel_config, items, manual, preparing, rendering, sending, templates
 from .tasks import enqueue
 
 logger = logging.getLogger(__name__)
@@ -122,7 +126,7 @@ class TemplatePreviewView(GrowthView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         lead = get_object_or_404(Lead, pk=data["lead_id"]) if data.get("lead_id") else None
-        return Response(templates.preview(data["body"], data.get("subject", ""), lead))
+        return Response(templates.preview(data["body"], data.get("subject", ""), lead, data.get("channel") or None))
 
 
 # --------------------------------------------------------------------------- campaigns
@@ -147,7 +151,7 @@ class CampaignListView(GrowthView):
         if template is None:
             return validation_response(ValidationFailed([{"field": "template_id", "code": "not_found", "message": "این قالب پیدا نشد."}]))
         try:
-            campaign = campaigns.create_campaign(name=data["name"], template=template, mode=data["mode"], user=request.user)
+            campaign = campaigns.create_campaign(name=data["name"], template=template, mode=data["mode"], user=request.user, channel=data["channel"])
         except campaigns.CampaignError as exc:
             return _problem(exc)
         body = campaign_json(campaign)
@@ -266,6 +270,7 @@ class StatusView(GrowthView):
 
     def get(self, request, pk):
         campaign = _campaign_or_404(pk)
+        sms_channel.reconcile(campaign.pk)  # what the phone has sent / failed since the last look
         settings_obj = GrowthSettings.load()
         readiness = settings_obj.readiness()
         job = campaign.jobs.first()
@@ -279,6 +284,9 @@ class StatusView(GrowthView):
                 "cap_remaining": limits.cap_remaining(settings_obj),
                 "readiness": readiness,
                 "emergency_stop": settings_obj.emergency_stop,
+                "channels": {c["key"]: {"label": c["label"], "enabled": c["enabled"], "sent_today": c["sent_today"], "cap_remaining": c["cap_remaining"],
+                                        "ready": c["ready"], "not_ready_reason": c["not_ready_reason"]}
+                             for c in channel_config.snapshot_all() if c["kind"] == "auto"},
                 "settings": {"sending_enabled": settings_obj.sending_enabled, "emergency_stop": settings_obj.emergency_stop, "ready": readiness},
             }
         )
@@ -290,7 +298,11 @@ class StatusView(GrowthView):
 class ItemListView(GrowthView):
     def get(self, request, pk):
         campaign = _campaign_or_404(pk)
+        sms_channel.reconcile(campaign.pk)
         queryset = _item_queryset().filter(campaign=campaign)
+        channel = request.query_params.get("channel")
+        if channel:
+            queryset = queryset.filter(channel=channel)
         wanted = [s for s in (request.query_params.get("status") or "").split(",") if s]
         if wanted:
             queryset = queryset.filter(status__in=wanted)
@@ -366,3 +378,54 @@ class JobResumeView(GrowthView):
         enqueue(job)
         job.refresh_from_db()
         return Response(job_json(job), status=status.HTTP_202_ACCEPTED)
+
+
+# --------------------------------------------------------------------------- channels (settings; secrets are never returned)
+
+
+class ChannelListView(GrowthView):
+    """GET - every channel in priority order: on / off, readiness, caps, spacing, default template, which secrets are SET."""
+
+    def get(self, request):
+        return Response({"channels": channel_config.snapshot_all()})
+
+
+class ChannelReorderView(GrowthView):
+    def post(self, request):
+        serializer = ChannelReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            channel_config.reorder(serializer.validated_data["order"], request.user)
+        except ValidationFailed as exc:
+            return validation_response(exc)
+        return Response({"channels": channel_config.snapshot_all()})
+
+
+class ChannelDetailView(GrowthView):
+    def get(self, request, key):
+        try:
+            channel_config.spec_or_404(key)
+        except channel_config.UnknownChannel:
+            return Response({"code": "not_found", "detail": "این کانال وجود ندارد."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(channel_config.snapshot(key))
+
+    def patch(self, request, key):
+        try:
+            channel_config.spec_or_404(key)
+        except channel_config.UnknownChannel:
+            return Response({"code": "not_found", "detail": "این کانال وجود ندارد."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ChannelUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            channel_config.update(key, serializer.validated_data, request.user)
+        except ValidationFailed as exc:
+            return validation_response(exc)
+        return Response(channel_config.snapshot(key))
+
+
+class EmailVerifyView(ThrottledPost):
+    """POST - open a session on the mail server and log in. Sends NOTHING."""
+
+    def post(self, request):
+        ok, message = email_channel.verify()
+        return Response({"ok": ok, "message": message})

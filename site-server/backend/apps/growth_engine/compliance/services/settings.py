@@ -135,6 +135,16 @@ def snapshot_fields(obj: GrowthSettings) -> dict:
     }
 
 
+_STOP_HOOKS: list = []
+
+
+def register_stop_hook(fn) -> None:
+    """``fn(actor)`` is called after the emergency stop is switched ON (messages already handed to another system - the phone's SMS
+    queue - must be taken back too). Registering the same function twice is a no-op. A failing hook never undoes the stop."""
+    if fn not in _STOP_HOOKS:
+        _STOP_HOOKS.append(fn)
+
+
 def set_emergency_stop(stop: bool, actor) -> GrowthSettings:
     current = get_settings()
     if current.emergency_stop != stop:
@@ -142,4 +152,12 @@ def set_emergency_stop(stop: bool, actor) -> GrowthSettings:
         current.updated_by = actor if getattr(actor, "is_authenticated", False) else None
         current.save()
         audit.log(AuditKind.STOP if stop else AuditKind.RESUME, actor, "توقفِ اضطراری فعال شد" if stop else "توقفِ اضطراری برداشته شد")
+        if stop:
+            for hook in list(_STOP_HOOKS):
+                try:
+                    hook(actor)
+                except Exception:  # noqa: BLE001 - the stop itself is already in force
+                    import logging
+
+                    logging.getLogger(__name__).exception("emergency-stop hook %s failed", getattr(hook, "__name__", hook))
     return current

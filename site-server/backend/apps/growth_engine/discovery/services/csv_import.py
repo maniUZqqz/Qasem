@@ -20,9 +20,6 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.growth_engine.core import conf, csvio
-from apps.growth_engine.core.dbretry import retry_locked
-from apps.growth_engine.leads.choices import LeadOrigin
-from apps.growth_engine.leads.services.dedupe import DuplicateMatch
 from apps.growth_engine.leads.services.drafts import LeadDraft, build_draft
 from apps.growth_engine.leads.services.intake import DuplicateError, SourceInfo, create_from_draft, merge_draft_into
 from apps.growth_engine.sources import provenance
@@ -31,6 +28,7 @@ from apps.growth_engine.sources.models import SourceProvider
 from ..models import DiscoveryJob, DiscoveryJobRow
 from ..signals import discovery_job_finished
 from . import csv_mapping, csv_upload
+from . import rows as rowops
 
 logger = logging.getLogger(__name__)
 CANCEL_POLL_EVERY = 20
@@ -58,8 +56,7 @@ def _draft_for_row(headers, cells, mapping, *, file_name, row_number, params) ->
     return draft, list(errors), raw
 
 
-def _match_payload(matches: list[DuplicateMatch]) -> list[dict]:
-    return [{"lead_id": m.lead.pk, "name": m.lead.display_name, "matched_on": m.matched_on} for m in matches]
+_match_payload = rowops.match_payload
 
 
 # --------------------------------------------------------------------------- dry run
@@ -122,16 +119,8 @@ def create_import_job(user, upload_id: str, mapping: dict, *, default_country: s
 # --------------------------------------------------------------------------- the job
 
 
-def _bump(job_id: int, row_number: int, **counters: int) -> None:
-    updates = {name: F(name) + n for name, n in counters.items()}
-    DiscoveryJob.objects.filter(pk=job_id).update(
-        processed_items=F("processed_items") + 1, cursor=row_number, heartbeat_at=timezone.now(), **updates
-    )
-
-
-def _should_cancel(job: DiscoveryJob) -> bool:
-    fresh = DiscoveryJob.objects.filter(pk=job.pk).values_list("cancel_requested", "status").first()
-    return bool(fresh and (fresh[0] or fresh[1] == DiscoveryJob.Status.CANCELLED))
+_bump = rowops.bump
+_should_cancel = rowops.should_cancel
 
 
 def run_import(job_id: int) -> str:
@@ -188,49 +177,8 @@ def run_import(job_id: int) -> str:
 def _process_row(job: DiscoveryJob, headers, cells, number: int, mapping: dict, params: dict) -> None:
     draft, errors, raw = _draft_for_row(headers, cells, mapping, file_name=job.file_name, row_number=number, params=params)
     row_raw = {h: (cells[i] if i < len(cells) else "") for i, h in enumerate(headers)}
-    def attempt() -> None:
-        with transaction.atomic():
-            if errors:
-                DiscoveryJobRow.objects.update_or_create(
-                    job=job, row_number=number,
-                    defaults={"status": DiscoveryJobRow.Status.ERROR, "raw": row_raw, "errors": errors},
-                )
-                _bump(job.pk, number, error_count=1)
-                return
-            source = SourceInfo(
-                provider=SourceProvider.CSV_IMPORT, source_ref=provenance.csv_ref(job.file_name, number),
-                job=job, raw_data=row_raw,
-            )
-            try:
-                create_from_draft(draft, source, job.created_by)
-            except DuplicateError as dup:
-                DiscoveryJobRow.objects.update_or_create(
-                    job=job, row_number=number,
-                    defaults={
-                        "status": DiscoveryJobRow.Status.DUPLICATE, "raw": row_raw, "payload": draft.to_payload(),
-                        "matches": _match_payload(dup.matches), "matched_lead": dup.matches[0].lead,
-                    },
-                )
-                _bump(job.pk, number, duplicate_count=1)
-                return
-            _bump(job.pk, number, created_count=1)
-
-    def record_failure(exc: Exception) -> None:
-        with transaction.atomic():
-            DiscoveryJobRow.objects.update_or_create(
-                job=job, row_number=number,
-                defaults={
-                    "status": DiscoveryJobRow.Status.ERROR, "raw": row_raw,
-                    "errors": [{"field": "__row__", "code": "internal_error", "message": f"خطای داخلی هنگام ثبتِ این ردیف ({type(exc).__name__})."}],
-                },
-            )
-            _bump(job.pk, number, error_count=1)
-
-    try:
-        retry_locked(attempt)  # a SQLite lock conflict is retried; it is never recorded as a bad row
-    except Exception as exc:  # noqa: BLE001 - one broken row must not stop the file
-        logger.exception("growth csv import job %s row %s failed", job.pk, number)
-        retry_locked(lambda: record_failure(exc))
+    source = SourceInfo(provider=SourceProvider.CSV_IMPORT, source_ref=provenance.csv_ref(job.file_name, number), job=job, raw_data=row_raw)
+    rowops.process_draft(job, number, draft, errors, row_raw, source)
 
 
 def _after_finish(job: DiscoveryJob) -> None:
@@ -260,7 +208,8 @@ def request_cancel(job: DiscoveryJob) -> DiscoveryJob:
 def prepare_resume(job: DiscoveryJob) -> bool:
     """Put a stalled or failed job back in the queue; the run continues after its cursor. False if it cannot."""
     resumable = job.status == DiscoveryJob.Status.FAILED or job.is_stalled
-    if not resumable or not job.stored_name:
+    needs_file = job.kind != DiscoveryJob.Kind.SEARCH  # a search that failed before fetching has nothing stored: it simply fetches again
+    if not resumable or (needs_file and not job.stored_name):
         return False
     DiscoveryJob.objects.filter(pk=job.pk).update(
         status=DiscoveryJob.Status.QUEUED, error="", finished_at=None, cancel_requested=False, queued_at=timezone.now()
@@ -280,7 +229,7 @@ def errors_csv_stream(job: DiscoveryJob) -> Iterator[bytes]:
     headers: list[str] = []
     for row in rows:
         for h in row.raw:
-            if h not in headers:
+            if h not in headers and not h.startswith("_"):  # "_source" ... belong to provider rows, not to a file
                 headers.append(h)
     body = [
         [*[r.raw.get(h, "") for h in headers], r.row_number, " ؛ ".join(e.get("message", "") for e in r.errors)] for r in rows
@@ -289,6 +238,19 @@ def errors_csv_stream(job: DiscoveryJob) -> Iterator[bytes]:
 
 
 # --------------------------------------------------------------------------- resolving duplicates
+
+
+def source_for_row(job: DiscoveryJob, row: DiscoveryJobRow) -> SourceInfo:
+    """The ``SourceInfo`` of a stored row: a CSV line, or a provider candidate (its provider / reference / address are kept
+    inside the row, see ``Candidate.to_row``)."""
+    if job.kind == DiscoveryJob.Kind.SEARCH:
+        src = (row.raw or {}).get("_source") or {}
+        provider = src.get("provider") or (job.params or {}).get("source_provider") or SourceProvider.OSM_OVERPASS
+        return SourceInfo(
+            provider=provider, source_ref=src.get("ref") or f"search:{provider}:{row.row_number}", source_url=src.get("url", ""),
+            job=job, raw_data=row.raw,
+        )
+    return SourceInfo(provider=SourceProvider.CSV_IMPORT, source_ref=provenance.csv_ref(job.file_name, row.row_number), job=job, raw_data=row.raw)
 
 
 def resolve_rows(job: DiscoveryJob, rows, action: str, actor, *, target_lead_id: int | None = None,
@@ -306,10 +268,7 @@ def resolve_rows(job: DiscoveryJob, rows, action: str, actor, *, target_lead_id:
                 skipped += 1
             else:
                 draft = LeadDraft.from_payload(row.payload)
-                source = SourceInfo(
-                    provider=SourceProvider.CSV_IMPORT, source_ref=provenance.csv_ref(job.file_name, row.row_number),
-                    job=job, raw_data=row.raw,
-                )
+                source = source_for_row(job, row)
                 lead = None
                 if target_lead_id and any(m.get("lead_id") == target_lead_id for m in row.matches):
                     lead = Lead.objects.filter(pk=target_lead_id).first()

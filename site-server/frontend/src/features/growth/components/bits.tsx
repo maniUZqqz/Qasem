@@ -1,7 +1,7 @@
 import { ReactNode, useState } from "react";
 
 import Icon from "../../../components/Icon";
-import { Badge, Button, Spinner } from "../../../components/ui";
+import { Badge, Button, Spinner, fa } from "../../../components/ui";
 import { jobTone, statusTone, tagTone } from "../format";
 import type { Tag } from "../types";
 
@@ -124,5 +124,19 @@ export function InfoRow({ label, children }: { label: string; children: ReactNod
         {children}
       </span>
     </div>
+  );
+}
+
+/** The reachability score as a badge; the title lists every reason (the score is rule-based: nothing hidden). */
+export function ReachBadge({ reach }: { reach: { value: number; level: string; label: string; reasons: { text: string; points: number }[] } | undefined }) {
+  if (!reach) return null;
+  const tone = reach.level === "high" ? "ok" : reach.level === "medium" ? "warn" : "neutral";
+  const title = reach.reasons.map((r) => (r.points ? `+${r.points} ${r.text}` : r.text)).join("\n");
+  return (
+    <span title={title} data-testid="reach-badge" data-level={reach.level}>
+      <Badge tone={tone}>
+        <span className="u-num">{fa(reach.value)}</span> · {reach.label}
+      </Badge>
+    </span>
   );
 }

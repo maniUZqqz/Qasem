@@ -12,11 +12,12 @@ import type { Paged } from "../../types";
 import { LoadState } from "../bits";
 import { ConfirmDialog } from "../Modal";
 import Pagination from "../Pagination";
+import { ChannelBadge, RecipientText } from "./ChannelBits";
 import ReviewDialog from "./ReviewDialog";
 import { Flash, ItemStatusBadge, Ltr } from "./shared";
 
 const PAGE_SIZE = 25;
-const UNSENDABLE = ["sent", "sending"];
+const UNSENDABLE = ["sent", "sending", "handed_off"];
 
 function ApprovalCell({ item }: { item: OutreachItem }) {
   const a = item.approval;
@@ -29,6 +30,15 @@ function AttemptCell({ item }: { item: OutreachItem }) {
   const a = item.attempt;
   if (!a) return <span style={{ color: "var(--text-3)" }}>—</span>;
   const guess = GUESS_LABEL[a.success_guess];
+  if (item.channel && item.channel !== "contact_form") {
+    // e-mail / SMS: there is no HTTP status; say what the mail server / the phone did
+    const label: Record<string, string> = { smtp_accepted: "سرورِ ایمیل پذیرفت", queued_on_phone: "در صفِ گوشی", sent_by_phone: "گوشی فرستاد", delivered: "تحویل شد", failed_on_phone: "گوشی نتوانست", cancelled_before_sent: "پیش از ارسال لغو شد" };
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <Badge tone={a.success_guess === "likely_failure" ? "bad" : a.success_guess === "likely_success" ? "ok" : "info"}>{label[a.outcome] ?? a.outcome ?? a.method}</Badge>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <Badge tone={a.status_code >= 200 && a.status_code < 400 ? "ok" : "bad"}>
@@ -267,7 +277,7 @@ export default function ItemsPanel({
                         <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label="انتخابِ همهٔ این صفحه" />
                       </th>
                       <th className="text-start">لید</th>
-                      <th className="text-start">صفحهٔ مقصد</th>
+                      <th className="text-start">کانال و مقصد</th>
                       <th className="text-start">وضعیت</th>
                       <th className="text-start">تأیید</th>
                       <th className="text-start">ارسال</th>
@@ -298,12 +308,15 @@ export default function ItemsPanel({
                             )}
                           </td>
                           <td className="max-w-[14rem]">
-                            {item.target_url ? (
+                            <div className="mb-1">
+                              <ChannelBadge channel={item.channel} label={item.channel_label} />
+                            </div>
+                            {item.target_url && (item.channel ?? "contact_form") === "contact_form" ? (
                               <a href={item.target_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--brand-strong)" }}>
                                 <Ltr className="text-xs">{shortUrl(item.target_url)}</Ltr>
                               </a>
                             ) : (
-                              <span style={{ color: "var(--text-3)" }}>—</span>
+                              <RecipientText item={item} />
                             )}
                           </td>
                           <td className="min-w-[9rem]">

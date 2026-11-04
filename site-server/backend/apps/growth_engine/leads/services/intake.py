@@ -94,7 +94,13 @@ def _actor(actor):
     return actor if actor is not None and getattr(actor, "is_authenticated", False) else None
 
 
+#: discovery providers (M3) all file their leads under one origin; the exact provider stays on the LeadSource row
+SEARCH_PROVIDERS = ("osm_overpass", "brave_search", "google_cse")
+
+
 def _origin_for(provider: str) -> str:
+    if provider in SEARCH_PROVIDERS:
+        return LeadOrigin.SEARCH
     return provider if provider in LeadOrigin.values else LeadOrigin.MANUAL
 
 

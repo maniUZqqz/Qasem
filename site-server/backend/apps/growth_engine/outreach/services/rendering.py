@@ -26,6 +26,8 @@ PLACEHOLDERS = [
     ("website", "وب‌سایت", "آدرسِ وب‌سایتِ لید"),
     ("domain", "دامنه", "نامِ دامنهٔ وب‌سایتِ لید"),
     ("instagram", "اینستاگرام", "نامِ کاربریِ اینستاگرامِ لید"),
+    ("company", "نامِ شرکتِ شما", "از «تنظیماتِ جذب مشتری»"),
+    ("sender_name", "نامِ شما (فرستنده)", "از «تنظیماتِ جذب مشتری»"),
 ]
 LABELS = {key: label for key, label, _ in PLACEHOLDERS}
 KEYS = tuple(LABELS)
@@ -40,9 +42,13 @@ class RenderResult:
     unknown: list[str] = field(default_factory=list)
 
 
-def lead_values(lead) -> dict[str, str]:
-    """The placeholder values of a lead: stored facts only, "" when we do not know."""
+def lead_values(lead, identity=None) -> dict[str, str]:
+    """The placeholder values of a lead: stored facts only, "" when we do not know. ``identity`` (Growth Settings) gives the
+    sender's own company and name for ``{company}`` / ``{sender_name}``."""
     values = {key: "" for key in KEYS}
+    if identity is not None:
+        values["company"] = (identity.sender_company or "").strip()
+        values["sender_name"] = (identity.sender_name or "").strip()
     values["business_name"] = lead.business_name or ""
     values["city"] = lead.city or ""
     values["country"] = nz.country_name_fa(lead.country) if lead.country else ""
@@ -103,12 +109,20 @@ def render(text: str, values: dict[str, str]) -> RenderResult:
     return RenderResult(text=out.strip(), warnings=warnings, unknown=unknown)
 
 
-def closing_block(settings_obj) -> str:
-    """Sender block + opt-out line, from Growth Settings (only the parts that are filled in)."""
+def closing_block(settings_obj, channel: str | None = None) -> str:
+    """Sender block + opt-out line, from Growth Settings (only the parts that are filled in).
+
+    An SMS keeps it to the company (or the name) and the opt-out line: the whole message must fit a couple of SMS parts. A phone
+    call has no closing block (it is a script a person speaks)."""
+    opt_out = settings_obj.opt_out_line.strip()
+    if channel == "phone_call":
+        return ""
+    if channel == "sms":
+        who = settings_obj.sender_company.strip() or settings_obj.sender_name.strip()
+        return "\n".join(p for p in (who, opt_out) if p)
     who = " | ".join(p for p in (settings_obj.sender_name.strip(), settings_obj.sender_company.strip()) if p)
     how = " · ".join(p for p in (settings_obj.sender_phone.strip(), settings_obj.sender_email.strip()) if p)
     sender = "\n".join(p for p in (who, how) if p)
-    opt_out = settings_obj.opt_out_line.strip()
     return "\n\n".join(p for p in (sender, opt_out) if p)
 
 
@@ -119,8 +133,9 @@ class BuiltMessage:
     warnings: list[str] = field(default_factory=list)
 
 
-def compose(body_text: str, subject: str, settings_obj, warnings: list[str] | None = None) -> BuiltMessage:
-    """Append the closing block to an already-rendered body."""
-    closing = closing_block(settings_obj)
-    text = body_text.strip() + (f"\n\n{closing}" if closing else "")
+def compose(body_text: str, subject: str, settings_obj, warnings: list[str] | None = None, channel: str | None = None) -> BuiltMessage:
+    """Append the closing block (the channel's own form of it) to an already-rendered body."""
+    closing = closing_block(settings_obj, channel)
+    glue = "\n" if channel == "sms" else "\n\n"
+    text = body_text.strip() + (f"{glue}{closing}" if closing else "")
     return BuiltMessage(text=text, subject=subject.strip(), warnings=list(warnings or []))

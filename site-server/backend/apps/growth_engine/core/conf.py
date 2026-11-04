@@ -34,6 +34,8 @@ DEFAULTS = {
     # --- outreach (the values an operator edits live in Growth Settings, not here) -------------
     "SEND_MAX_ITEMS_PER_CAMPAIGN": 500,
     "SEND_SNIPPET_CHARS": 500,
+    # --- channels (M4) ---------------------------------------------------------------------------
+    "EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend",  # tests use the in-memory backend: no test reaches a real server
 }
 
 

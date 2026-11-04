@@ -1,4 +1,4 @@
-"""MessageTemplate, Campaign, OutreachItem, ApprovalRecord, SendAttempt, OutreachJob.
+"""Channel, ChannelConfig, MessageTemplate, Campaign, OutreachItem, ApprovalRecord, SendAttempt, OutreachJob.
 
 The shape that keeps outreach safe:
 
@@ -16,6 +16,60 @@ from apps.common.models import TimeStampedModel
 from apps.growth_engine.core.models import BackgroundJob
 
 
+class Channel(models.TextChoices):
+    """A way to reach a business. The first three are sent by the system (after a human approval); the rest are done by a
+    person with a ready-made link and the text to paste (no messenger account is ever automated)."""
+
+    CONTACT_FORM = "contact_form", "فرمِ تماسِ سایت"
+    EMAIL = "email", "ایمیل"
+    SMS = "sms", "پیامک (از گوشیِ شما)"
+    WHATSAPP = "whatsapp", "واتساپ"
+    TELEGRAM = "telegram", "تلگرام"
+    EITAA = "eitaa", "ایتا"
+    BALE = "bale", "بله"
+    RUBIKA = "rubika", "روبیکا"
+    PHONE_CALL = "phone_call", "تماس تلفنی"
+
+
+AUTO_CHANNELS = (Channel.CONTACT_FORM, Channel.EMAIL, Channel.SMS)
+MANUAL_CHANNELS = (Channel.WHATSAPP, Channel.TELEGRAM, Channel.EITAA, Channel.BALE, Channel.RUBIKA, Channel.PHONE_CALL)
+#: a campaign's channel: one of ``Channel`` or ``auto`` (every lead gets the first enabled channel, by priority, it can be reached on)
+AUTO = "auto"
+ANY = "any"  # a template that suits every channel
+CAMPAIGN_CHANNEL_CHOICES = [*Channel.choices, (AUTO, "خودکار (بر اساسِ اولویتِ کانال‌ها)")]
+TEMPLATE_CHANNEL_CHOICES = [(ANY, "همهٔ کانال‌ها"), *Channel.choices]
+
+
+class ChannelConfig(TimeStampedModel):
+    """The operator's settings of one channel (one row per channel, created on first change; a missing row means the defaults).
+
+    ``config`` holds plain values (SMTP host / port / user / from ..., SMS max parts); ``secrets`` holds the SMTP password.
+    Secrets are never serialised: the panel sees THAT one is set, never what it is."""
+
+    channel = models.CharField("کانال", max_length=16, choices=Channel.choices, unique=True)
+    enabled = models.BooleanField("روشن", default=False)
+    priority = models.PositiveSmallIntegerField("اولویت (کمتر = زودتر)", default=100)
+    daily_cap = models.PositiveSmallIntegerField("سقفِ روزانهٔ این کانال", null=True, blank=True, help_text="خالی = فقط سقفِ کلی")
+    spacing_min_seconds = models.PositiveSmallIntegerField("حداقل فاصله (ثانیه)", null=True, blank=True, help_text="خالی = مثلِ تنظیماتِ کلی")
+    spacing_max_seconds = models.PositiveSmallIntegerField("حداکثر فاصله (ثانیه)", null=True, blank=True)
+    default_template = models.ForeignKey(
+        "MessageTemplate", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="قالبِ پیش‌فرضِ این کانال"
+    )
+    config = models.JSONField("تنظیماتِ کانال", default=dict, blank=True)
+    secrets = models.JSONField("کلیدها (هرگز نمایش داده نمی‌شود)", default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="آخرین ویرایش"
+    )
+
+    class Meta:
+        verbose_name = "تنظیماتِ کانال"
+        verbose_name_plural = "تنظیماتِ کانال‌ها"
+        ordering = ["priority", "id"]
+
+    def __str__(self):
+        return f"{self.channel} ({'on' if self.enabled else 'off'})"
+
+
 class MessageTemplate(TimeStampedModel):
     LANGUAGES = [("fa", "فارسی"), ("en", "English")]
 
@@ -24,6 +78,8 @@ class MessageTemplate(TimeStampedModel):
     body = models.TextField("متنِ پیام")
     language = models.CharField("زبان", max_length=2, choices=LANGUAGES, default="fa")
     generator = models.CharField("روشِ ساختِ متن", max_length=30, default="placeholder")
+    channel = models.CharField("کانال", max_length=16, choices=TEMPLATE_CHANNEL_CHOICES, default=ANY, help_text="این قالب برای کدام کانال نوشته شده")
+    seed_key = models.CharField("کلیدِ قالبِ پیش‌فرض", max_length=60, null=True, blank=True, unique=True, help_text="فقط قالب‌های پیش‌فرضِ سامانه کلید دارند")
     is_active = models.BooleanField("فعال", default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="ساخته‌شده توسط"
@@ -53,6 +109,7 @@ class Campaign(TimeStampedModel):
     name = models.CharField("نام", max_length=150)
     template = models.ForeignKey(MessageTemplate, on_delete=models.PROTECT, related_name="campaigns", verbose_name="قالب")
     mode = models.CharField("حالت", max_length=8, choices=Mode.choices, default=Mode.AUTO)
+    channel = models.CharField("کانال", max_length=16, choices=CAMPAIGN_CHANNEL_CHOICES, default=Channel.CONTACT_FORM)
     status = models.CharField("وضعیت", max_length=10, choices=Status.choices, default=Status.DRAFT)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="ساخته‌شده توسط"
@@ -83,15 +140,17 @@ class ItemStatus(models.TextChoices):
     MANUAL_SENT = "manual_sent", "دستی ارسال شد"
     NO_FORM = "no_form", "فرم نداشت"
     NEEDS_LOGIN = "needs_login", "نیاز به ورود داشت"
+    HANDED_OFF = "handed_off", "به صفِ گوشی داده شد"
+    UNREACHABLE = "unreachable", "در دسترس نبود"
 
 
 #: nothing more will happen to an item in these statuses
 FINAL_STATUSES = (
     ItemStatus.SENT, ItemStatus.FAILED, ItemStatus.SKIPPED, ItemStatus.CANCELLED,
-    ItemStatus.MANUAL_SENT, ItemStatus.NO_FORM, ItemStatus.NEEDS_LOGIN,
+    ItemStatus.MANUAL_SENT, ItemStatus.NO_FORM, ItemStatus.NEEDS_LOGIN, ItemStatus.UNREACHABLE,
 )
 #: an item in one of these means "this lead was already contacted (or an attempt was made) with this template"
-CONTACTED_STATUSES = (ItemStatus.SENT, ItemStatus.SENDING, ItemStatus.MANUAL_SENT, ItemStatus.FAILED)
+CONTACTED_STATUSES = (ItemStatus.SENT, ItemStatus.SENDING, ItemStatus.MANUAL_SENT, ItemStatus.FAILED, ItemStatus.HANDED_OFF)
 #: work still to do
 OPEN_STATUSES = (ItemStatus.PENDING, ItemStatus.READY, ItemStatus.NEEDS_MANUAL, ItemStatus.APPROVED, ItemStatus.SENDING)
 
@@ -100,6 +159,12 @@ class OutreachItem(TimeStampedModel):
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="items", verbose_name="کمپین")
     lead = models.ForeignKey("growth_leads.Lead", on_delete=models.CASCADE, related_name="outreach_items", verbose_name="لید")
     domain = models.CharField("سایت", max_length=255, blank=True, help_text="کلیدِ یکتاسازیِ وب‌سایتِ لید؛ برای «هر سایت یک پیام»")
+    channel = models.CharField("کانال", max_length=16, choices=Channel.choices, default=Channel.CONTACT_FORM)
+    recipient = models.CharField("گیرنده", max_length=500, blank=True, help_text="نشانیِ فرم / ایمیل / شمارهٔ موبایل / نشانیِ پیج؛ همان که پیام به آن می‌رود")
+    template = models.ForeignKey(
+        MessageTemplate, null=True, blank=True, on_delete=models.PROTECT, related_name="items", verbose_name="قالبِ استفاده‌شده",
+        help_text="خالی = قالبِ کمپین (موردهای پیش از کانال‌ها)",
+    )
     target_url = models.CharField("صفحهٔ فرم", max_length=500, blank=True)
     subject = models.CharField("موضوع", max_length=300, blank=True)
     rendered_text = models.TextField("متنِ نهاییِ پیام", blank=True)
@@ -169,9 +234,10 @@ class SendAttempt(models.Model):
         FAILURE = "likely_failure", "به نظر ناموفق"
 
     item = models.OneToOneField(OutreachItem, on_delete=models.CASCADE, related_name="attempt", verbose_name="مورد")
+    channel = models.CharField("کانال", max_length=16, choices=Channel.choices, default=Channel.CONTACT_FORM)
     attempted_at = models.DateTimeField("زمان", auto_now_add=True)
     url = models.CharField("نشانیِ ارسال", max_length=500)
-    method = models.CharField("روش", max_length=6, default="POST")
+    method = models.CharField("روش", max_length=8, default="POST")
     payload = models.JSONField("دادهٔ ارسال‌شده", default=list, blank=True, help_text="لیستِ {name, value}؛ مقدارِ فیلدهای مخفیِ صفحه به «***» تبدیل شده")
     status_code = models.PositiveSmallIntegerField("کدِ HTTP", default=0)
     response_snippet = models.TextField("بخشی از پاسخ", blank=True)
@@ -184,7 +250,10 @@ class SendAttempt(models.Model):
         verbose_name = "تلاشِ ارسال"
         verbose_name_plural = "تلاش‌های ارسال"
         ordering = ["-id"]
-        indexes = [models.Index(fields=["attempted_at"], name="go_attempt_time_idx")]
+        indexes = [
+            models.Index(fields=["attempted_at"], name="go_attempt_time_idx"),
+            models.Index(fields=["channel", "attempted_at"], name="go_attempt_channel_idx"),
+        ]
 
     def __str__(self):
         return f"{self.item_id} {self.status_code} {self.success_guess}"

@@ -3,8 +3,10 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { PageGate } from "../panel/FlagsContext";
 import GrowthLayout from "./GrowthLayout";
 import CampaignPage from "./pages/CampaignPage";
+import ChannelsPage from "./pages/ChannelsPage";
 import DashboardPage from "./pages/DashboardPage";
 import DiscoveryPage from "./pages/DiscoveryPage";
+import KnowledgePage from "./pages/KnowledgePage";
 import LeadDetailPage from "./pages/LeadDetailPage";
 import LeadsPage from "./pages/LeadsPage";
 import OutreachPage from "./pages/OutreachPage";
@@ -27,6 +29,8 @@ export default function GrowthRoutes() {
         <Route path="outreach" element={<PageGate k="growth_outreach"><OutreachPage /></PageGate>} />
         <Route path="outreach/:id" element={<PageGate k="growth_outreach"><CampaignPage /></PageGate>} />
         <Route path="templates" element={<PageGate k="growth_templates"><TemplatesPage /></PageGate>} />
+        <Route path="channels" element={<PageGate k="growth_channels"><ChannelsPage /></PageGate>} />
+        <Route path="knowledge" element={<PageGate k="growth_knowledge"><KnowledgePage /></PageGate>} />
         <Route path="do-not-contact" element={<PageGate k="growth_suppression"><SuppressionPage /></PageGate>} />
         <Route path="settings" element={<PageGate k="growth_settings"><SettingsPage /></PageGate>} />
         <Route path="*" element={<Navigate to="/growth" replace />} />

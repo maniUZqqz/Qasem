@@ -98,6 +98,20 @@ class FetchResult:
 
 # --------------------------------------------------------------------------- pieces
 
+_SECRET_PARAMS = ("key", "api_key", "apikey", "token", "cx", "access_token")
+
+
+def _redact_url(url: str) -> str:
+    """The address with the values of secret query parameters hidden (what may be logged / stored)."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    pairs = [(k, "***" if k.lower() in _SECRET_PARAMS else v) for k, v in parse_qsl(parts.query, keep_blank_values=True)]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+
+
 
 class DomainThrottle:
     """Minimum spacing between requests to one host, safe across threads (the slot is reserved under a lock)."""
@@ -273,7 +287,10 @@ class SafeFetcher:
         headers.update(extra or {})
         return headers
 
-    def _send(self, method: str, target: _Target, *, html_only: bool, max_bytes: int, referer=None, data=None, files=None) -> FetchResult:
+    def _send(
+        self, method: str, target: _Target, *, html_only: bool, max_bytes: int, referer=None, data=None, files=None,
+        extra_headers: Mapping | None = None,
+    ) -> FetchResult:
         """One request, no retries, no redirects. Never raises for network problems."""
         assert method in ("GET", "POST"), "the Growth Engine only ever issues GET and POST"
         result = FetchResult(url=target.request_url, final_url=f"{target.scheme}://{target.host_header}{target.path_query}")
@@ -281,7 +298,7 @@ class SafeFetcher:
         started = time.monotonic()
         try:
             with self._http().stream(
-                method, target.request_url, headers=self._headers(target, referer=referer), extensions=extensions, data=data, files=files
+                method, target.request_url, headers=self._headers(target, referer=referer, extra=extra_headers), extensions=extensions, data=data, files=files
             ) as response:
                 result.status = response.status_code
                 result.headers = {k.lower(): v for k, v in response.headers.items()}
@@ -316,18 +333,22 @@ class SafeFetcher:
             result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
-    def _get_with_retries(self, target: _Target, *, html_only: bool, max_bytes: int) -> FetchResult:
-        retries = int(conf.get("HTTP_RETRIES"))
+    def _get_with_retries(
+        self, target: _Target, *, html_only: bool, max_bytes: int, extra_headers: Mapping | None = None,
+        delay: float | None = None, retries: int | None = None, backoff: Sequence[float] | None = None,
+    ) -> FetchResult:
+        retries = int(conf.get("HTTP_RETRIES") if retries is None else retries)
+        backoff = tuple(backoff or _BACKOFF)
         attempt = 0
         while True:
-            self._throttle.wait(target.host, conf.get("HTTP_DOMAIN_DELAY"))
-            result = self._send("GET", target, html_only=html_only, max_bytes=max_bytes)
+            self._throttle.wait(target.host, conf.get("HTTP_DOMAIN_DELAY") if delay is None else delay)
+            result = self._send("GET", target, html_only=html_only, max_bytes=max_bytes, extra_headers=extra_headers)
             attempt += 1
             result.attempts = attempt
             transient = result.outcome in (TIMEOUT, CONNECT_ERROR) or result.status in _RETRY_STATUS
             if not transient or attempt > retries:
                 return result
-            pause = _BACKOFF[min(attempt - 1, len(_BACKOFF) - 1)]
+            pause = backoff[min(attempt - 1, len(backoff) - 1)]
             retry_after = result.headers.get("retry-after", "")
             if retry_after.isdigit():
                 pause = min(float(retry_after), _MAX_RETRY_AFTER)
@@ -370,6 +391,32 @@ class SafeFetcher:
     def get_page(self, url: str) -> FetchResult:
         """GET an HTML page: robots-checked, throttled, retried, same-site redirects only."""
         return self._fetch(url, check_robots=True, html_only=True, max_bytes=conf.get("HTTP_MAX_BYTES"))
+
+    def get_api(
+        self, url: str, *, params: Mapping[str, str] | None = None, headers: Mapping[str, str] | None = None,
+        delay: float | None = None, retries: int = 1, backoff: Sequence[float] = (3.0, 10.0), max_bytes: int | None = None,
+    ) -> FetchResult:
+        """GET a documented public API endpoint (OpenStreetMap, a search API ...): JSON in the body, no robots.txt (that file
+        governs crawling of web pages, not an API that publishes its own usage policy), same SSRF guard / port rule /
+        timeouts / size cap as everything else, one host-wide spacing of ``delay`` seconds. Redirects are NOT followed.
+
+        Anything secret in ``params`` or ``headers`` stays out of the result: ``url`` / ``final_url`` are returned with the
+        values of ``key`` / ``api_key`` / ``token`` / ``cx`` replaced by ``***``."""
+        from urllib.parse import urlencode
+
+        full = url + (("&" if "?" in url else "?") + urlencode(list((params or {}).items()), doseq=False) if params else "")
+        shown = _redact_url(full)
+        try:
+            target = self._prepare(full)
+        except _Refused as refused:
+            return FetchResult(url=shown, final_url=shown, outcome=refused.outcome, error=refused.message)
+        extra = {"Accept": "application/json", **(headers or {})}
+        result = self._get_with_retries(
+            target, html_only=False, max_bytes=max_bytes or int(conf.get("HTTP_MAX_BYTES")) * 4, extra_headers=extra, delay=delay,
+            retries=retries, backoff=backoff,
+        )
+        result.url = result.final_url = shown
+        return result
 
     def post_form(self, url: str, fields: Sequence[tuple[str, str]] | Mapping[str, str], *, multipart: bool = False, referer: str | None = None) -> FetchResult:
         """POST a form ONCE (never retried). ``url`` is checked against robots.txt first.

@@ -16,9 +16,10 @@ type Tab = "error" | "duplicate" | "done";
 const PAGE_SIZE = 50;
 
 /** The first few filled cells of the original row, so a person recognises it. */
-function rowSummary(raw: Record<string, string>): string {
-  return Object.values(raw)
-    .filter((v) => v && v.trim())
+function rowSummary(raw: Record<string, unknown>): string {
+  return Object.entries(raw)
+    .filter(([key, v]) => !key.startsWith("_") && typeof v === "string" && v.trim())
+    .map(([, v]) => v as string)
     .slice(0, 3)
     .join(" · ");
 }

@@ -16,6 +16,8 @@ const TABS: { key: string; to: string; label: string; icon: IconName; end?: bool
   { key: "growth_leads", to: "/growth/leads", label: "دیتابیس لیدها", icon: "users" },
   { key: "growth_outreach", to: "/growth/outreach", label: "پیام‌رسانی", icon: "send" },
   { key: "growth_templates", to: "/growth/templates", label: "قالب‌های پیام", icon: "file" },
+  { key: "growth_channels", to: "/growth/channels", label: "کانال‌ها", icon: "inbox" },
+  { key: "growth_knowledge", to: "/growth/knowledge", label: "دانشِ محصول", icon: "bulb" },
   { key: "growth_suppression", to: "/growth/do-not-contact", label: "تماس نگیر", icon: "ban" },
   { key: "growth_settings", to: "/growth/settings", label: "تنظیمات", icon: "settings" },
 ];

@@ -4,8 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { Alert, Badge, Button, Field, Input, Select, Table, fa } from "../../../../components/ui";
 import { g, problem, useGet } from "../../api";
 import { fieldErrorsOf, asList, useAction } from "../../outreach/api";
-import { MODE_LABEL, REASON_TEXT } from "../../outreach/labels";
-import type { AddLeadsResult, Campaign, CampaignMode, Template } from "../../outreach/types";
+import { CHANNELS, isManualChannel, MODE_LABEL, REASON_TEXT } from "../../outreach/labels";
+import type { AddLeadsResult, Campaign, CampaignChannel, CampaignMode, Template } from "../../outreach/types";
 import type { LeadRow, Paged } from "../../types";
 import Modal from "../Modal";
 import LeadPicker from "./LeadPicker";
@@ -14,7 +14,7 @@ import { Flash } from "./shared";
 type Result = { campaign: Campaign; added?: AddLeadsResult; addError?: string };
 
 const MODE_HELP: Record<CampaignMode, string> = {
-  auto: "سیستم فرمِ تماسِ سایتِ هر لید را خودش پُر می‌کند. شما پیش‌نمایشِ دقیقِ آنچه فرستاده می‌شود را می‌بینید و تأیید می‌کنید؛ فقط موردهای تأییدشده می‌روند. لیدهایی که فرمشان مشکل دارد (کپچا، ورود و …) به صفِ دستی می‌روند.",
+  auto: "سیستم (فرم، ایمیل یا پیامک) را خودش می‌فرستد، ولی فقط بعد از تأییدِ شما: پیش‌نمایشِ دقیقِ آنچه می‌رود را می‌بینید و موردها را تأیید می‌کنید. لیدهایی که کانالشان مشکل دارد (کپچا، ایمیلِ نامعتبر، گوشیِ جفت‌نشده و …) به صفِ دستی می‌روند.",
   manual: "هیچ‌چیز خودکار نمی‌رود. برای هر لید متن آماده است و شما خودتان در سایتشان می‌فرستید و نتیجه را با یک کلید ثبت می‌کنید.",
 };
 
@@ -26,10 +26,17 @@ const MODE_HELP: Record<CampaignMode, string> = {
 export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { open: boolean; onClose: () => void; initialLeadIds: number[] }) {
   const navigate = useNavigate();
   const templatesData = useGet<Paged<Template> | Template[]>("/outreach/templates/");
-  const templates = useMemo(() => asList(templatesData.data).filter((t) => t.is_active), [templatesData.data]);
+  const allTemplates = useMemo(() => asList(templatesData.data).filter((t) => t.is_active), [templatesData.data]);
   const [name, setName] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [channel, setChannel] = useState<CampaignChannel>("contact_form");
   const [mode, setMode] = useState<CampaignMode>("auto");
+  // a template written for another channel is not offered; "auto" campaigns take any (the channel's own default is used per lead)
+  const templates = useMemo(
+    () => allTemplates.filter((t) => channel === "auto" || !t.channel || t.channel === "any" || t.channel === channel),
+    [allTemplates, channel],
+  );
+  const manualOnly = isManualChannel(channel);
   const [picked, setPicked] = useState<LeadRow[]>([]);
   const [force, setForce] = useState(false);
   const [handoffNames, setHandoffNames] = useState<string[]>([]);
@@ -41,6 +48,7 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
     if (!open) return;
     setName("");
     setMode("auto");
+    setChannel("contact_form");
     setPicked([]);
     setForce(false);
     setResult(null);
@@ -50,7 +58,11 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
 
   useEffect(() => {
     if (!templateId && templates.length === 1) setTemplateId(String(templates[0].id));
+    if (templateId && !templates.some((t) => String(t.id) === templateId)) setTemplateId(templates.length === 1 ? String(templates[0].id) : "");
   }, [templates, templateId]);
+  useEffect(() => {
+    if (manualOnly) setMode("manual");
+  }, [manualOnly]);
 
   // a few names for the leads handed over from the lead table (the rest is only counted)
   useEffect(() => {
@@ -69,7 +81,7 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const campaign = await action.run(() => g.post<Campaign>("/outreach/campaigns/", { name: name.trim(), template_id: Number(templateId), mode }));
+    const campaign = await action.run(() => g.post<Campaign>("/outreach/campaigns/", { name: name.trim(), template_id: Number(templateId), mode, channel }));
     if (!campaign) return;
     if (allIds.length === 0) {
       setResult({ campaign });
@@ -110,7 +122,7 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
       >
         <div className="space-y-4">
           <p className="text-sm" style={{ color: "var(--text-2)" }}>
-            کمپینِ «{campaign.name}» ({MODE_LABEL[campaign.mode]}) ساخته شد.
+            کمپینِ «{campaign.name}» ({MODE_LABEL[campaign.mode]}{campaign.channel_label ? ` · ${campaign.channel_label}` : ""}) ساخته شد.
           </p>
           {added && (
             <Alert tone={added.added > 0 ? "ok" : "warn"} title={`${fa(added.added)} لید به کمپین اضافه شد`}>
@@ -174,6 +186,18 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
           {errors.name && <span className="mt-1 block text-xs" style={{ color: "var(--bad)" }}>{errors.name}</span>}
         </Field>
 
+        <Field label="کانال (از چه راهی پیام برود؟)" hint={channel === "auto" ? "برای هر لید اولین کانالِ روشن (به ترتیبِ صفحهٔ «کانال‌ها») که بتواند به او برسد." : manualOnly ? "این کانال را خودتان می‌فرستید؛ لینک و متن آماده می‌شود و نتیجه را ثبت می‌کنید." : undefined}>
+          <Select value={channel} onChange={(e) => setChannel(e.target.value as CampaignChannel)} data-testid="campaign-channel">
+            <option value="auto">خودکار (بر اساسِ اولویتِ کانال‌ها)</option>
+            {CHANNELS.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}{c.kind === "manual" ? " — دستی" : ""}
+              </option>
+            ))}
+          </Select>
+          {errors.channel && <span className="mt-1 block text-xs" style={{ color: "var(--bad)" }}>{errors.channel}</span>}
+        </Field>
+
         <Field label="قالبِ پیام">
           {noTemplates ? (
             <Alert tone="warn" title="قالبِ فعالی نیست" action={<Link to="/growth/templates" className="u-btn u-btn-secondary u-btn-sm no-underline">ساختنِ قالب</Link>}>
@@ -203,9 +227,10 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
                 type="button"
                 role="radio"
                 aria-checked={mode === m}
-                onClick={() => setMode(m)}
+                onClick={() => !(manualOnly && m === "auto") && setMode(m)}
+                disabled={manualOnly && m === "auto"}
                 className="rounded-xl p-3 text-start"
-                style={{ border: `1px solid ${mode === m ? "var(--brand)" : "var(--line)"}`, background: mode === m ? "var(--brand-soft)" : "var(--surface-2)" }}
+                style={{ border: `1px solid ${mode === m ? "var(--brand)" : "var(--line)"}`, background: mode === m ? "var(--brand-soft)" : "var(--surface-2)", opacity: manualOnly && m === "auto" ? 0.5 : 1 }}
                 data-testid={`mode-${m}`}
               >
                 <div className="mb-1 flex items-center gap-2 font-bold" style={{ color: "var(--text)" }}>

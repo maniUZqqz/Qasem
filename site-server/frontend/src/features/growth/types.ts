@@ -50,10 +50,22 @@ export type LeadRow = {
   updated_at: string;
   /** set once the compliance module is installed */
   do_not_contact?: boolean;
+  /** rule-based reachability score (0-100) with its reasons; no AI */
+  reach?: { value: number; level: "high" | "medium" | "low"; label: string; reasons: { text: string; points: number }[] };
 };
 
 /** where a value came from: `manual`, a CSV row, or a website extraction run */
-export type SourceInfo = { kind: "manual" | "csv" | "extract" | "other"; file?: string; row?: number | null; run?: number | null; ref?: string };
+export type SourceInfo = {
+  kind: "manual" | "csv" | "extract" | "osm" | "search" | "other";
+  file?: string;
+  row?: number | null;
+  run?: number | null;
+  ref?: string;
+  object?: string;
+  url?: string;
+  provider?: string;
+  host?: string;
+};
 
 export type Provenance = Record<string, { source: string; at: string; by: number | null }>;
 
@@ -226,7 +238,25 @@ export type DiscoveryJob = {
   started_at: string | null;
   finished_at: string | null;
   created_by_name: string;
-  params: { mapping?: Record<string, string>; default_country?: string; default_city?: string; tags?: string[]; extract_after?: boolean };
+  /** the licence / source line of a provider search (e.g. "© OpenStreetMap contributors (ODbL)") */
+  attribution?: string;
+  params: {
+    mapping?: Record<string, string>;
+    default_country?: string;
+    default_city?: string;
+    tags?: string[];
+    extract_after?: boolean;
+    provider?: string;
+    category?: string;
+    category_label?: string;
+    city?: string;
+    country?: string;
+    max_results?: number;
+    require_contact?: boolean;
+    attribution?: string;
+    attribution_url?: string;
+    empty_note?: string;
+  };
 };
 
 export type JobRow = {
@@ -377,3 +407,38 @@ export type ManualResult =
 
 /** result of POST /growth/discovery/jobs/<id>/resolve/ */
 export type ResolveResult = { resolved: number; merged: number; skipped: number; created: number; remaining: number };
+
+// ------------------------------------------------------------------ automatic discovery (M3)
+
+export type ProviderSetting = { name: string; label: string; type: "lines" | "url" | "int" | "text"; default?: unknown; help?: string };
+
+export type DiscoveryProvider = {
+  key: string;
+  label: string;
+  description: string;
+  kind: "map" | "search";
+  needs_key: boolean;
+  enabled: boolean;
+  ready: boolean;
+  not_ready_reason: string;
+  attribution: string;
+  attribution_url: string;
+  license_note: string;
+  max_results_limit: number;
+  categories: { key: string; label: string; tags: string[] }[];
+  settings_schema: ProviderSetting[];
+  settings: Record<string, unknown>;
+  /** which secrets are SET; their values never come to the browser */
+  secrets: Record<string, { label: string; is_set: boolean }>;
+  source_provider: string;
+  usage_today?: number;
+  daily_cap?: number;
+};
+
+export type SearchCheck = {
+  ok: boolean;
+  summary: string;
+  attribution: string;
+  place: { name: string; cached: boolean; osm_url: string } | null;
+  notes: string[];
+};

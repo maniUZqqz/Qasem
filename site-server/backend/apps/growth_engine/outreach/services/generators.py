@@ -24,15 +24,17 @@ class MessageGenerator(Protocol):
     name: str
     label: str
 
-    def generate(self, template, lead) -> Generated: ...
+    def generate(self, template, lead, channel: str | None = None) -> Generated: ...
 
 
 class PlaceholderGenerator:
     name = "placeholder"
     label = "قالبِ ثابت با جاگذار"
 
-    def generate(self, template, lead) -> Generated:
-        values = rendering.lead_values(lead)
+    def generate(self, template, lead, channel: str | None = None) -> Generated:
+        from apps.growth_engine.compliance.models import GrowthSettings
+
+        values = rendering.lead_values(lead, GrowthSettings.load())
         body = rendering.render(template.body, values)
         subject = rendering.render(template.subject, values)
         return Generated(body=body.text, subject=subject.text, warnings=[*body.warnings, *[w for w in subject.warnings if w not in body.warnings]])
@@ -57,7 +59,16 @@ def names() -> list[str]:
 register(PlaceholderGenerator())
 
 
-def build_message(template, lead, settings_obj) -> rendering.BuiltMessage:
-    """The final message for ``lead``: generator output + the system's sender block and opt-out line."""
-    generated = get(template.generator).generate(template, lead)
-    return rendering.compose(generated.body, generated.subject, settings_obj, generated.warnings)
+def _takes_channel(generator) -> bool:
+    """A generator written before channels existed has ``generate(template, lead)``: it is still called that way."""
+    import inspect
+
+    params = inspect.signature(generator.generate).parameters
+    return "channel" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def build_message(template, lead, settings_obj, channel: str | None = None) -> rendering.BuiltMessage:
+    """The final message for ``lead``: generator output + the system's sender block and opt-out line (in the channel's form)."""
+    generator = get(template.generator)
+    generated = generator.generate(template, lead, channel) if _takes_channel(generator) else generator.generate(template, lead)
+    return rendering.compose(generated.body, generated.subject, settings_obj, generated.warnings, channel)

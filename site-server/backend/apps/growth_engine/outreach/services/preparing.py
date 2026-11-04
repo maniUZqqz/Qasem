@@ -19,8 +19,10 @@ from apps.growth_engine.core.dbretry import retry_locked
 from apps.growth_engine.integrations import safe_http as sh
 from apps.growth_engine.integrations.safe_http import SafeFetcher
 
-from ..models import Campaign, ItemStatus, OutreachItem, OutreachJob
-from . import fingerprint, generators, targets
+from ..channels import deeplinks
+from ..channels import targets as channel_targets
+from ..models import AUTO_CHANNELS, Campaign, Channel, ItemStatus, OutreachItem, OutreachJob
+from . import fingerprint, generators, guard, targets
 from .campaigns import CampaignError
 from .form_analysis import FormPlan, Reason, SenderIdentity, analyze_page
 from .form_reasons import text_for
@@ -28,7 +30,7 @@ from .form_reasons import text_for
 logger = logging.getLogger(__name__)
 
 #: a ``needs_manual`` item with one of these reasons is worth looking at again when «آماده‌سازی» is pressed
-RETRYABLE_REASONS = ("fetch_failed", "robots_unavailable", "no_target_url")
+RETRYABLE_REASONS = ("fetch_failed", "robots_unavailable", "no_target_url", "channel_not_ready", "no_recipient")
 PREPARABLE = (ItemStatus.PENDING, ItemStatus.READY)
 
 
@@ -102,10 +104,12 @@ def prepare_item(item: OutreachItem, fetcher: SafeFetcher, settings_obj: GrowthS
         item.skip_reason_text = "در فهرستِ «تماس نگیر» است."
         item.save(update_fields=["status", "skip_reason", "skip_reason_text", "updated_at"])
         return item.status
+    if item.channel != Channel.CONTACT_FORM:
+        return _prepare_other_channel(item, settings_obj)
     if not item.target_url:
         item.target_url = targets.target_url(item.lead)
     if not item.text_edited:  # pick up identity / lead changes made since the lead was added
-        built = generators.build_message(item.campaign.template, item.lead, settings_obj)
+        built = generators.build_message(item.template or item.campaign.template, item.lead, settings_obj, item.channel)
         item.rendered_text, item.subject = built.text, built.subject
     analysis = analyse(item, fetcher, settings_obj)  # the slow part: no transaction is open
 
@@ -115,6 +119,49 @@ def prepare_item(item: OutreachItem, fetcher: SafeFetcher, settings_obj: GrowthS
             item.save()
 
     retry_locked(store)  # a SQLite lock conflict is retried
+    return item.status
+
+
+def manual_plan(item: OutreachItem) -> dict:
+    """What a person needs to send this item by hand: the link (when the channel has one), the text to copy, a caution."""
+    target = channel_targets.resolve(item.lead, item.channel)
+    recipient = item.recipient or (target.recipient if target else "")
+    links = deeplinks.build(item.channel, recipient, item.rendered_text) if recipient else {}
+    return {
+        "channel": item.channel, "ok": False, "manual": True, "recipient": recipient, "problems": [], "note": target.note if target else "", **links,
+    }
+
+
+def _prepare_other_channel(item: OutreachItem, settings_obj: GrowthSettings) -> str:
+    """E-mail / SMS: validate (no network); the messengers and the phone call: a person's task with a link."""
+    if not item.text_edited:
+        built = generators.build_message(item.template or item.campaign.template, item.lead, settings_obj, item.channel)
+        item.rendered_text, item.subject = built.text, built.subject
+    target = channel_targets.resolve(item.lead, item.channel)
+    if target is not None:
+        item.recipient = target.recipient
+    if not item.recipient:
+        code, text = channel_targets.no_target(item.channel)
+        plan, status, reason, reason_text = {"channel": item.channel, "ok": False, "problems": [text]}, ItemStatus.NEEDS_MANUAL, "no_recipient", text
+    elif item.channel in AUTO_CHANNELS:
+        plan = guard.channel_plan(item, settings_obj)
+        if plan.get("ok"):
+            status, reason, reason_text = ItemStatus.READY, "", ""
+        else:
+            status, reason, reason_text = ItemStatus.NEEDS_MANUAL, "channel_not_ready", " ".join(plan.get("problems") or [])
+    else:
+        plan = manual_plan(item)
+        status, reason, reason_text = ItemStatus.NEEDS_MANUAL, "manual_channel", "این کانال را خودتان می‌فرستید (لینک و متن آماده است)."
+    item.plan, item.plan_checked_at = plan, timezone.now()
+    item.status, item.skip_reason, item.skip_reason_text = status, reason[:40], reason_text[:400]
+    item.approved_record = None
+    item.fingerprint = fingerprint.compute(item)
+
+    def store() -> None:
+        with transaction.atomic():
+            item.save()
+
+    retry_locked(store)
     return item.status
 
 

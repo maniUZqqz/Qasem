@@ -7,6 +7,7 @@ import { g, useGet } from "../api";
 import { LoadState } from "../components/bits";
 import { ConfirmDialog } from "../components/Modal";
 import ItemsPanel from "../components/outreach/ItemsPanel";
+import { ChannelBadge } from "../components/outreach/ChannelBits";
 import ManualQueue from "../components/outreach/ManualQueue";
 import { CampaignStateBadge, CapMeter, EmergencyStopButton, Flash, ModeBadge, SendingBanners } from "../components/outreach/shared";
 import { faDateTime } from "../format";
@@ -181,6 +182,7 @@ function CampaignBody({
   const manualCount = MANUAL_QUEUE_STATUSES(campaign.mode).reduce((sum, s) => sum + (counts[s] ?? 0), 0);
 
   // what keeps «شروع» from working, said in plain words
+  const own = campaign.channel ? info.channels?.[campaign.channel] : undefined;
   const blockers: string[] = [];
   if (auto && !finished) {
     if (info.emergency_stop) blockers.push("توقفِ اضطراری فعال است.");
@@ -188,6 +190,9 @@ function CampaignBody({
     if (!info.readiness.ok) blockers.push(...info.readiness.problems);
     if (approved === 0) blockers.push("هنوز هیچ موردی تأیید نشده است.");
     if (info.cap_remaining <= 0) blockers.push("سقفِ ارسالِ امروز پر شده است؛ فردا ادامه دهید.");
+    if (own && !own.enabled) blockers.push(`کانالِ «${own.label}» در صفحهٔ «کانال‌ها» خاموش است.`);
+    if (own && own.enabled && !own.ready) blockers.push(own.not_ready_reason || `کانالِ «${own.label}» آماده نیست.`);
+    if (own && own.cap_remaining === 0) blockers.push(`سقفِ روزانهٔ کانالِ «${own.label}» پر شده است.`);
   }
   const canStart = auto && !finished && blockers.length === 0 && !act.busy && !running;
   const startLabel = campaign.status === "active" ? "ادامهٔ ارسال" : campaign.status === "paused" ? "ادامهٔ ارسال" : "شروعِ ارسال";
@@ -204,6 +209,7 @@ function CampaignBody({
           <h2 className="flex flex-wrap items-center gap-2 text-2xl font-extrabold" style={{ color: "var(--text)" }}>
             {campaign.name}
             <ModeBadge mode={campaign.mode} />
+            <ChannelBadge channel={campaign.channel} label={campaign.channel_label} />
             <CampaignStateBadge status={campaign.status} label={campaign.status_label} />
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-3)" }}>
@@ -222,8 +228,8 @@ function CampaignBody({
                   <Icon name="pause" size={16} /> توقفِ موقتِ کمپین
                 </Button>
               )}
-              <Button variant="secondary" onClick={() => post("prepare", "آماده‌سازیِ فرم‌ها شروع شد.")} disabled={act.busy || running || finished} data-testid="campaign-prepare" title="صفحهٔ فرمِ هر لید را می‌خواند و می‌سنجد که خودکار می‌شود فرستاد یا نه">
-                <Icon name="search" size={16} /> آماده‌سازیِ فرم‌ها{pending > 0 ? ` (${fa(pending)})` : ""}
+              <Button variant="secondary" onClick={() => post("prepare", "آماده‌سازیِ فرم‌ها شروع شد.")} disabled={act.busy || running || finished} data-testid="campaign-prepare" title="گیرنده و کانالِ هر لید را می‌سنجد (فرم: صفحهٔ فرم خوانده می‌شود؛ ایمیل و پیامک: حساب و گوشی و اندازهٔ متن) و می‌گوید خودکار می‌شود فرستاد یا نه">
+                <Icon name="search" size={16} /> {campaign.channel === "contact_form" || !campaign.channel ? "آماده‌سازیِ فرم‌ها" : "آماده‌سازی"}{pending > 0 ? ` (${fa(pending)})` : ""}
               </Button>
               <EmergencyStopButton stopped={info.emergency_stop} onChanged={reloadAll} compact />
             </>
@@ -237,7 +243,7 @@ function CampaignBody({
       </div>
 
       {blockers.length > 0 && (
-        <Alert tone="info" title="برای شروعِ ارسال این‌ها لازم است" action={<Link to="/growth/settings" className="u-btn u-btn-secondary u-btn-sm no-underline">تنظیمات</Link>}>
+        <Alert tone="info" title="برای شروعِ ارسال این‌ها لازم است" action={<span className="flex gap-2"><Link to="/growth/settings" className="u-btn u-btn-secondary u-btn-sm no-underline">تنظیمات</Link><Link to="/growth/channels" className="u-btn u-btn-secondary u-btn-sm no-underline">کانال‌ها</Link></span>}>
           <ul className="list-disc ps-5" data-testid="start-blockers">
             {blockers.map((b) => (
               <li key={b}>{b}</li>
@@ -283,6 +289,7 @@ function CampaignBody({
             <CapMeter sent={info.sent_today} cap={info.daily_cap} />
             <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
               سقفِ روزانه برای همهٔ کمپین‌ها با هم است. {fa(info.cap_remaining)} ارسالِ دیگر برای امروز مانده.
+              {own && own.cap_remaining != null ? ` سقفِ کانالِ «${own.label}»: ${fa(own.cap_remaining)} ارسالِ دیگر.` : ""}
             </p>
             <div className="mt-3">
               <div className="mb-1 flex justify-between text-xs" style={{ color: "var(--text-3)" }}>

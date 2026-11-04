@@ -141,6 +141,8 @@ export const PAGES: PanelPage[] = [
   { key: "growth_lead", section: "growth", label: "جزئیات لید", icon: "users", to: "/growth/leads", staffOnly: true, menu: false },
   { key: "growth_outreach", section: "growth", label: "پیام‌رسانی", icon: "send", to: "/growth/outreach", staffOnly: true },
   { key: "growth_templates", section: "growth", label: "قالب‌های پیام", icon: "file", to: "/growth/templates", staffOnly: true },
+  { key: "growth_channels", section: "growth", label: "کانال‌های ارسال", icon: "inbox", to: "/growth/channels", staffOnly: true },
+  { key: "growth_knowledge", section: "growth", label: "دانشِ محصول", icon: "bulb", to: "/growth/knowledge", staffOnly: true },
   { key: "growth_suppression", section: "growth", label: "تماس نگیر", icon: "ban", to: "/growth/do-not-contact", staffOnly: true },
   { key: "growth_settings", section: "growth", label: "تنظیمات جذب مشتری", icon: "settings", to: "/growth/settings", staffOnly: true },
 

@@ -15,13 +15,16 @@ class SourceProvider(models.TextChoices):
     BUSINESS_NAME = "business_name", "نام کسب‌وکار"
     CSV_IMPORT = "csv_import", "فایل CSV"
     CONTACT_EXTRACTION = "contact_extraction", "استخراج از سایتِ خودِ کسب‌وکار"
-    # M3 adds search_api / directory providers here
+    # M3: free discovery providers (see discovery/providers)
+    OSM_OVERPASS = "osm_overpass", "نقشهٔ آزاد (OpenStreetMap)"
+    BRAVE_SEARCH = "brave_search", "جست‌وجوی Brave (API)"
+    GOOGLE_CSE = "google_cse", "جست‌وجوی گوگل (Programmable Search API)"
 
 
 class LeadSource(models.Model):
     lead = models.ForeignKey("growth_leads.Lead", on_delete=models.CASCADE, related_name="sources", verbose_name="لید")
     provider = models.CharField("روشِ کشف", max_length=24, choices=SourceProvider.choices)
-    source_ref = models.CharField("مرجع", max_length=255, blank=True, help_text="manual / csv:<فایل>:<ردیف> / extract:<اجرا>")
+    source_ref = models.CharField("مرجع", max_length=255, blank=True, help_text="manual / csv:<فایل>:<ردیف> / extract:<اجرا> / osm:<نوع/شناسه> / search:<ارائه‌دهنده>:<دامنه>")
     source_url = models.CharField("آدرسِ منبع", max_length=500, blank=True)
     discovered_at = models.DateTimeField("زمانِ کشف", default=timezone.now)
     job = models.ForeignKey(

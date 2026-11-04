@@ -8,7 +8,7 @@ import { faAgo } from "../../format";
 import { useMeta } from "../../MetaContext";
 import type { LeadDetail } from "../../types";
 import { ConfirmDialog } from "../Modal";
-import { StatusBadge } from "../bits";
+import { ReachBadge, StatusBadge } from "../bits";
 import DncDialog from "./DncDialog";
 import TagEditor from "./TagEditor";
 
@@ -80,6 +80,7 @@ export default function LeadHeader({ lead, onUpdated, onReload }: { lead: LeadDe
                   <Badge tone="bad">تماس نگیر</Badge>
                 </span>
               )}
+              <ReachBadge reach={lead.reach} />
               <span className="text-xs" style={{ color: "var(--text-3)" }}>
                 ثبت شد {faAgo(lead.created_at)}
               </span>

@@ -4,7 +4,7 @@ import Icon from "../../../../components/Icon";
 import { Badge, Card } from "../../../../components/ui";
 import { faDate, shortUrl } from "../../format";
 import type { LeadRow } from "../../types";
-import { StatusBadge, TagChips } from "../bits";
+import { ReachBadge, StatusBadge, TagChips } from "../bits";
 
 const SORTABLE: Record<string, string> = { name: "business_name", city: "city", category: "category", status: "status", created: "created_at" };
 
@@ -90,6 +90,7 @@ export default function LeadTable({
                   <th>
                     <SortHeader label="وضعیت" field={SORTABLE.status} ordering={ordering} onSort={onSort} />
                   </th>
+                  <th title="امتیازِ دسترسی: چه راه‌هایی برای رسیدن به این کسب‌وکار داریم (بر اساسِ قاعده‌های ساده، نه هوش مصنوعی)">دسترسی</th>
                   <th>برچسب</th>
                   <th>
                     <SortHeader label="ثبت" field={SORTABLE.created} ordering={ordering} onSort={onSort} />
@@ -148,6 +149,9 @@ export default function LeadTable({
                     <td>
                       <StatusBadge status={lead.status} label={lead.status_label} />
                     </td>
+                    <td>
+                      <ReachBadge reach={lead.reach} />
+                    </td>
                     <td style={{ maxWidth: 170 }}>
                       <TagChips tags={lead.tags} max={2} />
                     </td>
@@ -187,6 +191,7 @@ export default function LeadTable({
                     <StatusBadge status={lead.status} label={lead.status_label} />
                     {lead.is_archived && <Badge tone="warn">بایگانی</Badge>}
                     {lead.do_not_contact && <Badge tone="bad">تماس نگیر</Badge>}
+                    <ReachBadge reach={lead.reach} />
                   </div>
                 </div>
               </div>

@@ -8,16 +8,17 @@ import { shortUrl } from "../../format";
 import { fetchItems, problem, useAction } from "../../outreach/api";
 import { itemLeadId, itemLeadName, MANUAL_QUEUE_STATUSES, reasonText, SUPPRESSION_REASONS } from "../../outreach/labels";
 import type { Campaign, ManualOutcome, OutreachItem } from "../../outreach/types";
+import { ChannelBadge, ManualActions } from "./ChannelBits";
 import { copyText, Kbd, LoadState } from "../bits";
 import Modal from "../Modal";
 import { Flash, ItemStatusBadge, Ltr } from "./shared";
 
 const KEYS: { code: string; hint: string; label: string }[] = [
   { code: "KeyC", hint: "C", label: "کپیِ متنِ پیام" },
-  { code: "KeyO", hint: "O", label: "کپیِ متن و بازکردنِ صفحهٔ تماس در زبانهٔ تازه" },
+  { code: "KeyO", hint: "O", label: "کپیِ متن و بازکردنِ صفحهٔ تماس (یا لینکِ چت) در زبانهٔ تازه" },
   { code: "KeyS", hint: "S", label: "فرستادم (ثبتِ «ارسال شد»)" },
-  { code: "KeyN", hint: "N", label: "فرم نداشت" },
-  { code: "KeyL", hint: "L", label: "نیاز به ورود داشت" },
+  { code: "KeyN", hint: "N", label: "فرم نداشت (یا در کانال‌های دیگر: در دسترس نبود)" },
+  { code: "KeyL", hint: "L", label: "نیاز به ورود داشت (فقط فرم)" },
   { code: "KeyK", hint: "K", label: "رد کردنِ این لید" },
   { code: "KeyD", hint: "D", label: "افزودن به «تماس نگیر»" },
   { code: "KeyE", hint: "E", label: "ویرایشِ متن" },
@@ -67,7 +68,8 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
   const current = items && items.length > 0 ? items[Math.min(index, items.length - 1)] : null;
   const position = items ? Math.min(index, Math.max(0, items.length - 1)) : 0;
   const leadId = current ? itemLeadId(current) : null;
-  const openUrl = current ? current.target_url || current.lead?.website || "" : "";
+  const viaForm = !current || (current.channel ?? "contact_form") === "contact_form";
+  const openUrl = current ? (viaForm ? current.target_url || current.lead?.website || "" : current.manual?.link || "") : "";
 
   useEffect(() => {
     setEditing(false);
@@ -84,12 +86,16 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
   const openPage = () => {
     if (!current) return;
     if (!openUrl) {
-      setFlash({ tone: "bad", text: "این لید آدرسِ صفحهٔ تماس ندارد." });
+      setFlash({ tone: "bad", text: viaForm ? "این لید آدرسِ صفحهٔ تماس ندارد." : "برای این کانال لینکی ساخته نشد؛ متن را کپی کنید." });
       return;
     }
-    window.open(openUrl, "_blank", "noopener");
+    window.open(openUrl, current.manual?.link_kind === "tel" ? "_self" : "_blank", "noopener");
     void copyText(current.rendered_text).then((ok) =>
-      setFlash(ok ? { tone: "ok", text: "متن کپی شد و صفحه در زبانهٔ تازه باز شد؛ آن را در فرم بچسبانید." } : { tone: "warn", text: "صفحه باز شد ولی کپی نشد؛ متن را دستی کپی کنید." }),
+      setFlash(
+        ok
+          ? { tone: "ok", text: viaForm ? "متن کپی شد و صفحه در زبانهٔ تازه باز شد؛ آن را در فرم بچسبانید." : "متن کپی شد و لینک باز شد؛ اگر متن خودکار نیامد، بچسبانید." }
+          : { tone: "warn", text: "لینک باز شد ولی کپی نشد؛ متن را دستی کپی کنید." },
+      ),
     );
   };
 
@@ -105,7 +111,7 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
     if (done !== undefined) {
       removeCurrent();
       setNote("");
-      setFlash({ tone: "ok", text: { sent: "ثبت شد: ارسال شد.", no_form: "ثبت شد: فرم نداشت.", needs_login: "ثبت شد: نیاز به ورود داشت.", skipped: "ردش کردید." }[kind] });
+      setFlash({ tone: "ok", text: { sent: "ثبت شد: ارسال شد.", no_form: "ثبت شد: فرم نداشت.", needs_login: "ثبت شد: نیاز به ورود داشت.", unreachable: "ثبت شد: در دسترس نبود.", skipped: "ردش کردید." }[kind] });
     }
   };
 
@@ -144,8 +150,8 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
     KeyC: () => void copy(),
     KeyO: openPage,
     KeyS: () => void outcome("sent"),
-    KeyN: () => void outcome("no_form"),
-    KeyL: () => void outcome("needs_login"),
+    KeyN: () => void outcome(viaForm ? "no_form" : "unreachable"),
+    KeyL: () => viaForm && void outcome("needs_login"),
     KeyK: () => void outcome("skipped"),
     KeyD: () => leadId && setSuppress(true),
     KeyE: () => {
@@ -222,6 +228,7 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
                       {itemLeadName(current)}
                     </h3>
                     <ItemStatusBadge status={current.status} label={current.status_label} />
+                    <ChannelBadge channel={current.channel} label={current.channel_label} />
                     {current.forced && <Badge tone="info">اجباری</Badge>}
                     {leadId && (
                       <Link to={`/growth/leads/${leadId}`} target="_blank" className="text-xs no-underline" style={{ color: "var(--brand-strong)" }}>
@@ -234,6 +241,8 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
                       {reasonText(current)}
                     </Alert>
                   )}
+                  {!viaForm && <ManualActions item={current} />}
+                  {viaForm && (
                   <div className="text-sm" style={{ color: "var(--text-2)" }}>
                     صفحهٔ تماس:{" "}
                     {openUrl ? (
@@ -245,6 +254,7 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
                     )}
                     {!current.target_url && current.lead?.website && <span className="text-xs" style={{ color: "var(--text-3)" }}> (صفحهٔ اصلیِ سایت)</span>}
                   </div>
+                  )}
 
                   {current.subject && (
                     <div className="text-sm" style={{ color: "var(--text-2)" }}>
@@ -280,7 +290,7 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
                       <Icon name="copy" size={15} /> کپیِ پیام <Kbd>C</Kbd>
                     </Button>
                     <Button variant="secondary" onClick={openPage} disabled={!openUrl} data-testid="manual-open">
-                      <Icon name="link" size={15} /> باز کردنِ صفحه <Kbd>O</Kbd>
+                      <Icon name="link" size={15} /> {viaForm ? "باز کردنِ صفحه" : current.manual?.label || "باز کردنِ لینک"} <Kbd>O</Kbd>
                     </Button>
                     <Button variant="ghost" onClick={() => handlers.current.KeyE()} data-testid="manual-edit-btn">
                       <Icon name="edit" size={15} /> ویرایشِ متن <Kbd>E</Kbd>
@@ -301,14 +311,22 @@ export default function ManualQueue({ campaign, onChanged }: { campaign: Campaig
 
                 <div className="flex flex-wrap gap-2" data-testid="manual-outcomes">
                   <Button onClick={() => void outcome("sent")} disabled={act.busy} data-testid="outcome-sent">
-                    <Icon name="check" size={16} /> فرستادم <Kbd>S</Kbd>
+                    <Icon name="check" size={16} /> {current.channel === "phone_call" ? "تماس گرفتم" : "فرستادم"} <Kbd>S</Kbd>
                   </Button>
-                  <Button variant="secondary" onClick={() => void outcome("no_form")} disabled={act.busy} data-testid="outcome-no_form">
-                    فرم نداشت <Kbd>N</Kbd>
-                  </Button>
-                  <Button variant="secondary" onClick={() => void outcome("needs_login")} disabled={act.busy} data-testid="outcome-needs_login">
-                    نیاز به ورود <Kbd>L</Kbd>
-                  </Button>
+                  {viaForm ? (
+                    <>
+                      <Button variant="secondary" onClick={() => void outcome("no_form")} disabled={act.busy} data-testid="outcome-no_form">
+                        فرم نداشت <Kbd>N</Kbd>
+                      </Button>
+                      <Button variant="secondary" onClick={() => void outcome("needs_login")} disabled={act.busy} data-testid="outcome-needs_login">
+                        نیاز به ورود <Kbd>L</Kbd>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="secondary" onClick={() => void outcome("unreachable")} disabled={act.busy} data-testid="outcome-unreachable">
+                      در دسترس نبود <Kbd>N</Kbd>
+                    </Button>
+                  )}
                   <Button variant="secondary" onClick={() => void outcome("skipped")} disabled={act.busy} data-testid="outcome-skipped">
                     رد کردن <Kbd>K</Kbd>
                   </Button>

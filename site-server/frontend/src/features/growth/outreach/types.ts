@@ -79,6 +79,8 @@ export type Template = {
   body: string;
   language: "fa" | "en" | string;
   generator?: string;
+  channel?: ChannelKey | "any";
+  channel_label?: string;
   is_active: boolean;
   created_by_name?: string;
   created_at?: string;
@@ -86,13 +88,52 @@ export type Template = {
   campaigns_count?: number;
 };
 
-export type TemplateInput = { name: string; subject: string; body: string; language: string; is_active: boolean };
+export type TemplateInput = { name: string; subject: string; body: string; language: string; is_active: boolean; channel: string };
 
 export type Placeholder = { key: string; label: string; example_source?: string };
 
-export type PreviewResult = { text: string; subject: string; warnings: string[]; unknown_placeholders: string[] };
+export type SmsSize = { parts: number; length: number; encoding: "gsm7" | "ucs2"; single_limit: number; part_limit: number; max_parts: number; fits: boolean };
+
+export type PreviewResult = { text: string; subject: string; warnings: string[]; unknown_placeholders: string[]; sms?: SmsSize };
 
 // ------------------------------------------------------------------ campaigns
+
+export type ChannelKey = "contact_form" | "email" | "sms" | "whatsapp" | "telegram" | "eitaa" | "bale" | "rubika" | "phone_call";
+export type CampaignChannel = ChannelKey | "auto";
+
+export type ChannelConfigField = {
+  name: string;
+  label: string;
+  type: "text" | "int" | "choice" | "email";
+  help?: string;
+  min?: number;
+  max?: number;
+  default?: number;
+  choices?: [string, string][];
+};
+
+export type ChannelInfo = {
+  key: ChannelKey;
+  label: string;
+  kind: "auto" | "manual";
+  description: string;
+  hint: string;
+  enabled: boolean;
+  priority: number;
+  daily_cap: number | null;
+  spacing_min_seconds: number | null;
+  spacing_max_seconds: number | null;
+  default_template: { id: number; name: string } | null;
+  ready: boolean;
+  not_ready_reason: string;
+  config_schema: ChannelConfigField[];
+  config: { set: Record<string, unknown>; in_force?: Record<string, unknown>; from_server?: string[]; password_from_server?: boolean };
+  /** which secrets are SET; their values never come to the browser */
+  secrets: Record<string, { label: string; is_set: boolean; server_default?: boolean }>;
+  sent_today: number | null;
+  cap_remaining: number | null;
+  needs_app: boolean;
+};
 
 export type CampaignMode = "auto" | "manual";
 export type CampaignState = "draft" | "active" | "paused" | "completed" | "cancelled";
@@ -104,6 +145,8 @@ export type Campaign = {
   template_id?: number;
   template_name?: string;
   mode: CampaignMode;
+  channel?: CampaignChannel;
+  channel_label?: string;
   status: CampaignState;
   status_label?: string;
   created_by_name?: string;
@@ -140,6 +183,7 @@ export type CampaignStatusInfo = {
   cap_remaining: number;
   readiness: Readiness;
   emergency_stop: boolean;
+  channels?: Record<string, { label: string; enabled: boolean; sent_today: number | null; cap_remaining: number | null; ready: boolean; not_ready_reason: string }>;
 };
 
 export type ItemStatus =
@@ -154,7 +198,9 @@ export type ItemStatus =
   | "cancelled"
   | "manual_sent"
   | "no_form"
-  | "needs_login";
+  | "needs_login"
+  | "handed_off"
+  | "unreachable";
 
 export type PlanField = {
   name: string;
@@ -166,6 +212,17 @@ export type PlanField = {
 };
 
 export type ItemPlan = {
+  /** e-mail / SMS dry run */
+  channel?: string;
+  ok?: boolean;
+  manual?: boolean;
+  problems?: string[];
+  recipient?: string;
+  from?: string;
+  reply_to?: string;
+  note?: string;
+  sms?: { parts: number; length: number; encoding: string };
+  link?: string;
   page_url?: string;
   action_url?: string;
   method?: string;
@@ -199,6 +256,12 @@ export type OutreachItem = {
   lead_id?: number;
   lead_name?: string;
   domain?: string;
+  channel?: ChannelKey;
+  channel_label?: string;
+  recipient?: string;
+  template?: { id: number; name: string } | null;
+  manual?: { link: string; link_kind: string; label: string; steps: string; copy_text: boolean; recipient: string; note: string } | null;
+  sms?: SmsSize | null;
   target_url: string;
   subject: string;
   rendered_text: string;
@@ -222,6 +285,65 @@ export type AddLeadsResult = {
   skipped: { lead_id: number; lead_name?: string; reason: string; reason_text: string }[];
 };
 
-export type ManualOutcome = "sent" | "no_form" | "needs_login" | "skipped";
+export type ManualOutcome = "sent" | "no_form" | "needs_login" | "unreachable" | "skipped";
+
+// ------------------------------------------------------------------ product knowledge + the AI writer (M5)
+
+export type KnowledgeSection = "feature" | "benefit" | "limitation" | "audience" | "demo" | "offer" | "price" | "note";
+
+export type KnowledgeItem = {
+  id: number;
+  section: KnowledgeSection;
+  section_label: string;
+  title: string;
+  body: string;
+  url: string;
+  sort_order: number;
+  is_active: boolean;
+  note: string;
+  is_default: boolean;
+  seed_key: string;
+  needs_value: boolean;
+  needs_value_hint: string;
+  updated_at: string;
+};
+
+export type KnowledgeList = {
+  sections: { key: KnowledgeSection; label: string }[];
+  items: KnowledgeItem[];
+  summary: { total: number; active: number; prices_missing: number; defaults_missing: number };
+};
+
+export type VersionWarning = { code: string; text: string; blocking: boolean };
+
+export type MessageVersion = {
+  id: number;
+  item_id: number;
+  version: number;
+  status: "generating" | "proposed" | "approved" | "superseded" | "rejected" | "failed";
+  status_label: string;
+  instructions: string;
+  subject: string;
+  body: string;
+  text: string;
+  personalization_reason: string;
+  evidence: { ref: string; label: string; text: string }[];
+  warnings: VersionWarning[];
+  blocking_warnings: number;
+  route: { via?: string; model?: string };
+  error: string;
+  created_by_name: string;
+  created_at: string;
+  finished_at: string | null;
+  decided_by_name: string;
+  decided_at: string | null;
+  same_as_current: boolean;
+  sms: SmsSize | null;
+};
+
+export type VersionList = { versions: MessageVersion[]; current_text: string; current_subject: string };
+
+export type DiffOp = { op: "equal" | "delete" | "insert"; a: string; b: string };
+export type VersionCompare = { a: { label: string; text: string }; b: { label: string; text: string }; ops: DiffOp[] };
 
 export type { Paged };

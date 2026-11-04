@@ -864,7 +864,7 @@ CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
 
 # ── Growth Engine (جذب مشتری) ──────────────────────────────────────────────────────────
 # ابزارِ داخلیِ جذبِ مشتری (فقط کارکنان). معماری و مستندات: docs/growth-engine/
-INSTALLED_APPS += ["apps.growth_engine.sources", "apps.growth_engine.leads", "apps.growth_engine.discovery", "apps.growth_engine.extraction", "apps.growth_engine.compliance", "apps.growth_engine.outreach"]
+INSTALLED_APPS += ["apps.growth_engine.sources", "apps.growth_engine.leads", "apps.growth_engine.discovery", "apps.growth_engine.extraction", "apps.growth_engine.compliance", "apps.growth_engine.outreach", "apps.growth_engine.knowledge"]
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update(
     {
         "growth_upload": os.getenv("THROTTLE_GROWTH_UPLOAD", "30/hour"),

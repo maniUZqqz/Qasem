@@ -9,11 +9,12 @@ import { Flash, SendingBanners } from "../components/outreach/shared";
 import TemplateEditor from "../components/outreach/TemplateEditor";
 import { faDate } from "../format";
 import { asList, useAction, useSettings } from "../outreach/api";
+import { ChannelBadge } from "../components/outreach/ChannelBits";
 import { LANGUAGES } from "../outreach/labels";
 import type { Template } from "../outreach/types";
 import type { Paged } from "../types";
 
-/** «قالب‌های پیام»: the texts the campaigns send. No AI writer yet - the text is exactly what the team writes here. */
+/** «قالب‌های پیام»: the texts the campaigns send, one or more per channel. They work without any AI; the AI writer is an optional extra on a single message. */
 export default function TemplatesPage() {
   const list = useGet<Paged<Template> | Template[]>("/outreach/templates/");
   const settings = useSettings();
@@ -54,7 +55,7 @@ export default function TemplatesPage() {
       <SendingBanners settings={settings.data} onChanged={settings.reload} />
       <PageHeader
         title="قالب‌های پیام"
-        subtitle="متنِ پیام‌ها را اینجا می‌نویسید؛ سیستم فقط جاگذارها ({business_name} و …) را با اطلاعاتِ هر لید پُر می‌کند و چیزی از خودش اضافه نمی‌کند."
+        subtitle="متنِ پیام‌ها را اینجا می‌نویسید (برای هر کانال قالبِ جدا: فرم، ایمیل، پیامک، واتساپ …). سیستم فقط جاگذارها ({business_name} و …) را با اطلاعاتِ هر لید پُر می‌کند و چیزی از خودش اضافه نمی‌کند."
         actions={
           <Button onClick={() => openEditor(null)} data-testid="template-new">
             <Icon name="plus" size={16} />
@@ -100,6 +101,7 @@ export default function TemplatesPage() {
                 <thead>
                   <tr>
                     <th className="text-start">نام</th>
+                    <th className="text-start">کانال</th>
                     <th className="text-start">زبان</th>
                     <th className="text-start">وضعیت</th>
                     <th className="text-start">کمپین‌ها</th>
@@ -117,6 +119,9 @@ export default function TemplatesPage() {
                         <div className="max-w-md truncate text-xs" style={{ color: "var(--text-3)" }}>
                           {t.body.replace(/\s+/g, " ").slice(0, 90)}
                         </div>
+                      </td>
+                      <td>
+                        <ChannelBadge channel={t.channel ?? "any"} label={t.channel_label} />
                       </td>
                       <td>{LANGUAGES.find((l) => l.value === t.language)?.label ?? t.language}</td>
                       <td>

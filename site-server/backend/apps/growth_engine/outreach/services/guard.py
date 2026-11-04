@@ -1,8 +1,9 @@
 """The guard: the six validations every outgoing message must pass, at approval time and again right before every send.
 
-    1 contact eligibility          a target page and a plan whose verdict is "eligible"
-    2 channel permission           automatic sending switched on, identity complete, no emergency stop, an "auto" campaign,
-                                   the opt-out line still in the message
+    1 contact eligibility          a recipient and a plan whose verdict is "ok" (a form that may be submitted / a valid e-mail
+                                   address and a mail account / a mobile number, a short enough text and a paired phone)
+    2 channel permission           the channel is on and can be sent by the system, automatic sending switched on, identity
+                                   complete, no emergency stop, an "auto" campaign, the opt-out line still in the message
     3 suppression                  the lead (any of its identifiers) is not on the do-not-contact list
     4 duplicate communication      never the same lead + template twice (any campaign), one send per site per campaign,
                                    never a second attempt for the same item
@@ -15,12 +16,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from django.db.models import Q
+
 from apps.growth_engine.compliance.models import GrowthSettings
 from apps.growth_engine.compliance.services import suppression
 from apps.growth_engine.core import normalization as nz
 
-from ..models import CONTACTED_STATUSES, Campaign, ItemStatus, OutreachItem, SendAttempt
-from . import fingerprint
+from ..models import AUTO_CHANNELS, CONTACTED_STATUSES, Campaign, Channel, ItemStatus, OutreachItem, SendAttempt
+from . import channel_config, fingerprint
 from .form_analysis import FormPlan
 
 # --- the codes (stable strings; the UI shows the text) -------------------------------------------------------------
@@ -41,6 +44,11 @@ CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
 CAMPAIGN_CLOSED = "campaign_closed"
 NO_APPROVAL = "no_approval"
 APPROVAL_INVALID = "approval_invalid"
+NO_RECIPIENT = "no_recipient"
+CHANNEL_NOT_READY = "channel_not_ready"
+CHANNEL_DISABLED = "channel_disabled"
+MANUAL_CHANNEL = "manual_channel"
+CHANNEL_OPTED_OUT = "channel_opted_out"
 
 TEXTS = {
     NOT_READY: "فقط موردِ «آمادهٔ تأیید» را می‌شود تأیید کرد.",
@@ -59,7 +67,12 @@ TEXTS = {
     CAMPAIGN_NOT_ACTIVE: "کمپین فعال نیست.",
     CAMPAIGN_CLOSED: "کمپین بسته شده است.",
     NO_APPROVAL: "این مورد تأیید نشده است.",
-    APPROVAL_INVALID: "تأیید باطل شده است: پیام، صفحه یا فرم عوض شده. دوباره بررسی و تأیید کنید.",
+    APPROVAL_INVALID: "تأیید باطل شده است: پیام، گیرنده یا تنظیماتِ کانال عوض شده. دوباره بررسی و تأیید کنید.",
+    NO_RECIPIENT: "گیرندهٔ این کانال معلوم نیست.",
+    CHANNEL_NOT_READY: "این کانال آماده نیست.",
+    CHANNEL_DISABLED: "این کانال در «کانال‌ها» خاموش است.",
+    MANUAL_CHANNEL: "این کانال را خودتان می‌فرستید؛ ارسالِ خودکار ندارد (از صفِ دستی نتیجه را ثبت کنید).",
+    CHANNEL_OPTED_OUT: "این گیرنده قبلاً «لغو» داده و از این کانال پیامی نمی‌گیرد.",
 }
 
 APPROVE, SEND = "approve", "send"
@@ -82,10 +95,16 @@ def _fail(code: str, text: str | None = None) -> GuardResult:
     return GuardResult(False, code, text or TEXTS[code])
 
 
+def template_id_of(item: OutreachItem) -> int:
+    """The template this item's message came from (items made before channels existed use their campaign's)."""
+    return item.template_id or item.campaign.template_id
+
+
 def contacted_elsewhere(item: OutreachItem) -> bool:
     """Another item for the same lead + template, in any campaign, that was sent / is sending / failed / was sent by hand."""
     return (
-        OutreachItem.objects.filter(lead_id=item.lead_id, campaign__template_id=item.campaign.template_id, status__in=CONTACTED_STATUSES)
+        OutreachItem.objects.filter(lead_id=item.lead_id, status__in=CONTACTED_STATUSES)
+        .filter(Q(template_id=template_id_of(item)) | Q(template__isnull=True, campaign__template_id=template_id_of(item)))
         .exclude(pk=item.pk)
         .exists()
     )
@@ -109,19 +128,42 @@ def check_item(item: OutreachItem, *, phase: str = SEND, settings_obj: GrowthSet
     if phase == APPROVE and item.status != ItemStatus.READY:
         return _fail(NOT_READY)
 
+    channel = item.channel or Channel.CONTACT_FORM
+    plan = None
     # 1 contact eligibility
-    if not item.target_url:
-        return _fail(NO_TARGET_URL)
-    if not item.plan:
-        return _fail(NOT_PREPARED)
-    plan = FormPlan.from_dict(item.plan)
-    if not plan.eligible:
-        reason = plan.reasons[0].text if plan.reasons else ""
-        return _fail(FORM_NOT_ELIGIBLE, f"{TEXTS[FORM_NOT_ELIGIBLE]} {reason}".strip())
+    if channel == Channel.CONTACT_FORM:
+        if not item.target_url:
+            return _fail(NO_TARGET_URL)
+        if not item.plan:
+            return _fail(NOT_PREPARED)
+        plan = FormPlan.from_dict(item.plan)
+        if not plan.eligible:
+            reason = plan.reasons[0].text if plan.reasons else ""
+            return _fail(FORM_NOT_ELIGIBLE, f"{TEXTS[FORM_NOT_ELIGIBLE]} {reason}".strip())
+    else:
+        if not item.recipient:
+            return _fail(NO_RECIPIENT)
+        # who must never be contacted comes first: such an item is finished (skipped), not "waiting for a person to fix something"
+        if suppression.matches_for_lead(item.lead):
+            return _fail(SUPPRESSED)
+        if channel == Channel.SMS:
+            from ..channels import sms
+
+            if sms.is_opted_out(item.recipient):
+                return _fail(CHANNEL_OPTED_OUT)
+        if channel in AUTO_CHANNELS:
+            fresh = channel_plan(item, settings_obj)  # re-evaluated now (the mail account / the phone / the text may have changed)
+            item.plan = fresh
+            if not fresh.get("ok"):
+                return _fail(CHANNEL_NOT_READY, f"{TEXTS[CHANNEL_NOT_READY]} " + " ".join(fresh.get("problems") or []))
 
     # 2 channel permission
+    if channel not in AUTO_CHANNELS:
+        return _fail(MANUAL_CHANNEL)
     if campaign.mode != Campaign.Mode.AUTO:
         return _fail(MANUAL_CAMPAIGN)
+    if not channel_config.is_enabled(channel):
+        return _fail(CHANNEL_DISABLED)
     if not settings_obj.sending_enabled:
         return _fail(SENDING_DISABLED)
     if settings_obj.identity_problems():
@@ -135,6 +177,11 @@ def check_item(item: OutreachItem, *, phase: str = SEND, settings_obj: GrowthSet
     # 3 suppression
     if suppression.matches_for_lead(item.lead):
         return _fail(SUPPRESSED)
+    if channel == Channel.SMS:
+        from ..channels import sms
+
+        if sms.is_opted_out(item.recipient):
+            return _fail(CHANNEL_OPTED_OUT)
 
     # 4 duplicate communication
     if contacted_elsewhere(item):
@@ -158,3 +205,17 @@ def check_item(item: OutreachItem, *, phase: str = SEND, settings_obj: GrowthSet
         if record.item_id != item.pk or record.fingerprint != item.fingerprint or item.fingerprint != fingerprint.compute(item, plan):
             return _fail(APPROVAL_INVALID)
     return OK
+
+
+def channel_plan(item: OutreachItem, settings_obj: GrowthSettings | None = None) -> dict:
+    """The dry run of an e-mail / SMS item, computed now (no network): ``{"ok", "problems", "recipient", "material", ...}``."""
+    settings_obj = settings_obj or GrowthSettings.load()
+    if item.channel == Channel.EMAIL:
+        from ..channels import email
+
+        return email.prepare(item, settings_obj)
+    if item.channel == Channel.SMS:
+        from ..channels import sms
+
+        return sms.prepare(item, settings_obj)
+    return {"ok": False, "problems": [TEXTS[MANUAL_CHANNEL]], "channel": item.channel}

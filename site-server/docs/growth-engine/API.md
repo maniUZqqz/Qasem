@@ -167,3 +167,30 @@ curl -s -H "Authorization: Bearer $TOKEN" http://87.107.160.17:8040/api/v1/growt
 
 وضعیتِ آیتم: `pending, ready, needs_manual, approved, sending, sent, failed, skipped, cancelled, manual_sent, no_form, needs_login`.
 **فقط آیتمِ `approved` با تأییدِ معتبر ارسال می‌شود؛ ارسال‌نشده‌ها هرگز خودکار دوباره امتحان نمی‌شوند.**
+
+## ۷. دورِ دوم (M3 تا M5)
+
+> همهٔ endpointها `IsGrowthStaff`. هیچ کلید یا رمزی در هیچ پاسخی نیست: فقط `{"is_set": true}`.
+
+### کشفِ خودکار
+- `GET discovery/providers/` ← `{"providers":[{key,label,description,kind:"map|search",needs_key,enabled,ready,not_ready_reason,attribution,attribution_url,license_note,max_results_limit,categories:[{key,label,tags}],settings_schema,settings,secrets:{نام:{label,is_set}},source_provider,usage_today?,daily_cap?}]}`.
+- `GET|PATCH discovery/providers/<osm|brave|google_cse>/` — `PATCH {"enabled?","settings?":{overpass_endpoints,nominatim_url,daily_cap},"secrets?":{api_key,cx},"clear_secrets?":[…]}`. کلید ۸ تا ۳۰۰ نویسهٔ ASCII؛ روشن‌کردنِ منبعِ کلیددارِ بدونِ کلید `400`؛ ناشناخته `404`.
+- `POST discovery/search/check/` (سهمیهٔ `growth_upload`) `{"provider","category","city","country?","max_results?","require_contact?","extract_after?","tags?"}` ← `{"ok","summary","attribution","place":{name,cached,osm_url}|null,"notes":[…]}` (شهر را حل می‌کند، چیزی نمی‌نویسد).
+- `POST discovery/search/` (همان بدنه) ← `202` + کارِ `kind=search` (`attribution` و پارامترها در `params`). خطا: `400` با `errors[{field,code,message}]`. کار با همان `GET discovery/jobs/<id>/`، `rows/`، `cancel/`، `resume/`، `resolve/` دنبال می‌شود (`resume` برای `search` به فایلِ ذخیره‌شده نیاز ندارد).
+
+### کانال‌ها
+- `GET outreach/channels/` ← `{"channels":[{key,label,kind:"auto|manual",description,hint,enabled,priority,daily_cap,spacing_min_seconds,spacing_max_seconds,default_template,ready,not_ready_reason,config_schema,config:{set,in_force?,from_server?,password_from_server?},secrets:{smtp_password:{label,is_set,server_default}},sent_today,cap_remaining,needs_app}]}` به ترتیبِ اولویت.
+- `GET|PATCH outreach/channels/<key>/` — `PATCH {"enabled?","priority?","daily_cap?"(null=فقط سراسری),"spacing_min_seconds?","spacing_max_seconds?"(هر دو یا هیچ),"default_template_id?","config?":{host,port,security,username,from_email,from_name,reply_to,timeout | max_parts},"secrets?":{smtp_password},"clear_secrets?":["smtp_password"]}`. ایمیل/پیامکِ ناآماده روشن نمی‌شود (`400 not_ready`).
+- `POST outreach/channels/reorder/ {"order":[کلیدها]}` ← کانال‌ها · `POST outreach/channels/email/verify/` ← `{"ok","message"}` (وارد می‌شود، **ایمیلی نمی‌فرستد**).
+- قالب: فیلدِ `channel` (`any|<کانال>`)؛ `POST outreach/templates/preview/` فیلدِ `channel?` و برای پیامک `sms:{parts,length,encoding,max_parts,fits}`. کمپین: `channel` (`auto|<کانال>`؛ کانالِ دستی فقط با `mode=manual`). آیتم: `channel, channel_label, recipient, template, manual:{link,link_kind,label,steps,copy_text,recipient,note}|null, sms|null`؛ `GET …/items/?channel=`. `POST …/items/<item>/outcome/` نتیجهٔ تازهٔ `unreachable`. `GET …/status/` فیلدِ `channels:{کانال:{label,enabled,sent_today,cap_remaining,ready,not_ready_reason}}` و وضعیتِ پیامک‌ها را از گوشی به‌روز می‌کند.
+- وضعیت‌های تازهٔ آیتم: `handed_off` (به صفِ گوشی داده شد؛ برای قاعده‌های تکرار «تماس‌گرفته»)، `unreachable`. دلیل‌های کنارِ زدنِ لید در `add-leads`: `no_email, no_mobile, no_whatsapp, no_telegram, no_eitaa, no_bale, no_rubika, no_phone, no_channel` (و دلیل‌های قبلی). کدهای نگهبانِ تازه: `no_recipient, channel_not_ready, channel_disabled, manual_channel, channel_opted_out`.
+
+### دانشِ محصول
+- `GET knowledge/` ← `{"sections":[{key,label}],"items":[{id,section,section_label,title,body,url,sort_order,is_active,note,is_default,seed_key,needs_value,needs_value_hint,updated_at}],"summary":{total,active,prices_missing,defaults_missing}}` · `POST knowledge/` · `PATCH|DELETE knowledge/<id>/` · `POST knowledge/<id>/reset/` (فقط موردِ پیش‌فرض) · `POST knowledge/restore-defaults/` ← `{"knowledge":n,"templates":m}` · `GET knowledge/writer-status/` (بهترین‌تلاش؛ هیچ درخواستی به AI نمی‌فرستد).
+
+### نویسندهٔ هوشمند (روی یک آیتم)
+- `POST outreach/campaigns/<id>/items/<item>/ai/ {"instructions?"}` ← `202` + نسخه `{id,version,status:"generating|proposed|approved|superseded|rejected|failed",subject,body,text,personalization_reason,evidence:[{ref,label,text}],warnings:[{code,text,blocking}],blocking_warnings,route:{via,model,attempts},error,sms,same_as_current,…,created:bool}` (اگر نسخه‌ای در حالِ نوشتن باشد همان برمی‌گردد). `POST outreach/campaigns/<id>/ai-write/ {"item_ids"(≤۳۰),"instructions?"}` ← `{"started":[…],"refused":[{item_id,text}]}`.
+- `GET …/items/<item>/versions/` ← `{"versions":[…],"current_text","current_subject"}` · `GET …/versions/compare/?a=<نسخه|current>&b=<نسخه|current>` ← `{a:{label,text},b:{…},ops:[{op:"equal|delete|insert",a,b}]}` · `POST …/versions/<v>/approve/ {"acknowledge_warnings?"}` (هشدارِ جدیِ بدونِ تأیید `400`؛ متنِ آیتم عوض و تأییدِ ارسال باطل می‌شود) · `POST …/versions/<v>/reject/`.
+
+### لیدها
+`reach` در ردیفِ لید و جزئیات: `{"value":0-100,"level":"high|medium|low","label":"بالا|متوسط|کم","reasons":[{text,points}]}`.

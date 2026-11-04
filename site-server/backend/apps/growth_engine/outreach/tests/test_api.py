@@ -72,7 +72,7 @@ class TemplateApiTests(NoNetworkMixin, TestCase):
 
     def test_placeholders(self):
         keys = [p["key"] for p in self.client.get(f"{API}/placeholders/").json()]
-        self.assertEqual(keys, ["business_name", "city", "country", "category", "website", "domain", "instagram"])
+        self.assertEqual(keys, ["business_name", "city", "country", "category", "website", "domain", "instagram", "company", "sender_name"])
 
     def test_crud(self):
         created = self.client.post(f"{API}/templates/", {"name": "اول", "body": "سلام {business_name}", "subject": "س", "language": "fa"}, format="json")
@@ -301,7 +301,10 @@ class WiringTests(NoNetworkMixin, TestCase):
         self.assertIn(attempts_on, limits._COUNTERS)
         client = client_for(make_staff())
         block = client.get(f"{G}/dashboard/").json()["extra"]["outreach"]
-        self.assertEqual(block, {"sent_today": 0, "daily_cap": 40, "campaigns_active": 0, "items_ready": 0, "items_needs_manual": 0, "sent_total": 0})
+        numbers = {k: v for k, v in block.items() if k not in ("sent_by_channel", "handed_off")}
+        self.assertEqual(numbers, {"sent_today": 0, "daily_cap": 40, "campaigns_active": 0, "items_ready": 0, "items_needs_manual": 0, "sent_total": 0})
+        self.assertEqual(block["handed_off"], 0)
+        self.assertEqual({c["channel"] for c in block["sent_by_channel"]}, {c.value for c in models.Channel})
 
     def test_dashboard_numbers_come_from_the_database(self):
         campaign = make_campaign()
@@ -313,7 +316,9 @@ class WiringTests(NoNetworkMixin, TestCase):
         OutreachItem.objects.create(campaign=campaign, lead=make_lead("d.ir"), domain="d.ir", status="manual_sent")
         models.SendAttempt.objects.create(item=sent, url="u")
         block = client_for(make_staff()).get(f"{G}/dashboard/").json()["extra"]["outreach"]
-        self.assertEqual(block, {"sent_today": 1, "daily_cap": 40, "campaigns_active": 1, "items_ready": 1, "items_needs_manual": 1, "sent_total": 2})
+        numbers = {k: v for k, v in block.items() if k not in ("sent_by_channel", "handed_off")}
+        self.assertEqual(numbers, {"sent_today": 1, "daily_cap": 40, "campaigns_active": 1, "items_ready": 1, "items_needs_manual": 1, "sent_total": 2})
+        self.assertEqual({c["channel"]: c["sent"] for c in block["sent_by_channel"]}["contact_form"], 2)
 
     def test_every_model_is_in_the_admin_and_the_records_are_read_only(self):
         for model in (models.MessageTemplate, models.Campaign, models.OutreachItem, models.ApprovalRecord, models.SendAttempt, models.OutreachJob):

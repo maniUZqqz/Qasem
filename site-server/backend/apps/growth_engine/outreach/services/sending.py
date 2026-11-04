@@ -1,5 +1,10 @@
 """The send job: submits APPROVED items, one at a time, at most once each, inside every limit.
 
+An item is sent through ITS channel: a contact form (POST, below), an e-mail (SMTP, ``channels/email.py``) or an SMS (queued for the
+paired phone, ``channels/sms.py``). Every channel goes through the same steps 1-4 and 6-8; step 5 (the fresh look at the target) is
+the form re-read for a form, and the fresh e-mail account / phone / text check (inside the guard) for the others. Each channel has its
+own daily cap and spacing on top of the global ones.
+
 For each item, in this order (nothing is skipped):
 
 1. stop checks - emergency stop, automatic sending switched off, identity incomplete, campaign not active, job cancelled;
@@ -34,8 +39,10 @@ from apps.growth_engine.leads.choices import PRE_CONTACT_STATUSES, ActivityKind
 from apps.growth_engine.leads.models import Lead
 from apps.growth_engine.leads.services import editing, history
 
-from ..models import Campaign, ItemStatus, OutreachItem, OutreachJob, SendAttempt
-from . import campaigns, fingerprint, guard, heuristics, preparing
+from ..channels import email as email_channel
+from ..channels import sms as sms_channel
+from ..models import Campaign, Channel, ItemStatus, OutreachItem, OutreachJob, SendAttempt
+from . import campaigns, channel_config, fingerprint, guard, heuristics, preparing
 from .form_reasons import text_for
 
 logger = logging.getLogger(__name__)
@@ -43,9 +50,12 @@ logger = logging.getLogger(__name__)
 #: outcomes of ``post_form`` after which nothing at all left the server (so it is no attempt and costs no allowance)
 NOTHING_SENT = (sh.ROBOTS_BLOCKED, sh.ROBOTS_UNAVAILABLE, sh.SSRF_BLOCKED, sh.BLOCKED_PORT, sh.BAD_URL, sh.DNS_ERROR)
 
-RETURN_TO_APPROVED = (guard.CAMPAIGN_NOT_ACTIVE, guard.EMERGENCY_STOP, guard.SENDING_DISABLED, guard.IDENTITY_INCOMPLETE)
+RETURN_TO_APPROVED = (guard.CAMPAIGN_NOT_ACTIVE, guard.EMERGENCY_STOP, guard.SENDING_DISABLED, guard.IDENTITY_INCOMPLETE, guard.CHANNEL_DISABLED)
 RETURN_TO_READY = (guard.NO_APPROVAL, guard.APPROVAL_INVALID)
-TO_SKIPPED = (guard.SUPPRESSED, guard.ALREADY_CONTACTED, guard.DOMAIN_ALREADY_CONTACTED, guard.ALREADY_ATTEMPTED)
+TO_SKIPPED = (guard.SUPPRESSED, guard.ALREADY_CONTACTED, guard.DOMAIN_ALREADY_CONTACTED, guard.ALREADY_ATTEMPTED, guard.CHANNEL_OPTED_OUT)
+
+#: e-mail outcomes after which nothing reached the recipient (a refusal, or the session never started): no attempt is recorded
+EMAIL_NOT_DELIVERED = ("auth_failed", "recipient_refused", "sender_refused", "data_refused", "connect_error", "tls_error", "not_sent")
 
 
 # --------------------------------------------------------------------------- small pieces
@@ -56,8 +66,11 @@ def claim(item_id: int) -> bool:
     return bool(OutreachItem.objects.filter(pk=item_id, status=ItemStatus.APPROVED).update(status=ItemStatus.SENDING, updated_at=timezone.now()))
 
 
-def claim_next(campaign_id: int) -> OutreachItem | None:
-    for item_id in OutreachItem.objects.filter(campaign_id=campaign_id, status=ItemStatus.APPROVED).order_by("id").values_list("id", flat=True)[:25]:
+def claim_next(campaign_id: int, exclude_channels: set[str] | None = None) -> OutreachItem | None:
+    queryset = OutreachItem.objects.filter(campaign_id=campaign_id, status=ItemStatus.APPROVED)
+    if exclude_channels:
+        queryset = queryset.exclude(channel__in=list(exclude_channels))
+    for item_id in queryset.order_by("id").values_list("id", flat=True)[:25]:
         if claim(item_id):
             return OutreachItem.objects.select_related("lead", "campaign", "campaign__template", "approved_record").get(pk=item_id)
     return None
@@ -97,9 +110,9 @@ def _release(item: OutreachItem, status: str, *, reason: str = "", text: str = "
     if clear_approval:
         fields["approved_record"] = None
     if plan is not None:
-        item.plan = plan.to_dict()
+        item.plan = plan if isinstance(plan, dict) else plan.to_dict()  # a dict = the dry run of an e-mail / SMS item
         item.plan_checked_at = timezone.now()
-        item.fingerprint = fingerprint.compute(item, plan)
+        item.fingerprint = fingerprint.compute(item, None if isinstance(plan, dict) else plan)
         fields.update(plan=item.plan, plan_checked_at=item.plan_checked_at, fingerprint=item.fingerprint)
     OutreachItem.objects.filter(pk=item.pk).update(**fields)
 
@@ -117,18 +130,34 @@ def _blocked(job: OutreachJob, item: OutreachItem, code: str, text: str, status:
 # --------------------------------------------------------------------------- one item
 
 
+def _fresh_plan(item: OutreachItem):
+    """For e-mail / SMS items the guard put the freshly computed dry run on the item; keep it with the release."""
+    return item.plan if item.channel != Channel.CONTACT_FORM and isinstance(item.plan, dict) else None
+
+
 def _send_one(job: OutreachJob, item: OutreachItem, fetcher, settings_obj: GrowthSettings) -> str:
-    """Process one claimed item. Returns ``sent`` | ``failed`` | ``blocked``."""
+    """Process one claimed item. Returns ``sent`` | ``failed`` | ``blocked`` | ``channel_off`` (this channel must be skipped for the rest of the run)."""
     verdict = guard.check_item(item, phase=guard.SEND, settings_obj=settings_obj)
     if not verdict.ok:
+        if verdict.code == guard.CHANNEL_DISABLED:
+            _release(item, ItemStatus.APPROVED)
+            return "channel_off"
         if verdict.code in RETURN_TO_APPROVED:
             _release(item, ItemStatus.APPROVED)
             return "blocked"
         if verdict.code in RETURN_TO_READY:
-            return _blocked(job, item, verdict.code, verdict.text, ItemStatus.READY, clear_approval=True)
+            return _blocked(job, item, verdict.code, verdict.text, ItemStatus.READY, clear_approval=True, plan=_fresh_plan(item))
         status = ItemStatus.SKIPPED if verdict.code in TO_SKIPPED else ItemStatus.NEEDS_MANUAL
-        return _blocked(job, item, verdict.code, verdict.text, status, clear_approval=True)
+        return _blocked(job, item, verdict.code, verdict.text, status, clear_approval=True, plan=_fresh_plan(item))
+    if item.channel == Channel.EMAIL:
+        return _send_email(job, item)
+    if item.channel == Channel.SMS:
+        return _send_sms(job, item)
+    return _send_form(job, item, fetcher, settings_obj)
 
+
+def _send_form(job: OutreachJob, item: OutreachItem, fetcher, settings_obj: GrowthSettings) -> str:
+    """The contact-form channel: a FRESH read of the page, the fingerprint check, then the one POST."""
     analysis = preparing.analyse(item, fetcher, settings_obj)  # a FRESH read of the page
     if not analysis.eligible:
         return _blocked(job, item, analysis.code or "form_not_eligible", analysis.text or guard.TEXTS[guard.FORM_NOT_ELIGIBLE],
@@ -154,6 +183,92 @@ def _send_one(job: OutreachJob, item: OutreachItem, fetcher, settings_obj: Growt
     return _record_attempt(job, item, plan, result)
 
 
+def _payload_of(item: OutreachItem, **extra) -> list[dict]:
+    """What was handed over, as ``[{name, value}]``: recipient, subject and the message's sha256 (the text itself is on the lead's history)."""
+    pairs = {"to": item.recipient, "subject": item.subject, "message_sha256": fingerprint.message_sha256(item.rendered_text), **extra}
+    return [{"name": k, "value": str(v)} for k, v in pairs.items() if v not in (None, "")]
+
+
+def _record_simple(job: OutreachJob, item: OutreachItem, *, status: str, url: str, method: str, payload: list[dict], guess: str, outcome: str,
+                   error: str, snippet: str, summary: str, activity: dict, elapsed_ms: int = 0, count: str = "items_sent") -> str:
+    """One transaction: the attempt, the item's new status, the lead's history, the audit entry, the job's counter."""
+
+    def record() -> None:
+        with transaction.atomic():
+            SendAttempt.objects.create(
+                item=item, channel=item.channel, url=url[:500], method=method, payload=payload, status_code=0, response_snippet=snippet[:500],
+                success_guess=guess, outcome=outcome[:24], error=error[:400], elapsed_ms=elapsed_ms,
+            )
+            OutreachItem.objects.filter(pk=item.pk).update(
+                status=status, skip_reason="" if status in (ItemStatus.SENT, ItemStatus.HANDED_OFF) else "send_failed",
+                skip_reason_text="" if status in (ItemStatus.SENT, ItemStatus.HANDED_OFF) else error[:400], updated_at=timezone.now(),
+            )
+            data = {
+                "channel": item.channel, "message_text": item.rendered_text, "subject": item.subject, "recipient": item.recipient,
+                "payload": payload, "error": error, "campaign_id": item.campaign_id, "template_id": item.template_id or item.campaign.template_id,
+                "item_id": item.pk, **activity,
+            }
+            history.log_activity(item.lead, ActivityKind.QUEUE_OUTCOME, actor=job.created_by, summary=summary, data=data)
+            audit.log(
+                AuditKind.SEND, job.created_by, f"ارسال برای لید {item.lead_id} ({Channel(item.channel).label}): {outcome}",
+                {"item_id": item.pk, "campaign_id": item.campaign_id, "channel": item.channel, "status": status, "outcome": outcome},
+            )
+            _bump(job.pk, **{count: 1})
+
+    # the message may already be out: never lose its record to a SQLite lock conflict - repeat the whole (atomic) write
+    retry_locked(record, attempts=10)
+    return "sent" if status in (ItemStatus.SENT, ItemStatus.HANDED_OFF) else "failed"
+
+
+def _send_email(job: OutreachJob, item: OutreachItem) -> str:
+    """The e-mail channel: the guard already looked at the account, the address and the approval just now."""
+    if stop_reason(job):
+        _release(item, ItemStatus.APPROVED)
+        return "blocked"
+    item._post_started = True  # from here on an exception means "maybe delivered"
+    started = time.monotonic()
+    result = email_channel.send(item)
+    elapsed = int((time.monotonic() - started) * 1000)
+    if not result.ok and result.code in EMAIL_NOT_DELIVERED:
+        return _blocked(job, item, f"email_{result.code}", f"چیزی فرستاده نشد. {result.text}", ItemStatus.NEEDS_MANUAL, clear_approval=True, plan=_fresh_plan(item))
+    cfg = channel_config.smtp_settings()
+    payload = _payload_of(item, **{"from": cfg["from_email"], "reply_to": cfg["reply_to"]})
+    if result.ok:
+        outcome = _record_simple(
+            job, item, status=ItemStatus.SENT, url=f"mailto:{item.recipient}", method="SMTP", payload=payload, guess=SendAttempt.Guess.SUCCESS,
+            outcome="smtp_accepted", error="", snippet=result.detail, summary="ایمیل فرستاده شد (سرورِ ایمیل پذیرفت)", activity={"outcome": "sent", "from": cfg["from_email"]},
+            elapsed_ms=elapsed,
+        )
+        advance_lead(item, job.created_by)
+        return outcome
+    return _record_simple(  # a timeout / a dropped session: the message may have been delivered, so it is never tried again
+        job, item, status=ItemStatus.FAILED, url=f"mailto:{item.recipient}", method="SMTP", payload=payload, guess=SendAttempt.Guess.UNCLEAR,
+        outcome=result.code, error=result.text, snippet="", summary="ارسالِ ایمیل ناموفق بود: " + result.text, activity={"outcome": "failed", "from": cfg["from_email"]},
+        elapsed_ms=elapsed, count="items_failed",
+    )
+
+
+def _send_sms(job: OutreachJob, item: OutreachItem) -> str:
+    """The SMS channel: hand the message to the phone's queue. «ارسال شد» is only claimed after the phone reports (``reconcile``)."""
+    if stop_reason(job):
+        _release(item, ItemStatus.APPROVED)
+        return "blocked"
+    item._post_started = True
+    started = time.monotonic()
+    result = sms_channel.queue(item, job.created_by)
+    elapsed = int((time.monotonic() - started) * 1000)
+    if not result.ok:
+        if result.code == "opted_out":
+            return _blocked(job, item, guard.CHANNEL_OPTED_OUT, guard.TEXTS[guard.CHANNEL_OPTED_OUT], ItemStatus.SKIPPED, clear_approval=True, plan=_fresh_plan(item))
+        return _blocked(job, item, f"sms_{result.code}"[:40], f"چیزی به صفِ گوشی داده نشد. {result.text}", ItemStatus.NEEDS_MANUAL, clear_approval=True, plan=_fresh_plan(item))
+    parts = (item.plan or {}).get("sms", {}).get("parts") or sms_channel.segments(item.rendered_text)["parts"]
+    return _record_simple(
+        job, item, status=ItemStatus.HANDED_OFF, url=f"sms:{item.recipient}", method="SMS", payload=_payload_of(item, parts=parts, sms_uid=result.uid),
+        guess=SendAttempt.Guess.UNCLEAR, outcome="queued_on_phone", error="", snippet=f"صفِ گوشی · {result.uid}",
+        summary="پیامک به صفِ گوشی داده شد (گوشی می‌فرستد)", activity={"outcome": "queued_on_phone", "sms_uid": result.uid, "parts": parts}, elapsed_ms=elapsed,
+    )
+
+
 def _record_attempt(job: OutreachJob, item: OutreachItem, plan, result) -> str:
     guess = heuristics.judge(result.status, result.text, outcome=result.outcome)
     snippet = heuristics.visible_text(result.text)
@@ -165,7 +280,7 @@ def _record_attempt(job: OutreachJob, item: OutreachItem, plan, result) -> str:
     def record() -> None:
         with transaction.atomic():
             SendAttempt.objects.create(
-                item=item, url=plan.action_url[:500], method="POST", payload=payload, status_code=result.status, response_snippet=snippet,
+                item=item, channel=Channel.CONTACT_FORM, url=plan.action_url[:500], method="POST", payload=payload, status_code=result.status, response_snippet=snippet,
                 success_guess=guess, outcome=result.outcome[:24], error=error[:400], elapsed_ms=result.elapsed_ms,
             )
             OutreachItem.objects.filter(pk=item.pk).update(
@@ -190,17 +305,20 @@ def _record_attempt(job: OutreachJob, item: OutreachItem, plan, result) -> str:
     # the message may already be delivered: never lose its record to a SQLite lock conflict - repeat the whole (atomic) write
     retry_locked(record, attempts=10)
     if accepted:
-        _advance_lead(item, job.created_by)
+        advance_lead(item, job.created_by)
     return "sent" if accepted else "failed"
 
 
-def _advance_lead(item: OutreachItem, actor) -> None:
+def advance_lead(item: OutreachItem, actor) -> None:
     """After a message went out, a fresh lead becomes «تماس گرفته‌شده» (logged like any status change)."""
     try:
         if Lead.objects.filter(pk=item.lead_id, status__in=PRE_CONTACT_STATUSES).exists():
             editing.update_lead(item.lead, {"status": "contacted"}, actor)
     except Exception:  # noqa: BLE001 - the message is already sent; a status nicety must not undo anything
         logger.exception("could not advance lead %s to contacted", item.lead_id)
+
+
+_advance_lead = advance_lead  # the old private name (kept for the form path above)
 
 
 # --------------------------------------------------------------------------- the job
@@ -220,6 +338,7 @@ def run_send(job_id: int, *, sleep=None, rng=None, fetcher_factory=None) -> str:
     rng = rng or random.Random()
     fetcher = (fetcher_factory or preparing.make_fetcher)()
     job.mark_running()
+    switched_off: set[str] = set()  # channels the operator turned off while this run was going: their items wait, the rest go on
     try:
         while True:
             reason = stop_reason(job)
@@ -228,16 +347,20 @@ def run_send(job_id: int, *, sleep=None, rng=None, fetcher_factory=None) -> str:
             settings_obj = GrowthSettings.load()
             if limits.cap_remaining(settings_obj) <= 0:
                 return _finish(job, f"سقفِ روزانه ({settings_obj.daily_cap} پیام) پر شد؛ فردا با «ادامهٔ ارسال» ادامه بدهید.")
-            item = claim_next(job.campaign_id)
+            capped = channel_config.capped_channels()
+            item = claim_next(job.campaign_id, capped | switched_off)
             if item is None:
-                return _finish(job, "")
+                return _finish(job, _waiting_note(job.campaign_id, capped, switched_off))
             try:
                 outcome = _send_one(job, item, fetcher, settings_obj)
             except Exception as exc:  # noqa: BLE001 - one broken item must not stop the others, nor be sent twice
                 logger.exception("growth send job %s item %s failed", job.pk, item.pk)
                 outcome = _crashed(job, item, exc)
-            if outcome in ("sent", "failed") and _more_to_send(job, settings_obj):
-                low, high = settings_obj.spacing_min_seconds, settings_obj.spacing_max_seconds
+            if outcome == "channel_off":
+                switched_off.add(item.channel)
+                continue
+            if outcome in ("sent", "failed") and _more_to_send(job, settings_obj, capped | switched_off):
+                low, high = channel_config.spacing_for(item.channel, settings_obj)
                 if _spacing_wait(job, rng.uniform(low, high), sleep):
                     return _stop(job, stop_reason(job) or "ارسال متوقف شد.")
     except Exception as exc:  # noqa: BLE001 - infrastructure (database ...), not one item's problem
@@ -258,15 +381,17 @@ def _crashed(job: OutreachJob, item: OutreachItem, exc: Exception) -> str:
     posted = getattr(item, "_post_started", False) or SendAttempt.objects.filter(item_id=item.pk).exists()
     error = f"خطای داخلی ({type(exc).__name__})"
     if posted:
+        sms = item.channel == Channel.SMS  # it may be in the phone's queue: keep it where ``reconcile`` will settle it
         with transaction.atomic():
             SendAttempt.objects.get_or_create(
                 item=item, defaults={
-                    "url": (item.target_url or "")[:500], "method": "POST", "outcome": "internal_error", "error": error,
-                    "success_guess": SendAttempt.Guess.FAILURE,
+                    "channel": item.channel, "url": (item.target_url or item.recipient or "")[:500], "method": {"email": "SMTP", "sms": "SMS"}.get(item.channel, "POST"),
+                    "outcome": "internal_error", "error": error, "success_guess": SendAttempt.Guess.FAILURE,
                 },
             )
             OutreachItem.objects.filter(pk=item.pk, status=ItemStatus.SENDING).update(
-                status=ItemStatus.FAILED, skip_reason="internal_error", skip_reason_text=error + " پس از ارسال؛ معلوم نیست پیام رفته یا نه.", updated_at=timezone.now()
+                status=ItemStatus.HANDED_OFF if sms else ItemStatus.FAILED, skip_reason="internal_error",
+                skip_reason_text=error + " پس از ارسال؛ معلوم نیست پیام رفته یا نه.", updated_at=timezone.now(),
             )
         _bump(job.pk, items_failed=1)
         return "failed"
@@ -277,8 +402,24 @@ def _crashed(job: OutreachJob, item: OutreachItem, exc: Exception) -> str:
     return "blocked"
 
 
-def _more_to_send(job: OutreachJob, settings_obj: GrowthSettings) -> bool:
-    return limits.cap_remaining(settings_obj) > 0 and OutreachItem.objects.filter(campaign_id=job.campaign_id, status=ItemStatus.APPROVED).exists()
+def _more_to_send(job: OutreachJob, settings_obj: GrowthSettings, skip_channels: set[str] | None = None) -> bool:
+    queryset = OutreachItem.objects.filter(campaign_id=job.campaign_id, status=ItemStatus.APPROVED)
+    if skip_channels:
+        queryset = queryset.exclude(channel__in=list(skip_channels))
+    return limits.cap_remaining(settings_obj) > 0 and queryset.exists()
+
+
+def _waiting_note(campaign_id: int, capped: set[str], switched_off: set[str]) -> str:
+    """Why approved items are still waiting when the job has nothing it may send right now ("" = nothing is waiting)."""
+    waiting = list(OutreachItem.objects.filter(campaign_id=campaign_id, status=ItemStatus.APPROVED).values_list("channel", flat=True).distinct())
+    notes = []
+    for channel in waiting:
+        label = Channel(channel).label
+        if channel in switched_off:
+            notes.append(f"کانالِ «{label}» خاموش است")
+        elif channel in capped:
+            notes.append(f"سقفِ روزانهٔ کانالِ «{label}» پر شد")
+    return ("؛ ".join(notes) + "؛ فردا یا پس از روشن کردن با «ادامهٔ ارسال» ادامه بدهید.") if notes else ""
 
 
 def _spacing_wait(job: OutreachJob, seconds: float, sleep) -> bool:
@@ -299,6 +440,10 @@ def _finish(job: OutreachJob, note: str) -> str:
     job.note = note[:400]
     job.save(update_fields=["note"])
     job.mark_finished(OutreachJob.Status.COMPLETED)
+    try:
+        sms_channel.reconcile(job.campaign_id)  # messages the phone has already settled
+    except Exception:  # noqa: BLE001 - the job is done; the panel's refresh will try again
+        logger.exception("growth sms reconcile after job %s failed", job.pk)
     campaigns.maybe_complete(job.campaign)
     return job.status
 
@@ -335,10 +480,14 @@ def recover_stuck(campaign_id: int) -> int:
     from datetime import timedelta
 
     cutoff = timezone.now() - timedelta(seconds=int(conf.get("JOB_STALL_SECONDS")))
-    return OutreachItem.objects.filter(campaign_id=campaign_id, status=ItemStatus.SENDING, updated_at__lt=cutoff).update(
+    stuck = OutreachItem.objects.filter(campaign_id=campaign_id, status=ItemStatus.SENDING, updated_at__lt=cutoff)
+    # an SMS may already sit in the phone's queue: ``reconcile`` settles it by looking there (and marks it failed if it is not there)
+    handed = stuck.filter(channel=Channel.SMS).update(status=ItemStatus.HANDED_OFF, skip_reason="unknown_outcome", updated_at=timezone.now())
+    others = stuck.exclude(channel=Channel.SMS).update(
         status=ItemStatus.FAILED, skip_reason="unknown_outcome",
         skip_reason_text="کارگر در میانهٔ ارسال متوقف شد؛ معلوم نیست پیام رفته یا نه. برای احتیاط دوباره تلاش نمی‌شود.", updated_at=timezone.now(),
     )
+    return handed + others
 
 
 def prepare_resume(job: OutreachJob) -> bool:

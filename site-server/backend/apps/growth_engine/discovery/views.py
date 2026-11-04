@@ -27,10 +27,12 @@ from .serializers import (
     JobRowSerializer,
     JobSerializer,
     ManualSerializer,
+    ProviderUpdateSerializer,
     ResolveSerializer,
+    SearchRequestSerializer,
 )
-from .services import csv_import, csv_mapping, csv_upload, manual
-from .tasks import enqueue_import
+from .services import csv_import, csv_mapping, csv_upload, manual, providers_config, search
+from .tasks import enqueue_any, enqueue_import, enqueue_search
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +171,72 @@ class CsvImportView(GrowthView):
         return Response(JobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
 
+# --------------------------------------------------------------------------- providers + automatic discovery
+
+
+class ProviderListView(GrowthView):
+    """GET - every provider: what it is, whether it is ready, its categories, its non-secret settings, which secrets are SET (never their values)."""
+
+    def get(self, request):
+        return Response({"providers": providers_config.snapshot_all()})
+
+
+class ProviderDetailView(GrowthView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, key):
+        try:
+            return Response(providers_config.snapshot(providers_config.provider_or_404(key)))
+        except providers_config.UnknownProvider:
+            return Response({"code": "not_found", "detail": "این منبع وجود ندارد."}, status=status.HTTP_404_NOT_FOUND)
+
+    def patch(self, request, key):
+        try:
+            provider = providers_config.provider_or_404(key)
+        except providers_config.UnknownProvider:
+            return Response({"code": "not_found", "detail": "این منبع وجود ندارد."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProviderUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            providers_config.update(provider, serializer.validated_data, request.user)
+        except ValidationFailed as exc:
+            return validation_response(exc)
+        return Response(providers_config.snapshot(provider))
+
+
+class SearchCheckView(GrowthView):
+    """POST - validate a search request and (map provider) resolve the city. Starts nothing."""
+
+    parser_classes = [JSONParser]
+    throttle_classes = [GrowthUploadThrottle]
+
+    def post(self, request):
+        serializer = SearchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            return Response(search.check(serializer.validated_data))
+        except ValidationFailed as exc:
+            return validation_response(exc)
+
+
+class SearchStartView(GrowthView):
+    """POST - create the search job (202). The job asks the provider, then files every answer like a CSV row."""
+
+    parser_classes = [JSONParser]
+    throttle_classes = [GrowthUploadThrottle]
+
+    def post(self, request):
+        serializer = SearchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            job = search.create_job(request.user, serializer.validated_data)
+        except ValidationFailed as exc:
+            return validation_response(exc)
+        enqueue_search(job.pk)
+        logger.info("growth search job %s queued by user=%s provider=%s", job.pk, request.user.pk, job.params.get("provider"))
+        return Response(JobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+
 # --------------------------------------------------------------------------- jobs
 
 
@@ -240,7 +308,7 @@ class JobResumeView(GrowthView):
             return validation_response(
                 ValidationFailed([{"field": "job", "code": "not_resumable", "message": "این کار قابل ادامه نیست (یا تمام شده یا فایلش پاک شده)."}])
             )
-        enqueue_import(job.pk)
+        enqueue_any(job)
         job.refresh_from_db()
         return Response(JobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 

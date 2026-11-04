@@ -34,6 +34,7 @@ class LeadOrigin(models.TextChoices):
     INSTAGRAM_URL = "instagram_url", "پیج اینستاگرام"
     BUSINESS_NAME = "business_name", "نام کسب‌وکار"
     CSV_IMPORT = "csv_import", "فایل CSV"
+    SEARCH = "search", "کشفِ خودکار (نقشه / جست‌وجو)"
 
 
 class BusinessType(models.TextChoices):

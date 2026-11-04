@@ -1,5 +1,5 @@
 import type { Tone } from "../format";
-import type { CampaignMode, CampaignState, ItemStatus, OutreachItem, Template } from "./types";
+import type { CampaignMode, CampaignState, ChannelKey, ItemStatus, OutreachItem, Template } from "./types";
 
 /** Persian wording and colours for every status / reason the outreach API can return. */
 
@@ -16,6 +16,8 @@ export const ITEM_STATUS: Record<ItemStatus, { label: string; tone: Tone; hint: 
   manual_sent: { label: "دستی ارسال شد", tone: "ok", hint: "" },
   no_form: { label: "فرم نداشت", tone: "warn", hint: "" },
   needs_login: { label: "نیاز به ورود داشت", tone: "warn", hint: "" },
+  handed_off: { label: "به صفِ گوشی داده شد", tone: "info", hint: "گوشی می‌فرستد؛ وقتی بفرستد «ارسال شد» می‌شود" },
+  unreachable: { label: "در دسترس نبود", tone: "warn", hint: "" },
 };
 
 export const itemStatus = (status: string) =>
@@ -33,12 +35,14 @@ export const COUNTER_ORDER: ItemStatus[] = [
   "manual_sent",
   "no_form",
   "needs_login",
+  "unreachable",
+  "handed_off",
   "skipped",
   "cancelled",
 ];
 
 /** Statuses of an item that is finished (nothing more will happen to it). */
-export const FINISHED: ItemStatus[] = ["sent", "failed", "skipped", "cancelled", "manual_sent", "no_form", "needs_login"];
+export const FINISHED: ItemStatus[] = ["sent", "failed", "skipped", "cancelled", "manual_sent", "no_form", "needs_login", "unreachable"];
 
 /** Statuses the hand-work queue is made of. */
 export const MANUAL_QUEUE_STATUSES = (mode: CampaignMode): ItemStatus[] =>
@@ -55,6 +59,24 @@ export const CAMPAIGN_STATE: Record<CampaignState, { label: string; tone: Tone }
 export const campaignState = (state: string) => CAMPAIGN_STATE[state as CampaignState] ?? { label: state, tone: "neutral" as Tone };
 
 export const MODE_LABEL: Record<CampaignMode, string> = { auto: "ارسال خودکار", manual: "صفِ دستی" };
+
+/** The channels: label, whether the system sends it (auto) or a person does (manual). */
+export const CHANNELS: { key: ChannelKey; label: string; kind: "auto" | "manual"; short: string }[] = [
+  { key: "contact_form", label: "فرمِ تماسِ سایت", kind: "auto", short: "فرم" },
+  { key: "email", label: "ایمیل", kind: "auto", short: "ایمیل" },
+  { key: "sms", label: "پیامک (از گوشیِ شما)", kind: "auto", short: "پیامک" },
+  { key: "whatsapp", label: "واتساپ", kind: "manual", short: "واتساپ" },
+  { key: "telegram", label: "تلگرام", kind: "manual", short: "تلگرام" },
+  { key: "eitaa", label: "ایتا", kind: "manual", short: "ایتا" },
+  { key: "bale", label: "بله", kind: "manual", short: "بله" },
+  { key: "rubika", label: "روبیکا", kind: "manual", short: "روبیکا" },
+  { key: "phone_call", label: "تماس تلفنی", kind: "manual", short: "تماس" },
+];
+
+export const channelLabel = (key: string | undefined | null): string =>
+  key === "auto" ? "خودکار (بر اساسِ اولویت)" : key === "any" ? "همهٔ کانال‌ها" : CHANNELS.find((c) => c.key === key)?.label ?? (key || "فرمِ تماسِ سایت");
+
+export const isManualChannel = (key: string | undefined | null): boolean => CHANNELS.find((c) => c.key === key)?.kind === "manual";
 
 export const JOB_KIND_LABEL: Record<string, string> = { prepare: "آماده‌سازی فرم‌ها", send: "ارسال" };
 
@@ -82,6 +104,14 @@ export const REASON_TEXT: Record<string, string> = {
   archived: "بایگانی‌شده است",
   limit: "به سقفِ تعدادِ کمپین رسیده",
   identity_incomplete: "مشخصاتِ فرستنده در تنظیمات کامل نیست",
+  manual_channel: "این کانال را خودتان می‌فرستید (لینک و متن آماده است)",
+  channel_not_ready: "کانال آماده نیست",
+  no_recipient: "گیرنده معلوم نیست",
+  no_email: "ایمیلِ معتبر ندارد",
+  no_mobile: "شمارهٔ موبایل ندارد",
+  no_channel: "هیچ راهِ تماسِ فعالی ندارد",
+  channel_opted_out: "این گیرنده «لغو» داده است",
+  phone_failed: "گوشی نتوانست بفرستد",
 };
 
 export const reasonText = (item: Pick<OutreachItem, "skip_reason" | "skip_reason_text">): string =>
@@ -130,6 +160,8 @@ export const AUDIT_KIND: Record<string, string> = {
 };
 
 export const DEFAULT_PLACEHOLDERS = [
+  { key: "company", label: "نامِ شرکتِ شما" },
+  { key: "sender_name", label: "نامِ شما" },
   { key: "business_name", label: "نامِ کسب‌وکار" },
   { key: "city", label: "شهر" },
   { key: "country", label: "کشور" },
@@ -158,7 +190,9 @@ export function itemLeadName(item: Pick<OutreachItem, "lead" | "lead_id" | "lead
 export const itemLeadId = (item: Pick<OutreachItem, "lead" | "lead_id">): number | null => item.lead?.id ?? item.lead_id ?? null;
 
 /** The closing lines every message gets: sender block + opt-out line (DESIGN-EXT section 3, «Message»). */
-export function closingBlock(f: { sender_name: string; sender_company: string; sender_phone: string; sender_email: string; opt_out_line: string }): string {
+export function closingBlock(f: { sender_name: string; sender_company: string; sender_phone: string; sender_email: string; opt_out_line: string }, channel = "any"): string {
+  if (channel === "phone_call") return "";
+  if (channel === "sms") return [f.sender_company.trim() || f.sender_name.trim(), f.opt_out_line.trim()].filter(Boolean).join("\n");
   const who = [f.sender_name.trim(), f.sender_company.trim()].filter(Boolean).join(" | ");
   const how = [f.sender_phone.trim(), f.sender_email.trim()].filter(Boolean).join(" · ");
   return [who, how].filter(Boolean).join("\n") + (f.opt_out_line.trim() ? `\n\n${f.opt_out_line.trim()}` : "");

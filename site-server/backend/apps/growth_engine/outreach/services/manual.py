@@ -18,7 +18,7 @@ from apps.growth_engine.leads.models import Lead
 from apps.growth_engine.leads.services import editing, history
 from apps.growth_engine.leads.services.editing import ValidationFailed
 
-from ..models import Campaign, ItemStatus, OutreachItem
+from ..models import Campaign, Channel, ItemStatus, OutreachItem
 from . import campaigns, guard
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,14 @@ OUTCOMES = {
     "sent": ItemStatus.MANUAL_SENT,
     "no_form": ItemStatus.NO_FORM,
     "needs_login": ItemStatus.NEEDS_LOGIN,
+    "unreachable": ItemStatus.UNREACHABLE,
     "skipped": ItemStatus.SKIPPED,
 }
 SUMMARIES = {
     "sent": "پیام دستی ارسال شد",
     "no_form": "فرمِ تماس پیدا نشد (ارسالِ دستی انجام نشد)",
     "needs_login": "برای ارسال باید وارد حساب شد (ارسالِ دستی انجام نشد)",
+    "unreachable": "از این راه در دسترس نبود (پیام نرفت)",
     "skipped": "از صفِ پیام رد شد",
 }
 ALLOWED_FROM = (ItemStatus.PENDING, ItemStatus.READY, ItemStatus.NEEDS_MANUAL)
@@ -40,7 +42,7 @@ ALLOWED_FROM = (ItemStatus.PENDING, ItemStatus.READY, ItemStatus.NEEDS_MANUAL)
 
 def record_outcome(item: OutreachItem, outcome: str, note: str = "", actor=None) -> OutreachItem:
     if outcome not in OUTCOMES:
-        raise ValidationFailed([{"field": "outcome", "code": "invalid_outcome", "message": "نتیجه باید یکی از «ارسال شد»، «فرم نداشت»، «نیاز به ورود» یا «رد» باشد."}])
+        raise ValidationFailed([{"field": "outcome", "code": "invalid_outcome", "message": "نتیجه باید یکی از «ارسال شد»، «فرم نداشت»، «نیاز به ورود»، «در دسترس نبود» یا «رد» باشد."}])
     note = nz.normalize_text(note)
     if len(note) > 500:
         raise ValidationFailed([{"field": "note", "code": "too_long", "message": "یادداشت از ۵۰۰ نویسه بلندتر است."}])
@@ -64,10 +66,11 @@ def record_outcome(item: OutreachItem, outcome: str, note: str = "", actor=None)
             raise ValidationFailed([{"field": "status", "code": "not_open", "message": "این مورد همین حالا تغییر کرد؛ صفحه را تازه کنید."}])
         item.status, item.manual_note = status, note
         history.log_activity(
-            item.lead, ActivityKind.QUEUE_OUTCOME, actor=actor, summary=SUMMARIES[outcome] + (f": {note}" if note else ""),
+            item.lead, ActivityKind.QUEUE_OUTCOME, actor=actor, summary=SUMMARIES[outcome] + (f" ({Channel(item.channel).label})" if item.channel != Channel.CONTACT_FORM else "") + (f": {note}" if note else ""),
             data={
-                "outcome": outcome, "channel": "manual", "message_text": item.rendered_text, "subject": item.subject,
-                "target_url": item.target_url, "note": note, "campaign_id": item.campaign_id, "template_id": campaign.template_id, "item_id": item.pk,
+                "outcome": outcome, "channel": "manual", "via": item.channel, "message_text": item.rendered_text, "subject": item.subject,
+                "target_url": item.target_url, "recipient": item.recipient, "note": note, "campaign_id": item.campaign_id,
+                "template_id": item.template_id or campaign.template_id, "item_id": item.pk,
             },
         )
         if campaign.mode == Campaign.Mode.MANUAL and campaign.status == Campaign.Status.DRAFT:

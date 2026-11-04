@@ -54,7 +54,7 @@ def edit_item(item: OutreachItem, *, text: str | None = None, subject: str | Non
             errors.append({"field": "rendered_text", "code": "empty", "message": "متنِ پیام خالی است."})
         elif len(new_text) > MAX_TEXT:
             errors.append({"field": "rendered_text", "code": "too_long", "message": f"متن از {MAX_TEXT} نویسه بلندتر است."})
-        elif opt_out and opt_out not in new_text:
+        elif opt_out and item.channel != "phone_call" and opt_out not in new_text:
             errors.append({"field": "rendered_text", "code": "opt_out_missing", "message": "جملهٔ لغو عضویت را از انتهای پیام حذف نکنید؛ هر پیام باید با آن تمام شود."})
     if subject is not None:
         new_subject = nz.normalize_text(subject)
@@ -74,7 +74,7 @@ def rerender_item(item: OutreachItem, actor=None) -> OutreachItem:
     """Rebuild the message from the template, the lead's CURRENT data and the CURRENT Growth Settings (drops manual edits)."""
     if item.status not in EDITABLE:
         raise ValidationFailed([{"field": "status", "code": "not_editable", "message": "این مورد دیگر قابل ویرایش نیست."}])
-    built = generators.build_message(item.campaign.template, item.lead, GrowthSettings.load())
+    built = generators.build_message(item.template or item.campaign.template, item.lead, GrowthSettings.load(), item.channel)
     with transaction.atomic():
         item.rendered_text, item.subject, item.text_edited = built.text, built.subject, False
         item.save(update_fields=["rendered_text", "subject", "text_edited", "updated_at"])

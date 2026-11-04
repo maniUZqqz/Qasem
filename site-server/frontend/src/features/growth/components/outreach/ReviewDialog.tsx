@@ -9,6 +9,8 @@ import { useAction } from "../../outreach/api";
 import { itemLeadId, itemLeadName, reasonText } from "../../outreach/labels";
 import type { ApproveResult, GrowthSettings, OutreachItem } from "../../outreach/types";
 import Modal, { ConfirmDialog } from "../Modal";
+import AiWriterPanel from "./AiWriterPanel";
+import { ChannelBadge, ChannelPlanBox } from "./ChannelBits";
 import { AttemptBox, DryRunTable, PlanFacts } from "./DryRun";
 import { Flash, ItemStatusBadge, Ltr } from "./shared";
 
@@ -174,6 +176,7 @@ export default function ReviewDialog({
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <ItemStatusBadge status={item.status} label={item.status_label} />
+            <ChannelBadge channel={item.channel} label={item.channel_label} />
             {approval && (
               <Badge tone={approval.valid && item.status === "approved" ? "ok" : "warn"}>
                 {approval.valid && item.status === "approved" ? "تأییدِ معتبر" : "تأییدِ قبلی باطل شد"}
@@ -244,6 +247,14 @@ export default function ReviewDialog({
             </div>
 
             {/* --------------------------------------------------------- the form */}
+            {(item.channel ?? "contact_form") !== "contact_form" ? (
+              <div className="min-w-0 space-y-3">
+                <h3 className="text-sm font-extrabold" style={{ color: "var(--text)" }}>
+                  مقصد و آنچه دقیقاً می‌رود
+                </h3>
+                <ChannelPlanBox item={item} />
+              </div>
+            ) : (
             <div className="min-w-0 space-y-3">
               <h3 className="text-sm font-extrabold" style={{ color: "var(--text)" }}>
                 فرمِ مقصد و آنچه دقیقاً فرستاده می‌شود
@@ -267,7 +278,18 @@ export default function ReviewDialog({
                 </p>
               )}
             </div>
+            )}
           </div>
+
+          <AiWriterPanel
+            campaignId={campaignId}
+            item={item}
+            editable={editable}
+            onChanged={() => {
+              detail.reload();
+              onChanged();
+            }}
+          />
 
           {item.attempt && <AttemptBox attempt={item.attempt} />}
         </div>

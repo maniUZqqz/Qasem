@@ -15,6 +15,7 @@ from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.core.testing import NoNetworkMixin, TempMediaMixin, client_for, make_staff
 from apps.growth_engine.discovery.models import DiscoveryJob, DiscoveryJobRow
 from apps.growth_engine.discovery.services import csv_import, csv_mapping, csv_upload
+from apps.growth_engine.discovery.services import rows as rowops
 from apps.growth_engine.leads.models import Lead
 from apps.growth_engine.leads.services import intake
 from apps.growth_engine.leads.services.drafts import build_draft
@@ -353,7 +354,7 @@ class ImportJobTests(TempMediaMixin, NoNetworkMixin, TestCase):
                 raise ValueError("boom")
             return real(*args, **kwargs)
 
-        with mock.patch.object(csv_import, "create_from_draft", flaky):
+        with mock.patch.object(rowops, "create_from_draft", flaky):
             job = self.start()
         done = self.job(job["id"])
         self.assertEqual(done["status"], "completed")
@@ -373,7 +374,7 @@ class ImportJobTests(TempMediaMixin, NoNetworkMixin, TestCase):
                 raise OperationalError("database is locked")
             return real(*args, **kwargs)
 
-        with mock.patch.object(csv_import, "create_from_draft", locked_once), mock.patch("apps.growth_engine.core.dbretry.time.sleep"):
+        with mock.patch.object(rowops, "create_from_draft", locked_once), mock.patch("apps.growth_engine.core.dbretry.time.sleep"):
             job = self.start()
         done = self.job(job["id"])
         self.assertEqual((done["status"], done["created_count"], done["error_count"]), ("completed", 3, 1))  # the real bad row only

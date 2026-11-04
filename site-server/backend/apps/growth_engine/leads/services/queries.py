@@ -12,6 +12,7 @@ from apps.growth_engine.sources.models import LeadSource
 
 from ..choices import ContactKind
 from ..models import ContactPoint, Lead
+from . import scoring
 
 #: ``?ordering=`` values -> real order_by (``-id`` is added so paging is stable)
 ORDERINGS = {
@@ -121,7 +122,9 @@ def with_list_prefetch(queryset: QuerySet[Lead]) -> QuerySet[Lead]:
         "tags",
         Prefetch(
             "contacts",
-            queryset=ContactPoint.objects.filter(kind__in=[ContactKind.PHONE, ContactKind.EMAIL]).order_by("-is_primary", "id"),
+            queryset=ContactPoint.objects.filter(
+                kind__in=[ContactKind.PHONE, ContactKind.EMAIL, ContactKind.CONTACT_FORM, *scoring.MESSENGERS]
+            ).order_by("-is_primary", "id"),
             to_attr="list_contacts",
         ),
     )

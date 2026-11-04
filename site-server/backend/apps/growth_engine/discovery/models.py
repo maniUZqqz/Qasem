@@ -1,13 +1,17 @@
-"""Discovery jobs. Today: CSV imports. Later (M3): search-provider runs, same job vocabulary."""
+"""Discovery jobs (CSV imports, provider searches - one vocabulary), the stored settings of the discovery providers
+and the geocoding cache."""
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
+from apps.common.models import TimeStampedModel
 from apps.growth_engine.core.models import BackgroundJob
 
 
 class DiscoveryJob(BackgroundJob):
     class Kind(models.TextChoices):
         CSV_IMPORT = "csv_import", "ورود از فایل CSV"
+        SEARCH = "search", "کشفِ خودکار (نقشه / جست‌وجو)"
 
     kind = models.CharField("نوع", max_length=20, choices=Kind.choices, default=Kind.CSV_IMPORT)
     file_name = models.CharField("نام فایل", max_length=200, blank=True)
@@ -64,3 +68,41 @@ class DiscoveryJobRow(models.Model):
 
     def __str__(self):
         return f"{self.job_id}:{self.row_number} {self.status}"
+
+
+class ProviderConfig(TimeStampedModel):
+    """The operator's settings of one discovery provider (one row per provider key).
+
+    ``config`` holds plain values (endpoint mirrors, daily cap ...); ``secrets`` holds API keys. Secrets are written
+    through ``services/providers_config`` only and are never serialised: the panel can see THAT a key is set, never the
+    key itself."""
+
+    provider = models.CharField("ارائه‌دهنده", max_length=24, unique=True)
+    enabled = models.BooleanField("روشن", default=False)
+    config = models.JSONField("تنظیمات", default=dict, blank=True)
+    secrets = models.JSONField("کلیدها (هرگز نمایش داده نمی‌شود)", default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="آخرین ویرایش"
+    )
+
+    class Meta:
+        verbose_name = "تنظیماتِ ارائه‌دهندهٔ کشف"
+        verbose_name_plural = "تنظیماتِ ارائه‌دهنده‌های کشف"
+
+    def __str__(self):
+        return f"{self.provider} ({'on' if self.enabled else 'off'})"
+
+
+class GeoCache(models.Model):
+    """Answers of the city lookup (Nominatim), kept so the same city is never asked twice within ``max_age``."""
+
+    key = models.CharField("کلید", max_length=250, unique=True)
+    value = models.JSONField("نتیجه", default=dict)
+    fetched_at = models.DateTimeField("زمانِ دریافت", default=timezone.now)
+
+    class Meta:
+        verbose_name = "حافظهٔ جست‌وجوی شهر"
+        verbose_name_plural = "حافظهٔ جست‌وجوی شهر"
+
+    def __str__(self):
+        return self.key

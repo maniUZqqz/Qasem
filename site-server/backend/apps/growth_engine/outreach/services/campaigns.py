@@ -12,8 +12,13 @@ from apps.growth_engine.core import conf
 from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.models import Lead
 
-from ..models import CONTACTED_STATUSES, OPEN_STATUSES, Campaign, ItemStatus, MessageTemplate, OutreachItem, OutreachJob
-from . import fingerprint, generators, targets
+from django.db.models import Q
+
+from ..channels import targets as channel_targets
+from ..models import (
+    ANY, AUTO, AUTO_CHANNELS, CONTACTED_STATUSES, MANUAL_CHANNELS, OPEN_STATUSES, Campaign, Channel, ItemStatus, MessageTemplate, OutreachItem, OutreachJob,
+)
+from . import channel_config, fingerprint, generators, targets
 
 
 class CampaignError(Exception):
@@ -34,6 +39,7 @@ SKIP_TEXTS = {
     "duplicate_domain": "از همین سایت قبلاً یک لید در این کمپین هست (هر سایت یک پیام).",
     "no_target_url": "آدرسِ صفحهٔ تماس ندارد (اول «استخراج اطلاعاتِ تماس» را اجرا کنید).",
     "limit": "کمپین به سقفِ تعدادِ موردها رسیده است.",
+    # channel-specific reasons ("no_email", "no_mobile", ...) come with their text from channels/targets.py
 }
 
 
@@ -46,7 +52,7 @@ class AddResult:
 # --------------------------------------------------------------------------- create
 
 
-def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=None) -> Campaign:
+def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=None, channel: str = Channel.CONTACT_FORM) -> Campaign:
     name = nz.normalize_text(name)
     if not name:
         raise CampaignError("name_required", "نامِ کمپین را بنویسید.")
@@ -56,10 +62,16 @@ def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=Non
         raise CampaignError("invalid_mode", "حالتِ کمپین معتبر نیست.")
     if not template.is_active:
         raise CampaignError("template_inactive", "این قالب بایگانی شده؛ قالبِ فعالی انتخاب کنید.")
+    if channel != AUTO and channel not in Channel.values:
+        raise CampaignError("invalid_channel", "کانالِ کمپین معتبر نیست.")
+    if channel in MANUAL_CHANNELS and mode != Campaign.Mode.MANUAL:
+        raise CampaignError("manual_channel_mode", f"کانالِ «{Channel(channel).label}» را خودتان می‌فرستید؛ حالتِ «صفِ دستی» را انتخاب کنید.")
+    if channel != AUTO and template.channel not in (ANY, channel):
+        raise CampaignError("template_channel", "این قالب برای کانالِ دیگری نوشته شده؛ قالبِ همین کانال را انتخاب کنید.")
     campaign = Campaign.objects.create(
-        name=name, template=template, mode=mode, created_by=user if getattr(user, "is_authenticated", False) else None
+        name=name, template=template, mode=mode, channel=channel, created_by=user if getattr(user, "is_authenticated", False) else None
     )
-    _audit(campaign, user, f"کمپین «{campaign.name}» ساخته شد ({campaign.get_mode_display()})")
+    _audit(campaign, user, f"کمپین «{campaign.name}» ساخته شد ({campaign.get_mode_display()}، {campaign.get_channel_display()})")
     return campaign
 
 
@@ -85,10 +97,19 @@ def add_leads(campaign: Campaign, lead_ids: list[int], *, user=None, force: bool
     in_campaign = set(campaign.items.values_list("lead_id", flat=True))
     domains = set(campaign.items.exclude(domain="").values_list("domain", flat=True))
     blocked = suppression.suppressed_lead_ids(ids)
-    contacted = set(
-        OutreachItem.objects.filter(lead_id__in=ids, campaign__template_id=campaign.template_id, status__in=CONTACTED_STATUSES)
-        .exclude(campaign_id=campaign.pk).values_list("lead_id", flat=True)
-    )
+    contacted_cache: dict[int, set[int]] = {}
+
+    def contacted_with(template_id: int) -> set[int]:
+        """Leads (of ``ids``) that already got a message from this template in ANOTHER campaign."""
+        if template_id not in contacted_cache:
+            contacted_cache[template_id] = set(
+                OutreachItem.objects.filter(lead_id__in=ids, status__in=CONTACTED_STATUSES)
+                .filter(Q(template_id=template_id) | Q(template__isnull=True, campaign__template_id=template_id))
+                .exclude(campaign_id=campaign.pk).values_list("lead_id", flat=True)
+            )
+        return contacted_cache[template_id]
+
+    auto_order = channel_config.ordered_enabled() if campaign.channel == AUTO else []
     settings_obj = GrowthSettings.load()
     limit = int(conf.get("SEND_MAX_ITEMS_PER_CAMPAIGN"))
     count = len(in_campaign)
@@ -112,7 +133,16 @@ def add_leads(campaign: Campaign, lead_ids: list[int], *, user=None, force: bool
         if lead_id in blocked:
             skip(lead_id, "suppressed")
             continue
-        was_contacted = lead_id in contacted
+        # which channel, which recipient, which template
+        if campaign.channel == AUTO:
+            target = channel_targets.choose_for_auto(lead, auto_order)
+            channel = target.channel if target else Channel.CONTACT_FORM
+            template = (channel_config.default_template(channel) if target else None) or campaign.template
+        else:
+            channel = campaign.channel
+            target = channel_targets.resolve(lead, channel)
+            template = campaign.template
+        was_contacted = lead_id in contacted_with(template.pk)
         if was_contacted and not (manual and force):
             skip(lead_id, "already_contacted")
             continue
@@ -120,16 +150,19 @@ def add_leads(campaign: Campaign, lead_ids: list[int], *, user=None, force: bool
         if domain and domain in domains:
             skip(lead_id, "duplicate_domain")
             continue
-        url = targets.target_url(lead)
-        if not url and not manual:
-            skip(lead_id, "no_target_url")
+        url = target.recipient if target and channel == Channel.CONTACT_FORM else ""
+        # a manual form queue may hold leads whose form is not known yet (a person looks it up); every other channel needs a recipient
+        if target is None and not (manual and campaign.channel == Channel.CONTACT_FORM):
+            code, text = channel_targets.NO_CHANNEL if campaign.channel == AUTO else channel_targets.no_target(channel)
+            result.skipped.append({"lead_id": lead_id, "lead_name": lead.display_name, "reason": code, "reason_text": text})
             continue
         if count >= limit:
             skip(lead_id, "limit")
             continue
-        built = generators.build_message(campaign.template, lead, settings_obj)
+        built = generators.build_message(template, lead, settings_obj, channel)
         item = OutreachItem(
-            campaign=campaign, lead=lead, domain=domain, target_url=url, subject=built.subject, rendered_text=built.text,
+            campaign=campaign, lead=lead, domain=domain, target_url=url, channel=channel, recipient=target.recipient if target else "",
+            template=template, subject=built.subject, rendered_text=built.text,
             status=ItemStatus.PENDING, forced=bool(was_contacted and manual and force),
         )
         item.fingerprint = fingerprint.compute(item)
@@ -149,7 +182,7 @@ def add_leads(campaign: Campaign, lead_ids: list[int], *, user=None, force: bool
     return result
 
 
-NOT_REMOVABLE = (ItemStatus.SENDING, ItemStatus.SENT, ItemStatus.FAILED, ItemStatus.MANUAL_SENT)
+NOT_REMOVABLE = (ItemStatus.SENDING, ItemStatus.SENT, ItemStatus.FAILED, ItemStatus.MANUAL_SENT, ItemStatus.HANDED_OFF, ItemStatus.UNREACHABLE)
 
 
 def remove_items(campaign: Campaign, item_ids: list[int], user=None) -> dict:
@@ -178,6 +211,11 @@ def start_problems(campaign: Campaign) -> list[str]:
         problems.append("توقفِ اضطراری فعال است.")
     if limits.cap_remaining(settings_obj) <= 0:
         problems.append(f"سقفِ روزانه ({settings_obj.daily_cap}) پر شده؛ فردا ادامه بدهید.")
+    if campaign.channel in AUTO_CHANNELS:
+        if not channel_config.is_enabled(campaign.channel):
+            problems.append(f"کانالِ «{Channel(campaign.channel).label}» در «کانال‌ها» خاموش است.")
+        elif channel_config.cap_remaining(campaign.channel) == 0:
+            problems.append(f"سقفِ روزانهٔ کانالِ «{Channel(campaign.channel).label}» پر شده؛ فردا ادامه بدهید.")
     return problems
 
 
@@ -223,6 +261,7 @@ def pause(campaign: Campaign, user=None) -> Campaign:
     campaign.save(update_fields=["status", "updated_at"])
     OutreachJob.objects.filter(campaign=campaign, kind=OutreachJob.Kind.SEND, status__in=[OutreachJob.Status.QUEUED, OutreachJob.Status.RUNNING]).update(cancel_requested=True)
     _audit(campaign, user, f"کمپین «{campaign.name}» متوقف شد")
+    _recall_phone_queue(campaign)
     return campaign
 
 
@@ -239,7 +278,21 @@ def cancel(campaign: Campaign, user=None) -> Campaign:
         )
         OutreachJob.objects.filter(campaign=campaign, status__in=[OutreachJob.Status.QUEUED, OutreachJob.Status.RUNNING]).update(cancel_requested=True)
         _audit(campaign, user, f"کمپین «{campaign.name}» لغو شد")
+    _recall_phone_queue(campaign)
     return campaign
+
+
+def _recall_phone_queue(campaign: Campaign) -> None:
+    """Pausing or cancelling a campaign also takes its not-yet-sent SMS back from the phone's queue."""
+    if campaign.channel in (Channel.SMS, AUTO):
+        from ..channels import sms
+
+        try:
+            sms.revoke_pending(campaign.pk)
+        except Exception:  # noqa: BLE001 - the campaign is already paused; a gateway hiccup must not undo that
+            import logging
+
+            logging.getLogger(__name__).exception("could not recall the phone queue of campaign %s", campaign.pk)
 
 
 def maybe_complete(campaign: Campaign) -> bool:

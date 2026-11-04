@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.growth_engine.compliance.models import AuditKind, GrowthSettings
 from apps.growth_engine.compliance.services import audit
 
-from ..models import ApprovalRecord, Campaign, ItemStatus, OutreachItem
+from ..models import ApprovalRecord, Campaign, Channel, ItemStatus, OutreachItem
 from . import fingerprint, guard
 from .form_analysis import FormPlan
 
@@ -47,16 +47,18 @@ def approve_items(campaign: Campaign, *, item_ids: list[int] | None = None, all_
 
 
 def _approve_one(item: OutreachItem, actor) -> None:
-    plan = FormPlan.from_dict(item.plan)
-    current = fingerprint.compute(item, plan)
+    form = (item.channel or Channel.CONTACT_FORM) == Channel.CONTACT_FORM
+    plan = FormPlan.from_dict(item.plan) if form else None
+    current = fingerprint.compute(item, plan)  # other channels: from the fresh plan the guard just put on the item
     if current != item.fingerprint:  # the stored value drifted (should not happen): trust the recomputed one
         item.fingerprint = current
     record = ApprovalRecord.objects.create(
         item=item, approved_by=actor if getattr(actor, "is_authenticated", False) else None, fingerprint=item.fingerprint,
-        message_sha256=fingerprint.message_sha256(item.rendered_text), target_url=item.target_url, action_url=plan.action_url,
+        message_sha256=fingerprint.message_sha256(item.rendered_text), target_url=item.target_url or item.recipient,
+        action_url=plan.action_url if plan is not None else f"{item.channel}:{item.recipient}"[:500],
     )
     updated = OutreachItem.objects.filter(pk=item.pk, status=ItemStatus.READY).update(
-        status=ItemStatus.APPROVED, approved_record=record, fingerprint=item.fingerprint, updated_at=timezone.now()
+        status=ItemStatus.APPROVED, approved_record=record, fingerprint=item.fingerprint, plan=item.plan, updated_at=timezone.now()
     )
     if not updated:  # someone else changed it a moment ago: the transaction rolls the record back
         raise _Raced()

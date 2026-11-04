@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import AutoDiscovery from "../components/discovery/AutoDiscovery";
 import CsvWizard from "../components/discovery/CsvWizard";
 import ManualForm from "../components/discovery/ManualForm";
+import JobPanel from "../components/discovery/JobPanel";
 import RecentJobs from "../components/discovery/RecentJobs";
 import type { ManualMode } from "../types";
 
@@ -12,6 +14,7 @@ const TABS: { key: string; label: string; mode?: ManualMode }[] = [
   { key: "name", label: "نام کسب‌وکار", mode: "business_name" },
   { key: "manual", label: "ثبت کامل", mode: "manual" },
   { key: "csv", label: "فایل CSV" },
+  { key: "auto", label: "کشفِ خودکار (نقشه و جست‌وجو)" },
 ];
 
 /**
@@ -24,7 +27,7 @@ export default function DiscoveryPage() {
   const requested = params.get("tab") ?? "website";
   const jobParam = Number(params.get("job"));
   const jobId = Number.isInteger(jobParam) && jobParam > 0 ? jobParam : null;
-  const tab = jobId !== null ? "csv" : TABS.some((t) => t.key === requested) ? requested : "website";
+  const tab = jobId !== null ? (requested === "auto" ? "auto" : "csv") : TABS.some((t) => t.key === requested) ? requested : "website";
   const [refreshKey, setRefreshKey] = useState(0);
 
   const update = (next: Record<string, string | null>) => {
@@ -44,7 +47,7 @@ export default function DiscoveryPage() {
             role="tab"
             aria-selected={t.key === tab}
             className={`u-tab ${t.key === tab ? "active" : ""}`}
-            onClick={() => update({ tab: t.key, job: t.key === "csv" ? params.get("job") : null })}
+            onClick={() => update({ tab: t.key, job: t.key === tab && (t.key === "csv" || t.key === "auto") ? params.get("job") : null })}
             data-testid={`tab-${t.key}`}
           >
             {t.label}
@@ -54,6 +57,13 @@ export default function DiscoveryPage() {
 
       {current.mode ? (
         <ManualForm key={current.mode} mode={current.mode} />
+      ) : tab === "auto" ? (
+        <AutoDiscovery
+          onJobChange={(id) => {
+            update({ tab: "auto", job: String(id) });
+            setRefreshKey((k) => k + 1);
+          }}
+        />
       ) : (
         <CsvWizard
           jobId={jobId}
@@ -64,14 +74,28 @@ export default function DiscoveryPage() {
         />
       )}
 
+      {tab === "auto" && jobId !== null && <AutoJob jobId={jobId} onClear={() => update({ tab: "auto", job: null })} />}
+
       <RecentJobs
         activeId={jobId}
         refreshKey={refreshKey}
-        onOpen={(id) => {
-          update({ tab: "csv", job: String(id) });
+        onOpen={(id, kind) => {
+          update({ tab: kind === "search" ? "auto" : "csv", job: String(id) });
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
       />
+    </div>
+  );
+}
+
+/** The live progress and report of an automatic-discovery job, with a way back to a fresh search. */
+function AutoJob({ jobId, onClear }: { jobId: number; onClear: () => void }) {
+  return (
+    <div className="space-y-3" data-testid="auto-job">
+      <JobPanel key={jobId} jobId={jobId} />
+      <button type="button" className="u-btn u-btn-secondary u-btn-sm" onClick={onClear} data-testid="auto-new">
+        کشفِ تازه
+      </button>
     </div>
   );
 }

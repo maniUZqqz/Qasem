@@ -73,6 +73,8 @@ export function sourceText(source: SourceInfo | null | undefined): string {
   if (source.kind === "manual") return "ثبت دستی";
   if (source.kind === "csv") return `فایل ${source.file ?? ""}${source.row ? ` · ردیف ${fa(source.row)}` : ""}`;
   if (source.kind === "extract") return `استخراج از سایت${source.run ? ` · اجرای ${fa(source.run)}` : ""}`;
+  if (source.kind === "osm") return `نقشهٔ آزاد (OpenStreetMap) · ${source.object ?? ""} · © OpenStreetMap contributors (ODbL)`;
+  if (source.kind === "search") return `جست‌وجو${source.provider ? ` (${source.provider === "brave" ? "Brave" : source.provider === "google_cse" ? "گوگل" : source.provider})` : ""}${source.host ? ` · ${source.host}` : ""}`;
   return source.ref ?? "";
 }
 

@@ -77,7 +77,7 @@ export default function JobPanel({ jobId }: { jobId: number }) {
             <div>
               <div className="mb-1 flex items-center justify-between text-sm" style={{ color: "var(--text-2)" }}>
                 <span data-testid="job-progress-text">
-                  {fa(job.processed_items)} از {fa(job.total_items)} ردیف
+                  {fa(job.processed_items)} از {fa(job.total_items)} {job.kind === "search" ? "مورد" : "ردیف"}
                 </span>
                 <span className="u-num font-bold">{fa(job.progress)}٪</span>
               </div>
@@ -109,6 +109,23 @@ export default function JobPanel({ jobId }: { jobId: number }) {
               <Counter label="ردیفِ خطادار" value={job.error_count} tone={job.error_count ? "var(--bad)" : undefined} testId="count-error" />
             </div>
 
+            {job.kind === "search" && job.attribution && (
+              <p className="text-xs" style={{ color: "var(--text-3)" }} data-testid="job-attribution">
+                منبع:{" "}
+                {job.params.attribution_url ? (
+                  <a href={job.params.attribution_url} target="_blank" rel="noopener noreferrer" dir="auto" style={{ color: "var(--brand-strong)" }}>
+                    {job.attribution}
+                  </a>
+                ) : (
+                  <span dir="auto">{job.attribution}</span>
+                )}
+              </p>
+            )}
+            {job.kind === "search" && job.status === "completed" && job.total_items === 0 && (
+              <Alert tone="warn" title="چیزی پیدا نشد">
+                {job.params.empty_note || "هیچ موردی با این مشخصات پیدا نشد."}
+              </Alert>
+            )}
             {job.params.extract_after && job.status !== "completed" && (
               <p className="text-xs" style={{ color: "var(--text-3)" }}>
                 پس از پایانِ ورود، خواندنِ راه‌های تماس از سایتِ لیدهای تازه هم خودکار شروع می‌شود.
@@ -129,7 +146,7 @@ export default function JobPanel({ jobId }: { jobId: number }) {
                   )
                 }
               >
-                مدتی است پیشرفتی نکرده؛ شاید سرور یا کارگرِ پس‌زمینه دوباره راه‌اندازی شده. «ادامه بده» از ردیفی که مانده ادامه می‌دهد و چیزی دوبار ثبت نمی‌شود.
+                مدتی است پیشرفتی نکرده؛ شاید سرور یا کارگرِ پس‌زمینه دوباره راه‌اندازی شده. «ادامه بده» از جایی که مانده ادامه می‌دهد و چیزی دوبار ثبت نمی‌شود.
               </Alert>
             )}
             {job.status === "failed" && (
@@ -145,7 +162,7 @@ export default function JobPanel({ jobId }: { jobId: number }) {
                   )
                 }
               >
-                {job.error || "دلیلش ثبت نشد."} ردیف‌هایی که تا اینجا ثبت شده‌اند می‌مانند.
+                {job.error || "دلیلش ثبت نشد."} {job.kind === "search" ? "مواردی که تا اینجا ثبت شده‌اند می‌مانند." : "ردیف‌هایی که تا اینجا ثبت شده‌اند می‌مانند."}
               </Alert>
             )}
             {job.status === "cancelled" && <Alert tone="warn">ورود لغو شد؛ ردیف‌هایی که قبلاً ثبت شده بودند می‌مانند.</Alert>}

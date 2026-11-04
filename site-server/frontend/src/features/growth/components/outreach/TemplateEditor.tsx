@@ -3,14 +3,15 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Field, Input, Select, Spinner } from "../../../../components/ui";
 import { g, useGet } from "../../api";
 import { fieldErrorsOf, useAction, useDebounced, useSettings, problem, type ApiProblem } from "../../outreach/api";
-import { closingBlock, DEFAULT_PLACEHOLDERS, LANGUAGES } from "../../outreach/labels";
+import { CHANNELS, closingBlock, DEFAULT_PLACEHOLDERS, LANGUAGES } from "../../outreach/labels";
 import type { Placeholder, PreviewResult, Template, TemplateInput } from "../../outreach/types";
 import type { LeadRow } from "../../types";
 import Modal from "../Modal";
-import { Flash } from "./shared";
+import { SmsMeter } from "./ChannelBits";
 import LeadPicker from "./LeadPicker";
+import { Flash } from "./shared";
 
-const EMPTY: TemplateInput = { name: "", subject: "", body: "", language: "fa", is_active: true };
+const EMPTY: TemplateInput = { name: "", subject: "", body: "", language: "fa", is_active: true, channel: "any" };
 
 function ErrorText({ text }: { text?: string }) {
   if (!text) return null;
@@ -50,7 +51,7 @@ export default function TemplateEditor({
 
   useEffect(() => {
     if (!open) return;
-    setForm(template ? { name: template.name, subject: template.subject, body: template.body, language: template.language, is_active: template.is_active } : EMPTY);
+    setForm(template ? { name: template.name, subject: template.subject, body: template.body, language: template.language, is_active: template.is_active, channel: template.channel ?? "any" } : EMPTY);
     setLead([]);
     setPick(false);
     setPreview(null);
@@ -62,6 +63,7 @@ export default function TemplateEditor({
   // live preview, 500 ms after the last keystroke
   const body = useDebounced(form.body, 500);
   const subject = useDebounced(form.subject, 500);
+  const channelNow = form.channel;
   const leadId = lead[0]?.id;
   useEffect(() => {
     if (!open) return;
@@ -72,7 +74,7 @@ export default function TemplateEditor({
     }
     let cancelled = false;
     setPreviewing(true);
-    g.post<PreviewResult>("/outreach/templates/preview/", { body, subject, lead_id: leadId })
+    g.post<PreviewResult>("/outreach/templates/preview/", { body, subject, lead_id: leadId, channel: channelNow === "any" ? "" : channelNow })
       .then((r) => {
         if (!cancelled) {
           setPreview(r);
@@ -88,7 +90,7 @@ export default function TemplateEditor({
     return () => {
       cancelled = true;
     };
-  }, [open, body, subject, leadId]);
+  }, [open, body, subject, leadId, channelNow]);
 
   const errors = fieldErrorsOf(save.error);
   const set = <K extends keyof TemplateInput>(key: K, value: TemplateInput[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -116,7 +118,7 @@ export default function TemplateEditor({
   };
 
   const s = settings.data;
-  const closing = s ? closingBlock(s) : "";
+  const closing = s ? closingBlock(s, channelNow) : "";
   const previewHasClosing = !!(preview && s && s.opt_out_line.trim() && preview.text.includes(s.opt_out_line.trim()));
 
   return (
@@ -144,6 +146,17 @@ export default function TemplateEditor({
           <Field label="نامِ قالب (فقط برای خودتان)">
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} maxLength={120} data-autofocus data-testid="template-name" />
             <ErrorText text={errors.name} />
+          </Field>
+          <Field label="برای کدام کانال؟" hint="پیامک کوتاه می‌شود (امضا و جملهٔ لغو هم جزوِ شمارش است)؛ تماسِ تلفنی امضا ندارد. «همهٔ کانال‌ها» قالبِ عمومی است.">
+            <Select value={form.channel} onChange={(e) => set("channel", e.target.value)} data-testid="template-channel">
+              <option value="any">همهٔ کانال‌ها</option>
+              {CHANNELS.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+            <ErrorText text={errors.channel} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="زبان">
@@ -240,6 +253,7 @@ export default function TemplateEditor({
                 <pre className="whitespace-pre-wrap text-sm leading-7" dir="auto" style={{ color: "var(--text)", fontFamily: "inherit", margin: 0 }}>
                   {preview.text}
                 </pre>
+                {preview.sms && <SmsMeter size={preview.sms} />}
                 {preview.unknown_placeholders.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5 text-xs" style={{ color: "var(--bad)" }}>
                     جاگذارِ ناشناخته:

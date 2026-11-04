@@ -190,3 +190,22 @@
 **محتوا:** مجموع و بایگانی و تازه در ۷ روز، با وب‌سایت/اینستاگرام/تلفن/ایمیل/فرمِ تماس، توزیعِ وضعیت و منبع، شهرهای پرتکرار (۵ تا)، لیدِ هر روزِ ۱۴ روزِ اخیر (بدونِ بایگانی‌شده‌ها)، تکراری‌های منتظرِ تصمیم، ۵ ورودیِ اخیر، ۱۰ رویدادِ اخیر، فهرستِ «به‌زودی» (فقط عنوان).
 **نقطهٔ توسعه:** `analytics.registry.register(name, provider)`؛ هر ماژول بلوکِ خودش را زیرِ `extra[name]` می‌دهد (`extraction`، `compliance`، `outreach`)؛ ارائه‌دهندهٔ خراب کلِ صفحه را خالی نمی‌کند (`{"error": true}`).
 **تست:** `analytics/tests/test_dashboard.py`.
+
+## `discovery/providers` — کشفِ خودکار (M3)
+
+شرحِ کامل: `modules/discovery-providers.md`. چارچوب: `SearchProvider.fetch(query, ctx) → [Candidate]`؛ `osm` (Overpass + Nominatim)، `brave`، `google_cse`؛ کارِ `DiscoveryJob.kind=search` نتیجه را از همان مسیرِ CSV می‌گذراند (`services/rows.py`). تنظیمات و کلیدها: `ProviderConfig` (کلید هرگز برنمی‌گردد). `integrations/safe_http.SafeFetcher.get_api` برای API‌ها (بدونِ robots؛ با همان SSRF/پورت/timeout/UA، بازنویسیِ `key/cx/token` در نشانیِ ذخیره‌شده).
+**تست:** `discovery/tests/test_providers.py`، `test_search.py`.
+
+## `outreach/channels` — کانال‌ها (M4)
+
+شرحِ کامل: `modules/channels.md`. `ChannelConfig`، گیرنده‌یاب (`channels/targets.py`)، لینک‌ساز (`deeplinks.py`)، ایمیل (`email.py`)، پیامک (`sms.py`، آداپتورِ `apps.mobile.api`)، تنظیمات (`services/channel_config.py`). نگهبان، اثرانگشت، آماده‌سازی، تأیید و کارِ ارسال کانال‌محورند؛ فرم بدونِ تغییر.
+**تست:** `outreach/tests/test_channels_core.py`، `test_channels_email.py`، `test_channels_sms.py`.
+
+## `knowledge` — دانشِ محصول و نویسندهٔ هوشمند (M5)
+
+شرحِ کامل: `modules/knowledge.md`. `KnowledgeItem`، `GeneratedMessage`، seed (`services/seed.py`)، زمینه (`context.py`)، مسیریابیِ AI (`ai.py`)، نویسنده و بررسی (`writer.py`)، نسخه‌ها/مقایسه/پذیرش (`versions.py`).
+**تست:** `knowledge/tests/test_knowledge.py`، `test_writer.py`.
+
+## `leads/services/scoring` — امتیازِ دسترسی (D)
+
+قاعده‌ای، بدونِ AI؛ جدول و دلیل‌ها در `modules/knowledge.md` (بخشِ آخر). **تست:** `leads/tests/test_scoring.py`.

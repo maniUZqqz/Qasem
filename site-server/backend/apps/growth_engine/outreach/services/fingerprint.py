@@ -19,8 +19,9 @@ def message_sha256(text: str) -> str:
 
 
 def compute(item, plan: FormPlan | None = None) -> str:
-    """Fingerprint of ``item`` as it is now; ``plan`` defaults to the stored one."""
-    if plan is None and item.plan:
+    """Fingerprint of ``item`` as it is now; ``plan`` defaults to the stored one (form items only: other channels bind channel,
+    recipient and the channel's own material - sender address, SMS limits - instead of a form)."""
+    if getattr(item, "channel", "contact_form") in (None, "", "contact_form") and plan is None and item.plan:
         plan = FormPlan.from_dict(item.plan)
     material = {
         "lead_id": item.lead_id,
@@ -30,5 +31,11 @@ def compute(item, plan: FormPlan | None = None) -> str:
         "subject": item.subject,
         "form": plan.fingerprint_material() if plan is not None else None,
     }
+    channel = getattr(item, "channel", "contact_form") or "contact_form"
+    if channel != "contact_form":
+        material["channel"] = channel
+        material["recipient"] = item.recipient
+        material["channel_material"] = (item.plan or {}).get("material") or {}
+        material["template_id"] = item.template_id or item.campaign.template_id
     blob = json.dumps(material, sort_keys=True, ensure_ascii=False, default=list)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

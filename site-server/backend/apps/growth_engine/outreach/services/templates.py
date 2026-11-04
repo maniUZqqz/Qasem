@@ -7,7 +7,7 @@ from apps.growth_engine.compliance.models import GrowthSettings
 from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.services.editing import ValidationFailed
 
-from ..models import MessageTemplate
+from ..models import ANY, Channel, MessageTemplate
 from . import generators, rendering
 
 MAX_BODY = 3000
@@ -45,6 +45,11 @@ def validate(data: Mapping, *, partial: bool = False) -> dict:
             err("language", "invalid", "زبان باید فارسی یا انگلیسی باشد.")
         else:
             clean["language"] = data["language"]
+    if "channel" in data:
+        if data["channel"] not in (ANY, *Channel.values):
+            err("channel", "invalid", "کانالِ قالب معتبر نیست.")
+        else:
+            clean["channel"] = data["channel"]
     if "generator" in data:
         if data["generator"] not in generators.names():
             err("generator", "invalid", "روشِ ساختِ متن شناخته نشد.")
@@ -75,17 +80,25 @@ def update(template: MessageTemplate, data: Mapping) -> MessageTemplate:
 
 def delete(template: MessageTemplate) -> None:
     """A template used by any campaign is kept (archive it instead): its campaigns and their history refer to it."""
-    if template.campaigns.exists():
+    if template.campaigns.exists() or template.items.exists():
         raise ValidationFailed([{"field": "template", "code": "in_use", "message": "این قالب در کمپین استفاده شده؛ به‌جای حذف، بایگانی‌اش کنید (فعال را بردارید)."}])
     template.delete()
 
 
-def preview(body: str, subject: str, lead=None) -> dict:
+def preview(body: str, subject: str, lead=None, channel: str | None = None) -> dict:
     """What a message would look like. Without a lead the placeholders show as ‹label› markers (nothing is made up)."""
     unknown = rendering.unknown_placeholders(body, subject)
-    values = rendering.lead_values(lead) if lead is not None else {k: f"‹{label}›" for k, label in rendering.LABELS.items()}
+    values = rendering.lead_values(lead, GrowthSettings.load()) if lead is not None else {k: f"‹{label}›" for k, label in rendering.LABELS.items()}
     body_result = rendering.render(body, values)
     subject_result = rendering.render(subject, values)
-    built = rendering.compose(body_result.text, subject_result.text, GrowthSettings.load())
+    channel = channel if channel in Channel.values else None
+    built = rendering.compose(body_result.text, subject_result.text, GrowthSettings.load(), channel=channel)
     warnings = list(body_result.warnings) + [w for w in subject_result.warnings if w not in body_result.warnings]
-    return {"text": built.text, "subject": built.subject, "warnings": warnings if lead is not None else [w for w in warnings if "جاگذارِ ناشناخته" in w], "unknown_placeholders": unknown}
+    out = {"text": built.text, "subject": built.subject, "warnings": warnings if lead is not None else [w for w in warnings if "جاگذارِ ناشناخته" in w], "unknown_placeholders": unknown}
+    if channel == Channel.SMS:
+        from ..channels import sms
+        from . import channel_config
+
+        seg = sms.segments(built.text)
+        out["sms"] = {**seg, "max_parts": channel_config.sms_max_parts(), "fits": seg["parts"] <= channel_config.sms_max_parts()}
+    return out

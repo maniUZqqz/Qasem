@@ -10,8 +10,8 @@ import { JobBadge, LoadState } from "../bits";
 
 const PAGE_SIZE = 8;
 
-/** «ورودی‌های اخیر»: every CSV import, newest first; any of them can be reopened into the progress/report panel. */
-export default function RecentJobs({ activeId, refreshKey, onOpen }: { activeId: number | null; refreshKey: number; onOpen: (id: number) => void }) {
+/** «ورودی‌های اخیر»: every CSV import and automatic discovery, newest first; any of them can be reopened into the progress/report panel. */
+export default function RecentJobs({ activeId, refreshKey, onOpen }: { activeId: number | null; refreshKey: number; onOpen: (id: number, kind: string) => void }) {
   const [page, setPage] = useState(1);
   const [poll, setPoll] = useState<number | undefined>(undefined);
   const { data, loading, error, reload } = useGet<Paged<DiscoveryJob>>("/discovery/jobs/", { page, page_size: PAGE_SIZE, _k: refreshKey }, { poll });
@@ -67,7 +67,7 @@ export default function RecentJobs({ activeId, refreshKey, onOpen }: { activeId:
                         <td className="u-num">{fa(job.error_count)}</td>
                         <td className="u-num" style={{ color: "var(--text-3)" }}>{faAgo(job.queued_at)}</td>
                         <td>
-                          <Button variant="secondary" size="sm" onClick={() => onOpen(job.id)} data-testid={`job-open-${job.id}`}>
+                          <Button variant="secondary" size="sm" onClick={() => onOpen(job.id, job.kind)} data-testid={`job-open-${job.id}`}>
                             بازکردن
                           </Button>
                         </td>

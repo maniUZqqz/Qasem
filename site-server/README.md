@@ -8,6 +8,7 @@
   بیایند — آن‌وقت Ollama و ComfyUI اصلاً اجرا نمی‌شوند.
 - 🗺️ رودمپ و مرجع کامل توسعه: [ROADMAP.md](ROADMAP.md)
 - 🌙 چک‌لیست تست: [test.md](test.md)
+- 🧲 جذب مشتری (ابزار داخلی: کشف، لیدها، استخراجِ اطلاعاتِ تماس، پیام‌رسانی): [docs/growth-engine/README.md](docs/growth-engine/README.md)
 - 🏗️ معماری — سیستم، AI و خط ویدیو در یک فایل: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 🗄️ نقشه‌ی دیتابیس (تولیدشده از مدل‌ها): [docs/DATABASE.md](docs/DATABASE.md)
 - 📡 مرجع API (همان چیزی که واقعاً ساخته شده): [docs/API.md](docs/API.md)

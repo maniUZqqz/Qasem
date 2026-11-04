@@ -59,6 +59,7 @@ import { AudioLibraryPage, AudioMusicPage, AudioSfxPage, AudioSpeechPage } from 
 import StoreLayout from "./features/stores/StoreLayout";
 import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
+import GrowthRoutes from "./features/growth";
 import ComputePage from "./features/tools/compute";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
@@ -86,6 +87,8 @@ export default function App() {
               {/* ابزارهای ادمین — سه اندپوینت فاز ۲۶ که تا حالا هیچ صفحه‌ای
                   نداشتند. `AdminLayout` غیرادمین را به داشبورد برمی‌گرداند. */}
               {/* ابزارهای یکپارچه (کارکنان): سایت‌ساز، ویدیوی سه‌بعدی، سرورهای پردازش */}
+              {/* جذب مشتری (فقط کارکنان): کشف، لیدها، استخراجِ اطلاعاتِ تماس، پیام‌رسانی */}
+              <Route path="/growth/*" element={<GrowthRoutes />} />
               <Route path="/tools/studio/*" element={<PageGate k="studio_builder"><StudioRoutes /></PageGate>} />
               <Route path="/tools/3d/*" element={<PageGate k="video3d"><Up3dRoutes /></PageGate>} />
               <Route path="/tools/compute" element={<PageGate k="compute"><ComputePage /></PageGate>} />

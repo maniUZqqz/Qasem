@@ -90,6 +90,16 @@ SECTIONS = [
         ("product_video", "استودیو ویدیو", "/products/:id/video", "", []),
         ("product_advanced", "حالت پیشرفته", "/products/:id/advanced", "", []),
     ]),
+    ("growth", "جذب مشتری", True, "پیدا کردنِ مشتری برای آپ‌مارکت: کشف، لیدها، استخراجِ اطلاعاتِ تماس و پیام‌رسانی", [
+        ("growth_dashboard", "داشبورد جذب مشتری", "/growth", "اعدادِ واقعیِ لیدها، ورودی‌ها و پیام‌ها", []),
+        ("growth_discovery", "کشف مشتری", "/growth/discovery", "ثبتِ دستی (آدرس سایت، پیج اینستاگرام، نام) و ورود از فایل CSV", []),
+        ("growth_leads", "دیتابیس لیدها", "/growth/leads", "جست‌وجو، فیلتر، ویرایش، برچسب و خروجی CSV", []),
+        ("growth_lead", "جزئیات لید", "/growth/leads/:id", "اطلاعات، راه‌های تماس، یادداشت و تاریخچهٔ یک لید", []),
+        ("growth_outreach", "پیام‌رسانی", "/growth/outreach", "کمپین‌های پیام، تأییدِ دسته‌ای و صفِ دستی", []),
+        ("growth_templates", "قالب‌های پیام", "/growth/templates", "متنِ پیام‌ها با جاگذارها", []),
+        ("growth_suppression", "فهرست «تماس نگیر»", "/growth/do-not-contact", "کسانی که نباید پیام بگیرند", []),
+        ("growth_settings", "تنظیماتِ جذب مشتری", "/growth/settings", "هویتِ فرستنده، سقفِ ارسال و توقفِ اضطراری", []),
+    ]),
     ("admin", "ادمین", True, "ابزارهای کارکنان", [
         ("crm", "CRM", "/admin", "", []),
         ("marketing_report", "گزارش بازاریابی", "/admin/marketing", "", []),

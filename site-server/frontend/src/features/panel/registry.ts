@@ -20,6 +20,7 @@ export type SectionKey =
   | "audio"
   | "settings"
   | "product"
+  | "growth"
   | "admin"
   | "tools";
 
@@ -59,6 +60,7 @@ export const SECTIONS: PanelSection[] = [
   { key: "audio", title: "صدا", storeScoped: true },
   { key: "settings", title: "تنظیمات", storeScoped: true },
   { key: "product", title: "صفحهٔ محصول", menu: false },
+  { key: "growth", title: "جذب مشتری", staffOnly: true },
   { key: "admin", title: "ادمین", staffOnly: true },
   { key: "tools", title: "ابزارها", staffOnly: true },
 ];
@@ -131,6 +133,16 @@ export const PAGES: PanelPage[] = [
   { key: "product_captions", section: "product", label: "کپشن", icon: "subtitles", to: (id) => `/products/${id}/captions`, menu: false },
   { key: "product_video", section: "product", label: "استودیو ویدیو", icon: "film", to: (id) => `/products/${id}/video`, menu: false },
   { key: "product_advanced", section: "product", label: "حالت پیشرفته", icon: "settings", to: (id) => `/products/${id}/advanced`, menu: false },
+
+  // ------------------------------------------------------------ جذب مشتری
+  { key: "growth_dashboard", section: "growth", label: "داشبورد جذب مشتری", icon: "chart", to: "/growth", end: true, staffOnly: true },
+  { key: "growth_discovery", section: "growth", label: "کشف مشتری", icon: "search", to: "/growth/discovery", staffOnly: true },
+  { key: "growth_leads", section: "growth", label: "دیتابیس لیدها", icon: "users", to: "/growth/leads", staffOnly: true },
+  { key: "growth_lead", section: "growth", label: "جزئیات لید", icon: "users", to: "/growth/leads", staffOnly: true, menu: false },
+  { key: "growth_outreach", section: "growth", label: "پیام‌رسانی", icon: "send", to: "/growth/outreach", staffOnly: true },
+  { key: "growth_templates", section: "growth", label: "قالب‌های پیام", icon: "file", to: "/growth/templates", staffOnly: true },
+  { key: "growth_suppression", section: "growth", label: "تماس نگیر", icon: "ban", to: "/growth/do-not-contact", staffOnly: true },
+  { key: "growth_settings", section: "growth", label: "تنظیمات جذب مشتری", icon: "settings", to: "/growth/settings", staffOnly: true },
 
   // ---------------------------------------------------------------- ادمین
   { key: "crm", section: "admin", label: "CRM", icon: "users", to: "/admin", end: true, staffOnly: true },

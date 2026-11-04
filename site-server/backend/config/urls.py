@@ -36,6 +36,7 @@ urlpatterns = [
     path("api/v1/panel/", include("apps.panel.urls")),       # دفترِ صفحه‌ها/قابلیت‌های پنل (خاموش/روشن از ادمین)
     path("api/v1/up3d/", include("apps.up3d.api_urls")),      # ویدیوی سه‌بعدی (پنل)
     path("api/v1/studio/", include("apps.projects.api_urls")),  # سایت‌ساز (پنل)
+    path("api/v1/growth/", include("apps.growth_engine.urls")),  # جذب مشتری (فقط کارکنان)
     path("3d/", include("apps.up3d.urls")),                   # پروتکلِ کارگرِ رندر + فایل‌های سه‌بعدی
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

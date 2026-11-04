@@ -860,3 +860,20 @@ CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
     "schedule": 86400.0,
     "options": {"expires": 7200},
 }
+
+
+# ── Growth Engine (جذب مشتری) ──────────────────────────────────────────────────────────
+# ابزارِ داخلیِ جذبِ مشتری (فقط کارکنان). معماری و مستندات: docs/growth-engine/
+INSTALLED_APPS += ["apps.growth_engine.sources", "apps.growth_engine.leads", "apps.growth_engine.discovery", "apps.growth_engine.extraction", "apps.growth_engine.compliance", "apps.growth_engine.outreach"]
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update(
+    {
+        "growth_upload": os.getenv("THROTTLE_GROWTH_UPLOAD", "30/hour"),
+        "growth_export": os.getenv("THROTTLE_GROWTH_EXPORT", "30/hour"),
+        "growth_bulk": os.getenv("THROTTLE_GROWTH_BULK", "60/minute"),
+    }
+)
+# هر کلید اختیاری است؛ پیش‌فرض‌ها در apps/growth_engine/core/conf.py هستند.
+GROWTH_ENGINE = {
+    "CSV_MAX_BYTES": int(os.getenv("GROWTH_CSV_MAX_MB", "5")) * 1024 * 1024,
+    "CSV_MAX_ROWS": int(os.getenv("GROWTH_CSV_MAX_ROWS", "10000")),
+}

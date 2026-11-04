@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تماس با ما | فروشگاه گل‌سرخ</title>
+
+</head>
+<body>
+<header><nav><a href="/">خانه</a> <a href="/products">محصولات</a> <a href="/about">درباره ما</a> <a href="/login">ورود / ثبت‌نام</a></nav></header>
+<main>
+<section class="newsletter">
+<form action="/subscribe" method="post" class="newsletter-form">
+  <h3>عضویت در خبرنامه</h3>
+  <input type="email" name="EMAIL" placeholder="ایمیل شما">
+  <button type="submit">عضویت</button>
+</form>
+</section>
+<section>
+<h1>تماس با ما</h1>
+<form action="/contact/send" method="post" id="contact">
+  <input type="text" name="name" placeholder="نام شما" required>
+  <input type="email" name="email" placeholder="ایمیل" required>
+  <textarea name="message" placeholder="پیام" required></textarea>
+  <button type="submit">ارسال پیام</button>
+</form>
+</section>
+</main>
+<footer><p>© ۱۴۰۵ فروشگاه گل‌سرخ · تهران، خیابان ولیعصر</p></footer>
+</body>
+</html>

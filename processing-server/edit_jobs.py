@@ -5,10 +5,14 @@
 edit.track   follow a point/region with OpenCV (edit_track.py - an identical copy of the site's tracking.py; the site's
              tests fail when they differ). Needs cv2 + numpy in the agent's Python; caps.edit.track says whether they are.
              The site sends a small proxy of the stretch (clip.mp4) and the region; the answer is track.json.
-edit.matte   cut the subject out of every frame of a short clip: the frames go one by one to the photo kit's background
-             remover (BiRefNet-lite ONNX, the model the kit already has: tools\\PersianAiKit\\Photo\\models\\background\\
-             birefnet-lite.onnx) and the masks are put together into a grey video (matte.mp4) at the sampling rate. NOTHING
-             is downloaded here: when the model or the photo service is missing the job says exactly what is needed.
+edit.matte   cut the subject out of a short clip into a grey video (matte.mp4). Two ways, the first one preferred:
+             1. Robust Video Matting (edit_rvm.py, agent 2.5): a ~14 MB ONNX model made for video; the frames go through it one
+                after the other with its recurrent state carried along, so the edge stays steady and it is fast. It needs the
+                model (package 'video-matting': Download-Models.bat / the agent's start-up download, or fetched from the site
+                the first time a video job finds it missing) and a Python with numpy + onnxruntime (nothing is installed here).
+             2. the older way: the frames go one by one to the photo kit's background remover (BiRefNet-lite ONNX, the model
+                the kit already has: tools\\PersianAiKit\\Photo\\models\\background\\birefnet-lite.onnx), slower and it flickers.
+             Used when RVM cannot run; when neither can, the job says exactly what is needed.
 """
 import glob
 import json
@@ -18,13 +22,15 @@ import subprocess
 import time
 
 import edit_render
+import edit_rvm
 
 MODEL_REL = ("Photo", "models", "background", "birefnet-lite.onnx")
 MODEL_NEEDED = (
     "MATTE_MODEL: the background-removal model is not installed on this node. Needed: the package 'photo-background' "
-    "(BiRefNet-lite ONNX, ~224 MB, MIT) at %s - run Download-Models.bat (or the panel's models page) once; "
-    "nothing is downloaded by this job. For faster video matting a video-matting model (for example Robust Video "
-    "Matting as ONNX, ~14 MB) could be added later; none is installed. | "
+    "(BiRefNet-lite ONNX, ~224 MB, MIT) at %s - run Download-Models.bat (or the panel's models page) once. "
+    "The faster video model (Robust Video Matting, ~14 MB, package 'video-matting') is fetched by itself from the site and "
+    "runs when some Python of this computer has numpy + onnxruntime (pip install numpy onnxruntime; nothing is installed by "
+    "this job). | "
     "مدلِ حذفِ پس‌زمینه روی این سرورِ پردازش نصب نیست: بستهٔ «photo-background» (BiRefNet-lite، حدود ۲۲۴ مگابایت) لازم است."
 )
 
@@ -76,8 +82,44 @@ def run_matte(job, agent):
     ff = edit_render.ffmpeg_exe(agent)
     if not ff:
         raise agent.JobError("ffmpeg is not installed on this node", retryable=False)
+    why_rvm = ""
+    if edit_rvm.enabled():
+        try:
+            return _matte_rvm(job, agent, ff, video, p)
+        except edit_rvm.Unavailable as e:            # nothing was done yet: the per-frame path below takes over
+            why_rvm = str(e)
+            log = getattr(agent, "log", None)
+            if log:
+                log("matte: RVM not used (%s) - BiRefNet per frame instead" % why_rvm)
+    else:
+        why_rvm = "RVM is switched off (NM_RVM=0)"
+    return _matte_birefnet(job, agent, ff, video, p, why_rvm)
+
+
+def _matte_rvm(job, agent, ff, video, p):
+    """Robust Video Matting: one pass over the clip with the recurrent state carried from frame to frame."""
+    size = p.get("size") or [0, 0]
+    try:
+        w, h = int(size[0]), int(size[1])
+    except (TypeError, ValueError, IndexError):
+        w = h = 0
+    if w < 16 or h < 16:
+        w, h = edit_rvm.probe_size(ff, video)
+    w, h = edit_rvm.even_size(w, h)
+    fps = max(2.0, min(30.0, float(p.get("fps") or 24)))
+    frames = int(float(p.get("duration") or 0) * fps) + 1 if p.get("duration") else 0
+    job.progress(0.02, "prepare")
+    out = job.out("matte.mp4")
+    meta = edit_rvm.run(job, agent, ff, video, (w, h), fps, frames or 1, out, lambda message, fraction: job.progress(fraction, message),
+                        limit=float(os.environ.get("NM_RVM_TIMEOUT_S") or 3600))
+    return {"primary": "matte.mp4", "engine": "edit.matte", "frames": meta.get("frames"), "fps": fps, "model": meta.get("model", "rvm-mobilenetv3"),
+            "provider": meta.get("provider", ""), "ratio": meta.get("ratio"), "seconds": meta.get("seconds"), "time": time.strftime("%H:%M:%S")}
+
+
+def _matte_birefnet(job, agent, ff, video, p, why_rvm=""):
+    """The older way: every frame through the photo kit's BiRefNet-lite (slower, flickers). `why_rvm` says why RVM was not used."""
     if not os.path.isfile(agent.kit_dir(*MODEL_REL)):
-        raise agent.JobError(MODEL_NEEDED % agent.kit_dir(*MODEL_REL), retryable=False)
+        raise agent.JobError(MODEL_NEEDED % agent.kit_dir(*MODEL_REL) + (" | RVM: %s" % why_rvm if why_rvm else ""), retryable=False)
     if getattr(agent, "MANAGER", None) is not None:
         job.progress(0.02, "prepare")
         agent.MANAGER.prepare_for("photo.edit", agent.STATE.get("auto_switch", True))
@@ -122,4 +164,5 @@ def run_matte(job, agent):
     shutil.rmtree(work, ignore_errors=True)
     if r.returncode != 0 or not os.path.isfile(out):
         raise RuntimeError("could not build the matte video: %s" % r.stderr.decode("utf-8", "replace")[-300:])
-    return {"primary": "matte.mp4", "engine": "edit.matte", "frames": n, "fps": fps, "model": "birefnet-lite", "time": time.strftime("%H:%M:%S")}
+    return {"primary": "matte.mp4", "engine": "edit.matte", "frames": n, "fps": fps, "model": "birefnet-lite", "rvm_skipped": why_rvm,
+            "time": time.strftime("%H:%M:%S")}

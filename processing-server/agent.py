@@ -72,7 +72,13 @@ Agent 2.1 - every big download (editors, Blender, the update package) goes throu
 break, waits and retries for up to 30 minutes without a single new byte, and checks size + sha256 at the end.
 Video editor jobs (edit_render.py / edit_jobs.py / edit_track.py): edit.render = the editor's FINAL render on this computer
 (downloads the originals resumably, NVENC when the card can, uploads the result resumably), edit.track = motion tracking
-(OpenCV, when cv2 is present), edit.matte = background removal per frame through the photo kit's BiRefNet-lite.
+(OpenCV, when cv2 is present), edit.matte = background removal of a clip (see 2.5).
+Agent 2.5 - edit.matte runs Robust Video Matting (edit_rvm.py: a 14 MB ONNX model made for video, recurrent state carried
+across frames, onnxruntime on the GPU when it can else the CPU; steadier and much faster than the per-frame BiRefNet-lite
+path, which stays as the fallback). Model: package 'video-matting' (downloads/matting.json, mirrored on the site) - fetched
+by Download-Models.bat / the start-up download / Update.bat, or by the first video job that finds it missing. Needs numpy +
+onnxruntime in some Python of this computer (nothing is installed by the node). The heartbeat's edit caps also name the
+originals this node already caches (caps.edit.cache), so the site can send it a quick draft render without an upload.
 """
 import glob
 import hashlib
@@ -95,7 +101,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.4"
+VERSION = "2.5"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -1259,6 +1265,16 @@ def check(cfg):
         "not installed - the first voice.clone job installs it (~0.7 GB), or run Setup-Voice.bat in %s" % kit_dir("Voice"))
     pm = kit_dir("Photo", "models", "upscale", "realesr-general-x4v3.onnx")
     row(True if os.path.isfile(pm) else None, "  photo models", pm if os.path.isfile(pm) else "upscaler missing (optional) - Setup-Services.bat downloads it")
+    try:                      # video background removal: Robust Video Matting (needs numpy + onnxruntime in some Python here)
+        import edit_rvm
+
+        rv = edit_rvm.status(sys.modules[__name__])
+        row(True if rv["runtime"] and rv["model"] else None, "  video matting (RVM)",
+            ("ready (%s, onnxruntime %s)" % (rv["provider"], rv["ort"])) if rv["runtime"] and rv["model"] else
+            ("model missing - fetched by Download-Models.bat / Update.bat / the first video job" if rv["runtime"] else
+             "no Python here has numpy + onnxruntime - the older per-frame BiRefNet path is used (pip install numpy onnxruntime)"))
+    except Exception as e:  # noqa: BLE001
+        row(None, "  video matting (RVM)", "could not be checked: %s" % e)
     bl = blender_path()
     row(True if bl else None, "Blender (3D worker)", bl or "not found: install Blender 4.5 or let worker-3d.bat download it")
     for d in ("up3d", "engine", "assets"):

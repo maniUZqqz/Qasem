@@ -17,7 +17,9 @@ Progress messages are short codes the site turns into Persian: download|i|n, sel
 Python 3.8+ standard library only (plus nm_fetch next to it). Console text is English on purpose.
 
 `caps(agent)` is what the heartbeat reports under capabilities["edit"] (computed once in the background); the site only
-sends a render to a node whose caps say render=true.
+sends a render to a node whose caps say render=true. Agent 2.5 adds: matte_engine ("rvm" | "birefnet" | "rvm-pending" | ""),
+rvm {runtime, model, provider, ort} and cache (16-hex sha256 prefixes of the originals already on this node - the site sends a
+quick draft here only when it will not have to upload them).
 """
 import hashlib
 import json
@@ -119,13 +121,58 @@ def _compute_caps(agent):
         have_cv = bool(importlib.util.find_spec("cv2")) and bool(importlib.util.find_spec("numpy"))
     except Exception:  # noqa: BLE001
         have_cv = False
-    matte = False
+    probe = {"runtime": False}
     if agent is not None:
-        matte = os.path.isfile(agent.kit_dir("Photo", "models", "background", "birefnet-lite.onnx"))
+        try:                                           # which Python of this computer can run RVM (asked once, cached)
+            import edit_rvm
+
+            st = edit_rvm.status(agent)
+            probe = {"runtime": bool(st.get("runtime")), "provider": st.get("provider", ""), "ort": st.get("ort", "")}
+        except Exception as e:  # noqa: BLE001
+            probe = {"runtime": False, "why": str(e)[:120]}
     return {
         "v": 1, "render": not missing and "libx264" in info["encoders"], "ffmpeg": "%d.%d" % info["version"], "missing": missing,
-        "nvenc": nvenc, "track": have_cv, "matte": matte,
+        "nvenc": nvenc, "track": have_cv, "rvm_probe": probe,
     }
+
+
+MATTE_MODEL_REL = ("Photo", "models", "background", "birefnet-lite.onnx")
+#: how many cached originals the heartbeat names (16 hex characters of the sha256 each, most recently used first)
+CACHE_REPORT = 300
+
+
+def cache_listing(agent, limit=CACHE_REPORT):
+    """The first 16 hex digits of the sha256 of every file in the asset cache - what the site reads to know which originals
+    this node already holds (so it can send it a quick draft without a long upload)."""
+    rows = []
+    try:
+        for e in os.scandir(cache_dir(agent)):
+            if e.is_file() and not e.name.endswith(".part") and re.match(r"^[0-9a-f]{64}", e.name):
+                rows.append((e.stat().st_atime, e.name[:16]))
+    except OSError:
+        return []
+    rows.sort(reverse=True)
+    return [name for _atime, name in rows[:limit]]
+
+
+def _fresh(agent, base):
+    """The parts of the report that change while the node runs (a few stats and one directory listing - no probing):
+    which background-removal engine can work now, and which originals are cached."""
+    birefnet = os.path.isfile(agent.kit_dir(*MATTE_MODEL_REL))
+    probe = base.get("rvm_probe") or {}
+    runtime = bool(probe.get("runtime"))
+    model = False
+    if runtime:
+        try:
+            import edit_rvm
+
+            model = edit_rvm.have_model(agent.DATA)
+        except Exception:  # noqa: BLE001
+            model = False
+    engine = "rvm" if runtime and model else "birefnet" if birefnet else "rvm-pending" if runtime else ""
+    return {"matte": birefnet or runtime, "matte_engine": engine,
+            "rvm": {"runtime": runtime, "model": model, "provider": probe.get("provider", ""), "ort": probe.get("ort", "")},
+            "cache": cache_listing(agent)}
 
 
 def caps(agent=None, wait=False):
@@ -147,7 +194,14 @@ def caps(agent=None, wait=False):
             _CAPS["thread"] = t
     if wait and _CAPS.get("thread") is not None:
         _CAPS["thread"].join(60)
-    return dict(_CAPS["state"])
+    out = dict(_CAPS["state"])
+    if agent is not None and "rvm_probe" in out:
+        try:
+            out.update(_fresh(agent, out))
+            out.pop("rvm_probe", None)
+        except Exception:  # noqa: BLE001 - never let this keep the heartbeat from going out
+            pass
+    return out
 
 
 # ───────────────────────────────────────────── files

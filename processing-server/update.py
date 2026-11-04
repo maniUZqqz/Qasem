@@ -5,7 +5,9 @@
 The site serves the current package of the processing server. This script compares it with this folder file by file
 (sha256), downloads it once and checks it (size + sha256 of the zip and of every file in it), keeps every file it
 replaces in <data folder>\\updates\\backup-<time>\\ and writes the new files in place. The data folder (models, Python
-environments, node.json, the editors ...) is never touched.
+environments, node.json, the editors ...) is never touched - except that Update.bat (not the quiet --auto check) also brings
+the small models the new code uses (today Robust Video Matting, 14 MB, from the site's own mirror; never fatal;
+NM_SMALL_MODELS=0 turns it off).
 
 A running START.bat notices the new code and restarts the node by itself when its current job is done. If the updated
 node stops twice before it ever reached the site, START.bat puts the previous code back (and does not apply that
@@ -43,7 +45,7 @@ if HERE not in sys.path:
 import nm_data  # noqa: E402
 import nm_fetch  # noqa: E402
 
-VERSION = "1.1"
+VERSION = "1.2"
 PREFIX = "processing-server/"
 KEEP_LOCAL = {"site.json"}          # once this computer has one, its own copy wins (the site URL may be edited here)
 MAX_FAILURES = 2
@@ -621,6 +623,36 @@ def local_settings_note(backup, out=print):
             out("    " + ln)
 
 
+# ───────────────────────────────────────────── the small models new code needs
+
+#: manifest item -> the file Update.bat brings right after the code (14 MB, mirrored on the site): Robust Video Matting
+SMALL_MODELS = (("matting.json", "matting:rvm-mobilenetv3-fp32"),)
+
+
+def fetch_small_models(root, site, out=print, stall=120):
+    """Update.bat also brings the small models the new code uses (today only Robust Video Matting, 14 MB) from the site's own
+    mirror - resumable, size + sha256 checked - so the first video job does not wait for them. Never fatal: whatever goes wrong
+    is a note; START.bat's start-up download and the first video job try again. NM_SMALL_MODELS=0 turns it off."""
+    if os.environ.get("NM_SMALL_MODELS", "1").strip() == "0" or not site:
+        return
+    for name, item_id in SMALL_MODELS:
+        try:
+            doc = load_json(os.path.join(root, "downloads", name), {})
+            item = next(i for i in doc.get("items") or [] if i.get("id") == item_id)
+            models = os.path.join(nm_data.data_root(root), "models").replace("\\", "/")
+            dest = os.path.normpath(str(item["dest"]).replace("{MODELS}", models).replace("\\", "/"))
+            file_name = os.path.basename(dest)
+            size, sha = int(item["size"]), str(item["sha256"])
+        except (StopIteration, KeyError, TypeError, ValueError, OSError):
+            continue
+        try:
+            res = nm_fetch.fetch("%s/3d/files/downloads/%s" % (site.rstrip("/"), urllib.parse.quote(file_name)), dest, size=size, sha256=sha,
+                                 stall=stall, out=out, label=file_name)
+            out("Model %s: %s" % (file_name, "already here" if res == "skipped" else "downloaded and verified"))
+        except (nm_fetch.FetchError, OSError) as e:
+            out("NOTE: the small model %s could not be fetched now (%s); START.bat or the first video job tries again." % (file_name, e))
+
+
 # ───────────────────────────────────────────── git checkout
 
 def git_checkout(root=None):
@@ -700,6 +732,8 @@ def run(auto=False, check_only=False, out=print, root=None, bat=False, stop_node
             out("The code is up to date (version %s)." % manifest.get("version"))
             if bat and migrate and not check_only:
                 _migrate_report(root, out)
+            if bat and not check_only:
+                fetch_small_models(root, site, out)
             return 0
         st = load_json(state_path(root), {})
         if auto and manifest["id"] in (st.get("bad") or []):
@@ -731,6 +765,8 @@ def run(auto=False, check_only=False, out=print, root=None, bat=False, stop_node
         local_settings_note(backup, out)
         if bat and migrate:
             _migrate_report(root, out)
+        if bat:
+            fetch_small_models(root, site, out)
         return 0
     finally:
         try:

@@ -1,0 +1,24 @@
+{
+ "group": "matting",
+ "title": "Video editor: Robust Video Matting (RVM, mobilenetv3, ONNX fp32) - steady, fast background removal for video on the GPU node",
+ "license_note": "RVM (PeterL1n/RobustVideoMatting, release v1.0.0) is GPL-3.0. It is used here only inside this node, on the owner's own computer, to cut the subject out of the owner's own videos; the model file is not redistributed or linked into any product. ~14.3 MB. It runs through onnxruntime (CUDA when the card is usable, else CPU) - no other download is needed besides numpy + onnxruntime in some Python of this computer (the node never installs them by itself; without them the older per-frame BiRefNet path is used). The first URL is the site's own mirror (the line to GitHub is slow or blocked); the second is the original release asset, same bytes (sha256 checked either way).",
+ "generated": "2026-11-04",
+ "packages": {
+  "video-matting": "Robust Video Matting mobilenetv3 fp32 (ONNX, 14 MB) - video background removal"
+ },
+ "items": [
+  {
+   "id": "matting:rvm-mobilenetv3-fp32",
+   "package": "video-matting",
+   "kind": "file",
+   "title": "RVM mobilenetv3 fp32 ONNX (GPL-3.0, internal use)",
+   "urls": [
+    "{SITE}/3d/files/downloads/rvm_mobilenetv3_fp32.onnx",
+    "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx"
+   ],
+   "dest": "{MODELS}\\video-matting\\rvm_mobilenetv3_fp32.onnx",
+   "size": 14975696,
+   "sha256": "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
+  }
+ ]
+}

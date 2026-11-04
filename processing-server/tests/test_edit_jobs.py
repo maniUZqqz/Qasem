@@ -333,6 +333,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(c["nvenc"]), {"h264", "h265"})
         self.assertEqual(c["render"], not c["missing"] and "libx264" in edit_render.ffmpeg_info(FF)["encoders"])
         self.assertIsInstance(c["track"], bool)
+        self.assertIn(c["matte_engine"], ("rvm", "birefnet", "rvm-pending", ""))
+        self.assertEqual(set(c["rvm"]), {"runtime", "model", "provider", "ort"})
+        self.assertIsInstance(c["cache"], list)
         edit_render._CAPS["state"] = None
 
 
@@ -511,6 +514,9 @@ class TrackAndMatteTests(unittest.TestCase):
         threading.Thread(target=kit.serve_forever, daemon=True).start()
         models = os.path.join(Node.tmp, "tools", "PersianAiKit", "Photo", "models", "background")
         os.makedirs(models, exist_ok=True)
+        rvm_off = mock.patch.dict(os.environ, {"NM_RVM": "0"})      # this test is the older per-frame path (tests/test_edit_rvm.py covers RVM)
+        rvm_off.start()
+        self.addCleanup(rvm_off.stop)
         try:
             job = Node.job("t-matte", "edit.matte", {"video": "clip.mp4", "fps": 6, "duration": 2.0, "size": [160, 120]})
             shutil.copy(self.clip, os.path.join(job.inputs, "clip.mp4"))
@@ -523,6 +529,8 @@ class TrackAndMatteTests(unittest.TestCase):
                 open(os.path.join(models, "birefnet-lite.onnx"), "wb").write(b"fake")
                 meta = edit_jobs.run_matte(job, agent)
             self.assertEqual((meta["primary"], meta["frames"]), ("matte.mp4", 12))
+            self.assertEqual(meta["model"], "birefnet-lite")
+            self.assertIn("NM_RVM=0", meta["rvm_skipped"])
             self.assertEqual((seen["docs"], seen["masks"], seen["deleted"]), (12, 12, 12), "every frame went up, came back and was cleaned up")
             self.assertTrue(all("method=ai" in m for m in seen["methods"]))
             out = job.out("matte.mp4")

@@ -1,0 +1,4 @@
+import type { PanelDef } from "./types";
+
+/** پنجره‌های شناورِ دورِ چهارم (مانیتورِ منبع، نشانگرها، گرافِ کلیدفریم…) */
+export const NEW_PANELS: PanelDef[] = [];

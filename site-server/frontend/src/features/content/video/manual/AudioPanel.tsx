@@ -95,7 +95,7 @@ export default function AudioPanel({
       <Slider label="محوِ انتها (ثانیه)" value={clip.fade_out} min={0} max={Math.max(0.1, Math.min(10, len))} step={0.05} def={0}
         onLive={(v) => onLive({ fade_out: v })} onEnd={() => onEnd("محوِ انتهای صدا")} />
 
-      <Section title="EQ و بهبودِ صدا" defaultOpen badge={audio.eq && audio.eq !== "flat" ? <span className="ws-dot" /> : undefined}>
+      <Section title="EQ و بهبودِ صدا" defaultOpen testId="ap-eq" badge={audio.eq && audio.eq !== "flat" ? <span className="ws-dot" /> : undefined}>
         <div className="ws-group-title">پیش‌تنظیمِ EQ</div>
         <Chips value={(audio.eq ?? "flat") as (typeof EQ_OPTIONS)[number]["key"]} options={[...EQ_OPTIONS]}
           onPick={(k) => onApply("EQ", { audio: { ...audio, eq: k === "flat" ? undefined : k } })} />

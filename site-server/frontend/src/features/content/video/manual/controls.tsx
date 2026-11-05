@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
 import "./controls.css";
@@ -63,8 +63,20 @@ export function Num({ label, value, step = 0.1, min = 0, max, onChange }: { labe
 /** بخشِ تاشو (accordion) */
 export function Section({ title, children, defaultOpen = false, badge, testId }: { title: string; children: ReactNode; defaultOpen?: boolean; badge?: ReactNode; testId?: string }) {
   const [open, setOpen] = useState(defaultOpen);
+  const box = useRef<HTMLElement>(null);
+  // «منوی کامل» و «جستجوی ابزار» با این رویداد یک بخشِ تاشو را باز می‌کنند و به آن می‌روند (data-testid = نشانی)
+  useEffect(() => {
+    if (!testId) return;
+    const on = (e: Event) => {
+      if ((e as CustomEvent<{ testId?: string }>).detail?.testId !== testId) return;
+      setOpen(true);
+      window.setTimeout(() => box.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
+    };
+    window.addEventListener("nm-open-section", on);
+    return () => window.removeEventListener("nm-open-section", on);
+  }, [testId]);
   return (
-    <section className="ws-acc pro-sec" data-testid={testId} data-open={open ? "1" : "0"}>
+    <section ref={box} className="ws-acc pro-sec" data-testid={testId} data-open={open ? "1" : "0"}>
       <button type="button" className="ws-acc-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span>{title}</span>
         {badge}

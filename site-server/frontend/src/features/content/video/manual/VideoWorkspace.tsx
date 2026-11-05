@@ -37,6 +37,12 @@ import QuickStart from "./QuickStart";
 import ShortcutSheet from "./ShortcutSheet";
 import TimelineView, { Tool } from "./TimelineView";
 import TrimBar from "./TrimBar";
+import { ALL_FEATURES, ALL_PANELS, comboOf, isKeyCapture, latinKey, pushRecent, typingTarget, useKeymap } from "../registry";
+import type { FeatureDef, WorkspaceApi } from "../registry";
+import CommandPalette from "../registry/CommandPalette";
+import MenuBar from "../registry/MenuBar";
+import PanelHost from "../registry/PanelHost";
+import type { FlagName } from "../registry/types";
 import "./workspace.css";
 
 type Props = {
@@ -115,6 +121,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [beatsBusy, setBeatsBusy] = useState(false);
   const [renderStarting, setRenderStarting] = useState(false);
   const [help, setHelp] = useState(false);
+  const [menubar, setMenubar] = useState<boolean>(() => {
+    try { return localStorage.getItem("nm.video.menubar") === "1"; } catch { return false; }
+  });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [panel, setPanel] = useState<{ id: string; props?: Record<string, unknown> } | null>(null);
+  useEffect(() => {
+    try { localStorage.setItem("nm.video.menubar", menubar ? "1" : "0"); } catch { /* حافظهٔ مرورگر بسته است */ }
+  }, [menubar]);
   const lastSnap = useRef<number>(Date.now());
   const lastSaved = useRef<string>("");
   const idRef = useRef<number | null>(null);
@@ -888,12 +902,13 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
       if (t instanceof HTMLInputElement && !["range", "checkbox"].includes(t.type)) return;
       const ctrl = e.ctrlKey || e.metaKey;
-      const k = e.key;
+      const rawKey = e.key;
+      // روی صفحه‌کلیدِ فارسی هم «س» همان S است (کلیدِ فیزیکی)
+      const k = latinKey(e);
       const lower = k.toLowerCase();
-      if (k === "?" || k === "؟") { e.preventDefault(); setHelp((v) => !v); return; }
+      if (rawKey === "?" || rawKey === "؟") { e.preventDefault(); setHelp((v) => !v); return; }
       if (ctrl && lower === "z") { e.preventDefault(); e.shiftKey ? hist.redo() : hist.undo(); return; }
       if (ctrl && lower === "y") { e.preventDefault(); hist.redo(); return; }
-      if (ctrl && lower === "k") { e.preventDefault(); splitHere(); return; }
       if (ctrl && lower === "d" && selection.length) { e.preventDefault(); apply("تکرار", (pr) => duplicateClips(pr, selection)); return; }
       if (ctrl && e.shiftKey && lower === "c" && selected?.clip.type === "media") { e.preventDefault(); setClipboard(copyAttrs(selected.clip, ["transform", "color", "effects", "audio", "chroma", "blend"])); setNotice("ویژگی‌های قطعه کپی شد."); return; }
       if (ctrl && e.shiftKey && lower === "v") { e.preventDefault(); if (clipboard) apply("چسباندنِ ویژگی‌ها", (pr) => pasteAttrs(pr, selection, clipboard)); return; }
@@ -971,6 +986,146 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     else live((pr) => updateClip(pr, id, patch));
   };
 
+  // ───────────── «ثبتِ ویژگی‌ها»: منوی کامل، جستجوی ابزار و میان‌برهای قابل‌تغییر
+  const km = useKeymap(ALL_FEATURES);
+  const kmRef = useRef(km);
+  kmRef.current = km;
+  const apiRef = useRef<WorkspaceApi>(null as unknown as WorkspaceApi);
+  const getApi = useCallback(() => apiRef.current, []);
+  const flags: Record<FlagName, boolean> = { snap: snapOn, scopes: scopesOpen, volLine, autoRipple: rippleOn, crop: cropMode, menubar };
+  function toggleFlag(f: FlagName) {
+    if (f === "snap") setSnapOn((v) => !v);
+    else if (f === "scopes") setScopesOpen((v) => !v);
+    else if (f === "volLine") setVolLine((v) => !v);
+    else if (f === "autoRipple") applyRoot("جابه‌جایی خودکارِ بعدی‌ها", (r) => ({ ...r, auto_ripple: r.auto_ripple === false ? undefined : false }));
+    else if (f === "crop") setCropMode((v) => !v);
+    else setMenubar((v) => !v);
+  }
+  /** یک دکمه یا کادرِ موجود در صفحه را (با data-testid یا انتخابگرِ CSS) می‌زند؛ تا ~۲ ثانیه منتظرِ آمدنش می‌ماند */
+  function clickElement(target: string, inTab?: InspectorTab) {
+    if (inTab) setTab(inTab);
+    const css = target.startsWith("[") ? target : `[data-testid="${target}"]`;
+    let tries = 0;
+    const attempt = () => {
+      const el = document.querySelector<HTMLElement>(css);
+      if (el) {
+        el.scrollIntoView({ block: "nearest" });
+        if (el instanceof HTMLSelectElement) {
+          el.focus();
+          try { (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.(); } catch { /* مرورگر اجازه نداد */ }
+        } else if (el instanceof HTMLInputElement && ["text", "number", "search"].includes(el.type)) {
+          el.focus();
+          el.select();
+        } else el.click();
+        return;
+      }
+      if (++tries < 16) window.setTimeout(attempt, 125);
+      else setNotice("این بخش الان در دسترس نیست؛ شاید اول باید چیزی را انتخاب کنید.");
+    };
+    window.setTimeout(attempt, inTab ? 70 : 0);
+  }
+  function revealSection(t: InspectorTab, section?: string) {
+    setTab(t);
+    if (!section) return;
+    for (const ms of [90, 280, 700]) window.setTimeout(() => window.dispatchEvent(new CustomEvent("nm-open-section", { detail: { testId: section } })), ms);
+  }
+  function shuttle(r: number) {
+    void engine.resume();
+    setRate((cur) => (playing && Math.sign(cur) === Math.sign(r) && Math.abs(cur) < 4 ? cur * 2 : r));
+    setPlaying(true);
+  }
+  function gotoEdit(dir: -1 | 1) {
+    const pts = Array.from(new Set([0, ...project.tracks.flatMap((tr) => tr.clips.flatMap((c) => [c.at, clipEnd(c)])), ...(project.markers ?? []).map((m) => m.t)])).sort((a, b) => a - b);
+    const next = dir < 0 ? [...pts].reverse().find((x) => x < time - 0.02) : pts.find((x) => x > time + 0.02);
+    if (next !== undefined) seek(next);
+  }
+  function copyAttributes() {
+    if (selected?.clip.type !== "media") return;
+    setClipboard(copyAttrs(selected.clip, ["transform", "color", "effects", "audio", "chroma", "blend"]));
+    setNotice("ویژگی‌های قطعه کپی شد.");
+  }
+  function workspaceLayout(name: "edit" | "color" | "audio" | "graphics" | "export") {
+    const titles = { edit: "تدوین", color: "رنگ", audio: "صدا", graphics: "گرافیک و زیرنویس", export: "خروجی" };
+    setTab(({ edit: "clip", color: "color", audio: "audio", graphics: "text", export: "out" } as const)[name]);
+    setScopesOpen(name === "color");
+    if (name === "audio") setVolLine(true);
+    setNotice(`چینشِ «${titles[name]}» آماده شد.`);
+  }
+  const wsApi: WorkspaceApi = {
+    storeId, project, root, path, selection, selected, time, playing, fps: project.format.fps || 30, projectId, media, bin, tool, flags,
+    canUndo: hist.canUndo, canRedo: hist.canRedo, history: { entries: hist.entries, index: hist.index }, hasClips,
+    apply, applyRoot, live, end: hist.end, select: setSelection, undo: hist.undo, redo: hist.redo, jumpHistory: hist.jump,
+    seek, togglePlay, step, setRate: shuttle, setTool, toggle: toggleFlag,
+    zoom: (f) => setPx((v) => (f === "fit" ? Math.max(8, Math.min(200, 700 / Math.max(5, totalRef.current))) : Math.max(8, Math.min(400, v * f)))),
+    setTab, reveal: revealSection, click: clickElement, notice: setNotice,
+    openPanel: (id, props) => setPanel({ id, props }), closePanel: () => setPanel(null), activePanel: panel?.id ?? null, openSearch: () => setSearchOpen(true),
+    op: {
+      split: () => splitHere(),
+      remove: removeSelected,
+      nudge,
+      trimToPlayhead,
+      copy: copyClips,
+      paste: pasteClips,
+      jl: jlCut,
+      newText,
+      render: (q) => void doRender(q),
+      openProject: (id) => void openProject(id),
+      exactPreview: () => { setPlaying(false); setExact(exactRange()); },
+      deleteProject: () => void deleteProject(),
+      beats: () => void addBeatMarkers(),
+      nest: nestSelection,
+      closeSequence: closeSeq,
+      uploadVideo: () => document.querySelector<HTMLElement>('[data-testid="bin-upload"]')?.click(),
+      copyAttrs: copyAttributes,
+      pasteAttrs: () => (clipboard ? apply("چسباندنِ ویژگی‌ها", (pr) => pasteAttrs(pr, selection, clipboard)) : setNotice("اول ویژگی‌های یک قطعه را کپی کنید.")),
+      proxy: () => { if (selected?.clip.type === "media" && media[selected.clip.ref]) void buildProxy(media[selected.clip.ref]); },
+      gotoEdit,
+      workspace: workspaceLayout,
+    },
+    goDirector: onGoDirector ?? null,
+  };
+  apiRef.current = wsApi;
+  const runFeature = useCallback((f: FeatureDef) => {
+    const a = apiRef.current;
+    const why = f.when ? f.when(a) : null;
+    if (why) {
+      a.notice(why);
+      return;
+    }
+    pushRecent(f.id);
+    try {
+      const r = f.run(a);
+      if (r && typeof (r as Promise<void>).catch === "function") (r as Promise<void>).catch((err) => a.notice(errorMessage(err)));
+    } catch (err) {
+      a.notice(errorMessage(err));
+    }
+  }, []);
+  // میان‌برهای تازه و تغییرداده‌شده (کلیدِ فیزیکی ⇒ روی صفحه‌کلیدِ فارسی هم کار می‌کند). فاز capture تا پیش از کدِ قدیمی بیاید.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isKeyCapture()) return;
+      const combo = comboOf(e);
+      if (!combo) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".rg-panel, .rg-pal, .sq-modal")) return;
+      const m = kmRef.current;
+      const f = m.byCombo.get(combo);
+      if (typingTarget(e.target) && !f?.inInputs) return;
+      if (!f) {
+        if (m.suppressed.has(combo)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      runFeature(f);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [runFeature]);
+
   return (
     <Workspace
       testId="video-workspace"
@@ -980,6 +1135,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           {uploadRunner.running && <span className="ws-muted"><Spinner size={12} /> {uploadRunner.job?.current_step_label || "در حالِ بررسی…"}</span>}
           {proxyRunner.running && <span className="ws-muted"><Spinner size={12} /> پیش‌نمایشِ سبک…</span>}
           <Badge tone={saving === "error" ? "bad" : "neutral"}>{saving === "saving" ? "ذخیره…" : saving === "saved" ? "ذخیره شد" : "پروژه"}</Badge>
+          <button type="button" className="ws-btn" onClick={() => setSearchOpen(true)} title="هر ابزار را با نامِ فارسی یا انگلیسی پیدا کنید (Ctrl+K)" data-testid="open-search">جستجوی ابزار</button>
+          <button type="button" className={`ws-btn ${menubar ? "is-on" : ""}`} onClick={() => toggleFlag("menubar")} aria-pressed={menubar} title="منوی کاملِ همهٔ ابزارها: پرونده، ویرایش، کلیپ، سکانس، نشانگر، گرافیک، رنگ، صدا…" data-testid="toggle-menubar">منوی کامل</button>
           <button type="button" className="ws-btn" onClick={() => setHelp(true)} title="راهنمای همهٔ میان‌برها (؟)" data-testid="open-shortcuts">؟ میان‌برها</button>
         </>
       }
@@ -989,6 +1146,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           {notice} <button type="button" className="ws-link" onClick={() => setNotice(null)}>×</button>
         </div>
       )}
+      {menubar && <MenuBar features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onSearch={() => setSearchOpen(true)} />}
       <div className="vw-grid" dir="ltr">
         <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} onGoSound={() => setTab("audio")} />
         <Monitor
@@ -1073,7 +1231,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             {TOOLS.map((tt) => tlButton(tt.label, tt.title, () => setTool(tt.key), { on: tool === tt.key, cls: "tool", test: `tool-${tt.key}` }))}
             <span className="ws-sep" />
             {tlButton("⇥ بعدی‌ها جلو بروند", "جابه‌جایی خودکارِ بعدی‌ها: وقتی قطعه‌ای را کند می‌کنید (یا سرعت/منحنی/فریمِ ثابت) و دراز می‌شود، قطعه‌های بعدیِ همان ترک و صدای پیوندی‌شان خودکار جلو می‌روند (مثلِ ریپل). کوتاه‌کردن چیزی را عقب نمی‌کشد.", () => applyRoot("جابه‌جایی خودکارِ بعدی‌ها", (r) => ({ ...r, auto_ripple: r.auto_ripple === false ? undefined : false })), { on: rippleOn, test: "tl-auto-ripple" })}
-            {tlButton("✂ تقسیم (S)", "تقسیم در سرِ پخش (S یا Ctrl+K)", () => splitHere(), { disabled: !hasClips, test: "tl-split" })}
+            {tlButton("✂ تقسیم (S)", "تقسیم در سرِ پخش (S)؛ روی همهٔ ترک‌ها: Ctrl+Shift+K", () => splitHere(), { disabled: !hasClips, test: "tl-split" })}
             {tlButton("حذف", "حذف (Delete)", () => removeSelected(false), { disabled: !selection.length, test: "tl-delete" })}
             {tlButton("حذفِ بی‌فاصله", "حذف و بستنِ جا (Shift+Delete)", () => removeSelected(true), { disabled: !selection.length, test: "tl-ripple" })}
             {tlButton("تکرار", "کپی پشتِ قطعه (Ctrl+D؛ Alt+کشیدن هم نسخه می‌سازد)", () => selection.length && apply("تکرار", (pr) => duplicateClips(pr, selection)), { disabled: !selection.length })}
@@ -1121,6 +1279,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         </div>
       </div>
       {help && <ShortcutSheet onClose={() => setHelp(false)} />}
+      {searchOpen && <CommandPalette features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onClose={() => setSearchOpen(false)} />}
+      <PanelHost panels={ALL_PANELS} active={panel} api={wsApi} onClose={() => setPanel(null)} />
     </Workspace>
   );
 }

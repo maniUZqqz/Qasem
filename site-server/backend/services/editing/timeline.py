@@ -191,6 +191,9 @@ class Clip:
     freeze: bool = False
     link: str = ""
     audio: dict = field(default_factory=dict)
+    #: «بازتنظیمِ قاب»: a window INSIDE the source picture, cut before the fit step (quality comes from the original file):
+    #: {"w","h"} = its size, {"cx","cy"} = its centre (fractions of the source), optional {"kx","ky"} keyframes of the centre.
+    reframe: dict = field(default_factory=dict)
     #: Explicit (source_a, source_b, speed) list — set by `window()` when a ramp clip is cut; wins over `ramp`.
     segs: list | None = None
     #: Length of the whole source file (0 = unknown) — how much footage exists beyond the in/out points (handles).
@@ -644,6 +647,19 @@ def _clean_extras(rc: dict) -> dict:
             ramp.append({"p": _num(item.get("p"), 0, 1, 0.0), "v": _num(item.get("v"), 0.1, 8, 1.0)})
     ramp.sort(key=lambda k: k["p"])
     out["ramp"] = ramp if len(ramp) >= 2 else []
+    rf_in = rc.get("reframe") if isinstance(rc.get("reframe"), dict) else {}
+    reframe: dict = {}
+    if rf_in:
+        rw, rh = _num(rf_in.get("w"), 0.05, 1, 1.0), _num(rf_in.get("h"), 0.05, 1, 1.0)
+        reframe = {"w": round(rw, 4), "h": round(rh, 4), "cx": round(_num(rf_in.get("cx"), 0, 1, 0.5), 4),
+                   "cy": round(_num(rf_in.get("cy"), 0, 1, 0.5), 4)}
+        for axis in ("kx", "ky"):
+            keys = keyframes.clean_keys(rf_in.get(axis), 0.0, 1.0)
+            if keys:
+                reframe[axis] = keys
+        if rw >= 0.999 and rh >= 0.999 and not (reframe.get("kx") or reframe.get("ky")):
+            reframe = {}
+    out["reframe"] = reframe
     out["reverse"] = _bool(rc.get("reverse"))
     out["freeze"] = _bool(rc.get("freeze"))
     out["link"] = str(rc.get("link") or "")[:24]
@@ -653,7 +669,7 @@ def _clean_extras(rc: dict) -> dict:
     out["audio"] = {k: v for k, v in {
         "pan": _num(au.get("pan"), -1, 1, 0.0), "eq": eq if eq in EQ_PRESETS else "flat",
         "comp": _num(au.get("comp"), 0, 1, 0.0), "enhance": _bool(au.get("enhance")),
-        "denoise": _bool(au.get("denoise")), "normalize": _bool(au.get("normalize")),
+        "denoise": _bool(au.get("denoise")), "normalize": _bool(au.get("normalize")), "denoise_ai": _bool(au.get("denoise_ai")),
     }.items() if v not in (0.0, "flat", False)}
     return out
 
@@ -661,12 +677,17 @@ def _clean_extras(rc: dict) -> dict:
 def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
     m = data.get("master") if isinstance(data.get("master"), dict) else {}
     master = {"gain_db": _num(m.get("gain_db"), -24, 12, 0.0), "limiter": _bool(m.get("limiter"), True)}
+    loud = m.get("loudness") if isinstance(m.get("loudness"), dict) else {}
+    if loud.get("on"):
+        # «بلندیِ استاندارد برای شبکه‌ها»: EBU R128 loudnorm on the finished mix (social platforms play ≈ −14 LUFS)
+        master["loudness"] = {"on": True, "target": round(_num(loud.get("target"), -24, -8, -14.0), 1),
+                              "tp": round(_num(loud.get("tp"), -3, 0, -1.0), 1)}
     d = data.get("ducking") if isinstance(data.get("ducking"), dict) else {}
     ducking = {"on": _bool(d.get("on")), "amount_db": _num(d.get("amount_db"), 3, 30, 12.0),
                "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
                "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
     e = data.get("export") if isinstance(data.get("export"), dict) else {}
-    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where")}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb")}
     if export.get("where") not in (None, "auto", "server"):
         export.pop("where")
     markers = []
@@ -898,6 +919,12 @@ def _cut_clip(clip, t0: float, t1: float):
             if m.get(axis):
                 m[axis] = keyframes.sliced(m[axis], lt0, lt1) or m[axis]
         new.mask = m
+    if new.reframe and (new.reframe.get("kx") or new.reframe.get("ky")):
+        rf = dict(new.reframe)
+        for axis in ("kx", "ky"):
+            if rf.get(axis):
+                rf[axis] = keyframes.sliced(rf[axis], lt0, lt1) or rf[axis]
+        new.reframe = rf
     if new.freeze or new.kind == "image":
         new.end = new.start + (b - a)
         if new.kind == "image":

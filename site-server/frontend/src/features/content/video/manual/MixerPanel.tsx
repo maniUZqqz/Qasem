@@ -97,9 +97,9 @@ function Strip({
         onDoubleClick={() => onApply("پنِ ترک", { pan: 0 })} />
       <span className="mx-pan-val">{Math.abs(pan) < 0.03 ? "وسط" : `${pan < 0 ? "چپ" : "راست"} ${fa(Math.round(Math.abs(pan) * 100))}`}</span>
       <div className="mx-ms">
-        <button type="button" className={`mx-btn m ${track.muted ? "is-on" : ""}`} aria-pressed={track.muted} title="بی‌صدا (Mute)"
+        <button type="button" className={`mx-btn m ${track.muted ? "is-on" : ""}`} aria-pressed={track.muted} title="بی‌صدا کردنِ این ترک (Mute)" aria-label={`بی‌صدا کردنِ ${track.name}`}
           onClick={() => onApply("بی‌صدا", { muted: !track.muted })} data-mixmute={track.id}>M</button>
-        <button type="button" className={`mx-btn s ${track.solo ? "is-on" : ""}`} aria-pressed={!!track.solo} title="فقط این ترک (Solo)"
+        <button type="button" className={`mx-btn s ${track.solo ? "is-on" : ""}`} aria-pressed={!!track.solo} title="فقط همین ترک شنیده شود (Solo)" aria-label={`فقط شنیدنِ ${track.name}`}
           onClick={() => onApply("Solo", { solo: !track.solo })} data-mixsolo={track.id}>S</button>
       </div>
     </div>

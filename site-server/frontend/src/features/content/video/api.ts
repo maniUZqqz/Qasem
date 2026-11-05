@@ -98,6 +98,8 @@ export type Catalogue = {
   stickers: { key: string; title: string; group: string }[];
   render_where: RenderWhere;
   limits: { max_preview_seconds: number; max_tracks: number; max_clips: number; ramp_steps: number };
+  /** ناحیه‌های امنِ پلتفرم‌ها (حاشیه‌ها کسری از قاب)؛ نبودنش ⇒ جایگزینِ داخلی SAFE_ZONES_FALLBACK */
+  safe_zones?: { key: string; title: string; hint: string; margins: { top: number; bottom: number; left: number; right: number } }[];
 };
 
 export type Waveform = { peaks: number[]; per_second: number; duration: number; silent?: boolean };

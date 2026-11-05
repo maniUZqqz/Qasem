@@ -47,6 +47,17 @@ def font_path(weight: int) -> str:
     return files[best]
 
 
+def font_path_for(key, weight: int) -> str:
+    """مسیرِ فایلِ فونتِ ``key`` (فونتِ ناشناخته یا بی‌فایل ⇒ وزیرمتن)."""
+    from . import fontreg
+
+    if isinstance(key, str) and key != fontreg.DEFAULT:
+        p = fontreg.path(key, weight)
+        if p:
+            return p
+    return font_path(weight)
+
+
 @lru_cache(maxsize=64)
 def _font(path: str, size: float):
     return ImageFont.truetype(path, max(4.0, size))
@@ -136,7 +147,7 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     if not text.strip():
         return None
     size_px = max(4.0, float(layer["size"]) * canvas_w)
-    path = font_path(int(layer.get("weight") or 700))
+    path = font_path_for(layer.get("font"), int(layer.get("weight") or 700))
     font = _font(path, size_px)
     probe = ImageDraw.Draw(Image.new("L", (8, 8)))
     width_px = float(layer.get("width") or 0) * canvas_w
@@ -229,6 +240,44 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
         tile = Image.alpha_composite(tile, sh)
     tile = Image.alpha_composite(tile, text_layer)
     return tile, (ox + block_w / 2, oy + block_h / 2)
+
+
+def layout(layer: dict, canvas_w: int) -> dict:
+    """اندازه‌گیریِ بلوکِ متن بدونِ کشیدن (همان چیدمانِ ``render_text``): ⇐ {lines, block_w, block_h, size_px, line_h, widths}
+    همه به پیکسلِ بومی با عرضِ ``canvas_w``. برای جاگیری و وارسیِ سرریز در طراحیِ خودکار."""
+    text = str(layer.get("text") or "")
+    size_px = max(4.0, float(layer["size"]) * canvas_w)
+    if not text.strip():
+        return {"lines": [], "block_w": 0.0, "block_h": 0.0, "size_px": size_px, "line_h": size_px, "widths": []}
+    path = font_path_for(layer.get("font"), int(layer.get("weight") or 700))
+    font = _font(path, size_px)
+    probe = ImageDraw.Draw(Image.new("L", (8, 8)))
+    width_px = float(layer.get("width") or 0) * canvas_w
+    given = layer.get("lines")
+    if isinstance(given, list) and given:
+        lines = [str(x) for x in given][:MAX_LINES]
+    elif width_px > 0:
+        lines = wrap_lines(probe, text, font, width_px)
+    else:
+        lines = []
+        limit = AUTO_WRAP * canvas_w
+        for para in text.split("\n"):
+            if _len(probe, para, font, is_rtl_text(para)) > limit:
+                lines.extend(wrap_lines(probe, para, font, limit))
+            else:
+                lines.append(para)
+        lines = lines[:MAX_LINES]
+    spacing_px = float(layer.get("letter_spacing") or 0) * size_px
+    forced = layer.get("dir", "auto")
+    widths = []
+    for line in lines:
+        rtl = (forced == "rtl") or (forced == "auto" and is_rtl_text(line))
+        widths.append(_line_pieces(probe, line, font, rtl, spacing_px)[1])
+    content_w = max(widths + [1.0])
+    block_w = max(width_px, content_w) if width_px > 0 else content_w
+    lh = size_px * float(layer.get("line_height") or 1.35)
+    return {"lines": lines, "block_w": float(block_w), "block_h": float(lh * len(lines)), "size_px": size_px,
+            "line_h": float(lh), "widths": [float(w) for w in widths]}
 
 
 def tile_pattern(tile: Image.Image, canvas_size: tuple[int, int], angle: float, gap: float) -> Image.Image:

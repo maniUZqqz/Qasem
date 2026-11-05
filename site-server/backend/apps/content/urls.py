@@ -4,6 +4,7 @@ from .views_audio import (
     AudioAssetDetailView,
     AudioAssetFileView,
     AudioAssetListView,
+    AudioAssetUploadView,
     AudioOverviewView,
     VideoSoundMixView,
 )
@@ -45,6 +46,15 @@ from .views_editor_pro2 import (
     EditorTrackView,
     MatteStatusView,
     RenderWhereView,
+)
+from .views_director import (
+    DirectorApplyView,
+    DirectorCatalogueView,
+    DirectorRerunView,
+    DirectorRunView,
+    EditorReframeView,
+    ProjectVersionRestoreView,
+    ProjectVersionsView,
 )
 from .views_timeline import (
     EditorBinView,
@@ -128,6 +138,7 @@ urlpatterns = [
     # «صدا»: speech, ambience/effects, music and the library; and the same sounds under a video
     path("stores/<int:store_id>/audio/", AudioOverviewView.as_view(), name="audio-overview"),
     path("stores/<int:store_id>/audio/assets/", AudioAssetListView.as_view(), name="audio-assets"),
+    path("stores/<int:store_id>/audio/assets/upload/", AudioAssetUploadView.as_view(), name="audio-asset-upload"),
     path("stores/<int:store_id>/audio/assets/<int:pk>/", AudioAssetDetailView.as_view(), name="audio-asset"),
     path("stores/<int:store_id>/audio/assets/<int:pk>/file/", AudioAssetFileView.as_view(),
          name="audio-asset-file"),
@@ -159,6 +170,14 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/mattes/", EditorMattesView.as_view(), name="editor-mattes"),
     path("stores/<int:store_id>/editor/mattes/<str:key>/", EditorMatteDetailView.as_view(), name="editor-matte"),
     path("stores/<int:store_id>/editor/render-where/", RenderWhereView.as_view(), name="editor-render-where"),
+    # ---- the director (semi-automatic edit), one-click sound tools, auto-reframe, project versions
+    path("stores/<int:store_id>/editor/director/catalogue/", DirectorCatalogueView.as_view(), name="editor-director-catalogue"),
+    path("stores/<int:store_id>/editor/director/run/", DirectorRunView.as_view(), name="editor-director-run"),
+    path("stores/<int:store_id>/editor/director/rerun/", DirectorRerunView.as_view(), name="editor-director-rerun"),
+    path("stores/<int:store_id>/editor/director/apply/", DirectorApplyView.as_view(), name="editor-director-apply"),
+    path("stores/<int:store_id>/editor/reframe/", EditorReframeView.as_view(), name="editor-reframe"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/versions/", ProjectVersionsView.as_view(), name="editor-project-versions"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/versions/<str:name>/", ProjectVersionRestoreView.as_view(), name="editor-project-version-restore"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
     path(

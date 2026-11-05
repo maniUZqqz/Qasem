@@ -34,7 +34,13 @@ export type ShapeSpec = {
 /** وصل‌بودن به یک ردیاب: همیشه به اندازهٔ (bx,by) (کسری از قاب) از نقطهٔ ردیابی‌شده فاصله دارد؛ کلیدها از مسیر پخته می‌شوند */
 export type Follow = { tracker: string; bx: number; by: number };
 export type Chroma = { on: boolean; color: string; similarity: number; blend: number; spill: number };
-export type ClipAudio = { pan?: number; eq?: string; comp?: number; enhance?: boolean; denoise?: boolean; normalize?: boolean };
+export type ClipAudio = { pan?: number; eq?: string; comp?: number; enhance?: boolean; denoise?: boolean; normalize?: boolean; denoise_ai?: boolean };
+/**
+ * بازتنظیمِ قاب (Reframe): پنجره‌ای در «خودِ منبع» که پیش از جا دادن (fit) بریده می‌شود؛ بنابراین کیفیت از فایلِ اصلی است.
+ * w,h = اندازهٔ پنجره (کسری از پهنا/ارتفاعِ منبع)؛ cx,cy = مرکزِ پنجره (کسری از منبع). kx,ky = کلیدفریمِ مرکز در زمانِ قطعه
+ * (t از شروعِ قطعه روی تایم‌لاین، v کسری ۰..۱ از منبع). اگر نباشند cx,cy ثابت‌اند. همان ریاضیِ سرور (compose.py) و Compositor.
+ */
+export type Reframe = { w: number; h: number; cx: number; cy: number; kx?: Key[]; ky?: Key[] };
 export type TransitionSpec = { kind: string; duration: number };
 
 export type Rgb = [number, number, number];
@@ -79,6 +85,8 @@ export type MediaClip = {
   rot?: number; scale?: number; px?: number; py?: number; flip_h?: boolean; flip_v?: boolean;
   blend?: Blend; crop?: Crop; mask?: Mask; kf?: Kf; chroma?: Chroma; color?: ColorParams;
   ramp?: RampKey[]; reverse?: boolean; freeze?: boolean; link?: string; audio?: ClipAudio;
+  /** بازتنظیمِ قاب: پنجرهٔ بُرشِ منبع (برای ۹:۱۶ و دنبال‌کردنِ سوژه). نبودن = کلِ منبع */
+  reframe?: Reframe;
   /** شکل (تصویرِ کشیده‌شده): ref = "shape" و سرور PNG می‌سازد */
   shape?: ShapeSpec;
   /** LUT ِ .cube از کتابخانهٔ فروشگاه */
@@ -137,8 +145,10 @@ export type Track = {
 export type ProgramOp = { id: string; tool: string; params: Params };
 export type Marker = { id: string; t: number; label: string; color: string; kind: "marker" | "beat" | "chapter" };
 export type Ducking = { on: boolean; amount_db: number; threshold: number; attack_ms: number; release_ms: number };
-export type Master = { gain_db: number; limiter: boolean };
-export type ExportBlock = { preset?: string; codec?: "h264" | "h265"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number; where?: "auto" | "server" };
+/** بلندیِ نهاییِ خروجی برای شبکه‌های اجتماعی: loudnorm روی مستر (target = LUFS، tp = سقفِ اوج به dB) */
+export type Loudness = { on: boolean; target: number; tp: number };
+export type Master = { gain_db: number; limiter: boolean; loudness?: Loudness };
+export type ExportBlock = { preset?: string; codec?: "h264" | "h265"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number; where?: "auto" | "server"; target_mb?: number | null };
 
 export type ExportWhere = "auto" | "server";
 export type MulticamInfo = {
@@ -173,6 +183,7 @@ export type Project = {
 
 export const DEFAULT_DUCKING: Ducking = { on: false, amount_db: 12, threshold: 0.04, attack_ms: 40, release_ms: 500 };
 export const DEFAULT_MASTER: Master = { gain_db: 0, limiter: true };
+export const SOCIAL_LOUDNESS: Loudness = { on: true, target: -14, tp: -1 };
 
 export const FORMATS: { key: string; title: string; width: number; height: number }[] = [
   { key: "reel", title: "ریلز / استوری ۹:۱۶", width: 1080, height: 1920 },
@@ -868,5 +879,100 @@ export function fromApi(data: unknown): Project {
     inout: d.inout ?? null,
   };
 }
+
+// ───────────── ابزارهای برشِ فریمی و خطِ بلندی (تایم‌لاین)
+const clampN = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+
+/** زمان را به نزدیک‌ترین فریم گرد می‌کند (۱/fps). */
+export function quantize(t: number, fps: number): number {
+  const f = fps > 0 ? fps : 30;
+  return Math.round(t * f) / f;
+}
+
+/** اگر `t` تا نویزِ ممیزِ شناور روی فریم است همان فریم را برمی‌گرداند؛ وگرنه خودِ `t` (چسبیدن به لبهٔ بی‌فریم، بی‌شکاف می‌ماند). */
+export function tidyFrame(t: number, fps: number): number {
+  const q = quantize(t, fps);
+  return Math.abs(q - t) < 0.002 ? q : t;
+}
+
+/** تعدادِ فریمِ (با علامت) از زمانِ `a` تا `b`. */
+export function framesBetween(a: number, b: number, fps: number): number {
+  return Math.round((b - a) * (fps > 0 ? fps : 30));
+}
+
+/** همسایهٔ چسبیدهٔ یک لبه روی همان ترک (برای رول): جفتِ { l: قطعهٔ چپ, r: قطعهٔ راست } یا null اگر لبه به چیزی نچسبیده. */
+export function touchingPair(p: Project, id: string, side: "l" | "r"): { l: string; r: string } | null {
+  const f = findClip(p, id);
+  if (!f) return null;
+  const c = f.clip;
+  const sorted = [...f.track.clips].sort((a, b) => a.at - b.at);
+  const i = sorted.findIndex((x) => x.id === id);
+  const other = side === "l" ? sorted[i - 1] : sorted[i + 1];
+  if (!other || other.type !== "media" || c.type !== "media") return null;
+  const gap = side === "l" ? c.at - clipEnd(other) : other.at - clipEnd(c);
+  if (Math.abs(gap) >= 0.06) return null;
+  return side === "l" ? { l: other.id, r: id } : { l: id, r: other.id };
+}
+
+/** جابه‌جاییِ فریم‌به‌فریم: `pos` = خودِ قطعه‌ها، `l`/`r` = لبهٔ شروع/پایان. قطعه‌های پیوندی هم می‌روند؛ `frames` می‌تواند منفی باشد؛ جابه‌جایی همیشه روی شبکهٔ فریم می‌نشیند. */
+export function nudgeEdge(p: Project, ids: string[], side: "pos" | "l" | "r", frames: number, fps: number): Project {
+  const group = withLinked(p, ids);
+  const d = frames / (fps > 0 ? fps : 30);
+  if (side === "pos") {
+    const lead = findClip(p, ids[ids.length - 1] ?? group[0]) ?? findClip(p, group[0]);
+    if (!lead) return p;
+    const dt = quantize(lead.clip.at + d, fps) - lead.clip.at;
+    return Math.abs(dt) < 1e-6 ? p : moveClips(p, group, dt);
+  }
+  let q = p;
+  for (const id of group) {
+    const f = findClip(q, id);
+    if (!f) continue;
+    q = side === "l" ? trimStart(q, id, quantize(f.clip.at + d, fps)) : trimEnd(q, id, quantize(clipEnd(f.clip) + d, fps));
+  }
+  return q;
+}
+
+/** پایین‌ترین بلندیِ خط (−∞ = بی‌صدا) و بالاترینِ آن (بالای قطعه = +۶ dB)؛ همان MIN_DB ِ پنلِ صدا. */
+export const VOL_MIN_DB = -60;
+export const VOL_TOP_DB = 6;
+/** نقطه‌های (dB، کسرِ ارتفاع از بالا) که خطِ بلندی از آن‌ها می‌گذرد؛ ۰ dB حدودِ ۶۵٪ ارتفاع از پایین است. */
+const VOL_STOPS: [number, number][] = [[6, 0], [0, 0.35], [-6, 0.5], [-12, 0.62], [-24, 0.8], [-48, 0.95], [-60, 1]];
+
+/** بلندیِ خطی (۰..۳) ⇐ dB (همان linToDb ِ پنلِ صدا). */
+export const volLinToDb = (lin: number): number => (lin <= 0.001 ? VOL_MIN_DB : clampN(20 * Math.log10(lin), VOL_MIN_DB, 9.5));
+/** dB ⇐ بلندیِ خطی (۰..۳)؛ نزدیکِ −۶۰ dB یعنی بی‌صدا. */
+export const volDbToLin = (db: number): number => (db <= VOL_MIN_DB + 0.5 ? 0 : clampN(Math.pow(10, db / 20), 0, 3));
+
+/** dB ⇐ کسرِ ارتفاع از بالای قطعه (۰ = بالا، ۱ = پایین). */
+export function volDbToFrac(db: number): number {
+  if (db >= VOL_STOPS[0][0]) return 0;
+  for (let i = 0; i + 1 < VOL_STOPS.length; i++) {
+    const [d0, f0] = VOL_STOPS[i];
+    const [d1, f1] = VOL_STOPS[i + 1];
+    if (db >= d1) return f0 + ((d0 - db) / (d0 - d1)) * (f1 - f0);
+  }
+  return 1;
+}
+/** کسرِ ارتفاع از بالا ⇐ dB (۳٪ آخرِ پایین = بی‌صدا). */
+export function volFracToDb(f: number): number {
+  const x = clampN(f, 0, 1);
+  if (x >= 0.97) return VOL_MIN_DB;
+  for (let i = 0; i + 1 < VOL_STOPS.length; i++) {
+    const [d0, f0] = VOL_STOPS[i];
+    const [d1, f1] = VOL_STOPS[i + 1];
+    if (x <= f1) return d0 + ((x - f0) / (f1 - f0)) * (d1 - d0);
+  }
+  return VOL_MIN_DB;
+}
+/** بلندیِ خطی ⇐ کسرِ ارتفاع از بالا. */
+export const volToFrac = (lin: number): number => volDbToFrac(volLinToDb(lin));
+/** dB را به گام‌های ۰٫۵ گرد می‌کند و نزدیکِ ۰ dB به خودِ ۰ می‌چسباند. */
+export const snapDb = (db: number): number => (db <= VOL_MIN_DB + 0.5 ? VOL_MIN_DB : Math.abs(db) < 0.75 ? 0 : Math.round(db * 2) / 2);
+
+/** بیشترین محوِ مجازِ یک قطعه (ثانیه): min(۱۰، نصفِ طول). */
+export const fadeMax = (len: number): number => Math.max(0.05, Math.min(10, len / 2));
+/** محو را به گام‌های ۰٫۰۵ ثانیه گرد و در [۰، fadeMax] نگه می‌دارد. */
+export const snapFade = (v: number, len: number): number => (clampN(Math.round(v / 0.05), 0, Math.floor(fadeMax(len) / 0.05 + 1e-6)) * 5) / 100;
 
 export { shiftKeys, RAMP_STEPS };

@@ -17,6 +17,7 @@ import {
   fa,
 } from "../../../components/ui";
 import CompareSlider from "./CompareSlider";
+import DesignerPanel from "./designer/DesignerPanel";
 import { PhotoAutoPanel, PhotoPromptPanel } from "./ModePanels";
 import { smartChipText } from "./ResultCard";
 import PhotoWorkspace from "./manual/PhotoWorkspace";
@@ -74,6 +75,23 @@ export default function PhotoEditorPage() {
   const [detail, setDetail] = useState<Asset | null>(null);
   const [compareId, setCompareId] = useState<number | null>(null);
   const [sources, setSources] = useState<Sources | null>(null);
+  /** بازکردنِ پروژهٔ تازهٔ «طراحِ خودکار» در حالتِ دستی: کلیدِ فضای کار عوض می‌شود تا پروژه از سرور دوباره خوانده شود */
+  const [reloadKey, setReloadKey] = useState(0);
+  const [promptTab, setPromptTabState] = useState<"design" | "quick">(() => {
+    try {
+      return localStorage.getItem("nm.photo.prompttab") === "quick" ? "quick" : "design";
+    } catch {
+      return "design";
+    }
+  });
+  const setPromptTab = (t: "design" | "quick") => {
+    setPromptTabState(t);
+    try {
+      localStorage.setItem("nm.photo.prompttab", t);
+    } catch {
+      /* حافظهٔ مرورگر بسته است */
+    }
+  };
   const fileInput = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
 
@@ -297,7 +315,7 @@ export default function PhotoEditorPage() {
         onChange={setMode}
         hints={{
           auto: "عکس را می‌سنجد و خودش ادیت می‌زند — یک کلیک",
-          prompt: "بگویید چه می‌خواهید؛ هوش مصنوعی درستش می‌کند",
+          prompt: "بنویسید چه می‌خواهید؛ طراحِ خودکار چند پیشنهادِ آماده با متنِ فارسی می‌سازد",
           manual: "فضای کامل مثلِ فتوشاپ: برش، لغزنده‌ها، منحنی، ترمیم…",
         }}
       />
@@ -306,7 +324,7 @@ export default function PhotoEditorPage() {
         <div className="mb-6">
           {hasWebGL2() ? (
           <ProWorkspace
-            key={`${focusAsset.id}-${manualStart?.n ?? 0}`}
+            key={`${focusAsset.id}-${manualStart?.n ?? 0}-${reloadKey}`}
             storeId={id}
             asset={focusAsset}
             assets={assets}
@@ -444,7 +462,38 @@ export default function PhotoEditorPage() {
       </div>
 
       {mode === "auto" && <PhotoAutoPanel {...panelProps} />}
-      {mode === "prompt" && <PhotoPromptPanel {...panelProps} />}
+      {mode === "prompt" && (
+        <>
+          <div className="dz-tabs mt-4" role="tablist" aria-label="نوعِ ویرایش با دستور" data-testid="prompt-tabs">
+            <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "design"} onClick={() => setPromptTab("design")} data-ptab="design">
+              طراحِ خودکار — متن، زمینه، برچسب و قاب
+            </button>
+            <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "quick"} onClick={() => setPromptTab("quick")} data-ptab="quick">
+              اصلاحِ سریعِ نور و رنگ
+            </button>
+          </div>
+          {promptTab === "design" ? (
+            <DesignerPanel
+              storeId={id}
+              asset={focusAsset}
+              nodeOn={nodeOn}
+              onApplied={(edit, openManual) => {
+                setTracking((cur) => [edit, ...cur.filter((e) => e.id !== edit.id)]);
+                setLastBatch(edit.batch);
+                void load();
+                if (openManual) {
+                  setReloadKey((k) => k + 1);
+                  setMode("manual");
+                  // فضای کار بالای صفحه است؛ کاربر را همان‌جا ببر
+                  window.setTimeout(() => document.querySelector('[data-testid="photo-workspace"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 500);
+                }
+              }}
+            />
+          ) : (
+            <PhotoPromptPanel {...panelProps} />
+          )}
+        </>
+      )}
       {mode === "manual" && !focusAsset && (
         <Card className="mt-4">
           <EmptyState icon="image" title="یک عکس انتخاب کنید" description="از کتابخانه یک عکس بزنید تا فضای کارِ دستی برایش باز شود." />

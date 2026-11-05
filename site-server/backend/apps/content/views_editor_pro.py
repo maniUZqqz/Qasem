@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 from apps.jobs.models import Job
 from apps.jobs.services import dispatch_job
 from apps.stores import access
-from services.editing import audiofx, captions, color, export, media_cache, noderender, shapes, stickers, titles, transitions
+from services.editing import audiofx, captions, color, export, media_cache, noderender, safezones, shapes, stickers, titles, transitions
 from services.editing import keyframes
 from services.editing import timeline as tl
 
@@ -87,6 +87,7 @@ class EditorCatalogueView(APIView):
             "shapes": shapes.catalogue()["shapes"],
             "stickers": stickers.available(),
             "render_where": noderender.status(),
+            "safe_zones": safezones.catalogue(),
             "limits": {"max_preview_seconds": MAX_PREVIEW_SECONDS, "max_tracks": tl.MAX_TRACKS, "max_clips": tl.MAX_CLIPS,
                        "ramp_steps": tl.RAMP_STEPS},
         })

@@ -12,8 +12,10 @@ import { ASPECTS, FULL, SECTIONS, aspectRect } from "../manual/model";
 import { ParamSlider, SectionBody } from "../manual/Sliders";
 import type { PhotoWorkspaceProps } from "../manual/PhotoWorkspace";
 import OperationForm from "../OperationForm";
+import { detectTilt } from "./autostraighten";
+import CropBar from "./CropBar";
 import FrameCard, { STORE_FRAME } from "./FrameCard";
-import { cropFormatOpParams, effectiveCropFormat, makeFrameSpec } from "./frame";
+import { cropFormatOpParams, effectiveCropFormat, makeFrameSpec, normalizeCropFormat } from "./frame";
 import { photoGeoSizes } from "./geo";
 import { neutralizeToTempTint } from "./gl/engine";
 import GenFillPanel from "./GenFillPanel";
@@ -24,6 +26,7 @@ import { LiquifyStore } from "./liquify";
 import type { Hist, MaskKind, ProActions } from "./panelTypes";
 import { PenPath, penToSelection, penToShape } from "./pen";
 import PresetsPanel from "./PresetsPanel";
+import Shortcuts from "./Shortcuts";
 import { MaskStore, Selection, ToolId, ToolOpts, ZoomCmd, defaultToolOpts } from "./session";
 import Stage, { StageApi, frameInputOf } from "./Stage";
 import {
@@ -37,6 +40,7 @@ import {
   siblingsOf, ungroupLayers, wrapInGroup,
 } from "./tree";
 import "./pro.css";
+import "./fonts.css";
 
 type Props = PhotoWorkspaceProps & { storeLogo?: string | null };
 type Tab = "edit" | "layers" | "presets" | "smart" | "history" | "export";
@@ -63,6 +67,19 @@ const TOOLS: ToolDef[] = [
   { id: "pen", key: "P", title: "قلم (Pen)", hint: "کلیک = نقطه، کلیک و کشیدن = منحنیِ نرم، کلیک روی نقطهٔ اول = بستن؛ Enter = پایان، Esc = لغو، Backspace = حذفِ آخرین، Alt+کلیک روی نقطه = گوشه/نرم", icon: "M4 20l4-1 11-11-3-3L5 16l-1 4Zm10-14 3 3" },
   { id: "liquify", key: "Q", title: "مایع‌سازی (Liquify)", hint: "روی عکس بکشید تا بخش‌ها جابه‌جا شوند؛ باد کردن، جمع کردن و بازسازی هم دارد", icon: "M3 8c3-3 5 3 9 0s6-3 9 0M3 16c3-3 5 3 9 0s6-3 9 0" },
   { id: "genfill", key: "F", title: "پرکردنِ هوشمند", hint: "با قلم جایی را که باید عوض/حذف شود رنگ کنید (Alt = کم کردن)؛ بعد در پنل «اجرا» را بزنید", icon: "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm7 11 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" },
+];
+
+/** ابزارهایی که همیشه در نوار دیده می‌شوند (پرکاربردِ فروشگاه‌دار)؛ بقیه پشتِ «⋯ بیشتر» اند و کلیدِ میان‌برشان کار می‌کند */
+const MAIN_TOOLS = new Set<ToolId>(["move", "hand", "crop", "straighten", "text", "brush", "heal", "subject", "genfill"]);
+
+/** اندازه‌های آمادهٔ خروجی: قاب (قالب/اندازه) + قالبِ فایل و سقفِ حجم. فقط مقدارهای معمولِ رایج اند؛ بعدش در همین تب قابل‌تغییرند. */
+const EXPORT_PRESETS: { key: string; title: string; help: string; frame: Params | null; out: Partial<ProState["out"]> }[] = [
+  { key: "ig-post", title: "پستِ اینستاگرام", help: "مربعِ ۱۰۸۰×۱۰۸۰، JPEG، حدودِ ۳۰۰ کیلوبایت", frame: { format: "square", fit: "cover", focus: "smart" }, out: { format: "jpeg", quality: 90, max_kb: 300, long_edge: 0 } },
+  { key: "ig-portrait", title: "پستِ عمودی ۴:۵", help: "۱۰۸۰×۱۳۵۰ — بیشترین جا در فید", frame: { format: "portrait", fit: "cover", focus: "smart" }, out: { format: "jpeg", quality: 90, max_kb: 350, long_edge: 0 } },
+  { key: "ig-story", title: "استوری و ریلز", help: "۱۰۸۰×۱۹۲۰ — کالا بریده نمی‌شود (دورش محو)", frame: { format: "story", fit: "contain", fill: "blur" }, out: { format: "jpeg", quality: 90, max_kb: 400, long_edge: 0 } },
+  { key: "banner", title: "بنرِ سایت و تلگرام", help: "۱۲۰۰×۶۳۰", frame: { format: "landscape", fit: "cover", focus: "smart" }, out: { format: "jpeg", quality: 88, max_kb: 250, long_edge: 0 } },
+  { key: "market", title: "بازار و فروشگاه", help: "مربعِ ۲۰۰۰ با زمینهٔ سفید و کالا وسط، تا ۵۰۰ کیلوبایت", frame: null, out: { format: "jpeg", quality: 92, max_kb: 500, long_edge: 0 } },
+  { key: "chat", title: "واتساپ و پیام‌رسان", help: "ضلعِ بلند ۱۶۰۰، تا ۲۰۰ کیلوبایت", frame: null, out: { format: "jpeg", quality: 85, max_kb: 200, long_edge: 1600 } },
 ];
 
 const KIT_TOOLS: { key: string; title: string }[] = [
@@ -167,6 +184,22 @@ export default function ProWorkspace(props: Props) {
   const [aspectKey, setAspectKey] = useState("free");
   const [flipAspect, setFlipAspect] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [moreTools, setMoreToolsState] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("nm.photo.moretools") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setMoreTools = (v: boolean) => {
+    setMoreToolsState(v);
+    try {
+      window.localStorage.setItem("nm.photo.moretools", v ? "1" : "0");
+    } catch {
+      /* حافظهٔ مرورگر بسته است */
+    }
+  };
+  const [help, setHelp] = useState(false);
   const [hdata, setHdata] = useState<HistData | null>(null);
   const [buildMsg, setBuildMsg] = useState<string | null>(null);
   const [fonts, setFonts] = useState<FontInfo[]>([{ key: "vazirmatn", title: "وزیرمتن", family: "Vazirmatn", weights: [300, 400, 500, 600, 700, 800], rtl: true }]);
@@ -436,6 +469,59 @@ export default function ProWorkspace(props: Props) {
   };
   const rotate = (delta: number) =>
     hist.apply("چرخش", (s) => ({ ...s, turn: ((((s.turn + delta) % 360) + 360) % 360) as ProState["turn"], crop: { ...FULL } }));
+
+  // ───────────────────────── برش: تأیید (Enter) و انصراف (Esc) — برش غیرمخرب است؛ هر وقت دوباره ابزارِ برش را بزنید قابِ فعلی را می‌بینید
+  const [autoMsg, setAutoMsg] = useState("");
+  const cropSnap = useRef<{ crop: ProState["crop"]; turn: ProState["turn"]; straighten: number; flipH: boolean; flipV: boolean; frame: Params | null } | null>(null);
+  const storeFrameJson = JSON.stringify(STORE_FRAME);
+  const storeFrameOn = !!state.tools.crop_format && JSON.stringify(state.tools.crop_format) === storeFrameJson;
+  const toggleStoreFrame = () =>
+    hist.apply(storeFrameOn ? "برداشتنِ قابِ فروشگاه" : "قابِ فروشگاه", (s) => {
+      const t = { ...s.tools };
+      if (storeFrameOn) delete t.crop_format;
+      else t.crop_format = STORE_FRAME;
+      return { ...s, tools: t };
+    });
+  const applyCrop = () => {
+    cropSnap.current = null;
+    setAutoMsg("");
+    setTool("move");
+    setStatus("برش اعمال شد؛ هر وقت خواستید با ابزارِ برش (C) دوباره عوضش کنید");
+  };
+  const cancelCrop = () => {
+    const snap = cropSnap.current;
+    cropSnap.current = null;
+    setAutoMsg("");
+    if (snap) {
+      const cur = stateRef.current;
+      const same = JSON.stringify([cur.crop, cur.turn, cur.straighten, cur.flipH, cur.flipV, cur.tools.crop_format ?? null]) === JSON.stringify([snap.crop, snap.turn, snap.straighten, snap.flipH, snap.flipV, snap.frame]);
+      if (!same) {
+        hist.apply("انصرافِ برش", (s) => {
+          const t = { ...s.tools };
+          if (snap.frame) t.crop_format = snap.frame;
+          else delete t.crop_format;
+          return { ...s, crop: snap.crop, turn: snap.turn, straighten: snap.straighten, flipH: snap.flipH, flipV: snap.flipV, tools: t };
+        });
+      }
+    }
+    setTool("move");
+  };
+  const autoStraighten = () => {
+    const eng = stage?.engine;
+    const d = eng?.baseCpu;
+    if (!d) return setAutoMsg("عکس هنوز آماده نیست.");
+    const t = detectTilt(d as unknown as { data: Uint8ClampedArray; width: number; height: number });
+    if (t.confidence < 0.18 || Math.abs(t.angle) < 0.15) {
+      setAutoMsg(t.confidence < 0.18 ? "افق یا خطِ مشخصی پیدا نشد؛ با لغزنده دستی صاف کنید." : "عکس از قبل صاف است.");
+      if (t.confidence >= 0.18 && stateRef.current.straighten !== 0) hist.apply("تشخیصِ خودکارِ افق", (s) => ({ ...s, straighten: 0 }));
+      return;
+    }
+    // تشخیص روی عکسِ اصل است (نه روی عکسِ چرخیده) ⇒ زاویه «گذاشته» می‌شود، نه «اضافه»؛ دوباره زدنِ دکمه چیزی را دوبرابر نمی‌کند
+    const a = Math.round(Math.max(-15, Math.min(15, t.angle)) * 10) / 10;
+    if (Math.abs(stateRef.current.straighten - a) < 0.05) return setAutoMsg(`همین حالا ${fa(Math.abs(a))}° اصلاح شده است.`);
+    hist.apply("تشخیصِ خودکارِ افق", (s) => ({ ...s, straighten: a }));
+    setAutoMsg(`${fa(Math.abs(a))}° ${a > 0 ? "ساعتگرد" : "پادساعتگرد"} کج بود؛ صاف شد.`);
+  };
 
   // قلابِ آزمونِ مرورگر (فقط خواندنی/اعمالِ حالت؛ برای کاربر بی‌اثر است)
   useEffect(() => {
@@ -1055,6 +1141,9 @@ export default function ProWorkspace(props: Props) {
       }
       // قلم (Pen): Enter = پایانِ مسیر، Esc = لغو، Backspace/Delete = حذفِ آخرین نقطه (پیش از «حذفِ لایه» ِ پایین)
       if (toolRef.current === "pen" && penRef.current(e.key)) { e.preventDefault(); return; }
+      // برش: Enter = اعمال
+      if (toolRef.current === "crop" && e.key === "Enter") { e.preventDefault(); applyCropRef.current(); return; }
+      if (e.key === "?" || e.key === "؟") { e.preventDefault(); return setHelp((h) => !h); }
       if (e.key === "\\") return setCompare((c) => (c === "before" ? "off" : "before"));
       if (e.key === "0") return setZoomCmd({ id: Date.now(), kind: "fit" });
       if (e.key === "1") return setZoomCmd({ id: Date.now(), kind: "100" });
@@ -1098,6 +1187,18 @@ export default function ProWorkspace(props: Props) {
   toolRef.current = tool;
   const penRef = useRef(penKey);
   penRef.current = penKey;
+  const applyCropRef = useRef(applyCrop);
+  applyCropRef.current = applyCrop;
+  const cancelCropRef = useRef(cancelCrop);
+  cancelCropRef.current = cancelCrop;
+  // ورود به ابزارِ برش ⇒ عکسِ لحظه‌ای برای «انصراف»
+  useEffect(() => {
+    if (tool === "crop") {
+      const s = stateRef.current;
+      cropSnap.current = { crop: s.crop, turn: s.turn, straighten: s.straighten, flipH: s.flipH, flipV: s.flipV, frame: s.tools.crop_format ?? null };
+      setAutoMsg("");
+    }
+  }, [tool]);
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
@@ -1106,10 +1207,18 @@ export default function ProWorkspace(props: Props) {
   // هیچ کاری نمی‌کنیم و Esc مثلِ قبل تمام‌صفحه را می‌بندد.
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || toolRef.current !== "pen") return;
+      if (e.key !== "Escape") return;
+      if (toolRef.current !== "pen" && toolRef.current !== "crop") return;
       const t = e.target as HTMLElement | null;
-      if (t instanceof HTMLInputElement && t.type !== "range" && t.type !== "checkbox") return;
+      if (t instanceof HTMLInputElement && t.type !== "range" && t.type !== "checkbox" && t.type !== "number") return;
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t?.isContentEditable) return;
+      if (toolRef.current === "crop") {
+        // برش: Esc = انصراف (تمام‌صفحه را هم نباید ببندد)
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cancelCropRef.current();
+        return;
+      }
       if (!penRef.current("Escape")) return; // مسیری در جریان نیست
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -1276,14 +1385,11 @@ export default function ProWorkspace(props: Props) {
         </>
       )}
       {tool === "crop" && (
-        <>
-          {ASPECTS.map((a) => (
-            <button key={a.key} type="button" className={chip(aspectKey === a.key)} onClick={() => chooseAspect(a.key)} data-aspect={a.key}>{a.title}</button>
-          ))}
-          <label className="ws-check"><input type="checkbox" checked={flipAspect} onChange={(e) => setFlipAspect(e.target.checked)} />جابه‌جا کردنِ افقی/عمودی</label>
-          <span dir="ltr" data-testid="crop-size" className="ws-muted">{fa(Math.round(state.crop.w * Wt))}×{fa(Math.round(state.crop.h * Ht))} px</span>
-          <button type="button" className="ws-link" onClick={() => hist.apply("بازنشانیِ برش", (s) => ({ ...s, crop: { ...FULL } }))}>بازنشانیِ برش</button>
-        </>
+        <CropBar
+          state={state} hist={H} Wt={Wt} Ht={Ht} aspectKey={aspectKey} aspectRatio={aspectRatio} chooseAspect={chooseAspect}
+          flipAspect={flipAspect} setFlipAspect={setFlipAspect} storeFrameOn={storeFrameOn} toggleStoreFrame={toggleStoreFrame}
+          rotate={rotate} onAuto={autoStraighten} autoMsg={autoMsg} onApply={applyCrop} onCancel={cancelCrop}
+        />
       )}
       {tool === "straighten" && (
         <>
@@ -1472,8 +1578,28 @@ export default function ProWorkspace(props: Props) {
     </div>
   );
 
+  const applyExportPreset = (pr: (typeof EXPORT_PRESETS)[number]) => {
+    hist.apply(`خروجی: ${pr.title}`, (s) => {
+      const t = { ...s.tools };
+      if (pr.key === "market") t.crop_format = STORE_FRAME;
+      else if (pr.frame) t.crop_format = cropFormatOpParams(normalizeCropFormat(pr.frame));
+      return { ...s, tools: t, out: { ...s.out, ...pr.out } };
+    });
+    setBuildMsg(null);
+    setStatus(`«${pr.title}» تنظیم شد: ${pr.help}`);
+  };
+
   const exportTab = (
     <div data-testid="export-tab">
+      <div className="ws-card" data-testid="export-presets">
+        <div className="ws-card-title">اندازه‌های آماده</div>
+        <p className="ws-hint">یک کلیک: قاب و قالبِ فایل و سقفِ حجم برای هر جا تنظیم می‌شود؛ بعدش پایین‌تر هر عددی را می‌توانید عوض کنید.</p>
+        <div className="flex flex-wrap gap-1">
+          {EXPORT_PRESETS.map((pr) => (
+            <button key={pr.key} type="button" className="ws-chip" title={pr.help} onClick={() => applyExportPreset(pr)} data-preset={pr.key}>{pr.title}</button>
+          ))}
+        </div>
+      </div>
       <div className="ws-card">
         <div className="ws-card-title">تنظیماتِ خروجی</div>
         <label className="ws-field">
@@ -1608,20 +1734,25 @@ export default function ProWorkspace(props: Props) {
           <span className="ws-muted" data-testid="save-msg">{saveMsg}</span>
           {busyOp && <span className="ws-muted"><Spinner size={13} /> {busyOp}</span>}
           <span className="ws-spacer" />
+          <button type="button" className="ws-btn" onClick={() => setHelp(true)} title="راهنمای کلیدهای میان‌بر (؟)" aria-label="راهنمای کلیدهای میان‌بر" data-testid="help-btn">؟</button>
           <button type="button" className="ws-btn primary" onClick={() => void build(false)} disabled={props.busy} data-testid="build-top">ساخت</button>
           <button type="button" className="ws-btn pw-panel-toggle" onClick={() => setPanelOpen((v) => !v)}>پنل</button>
           {optionsBar}
         </div>
 
         <div className="pw-tools" dir="rtl" role="toolbar" aria-label="ابزارها" data-testid="toolbar">
-          {TOOLS.map((t) => (
+          {TOOLS.filter((t) => moreTools || MAIN_TOOLS.has(t.id) || t.id === tool).map((t) => (
             <span key={t.id} style={{ display: "contents" }}>
-              {t.sep && <i className="pro-tool-sep" />}
-              <button type="button" className={`ws-tool ${tool === t.id ? "is-on" : ""}`} onClick={() => setTool(t.id)} title={`${t.title} (${t.key})`} aria-label={t.title} aria-pressed={tool === t.id} data-tool={t.id}>
+              {moreTools && t.sep && <i className="pro-tool-sep" />}
+              <button type="button" className={`ws-tool ${tool === t.id ? "is-on" : ""}`} onClick={() => setTool(t.id)} title={`${t.title} (${t.key}) — ${t.hint}`} aria-label={t.title} aria-pressed={tool === t.id} data-tool={t.id}>
                 <ToolIcon t={t} />
               </button>
             </span>
           ))}
+          <button type="button" className={`ws-tool pro-more ${moreTools ? "is-on" : ""}`} onClick={() => setMoreTools(!moreTools)} aria-expanded={moreTools} data-testid="tools-more"
+            title={moreTools ? "فقط ابزارهای اصلی" : "ابزارهای بیشتر: انتخاب‌ها، قلم، مایع‌سازی، پرسپکتیو، قرمزیِ چشم، شیب…"} aria-label={moreTools ? "ابزارهای کمتر" : "ابزارهای بیشتر"}>
+            <span aria-hidden="true">{moreTools ? "−" : "⋯"}</span>
+          </button>
         </div>
 
         <div className="pw-canvas">
@@ -1637,7 +1768,14 @@ export default function ProWorkspace(props: Props) {
           {notice && (
             <div className={`pw-overlay-msg ${notice.tone === "bad" ? "bad" : ""}`} data-testid="notice" onClick={() => setNotice(null)}>{notice.text}</div>
           )}
+          {tool === "crop" && (
+            <div className="crop-fab" dir="rtl" data-testid="crop-fab">
+              <button type="button" className="ws-btn primary" onClick={applyCrop} data-testid="crop-fab-apply">✓ اعمال</button>
+              <button type="button" className="ws-btn" onClick={cancelCrop} data-testid="crop-fab-cancel">✕ انصراف</button>
+            </div>
+          )}
         </div>
+        {help && <Shortcuts tools={TOOLS.map((t) => ({ key: t.key, title: t.title }))} onClose={() => setHelp(false)} />}
 
         <div className={`pw-panel ${panelOpen ? "" : "is-closed"}`} dir="rtl" data-testid="right-panel">
           <Histogram data={hdata} />

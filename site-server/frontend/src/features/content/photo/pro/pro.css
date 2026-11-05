@@ -49,5 +49,50 @@
   .ws-root.is-full .ws-body:has(.pro-grid) { flex: none; height: auto; }
 }
 
+/* ───────── برش: دستگیره‌های لمس‌پسند (ناحیهٔ لمسِ ۴۸px، شکلِ دیدنی کوچک‌تر)، قابِ پررنگ‌تر */
+.pv-wrap .vp-shade { background: rgba(0, 0, 0, .62); }
+.pv-wrap .vp-crop-box { border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 0 0 9999px transparent; }
+.pv-wrap .vp-crop-box .third-v, .pv-wrap .vp-crop-box .third-h { background: rgba(255, 255, 255, .5); }
+.pv-wrap .vp-handle { width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid #111; border-radius: 4px; background: #fff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
+.pv-wrap .vp-handle::before { content: ""; position: absolute; inset: -17px; }
+.pv-wrap .vp-handle.h-n, .pv-wrap .vp-handle.h-s { width: 38px; height: 10px; margin: -5px 0 0 -19px; border-radius: 6px; }
+.pv-wrap .vp-handle.h-e, .pv-wrap .vp-handle.h-w { width: 10px; height: 38px; margin: -19px 0 0 -5px; border-radius: 6px; }
+.pv-wrap .vp-handle.h-n::before, .pv-wrap .vp-handle.h-s::before { inset: -17px -6px; }
+.pv-wrap .vp-handle.h-e::before, .pv-wrap .vp-handle.h-w::before { inset: -6px -17px; }
+/* قابِ خیلی کوچک (روی گوشی): دستگیره‌های لبه پنهان و گوشه‌ها بیرونِ قاب می‌نشینند تا همیشه با انگشت گرفتنی باشند */
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-n, .pv-wrap .vp-crop-box.is-tiny .vp-handle.h-s,
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-e, .pv-wrap .vp-crop-box.is-tiny .vp-handle.h-w { display: none; }
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-nw { margin: -24px 0 0 -24px; }
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-ne { margin: -24px 0 0 8px; }
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-se { margin: 8px 0 0 8px; }
+.pv-wrap .vp-crop-box.is-tiny .vp-handle.h-sw { margin: 8px 0 0 -24px; }
+.crop-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-inline-end: 10px; margin-inline-end: 4px; border-inline-end: 1px dashed var(--line); }
+.crop-group:last-child { border-inline-end: 0; }
+.crop-num { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
+.crop-num input { width: 70px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: 12px; padding: 4px 6px; text-align: center; min-height: 32px; }
+.crop-actions { flex: 1 1 auto; }
+.crop-hint { flex-basis: 100%; }
+.crop-fab { display: none; position: absolute; inset-inline: 0; bottom: 10px; justify-content: center; gap: 8px; z-index: 6; pointer-events: none; }
+.crop-fab .ws-btn { pointer-events: auto; min-height: 44px; padding: 0 18px; font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
+.pro-more { font-size: 18px; font-weight: 800; }
+@media (max-width: 900px) {
+  .crop-fab { display: flex; }
+  .crop-hint { display: none; }
+  .crop-num input { width: 62px; }
+  .pv-wrap .vp-handle::before { inset: -20px; }
+}
+
+/* ───────── راهنمای کلیدها */
+.sc-backdrop { position: fixed; inset: 0; z-index: 400; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 12px; }
+.sc-box { width: min(880px, 100%); max-height: 92vh; overflow-y: auto; background: var(--void-2, #0b1020); color: var(--text); border: 1px solid var(--line-strong); border-radius: 16px; padding: 14px 16px; outline: 0; }
+.sc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 15px; }
+.sc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px 18px; }
+.sc-sec h3 { font-size: 12px; font-weight: 800; color: var(--text-2); margin: 0 0 6px; }
+.sc-sec dl { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.sc-row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.sc-row dt { flex: none; min-width: 34px; padding: 1px 7px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text); font-family: ui-monospace, monospace; font-size: 11px; }
+.sc-row dd { margin: 0; color: var(--text-2); line-height: 1.7; }
+.sc-foot { margin: 10px 0 0; font-size: 12px; color: var(--text-3); }
+
 /* گروه: کادرِ خط‌چینِ لایه‌های دیدنی (بی‌دستگیره) */
 .pv-gbox { fill: rgba(255, 255, 255, .04); stroke: #fff; stroke-width: 1.4; stroke-dasharray: 7 4; filter: drop-shadow(0 0 1px rgba(0, 0, 0, .8)); }

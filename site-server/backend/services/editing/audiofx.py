@@ -49,10 +49,25 @@ def _pan_filters(pan: float) -> list[str]:
     return ["aformat=channel_layouts=stereo", f"pan=stereo|c0={gl:.3f}*c0|c1={gr:.3f}*c1"]
 
 
-def fx_chain(audio: dict) -> list[str]:
-    """EQ / enhance / denoise / compressor / loudness for one clip's `audio` block."""
+def rnn_model():
+    """The bundled RNNoise voice model file, or None when it is missing: a neural denoiser keeps a voice natural far better
+    than a spectral gate. (The file travels to the processing node like a LUT when the render runs there.)"""
+    try:
+        from services.audio import engines as engine_registry
+
+        model = engine_registry.rnnoise_model("sh")
+        return model if model.exists() else None
+    except Exception:  # noqa: BLE001 — the denoiser is a nicety: never fail a render over it
+        return None
+
+
+def fx_chain(audio: dict, *, rnn: str | None = None) -> list[str]:
+    """EQ / enhance / denoise / compressor / loudness for one clip's `audio` block. `rnn` = the ready `arnndn=…` filter
+    (built by the graph builder so the model path is portable); without it «حذفِ نویزِ هوشمند» falls back to `afftdn`."""
     out: list[str] = []
-    if audio.get("denoise"):
+    if audio.get("denoise_ai"):
+        out.append(rnn or "afftdn=nr=14:nf=-28")
+    elif audio.get("denoise"):
         out.append("afftdn=nr=12:nf=-28")
     if audio.get("enhance"):
         out += ["highpass=f=80", "afftdn=nr=10:nf=-30", *EQ_CHAINS["voice"][1:], "acompressor=threshold=0.125:ratio=3:attack=15:release=200:makeup=2"]
@@ -102,7 +117,12 @@ def clip_audio(b, track: Track, clip: Clip) -> str:
         ch.append("asetpts=PTS-STARTPTS")
     if clip.reverse:
         ch.append("areverse")
-    ch += fx_chain(clip.audio or {})
+    rnn = None
+    if (clip.audio or {}).get("denoise_ai"):
+        model = rnn_model()
+        if model is not None:
+            rnn = f"arnndn=m={b.file_opt(model)}:mix=0.9"
+    ch += fx_chain(clip.audio or {}, rnn=rnn)
     # An audio clip's `opacity` is its level (the original, pre-panel meaning); `volume` multiplies it.
     kf_volume = clip.kf.get("volume")
     if kf_volume:
@@ -264,7 +284,17 @@ def build_audio(b, final: str = "aout") -> bool:
     master = tl.master or {}
     if abs(master.get("gain_db", 0.0)) > 0.01:
         tail.append(f"volume={float(master['gain_db']):.2f}dB")
-    if master.get("limiter", True):
+    loud = master.get("loudness") or {}
+    if loud.get("on"):
+        # one-pass EBU R128 (dynamic) toward the social-media target; loudnorm works at 192 kHz inside, so come back to 48 k
+        tp = float(loud.get("tp", -1.0))
+        tail.append(f"loudnorm=I={float(loud.get('target', -14.0)):g}:TP={tp:g}:LRA=11")
+        tail.append("aresample=48000")
+        # the final limiter holds the true-peak ceiling the owner asked for: 0.3 dB under it for the AAC encoder's overshoot, and with
+        # `level=disabled` (alimiter's auto-level would lift the peaks back up to the limit: measured −0.5 dBTP with the old 0.95)
+        if master.get("limiter", True):
+            tail.append(f"alimiter=limit={10 ** ((tp - 0.3) / 20):.3f}:level=disabled")
+    elif master.get("limiter", True):
         tail.append("alimiter=limit=0.95")
     b.parts.append(f"[{mixed}]" + (",".join(tail) if tail else "anull") + f"[{final}]")
     return True

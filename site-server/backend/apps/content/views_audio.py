@@ -24,6 +24,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -122,6 +123,66 @@ class AudioAssetListView(APIView):
             asset.saved = True
             asset.save(update_fields=["saved", "updated_at"])
         return Response(studio.asset_json(asset), status=status.HTTP_201_CREATED)
+
+
+class AudioAssetUploadView(APIView):
+    """«آپلودِ صدای ضبط‌شده»: a recording from the phone (or any audio file) becomes a library sound the editor can put on the timeline.
+    Browsers on plain http cannot record from the microphone, so this is the way to bring a voice-over in until https exists."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    EXTENSIONS = (".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".webm", ".mp4", ".3gp", ".amr", ".caf")
+    MAX_BYTES = 60 * 1024 * 1024
+    MAX_SECONDS = 900
+
+    def post(self, request, store_id):
+        import subprocess
+        import tempfile
+
+        from apps.ai.models import AudioAsset
+        from services.audio import studio
+        from services.video.ffmpeg import FFMPEG
+
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        up = request.FILES.get("file")
+        if up is None:
+            return _error("no_file", "فایلِ صدا فرستاده نشد.")
+        name = Path(up.name or "").name
+        suffix = Path(name).suffix.lower()
+        if suffix not in self.EXTENSIONS:
+            return _error("bad_type", "این نوع فایل صدا نیست؛ فایل wav، mp3، m4a، ogg یا ضبطِ گوشی را بدهید.")
+        if up.size > self.MAX_BYTES:
+            return _error("too_big", "فایل بیشتر از ۶۰ مگابایت است.")
+        kind = str(request.data.get("kind") or "speech").lower()
+        kind_value = {"speech": AudioAsset.Kind.SPEECH, "music": AudioAsset.Kind.MUSIC, "sfx": AudioAsset.Kind.SFX}.get(kind)
+        if kind_value is None:
+            return _error("bad_kind", "نوع باید speech، sfx یا music باشد.")
+        folder = Path(tempfile.mkdtemp(prefix="nm-audio-up-"))
+        try:
+            raw = folder / f"in{suffix}"
+            with open(raw, "wb") as handle:
+                for chunk in up.chunks():
+                    handle.write(chunk)
+            wav = folder / "out.wav"
+            channels = "1" if kind_value == AudioAsset.Kind.SPEECH else "2"
+            done = subprocess.run([str(FFMPEG), "-nostdin", "-y", "-v", "error", "-i", str(raw), "-vn", "-t", str(self.MAX_SECONDS + 1), "-ac", channels, "-ar", "44100",
+                                   "-c:a", "pcm_s16le", str(wav)], capture_output=True, timeout=300)
+            if done.returncode != 0 or not wav.is_file() or wav.stat().st_size < 1000:
+                return _error("unreadable", "فایلِ صدا خوانده نشد؛ فایلِ دیگری را امتحان کنید.")
+            seconds = studio._probe(wav)
+            if seconds <= 0.3:
+                return _error("empty", "صدایی در این فایل نیست.")
+            if seconds > self.MAX_SECONDS:
+                return _error("too_long", "صدا بیشتر از ۱۵ دقیقه است؛ کوتاه‌ترش کنید.")
+            title = (str(request.data.get("title") or "").strip() or Path(name).stem)[:120]
+            asset = AudioAsset.objects.create(store=store, created_by=request.user if request.user.is_authenticated else None, kind=kind_value, title=title,
+                                              engine="upload", license="آپلودِ خودِ فروشگاه", commercial=True, saved=True, text="", status=AudioAsset.Status.PENDING)
+            studio.store_file(asset, wav)
+            asset.save()
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        return Response(studio.asset_json(asset, progress=False), status=status.HTTP_201_CREATED)
 
 
 class AudioAssetDetailView(APIView):

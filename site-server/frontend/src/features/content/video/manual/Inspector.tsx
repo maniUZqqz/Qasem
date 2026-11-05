@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Badge } from "../../../../components/ui";
 import { fa } from "../../../../components/ui";
 import type { ToolInfo } from "../../ToolPicker";
@@ -8,14 +10,17 @@ import CaptionsPanel from "./CaptionsPanel";
 import ClipInspector from "./ClipInspector";
 import ColorPanel from "./ColorPanel";
 import type { LookDef } from "./color";
-import { Num } from "./controls";
+import { Num, Section } from "./controls";
 import EffectsTab from "./EffectsTab";
 import ExportPanel from "./ExportPanel";
 import MixerPanel from "./MixerPanel";
 import ProPanel, { ProProps } from "./ProPanel";
+import VersionsCard from "./VersionsCard";
+import QuickTemplates from "./QuickTemplates";
 import {
   AnyClip, AttrGroup, DEFAULT_DUCKING, DEFAULT_MASTER, ExportBlock, FORMATS, MediaClip, Project, TextClip, Track, clipLength, timecode, updateClips, updateTrack,
 } from "./model";
+import SoundQuick, { SoundWiring } from "./SoundQuick";
 import TextPanel from "./TextPanel";
 import "./inspector.css";
 
@@ -72,8 +77,13 @@ export type InspectorProps = {
   /** ماسکِ آزاد */
   onEditMask: (on: boolean) => void;
   editingMask: boolean;
+  /** «برشِ قاب» روی مانیتور: باز/بستن و وضعیتِ فعلی */
+  onCropMode?: (on: boolean) => void;
+  cropOn?: boolean;
   /** هر دو را برای صفحهٔ «خروجی» */
   exportWhere?: import("../api").RenderWhere | null;
+  /** «صدا — ساده»: ریشهٔ پروژه، ویرایشِ سطحِ ریشه، سطلِ رسانه (برای انتخابِ موسیقی) */
+  sound: SoundWiring;
 };
 
 const TABS: { key: InspectorTab; title: string }[] = [
@@ -88,19 +98,38 @@ const TABS: { key: InspectorTab; title: string }[] = [
   { key: "out", title: "خروجی" },
 ];
 
+/** تب‌هایی که در حالتِ «ساده» دیده می‌شوند؛ بقیه یک کلیک آن‌طرف‌ترند (هیچ‌چیز حذف نشده). */
+const SIMPLE_TABS: InspectorTab[] = ["clip", "audio", "text", "captions", "out"];
+const FULL_KEY = "nm.video.inspector.full";
+
 export default function Inspector(p: InspectorProps) {
   const { tab, onTab, selected } = p;
   const kind = selected ? (selected.clip.type === "text" ? "text" : selected.track.kind === "audio" ? "audio" : "media") : null;
+  const [full, setFull] = useState<boolean>(() => {
+    try { return localStorage.getItem(FULL_KEY) === "1"; } catch { return false; }
+  });
+  const toggleFull = () => setFull((v) => {
+    try { localStorage.setItem(FULL_KEY, v ? "0" : "1"); } catch { /* ignore */ }
+    return !v;
+  });
+  const shown = full ? TABS : TABS.filter((t) => SIMPLE_TABS.includes(t.key) || t.key === tab);
+  const hiddenCount = TABS.length - shown.length;
   return (
-    <div className="vw-inspector" dir="rtl" data-testid="inspector">
+    <div className="vw-inspector" dir="rtl" data-testid="inspector" data-tabs={full ? "full" : "simple"}>
       <div className="ws-tabs ins-tabs">
-        {TABS.map((t) => (
+        {shown.map((t) => (
           <button key={t.key} type="button" className={tab === t.key ? "is-on" : ""} onClick={() => onTab(t.key)} data-itab={t.key}>
             {t.title}{t.key === "text" && kind === "text" ? " •" : ""}
           </button>
         ))}
+        <button type="button" className="ins-more" onClick={toggleFull} data-testid="inspector-more" aria-pressed={full}
+          title={full ? "فقط تب‌های پرکاربرد را نشان بده" : "رنگ، افکت‌ها، میکسر و ابزارهای حرفه‌ای را هم نشان بده"}>
+          {full ? "ساده‌تر" : `بیشتر (${hiddenCount})`}
+        </button>
       </div>
       <div className="vw-scroll">
+        {/* پنلِ «برشِ قاب» روی صفحهٔ پهن این‌جا می‌نشیند (Monitor با portal می‌گذاردش) تا قابِ پیش‌نمایش کوچک نشود */}
+        <div id="vw-crop-host" />
         {tab === "clip" && <ClipTab {...p} kind={kind} />}
         {tab === "color" && <ColorTab {...p} kind={kind} />}
         {tab === "audio" && <AudioTab {...p} kind={kind} />}
@@ -130,6 +159,7 @@ const HELP = (
     یک قطعه را روی تایم‌لاین انتخاب کنید تا ویژگی‌هایش (جا، اندازه، چرخش، شفافیت، سرعت، گذار، رنگ، صدا) این‌جا بیاید.
     <br />ابزارها: V انتخاب · C تیغه · B ریپل · N رول · Y اسلیپ · U اسلاید · R تغییرِ سرعت · A انتخابِ ترک به جلو
     <br />Space پخش · S تقسیم · Delete حذف · Shift+Delete حذفِ بی‌فاصله · Q/W کوتاه کردن تا سرِ پخش · I/O ورودی/خروجی · M نشانگر · Ctrl+Z برگشت
+    <br />، و . جابه‌جاییِ قطعه فریم‌به‌فریم (Shift = ۱۰ فریم، Alt = فقط لبهٔ شروع) · کشیدنِ لبه با Ctrl = ریپل، Shift = رول، Alt = فقط همین قطعه
   </>
 );
 
@@ -149,6 +179,7 @@ function ClipTab(p: KindProps) {
       clip={selected.clip} track={selected.track} ids={p.selection} playhead={p.playhead} item={p.media[selected.clip.ref]} cat={p.cat} edit={p.edit}
       hasClipboard={p.hasClipboard} onCopyAttrs={p.onCopyAttrs} onPasteAttrs={p.onPasteAttrs} onExtractAudio={p.onExtractAudio}
       onUnlink={p.onUnlink} onFreeze={p.onFreeze} onJLCut={p.onJLCut} linked={p.linked} onEditMask={p.onEditMask} editingMask={p.editingMask}
+      storeId={p.storeId} format={p.project.format} onCropMode={p.onCropMode} cropOn={p.cropOn}
     />
   );
 }
@@ -169,20 +200,42 @@ function ColorTab(p: KindProps) {
   );
 }
 
+/** «صدا — ساده» + کارهای یک‌کلیکی؛ بالای تبِ «صدا» و تبِ «میکسر» */
+function SoundQuickCard(p: InspectorProps) {
+  return (
+    <SoundQuick
+      storeId={p.storeId} project={p.project} playhead={p.playhead} selected={p.selected} edit={p.edit} media={p.media} sound={p.sound}
+      onBeats={p.onBeats} beatsBusy={p.beatsBusy}
+    />
+  );
+}
+
 function AudioTab(p: KindProps) {
   const { selected, edit } = p;
-  if (!selected || selected.clip.type !== "media") return <Empty what="برای تنظیمِ صدا یک قطعهٔ ویدیو یا صدا را انتخاب کنید. تنظیمِ کلِ ترک‌ها در تبِ «میکسر» است." />;
+  if (!selected || selected.clip.type !== "media") {
+    return (
+      <>
+        <SoundQuickCard {...p} />
+        <Empty what="برای تنظیمِ صدای یک قطعه، آن را (ویدیو یا صدا) روی تایم‌لاین انتخاب کنید. تنظیمِ کلِ ترک‌ها در تبِ «میکسر» است." />
+      </>
+    );
+  }
   const clip = selected.clip;
   const ids = p.selection;
-  if (clip.kind === "image") return <Empty what="عکس صدا ندارد." />;
+  if (clip.kind === "image") return <><SoundQuickCard {...p} /><Empty what="عکس صدا ندارد." /></>;
   return (
-    <AudioPanel
-      clip={clip} trackKind={selected.track.kind === "audio" ? "audio" : "video"} playhead={p.playhead}
-      onLive={(patch) => edit.live((pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
-      onEnd={(label) => edit.end(label)}
-      onApply={(label, patch) => edit.apply(label, (pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
-      onExtractAudio={p.onExtractAudio} onBeats={clip.kind === "audio" || clip.has_audio ? p.onBeats : undefined} beatsBusy={p.beatsBusy}
-    />
+    <>
+      <SoundQuickCard {...p} />
+      <Section title="پیشرفته — صدای قطعهٔ انتخاب‌شده" defaultOpen testId="audio-advanced">
+        <AudioPanel
+          clip={clip} trackKind={selected.track.kind === "audio" ? "audio" : "video"} playhead={p.playhead}
+          onLive={(patch) => edit.live((pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
+          onEnd={(label) => edit.end(label)}
+          onApply={(label, patch) => edit.apply(label, (pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
+          onExtractAudio={p.onExtractAudio} onBeats={clip.kind === "audio" || clip.has_audio ? p.onBeats : undefined} beatsBusy={p.beatsBusy}
+        />
+      </Section>
+    </>
   );
 }
 
@@ -192,6 +245,7 @@ function TextTab(p: KindProps) {
     return (
       <div>
         <Empty what="یک متن را روی تایم‌لاین انتخاب کنید، یا با «T+ متن» متنِ تازه بسازید." />
+        <QuickTemplates storeId={p.storeId} sound={p.sound} />
       </div>
     );
   }
@@ -214,15 +268,20 @@ function TextTab(p: KindProps) {
 function MixerTab(p: InspectorProps) {
   const { edit } = p;
   return (
-    <MixerPanel
-      project={p.project} engine={p.engine}
-      onTrackLive={(id, patch) => edit.live((pr) => updateTrack(pr, id, patch))}
-      onTrackEnd={(label) => edit.end(label)}
-      onTrackApply={(id, label, patch) => edit.apply(label, (pr) => updateTrack(pr, id, patch))}
-      onMasterLive={(patch) => edit.live((pr) => ({ ...pr, master: { ...(pr.master ?? DEFAULT_MASTER), ...patch } }))}
-      onMasterEnd={() => edit.end("میکسرِ اصلی")}
-      onDucking={(patch) => edit.apply("کم‌کردنِ خودکارِ موسیقی", (pr) => ({ ...pr, ducking: { ...(pr.ducking ?? DEFAULT_DUCKING), ...patch } }))}
-    />
+    <>
+      <SoundQuickCard {...p} />
+      <Section title="پیشرفته — میکسرِ کامل (فیدر، پن، مستر، کم‌شدنِ موسیقی)" defaultOpen testId="mixer-advanced">
+        <MixerPanel
+          project={p.project} engine={p.engine}
+          onTrackLive={(id, patch) => edit.live((pr) => updateTrack(pr, id, patch))}
+          onTrackEnd={(label) => edit.end(label)}
+          onTrackApply={(id, label, patch) => edit.apply(label, (pr) => updateTrack(pr, id, patch))}
+          onMasterLive={(patch) => edit.live((pr) => ({ ...pr, master: { ...(pr.master ?? DEFAULT_MASTER), ...patch } }))}
+          onMasterEnd={() => edit.end("میکسرِ اصلی")}
+          onDucking={(patch) => edit.apply("کم‌کردنِ خودکارِ موسیقی", (pr) => ({ ...pr, ducking: { ...(pr.ducking ?? DEFAULT_DUCKING), ...patch } }))}
+        />
+      </Section>
+    </>
   );
 }
 
@@ -247,6 +306,8 @@ function OutTab(p: InspectorProps) {
         </div>
       </div>
 
+      <VersionsCard storeId={p.storeId} projectId={projectId} root={p.sound.root} onRestored={() => onOpenProject(projectId)} />
+
       <div className="ws-card">
         <div className="ws-card-title">قابِ پروژه</div>
         <label className="ws-field"><span>قاب</span>
@@ -269,6 +330,7 @@ function OutTab(p: InspectorProps) {
         <ExportPanel
           storeId={p.storeId} projectId={projectId} project={project} check={p.check} cat={p.cat.export} busy={p.renderBusy} where={p.exportWhere ?? p.cat.render_where}
           onExport={(block: ExportBlock) => edit.apply("تنظیماتِ خروجی", (pr) => ({ ...pr, export: block }))}
+          onMaster={(patch) => p.sound.applyRoot("بلندیِ صدای خروجی", (pr) => ({ ...pr, master: { ...(pr.master ?? DEFAULT_MASTER), ...patch } }))}
           onRender={p.onRender}
         />
       ) : <p className="ws-hint">در حالِ بارگیریِ تنظیماتِ خروجی…</p>}

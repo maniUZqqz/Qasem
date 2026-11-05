@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_designer
 
 P = "stores/<int:store_id>/photo-editor/"
 
@@ -32,4 +32,11 @@ urlpatterns = [
     path(P + "genfill/<uuid:uid>/", views.GenFillStatusView.as_view(), name="photoedit-genfill-status"),
     path(P + "genfill/<uuid:uid>/prompt/", views.GenFillPromptView.as_view(), name="photoedit-genfill-prompt"),
     path(P + "projects/<int:pk>/liquify/", views.LiquifyView.as_view(), name="photoedit-liquify"),
+    # طراحِ خودکار (نیمه‌خودکار با دستور)
+    path(P + "designer/", views_designer.DesignerInfoView.as_view(), name="photoedit-designer"),
+    path(P + "designer/analyze/", views_designer.DesignerAnalyzeView.as_view(), name="photoedit-designer-analyze"),
+    path(P + "designer/designs/", views_designer.DesignListView.as_view(), name="photoedit-designs"),
+    path(P + "designer/designs/<int:pk>/", views_designer.DesignView.as_view(), name="photoedit-design"),
+    path(P + "designer/designs/<int:pk>/rerender/", views_designer.DesignRerenderView.as_view(), name="photoedit-design-rerender"),
+    path(P + "designer/designs/<int:pk>/apply/", views_designer.DesignApplyView.as_view(), name="photoedit-design-apply"),
 ]

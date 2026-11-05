@@ -3,6 +3,17 @@ import { useRef, useState } from "react";
 import { Spinner, fa } from "../../../../components/ui";
 import type { Bin as BinData, MediaItem } from "../api";
 import { timecode } from "./model";
+import { useAudioKinds } from "./soundApi";
+import "./sound.css";
+
+/** فیلترِ نوعِ صدا در تبِ «صدا» (نوع از کتابخانهٔ صدا می‌آید؛ آیتمِ سطل نوع ندارد) */
+type AudioFilter = "all" | "MUSIC" | "SFX" | "SPEECH";
+const AUDIO_FILTERS: { key: AudioFilter; title: string }[] = [
+  { key: "all", title: "همه" },
+  { key: "MUSIC", title: "موسیقی" },
+  { key: "SFX", title: "جلوه‌های صوتی" },
+  { key: "SPEECH", title: "گفتار" },
+];
 
 const TABS: { key: keyof BinData; title: string }[] = [
   { key: "videos", title: "ویدیو" },
@@ -13,7 +24,7 @@ const TABS: { key: keyof BinData; title: string }[] = [
 
 /** سطلِ رسانه: ویدیوهای فروشگاه (آپلودی، تدوین‌شده، ساخته‌شده)، صدای کتابخانه و عکس‌ها. بکشید روی تایم‌لاین یا «+». */
 export default function Bin({
-  bin, loading, onAdd, onUpload, onProxy, proxyBusy,
+  bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound,
 }: {
   bin: BinData | null;
   loading: boolean;
@@ -21,10 +32,17 @@ export default function Bin({
   onUpload: (file: File) => void;
   onProxy: (item: MediaItem) => void;
   proxyBusy: string | null;
+  /** برای فیلترِ نوعِ صدا (موسیقی/جلوه/گفتار)؛ نباشد فیلتر نمایش داده نمی‌شود */
+  storeId?: string;
+  /** «رفتن به تبِ صدا» در حالتِ خالیِ صدا */
+  onGoSound?: () => void;
 }) {
   const [tab, setTab] = useState<keyof BinData>("videos");
+  const [audioFilter, setAudioFilter] = useState<AudioFilter>("all");
   const file = useRef<HTMLInputElement>(null);
-  const items = bin?.[tab] ?? [];
+  const kinds = useAudioKinds(storeId, tab === "audio" && !!storeId, bin?.audio.length ?? 0);
+  const all = bin?.[tab] ?? [];
+  const items = tab === "audio" && audioFilter !== "all" ? all.filter((it) => kinds?.[it.ref] === audioFilter) : all;
   const sticker = tab === "stickers";
   return (
     <div className="vw-bin" data-testid="bin" dir="rtl">
@@ -42,16 +60,33 @@ export default function Bin({
             <button type="button" className="ws-btn w-full justify-center" onClick={() => file.current?.click()}>+ آپلودِ ویدیوی تازه</button>
           </div>
         )}
+        {tab === "audio" && storeId && all.length > 0 && kinds && (
+          <div className="sq-bin-chips" role="group" aria-label="نوعِ صدا" data-testid="bin-audio-filter">
+            {AUDIO_FILTERS.map((f) => (
+              <button key={f.key} type="button" className={`ws-chip ${audioFilter === f.key ? "is-on" : ""}`} aria-pressed={audioFilter === f.key}
+                onClick={() => setAudioFilter(f.key)} data-audio-filter={f.key}>
+                {f.title}{f.key === "all" ? "" : ` (${fa(all.filter((it) => kinds[it.ref] === f.key).length)})`}
+              </button>
+            ))}
+          </div>
+        )}
         {loading && <Spinner size={16} />}
-        {!loading && items.length === 0 && (
+        {!loading && tab === "audio" && all.length === 0 && (
+          <div className="sq-bin-empty" data-testid="bin-audio-empty">
+            <p className="ws-hint">هنوز صدایی ندارید. موسیقی بسازید یا از کتابخانه بیاورید — دکمهٔ «موسیقیِ پس‌زمینه» در تبِ صدا.</p>
+            {onGoSound && <button type="button" className="ws-btn" onClick={onGoSound} data-testid="bin-go-sound" title="تبِ «صدا» را در پنلِ کناری باز می‌کند">🎵 رفتن به تبِ صدا</button>}
+          </div>
+        )}
+        {!loading && tab === "audio" && all.length > 0 && items.length === 0 && <p className="ws-hint">در این دسته چیزی نیست.</p>}
+        {!loading && tab !== "audio" && items.length === 0 && (
           <p className="ws-hint">
-            {tab === "videos" ? "هنوز ویدیویی نیست؛ بالا آپلود کنید." : tab === "audio" ? "صدایی در کتابخانه نیست (بخش «صدا» در پنل)." : sticker ? "استیکری در دسترس نیست." : "عکسی نیست."}
+            {tab === "videos" ? "هنوز ویدیویی نیست؛ بالا آپلود کنید." : sticker ? "استیکری در دسترس نیست." : "عکسی نیست."}
           </p>
         )}
         {items.map((it) => (
           <div key={it.ref} className="mb-1">
             <div
-              className="vw-item" draggable data-ref={it.ref}
+              className="vw-item" draggable data-ref={it.ref} data-kind={it.kind}
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/nm-ref", it.ref);
                 e.dataTransfer.effectAllowed = "copy";

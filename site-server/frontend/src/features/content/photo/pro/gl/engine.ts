@@ -6,7 +6,7 @@ import { canvasToPhoto, cropFormatGeometry, cropFormatTarget, frameUniforms, nor
 import type { EnergyMap } from "../smartFocus";
 import { energyMap, energyOffset, subjectView, thumbSize } from "../smartFocus";
 import { GLCtx, Tex, UValue } from "./glutil";
-import { LUT_N, buildCurveLut, newCanvas, rasterShape, rasterStrokes, rasterText } from "./raster";
+import { LUT_N, buildCurveLut, familyOf, newCanvas, rasterShape, rasterStrokes, rasterText } from "./raster";
 import { SH } from "./shaders";
 import { FxCache, bakeFx, effectiveFx, freeFxCache, fxActive, newFxCache } from "./fxbake";
 import { childrenMap } from "../tree";
@@ -397,7 +397,7 @@ export class ProEngine {
     const sig = JSON.stringify([l.text, l.font, l.weight, l.size, l.color, l.align, l.dir, l.line_height, l.letter_spacing, l.width, l.stroke, l.shadow, l.box, l.tile, l.lines, this.Wc, this.Hc]);
     const have = this.rasters.get(key);
     if (have && have.sig === sig) return have;
-    if (!this.fontReady(l.weight)) return have ?? null;
+    if (!this.fontReady(l.weight, familyOf(l.font))) return have ?? null;
     const r = rasterText(l, this.Wc, this.Hc);
     if (have) this.g.destroy(have.tex);
     if (!r) {

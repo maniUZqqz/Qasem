@@ -135,6 +135,60 @@ class PhotoProject(TimeStampedModel):
         return f"{self.asset.dir_rel}/p{self.pk}"
 
 
+class PhotoDesign(TimeStampedModel):
+    """یک بار «طراحیِ خودکار» (نیمه‌خودکارِ دستوری): عکس + دستور ⇒ چند پیشنهادِ طراحی (هرکدام برنامه + حالتِ قابل‌ویرایش + پیش‌نمایش).
+
+    هر پیشنهاد (variant) = {id, title, recipe, plan (مرحله‌ها)، state (همان JSON ِ پروژهٔ ادیتورِ دستی)، preview (مسیرِ نسبی)،
+    qa (امتیاز و اصلاح‌های خودکار)، rounds (نقدِ هوش مصنوعی و اصلاح‌ها)، needs، notes}. «اعمال» یک PhotoProject می‌سازد (قابل‌ویرایش در حالتِ
+    دستی) و یک PhotoEdit. بدونِ هوشِ مصنوعی هم کار می‌کند؛ ``ai`` می‌گوید کدام بخش به آن نیاز داشت."""
+
+    class State(models.TextChoices):
+        QUEUED = "QUEUED", "در صف"
+        RUNNING = "RUNNING", "در حالِ طراحی"
+        READY = "READY", "آماده"
+        FAILED = "FAILED", "ناموفق"
+
+    ACTIVE = ("QUEUED", "RUNNING")
+
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="photo_designs")
+    asset = models.ForeignKey(PhotoAsset, on_delete=models.CASCADE, related_name="designs")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    prompt = models.TextField(blank=True)
+    recipe = models.CharField(max_length=30, blank=True)
+    fmt = models.CharField(max_length=12, default="square")
+    mood = models.CharField(max_length=12, default="auto")
+    quality = models.CharField(max_length=8, default="normal")
+    copy = models.JSONField(default=dict, blank=True)
+    options = models.JSONField(default=dict, blank=True)
+    state = models.CharField(max_length=10, choices=State.choices, default=State.QUEUED, db_index=True)
+    progress = models.FloatField(default=0.0)
+    message = models.CharField(max_length=300, blank=True)
+    error = models.TextField(blank=True)
+    analysis = models.JSONField(default=dict, blank=True)
+    ai = models.JSONField(default=dict, blank=True)
+    variants = models.JSONField(default=list, blank=True)
+    log = models.JSONField(default=list, blank=True)
+    chosen = models.IntegerField(null=True, blank=True)
+    project = models.ForeignKey(PhotoProject, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    edit = models.ForeignKey(PhotoEdit, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "طراحیِ خودکار"
+        verbose_name_plural = "طراحی‌های خودکارِ عکس"
+
+    def __str__(self):
+        return f"design #{self.pk} [{self.state}]"
+
+    @property
+    def dir_rel(self) -> str:
+        return f"{self.asset.dir_rel}/designs/d{self.pk}"
+
+    @property
+    def active(self) -> bool:
+        return self.state in self.ACTIVE
+
+
 class PhotoPreset(TimeStampedModel):
     """پیش‌تنظیمِ شخصیِ فروشگاه: لغزنده‌ها، منحنی، فیلتر، لایه‌های روکش (لوگو، متن، واترمارک) و خروجی."""
     store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="photo_presets")

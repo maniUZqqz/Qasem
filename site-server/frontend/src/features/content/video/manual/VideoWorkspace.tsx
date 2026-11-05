@@ -28,12 +28,15 @@ import { attachTo, bakeFollowers, detach, trackerFromResult } from "./tracking";
 import { fetchBeats, srcToTimeline, useDuckSpans } from "./mediaAnalysis";
 import Monitor, { MonitorHandle } from "./Monitor";
 import {
-  AnyClip, AttrClip, AttrGroup, MediaClip, Project, ShapeKind, TextClip, addMarker, addMedia, addText, addTextClips, addTrack, clearMarkers, clipEnd, clipLength, copyAttrs,
+  AnyClip, AttrClip, AttrGroup, FORMATS, MediaClip, Project, ShapeKind, TextClip, addMarker, addMedia, addText, addTextClips, addTrack, clearMarkers, clipEnd, clipLength, copyAttrs,
   deleteClips, duplicateClips, emptyProject, extractAudio, findClip, freeSpot, freezeFrameAt, fromApi, isMedia, linkClips, liftRange, moveClips, pasteAttrs, projectLength,
-  newMediaClip, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
+  newMediaClip, nudgeEdge, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
 } from "./model";
 import Scopes from "./Scopes";
+import QuickStart from "./QuickStart";
+import ShortcutSheet from "./ShortcutSheet";
 import TimelineView, { Tool } from "./TimelineView";
+import TrimBar from "./TrimBar";
 import "./workspace.css";
 
 type Props = {
@@ -42,20 +45,25 @@ type Props = {
   /** ویدیویی که با «ویرایشِ دستی» از فهرست آمده: پروژهٔ تازه با همین قطعه شروع می‌شود */
   startRef?: string | null;
   onStartConsumed?: () => void;
+  /** پروژه‌ای (مثلاً ساختهٔ «کارگردان») که باید همین‌جا باز شود */
+  startProject?: number | null;
+  onProjectOpened?: () => void;
+  /** رفتن به «کارگردان» (حالتِ نیمه‌خودکار) از صفحهٔ شروع */
+  onGoDirector?: () => void;
 };
 
 const TOOLS: { key: Tool; label: string; title: string }[] = [
-  { key: "select", label: "V", title: "انتخاب (V)" },
+  { key: "select", label: "V", title: "انتخاب (V). هنگامِ کشیدنِ لبهٔ قطعه: Ctrl = ریپل (بعدی‌ها جابه‌جا شوند)، Shift = رول (برشِ بین دو قطعه)، Alt = فقط همین قطعه (صدا/تصویرِ پیوندی نمی‌آید). همه‌چیز روی فریم می‌نشیند" },
   { key: "razor", label: "✂ C", title: "تیغه: روی قطعه کلیک کنید تا همان‌جا بریده شود (C)" },
   { key: "trackfwd", label: "A", title: "انتخابِ همهٔ قطعه‌ها از این نقطه به جلو (A)" },
-  { key: "ripple", label: "B", title: "ریپل: لبه را ببرید، بقیه جلو/عقب می‌آیند (B)" },
-  { key: "roll", label: "N", title: "رول: برشِ بینِ دو قطعه را جابه‌جا کنید (N)" },
+  { key: "ripple", label: "B", title: "ریپل: لبه را ببرید، بقیه جلو/عقب می‌آیند (B). با ابزارِ «انتخاب» هم می‌شود: Ctrl نگه دارید و لبه را بکشید" },
+  { key: "roll", label: "N", title: "رول: برشِ بینِ دو قطعه را جابه‌جا کنید (N). با ابزارِ «انتخاب» هم می‌شود: Shift نگه دارید و لبهٔ چسبیده را بکشید" },
   { key: "slip", label: "Y", title: "اسلیپ: همان طول، بازهٔ منبع عوض می‌شود (Y)" },
   { key: "slide", label: "U", title: "اسلاید: قطعه می‌لغزد و همسایه‌ها جبران می‌کنند (U)" },
   { key: "rate", label: "R", title: "تغییرِ سرعت با کشیدنِ لبه (R)" },
 ];
 
-export default function VideoWorkspace({ storeId, tools, startRef, onStartConsumed }: Props) {
+export default function VideoWorkspace({ storeId, tools, startRef, onStartConsumed, startProject, onProjectOpened, onGoDirector }: Props) {
   const hist = useHistory<Project>(emptyProject());
   const root = hist.state;
   /** توالی‌هایی که باز کرده‌ایم (از ریشه به عمق)؛ خالی = خودِ پروژه. هر ویرایش روی «نما»ی توالیِ بازِ فعلی می‌نشیند */
@@ -72,6 +80,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [pickRegion, setPickRegion] = useState(false);
   const [region, setRegion] = useState<FrameRect | null>(null);
   const [editingMask, setEditingMask] = useState(false);
+  const [cropMode, setCropMode] = useState(false);
   const [trackMsg, setTrackMsg] = useState<string | null>(null);
   const [trackErr, setTrackErr] = useState<string | null>(null);
   const [syncRows, setSyncRows] = useState<SyncRow[] | null>(null);
@@ -90,6 +99,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [selection, setSelection] = useState<string[]>([]);
   const [px, setPx] = useState(60);
   const [snapOn, setSnapOn] = useState(true);
+  const [volLine, setVolLine] = useState(true);
   const [tool, setTool] = useState<Tool>("select");
   const [tab, setTab] = useState<InspectorTab>("clip");
   const [notice, setNotice] = useState<string | null>(null);
@@ -104,6 +114,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [scopeVer, setScopeVer] = useState(0);
   const [beatsBusy, setBeatsBusy] = useState(false);
   const [renderStarting, setRenderStarting] = useState(false);
+  const [help, setHelp] = useState(false);
+  const lastSnap = useRef<number>(Date.now());
   const lastSaved = useRef<string>("");
   const idRef = useRef<number | null>(null);
   idRef.current = projectId;
@@ -214,6 +226,11 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       }
       lastSaved.current = key + "|" + tt;
       setSaving("saved");
+      // هر ~۱۰ دقیقه که پروژه در حالِ ویرایش است یک نسخهٔ خودکار (بازگشتِ ایمن)
+      if (idRef.current && Date.now() - lastSnap.current > 600_000 && data?.tracks?.some((t: { clips?: unknown[] }) => (t.clips?.length ?? 0) > 0)) {
+        lastSnap.current = Date.now();
+        void api.post(`/stores/${storeId}/editor/projects/${idRef.current}/versions/`, { label: "خودکار", data }).catch(() => undefined);
+      }
       return idRef.current;
     } catch (err) {
       setSaving("error");
@@ -256,6 +273,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       setNotice(errorMessage(err));
     }
   }
+
+  // یک پروژه از بیرون (کارگردان) خواسته شده: بعد از آماده‌شدنِ فضای کار باز می‌شود
+  useEffect(() => {
+    if (!ready || !startProject) return;
+    void openProject(startProject).then(() => videoApi.projects(storeId).then(setProjects).catch(() => undefined));
+    onProjectOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, startProject]);
 
   async function deleteProject() {
     if (!projectId || !window.confirm("این پروژه حذف شود؟ (فایل‌های رندرشده هم می‌روند)")) return;
@@ -865,6 +890,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       const ctrl = e.ctrlKey || e.metaKey;
       const k = e.key;
       const lower = k.toLowerCase();
+      if (k === "?" || k === "؟") { e.preventDefault(); setHelp((v) => !v); return; }
       if (ctrl && lower === "z") { e.preventDefault(); e.shiftKey ? hist.redo() : hist.undo(); return; }
       if (ctrl && lower === "y") { e.preventDefault(); hist.redo(); return; }
       if (ctrl && lower === "k") { e.preventDefault(); splitHere(); return; }
@@ -879,6 +905,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       if (lower === "l") { void engine.resume(); setRate((r) => (playing && r >= 1 && r < 4 ? r * 2 : 1)); setPlaying(true); return; }
       if (lower === "j") { void engine.resume(); setRate((r) => (playing && r <= -1 && r > -4 ? r * 2 : -1)); setPlaying(true); return; }
       if (e.altKey && (k === "ArrowLeft" || k === "ArrowRight")) { e.preventDefault(); nudge((k === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 5 : 1)); return; }
+      // «,» و «.» = جابه‌جاییِ فریم‌به‌فریمِ قطعهٔ انتخابی (Shift = ۱۰ فریم)؛ با Alt فقط لبهٔ شروعِ قطعه
+      if ((e.code === "Comma" || e.code === "Period" || k === "," || k === "." || k === "<" || k === ">") && selection.length) {
+        e.preventDefault();
+        const back = e.code === "Comma" || k === "," || k === "<";
+        const n = (back ? -1 : 1) * (e.shiftKey ? 10 : 1);
+        apply(e.altKey ? "کوتاه‌کردنِ فریمیِ شروع" : "جابه‌جاییِ فریمی", (pr) => nudgeEdge(pr, selection, e.altKey ? "l" : "pos", n, project.format.fps || 30));
+        return;
+      }
       if (k === "ArrowLeft") { e.preventDefault(); e.shiftKey ? seek(time - 1) : step(-1); return; }
       if (k === "ArrowRight") { e.preventDefault(); e.shiftKey ? seek(time + 1) : step(1); return; }
       if (k === "ArrowUp" || k === "ArrowDown") {
@@ -930,6 +964,12 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     if (final) apply("جابه‌جایی روی تصویر", (pr) => updateClip(pr, id, patch));
     else live((pr) => updateClip(pr, id, patch));
   };
+  /** «برشِ قاب» (CropOverlay): پنجرهٔ برشِ منبع؛ هنگامِ کشیدن زنده، با رها شدن یک گامِ برگشت. extra = ویژگی‌های هم‌زمان (مثلاً fit) */
+  const onReframe = (id: string, reframe: MediaClip["reframe"], final: boolean, extra?: Partial<MediaClip>) => {
+    const patch: Partial<MediaClip> = { reframe, ...(extra ?? {}) };
+    if (final) apply("برشِ قاب", (pr) => updateClip(pr, id, patch));
+    else live((pr) => updateClip(pr, id, patch));
+  };
 
   return (
     <Workspace
@@ -940,6 +980,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           {uploadRunner.running && <span className="ws-muted"><Spinner size={12} /> {uploadRunner.job?.current_step_label || "در حالِ بررسی…"}</span>}
           {proxyRunner.running && <span className="ws-muted"><Spinner size={12} /> پیش‌نمایشِ سبک…</span>}
           <Badge tone={saving === "error" ? "bad" : "neutral"}>{saving === "saving" ? "ذخیره…" : saving === "saved" ? "ذخیره شد" : "پروژه"}</Badge>
+          <button type="button" className="ws-btn" onClick={() => setHelp(true)} title="راهنمای همهٔ میان‌برها (؟)" data-testid="open-shortcuts">؟ میان‌برها</button>
         </>
       }
     >
@@ -949,7 +990,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         </div>
       )}
       <div className="vw-grid" dir="ltr">
-        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} />
+        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} onGoSound={() => setTab("audio")} />
         <Monitor
           ref={monitor}
           project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
@@ -958,6 +999,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           onSeek={seek} onPlay={togglePlay} onStep={step}
           onRate={(r) => { void engine.resume(); setRate(r); setPlaying(true); }}
           onGizmo={onGizmo}
+          onReframe={onReframe} cropMode={cropMode} onCropMode={setCropMode} storeId={storeId} safeZones={cat?.safe_zones}
           onFrame={() => { if (scopesOpen) setScopeVer((v) => v + 1); }}
           selectedProxyHint={proxyNeeded ? <span className="vw-proxy-note">این قطعه سنگین است؛ در «رسانه‌ها» پیش‌نمایشِ سبک بسازید</span> : null}
           badge={<Badge tone={exact ? "ok" : "neutral"}>{exact ? "پیش‌نمایشِ دقیق (سرور)" : "پیش‌نمایشِ فوری (تقریبی)"}</Badge>}
@@ -993,6 +1035,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           onSubtitles={(r) => void importSubtitles(r)} hasSubtitleSource={hasSubtitleSource}
           onInsertCaptions={insertCaptions} onNotice={setNotice} onBeats={() => void addBeatMarkers()} beatsBusy={beatsBusy}
           onEditMask={setEditingMask} editingMask={editingMask} exportWhere={where}
+          sound={{ root, applyRoot, nested: path.length > 0, bin, onBinChanged: () => void loadBin(), onNotice: setNotice }}
+          onCropMode={setCropMode} cropOn={cropMode}
           pro={{
             project, root, path, selection, selected, playhead: time, media, bin, edit,
             onAddShape: addShape, onAddMedia: (it) => addFromBin(it),
@@ -1014,6 +1058,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           }}
         />
         <div className="vw-timeline" dir="rtl">
+          {ready && !hasClips && (
+            <QuickStart
+              formatKey={project.format.preset}
+              onFormat={(key) => { const f = FORMATS.find((x) => x.key === key); if (f) apply("قابِ پروژه", (pr) => ({ ...pr, format: { ...pr.format, width: f.width, height: f.height, preset: f.key } })); }}
+              onDirector={onGoDirector}
+              onAdd={() => setNotice("ویدیو یا عکس را از «رسانه‌ها» (ستونِ سمتِ چپ) بکشید روی تایم‌لاین، یا روی آن دوبار کلیک کنید. فیلمِ تازه را هم با «+ آپلودِ ویدیوی تازه» همان‌جا بیاورید.")}
+            />
+          )}
           <div className="tl-toolbar" data-testid="tl-toolbar">
             {tlButton("↶", "برگشت (Ctrl+Z)", hist.undo, { disabled: !hist.canUndo, test: "tl-undo" })}
             {tlButton("↷", "جلو (Ctrl+Y)", hist.redo, { disabled: !hist.canRedo, test: "tl-redo" })}
@@ -1029,6 +1081,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             {tlButton("❄ فریمِ ثابت", "فریمِ سرِ پخش را نگه دار", () => selected && apply("فریمِ ثابت", (pr) => freezeFrameAt(pr, selected.clip.id, time)), { disabled: !selected || selected.clip.type !== "media" || selected.clip.kind !== "video" })}
             <span className="ws-sep" />
             {tlButton("🧲", "چسبیدن به لبه‌ها، نشانگرها و سرِ پخش", () => setSnapOn((v) => !v), { on: snapOn, test: "tl-snap" })}
+            {tlButton("خط بلندی", "خطِ زردِ بلندیِ صدا روی قطعه‌ها: بالا/پایین بکشید تا بلندی عوض شود؛ دو بار زدن روی خط = کلیدفریم، دو بار زدن روی نقطه = حذف. برای قطعهٔ انتخاب‌شده همیشه دیده می‌شود؛ برای بقیه روی ترکِ صدا همیشه و روی تصویر فقط اگر بلندی‌اش تغییر کرده", () => setVolLine((v) => !v), { on: volLine, test: "tl-vol-toggle" })}
             {tlButton("−", "کوچک‌نمایی (-)", () => setPx((v) => Math.max(8, v / 1.25)), { test: "tl-zoom-out" })}
             {tlButton("+", "بزرگ‌نمایی (+)", () => setPx((v) => Math.min(400, v * 1.25)), { test: "tl-zoom-in" })}
             {tlButton("جا شدن", "کلِ پروژه در قاب (\\)", () => setPx(Math.max(8, Math.min(200, 700 / Math.max(5, totalRef.current)))))}
@@ -1042,10 +1095,16 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             {tlButton("+ صدا", "ترکِ صدا", () => apply("ترکِ صدا", (pr) => addTrack(pr, "audio")), { test: "tl-add-audio" })}
             {tlButton("+ ترکِ متن", "ترکِ متن", () => apply("ترکِ متن", (pr) => addTrack(pr, "text")), { test: "tl-add-text-track" })}
             {tlButton("T+ متن", "متنِ تازه در سرِ پخش (T)", () => newText(), { test: "tl-add-text" })}
-            {selection.length > 1 && tlButton("پیوند", "قطعه‌های انتخاب‌شده با هم جابه‌جا شوند", () => apply("پیوند", (pr) => linkClips(pr, selection)))}
+            {tlButton("جدا کردنِ صدا از تصویر", "صدای قطعهٔ ویدیوی انتخاب‌شده روی ترکِ صدا می‌رود و به تصویر «پیوند» می‌ماند؛ بعد می‌توانید صدا را زودتر یا دیرتر از تصویر شروع کنید (J-cut / L-cut)", () => selected && apply("جدا کردنِ صدا", (pr) => extractAudio(pr, selected.clip.id)), { disabled: !selected || selected.clip.type !== "media" || selected.clip.kind !== "video" || !selected.clip.has_audio || !selected.clip.audio_on, test: "tl-extract-audio" })}
+            {tlButton("قطعِ پیوند", "پیوندِ صدا و تصویرِ انتخاب‌شده برداشته شود تا هر کدام مستقل جابه‌جا شوند", () => apply("قطعِ پیوند", (pr) => unlinkClips(pr, selection)), { disabled: !linkedSel, test: "tl-unlink" })}
+            {selection.length > 1 && tlButton("پیوند", "قطعه‌های انتخاب‌شده با هم پیوند شوند و با هم جابه‌جا شوند", () => apply("پیوند", (pr) => linkClips(pr, selection)), { test: "tl-link" })}
           </div>
+          <TrimBar
+            project={project} selection={selection} fps={project.format.fps}
+            onApply={apply} onSeek={seek} onSplit={() => splitHere()} onRemove={() => removeSelected(true)}
+          />
           <TimelineView
-            project={project} selection={selection} playhead={time} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps}
+            project={project} selection={selection} playhead={time} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps} volLine={volLine}
             onProject={(p, liveDrag, base) => (liveDrag ? hist.live((r) => through(r, () => p, base)) : hist.apply("ویرایش", (r) => through(r, () => p, base)))}
             onCommit={(l) => hist.end(l)}
             onSelect={(ids) => { setSelection(ids); if (ids.length === 1) { const f = findClip(project, ids[0]); if (f?.clip.type === "text") setTab("text"); else if (tab === "text") setTab("clip"); } }}
@@ -1061,6 +1120,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           />
         </div>
       </div>
+      {help && <ShortcutSheet onClose={() => setHelp(false)} />}
     </Workspace>
   );
 }

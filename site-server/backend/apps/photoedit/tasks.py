@@ -78,6 +78,16 @@ def finish_edit_task(edit_id: int) -> None:
         services.run_server_stage(edit)
 
 
+# ───────────────────────────── طراحِ خودکار (نیمه‌خودکار با دستور)
+
+@shared_task(ignore_result=True, soft_time_limit=1500, time_limit=1560)
+def run_design_task(design_id: int) -> None:
+    """یک طراحی را کامل می‌کند (تحلیل ⇒ برنامه ⇒ ساخت ⇒ نقد). از ``designer.engine.run`` است؛ خطا همیشه روی خودِ طراحی می‌نشیند."""
+    from .designer import engine
+
+    engine.run(design_id)
+
+
 # ───────────────────────────── ترجمهٔ توضیحِ «پرکردنِ هوشمند» (فارسی ⇒ انگلیسی)
 
 @shared_task(ignore_result=True)

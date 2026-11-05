@@ -2,13 +2,15 @@ import { useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
 import type { Catalogue, MediaItem } from "../api";
+import AutoReframe from "./AutoReframe";
 import { defaultBezier } from "./bezier";
 import { transitionIsApproximate } from "./Compositor";
 import { Chips, ColorField, Num, Section, Slider, Toggle } from "./controls";
 import { KfChannel, RAMP_STEPS, RampKey, keyNear, rampSpeeds, removeKey, setKey, valueAt } from "./keyframes";
 import {
-  ATTR_GROUPS, AttrGroup, Blend, Chroma, Mask, MediaClip, Project, ShapeSpec, Track, clipLength, propAt, timecode,
+  ATTR_GROUPS, AttrGroup, Blend, Chroma, Mask, MediaClip, Project, ShapeSpec, Track, clipLength, propAt, timecode, updateClip,
 } from "./model";
+import { fitToBoxWindow, hasReframeKeys, reframeWindow } from "./reframe";
 import { SHAPES } from "./shapes";
 import "./clipinspector.css";
 
@@ -37,6 +39,11 @@ type Props = {
   /** ویرایشِ نقطه‌های ماسکِ آزاد روی تصویرِ مانیتور */
   onEditMask?: (on: boolean) => void;
   editingMask?: boolean;
+  /** «برشِ قاب»: بازتنظیمِ خودکار (سرور) و باز/بستنِ حالتِ برش روی مانیتور */
+  storeId?: string;
+  format?: { width: number; height: number };
+  onCropMode?: (on: boolean) => void;
+  cropOn?: boolean;
 };
 
 const BLENDS_FALLBACK = [{ key: "normal", title: "عادی" }];
@@ -85,7 +92,19 @@ function RampEditor({ ramp, onLive, onEnd }: { ramp: RampKey[]; onLive: (r: Ramp
   );
 }
 
-export default function ClipInspector({ clip, track, ids, playhead, item, cat, edit, hasClipboard, onCopyAttrs, onPasteAttrs, onExtractAudio, onUnlink, onFreeze, onJLCut, linked, onEditMask, editingMask }: Props) {
+/** زیربلوکِ تاشوی «برشِ لبه‌ها»؛ اگر قطعه از قبل برشِ لبه دارد باز شروع می‌شود (با key = شناسهٔ قطعه برای هر قطعه از نو) */
+function EdgesBlock({ initialOpen, children }: { initialOpen: boolean; children: React.ReactNode }) {
+  const [open] = useState(initialOpen);
+  return (
+    <details className="cr-edges" open={open} data-testid="crop-edges">
+      <summary>برشِ لبه‌ها (افکتِ شفاف‌شدنِ لبه)</summary>
+      <p className="ws-hint">این چهار لغزنده لبه‌های قطعه را شفاف می‌کنند و تصویر جابه‌جا نمی‌شود. برای اینکه «کدام بخشِ تصویر» دیده شود از «برشِ قاب» (بالا) استفاده کنید.</p>
+      {children}
+    </details>
+  );
+}
+
+export default function ClipInspector({ clip, track, ids, playhead, item, cat, edit, hasClipboard, onCopyAttrs, onPasteAttrs, onExtractAudio, onUnlink, onFreeze, onJLCut, linked, onEditMask, editingMask, storeId, format, onCropMode, cropOn }: Props) {
   const id = clip.id;
   const audioOnly = track.kind === "audio";
   const len = clipLength(clip);
@@ -143,6 +162,18 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
   const mask = clip.mask && clip.mask.shape !== "none" ? clip.mask : null;
   const chroma = clip.chroma?.on ? clip.chroma : null;
 
+  // ---- برشِ قاب (reframe): پنجره‌ای در خودِ منبع
+  const rf = clip.reframe;
+  const srcAsp = item?.width && item?.height ? item.width / item.height : 0;
+  const frameAsp = format && format.height ? format.width / format.height : 0;
+  const boxAsp = frameAsp && clip.height > 0 ? (clip.width * frameAsp) / clip.height : 0;
+  const reframable = track.kind === "video" && clip.kind !== "audio" && !clip.shape && !clip.ref.startsWith("seq:");
+  const rfWin = reframeWindow(clip, playhead, 1, 1);
+  const rfKeys = Math.max(rf?.kx?.length ?? 0, rf?.ky?.length ?? 0);
+  const hasEdgeCrop = !!(clip.crop && (clip.crop.l || clip.crop.r || clip.crop.t || clip.crop.b)) || !!(clip.kf?.crop_l?.length || clip.kf?.crop_r?.length || clip.kf?.crop_t?.length || clip.kf?.crop_b?.length);
+  const setReframe = (label: string, next: MediaClip["reframe"]) => edit.apply(label, (pr) => updateClip(pr, id, { reframe: next }));
+  const pctOf = (v: number) => fa(Math.round(v * 1000) / 10);
+
   return (
     <div data-testid="clip-media">
       <div className="ws-card-title">{clip.label}{ids.length > 1 ? ` (+${fa(ids.length - 1)} قطعهٔ دیگر)` : ""}</div>
@@ -181,11 +212,43 @@ export default function ClipInspector({ clip, track, ids, playhead, item, cat, e
       )}
 
       {!audioOnly && (
-        <Section title="برش و ماسک" testId="sec-crop">
-          {prop("crop_l", "برشِ چپ", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("l", v), digits: 0 })}
-          {prop("crop_r", "برشِ راست", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("r", v), digits: 0 })}
-          {prop("crop_t", "برشِ بالا", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("t", v), digits: 0 })}
-          {prop("crop_b", "برشِ پایین", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("b", v), digits: 0 })}
+        <Section title="برش و ماسک" testId="sec-crop" badge={rf || hasEdgeCrop || mask ? <span className="ws-dot" /> : undefined}>
+          {reframable && (
+            <div data-testid="reframe-block">
+              <div className="ws-group-title">برشِ قاب (کدام بخشِ تصویر دیده شود)</div>
+              <p className="ws-hint">پنجره‌ای روی خودِ تصویر انتخاب می‌کنید و فقط همان بخش در قاب می‌آید؛ کیفیت از فایلِ اصلی است (برای ۹:۱۶ کردنِ ویدیوی افقی).</p>
+              <AutoReframe
+                storeId={storeId} clip={clip}
+                onApply={(next) => setReframe("بازتنظیمِ خودکارِ قاب", next)}
+              />
+              <div className="flex flex-wrap gap-2 mb-1">
+                <button type="button" className={`ws-btn ${cropOn ? "is-on" : ""}`} onClick={() => onCropMode?.(!cropOn)} disabled={!onCropMode} data-testid="open-crop-mode"
+                  title="روی مانیتور کلِ تصویر را می‌بینید و پنجرهٔ برش را می‌کشید">{cropOn ? "بستنِ برشِ قاب" : "برشِ قاب روی تصویر…"}</button>
+                <button type="button" className="ws-btn" onClick={() => setReframe("جا دادنِ خودکار در قاب", fitToBoxWindow(boxAsp, srcAsp))} disabled={!(srcAsp > 0) || !(boxAsp > 0)} data-testid="reframe-fit-frame"
+                  title={srcAsp > 0 && boxAsp > 0 ? "وسطِ تصویر را هم‌نسبتِ قابِ پروژه می‌برد (بدونِ نوارِ سیاه، بدونِ اینترنت)" : "اندازهٔ تصویر یا قاب معلوم نیست"}>
+                  جا دادنِ خودکار در قابِ پروژه
+                </button>
+                {rf && <button type="button" className="ws-btn" onClick={() => setReframe("برداشتنِ برشِ قاب", undefined)} data-testid="reframe-clear" title="برش برداشته شود و کلِ تصویر دیده شود">بازنشانی</button>}
+              </div>
+              <div className="cr-nums-ro" data-testid="reframe-readout" aria-label="اندازهٔ پنجرهٔ برش">
+                <span><b>چپ</b>{pctOf(rfWin.x)}٪</span>
+                <span><b>بالا</b>{pctOf(rfWin.y)}٪</span>
+                <span><b>پهنا</b>{pctOf(rfWin.w)}٪</span>
+                <span><b>ارتفاع</b>{pctOf(rfWin.h)}٪</span>
+              </div>
+              <p className="ws-hint">
+                {rf ? "پنجرهٔ برش فعال است" : "هنوز برشِ قاب ندارد (کلِ تصویر دیده می‌شود)"}
+                {rf && hasReframeKeys(rf) ? ` · ${fa(rfKeys)} کلیدِ حرکت` : ""}
+                {rf && clip.fit !== "cover" ? " · اگر نوارِ سیاه می‌بینید «جا دادن در کادر» را روی «پر کردنِ کادر» بگذارید." : ""}
+              </p>
+            </div>
+          )}
+          <EdgesBlock key={id} initialOpen={hasEdgeCrop}>
+            {prop("crop_l", "برشِ چپ", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("l", v), digits: 0 })}
+            {prop("crop_r", "برشِ راست", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("r", v), digits: 0 })}
+            {prop("crop_t", "برشِ بالا", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("t", v), digits: 0 })}
+            {prop("crop_b", "برشِ پایین", 0, 90, 1, { unit: "٪", def: 0, scale: 100, staticPatch: (v) => cropSet("b", v), digits: 0 })}
+          </EdgesBlock>
           <div className="ws-group-title">ماسک</div>
           <Chips value={(mask?.shape ?? "none") as string} options={[{ key: "none", title: "بدون" }, { key: "rect", title: "مستطیل" }, { key: "ellipse", title: "بیضی" }, { key: "bezier", title: "آزاد (Bézier)" }]}
             onPick={(k) => set("ماسک", { mask: k === "none" ? undefined : { ...DEFAULT_MASK, ...(mask ?? {}), shape: k as Mask["shape"], ...(k === "bezier" && !(mask?.points?.length) ? { points: defaultBezier() } : {}) } })} />

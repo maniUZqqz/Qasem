@@ -298,7 +298,9 @@ class Builder:
         if clip.kind != "image":
             ch.append(f"fps={fps}")
 
-        # 2 · orientation, fit --------------------------------------------
+        # 2 · reframe window, orientation, fit -----------------------------
+        if clip.reframe and clip.kind in ("video", "image") and src is None:
+            ch.append(self.reframe_crop(clip, off_start - pad_head))
         for effect in clip.effects:
             if effect.get("tool") == "rotate":
                 ch.append(_effect_fragment(effect))
@@ -374,6 +376,18 @@ class Builder:
                 ch += ["format=rgba", f"scale=w='max(2,trunc(iw*{s}/2)*2)':h='max(2,trunc(ih*{s}/2)*2)'"]
         flush()
         return cur
+
+    # ------------------------------------------------------- reframe window
+    def reframe_crop(self, clip: Clip, shift: float) -> str:
+        """`crop` of the reframe window: constant size, centre = static or keyframed (x/y are evaluated per frame, `t` =
+        the frame's time; `shift` turns it into the clip's own timeline time). The browser mirrors this in Compositor.ts."""
+        rf = clip.reframe
+        var = f"(t+{_q(shift)})"
+        cx = keyframes.expr(rf.get("kx"), float(rf.get("cx", 0.5)), var)
+        cy = keyframes.expr(rf.get("ky"), float(rf.get("cy", 0.5)), var)
+        w, h = float(rf.get("w", 1.0)), float(rf.get("h", 1.0))
+        return (f"crop=w='max(2,floor(iw*{_f(w)}/2)*2)':h='max(2,floor(ih*{_f(h)}/2)*2)'"
+                f":x='clip(iw*({cx})-ow/2,0,iw-ow)':y='clip(ih*({cy})-oh/2,0,ih-oh)':exact=1")
 
     # ------------------------------------------------------------ the mask
     def alpha_mask(self, clip: Clip, cur: str, bw: int, bh: int, off_start: float, length: float, fi: float, fo: float,

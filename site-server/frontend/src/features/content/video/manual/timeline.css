@@ -61,3 +61,83 @@
   .tl-head { gap: 2px; padding: 0 3px; }
   .tl-head button { width: 16px; font-size: 9px; }
 }
+
+/* ───────── خطِ بلندی (rubber band)، محوِ قطعه، برشِ فریمی، نوارِ لمسی ───────── */
+.tl-vol, .tl-fades { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.tl-fades { z-index: 2; }
+.tl-vol { z-index: 3; }
+.tl-vol .vl-under { fill: none; stroke: rgba(0,0,0,.55); stroke-width: 3.5px; stroke-linejoin: round; stroke-linecap: round; }
+.tl-vol:not(.is-strong) .vl-under { display: none; }
+.tl-vol .vl-line { fill: none; stroke: #fde047; stroke-width: 1.5px; stroke-linejoin: round; stroke-linecap: round; opacity: .5; }
+.tl-vol.is-strong .vl-line { opacity: 1; }
+.tl-vol .vl-hit { fill: transparent; stroke: none; cursor: ns-resize; touch-action: none; }
+.tl-vol.is-keyed .vl-hit { cursor: cell; }
+.tl-vol .vl-dot { fill: #fde047; stroke: #713f12; stroke-width: 1.5px; pointer-events: none; }
+.tl-vol:not(.is-strong) .vl-dot { opacity: .6; }
+.tl-vol .vl-dot-hit { fill: transparent; cursor: move; touch-action: none; }
+.tl-vol .vl-db { font-size: 9px; font-weight: 700; fill: #fde047; paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 2.5px; pointer-events: none; }
+.vl-read {
+  position: absolute; z-index: 8; padding: 1px 6px; border-radius: 5px; background: rgba(0,0,0,.82); color: #fde047;
+  font-size: 10px; font-weight: 700; white-space: nowrap; pointer-events: none; direction: rtl; font-variant-numeric: tabular-nums;
+}
+.vl-read.fd-read { color: #fff; }
+.tl-fades .fd-shade { fill: rgba(0,0,0,.38); }
+.tl-fades .fd-line { stroke: rgba(255,255,255,.85); stroke-width: 1.2px; stroke-dasharray: 3 2; }
+.fade-h { position: absolute; top: 0; z-index: 5; width: 16px; height: 16px; cursor: ew-resize; touch-action: none; }
+.fade-h::before { content: ""; position: absolute; inset: 0; background: #fff; opacity: .92; }
+.fade-h.in::before { clip-path: polygon(0 0, 100% 0, 0 100%); }
+.fade-h.out::before { clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.fade-h:hover::before { background: #fde047; opacity: 1; }
+.tl-kfmark { right: 22px; }
+
+/* لبه‌ای که همین الان بریده می‌شود */
+.tl-clip.is-trim { z-index: 4; }
+.tl-clip.is-trim .grip { background: #fde047; box-shadow: 0 0 0 2px rgba(253,224,71,.45); }
+.tl-clip.is-trim[data-trim="l"] .grip.r, .tl-clip.is-trim[data-trim="r"] .grip.l { background: rgba(255,255,255,.35); box-shadow: none; }
+
+/* راهنمای کنارِ اشاره‌گر و پیش‌نمایشِ برش (در body رندر می‌شوند) */
+.tl-chip {
+  position: fixed; z-index: 2000; transform: translateX(-50%); padding: 3px 10px; border-radius: 7px; background: rgba(0,0,0,.84); color: #fff;
+  font-size: 12px; font-weight: 700; white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; box-shadow: 0 2px 10px rgba(0,0,0,.4);
+}
+.tp-wrap {
+  position: fixed; z-index: 1999; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; pointer-events: none;
+  background: rgba(8,12,24,.9); border: 1px solid rgba(255,255,255,.18); box-shadow: 0 4px 18px rgba(0,0,0,.5); color: #fff; max-width: calc(100vw - 16px);
+}
+.tp-slot { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.tp-slot figcaption { font-size: 10px; color: rgba(255,255,255,.75); }
+.tp-box { min-width: 96px; min-height: 54px; background: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.tp-box em { font-size: 10px; color: rgba(255,255,255,.55); font-style: normal; padding: 0 6px; }
+.tp-cv { display: block; max-width: 140px; max-height: 96px; }
+.tp-cv:not([data-ready]) { width: 0; height: 0; }
+.tp-cut { width: 2px; align-self: stretch; border-radius: 1px; background: #fde047; }
+
+/* نوارِ کوتاه‌کردنِ لمسی */
+.tb-root { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--void) 70%, #000); }
+.tb-info { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tb-info b { color: var(--text); font-size: 12px; }
+.tb-row { display: flex; align-items: center; gap: 8px; }
+.tb-title { flex: 0 0 74px; font-size: 12px; font-weight: 700; color: var(--text-2); }
+.tb-btns { display: flex; flex: 1; gap: 6px; }
+.tb-btn { flex: 1; justify-content: center; min-height: 40px; min-width: 44px; font-size: 14px; font-weight: 700; touch-action: manipulation; }
+.tb-btn.wide { font-size: 12px; }
+.tb-actions { gap: 6px; }
+.tb-actions .tb-btn { flex: 1; }
+
+/* لمس: دستگیره‌ها بزرگ‌تر، کشیدن صفحه را نبرد، نوارِ ابزار داخلِ خودش اسکرول شود */
+.tl-clip .grip, .tl-key, .tl-trans .g, .tl-marker, .fade-h { touch-action: none; }
+.tl-toolbar { max-width: 100%; min-width: 0; }
+@media (pointer: coarse) {
+  .tl-clip .grip { width: min(22px, 34%); }
+  .fade-h { width: 26px; height: 26px; }
+  .tl-key { width: 16px; height: 16px; }
+  .tl-trans .g { width: 14px; }
+  .tl-toolbar { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .tl-toolbar .ws-btn, .tl-toolbar .ws-sep { flex: none; }
+  .tl-toolbar .ws-btn { min-height: 34px; }
+}
+@media (max-width: 700px) {
+  .tl-toolbar { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .tl-toolbar .ws-btn, .tl-toolbar .ws-sep { flex: none; }
+  .tb-title { flex-basis: 64px; }
+}

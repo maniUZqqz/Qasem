@@ -5,6 +5,7 @@ import { applyLut, type Lut } from "./lut";
 import {
   AnyClip, Effect, MediaClip, Project, TextClip, Track, clipEnd, clipLength, propAt, srcTimeAt,
 } from "./model";
+import { reframeWindow, type Rect } from "./reframe";
 import { shapeCanvas } from "./shapes";
 import { drawText } from "./textRender";
 
@@ -98,10 +99,34 @@ const ready = (s: Source | undefined): s is Source => {
   return true;
 };
 
-/** منبع را داخلِ مستطیلِ (x,y,w,h) می‌کشد: cover / contain / stretch */
-function drawFitted(ctx: CanvasRenderingContext2D, s: Source, x: number, y: number, w: number, h: number, fit: MediaClip["fit"]) {
+/** برشِ قاب: فقط پنجرهٔ `win` (پیکسلِ منبع) به‌جای کلِ منبع با همان منطقِ جا دادن کشیده می‌شود */
+function drawWindowed(ctx: CanvasRenderingContext2D, s: Source, win: Rect, x: number, y: number, w: number, h: number, fit: MediaClip["fit"]) {
+  if (fit === "stretch") {
+    ctx.drawImage(s, win.x, win.y, win.w, win.h, x, y, w, h);
+    return;
+  }
+  const k = fit === "cover" ? Math.max(w / win.w, h / win.h) : Math.min(w / win.w, h / win.h);
+  if (fit === "cover") {
+    const cw = w / k;
+    const ch = h / k;
+    ctx.drawImage(s, win.x + (win.w - cw) / 2, win.y + (win.h - ch) / 2, cw, ch, x, y, w, h);
+  } else {
+    const dw = win.w * k;
+    const dh = win.h * k;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(x, y, w, h);
+    ctx.drawImage(s, win.x, win.y, win.w, win.h, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+}
+
+/** منبع را داخلِ مستطیلِ (x,y,w,h) می‌کشد: cover / contain / stretch؛ با `win` فقط پنجرهٔ بُرشِ قاب (reframe) */
+function drawFitted(ctx: CanvasRenderingContext2D, s: Source, x: number, y: number, w: number, h: number, fit: MediaClip["fit"], win?: Rect) {
   const [sw, sh] = dims(s);
   if (!sw || !sh) return;
+  if (win && win.w > 0 && win.h > 0) {
+    drawWindowed(ctx, s, win, x, y, w, h, fit);
+    return;
+  }
   if (fit === "stretch") {
     ctx.drawImage(s, x, y, w, h);
     return;
@@ -359,6 +384,8 @@ export class Compositor {
     const bh = Math.max(2, Math.round(clip.height * H));
     const src: Source | undefined = clip.shape ? shapeCanvas(clip.shape, bw, bh) : clip.ref.startsWith("seq:") ? this.nestedSource(clip, t, a, bw) : a.sources.get(clip.id);
     if (!ready(src)) return;
+    // برشِ قاب: پنجرهٔ منبع در این لحظه (کلیدهای kx/ky نسبت به شروعِ قطعه)؛ بدونِ reframe هیچ‌چیز عوض نمی‌شود
+    const win = clip.reframe ? reframeWindow(clip, t, ...dims(src)) : undefined;
     const opacity = propAt(clip, "opacity", t);
     let fade = 1;
     if (clip.fade_in > 0) fade *= Math.min(1, Math.max(0, (t - clip.at) / clip.fade_in));
@@ -407,7 +434,7 @@ export class Compositor {
         lx.rotate((Number(rotate.params.degrees) * Math.PI) / 180);
         lx.translate(-bw / 2, -bh / 2);
       }
-      drawFitted(lx, src, 0, 0, bw, bh, clip.fit);
+      drawFitted(lx, src, 0, 0, bw, bh, clip.fit, win);
       lx.restore();
       lx.filter = "none";
       if (needPixels) {
@@ -423,7 +450,7 @@ export class Compositor {
           M.x.globalAlpha = 1;
           M.x.fillStyle = "#000";
           M.x.fillRect(0, 0, bw, bh);
-          drawFitted(M.x, matte, 0, 0, bw, bh, clip.fit);
+          drawFitted(M.x, matte, 0, 0, bw, bh, clip.fit, clip.reframe ? reframeWindow(clip, t, ...dims(matte)) : undefined);
           const mm = M.x.getImageData(0, 0, bw, bh).data;
           for (let i = 0; i < img.data.length; i += 4) img.data[i + 3] = (img.data[i + 3] * mm[i]) / 255;
         }
@@ -469,7 +496,7 @@ export class Compositor {
     } else {
       if (css) ctx.filter = css;
       if (clip.flip_h || clip.flip_v) ctx.scale(clip.flip_h ? -1 : 1, clip.flip_v ? -1 : 1);
-      drawFitted(ctx, src, -bw / 2, -bh / 2, bw, bh, clip.fit);
+      drawFitted(ctx, src, -bw / 2, -bh / 2, bw, bh, clip.fit, win);
     }
     ctx.restore();
   }
@@ -513,3 +540,5 @@ export function sourceTimeFor(c: MediaClip, t: number): number {
 }
 
 export type { AnyClip };
+/** پنجرهٔ بُرشِ قاب (reframe) در لحظهٔ t به پیکسلِ منبع — خالص؛ جزئیات در reframe.ts */
+export { reframeWindow };

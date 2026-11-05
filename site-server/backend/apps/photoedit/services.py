@@ -1282,10 +1282,14 @@ def subject_status(store, uid) -> dict | None:
 # ───────────────────────────── فونت‌ها
 
 def fonts_list() -> list[dict]:
+    from . import fontreg
+
     files = textlayer.font_files()
     if not files:
         return []
-    return [{"key": "vazirmatn", "title": "وزیرمتن", "family": "Vazirmatn", "weights": sorted(files), "rtl": True}]
+    out = [{"key": "vazirmatn", "title": "وزیرمتن", "family": "Vazirmatn", "weights": sorted(files), "rtl": True}]
+    out += [fontreg.info(k) for k in fontreg.available()]
+    return out
 
 
 # ───────────────────────────── پیش‌تنظیم‌ها (ذخیره، اعمال روی چند عکس)

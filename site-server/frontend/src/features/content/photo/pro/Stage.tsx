@@ -78,6 +78,7 @@ type Drag =
   | { k: "pan"; sx: number; sy: number; vx: number; vy: number }
   | { k: "split" }
   | { k: "crop"; handle: Handle; sx: number; sy: number; rect: Rect }
+  | { k: "cropnew"; fx: number; fy: number }
   | { k: "move"; id: string; start: Pt2; c0: Pt2; moved: boolean }
   | { k: "photo"; start: Pt2; c0: Pt2; zoom: number; fw: number; fh: number; tw: number; th: number; moved: boolean }
   | { k: "gmove"; id: string; hitId: string; start: Pt2; orig: [string, Pt2][]; box: { x0: number; y0: number; x1: number; y1: number } | null; moved: boolean }
@@ -1029,7 +1030,10 @@ export default function Stage(p: Props) {
         return;
       }
       case "crop": {
-        return; // با دستگیره‌های DOM
+        // دستگیره‌ها و خودِ قاب با DOM کار می‌کنند؛ کشیدن بیرونِ قاب = قابِ تازه از همان نقطه
+        const [tx, ty] = g.screenToT(sx, sy);
+        beginDrag(e, { k: "cropnew", fx: Math.max(0, Math.min(1, tx / g.Wt)), fy: Math.max(0, Math.min(1, ty / g.Ht)) });
+        return;
       }
       case "persp":
       default:
@@ -1077,6 +1081,33 @@ export default function Stage(p: Props) {
         const dy = (sy - d.sy) / g.s / g.Ht;
         const r = nextCrop(d.rect, d.handle, dx, dy, p.aspect, g.Wt, g.Ht);
         p.hist.live((s) => ({ ...s, crop: r }));
+        break;
+      }
+      case "cropnew": {
+        const [tx, ty] = g.screenToT(sx, sy);
+        const c01 = (v: number) => Math.max(0, Math.min(1, v));
+        let x2 = c01(tx / g.Wt);
+        let y2 = c01(ty / g.Ht);
+        const dx = x2 - d.fx;
+        const dy = y2 - d.fy;
+        if (Math.abs(dx * g.Wt) < 4 && Math.abs(dy * g.Ht) < 4) break; // فقط یک لمس
+        const ratio = p.aspect;
+        if (ratio && ratio > 0) {
+          // نسبتِ قفل: پهنا راننده است، ارتفاع از نسبت می‌آید؛ اگر از عکس بیرون زد پهنا کم می‌شود
+          const sgnX = dx < 0 ? -1 : 1;
+          const sgnY = dy < 0 ? -1 : 1;
+          let wpx = Math.abs(dx) * g.Wt;
+          let hpx = wpx / ratio;
+          const roomH = (sgnY < 0 ? d.fy : 1 - d.fy) * g.Ht;
+          if (hpx > roomH) {
+            hpx = roomH;
+            wpx = hpx * ratio;
+          }
+          x2 = c01(d.fx + (sgnX * wpx) / g.Wt);
+          y2 = c01(d.fy + (sgnY * hpx) / g.Ht);
+        }
+        const r: Rect = { x: Math.min(d.fx, x2), y: Math.min(d.fy, y2), w: Math.abs(x2 - d.fx), h: Math.abs(y2 - d.fy) };
+        if (r.w >= 0.02 && r.h >= 0.02) p.hist.live((s) => ({ ...s, crop: r }));
         break;
       }
       case "move": {
@@ -1290,6 +1321,7 @@ export default function Stage(p: Props) {
     if (!d) return;
     switch (d.k) {
       case "crop":
+      case "cropnew":
         p.hist.end("برش");
         break;
       case "move":
@@ -1510,7 +1542,8 @@ export default function Stage(p: Props) {
           <i className="vp-shade" style={{ left: 0, top: cropR.y1, width: box.w, height: Math.max(0, box.h - cropR.y1) }} />
           <i className="vp-shade" style={{ left: 0, top: cropR.y0, width: Math.max(0, cropR.x0), height: cropR.y1 - cropR.y0 }} />
           <i className="vp-shade" style={{ left: cropR.x1, top: cropR.y0, width: Math.max(0, box.w - cropR.x1), height: cropR.y1 - cropR.y0 }} />
-          <div className="vp-crop-box" style={{ left: cropR.x0, top: cropR.y0, width: cropR.x1 - cropR.x0, height: cropR.y1 - cropR.y0 }} onPointerDown={(e) => beginCrop(e, "move")}>
+          <div className={`vp-crop-box ${cropR.x1 - cropR.x0 < 64 || cropR.y1 - cropR.y0 < 64 ? "is-tiny" : ""}`} data-tiny={cropR.x1 - cropR.x0 < 64 || cropR.y1 - cropR.y0 < 64 ? "1" : "0"}
+            style={{ left: cropR.x0, top: cropR.y0, width: cropR.x1 - cropR.x0, height: cropR.y1 - cropR.y0 }} onPointerDown={(e) => beginCrop(e, "move")}>
             <i className="third-v" style={{ left: "33.33%" }} />
             <i className="third-v" style={{ left: "66.66%" }} />
             <i className="third-h" style={{ top: "33.33%" }} />

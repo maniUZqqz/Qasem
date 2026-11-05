@@ -1,13 +1,17 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { fa } from "../../../../components/ui";
 import type { MediaItem } from "../api";
+import FadeHandles from "./FadeHandles";
 import { KF_TITLE, KfChannel } from "./keyframes";
 import { useFilmstrip, useWaveform } from "./mediaAnalysis";
 import {
-  AnyClip, MediaClip, Project, Track, cloneInPlace, clipEnd, clipLength, moveClips, projectLength, rateStretch, rollEdit, rippleTrim,
-  slideClip, slipClip, snap, snapPoints, srcTimeAt, timecode, trimEnd, trimStart, withLinked, isMedia,
+  AnyClip, MediaClip, Project, Track, cloneInPlace, clipEnd, clipLength, findClip, framesBetween, moveClips, projectLength, quantize, rateStretch, rollEdit, rippleTrim,
+  slideClip, slipClip, snap, snapPoints, srcTimeAt, tidyFrame, timecode, touchingPair, trimEnd, trimStart, withLinked, isMedia,
 } from "./model";
+import TrimPreview, { FrameAt } from "./TrimPreview";
+import VolumeLine, { ClipActs } from "./VolumeLine";
 import "./timeline.css";
 
 export type Tool = "select" | "razor" | "ripple" | "roll" | "slip" | "slide" | "rate" | "trackfwd";
@@ -27,6 +31,35 @@ type Drag =
 
 const lanesOf = (c: MediaClip | undefined): { ch: KfChannel; keys: { t: number; v: number; e: string }[] }[] =>
   c ? (Object.keys(c.kf ?? {}) as KfChannel[]).filter((ch) => (c.kf?.[ch]?.length ?? 0) > 0).map((ch) => ({ ch, keys: c.kf![ch]! })) : [];
+
+/** مشخصاتِ اشاره‌گر (و کلیدهای تغییردهنده) برای کشیدن؛ هم از pointermove می‌آید هم از تغییرِ Ctrl/Shift/Alt وسطِ کشیدن */
+type Ptr = { clientX: number; clientY: number; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean };
+const ptrOf = (e: PointerEvent): Ptr => ({ clientX: e.clientX, clientY: e.clientY, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey });
+
+/** چیزی که هنگامِ کشیدنِ لبه/قطعه نزدیکِ اشاره‌گر نشان داده می‌شود: متنِ راهنما + دو فریمِ پیش‌نمایشِ برش */
+type TrimUi = { x: number; y: number; top: number; text: string; out: FrameAt | null; inn: FrameAt | null };
+
+const signedFrames = (n: number): string => (n === 0 ? "۰ فریم" : `${n > 0 ? "+" : "−"}${fa(Math.abs(n))} فریم`);
+
+/** فریم‌هایی که دو سوی برش دیده می‌شوند: آخرین فریمِ سمتِ چپ و اولین فریمِ سمتِ راست؛ همسایه فقط اگر به لبه چسبیده باشد */
+function previewFrames(p: Project, id: string, side: "l" | "r", fps: number): { out: FrameAt | null; inn: FrameAt | null } {
+  const f = findClip(p, id);
+  if (!f) return { out: null, inn: null };
+  const cands = [id, ...withLinked(p, [id]).filter((x) => x !== id)].map((x) => findClip(p, x)).filter((x): x is NonNullable<typeof x> => !!x);
+  const subj = cands.find((x) => isMedia(x.clip) && x.clip.kind !== "audio" && x.track.kind !== "audio");
+  if (!subj || !isMedia(subj.clip)) return { out: null, inn: null };
+  const s = subj.clip;
+  const eps = 1 / (fps > 0 ? fps : 30);
+  const lastOf = (c: MediaClip): FrameAt => ({ ref: c.ref, t: srcTimeAt(c, Math.max(c.at, clipEnd(c) - eps)) });
+  const firstOf = (c: MediaClip): FrameAt => ({ ref: c.ref, t: srcTimeAt(c, c.at) });
+  const others = subj.track.clips.filter((x): x is MediaClip => x.id !== s.id && isMedia(x) && x.kind !== "audio");
+  if (side === "l") {
+    const prev = others.find((x) => Math.abs(clipEnd(x) - s.at) < 0.06);
+    return { out: prev ? lastOf(prev) : null, inn: firstOf(s) };
+  }
+  const nxt = others.find((x) => Math.abs(x.at - clipEnd(s)) < 0.06);
+  return { out: lastOf(s), inn: nxt ? firstOf(nxt) : null };
+}
 
 // ─────────────────────────────────────────────────────────── موج و نوارِ تصویر
 function Wave({ peaks, perSecond, clip, px, width, height }: { peaks: number[]; perSecond: number; clip: MediaClip; px: number; width: number; height: number }) {
@@ -83,10 +116,16 @@ type ClipProps = {
   visible: boolean;
   dragging: boolean;
   linked: boolean;
+  /** لبه‌ای از این قطعه که همین الان بریده می‌شود */
+  trim: "l" | "r" | null;
+  fps: number;
+  /** «خط بلندی» برای قطعه‌های انتخاب‌نشده هم نشان داده شود */
+  volLine: boolean;
+  acts: ClipActs;
   onDown: (e: React.PointerEvent, c: AnyClip, t: Track, mode: "move" | "l" | "r") => void;
 };
 
-const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, px, tool, storeId, item, visible, dragging, linked, onDown }: ClipProps) {
+const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, px, tool, storeId, item, visible, dragging, linked, trim, fps, volLine, acts, onDown }: ClipProps) {
   const w = Math.max(6, (clipEnd(c) - c.at) * px);
   const isAudio = c.type === "media" && (c.kind === "audio" || t.kind === "audio");
   const hasSound = c.type === "media" && (isAudio || (c.has_audio && c.audio_on));
@@ -98,16 +137,26 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
   const kindClass = c.type === "text" ? ((c as { caption?: boolean }).caption ? "kind-caption" : "kind-text") : isAudio ? "kind-audio" : c.kind === "image" ? "kind-image" : "";
   const label = c.type === "text" ? c.text : c.label;
   const inner = ROW - 8;
+  // خطِ بلندی و محو فقط روی قطعه‌های رسانه‌ای؛ کشیدنشان فقط وقتی قطعه انتخاب است و ابزار «انتخاب» و ترک قفل نیست
+  const media = c.type === "media" ? c : null;
+  const canEdit = selected && tool === "select" && !t.locked;
+  // انتخاب‌شده ⇒ همیشه؛ وگرنه با کلیدِ «خط بلندی»: روی ترکِ صدا همیشه، روی قطعهٔ تصویر فقط اگر بلندی‌اش دست خورده (تا نوارِ تصویر شلوغ نشود)
+  const volEdited = !!media && (media.volume !== 1 || (media.kf?.volume?.length ?? 0) > 0);
+  const showVol = !!media && hasSound && (selected || (volLine && (isAudio || volEdited)));
   return (
     <div
-      className={`tl-clip ${kindClass} ${selected ? "is-sel" : ""} ${primary ? "is-primary" : ""} ${dragging ? "is-drag" : ""} tool-${tool}`}
-      data-clip={c.id} data-clip-kind={c.type === "text" ? "text" : c.kind}
+      className={`tl-clip ${kindClass} ${selected ? "is-sel" : ""} ${primary ? "is-primary" : ""} ${dragging ? "is-drag" : ""} ${trim ? "is-trim" : ""} tool-${tool}`}
+      data-clip={c.id} data-clip-kind={c.type === "text" ? "text" : c.kind} data-trim={trim ?? undefined}
       style={{ left: c.at * px, width: w, opacity: t.muted ? 0.5 : 1 }}
-      title={c.type === "text" ? c.text : `${c.label} — ${timecode(c.at)}`}
+      title={c.type === "text" ? c.text : `${c.label} — ${timecode(c.at, fps)}`}
       onPointerDown={(e) => onDown(e, c, t, "move")}
     >
       {film && c.type === "media" && <Film sprite={film} clip={c} px={px} width={w} height={inner} />}
       {wave && wave.peaks.length > 0 && c.type === "media" && <Wave peaks={wave.peaks} perSecond={wave.per_second} clip={c} px={px} width={w} height={inner} />}
+      {media && wide && <FadeHandles clip={media} w={w} h={inner} px={px} handles={canEdit && w > 48} acts={acts} />}
+      {media && wide && showVol && (
+        <VolumeLine clip={media} w={w} h={inner} px={px} fps={fps} strong={selected} interactive={canEdit && w > 24} acts={acts} />
+      )}
       <i className="grip l" onPointerDown={(e) => onDown(e, c, t, "l")} data-grip="l" />
       <span className="tl-label">
         {linked && <b className="tl-link" title="صدا و تصویر پیوسته‌اند">⛓</b>}
@@ -148,23 +197,39 @@ type Props = {
   onMarkerClick: (id: string, alt: boolean) => void;
   onInOut: (a: number, b: number) => void;
   onKeyPick: (id: string, ch: KfChannel, t: number) => void;
+  /** «خط بلندی» برای قطعه‌های انتخاب‌نشده هم نشان داده شود (پیش‌فرض: بله) */
+  volLine?: boolean;
 };
 
 export default function TimelineView(props: Props) {
   const { project, selection, playhead, px, snapOn, tool, storeId, media, onProject, onCommit, onSelect, onSeek, onDropRef, onTrack, onRemoveTrack } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropTrack, setDropTrack] = useState<string | null>(null);
   const [snapAt, setSnapAt] = useState<number | null>(null);
   const [view, setView] = useState({ lo: 0, hi: 40 });
   const [hint, setHint] = useState<string | null>(null);
+  const [trimUi, setTrimUi] = useState<TrimUi | null>(null);
+  const lastPtr = useRef<Ptr | null>(null);
+  const fps = props.fps || 30;
+  const volLine = props.volLine ?? true;
   const length = Math.max(30, projectLength(project) + 12);
   const width = length * px;
   const projRef = useRef(project);
   projRef.current = project;
   const selSet = useMemo(() => new Set(selection), [selection]);
   const primaryId = selection[selection.length - 1] ?? null;
+  // کارهای پایدارِ قطعه‌ها (خطِ بلندی/محو): همیشه آخرین props را می‌بینند ولی هویتشان عوض نمی‌شود تا memo ِ قطعه‌ها بماند
+  const latest = useRef({ selection, onProject, onCommit, onSelect });
+  latest.current = { selection, onProject, onCommit, onSelect };
+  const acts = useMemo<ClipActs>(() => ({
+    base: () => projRef.current,
+    live: (p) => latest.current.onProject(p, true),
+    commit: (l) => latest.current.onCommit(l),
+    pick: (id) => { if (!latest.current.selection.includes(id)) latest.current.onSelect([id]); },
+  }), []);
 
   // ترتیبِ نمایش: لایه‌های بالاتر بالاتر (تصویر/متن وارونه)، بعد صداها
   const display = useMemo(() => [...project.tracks.filter((t) => t.kind !== "audio").reverse(), ...project.tracks.filter((t) => t.kind === "audio")], [project.tracks]);
@@ -217,8 +282,8 @@ export default function TimelineView(props: Props) {
   useEffect(() => {
     if (!drag) return;
     const threshold = 9 / px;
-    const fpsStep = 1 / (props.fps || 30);
-    const onMove = (e: PointerEvent) => {
+    const fpsStep = 1 / fps;
+    const onMove = (e: Ptr) => {
       if (drag.kind === "band") {
         const el = scroller.current!;
         const rect = el.getBoundingClientRect();
@@ -238,18 +303,20 @@ export default function TimelineView(props: Props) {
       const dtRaw = (e.clientX - ("sx" in drag ? drag.sx : 0)) / px;
       if ("moved" in drag && !drag.moved && Math.abs(e.clientX - drag.sx) < 3 && (drag.kind !== "move" || Math.abs(e.clientY - drag.sy) < 4)) return;
       if ("moved" in drag) drag.moved = true;
-      const pts = snapOn ? snapPoints("orig" in drag ? drag.orig : projRef.current, playhead, "ids" in drag ? new Set(drag.ids) : "id" in drag ? drag.id : undefined) : [];
+      // سرِ پخش هنگامِ پخش روی فریم نیست؛ هدفِ چسبیدن همیشه فریم‌دار باشد
+      const pts = snapOn ? snapPoints("orig" in drag ? drag.orig : projRef.current, quantize(playhead, fps), "ids" in drag ? new Set(drag.ids) : "id" in drag ? drag.id : undefined) : [];
       if (drag.kind === "move") {
         const len = drag.end0 - drag.at0;
         const raw = Math.max(0, drag.at0 + dtRaw);
-        let at = raw;
+        // روی شبکهٔ فریم می‌نشیند؛ چسبیدن (snap) اگر در آستانه باشد بر آن می‌چربد
+        let at = quantize(raw, fps);
         let line: number | null = null;
         if (snapOn) {
           const a = snap(raw, pts, threshold);
           const b = snap(raw + len, pts, threshold) - len;
           const aS = a !== raw, bS = b !== raw;
-          if (aS && (!bS || Math.abs(a - raw) <= Math.abs(b - raw))) { at = a; line = a; }
-          else if (bS) { at = b; line = b + len; }
+          if (aS && (!bS || Math.abs(a - raw) <= Math.abs(b - raw))) { at = Math.max(0, tidyFrame(a, fps)); line = at; }
+          else if (bS) { at = Math.max(0, tidyFrame(b + len, fps) - len); line = at + len; }
         }
         setSnapAt(line);
         // ترکِ مقصد (هم‌نوع)
@@ -262,21 +329,52 @@ export default function TimelineView(props: Props) {
           rowsDelta = same.findIndex((t) => t.id === target.id) - same.findIndex((t) => t.id === origTrack.id);
         }
         onProject(moveClips(drag.orig, drag.ids, at - drag.at0, rowsDelta), true);
+        setTrimUi({ x: e.clientX, y: e.clientY, top: wrapRef.current?.getBoundingClientRect().top ?? 0, text: `جابه‌جایی · ${timecode(at, fps)} · ${signedFrames(framesBetween(drag.at0, at, fps))}`, out: null, inn: null });
       } else if (drag.kind === "edge") {
         const base = drag.side === "l" ? drag.at0 : drag.end0;
         const raw = base + dtRaw;
-        const t = snapOn ? snap(raw, pts, threshold) : raw;
-        setSnapAt(snapOn && t !== raw ? t : null);
+        // لبه روی فریم می‌نشیند؛ چسبیدن (snap) اگر در آستانه باشد بر آن می‌چربد
+        let t = quantize(raw, fps);
+        let hit = false;
+        if (snapOn) {
+          const sp = snap(raw, pts, threshold);
+          if (sp !== raw) { t = tidyFrame(sp, fps); hit = true; }
+        }
+        setSnapAt(hit ? t : null);
+        // نوعِ برش از ابزار یا کلیدِ تغییردهنده: Ctrl/⌘ = ریپل، Shift = رول (اگر همسایهٔ چسبیده هست)، Alt = فقط همین قطعه
+        let mode: "normal" | "ripple" | "roll" | "rate" = "normal";
+        if (drag.tool === "rate") mode = "rate";
+        else if (drag.tool === "ripple") mode = "ripple";
+        else if (drag.tool === "roll") mode = "roll";
+        else if (e.ctrlKey || e.metaKey) mode = "ripple";
+        else if (e.shiftKey) mode = "roll";
+        if (mode === "roll" && !touchingPair(drag.orig, drag.id, drag.side)) mode = "normal";
+        const solo = drag.solo || e.altKey;
         let next = drag.orig;
-        const partners = drag.solo ? [drag.id] : withLinked(drag.orig, [drag.id]);
+        const partners = solo ? [drag.id] : withLinked(drag.orig, [drag.id]);
         for (const id of partners) {
-          if (drag.tool === "rate") {
+          if (mode === "rate") {
             const c = next.tracks.flatMap((x) => x.clips).find((x) => x.id === id);
             if (c) next = rateStretch(next, id, drag.side === "r" ? t - c.at : clipEnd(c) - t);
-          } else if (drag.tool === "ripple") next = rippleTrim(next, id, drag.side, t);
-          else next = drag.side === "l" ? trimStart(next, id, t) : trimEnd(next, id, t);
+          } else if (mode === "ripple") next = rippleTrim(next, id, drag.side, t);
+          else if (mode === "roll") {
+            const pr = touchingPair(drag.orig, id, drag.side);
+            next = pr ? rollEdit(next, pr.l, pr.r, t) : drag.side === "l" ? trimStart(next, id, t) : trimEnd(next, id, t);
+          } else next = drag.side === "l" ? trimStart(next, id, t) : trimEnd(next, id, t);
         }
         onProject(next, true, drag.orig);
+        const was = findClip(drag.orig, drag.id)?.clip;
+        const now = findClip(next, drag.id)?.clip;
+        if (was && now) {
+          const label = mode === "ripple" ? "ریپل" : mode === "roll" ? "رول" : mode === "rate" ? "تغییرِ سرعت" : solo ? "فقط این قطعه" : "معمولی";
+          const extra = solo && (mode === "ripple" || mode === "roll") ? " · فقط این قطعه" : "";
+          const fr = previewFrames(next, drag.id, drag.side, fps);
+          setTrimUi({
+            x: e.clientX, y: e.clientY, top: wrapRef.current?.getBoundingClientRect().top ?? 0,
+            text: `${label}${extra} · ${timecode(drag.side === "l" ? now.at : clipEnd(now), fps)} · ${signedFrames(framesBetween(clipLength(was), clipLength(now), fps))}`,
+            out: fr.out, inn: fr.inn,
+          });
+        }
       } else if (drag.kind === "tool") {
         const d = Math.round(dtRaw / fpsStep) * fpsStep;
         const c = drag.orig.tracks.flatMap((x) => x.clips).find((x) => x.id === drag.id) as MediaClip | undefined;
@@ -315,12 +413,31 @@ export default function TimelineView(props: Props) {
       setDrag(null);
       setSnapAt(null);
       setHint(null);
+      setTrimUi(null);
+      lastPtr.current = null;
     };
-    window.addEventListener("pointermove", onMove);
+    const onPtr = (e: PointerEvent) => {
+      lastPtr.current = ptrOf(e);
+      onMove(lastPtr.current);
+    };
+    // Ctrl/Shift/Alt وسطِ کشیدن عوض شد ⇒ بدونِ حرکتِ ماوس هم نتیجه و راهنما تازه شود
+    const onKey = (ev: KeyboardEvent) => {
+      const l = lastPtr.current;
+      if (!l || !["Control", "Shift", "Alt", "Meta"].includes(ev.key)) return;
+      lastPtr.current = { ...l, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, shiftKey: ev.shiftKey, altKey: ev.altKey };
+      onMove(lastPtr.current);
+    };
+    window.addEventListener("pointermove", onPtr);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
     return () => {
-      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointermove", onPtr);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag, px, snapOn, playhead, display]);
@@ -328,7 +445,8 @@ export default function TimelineView(props: Props) {
   const down = (e: React.PointerEvent, c: AnyClip, tr: Track, mode: "move" | "l" | "r") => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    // روی لبه‌ها Shift/Ctrl/Alt نوعِ برش را تعیین می‌کنند (رول/ریپل/فقط این قطعه)، نه افزودن به انتخاب
+    const additive = mode === "move" && (e.shiftKey || e.ctrlKey || e.metaKey);
     if (tool === "razor") {
       onSelect([c.id]);
       props.onRazor(c.id, timeAt(e.clientX));
@@ -365,43 +483,18 @@ export default function TimelineView(props: Props) {
       const first = orig.tracks.flatMap((t) => t.clips).find((x) => x.id === (moveIds[moveIds.length - 1] ?? c.id)) ?? c;
       setDrag({ kind: "move", ids: moveIds, primary: first.id, sx: e.clientX, sy: e.clientY, orig, at0: first.at, end0: clipEnd(first), moved: false, trackId: tr.id });
     } else {
+      // رول (ابزارِ N یا Shift) هم از همین مسیر می‌گذرد: لبه با قطعهٔ چسبیده با هم می‌رود (touchingPair)
       const eff: Tool = tool === "ripple" || tool === "roll" || tool === "rate" ? tool : "select";
-      if (eff === "roll") {
-        // رول: لبه با قطعهٔ چسبیده با هم می‌رود
-        const sorted = [...tr.clips].sort((a, b) => a.at - b.at);
-        const i = sorted.findIndex((x) => x.id === c.id);
-        const other = mode === "l" ? sorted[i - 1] : sorted[i + 1];
-        const touching = other && Math.abs(mode === "l" ? clipEnd(other) - c.at : other.at - clipEnd(c)) < 0.06;
-        if (touching && other) {
-          const leftId = mode === "l" ? other.id : c.id;
-          const rightId = mode === "l" ? c.id : other.id;
-          const cut = mode === "l" ? c.at : clipEnd(c);
-          rollDrag.current = { leftId, rightId, cut, sx: e.clientX, orig: project };
-          const onM = (ev: PointerEvent) => {
-            const d = rollDrag.current;
-            if (!d) return;
-            const raw = d.cut + (ev.clientX - d.sx) / px;
-            const t = snapOn ? snap(raw, snapPoints(d.orig, playhead, new Set([d.leftId, d.rightId])), 9 / px) : raw;
-            onProject(rollEdit(d.orig, d.leftId, d.rightId, t), true);
-          };
-          const onU = () => {
-            window.removeEventListener("pointermove", onM);
-            window.removeEventListener("pointerup", onU);
-            rollDrag.current = null;
-            setDrag(null);
-            onCommit("رول");
-          };
-          window.addEventListener("pointermove", onM);
-          window.addEventListener("pointerup", onU);
-          return;
-        }
-      }
       setDrag({ kind: "edge", side: mode, id: c.id, sx: e.clientX, orig: project, at0: c.at, end0: clipEnd(c), moved: false, tool: eff, solo: e.altKey });
     }
   };
-  const rollDrag = useRef<null | { leftId: string; rightId: string; cut: number; sx: number; orig: Project }>(null);
 
-  const seekFrom = (clientX: number) => onSeek(timeAt(clientX));
+  // کلیکِ روی خطِ زمان سرِ پخش را روی فریم می‌گذارد
+  const seekFrom = (clientX: number) => onSeek(quantize(timeAt(clientX), fps));
+  // تابعِ پایدار برای ClipView (down هر بار نو می‌شود) تا memo ِ قطعه‌ها واقعاً کار کند
+  const downRef = useRef(down);
+  downRef.current = down;
+  const onDownStable = useCallback((e: React.PointerEvent, c: AnyClip, t: Track, mode: "move" | "l" | "r") => downRef.current(e, c, t, mode), []);
 
   const gaps = useMemo(() => {
     const base = project.tracks.find((t) => t.kind === "video");
@@ -441,7 +534,7 @@ export default function TimelineView(props: Props) {
   const bandRect = drag?.kind === "band" ? { x: Math.min(drag.sx, drag.x), y: Math.min(drag.sy, drag.y), w: Math.abs(drag.x - drag.sx), h: Math.abs(drag.y - drag.sy) } : null;
 
   return (
-    <div className="tl-wrap" data-testid="timeline" data-tool={tool}>
+    <div className="tl-wrap" ref={wrapRef} data-testid="timeline" data-tool={tool}>
       <div className="tl-heads" dir="rtl">
         <div className="tl-ruler-spacer" />
         {display.map((t) => (
@@ -533,7 +626,9 @@ export default function TimelineView(props: Props) {
                     key={c.id} clip={c} track={t} selected={selSet.has(c.id)} primary={c.id === primaryId} px={px} tool={tool} storeId={storeId}
                     item={c.type === "media" ? media[c.ref] : undefined} visible={clipEnd(c) > view.lo && c.at < view.hi}
                     dragging={!!drag && "ids" in drag && drag.ids.includes(c.id)}
-                    linked={c.type === "media" && !!c.link && (linkedSet.get(c.link) ?? 0) > 1} onDown={down}
+                    trim={drag?.kind === "edge" && drag.id === c.id ? drag.side : null}
+                    linked={c.type === "media" && !!c.link && (linkedSet.get(c.link) ?? 0) > 1}
+                    fps={fps} volLine={volLine} acts={acts} onDown={onDownStable}
                   />
                 ))}
                 {transitions.filter((x) => x.trackId === t.id).map((x) => (
@@ -569,6 +664,16 @@ export default function TimelineView(props: Props) {
           {hint && <div className="tl-hint">{hint}</div>}
         </div>
       </div>
+      {trimUi && typeof document !== "undefined" && createPortal(
+        <>
+          <TrimPreview out={trimUi.out} inn={trimUi.inn} media={media} x={trimUi.x} top={trimUi.top} />
+          <div className="tl-chip" data-testid="trim-hint" dir="rtl"
+            style={{ left: Math.max(90, Math.min((typeof window === "undefined" ? 800 : window.innerWidth) - 90, trimUi.x)), top: Math.max(8, trimUi.y - 48) }}>
+            {trimUi.text}
+          </div>
+        </>,
+        document.body,
+      )}
     </div>
   );
 }

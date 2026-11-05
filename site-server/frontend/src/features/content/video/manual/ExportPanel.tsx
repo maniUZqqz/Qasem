@@ -5,7 +5,8 @@ import { Alert, Badge, Spinner, fa } from "../../../../components/ui";
 import type { Catalogue, Check, ExportRow, RenderJobRow, RenderWhere } from "../api";
 import { videoApi } from "../api";
 import { Chips, Section } from "./controls";
-import { ExportBlock, Project, projectLength, timecode } from "./model";
+import { ExportBlock, Master, Project, SOCIAL_LOUDNESS, projectLength, timecode } from "./model";
+import "./sound.css";
 import "./text.css";
 
 type Cat = Catalogue["export"];
@@ -18,6 +19,8 @@ type Props = {
   cat: Cat;
   /** بلوکِ کاملِ تازهٔ `project.export` (جایگزینِ قبلی می‌شود) */
   onExport: (block: ExportBlock) => void;
+  /** تغییرِ مسترِ پروژه (یکسان‌سازیِ بلندیِ خروجی = `master.loudness`) با یک گامِ برگشت */
+  onMaster?: (patch: Partial<Master>) => void;
   onRender: (quality: "draft" | "final") => Promise<void>;
   busy: boolean;
   /** آیا سرورِ پردازش برای رندرِ نهایی آماده است (از کاتالوگ یا تازه) */
@@ -37,8 +40,10 @@ function outSize(w: number, h: number, short: number | null): [number, number] {
 const whereText = (e: { where?: string; node?: string; encoder?: string }) =>
   e.where === "node" ? `سرورِ پردازش${e.node ? ` «${e.node}»` : ""}${e.encoder ? ` · ${e.encoder}` : ""}` : e.where === "server" ? "سرورِ سایت" : "";
 
-export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onRender, busy, where }: Props) {
+export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onMaster, onRender, busy, where }: Props) {
   const block: ExportBlock = project.export ?? {};
+  const loudness = project.master?.loudness;
+  const loudOn = !!loudness?.on;
   const preset = cat.presets.find((p) => p.key === block.preset);
   const codec = block.codec ?? (preset?.codec as ExportBlock["codec"]) ?? "h264";
   const short = block.height ?? preset?.short ?? null;
@@ -132,12 +137,25 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
               {list.map((p) => (
                 <button key={p.key} type="button" className={`ws-chip ${block.preset === p.key ? "is-on" : ""}`} aria-pressed={block.preset === p.key}
                   title={[p.aspect ?? "", p.short ? `${p.short}p` : "اندازهٔ پروژه", p.fps ? `${p.fps}fps` : "", p.max_seconds ? `تا ${p.max_seconds} ثانیه` : ""].filter(Boolean).join(" · ")}
-                  onClick={() => onExport({ preset: p.key })} data-preset={p.key}>{p.title}</button>
+                  onClick={() => onExport({ preset: p.key, ...(block.target_mb ? { target_mb: block.target_mb } : {}) })} data-preset={p.key}>{p.title}</button>
               ))}
             </div>
           </div>
         ))}
-        {block.preset && <button type="button" className="ws-link" onClick={() => onExport({})}>بدونِ پیش‌تنظیم (همه‌چیز دستی)</button>}
+        <div className="mt-2">
+          <div className="tx-sub">حجمِ هدفِ فایل</div>
+            <select className="u-input" value={block.target_mb ?? ""} aria-label="حجمِ هدف" data-testid="export-target-mb"
+            onChange={(e) => set({ target_mb: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">بدونِ سقف</option>
+              <option value={8}>تا ۸ مگابایت (پیام‌رسان‌ها)</option>
+              <option value={16}>تا ۱۶ مگابایت (واتساپ و تلگرام)</option>
+              <option value={25}>تا ۲۵ مگابایت (ایمیل)</option>
+              <option value={50}>تا ۵۰ مگابایت</option>
+              <option value={100}>تا ۱۰۰ مگابایت</option>
+            </select>
+            <p className="ws-hint">با سقفِ حجم، کیفیتِ تصویر خودکار تنظیم می‌شود تا فایل از آن بزرگ‌تر نشود.</p>
+        </div>
+        {block.preset && <button type="button" className="ws-link" onClick={() => onExport(block.target_mb ? { target_mb: block.target_mb } : {})}>بدونِ پیش‌تنظیم (همه‌چیز دستی)</button>}
         {aspectWarn && <p className="xp-warn" data-testid="xp-aspect">{aspectWarn}</p>}
         {longWarn && <p className="xp-warn">{longWarn}</p>}
       </Section>
@@ -177,6 +195,23 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
         </select>
         {heavyWarn && <p className="xp-warn">{heavyWarn}</p>}
       </Section>
+
+      {onMaster && (
+        <div className="ws-card sq-loud" data-testid="export-loudness-card">
+          <div className="ws-card-title">بلندیِ صدا</div>
+          <label className="ws-check">
+            <input
+              type="checkbox" checked={loudOn} data-testid="export-loudness"
+              onChange={(e) => onMaster({ loudness: { ...SOCIAL_LOUDNESS, ...(loudness ?? {}), on: e.target.checked } })}
+            />{" "}
+            یکسان‌سازی برای شبکه‌های اجتماعی (حدود −۱۴ LUFS)
+          </label>
+          <p className="ws-hint">
+            اینستاگرام و تیک‌تاک صدای بلند را خودشان پایین می‌آورند؛ این گزینه صدا را از همان اول در حدِ استاندارد می‌سازد تا ویدیو بعد از انتشار ضعیف نشود.
+            {loudOn && loudness && loudness.target !== SOCIAL_LOUDNESS.target ? ` (هدفِ فعلی: ${loudness.target < 0 ? "−" : ""}${fa(Math.abs(loudness.target))} LUFS)` : ""}
+          </p>
+        </div>
+      )}
 
       <p className="ws-hint" data-testid="xp-summary">
         خروجی: <b dir="ltr">{fa(w)}×{fa(h)}</b>{fps ? <> · <span dir="ltr">{fa(fps)}fps</span></> : null} · {codec === "h265" ? "H.265" : "H.264"} · صدا {fa(kbps)}k · {fa(Math.round(length))} ثانیه

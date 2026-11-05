@@ -120,6 +120,18 @@ def resolve(export: dict | None, timeline: Timeline) -> ExportSpec:
         limit = preset.get("max_seconds")
         if limit and timeline.length > limit + 0.5:
             notes.append(f"این پلتفرم تا {limit} ثانیه می‌پذیرد؛ ویدیوی شما {timeline.length:.0f} ثانیه است.")
+    try:
+        target_mb = float(e.get("target_mb") or 0)
+    except (TypeError, ValueError):
+        target_mb = 0.0
+    if 2 <= target_mb <= 500 and timeline.length > 1:
+        # «حجمِ هدف»: a video-bitrate ceiling (VBV) so the file lands under the size a platform/messenger accepts
+        total_kbps = target_mb * 8192 * 0.95 / timeline.length
+        video_kbps = int(max(150, total_kbps - kbps))
+        spec.max_kbps = min(int(spec.max_kbps), video_kbps) if spec.max_kbps else video_kbps
+        notes.append(f"حجمِ هدف {target_mb:g} مگابایت: سقفِ تصویر حدود {video_kbps} کیلوبیت بر ثانیه می‌شود.")
+        if video_kbps < 400 and (spec.short_side or min(timeline.width, timeline.height)) > 720:
+            notes.append("برای این مدت و حجم، اندازهٔ تصویر را کمتر (مثلاً ۷۲۰) انتخاب کنید تا کیفیت نیفتد.")
     spec.note = " ".join(notes)
     return spec
 

@@ -5,6 +5,11 @@ import { rasterPath } from "./pathraster";
 /** رسم‌های دوبعدیِ لایه‌ها (متن، شکل، قلم) و جدول‌های منحنی. همه با همان قراردادِ بک‌اند (layers.py / textlayer.py). */
 
 export const FONT_FAMILY = "Vazirmatn";
+/** کلیدِ فونتِ لایه ⇒ نامِ خانوادهٔ CSS (تعریفِ فایل‌ها در pro/fonts.css؛ همان کلیدهای backend/apps/photoedit/fontreg.py) */
+export const FONT_FAMILIES: Record<string, string> = {
+  vazirmatn: "Vazirmatn", estedad: "Estedad", lalezar: "Lalezar", shabnam: "Shabnam", sahel: "Sahel", samim: "Samim",
+};
+export const familyOf = (key?: string): string => FONT_FAMILIES[key ?? "vazirmatn"] ?? FONT_FAMILY;
 const MAX_LINES = 40;
 const MAX_TILE = 8192;
 
@@ -45,8 +50,9 @@ export type TextRaster = {
   full: boolean;
 };
 
-function fontStr(weight: number, sizePx: number) {
-  return `${weight} ${sizePx}px ${FONT_FAMILY}, Tahoma, sans-serif`;
+function fontStr(weight: number, sizePx: number, key?: string) {
+  const fam = familyOf(key);
+  return `${weight} ${sizePx}px ${fam}, ${fam === FONT_FAMILY ? "" : FONT_FAMILY + ", "}Tahoma, sans-serif`;
 }
 
 /** پهنای یک تکه با فونتِ جاری (بی فاصلهٔ حروف) */
@@ -111,7 +117,7 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   if (!text.trim()) return null;
   const sizePx = Math.max(4, layer.size * canvasW);
   const ctx = mctx();
-  ctx.font = fontStr(layer.weight, sizePx);
+  ctx.font = fontStr(layer.weight, sizePx, layer.font);
   const widthPx = (layer.width || 0) * canvasW;
   let lines: string[];
   if (layer.lines && layer.lines.length) lines = layer.lines.slice(0, MAX_LINES);
@@ -168,7 +174,7 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   }
   const glyphs = mk(tw, th);
   const g = glyphs.getContext("2d")!;
-  g.font = fontStr(layer.weight, sizePx);
+  g.font = fontStr(layer.weight, sizePx, layer.font);
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   g.lineJoin = "round";

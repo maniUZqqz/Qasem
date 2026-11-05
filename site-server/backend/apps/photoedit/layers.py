@@ -139,7 +139,9 @@ def _norm_text(src: dict, out: dict) -> None:
     out["text"] = str(src.get("text") or "")[:500]
     lines = src.get("lines")
     out["lines"] = [str(x)[:500] for x in lines[:textlayer.MAX_LINES]] if isinstance(lines, list) and lines else None
-    out["font"] = "vazirmatn"
+    from . import fontreg
+
+    out["font"] = src.get("font") if fontreg.known(src.get("font")) else fontreg.DEFAULT
     wt = int(round(_num(src.get("weight"), 300, 800, 700) / 100.0) * 100)
     out["weight"] = max(300, min(800, wt))
     out["size"] = _r(_num(src.get("size"), 0.005, 0.5, 0.06))

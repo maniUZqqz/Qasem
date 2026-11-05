@@ -290,9 +290,10 @@ RECIPES = [
     {"key": "smart", "title": "ویرایش با دستور (هوشِ مصنوعی)", "help": "بگویید چه می‌خواهید؛ هوشِ مصنوعیِ بینا تنظیم می‌کند — بی سرورِ پردازشِ روشن هم کار می‌کند (از سرورِ سایت).",
      "operations": [_o("kit_smart", goal=""), _o("export", format="jpeg", quality=92)]},
     {"key": "manual", "title": "دستی", "help": "ابزارها را خودتان یکی‌یکی اضافه کنید.", "operations": []},
+    {"key": "designer", "title": "طراحِ خودکار", "help": "طراحی با دستور (الگو + لایه‌های قابل‌ویرایش).", "operations": []},
 ]
 #: هر دستور در کدام «حالت» ِ ادیتور زندگی می‌کند: auto (یک‌کلیک)، prompt (نیمه‌خودکار با دستور)، manual (دستی)
-RECIPE_MODE = {"smart": "prompt", "manual": "manual"}
+RECIPE_MODE = {"smart": "prompt", "manual": "manual", "designer": "design"}
 #: دستورهایی که کارِ سرورِ پردازششان یک مسیرِ جایگزین روی سرورِ سایت دارد (ویرایش با دستور: هوشِ مصنوعیِ بینا از سایت)
 SITE_FALLBACK_RECIPES = {"smart"}
 RECIPE_BY_KEY = {r["key"]: r for r in RECIPES}

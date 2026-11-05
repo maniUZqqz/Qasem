@@ -1,0 +1,22 @@
+/* فونت‌های فارسیِ لایه‌های متن (همه SIL OFL 1.1؛ مجوزها کنارِ فایل‌های سرور: backend/apps/photoedit/fonts/*-OFL.txt|LICENSE.txt).
+   زیرمجموعهٔ عربی/فارسی + لاتین، WOFF. فقط وقتی لایه‌ای از فونت استفاده کند بارگیری می‌شود. وزن‌ها همان وزن‌های فایل‌های سرورند تا
+   مرورگر و خروجیِ سرور یک شکل را بکشند. وزیرمتن از @fontsource می‌آید. */
+@font-face { font-family: "Estedad"; font-weight: 300; font-style: normal; font-display: swap; src: url("../fonts/Estedad-Light.woff") format("woff"); }
+@font-face { font-family: "Estedad"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/Estedad-Regular.woff") format("woff"); }
+@font-face { font-family: "Estedad"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/Estedad-Medium.woff") format("woff"); }
+@font-face { font-family: "Estedad"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/Estedad-SemiBold.woff") format("woff"); }
+@font-face { font-family: "Estedad"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/Estedad-Bold.woff") format("woff"); }
+@font-face { font-family: "Estedad"; font-weight: 800; font-style: normal; font-display: swap; src: url("../fonts/Estedad-ExtraBold.woff") format("woff"); }
+@font-face { font-family: "Lalezar"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("../fonts/Lalezar-Regular.woff") format("woff"); }
+@font-face { font-family: "Shabnam"; font-weight: 300; font-style: normal; font-display: swap; src: url("../fonts/Shabnam-Light.woff") format("woff"); }
+@font-face { font-family: "Shabnam"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/Shabnam-Regular.woff") format("woff"); }
+@font-face { font-family: "Shabnam"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/Shabnam-Medium.woff") format("woff"); }
+@font-face { font-family: "Shabnam"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/Shabnam-Bold.woff") format("woff"); }
+@font-face { font-family: "Sahel"; font-weight: 300; font-style: normal; font-display: swap; src: url("../fonts/Sahel-Light.woff") format("woff"); }
+@font-face { font-family: "Sahel"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/Sahel-Regular.woff") format("woff"); }
+@font-face { font-family: "Sahel"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/Sahel-SemiBold.woff") format("woff"); }
+@font-face { font-family: "Sahel"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/Sahel-Bold.woff") format("woff"); }
+@font-face { font-family: "Sahel"; font-weight: 800; font-style: normal; font-display: swap; src: url("../fonts/Sahel-Black.woff") format("woff"); }
+@font-face { font-family: "Samim"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/Samim-Regular.woff") format("woff"); }
+@font-face { font-family: "Samim"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/Samim-Medium.woff") format("woff"); }
+@font-face { font-family: "Samim"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/Samim-Bold.woff") format("woff"); }

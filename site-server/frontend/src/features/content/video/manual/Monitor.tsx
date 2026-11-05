@@ -1,17 +1,23 @@
 import { forwardRef, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
+import { createPortal } from "react-dom";
+
 import { api } from "../../../../api/client";
 import Icon from "../../../../components/Icon";
 import type { MediaItem } from "../api";
 import type { AudioEngine } from "./AudioEngine";
 import type { LookDef } from "./color";
 import { Compositor, Source, planTransitions, sourceTimeFor } from "./Compositor";
+import { CropOverlay, CropPanel, CropSource, OnReframe, sourceSize } from "./CropOverlay";
 import { setKey } from "./keyframes";
 import type { Lut } from "./lut";
 import {
   AnyClip, MediaClip, Project, TextClip, clipEnd, clipLength, findClip, isMedia, projectLength, propAt, speedAt, timecode,
 } from "./model";
 import { flattenForMedia } from "./ops";
+import { AspectKey, detectAspect } from "./reframe";
+import SafeZoneLayer from "./SafeZoneLayer";
+import { SAFE_GENERAL, SAFE_OFF, SafeZone, readSafeZone, safeZonesOf, writeSafeZone, zoneByKey } from "./SafeZones";
 import { onTextFontsReady } from "./textRender";
 import "./monitor.css";
 
@@ -86,6 +92,15 @@ type Props = {
   onRate: (r: number) => void;
   /** جابه‌جایی/اندازه/چرخش با دستگیره‌های روی تصویر */
   onGizmo: (id: string, patch: Partial<MediaClip> | Partial<TextClip>, final: boolean) => void;
+  /** «برشِ قاب»: پنجرهٔ برشِ منبعِ قطعه (undefined = بدونِ برش)؛ final=false هنگامِ کشیدن، true هنگامِ رها شدن (یک گامِ برگشت) */
+  onReframe?: OnReframe;
+  /** حالتِ «برشِ قاب» از بیرون هم کنترل می‌شود (دکمهٔ بازرسِ قطعه)؛ اگر نیامد خودِ مانیتور نگه می‌دارد */
+  cropMode?: boolean;
+  onCropMode?: (on: boolean) => void;
+  /** برای «بازتنظیمِ خودکار» (فراخوانیِ سرور) */
+  storeId?: string;
+  /** ناحیه‌های امنِ کاتالوگ (catalogue.safe_zones)؛ نبودنش = جایگزینِ داخلی */
+  safeZones?: SafeZone[];
   onFrame?: () => void;
   selectedProxyHint?: ReactNode;
   overlay?: ReactNode;
@@ -106,7 +121,13 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
   const compositor = useRef<Compositor | null>(null);
   const elements = useRef(new Map<string, { el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement; ref: string; routed: boolean }>());
   const [size, setSize] = useState({ w: 320, h: 400 });
-  const [safe, setSafe] = useState(false);
+  const [safeKey, setSafeKey] = useState<string>(() => readSafeZone());
+  const zones = useMemo(() => safeZonesOf(props.safeZones), [props.safeZones]);
+  const safeShown = safeKey === SAFE_OFF || safeKey === SAFE_GENERAL || zoneByKey(zones, safeKey) ? safeKey : SAFE_OFF;
+  const pickZone = (k: string) => {
+    setSafeKey(k);
+    writeSafeZone(k);
+  };
   const rafRender = useRef(0);
   // توالی‌های تودرتو: برگ‌هایشان روی خطِ زمانِ ریشه هم‌گام می‌شوند (مونتاژگر خودش تودرتو می‌کشد)
   const flat = useMemo(() => flattenForMedia(project), [project]);
@@ -383,6 +404,42 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     return { kind: "media" as const, clip: c, cx: (c.x + c.width / 2 + px) * fw, cy: (c.y + c.height / 2 + py) * fh, w: c.width * fw * sc, h: c.height * fh * sc, rot };
   }, [sel, time, fw, fh, frameVersion]);
 
+  // ───────── «برشِ قاب»: فقط وقتی روشن است کاری می‌کند؛ حلقهٔ رسمِ برنامه دست‌نخورده می‌ماند
+  const onReframe = props.onReframe;
+  const selClip = sel && sel.clip.type === "media" && sel.track.kind === "video" ? sel.clip : null;
+  const cropClip: MediaClip | null = selClip && selClip.kind !== "audio" && !selClip.shape && !selClip.ref.startsWith("seq:") ? selClip : null;
+  const cropOk = !!onReframe && !!cropClip;
+  const [cropLocal, setCropLocal] = useState(false);
+  const wantCrop = props.cropMode ?? cropLocal;
+  const crop = wantCrop && cropOk;
+  const setCrop = useCallback((on: boolean) => {
+    if (props.onCropMode) props.onCropMode(on);
+    else setCropLocal(on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.onCropMode]);
+  const [aspect, setAspect] = useState<AspectKey>("free");
+  const cropEntry = crop && cropClip ? elements.current.get(cropClip.id) : undefined;
+  const cropEl: CropSource | null = cropEntry && (cropEntry.el instanceof HTMLVideoElement || cropEntry.el instanceof HTMLImageElement) ? cropEntry.el : null;
+  const cropDims = crop && cropClip ? sourceSize(media[cropClip.ref], cropEl) : null;
+  // قطعهٔ برش‌پذیر نیست (انتخاب عوض شد/پاک شد) ⇒ حالتِ برش بسته شود
+  useEffect(() => {
+    if (wantCrop && !cropOk) setCrop(false);
+  }, [wantCrop, cropOk, setCrop]);
+  // ورود: پخش بایستد و سرِ پخش روی خودِ قطعه باشد (منبعِ آن همان‌جا بارگیری و هم‌گام می‌شود)
+  useEffect(() => {
+    if (!crop || !cropClip) return;
+    if (latest.current.playing) onPlay();
+    const t = latest.current.time;
+    if (t < cropClip.at || t >= clipEnd(cropClip)) onSeek(cropClip.at);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crop, cropClip?.id]);
+  // نسبتِ پیش‌فرضِ چیپ‌ها از روی برشِ موجودِ قطعه
+  useEffect(() => {
+    if (!crop || !cropClip) return;
+    setAspect(detectAspect(cropClip.reframe, cropDims ? cropDims[0] / cropDims[1] : 0, ar));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crop, cropClip?.id, !!cropDims]);
+
   const drag = useRef<null | { mode: "move" | "scale" | "rot"; sx: number; sy: number; c0: AnyClip; cx: number; cy: number; d0: number; a0: number }>(null);
 
   const patchFor = (c: AnyClip, mode: "move" | "scale" | "rot", x: number, y: number, st: NonNullable<typeof drag.current>): Partial<MediaClip> | Partial<TextClip> => {
@@ -447,18 +504,13 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     <div className="vw-monitor" data-testid="monitor">
       <div className="vw-stage" ref={stage}>
         <div className="vw-frame" ref={holder} style={{ width: fw, height: fh }} data-testid="program-frame">
-          {safe && (
-            <>
-              <i style={{ position: "absolute", inset: "5%", border: "1px dashed rgba(255,255,255,.55)", pointerEvents: "none" }} />
-              <i style={{ position: "absolute", inset: "10%", border: "1px dashed rgba(255,255,255,.35)", pointerEvents: "none" }} />
-            </>
-          )}
+          {safeShown !== SAFE_OFF && !crop && <SafeZoneLayer zoneKey={safeShown} zone={zoneByKey(zones, safeShown)} />}
           {total === 0 && (
             <div className="grid h-full w-full place-items-center px-4 text-center text-xs" style={{ color: "var(--text-3)", position: "absolute", inset: 0 }}>
               ویدیو یا عکسی را از «رسانه‌ها» بکشید روی تایم‌لاین
             </div>
           )}
-          {gizmo && !playing && !props.overlay && (
+          {gizmo && !playing && !props.overlay && !crop && (
             <div
               className="vw-gizmo" data-testid="gizmo"
               style={{ left: gizmo.cx - gizmo.w / 2, top: gizmo.cy - gizmo.h / 2, width: gizmo.w, height: gizmo.h, transform: `rotate(${gizmo.rot}deg)` }}
@@ -476,9 +528,26 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
             </div>
           )}
           {props.pickOverlay}
+          {crop && cropClip && onReframe && (
+            <CropOverlay
+              clip={cropClip} time={time} playing={playing} frameW={fw} frameH={fh} dims={cropDims} el={cropEl} version={frameVersion}
+              aspect={aspect} frameAspect={ar} onReframe={onReframe} onSeekClip={() => onSeek(cropClip.at)} onClose={() => setCrop(false)}
+            />
+          )}
           {props.overlay}
         </div>
       </div>
+      {crop && cropClip && onReframe && (() => {
+        const panel = (
+          <CropPanel
+            storeId={props.storeId} clip={cropClip} time={time} dims={cropDims} aspect={aspect} frameAspect={ar}
+            onAspect={setAspect} onReframe={onReframe} onClose={() => setCrop(false)}
+          />
+        );
+        // صفحهٔ پهن: پنل در ستونِ بازرس (جای کافی دارد)؛ صفحهٔ باریک: زیرِ مانیتور
+        const host = typeof window !== "undefined" && window.matchMedia("(min-width: 1001px)").matches ? document.getElementById("vw-crop-host") : null;
+        return host ? createPortal(panel, host) : panel;
+      })()}
       <div className="vw-transport" dir="rtl">
         <button type="button" className="ws-btn" onClick={() => onSeek(0)} title="ابتدا (Home)" aria-label="ابتدا"><Icon name="back" size={14} /></button>
         <button type="button" className="ws-btn" onClick={() => onStep(-1)} title="یک فریم عقب (←)" data-testid="vw-prev-frame">−۱ فریم</button>
@@ -493,7 +562,20 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
         <span className="vw-time" data-testid="vw-time">{timecode(time, project.format.fps)} / {timecode(total, project.format.fps)}</span>
         <span className="ws-spacer" />
         {props.badge}
-        <label className="ws-check"><input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} /> حاشیهٔ امن</label>
+        <button
+          type="button" className={`ws-btn ${crop ? "is-on" : ""}`} onClick={() => setCrop(!crop)} disabled={!cropOk} aria-pressed={crop} data-testid="crop-toggle"
+          title={cropOk ? "برشِ قاب: روی خودِ تصویر انتخاب کنید کدام بخشِ آن دیده شود (کیفیت از فایلِ اصلی می‌آید)" : "برای برشِ قاب یک قطعهٔ تصویر یا عکس را روی ترکِ تصویر انتخاب کنید"}
+        >
+          برشِ قاب
+        </button>
+        <label className="vw-safe-wrap" title="ناحیه‌ای از قاب که رابطِ برنامه (نام، دکمه‌ها، توضیح) می‌پوشاند؛ زیرنویس و لوگو را بیرونِ نوارهای قرمز بگذارید">
+          <span>حاشیهٔ امن</span>
+          <select className="u-input vw-safe" value={safeShown} onChange={(e) => pickZone(e.target.value)} data-testid="safezone-select" aria-label="حاشیهٔ امن">
+            <option value={SAFE_OFF}>خاموش</option>
+            <option value={SAFE_GENERAL}>عمومی</option>
+            {zones.map((z) => <option key={z.key} value={z.key}>{z.title}</option>)}
+          </select>
+        </label>
         {props.extraTransport}
         {props.selectedProxyHint}
       </div>

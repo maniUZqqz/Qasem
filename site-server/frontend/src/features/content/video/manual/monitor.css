@@ -20,3 +20,79 @@
   .vw-gizmo .h.tl { left: -10px; top: -10px; } .vw-gizmo .h.tr { right: -10px; top: -10px; }
   .vw-gizmo .h.bl { left: -10px; bottom: -10px; } .vw-gizmo .h.br { right: -10px; bottom: -10px; }
 }
+
+/* ناحیهٔ امن (حاشیهٔ امن): عمومی + نوارهای قرمزِ پلتفرم */
+.vw-safe { width: auto; min-width: 0; padding: 3px 6px; font-size: 12px; min-height: 28px; }
+.vw-safe-wrap { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
+.sz-layer { position: absolute; inset: 0; pointer-events: none; }
+.sz-band { position: absolute; background: rgba(239, 68, 68, 0.3); pointer-events: none; }
+.sz-edge { position: absolute; border: 1px dashed rgba(255, 255, 255, 0.75); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; box-sizing: border-box; }
+.sz-label {
+  position: absolute; top: 3px; inset-inline-start: 5px; font-size: 10px; line-height: 1.5; color: #fff; background: rgba(185, 28, 28, 0.8);
+  border-radius: 5px; padding: 0 6px; pointer-events: none; white-space: nowrap;
+}
+
+/* «برشِ قاب»: کلِ منبع با پنجرهٔ برش و ۸ دستگیره */
+.cr-layer { position: absolute; inset: 0; z-index: 7; background: #000; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.cr-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cr-win {
+  position: absolute; box-sizing: border-box; border: 2px solid var(--brand); cursor: move; touch-action: none; outline: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  background:
+    linear-gradient(rgba(255,255,255,.32), rgba(255,255,255,.32)) 33.333% 0 / 1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.32), rgba(255,255,255,.32)) 66.666% 0 / 1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.32), rgba(255,255,255,.32)) 0 33.333% / 100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.32), rgba(255,255,255,.32)) 0 66.666% / 100% 1px no-repeat;
+}
+.cr-win:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.cr-win.is-locked { border-style: solid; border-color: #22c55e; }
+.cr-dot { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; border: 1.5px solid #fff; background: var(--brand); pointer-events: none; opacity: .9; }
+/* دستگیره‌ها: ناحیهٔ لمسِ ۲۴ پیکسل، نشانِ دیداری ۱۰ پیکسل */
+.cr-h { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; touch-action: none; z-index: 2; }
+.cr-h::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-sizing: border-box;
+  background: #fff; border: 2px solid var(--brand); border-radius: 3px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.cr-h.tl { left: 0; top: 0; cursor: nwse-resize; } .cr-h.tr { left: 100%; top: 0; cursor: nesw-resize; }
+.cr-h.bl { left: 0; top: 100%; cursor: nesw-resize; } .cr-h.br { left: 100%; top: 100%; cursor: nwse-resize; }
+.cr-h.t { left: 50%; top: 0; cursor: ns-resize; } .cr-h.b { left: 50%; top: 100%; cursor: ns-resize; }
+.cr-h.l { left: 0; top: 50%; cursor: ew-resize; } .cr-h.r { left: 100%; top: 50%; cursor: ew-resize; }
+.cr-h.t::after, .cr-h.b::after { width: 16px; height: 8px; margin: -4px 0 0 -8px; }
+.cr-h.l::after, .cr-h.r::after { width: 8px; height: 16px; margin: -8px 0 0 -4px; }
+.cr-h.tl, .cr-h.tr, .cr-h.bl, .cr-h.br { z-index: 3; }
+.cr-path { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.cr-path polyline { fill: none; stroke: #facc15; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.cr-path circle { fill: #facc15; stroke: rgba(0, 0, 0, 0.6); stroke-width: 1; }
+.cr-path circle.is-here { fill: #fff; stroke: #facc15; stroke-width: 2; }
+.cr-msg {
+  position: absolute; left: 8px; right: 8px; top: 50%; transform: translateY(-50%); text-align: center; font-size: 12px; line-height: 1.9;
+  color: #fff; background: rgba(0, 0, 0, 0.7); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 4;
+}
+.cr-badge { position: absolute; left: 6px; top: 4px; font-size: 10px; color: #fff; background: rgba(0, 0, 0, 0.6); border-radius: 5px; padding: 0 6px; pointer-events: none; z-index: 4; }
+/* پنلِ زیرِ مانیتور */
+.cr-panel { flex: none; max-height: 46vh; overflow-y: auto; border-top: 1px solid var(--line); padding: 8px 10px; background: color-mix(in srgb, var(--void) 70%, #000); }
+.cr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 4px; color: var(--text); font-size: 13px; }
+.cr-head .ws-hint { margin: 0; flex: 1 1 200px; }
+.cr-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.cr-chips .ws-chip { min-height: 28px; }
+.cr-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.cr-nums .ws-field { margin-bottom: 4px; }
+.cr-nums input { min-width: 0; width: 100%; padding: 4px 6px; min-height: 30px; }
+.cr-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 4px; }
+.cr-btns .ws-btn { min-height: 30px; }
+.cr-auto { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 4px; }
+.cr-auto-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; margin-bottom: 4px; }
+.cr-auto-target { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-3); }
+.cr-auto-target select { width: auto; min-height: 30px; padding: 3px 6px; font-size: 12px; }
+.cr-auto-row .ws-btn { min-height: 30px; }
+.cr-edges > summary { cursor: pointer; font-size: 12px; color: var(--text-2); padding: 4px 0; }
+.cr-edges[open] > summary { color: var(--text); font-weight: 700; }
+.cr-nums-ro { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; font-size: 12px; color: var(--text-2); margin: 4px 0; }
+.cr-nums-ro span { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; background: var(--surface-2); text-align: center; }
+.cr-nums-ro b { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); }
+@media (max-width: 520px) {
+  .cr-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cr-btns .ws-btn, .cr-chips .ws-chip, .cr-auto-row .ws-btn { min-height: 36px; }
+  .cr-panel { max-height: none; }
+  .cr-h { width: 28px; height: 28px; margin: -14px 0 0 -14px; }
+}

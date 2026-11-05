@@ -22,6 +22,7 @@ import type { EditableOp } from "./video/api";
 import type { Video } from "./video/types";
 import VideoWorkspace from "./video/manual/VideoWorkspace";
 import { EditResult, VideoAutoBlock, VideoPromptBlock } from "./video/VideoModes";
+import VideoDirector from "./video/director/VideoDirector";
 
 type UploadSubtitles = {
   url: string | null;
@@ -68,6 +69,8 @@ export default function VideoEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [manualStart, setManualStart] = useState<string | null>(null);
+  /** پروژه‌ای که «کارگردان» ساخته و باید در فضای دستی باز شود */
+  const [manualProject, setManualProject] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -198,7 +201,7 @@ export default function VideoEditorPage() {
     <>
       <PageHeader
         title="تدوین ویدیو"
-        subtitle="ویدیوی خودتان را بدهید — خودکار، با یک دستور، یا خودتان مثلِ پریمیر تدوینش کنید"
+        subtitle="ویدیوی خودتان را بدهید — خودکار، با یک دستور (کارگردان)، یا خودتان مثلِ پریمیر تدوینش کنید"
         actions={
           <>
             <Link to={`/stores/${id}/photo-editor`}>
@@ -230,7 +233,7 @@ export default function VideoEditorPage() {
 
       {mode === "manual" && (
         <div className="mb-6">
-          <VideoWorkspace storeId={id!} tools={tools} startRef={manualStart} onStartConsumed={() => setManualStart(null)} />
+          <VideoWorkspace storeId={id!} tools={tools} startRef={manualStart} onStartConsumed={() => setManualStart(null)} startProject={manualProject} onProjectOpened={() => setManualProject(null)} onGoDirector={() => setMode("prompt")} />
         </div>
       )}
 
@@ -261,6 +264,12 @@ export default function VideoEditorPage() {
         )}
         <ErrorBox message={runner.error} />
       </Card>
+
+      {mode === "prompt" && (
+        <div className="mt-4">
+          <VideoDirector storeId={id!} onOpenProject={(pid) => { setManualProject(pid); setMode("manual"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+        </div>
+      )}
 
       {habits.length > 0 && (
         <div className="mt-4">

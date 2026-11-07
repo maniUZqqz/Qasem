@@ -15,5 +15,7 @@ case "${1:-status}" in
              3d) journalctl -u nm-up3d-orchestrator -u nm-up3d-worker -n 60 --no-pager ;;
            esac ;;
   update)  bash /var/www/NM/upmarket/deploy/nm/install.sh ;;
-  *) echo "nm.sh status|restart|stop|start|logs [web|celery|beat|website|3d]|update" ;;
+  bump)    bash /var/www/NM/upmarket/deploy/nm/bump-version.sh "${@:2}" ;;
+  version) bash /var/www/NM/upmarket/deploy/nm/bump-version.sh --show ;;
+  *) echo "nm.sh status|restart|stop|start|logs [web|celery|beat|website|3d]|update|bump [--if-changed]|version" ;;
 esac

@@ -7,10 +7,17 @@
 {% block extrastyle %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'admin/upmarket.css' %}">
+  <style>
+    /* نشانِ نسخه — گوشهٔ سرصفحه، کوچک و کم‌رنگ */
+    #site-name a.nm-ver { display: inline-block; margin-inline-start: 8px; padding: 0 8px; border-radius: 999px; font: 500 11px/1.7 sans-serif;
+              direction: ltr; unicode-bidi: isolate; vertical-align: middle; text-decoration: none; opacity: .75;
+              color: var(--header-link-color, #fff); border: 1px solid currentColor; }
+    #site-name a.nm-ver:hover, #site-name a.nm-ver:focus { opacity: 1; text-decoration: none; }
+  </style>
 {% endblock %}
 
 {% block branding %}
-  <div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:"آپ‌مارکت — پنل مدیریت" }}</a></div>
+  <div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:"آپ‌مارکت — پنل مدیریت" }}</a>{% if nm_version %} <a class="nm-ver" href="/panel/changelog" target="_blank" rel="noopener" title="چه چیزی تازه است — نسخهٔ {{ nm_version }}{% if nm_built_fa %} · ساخته‌شده: {{ nm_built_fa }}{% endif %}{% if nm_commit %} · commit {{ nm_commit }}{% endif %}">v{{ nm_version }}</a>{% endif %}</div>
   {% if user.is_anonymous %}
     {% include "admin/color_theme_toggle.html" %}
   {% endif %}

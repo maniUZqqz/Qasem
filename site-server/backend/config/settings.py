@@ -895,3 +895,9 @@ GROWTH_ENGINE = {
 
 # --- NM-Mobile (برنامهٔ همراهِ اندروید): گوشی‌ها، دروازهٔ پیامک، تماس‌ها، قیمتِ پایین، شناساییِ تماس‌گیرنده
 INSTALLED_APPS += ["apps.mobile"]
+
+
+# --- نسخهٔ نرم‌افزار: فایل VERSION کنار ریشه (apps/common/versioning.py؛ نشانِ «v2.60» در پنل، ادمین و سایت)
+from apps.common.versioning import read_version as _nm_read_version  # noqa: E402
+
+NM_VERSION = _nm_read_version() or "0.00"

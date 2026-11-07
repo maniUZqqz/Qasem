@@ -60,6 +60,8 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
         words_all = media_cache._read_json(cache_file)
         if not (isinstance(words_all, list) and words_all):
             state = captions.status()
+            if asr and state.get("waiting"):
+                raise captions.waiting_error()           # the server is only off: the step is filled in later (director_fill_task)
             if not asr or not state["ok"]:
                 raise captions.CaptionsUnavailable(state["message"] or "تشخیصِ گفتار خاموش است.")
             wav = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
@@ -95,6 +97,10 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
             usable = [v for v in studio.voices(store) if v.get("available")]
             usable.sort(key=lambda v: (v.get("where") != "site", v.get("name", "")))     # site voices answer in a second
             if not usable:
+                from services.editing import captions as _captions
+
+                if _captions.node_registered("voice"):
+                    raise StepError("در صف — منتظرِ روشن شدنِ سرورِ پردازش: صدای گوینده روی آن ساخته می‌شود و هر وقت روشن شد خودکار اضافه می‌شود.")
                 raise StepError("هیچ صدای گوینده‌ای در دسترس نیست (سرورِ پردازش خاموش است و صدای سایت هم نصب نیست).")
             voice_id = usable[0]["id"]
         try:

@@ -105,3 +105,10 @@
 .pw-snaps li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
 .pw-snaps img, .pw-snap-ph { width: 48px; height: 36px; object-fit: cover; border-radius: 6px; background: var(--surface-2); flex: none; }
 .pw-snap-btns { display: inline-flex; gap: 4px; margin-inline-start: auto; }
+
+/* اکشن‌های ضبط‌شدنی (نوبت ۶) */
+.pw-rec { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin: 6px 0; }
+.pw-rec-dot { color: var(--danger, #dc2626); animation: pw-rec-blink 1.2s ease-in-out infinite; }
+@keyframes pw-rec-blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pw-rec-dot { animation: none; } }
+.pw-act-steps { margin: 6px 0; padding: 0 18px 0 0; font-size: 12px; color: var(--text-2); display: flex; flex-direction: column; gap: 2px; }

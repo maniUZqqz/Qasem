@@ -415,7 +415,7 @@ class NodeQueueTests(ApiTestBase):
         r = self.api.post(f"{self.base}/edits/", {"assets": ids, "recipe": "product_transparent", "operations": [
             {"tool": "kit_background", "params": {"bg": "transparent"}}]}, format="json")
         e = PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
-        self.assertEqual(e.message, "در صفِ سرورِ پردازش")
+        self.assertTrue(e.message.startswith("در صف"), e.message)       # «در صفِ سرورِ پردازش» یا متنِ «صفِ پردازش» (نوبتِ بعدی / نفرِ n‌ام)
         job = ComputeJob.objects.get(uid=e.compute_job)
         self.assertEqual(job.payload["recipe"]["background"]["color"], "transparent")
         self._finish_on_node(job, ComputeNode.objects.get(name="gpu-photo"), transparent=True)
@@ -446,7 +446,7 @@ class NodeQueueTests(ApiTestBase):
     def test_kit_analysis_round_trip(self):
         ids = self.upload(photo(seed=9))
         r = self.api.post(f"{self.base}/assets/{ids[0]}/analyze/", {}, format="json")
-        self.assertEqual(r.json()["asset"]["kit_analysis"]["message"], "منتظرِ سرورِ پردازش")
+        self.assertEqual(r.json()["asset"]["kit_analysis"]["message"], "در صف — منتظرِ سرورِ پردازش")
         a = PhotoAsset.objects.get(pk=ids[0])
         job = ComputeJob.objects.get(uid=a.analysis_job)
         self.assertEqual(job.kind, "photo.analyze")

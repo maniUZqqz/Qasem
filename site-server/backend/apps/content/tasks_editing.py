@@ -889,6 +889,13 @@ def translate_captions_task(self, job_id, lang, items):
         return result
     except Exception as exc:  # noqa: BLE001
         logger.info("Caption translation job %s: %s", job_id, exc)
+        try:
+            from apps.compute import park
+
+            if park.maybe_park(job, exc):                    # no AI right now but a processing server is on record: wait for it
+                return {"waiting": "node"}
+        except Exception:  # noqa: BLE001 — parking is a courtesy; a failure keeps the old behaviour
+            pass
         message = str(exc) if isinstance(exc, (translate.TranslateError, ValueError)) else agent.explain_failure(exc)[1]
         job.mark_failed(RuntimeError(message))
         return {"error": message}
@@ -907,6 +914,10 @@ def captions_task(self, job_id, ref, start, end, at, speed=1.0):
     job = Job.objects.get(id=job_id)
     wav = None
     try:
+        from apps.compute import park
+
+        if captions.status().get("waiting") and park.gate(job, "voice"):          # the server is off: wait in the queue, do not fail
+            return {"waiting": "node"}
         job.total_steps = 3
         job.mark_running("در حال آماده‌کردنِ صدا")
         item = editor_project.describe(job.store, ref)

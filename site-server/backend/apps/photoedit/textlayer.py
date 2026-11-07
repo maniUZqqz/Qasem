@@ -26,6 +26,56 @@ MAX_LINES = 40
 AUTO_WRAP = 0.94
 
 
+#: متنِ خمیده (warp): هر ستونِ پیکسلِ متن به اندازهٔ dy(u) جابه‌جا و s(u) برابر در راستای عمود کشیده می‌شود (u = −۱..۱ از چپِ بلوک تا راست).
+#: همان فرمول در مرورگر (pro/gl/raster.ts › warpParams) ⇒ پیش‌نمایش = خروجی.
+WARP_STYLES = ("arc", "wave", "flag", "bulge", "rise")
+_WARP_DY = {"arc": 1.4, "wave": 0.7, "flag": 0.6, "rise": 1.0, "bulge": 0.0}
+UL_OFFSET, STRIKE_OFFSET, LINE_W = 0.12, -0.28, 0.065
+
+
+def warp_params(style: str, amount: float, u, size_px: float):
+    """⇒ (dy، s) برای ستون‌های u (آرایهٔ numpy)."""
+    import numpy as np
+
+    u = np.asarray(u, dtype=np.float64)
+    if style == "arc":
+        return -amount * size_px * 1.4 * (1 - u * u), np.ones_like(u)
+    if style == "wave":
+        return amount * size_px * 0.7 * np.sin(math.pi * (u + 1)), np.ones_like(u)
+    if style == "flag":
+        return amount * size_px * 0.6 * np.sin(1.5 * math.pi * (u + 1)), np.ones_like(u)
+    if style == "rise":
+        return -amount * size_px * 1.0 * u, np.ones_like(u)
+    return np.zeros_like(u), 1 + amount * 0.7 * (1 - u * u)           # bulge
+
+
+def warp_extra(style: str, amount: float, size_px: float, th: int) -> int:
+    """حاشیهٔ عمودیِ اضافه (بالا و پایین، هر کدام) تا متنِ خمیده بریده نشود."""
+    e = abs(amount) * _WARP_DY.get(style, 0.0) * size_px
+    if style == "bulge":
+        e += max(0.0, 0.7 * amount) * th / 2
+    return int(math.ceil(e)) + 2
+
+
+def warp_tile(tile: Image.Image, style: str, amount: float, size_px: float) -> tuple[Image.Image, int]:
+    """⇒ (تایلِ خمیده، extra). مرکزِ تایل (محور) ثابت می‌ماند چون حاشیه بالا و پایین یکسان است."""
+    import cv2
+    import numpy as np
+
+    tw, th = tile.size
+    extra = warp_extra(style, amount, size_px, th)
+    nh = th + 2 * extra
+    x = np.arange(tw, dtype=np.float64)
+    u = ((x + 0.5) / tw) * 2 - 1
+    dy, s = warp_params(style, amount, u, size_px)
+    yo = np.arange(nh, dtype=np.float64)[:, None]
+    src_y = th / 2 + (yo + 0.5 - extra - dy[None, :] - th / 2) / s[None, :] - 0.5
+    map_x = np.broadcast_to(x[None, :], (nh, tw)).astype(np.float32)
+    pm = np.asarray(tile.convert("RGBa"))
+    out = cv2.remap(pm, map_x, src_y.astype(np.float32), cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    return Image.fromarray(out, "RGBa").convert("RGBA"), extra
+
+
 @lru_cache(maxsize=1)
 def font_files() -> dict[int, str]:
     """{وزن: مسیرِ فایل} فقط برای فایل‌هایی که واقعاً روی سرور هستند."""
@@ -144,6 +194,8 @@ def _line_pieces(draw, line: str, font, rtl: bool, spacing_px: float):
 def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, float]] | None:
     """⇐ (tile RGBA، pivot=(px, py) مرکزِ محتوا). متنِ خالی ⇒ None."""
     text = str(layer.get("text") or "")
+    if layer.get("caps"):
+        text = text.upper()
     if not text.strip():
         return None
     size_px = max(4.0, float(layer["size"]) * canvas_w)
@@ -153,7 +205,7 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     width_px = float(layer.get("width") or 0) * canvas_w
     given = layer.get("lines")
     if isinstance(given, list) and given:
-        lines = [str(x) for x in given][:MAX_LINES]
+        lines = [str(x).upper() if layer.get("caps") else str(x) for x in given][:MAX_LINES]
     elif width_px > 0:
         lines = wrap_lines(probe, text, font, width_px)
     else:
@@ -226,6 +278,16 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
             if stroke_px:
                 kw.update(stroke_width=stroke_px, stroke_fill=_hex(stroke["color"]))
             td.text((ox + x0 + px, y), _shape(piece, rtl), font=font, fill=fill, **kw)
+        if layer.get("underline") or layer.get("strike"):
+            lw = max(1, int(round(LINE_W * size_px)))
+            xl, xr = int(round(ox + x0)), int(round(ox + x0 + wd))
+            if xr > xl:
+                if layer.get("underline"):
+                    yy = int(round(y + UL_OFFSET * size_px))
+                    td.rectangle([xl, yy, xr - 1, yy + lw - 1], fill=fill)
+                if layer.get("strike"):
+                    yy = int(round(y + STRIKE_OFFSET * size_px))
+                    td.rectangle([xl, yy, xr - 1, yy + lw - 1], fill=fill)
 
     if shadow:
         # سایه = ماسکِ متن (با کنارهٔ استروک) جابه‌جا و محو
@@ -239,13 +301,20 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
             sh = Image.merge("RGBA", (r, g, b, a))
         tile = Image.alpha_composite(tile, sh)
     tile = Image.alpha_composite(tile, text_layer)
-    return tile, (ox + block_w / 2, oy + block_h / 2)
+    pivot = (ox + block_w / 2, oy + block_h / 2)
+    wp = layer.get("warp")
+    if isinstance(wp, dict) and wp.get("style") in WARP_STYLES and abs(float(wp.get("amount") or 0)) > 0.001:
+        tile, extra = warp_tile(tile, wp["style"], float(wp["amount"]), size_px)
+        pivot = (pivot[0], pivot[1] + extra)
+    return tile, pivot
 
 
 def layout(layer: dict, canvas_w: int) -> dict:
     """اندازه‌گیریِ بلوکِ متن بدونِ کشیدن (همان چیدمانِ ``render_text``): ⇐ {lines, block_w, block_h, size_px, line_h, widths}
     همه به پیکسلِ بومی با عرضِ ``canvas_w``. برای جاگیری و وارسیِ سرریز در طراحیِ خودکار."""
     text = str(layer.get("text") or "")
+    if layer.get("caps"):
+        text = text.upper()
     size_px = max(4.0, float(layer["size"]) * canvas_w)
     if not text.strip():
         return {"lines": [], "block_w": 0.0, "block_h": 0.0, "size_px": size_px, "line_h": size_px, "widths": []}
@@ -255,7 +324,7 @@ def layout(layer: dict, canvas_w: int) -> dict:
     width_px = float(layer.get("width") or 0) * canvas_w
     given = layer.get("lines")
     if isinstance(given, list) and given:
-        lines = [str(x) for x in given][:MAX_LINES]
+        lines = [str(x).upper() if layer.get("caps") else str(x) for x in given][:MAX_LINES]
     elif width_px > 0:
         lines = wrap_lines(probe, text, font, width_px)
     else:

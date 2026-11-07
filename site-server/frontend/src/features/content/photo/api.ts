@@ -408,6 +408,32 @@ export const proApi = {
         headers: { "Content-Type": "image/png" },
       })
       .then((r) => r.data),
+  /** خروجی با قالبِ دیگر (psd|tiff|pdf|gif|bmp|png|jpeg|webp) از آخرین ذخیرهٔ پروژه؛ نوبت ۶ */
+  exportProject: async (store: string, pid: number, fmt: string, quality = 92): Promise<{ blob: Blob; name: string; notes: string }> => {
+    try {
+      const r = await api.get<Blob>(`${base(store)}/projects/${pid}/export/`, { params: { fmt, quality }, responseType: "blob" });
+      const cd = String(r.headers["content-disposition"] ?? "");
+      const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+      let notes = "";
+      try {
+        notes = decodeURIComponent(String(r.headers["x-export-notes"] ?? ""));
+      } catch {
+        notes = "";
+      }
+      return { blob: r.data, name: m ? decodeURIComponent(m[1]) : `photo.${fmt}`, notes };
+    } catch (e) {
+      const data = (e as { response?: { data?: Blob } }).response?.data;
+      if (data instanceof Blob) {
+        try {
+          const j = JSON.parse(await data.text()) as { error?: { message?: string } };
+          if (j.error?.message) throw new Error(j.error.message);
+        } catch (e2) {
+          if (e2 instanceof Error && !(e2 instanceof SyntaxError)) throw e2;
+        }
+      }
+      throw e;
+    }
+  },
   putPaint: (store: string, pid: number, paintId: string, blob: Blob) =>
     api
       .put<{ id: string; url: string; w: number; h: number }>(`${base(store)}/projects/${pid}/paints/${paintId}/`, blob, {

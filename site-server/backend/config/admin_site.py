@@ -49,6 +49,13 @@ class UpMarketAdminSite(admin.AdminSite):
         لازم باشد هیچ ModelAdmin ای چیزی به request بچسباند.
         """
         context = super().each_context(request)
+        # نسخهٔ نرم‌افزار برای نشانِ سرصفحه (templates/admin/base_site.html)؛ هرگز ادمین را نمی‌شکند
+        try:
+            from apps.common.versioning import admin_context
+
+            context.update(admin_context())
+        except Exception:  # noqa: BLE001
+            context["nm_version"] = ""
         match = getattr(request, "resolver_match", None)
         url_name = getattr(match, "url_name", "") or ""
         # فقط صفحه‌ی فهرست. در فرم ویرایش، کاربر می‌داند کجاست و یادداشت

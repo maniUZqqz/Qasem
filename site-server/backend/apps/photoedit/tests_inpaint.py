@@ -550,7 +550,7 @@ class GenFillApiTests(ApiTestBase):
         body = r.json()
         self.assertEqual(body["state"], "QUEUED")
         self.assertFalse(body["online"])
-        self.assertEqual(body["message"], "سرورِ پردازش خاموش است؛ کار در صف می‌ماند و وقتی روشن شد انجام می‌شود")
+        self.assertEqual(body["message"], "در صف — منتظرِ سرورِ پردازش (سرورِ پردازش خاموش است؛ کار گم نمی‌شود و وقتی روشن شد انجام می‌شود)")
         job = ComputeJob.objects.get(uid=body["job"])
         self.assertEqual((job.kind, job.origin, job.store_id, job.state), ("comfy.graph", "photogenfill", self.store.pk, "QUEUED"))
         self.assertEqual(job.priority, 105)

@@ -213,7 +213,8 @@ function RotationSlider<T extends TextLayer | ImageLayer | ShapeLayer>({ layer, 
 
 // ───────────────────────────── متن
 
-const LINE_KEYS = new Set(["text", "size", "weight", "font", "letter_spacing", "line_height", "width", "align", "dir"]);
+const LINE_KEYS = new Set(["text", "size", "weight", "font", "letter_spacing", "line_height", "width", "align", "dir", "caps"]);
+const WARP_FA: [string, string][] = [["", "بدون خمیدگی"], ["arc", "قوس"], ["wave", "موج"], ["flag", "پرچم"], ["bulge", "برآمده"], ["rise", "شیب"]];
 
 function TextInspector({ layer, hist, fonts }: { layer: TextLayer; hist: Hist; fonts: FontInfo[] }) {
   const ed = useEdit<TextLayer>(hist, layer.id, "text", (p) => (Object.keys(p).some((k) => LINE_KEYS.has(k)) ? { ...p, lines: undefined } : p));
@@ -260,6 +261,25 @@ function TextInspector({ layer, hist, fonts }: { layer: TextLayer; hist: Hist; f
         <Num label="پهنای کادر (۰ = خودکار)" value={layer.width * 100} min={0} max={100} step={1} onLive={(v) => ed.live({ width: v / 100 })} onEnd={() => ed.end("پهنای کادر")}
           fmt={(v) => (v < 0.5 ? "خودکار" : `${fa(round(v, 0))}٪`)} />
         <RotationSlider layer={layer} ed={ed} />
+      </Sub>
+
+      <Sub title="قالبِ حروف و خمیدگی">
+        <div className="pn-actions">
+          <button type="button" className={`pn-btn ${layer.underline ? "is-on" : ""}`} aria-pressed={!!layer.underline} onClick={() => ed.apply("زیرخط", { underline: !layer.underline })} data-testid="text-underline">زیرخط</button>
+          <button type="button" className={`pn-btn ${layer.strike ? "is-on" : ""}`} aria-pressed={!!layer.strike} onClick={() => ed.apply("خط‌خوردگی", { strike: !layer.strike })} data-testid="text-strike">خط‌خورده</button>
+          <button type="button" className={`pn-btn ${layer.caps ? "is-on" : ""}`} aria-pressed={!!layer.caps} onClick={() => ed.apply("حروفِ بزرگ", { caps: !layer.caps })} data-testid="text-caps" title="حروفِ لاتین بزرگ می‌شوند؛ فارسی تغییری نمی‌کند">ABC</button>
+        </div>
+        <label className="ws-field" style={{ margin: 0 }}>
+          <span>خمیدگیِ متن</span>
+          <Select className="pn-select-full" value={layer.warp?.style ?? ""} aria-label="خمیدگیِ متن" data-testid="text-warp"
+            onChange={(e) => ed.apply("خمیدگیِ متن", { warp: e.target.value ? { style: e.target.value as NonNullable<TextLayer["warp"]>["style"], amount: layer.warp?.amount || 0.5 } : null })}>
+            {WARP_FA.map(([k, tl]) => <option key={k} value={k}>{tl}</option>)}
+          </Select>
+        </label>
+        {layer.warp && (
+          <Num label="مقدارِ خمیدگی" value={layer.warp.amount * 100} min={-100} max={100} step={1} testId="text-warp-amount" fmt={(v) => `${fa(round(v, 0))}٪`}
+            onLive={(v) => ed.live({ warp: { ...layer.warp!, amount: v / 100 } })} onEnd={() => ed.end("مقدارِ خمیدگی")} />
+        )}
       </Sub>
 
       <Sub title="دورِ حروف (Stroke)" right={<Check checked={!!st} testId="text-stroke" onChange={(v) => ed.apply("دورِ حروف", { stroke: v ? { w: 0.06, color: "#000000" } : null })}>فعال</Check>}>

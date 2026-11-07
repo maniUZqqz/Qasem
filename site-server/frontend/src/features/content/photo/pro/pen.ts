@@ -17,6 +17,8 @@ export class PenPath {
   done = false;
   /** با هر تغییر بالا می‌رود (Stage برای بازرسمِ رویه) */
   ver = 0;
+  /** نقطهٔ انتخاب‌شده (آخرین نقطه‌ای که ساخته یا کلیک شد)؛ Delete همین را برمی‌دارد */
+  sel: number | null = null;
 
   get active(): boolean {
     return this.pts.length > 0;
@@ -30,6 +32,16 @@ export class PenPath {
     this.pts = [];
     this.closed = false;
     this.done = false;
+    this.sel = null;
+    this.touch();
+  }
+
+  /** مسیرِ ذخیره‌شده را جایگزینِ مسیرِ فعلی می‌کند (نقطه‌ها کپی می‌شوند) */
+  load(path: ShapePath, done = true): void {
+    this.pts = path.pts.map((p) => ({ x: p.x, y: p.y, hi: p.hi ? [p.hi[0], p.hi[1]] : null, ho: p.ho ? [p.ho[0], p.ho[1]] : null }));
+    this.closed = !!path.closed && this.pts.length >= 3;
+    this.done = !this.closed && done && this.pts.length >= 2;
+    this.sel = null;
     this.touch();
   }
 
@@ -46,6 +58,7 @@ export class PenPath {
   add(x: number, y: number): number {
     this.pts.push({ x, y, hi: null, ho: null });
     this.done = false;
+    this.sel = this.pts.length - 1;
     this.touch();
     return this.pts.length - 1;
   }
@@ -54,6 +67,122 @@ export class PenPath {
     this.done = false;
     if (this.closed) this.closed = false; // اول بازش کن
     else this.pts.pop();
+    this.sel = this.pts.length ? this.pts.length - 1 : null;
+    this.touch();
+  }
+
+  /** نقطهٔ i را برمی‌دارد (دستگیره‌های بقیه دست‌نخورده)؛ مسیرِ بسته با کمتر از ۳ نقطه باز می‌شود */
+  removeAt(i: number): boolean {
+    if (i < 0 || i >= this.pts.length) return false;
+    this.pts.splice(i, 1);
+    if (this.closed && this.pts.length < 3) this.closed = false;
+    if (this.pts.length < 2) this.done = false;
+    this.sel = this.pts.length ? Math.min(i, this.pts.length - 1) : null;
+    this.touch();
+    return true;
+  }
+
+  /** حذفِ نقطهٔ انتخاب‌شده (وگرنه آخری) */
+  removeSelected(): boolean {
+    if (!this.pts.length) return false;
+    if (this.sel === null || this.sel >= this.pts.length || this.sel === this.pts.length - 1) {
+      this.removeLast();
+      return true;
+    }
+    return this.removeAt(this.sel);
+  }
+
+  /** پاره‌هایی که می‌شود روی‌شان نقطه گذاشت: i ⇒ i+1 (و آخر ⇒ اول در مسیرِ بسته) */
+  get segCount(): number {
+    const n = this.pts.length;
+    return n < 2 ? 0 : this.closed && n > 2 ? n : n - 1;
+  }
+
+  /** نقطهٔ خمِ پارهٔ seg در پارامترِ t (مختصاتِ نرمال) */
+  segPoint(seg: number, t: number): Pt2 {
+    const n = this.pts.length;
+    const a = this.pts[seg];
+    const b = this.pts[(seg + 1) % n];
+    const u = 1 - t;
+    const p1: Pt2 = [a.x + (a.ho ? a.ho[0] : 0), a.y + (a.ho ? a.ho[1] : 0)];
+    const p2: Pt2 = [b.x + (b.hi ? b.hi[0] : 0), b.y + (b.hi ? b.hi[1] : 0)];
+    const c0 = u * u * u;
+    const c1 = 3 * u * u * t;
+    const c2 = 3 * u * t * t;
+    const c3 = t * t * t;
+    return [c0 * a.x + c1 * p1[0] + c2 * p2[0] + c3 * b.x, c0 * a.y + c1 * p1[1] + c2 * p2[1] + c3 * b.y];
+  }
+
+  /**
+   * نزدیک‌ترین نقطهٔ مسیر به (sx, sy) در مختصاتِ صفحه؛ sc نرمال ⇒ صفحه. ⇒ {seg, t, d} (d فاصله به پیکسلِ صفحه) یا null
+   */
+  nearestSegment(sc: (nx: number, ny: number) => [number, number], sx: number, sy: number): { seg: number; t: number; d: number } | null {
+    let best: { seg: number; t: number; d: number } | null = null;
+    for (let s = 0; s < this.segCount; s++) {
+      const steps = 40;
+      let prev = sc(...this.segPoint(s, 0));
+      for (let k = 1; k <= steps; k++) {
+        const t1 = k / steps;
+        const cur = sc(...this.segPoint(s, t1));
+        const vx = cur[0] - prev[0];
+        const vy = cur[1] - prev[1];
+        const l2 = vx * vx + vy * vy;
+        const f = l2 > 1e-9 ? Math.max(0, Math.min(1, ((sx - prev[0]) * vx + (sy - prev[1]) * vy) / l2)) : 0;
+        const d = Math.hypot(prev[0] + vx * f - sx, prev[1] + vy * f - sy);
+        if (!best || d < best.d) best = { seg: s, t: (k - 1 + f) / steps, d };
+        prev = cur;
+      }
+    }
+    return best;
+  }
+
+  /** روی پارهٔ seg در t یک نقطه می‌گذارد؛ شکلِ خم عوض نمی‌شود (de Casteljau). ⇒ شاخصِ نقطهٔ تازه */
+  insertAt(seg: number, t: number): number {
+    const n = this.pts.length;
+    if (seg < 0 || seg >= this.segCount) return -1;
+    t = Math.max(0.001, Math.min(0.999, t));
+    const a = this.pts[seg];
+    const b = this.pts[(seg + 1) % n];
+    const lerp = (p: Pt2, q: Pt2): Pt2 => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    const P0: Pt2 = [a.x, a.y];
+    const P1: Pt2 = [a.x + (a.ho ? a.ho[0] : 0), a.y + (a.ho ? a.ho[1] : 0)];
+    const P2: Pt2 = [b.x + (b.hi ? b.hi[0] : 0), b.y + (b.hi ? b.hi[1] : 0)];
+    const P3: Pt2 = [b.x, b.y];
+    const P01 = lerp(P0, P1);
+    const P12 = lerp(P1, P2);
+    const P23 = lerp(P2, P3);
+    const P012 = lerp(P01, P12);
+    const P123 = lerp(P12, P23);
+    const M = lerp(P012, P123);
+    const straight = !a.ho && !b.hi;
+    const off = (p: Pt2, q: Pt2): Pt2 | null => (Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-9 ? null : [q[0] - p[0], q[1] - p[1]]);
+    const mid: PathPt = { x: +M[0].toFixed(6), y: +M[1].toFixed(6), hi: straight ? null : off(M, P012), ho: straight ? null : off(M, P123) };
+    if (!straight) {
+      a.ho = off(P0, P01);
+      b.hi = off(P3, P23);
+    }
+    const at = seg + 1;
+    this.pts.splice(at, 0, mid);
+    this.sel = at;
+    this.touch();
+    return at;
+  }
+
+  /** وسطِ هر پاره یک نقطه (برای ظریف‌کردنِ مسیر) ⇒ تعدادِ نقطه‌های افزوده */
+  subdivide(max = 200): number {
+    let added = 0;
+    for (let s = this.segCount - 1; s >= 0; s--) {
+      if (this.pts.length >= max) break;
+      if (this.insertAt(s, 0.5) >= 0) added++;
+    }
+    return added;
+  }
+
+  /** جهتِ مسیر را برعکس می‌کند (ورودی و خروجیِ دستگیره‌ها جابه‌جا می‌شود) */
+  reverse(): void {
+    this.pts.reverse();
+    for (const p of this.pts) [p.hi, p.ho] = [p.ho, p.hi];
+    this.sel = this.sel === null ? null : this.pts.length - 1 - this.sel;
     this.touch();
   }
 

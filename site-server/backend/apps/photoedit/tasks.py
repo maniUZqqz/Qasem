@@ -81,11 +81,12 @@ def finish_edit_task(edit_id: int) -> None:
 # ───────────────────────────── طراحِ خودکار (نیمه‌خودکار با دستور)
 
 @shared_task(ignore_result=True, soft_time_limit=1500, time_limit=1560)
-def run_design_task(design_id: int) -> None:
-    """یک طراحی را کامل می‌کند (تحلیل ⇒ برنامه ⇒ ساخت ⇒ نقد). از ``designer.engine.run`` است؛ خطا همیشه روی خودِ طراحی می‌نشیند."""
+def run_design_task(design_id: int, allow_wait: bool = True) -> None:
+    """یک طراحی را کامل می‌کند (تحلیل ⇒ برنامه ⇒ ساخت ⇒ نقد). از ``designer.engine.run`` است؛ خطا همیشه روی خودِ طراحی می‌نشیند.
+    هوشِ مصنوعی روی سرورِ پردازشِ خاموش ⇒ طراحی «در صف — منتظرِ سرورِ پردازش» می‌ماند و خودش دوباره اجرا می‌شود (engine._park)."""
     from .designer import engine
 
-    engine.run(design_id)
+    engine.run(design_id, allow_wait=allow_wait)
 
 
 @shared_task(ignore_result=True, soft_time_limit=3300, time_limit=3400)

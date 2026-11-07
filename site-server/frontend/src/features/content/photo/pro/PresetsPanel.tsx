@@ -125,7 +125,7 @@ export default function PresetsPanel(props: PresetsPanelProps) {
     setLoadErr(null);
     proApi
       .presets(storeId)
-      .then((r) => !stop && setPresets(r))
+      .then((r) => !stop && setPresets(r.filter((p) => p.kind !== "action")))
       .catch((e) => !stop && setLoadErr(errorMessage(e)));
     return () => {
       stop = true;

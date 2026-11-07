@@ -192,4 +192,9 @@ curl -s -o /dev/null -w "  /         → %{http_code}\n" http://127.0.0.1:$PORT/
 curl -s -o /dev/null -w "  /panel/tools/studio → %{http_code}\n" http://127.0.0.1:$PORT/panel/tools/studio
 curl -s -o /dev/null -w "  /panel/tools/3d → %{http_code}\n" http://127.0.0.1:$PORT/panel/tools/3d
 curl -s -o /dev/null -w "  /panel/tools/compute → %{http_code}\n" http://127.0.0.1:$PORT/panel/tools/compute
+step "نسخهٔ نرم‌افزار (VERSION ⇒ نشانِ v2.xx در پنل، ادمین و سایت)"
+# فقط اگر کد از آخرین بار عوض شده؛ و هرگز استقرار را نمی‌خواباند
+NM_ROOT="$ROOT" bash "$ROOT/deploy/nm/bump-version.sh" --if-changed || true
+echo "  نسخه: $(cat "$ROOT/VERSION" 2>/dev/null || echo ؟)"
+
 echo "تمام. پنل: http://$HOST_IP:$PORT/panel/  — رمزِ admin در $DATA/admin-password.txt"

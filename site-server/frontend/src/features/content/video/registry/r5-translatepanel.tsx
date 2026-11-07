@@ -26,7 +26,7 @@ export function TranslatePanel({ api: ws }: PanelProps) {
     setBusy(true); setError(null); setLabel("در صفِ ترجمه…");
     try {
       const { job_id } = await videoApi.translateCaptions(ws.storeId, { lang, clips: batch });
-      for (let i = 0; i < 300 && !stop.current; i++) {
+      for (let i = 0; i < 1800 && !stop.current; i++) {                                 // تا یک ساعت؛ اگر سرورِ پردازش خاموش باشد کار در صف می‌ماند
         await new Promise((r) => setTimeout(r, 2000));
         const { data: job } = await api.get<JobLite>(`/jobs/${job_id}/`);
         if (job.state === "FAILED" || job.state === "CANCELLED") { setError(job.error || "ترجمه ناموفق بود."); return; }
@@ -39,7 +39,7 @@ export function TranslatePanel({ api: ws }: PanelProps) {
         }
         setLabel(job.current_step_label || (job.state === "RUNNING" ? "در حال ترجمه…" : "در صفِ ترجمه…"));
       }
-      if (!stop.current) setError("ترجمه بیش از حد طول کشید؛ بعداً دوباره امتحان کنید.");
+      if (!stop.current) setError("ترجمه هنوز در صفِ سرورِ پردازش است؛ می‌تواند پس از روشن شدنِ آن تمام شود (از «صفِ پردازش» دنبال کنید) ولی خودکار روی تایم‌لاین نمی‌نشیند؛ آن موقع دوباره «ترجمه» را بزنید.");
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -73,7 +73,7 @@ export function TranslatePanel({ api: ws }: PanelProps) {
       </div>
       {busy && <div className="ws-muted" data-testid="tr-status"><Spinner size={12} /> {label}</div>}
       {error && <div className="mt-2"><Alert tone="bad" title="ترجمه انجام نشد">{error}</Alert></div>}
-      <p className="ws-hint">ترجمه با هوش مصنوعی انجام می‌شود (اول سرورِ پردازش، وگرنه سرویسِ ابری). اگر هیچ‌کدام در دسترس نباشد دلیلش این‌جا نوشته می‌شود و می‌توانید بعداً دوباره بزنید. زمانِ هر خط همان زمانِ اصل می‌ماند؛ برای زبان‌های راست‌به‌چپ نیازی به تغییر نیست.</p>
+      <p className="ws-hint">ترجمه با هوش مصنوعی انجام می‌شود (اول سرورِ پردازش، وگرنه سرویسِ ابری). اگر هیچ‌کدام الان در دسترس نباشد و سرورِ پردازش ثبت شده باشد، کار «در صف — منتظرِ سرورِ پردازش» می‌ماند و با روشن شدنش انجام می‌شود؛ وگرنه دلیلش این‌جا نوشته می‌شود. زمانِ هر خط همان زمانِ اصل می‌ماند؛ برای زبان‌های راست‌به‌چپ نیازی به تغییر نیست.</p>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from datetime import timedelta
@@ -80,6 +81,24 @@ def node_status() -> dict:
 
     nodes = compute.online_nodes("photo")
     return {"online": bool(nodes), "nodes": [n.name for n in nodes]}
+
+
+#: وضعیتِ یکسان برای هر کاری که پردازشش روی سرورِ پردازش است و آن خاموش است (صفِ ماندگارِ apps.compute: کار گم نمی‌شود،
+#: ناموفق نمی‌شود مگر خطای واقعی بدهد یا کاربر لغوش کند)
+WAIT_NODE = "در صف — منتظرِ سرورِ پردازش"
+
+
+def queued_message(job, online: bool, *, sooner: str = "در صفِ سرورِ پردازش") -> str:
+    """پیامِ کارِ صف‌شدهٔ گره: بی گرهٔ آنلاین ⇒ ``WAIT_NODE``؛ وگرنه جایگاه در صف از «صفِ پردازش» (اگر در دسترس بود) یا ``sooner``."""
+    if not online:
+        return WAIT_NODE
+    try:
+        from apps.compute import queue as queue_view
+
+        text = str(queue_view.one(job).get("status_text") or "")
+    except Exception:  # noqa: BLE001 — نمای صف اختیاری است؛ پیامِ ساده کافی است
+        text = ""
+    return text or sooner
 
 
 # ───────────────────────────── کتابخانه
@@ -404,7 +423,7 @@ def start(edit: PhotoEdit) -> PhotoEdit:
         return edit
     online = node_status()["online"]
     _set(edit, state=PhotoEdit.State.NODE, compute_job=str(job.uid), progress=0.05,
-         message="در صفِ سرورِ پردازش" if online else "منتظرِ سرورِ پردازش — الان هیچ سرورِ پردازشی با ویرایشگرِ عکس آنلاین نیست",
+         message=WAIT_NODE if not online else "در صفِ سرورِ پردازش",
          stats=dict(edit.stats or {}) | {"kit_payload": payload, "enqueued_at": timezone.now().isoformat(),
                                          "reused": job.state == job.State.COMPLETED})
     return edit
@@ -460,8 +479,7 @@ def refresh(edit: PhotoEdit) -> bool:
         return False
     online = bool(compute.online_nodes("photo"))
     if job.state == ComputeJob.State.QUEUED:
-        msg = "در صفِ سرورِ پردازش" if online else \
-            "منتظرِ سرورِ پردازش — الان هیچ سرورِ پردازشی با ویرایشگرِ عکس آنلاین نیست"
+        msg = queued_message(job, online)
         prog = 0.05
     else:
         msg = f"روی {job.node.name if job.node else 'سرورِ پردازش'}: {job.message or 'در حالِ ویرایش'}"
@@ -516,6 +534,42 @@ def server_ctx(store) -> dict:
 
     return {"notes": [], "store_name": store.name, "logo_path": logo_path, "mask_path": mask_path,
             "paint_path": paint_path, "liquify_path": liquify_path, "scale": 1.0}
+
+
+def export_project(project: PhotoProject, fmt: str, quality: int = 92) -> tuple[bytes, str, str, list[str]]:
+    """پروژهٔ ویرایشگر ⇒ فایل با قالبِ خواسته ⇒ (بایت‌ها، نوعِ محتوا، نامِ فایل، یادداشت‌ها). ترکیب روی سرورِ سایت (همان خط‌لوله‌ی «ساخت»)."""
+    from . import exportfmt
+    from .designer import render
+
+    fmt = {"jpg": "jpeg", "tif": "tiff"}.get(fmt, fmt)
+    if fmt not in exportfmt.FORMATS:
+        raise PhotoError("این قالب پشتیبانی نمی‌شود.")
+    asset = project.asset
+    state = dict(project.data or {})
+    state.setdefault("layers", [])
+    frame, n1 = render.render_frame(asset, state)
+    notes = list(n1)
+    if render.has_overlays(state):
+        ctx = server_ctx(asset.store)
+        ctx["scale"] = (frame.width / asset.width) if asset.width else 1.0
+        norm = layers_mod.normalize_layers(state["layers"], store=asset.store, base="one")
+        final = layers_mod.compose(frame, norm, ctx, project=project.pk)
+        notes += ctx["notes"]
+    else:
+        final = frame
+    try:
+        if fmt == "psd":
+            ctx2 = server_ctx(asset.store)
+            ctx2["scale"] = (frame.width / asset.width) if asset.width else 1.0
+            data, n3 = exportfmt.psd_bytes(final, frame, state["layers"], ctx2, project.pk, base_name=asset.title or "عکس")
+            notes += n3 + ctx2["notes"]
+        else:
+            data = exportfmt.convert(final, fmt, quality)
+    except exportfmt.ExportError as exc:
+        raise PhotoError(str(exc)) from exc
+    ext, mime, _t = exportfmt.FORMATS[fmt]
+    name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (project.title or asset.title or "photo"))[:40].strip("-") or "photo"
+    return data, mime, f"{name}.{ext}", list(dict.fromkeys(notes))[:8]
 
 
 def run_server_stage(edit: PhotoEdit) -> PhotoEdit:
@@ -643,7 +697,7 @@ def refresh_analysis(asset: PhotoAsset) -> None:
     else:
         online = bool(compute.online_nodes("photo"))
         asset.kit_analysis = {"state": job.state, "message": "در حالِ تحلیل" if job.state == ComputeJob.State.RUNNING
-                              else ("در صفِ سرورِ پردازش" if online else "منتظرِ سرورِ پردازش")}
+                              else ("در صفِ سرورِ پردازش" if online else WAIT_NODE)}
     asset.save(update_fields=["kit_analysis", "updated_at"])
 
 
@@ -1368,6 +1422,99 @@ def normalize_preset_data(data) -> dict:
     return out
 
 
+# ───────────────────────────── اکشن‌های ضبط‌شده (نوبت ۶): kind="action"؛ سرور فقط اعتبار و اندازه را می‌سنجد، اجرا در مرورگر است
+
+ACTION_MAX_STEPS = 80
+ACTION_MAX_OPS = 40
+ACTION_MAX_BYTES = 160 * 1024
+_ACT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,23}$")
+_ACT_REF = re.compile(r"^@\d{1,3}$")
+_ACT_RESERVED = {"layers", "fv", "liquify"}
+_ACT_NO_PATCH = {"id", "type", "src", "parent", "path"}
+_ACT_PORTABLE = {"text", "shape", "adjust"}
+
+
+def _act_json(v, what: str):
+    try:
+        raw = json.dumps(v, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise PhotoError(f"مقدارِ «{what}» در اکشن درست نیست.") from exc
+    if len(raw) > 40_000:
+        raise PhotoError(f"مقدارِ «{what}» در اکشن خیلی بزرگ است.")
+    return json.loads(raw)
+
+
+def normalize_action_data(data) -> dict:
+    """{steps: [{label, ops: [set|add|patch|remove]}]} ⇒ همان ساختار با مقدارهای پاک‌سازی‌شده. لایه‌های افزوده فقط بی‌پیکسل‌اند
+    (متن، شکل، تنظیم، لوگو) و از ``layers.preset_layers`` می‌گذرند؛ پیکسل و ماسکِ نقاشی‌شده هرگز ذخیره نمی‌شود."""
+    if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
+        raise PhotoError("دادهٔ اکشن باید {steps: [...]} باشد.")
+    if len(data["steps"]) > ACTION_MAX_STEPS:
+        raise PhotoError(f"اکشن بیشتر از {ACTION_MAX_STEPS} گام نمی‌شود.")
+    steps = []
+    for i, st in enumerate(data["steps"]):
+        if not isinstance(st, dict) or not isinstance(st.get("ops"), list):
+            raise PhotoError(f"گامِ {i + 1} اکشن درست نیست.")
+        if len(st["ops"]) > ACTION_MAX_OPS:
+            raise PhotoError(f"گامِ {i + 1} بیش از {ACTION_MAX_OPS} عمل دارد.")
+        ops_ = []
+        for o in st["ops"]:
+            if not isinstance(o, dict):
+                raise PhotoError(f"گامِ {i + 1}: عمل باید شیء باشد.")
+            kind = o.get("op")
+            if kind == "set":
+                key = str(o.get("key") or "")
+                if not _ACT_KEY.match(key) or key in _ACT_RESERVED:
+                    raise PhotoError(f"گامِ {i + 1}: کلیدِ «{key[:30]}» برای اکشن مجاز نیست.")
+                ops_.append({"op": "set", "key": key, "value": _act_json(o.get("value"), key)})
+            elif kind == "add":
+                lay = o.get("layer")
+                if not isinstance(lay, dict):
+                    raise PhotoError(f"گامِ {i + 1}: لایهٔ افزوده درست نیست.")
+                is_logo = lay.get("type") == "image" and isinstance(lay.get("src"), dict) and lay["src"].get("kind") == "logo"
+                if lay.get("type") not in _ACT_PORTABLE and not is_logo:
+                    raise PhotoError(f"گامِ {i + 1}: لایه‌ای از نوعِ «{str(lay.get('type'))[:20]}» در اکشن نمی‌آید (فقط متن، شکل، تنظیم، لوگو).")
+                lay = dict(lay)
+                lay.pop("parent", None)
+                try:
+                    (clean,) = layers_mod.preset_layers([lay])
+                except (layers_mod.LayerError, ValueError) as exc:
+                    raise PhotoError(f"گامِ {i + 1}: {exc}") from exc
+                clean.pop("parent", None)
+                ops_.append({"op": "add", "layer": clean})
+            elif kind == "patch":
+                ref = str(o.get("ref") or "")
+                if ref != "base" and not _ACT_REF.match(ref):
+                    raise PhotoError(f"گامِ {i + 1}: مرجعِ لایه درست نیست.")
+                if not isinstance(o.get("set"), dict):
+                    raise PhotoError(f"گامِ {i + 1}: patch باید set داشته باشد.")
+                sset = {}
+                for k, v in o["set"].items():
+                    if k in _ACT_NO_PATCH or not _ACT_KEY.match(str(k)):
+                        continue
+                    sset[str(k)] = _act_json(v, str(k))
+                if sset:
+                    ops_.append({"op": "patch", "ref": ref, "set": sset})
+            elif kind == "remove":
+                ref = str(o.get("ref") or "")
+                if not _ACT_REF.match(ref):
+                    raise PhotoError(f"گامِ {i + 1}: مرجعِ لایه درست نیست.")
+                ops_.append({"op": "remove", "ref": ref})
+            else:
+                raise PhotoError(f"گامِ {i + 1}: عملِ «{str(kind)[:20]}» ناشناخته است.")
+        if ops_:
+            steps.append({"label": str(st.get("label") or f"گامِ {i + 1}")[:80], "ops": ops_})
+    out = {"steps": steps}
+    if len(json.dumps(out, ensure_ascii=False)) > ACTION_MAX_BYTES:
+        raise PhotoError("اکشن خیلی بزرگ است؛ کوتاه‌ترش کنید.")
+    return out
+
+
+def normalize_by_kind(kind: str, data) -> dict:
+    """داده‌ی پیش‌تنظیم یا اکشن، بر پایهٔ kind."""
+    return normalize_action_data(data) if kind == "action" else normalize_preset_data(data)
+
+
 def preset_dict(p: PhotoPreset) -> dict:
     return {"id": p.pk, "name": p.name, "kind": p.kind, "data": p.data or {}, "created_at": p.created_at,
             "updated_at": p.updated_at}
@@ -1429,7 +1576,7 @@ GENFILL_PRIORITY = 105          # پایین‌تر از ویرایش‌های �
 GENFILL_TIMEOUT_S = 1200
 GENFILL_MAX_ACTIVE = 4          # هم‌زمان در صف/اجرا برای هر فروشگاه
 GENFILL_TITLE = "پرکردن هوشمند"
-GENFILL_WAIT_MESSAGE = "سرورِ پردازش خاموش است؛ کار در صف می‌ماند و وقتی روشن شد انجام می‌شود"
+GENFILL_WAIT_MESSAGE = WAIT_NODE + " (سرورِ پردازش خاموش است؛ کار گم نمی‌شود و وقتی روشن شد انجام می‌شود)"
 #: ``node_wanted`` ِ کاری که منتظرِ ترجمهٔ توضیحِ فارسی به انگلیسی است. ``compute.claim`` فقط کارهایی با node_wanted خالی یا
 #: نامِ همان گره می‌دهد ⇒ هیچ گره‌ای این کار را نمی‌گیرد تا ترجمه برسد (بی هیچ تغییری در apps.compute و عاملِ گره).
 #: ترجمه که رسید، گراف عوض و node_wanted به مقدارِ اصلی برمی‌گردد (genfill_release).

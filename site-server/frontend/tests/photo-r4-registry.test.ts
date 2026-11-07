@@ -1,5 +1,5 @@
 // آزمونِ فهرستِ یگانهٔ دستورها (نوبت ۴): هیچ دستورِ مرده‌ای نباشد، نام‌ها یکتا و بدونِ نامِ برندِ دیگران، جستجو درست.
-import { MENUS, buildCommands, norm, pageCommands, searchCommands, TOOL_META } from "../src/features/content/photo/pro/menu/registry";
+import { MENUS, actionCommands, buildCommands, norm, pageCommands, searchCommands, TOOL_META } from "../src/features/content/photo/pro/menu/registry";
 import { EFFECT_ROWS, effectCommands } from "../src/features/content/photo/pro/menu/effects";
 import type { Host, HostState } from "../src/features/content/photo/pro/menu/registry";
 
@@ -14,8 +14,8 @@ const ok = (c: unknown, msg: string) => {
 };
 
 const TOOLS = Object.keys(TOOL_META).map((id, i) => ({ id, key: String.fromCharCode(65 + (i % 26)), title: `ابزار ${id}`, hint: `راهنمای ${id}` }));
-const ALL_ON: HostState = { hasActive: true, activeType: "group", activeIsBase: false, activeLocked: false, activeHasMask: true, hasSelection: true, canUndo: true, canRedo: true, layerCount: 3, activeIsPaint: true, storeFrameOn: false, nodeOn: true };
-const NONE: HostState = { ...ALL_ON, hasActive: false, activeType: null, activeIsPaint: false, activeHasMask: false, hasSelection: false, canUndo: false, canRedo: false, nodeOn: false };
+const ALL_ON: HostState = { hasActive: true, activeType: "group", activeIsBase: false, activeLocked: false, activeHasMask: true, hasSelection: true, canUndo: true, canRedo: true, layerCount: 3, activeIsPaint: true, storeFrameOn: false, nodeOn: true, recording: false, penPoints: 4, penClosed: false };
+const NONE: HostState = { ...ALL_ON, recording: false, penPoints: 0, penClosed: false, hasActive: false, activeType: null, activeIsPaint: false, activeHasMask: false, hasSelection: false, canUndo: false, canRedo: false, nodeOn: false };
 
 /** Host ِ جعلی: هر تابع صدا زده شود شمرده می‌شود */
 function spyHost(s: HostState) {
@@ -27,7 +27,7 @@ function spyHost(s: HostState) {
   return { h: h as unknown as Host, calls };
 }
 
-const cmds = buildCommands(TOOLS, [...effectCommands(), ...pageCommands()]);
+const cmds = buildCommands(TOOLS, [...effectCommands(), ...pageCommands(), ...actionCommands([{ id: 7, name: "لوگو و روشن" }, { id: 9, name: "Square" }])]);
 ok(EFFECT_ROWS.length >= 40, `دست‌کم ۴۰ فیلتر در فهرست (${EFFECT_ROWS.length})`);
 ok(searchCommands(cmds, "blur")[0]?.cmd.id.startsWith("fx."), "جستجوی blur ⇒ یک فیلتر");
 ok(searchCommands(cmds, "بوکه").some((x) => x.cmd.id === "fx.lens_blur"), "بوکه ⇒ محوِ لنز");
@@ -40,6 +40,28 @@ ok(searchCommands(cmds, "اسنپ شات")[0]?.cmd.id === "edit.snapshot", "اس
 ok(searchCommands(cmds, "لایه خالی").some((x) => x.cmd.id === "layer.newPaint"), "لایه خالی ⇒ لایهٔ نقاشی");
 ok(searchCommands(cmds, "قطره چکان").some((x) => x.cmd.id === "tool.picker"), "قطره‌چکان ⇒ ابزارِ رنگ");
 ok(searchCommands(cmds, "color picker")[0]?.cmd.id === "tool.picker", "color picker");
+ok(searchCommands(cmds, "underline")[0]?.cmd.id === "text.underline", "underline");
+ok(searchCommands(cmds, "قیمت قبلی")[0]?.cmd.id === "text.strike", "قیمت قبلی ⇒ خط‌خوردگی");
+ok(searchCommands(cmds, "curved text").some((x) => x.cmd.id.startsWith("text.warp.")), "curved text ⇒ متنِ خمیده");
+ok(searchCommands(cmds, "warp text arc").some((x) => x.cmd.id === "text.warp.arc"), "warp text arc");
+ok(searchCommands(cmds, "psd")[0]?.cmd.id === "file.export.psd", "psd ⇒ فایلِ لایه‌دار");
+ok(searchCommands(cmds, "pdf")[0]?.cmd.id === "file.export.pdf", "pdf");
+ok(searchCommands(cmds, "tiff").some((x) => x.cmd.id === "file.export.tiff"), "tiff");
+ok(searchCommands(cmds, "record action")[0]?.cmd.id === "action.record", "record action");
+ok(searchCommands(cmds, "ضبط اکشن")[0]?.cmd.id === "action.record", "ضبط اکشن");
+ok(searchCommands(cmds, "macro").some((x) => x.cmd.id === "action.record"), "macro");
+ok(searchCommands(cmds, "stop recording")[0]?.cmd.id === "action.stop", "stop recording");
+ok(searchCommands(cmds, "اجرای اکشن لوگو").some((x) => x.cmd.id === "action.run.7"), "اجرای اکشنِ ذخیره‌شده");
+ok(searchCommands(cmds, "run action square").some((x) => x.cmd.id === "action.run.9"), "run action Square");
+{
+  const rec = spyHost({ ...ALL_ON, recording: true });
+  ok(cmds.find((c) => c.id === "action.record")!.enabled!(rec.h) !== null && cmds.find((c) => c.id === "action.stop")!.enabled!(rec.h) === null, "ضبط روشن: شروع غیرفعال، پایان فعال");
+  const idle = spyHost(NONE);
+  ok(cmds.find((c) => c.id === "action.stop")!.enabled!(idle.h) !== null, "ضبط خاموش: پایان غیرفعال");
+  cmds.find((c) => c.id === "action.run.7")!.run(idle.h);
+  ok(idle.calls.includes("actionPlay"), "اجرای اکشن ⇒ Host.actionPlay");
+}
+ok(cmds.every((c) => !/photoshop|adobe/i.test([c.title, c.en, c.tip, ...(c.syn ?? [])].join(" "))), "نامِ برندِ دیگران در هیچ دستوری نیست");
 ok(cmds.length > 80, `دست‌کم ۸۰ دستور (الان ${cmds.length})`);
 const ids = new Set<string>();
 for (const c of cmds) {
@@ -53,7 +75,9 @@ for (const c of cmds) {
   const { h, calls } = spyHost(ALL_ON);
   const h0 = spyHost({ ...ALL_ON, activeHasMask: false }).h;
   const h1 = spyHost({ ...ALL_ON, activeType: "image" }).h;
-  ok(!c.enabled || c.enabled(h) === null || c.enabled(h0) === null || c.enabled(h1) === null, `در حالتِ فعال باید فعال باشد ${c.id}: ${c.enabled?.(h)}`);
+  const h2 = spyHost({ ...ALL_ON, activeType: "text" }).h;
+  const h3 = spyHost({ ...ALL_ON, recording: true }).h;
+  ok(!c.enabled || c.enabled(h) === null || c.enabled(h0) === null || c.enabled(h1) === null || c.enabled(h2) === null || c.enabled(h3) === null, `در حالتِ فعال باید فعال باشد ${c.id}: ${c.enabled?.(h)}`);
   c.run(h);
   ok(calls.length >= 1, `دستورِ مرده (هیچ کاری نمی‌کند): ${c.id}`);
   // بدونِ لایه/انتخاب: یا فعال است یا دلیلِ فارسی دارد

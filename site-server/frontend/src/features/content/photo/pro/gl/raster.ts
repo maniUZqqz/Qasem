@@ -111,16 +111,56 @@ function linePieces(ctx: CanvasRenderingContext2D, line: string, rtl: boolean, s
   return { pieces, width: total };
 }
 
+// ───────────────────────── متنِ خمیده (نوبت ۶) — همان فرمولِ backend/apps/photoedit/textlayer.py (warp_params / warp_extra / warp_tile)
+export type WarpStyle = "arc" | "wave" | "flag" | "bulge" | "rise";
+const WARP_DY: Record<WarpStyle, number> = { arc: 1.4, wave: 0.7, flag: 0.6, rise: 1.0, bulge: 0 };
+export const UL_OFFSET = 0.12;
+export const STRIKE_OFFSET = -0.28;
+export const LINE_W = 0.065;
+
+/** u = −۱..۱ از چپِ بلوک تا راست ⇒ جابه‌جاییِ عمودی (پیکسل) و ضریبِ کشیدگیِ عمودی */
+export function warpParams(style: WarpStyle, amount: number, u: number, sizePx: number): { dy: number; s: number } {
+  if (style === "arc") return { dy: -amount * sizePx * 1.4 * (1 - u * u), s: 1 };
+  if (style === "wave") return { dy: amount * sizePx * 0.7 * Math.sin(Math.PI * (u + 1)), s: 1 };
+  if (style === "flag") return { dy: amount * sizePx * 0.6 * Math.sin(1.5 * Math.PI * (u + 1)), s: 1 };
+  if (style === "rise") return { dy: -amount * sizePx * 1.0 * u, s: 1 };
+  return { dy: 0, s: 1 + amount * 0.7 * (1 - u * u) };
+}
+
+export function warpExtra(style: WarpStyle, amount: number, sizePx: number, th: number): number {
+  let e = Math.abs(amount) * (WARP_DY[style] ?? 0) * sizePx;
+  if (style === "bulge") e += (Math.max(0, 0.7 * amount) * th) / 2;
+  return Math.ceil(e) + 2;
+}
+
+/** ستون‌به‌ستون: هر ستون به اندازهٔ dy جابه‌جا و s برابر کشیده می‌شود؛ محورِ تایل (مرکز) ثابت می‌ماند */
+export function warpTile(tile: HTMLCanvasElement, style: WarpStyle, amount: number, sizePx: number): HTMLCanvasElement {
+  const tw = tile.width;
+  const th = tile.height;
+  const extra = warpExtra(style, amount, sizePx, th);
+  const out = mk(tw, th + 2 * extra);
+  const o = out.getContext("2d")!;
+  o.imageSmoothingEnabled = true;
+  o.imageSmoothingQuality = "high";
+  for (let x = 0; x < tw; x++) {
+    const u = ((x + 0.5) / tw) * 2 - 1;
+    const { dy, s } = warpParams(style, amount, u, sizePx);
+    o.drawImage(tile, x, 0, 1, th, x, extra + dy + (th / 2) * (1 - s), 1, th * s);
+  }
+  return out;
+}
+
 /** مثلِ textlayer.render_text ⇐ بوم + اندازه‌ها. canvasW = پهنای بومِ کاری (پیکسل) */
 export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): TextRaster | null {
-  const text = String(layer.text ?? "");
+  const up = (s: string) => (layer.caps ? s.toUpperCase() : s);
+  const text = up(String(layer.text ?? ""));
   if (!text.trim()) return null;
   const sizePx = Math.max(4, layer.size * canvasW);
   const ctx = mctx();
   ctx.font = fontStr(layer.weight, sizePx, layer.font);
   const widthPx = (layer.width || 0) * canvasW;
   let lines: string[];
-  if (layer.lines && layer.lines.length) lines = layer.lines.slice(0, MAX_LINES);
+  if (layer.lines && layer.lines.length) lines = layer.lines.slice(0, MAX_LINES).map(up);
   else if (widthPx > 0) lines = wrapLines(ctx, text, widthPx);
   else {
     // auto width: a line longer than 94% of the canvas width is wrapped (same as the server)
@@ -193,6 +233,14 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
       g.fillStyle = layer.color;
       g.fillText(p.text, ox + x0 + p.x, y);
     }
+    if (layer.underline || layer.strike) {
+      const lw = Math.max(1, Math.round(LINE_W * sizePx));
+      const xl = Math.round(ox + x0);
+      const xr = Math.round(ox + x0 + l.width);
+      g.fillStyle = layer.color;
+      if (xr > xl && layer.underline) g.fillRect(xl, Math.round(y + UL_OFFSET * sizePx), xr - xl, lw);
+      if (xr > xl && layer.strike) g.fillRect(xl, Math.round(y + STRIKE_OFFSET * sizePx), xr - xl, lw);
+    }
   });
   if (shadow) {
     const sc = mk(tw, th);
@@ -209,8 +257,10 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   }
   t.drawImage(glyphs, 0, 0);
 
-  if (layer.tile) return { canvas: tilePattern(tile, canvasW, canvasH, layer.tile.angle, layer.tile.gap), bw: 1, bh: canvasH / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: true };
-  return { canvas: tile, bw: tw / canvasW, bh: th / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: false };
+  const wp = layer.warp;
+  const done = wp && Math.abs(wp.amount) > 0.001 ? warpTile(tile, wp.style, wp.amount, sizePx) : tile;
+  if (layer.tile) return { canvas: tilePattern(done, canvasW, canvasH, layer.tile.angle, layer.tile.gap), bw: 1, bh: canvasH / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: true };
+  return { canvas: done, bw: done.width / canvasW, bh: done.height / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: false };
 }
 
 /** مثلِ textlayer.tile_pattern */

@@ -1077,6 +1077,12 @@ export default function Stage(p: Props) {
         for (let i = pen.pts.length - 1; i >= 0; i--) {
           const a = pen.pts[i];
           if (!penNear([a.x, a.y], sx, sy, 10)) continue;
+          if (e.shiftKey) {
+            pen.removeAt(i); // Shift + کلیک روی نقطه = برداشتنِ آن نقطه
+            p.onPenChange();
+            p.onStatus("نقطه برداشته شد");
+            return;
+          }
           if (i === 0 && !pen.finished && pen.pts.length >= 3) {
             pen.close(); // کلیک روی نقطهٔ اول = بستنِ مسیر
             p.onPenChange();
@@ -1088,8 +1094,24 @@ export default function Stage(p: Props) {
             p.onPenChange();
             return;
           }
+          pen.sel = i;
+          p.onPenChange();
           beginDrag(e, { k: "pen", kind: "anchor", i, start: pt, orig: [a.x, a.y], sx, sy, moved: false, smooth: false });
           return;
+        }
+        // کلیک روی خودِ مسیر (مسیرِ تمام‌شده، یا Ctrl در مسیرِ در حالِ رسم) = افزودنِ نقطه روی همان پاره؛ شکلِ خم عوض نمی‌شود
+        if (pen.segCount > 0 && (pen.finished || e.ctrlKey || e.metaKey) && pen.pts.length < PEN_MAX) {
+          const hit = pen.nearestSegment((x, y) => geoRef.current!.toScreen(x, y), sx, sy);
+          if (hit && hit.d <= 7) {
+            const i = pen.insertAt(hit.seg, hit.t);
+            if (i >= 0) {
+              const a = pen.pts[i];
+              p.onPenChange();
+              p.onStatus("نقطه افزوده شد؛ بکشیدش تا جابه‌جا شود");
+              beginDrag(e, { k: "pen", kind: "anchor", i, start: pt, orig: [a.x, a.y], sx, sy, moved: false, smooth: false });
+              return;
+            }
+          }
         }
         if (pen.finished) pen.clear(); // مسیرِ تمام‌شده + کلیک روی جای خالی = مسیرِ تازه
         if (pen.pts.length >= PEN_MAX) return p.onStatus(`مسیر بیشتر از ${PEN_MAX} نقطه نمی‌شود.`);

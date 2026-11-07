@@ -28,6 +28,42 @@ class DesignError(Exception):
     """خطایی که متنش برای کاربر است."""
 
 
+#: هوشِ مصنوعیِ بینا (برنامه‌ریز و منتقد) وقتی هیچ مسیری جواب نداد و سرورِ پردازشِ ثبت‌شده فقط خاموش است: طراحی «در صف — منتظرِ سرورِ پردازش»
+#: می‌ماند و با روشن‌شدنش خودکار از نو اجرا می‌شود (نه ناقص ساخته می‌شود، نه شکست می‌خورد). سقفِ انتظار ۲۴ ساعت، بعدش مثلِ همیشه بی هوش مصنوعی.
+WAIT_NODE = services.WAIT_NODE
+DESIGN_WAIT_POLL_S = 120
+DESIGN_WAIT_MAX_S = 24 * 3600
+
+
+class NodeWait(Exception):
+    """طراحی باید منتظرِ سرورِ پردازش بماند (فقط درونِ run)."""
+
+
+def _node_registered_offline() -> bool:
+    """سروری با توانایی‌های هوشِ مصنوعی/عکس ثبت است ولی الان هیچ‌کدام آنلاین نیست."""
+    try:
+        from apps.compute import services as compute
+
+        if compute.online_nodes("photo") or compute.online_nodes("ollama"):
+            return False
+        return bool(compute.known_nodes("ollama") or compute.known_nodes("photo"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _should_wait(d: PhotoDesign) -> bool:
+    now = time.time()
+    since = (d.options or {}).get("wait_since")
+    if since and now - float(since) > DESIGN_WAIT_MAX_S:
+        return False
+    if not _node_registered_offline():
+        return False
+    if not since:
+        d.options = dict(d.options or {}, wait_since=now)
+        d.save(update_fields=["options"])
+    return True
+
+
 # ───────────────────────────── ساخت و ورودی
 
 def clean_input(data: dict) -> dict:
@@ -142,7 +178,13 @@ def _ai_overlay(plan_raw: dict, ai_plan: dict | None, zone_pref: str) -> dict:
     return plan_raw
 
 
-def run(design_id: int) -> None:
+def run(design_id: int, allow_wait: bool = False) -> None:
+    """``allow_wait``: مسیرِ Celery ِ تک‌طراحی True می‌دهد (طراحی می‌تواند منتظرِ سرورِ پردازش بماند)؛ «طراحیِ گروهی» و آزمون‌ها False."""
+    if allow_wait:
+        # بیدارباشِ زودرس (ارسالِ دوبارهٔ پنل) کاری نمی‌کند؛ هر طراحیِ منتظر فقط یک زنجیرِ بیدارباش دارد
+        row = PhotoDesign.objects.filter(pk=design_id).values("state", "options").first()
+        if row and row["state"] == PhotoDesign.State.QUEUED and float((row["options"] or {}).get("wait_next") or 0) > time.time():
+            return
     # فقط یک کارگر طراحی را برمی‌دارد (پنل کارِ مانده در صف را دوباره می‌فرستد؛ دو اجرای هم‌زمان فایل‌ها را به‌هم می‌ریخت)
     claimed = PhotoDesign.objects.filter(pk=design_id, state=PhotoDesign.State.QUEUED).update(
         state=PhotoDesign.State.RUNNING, message="شروع شد", updated_at=timezone.now())
@@ -152,8 +194,11 @@ def run(design_id: int) -> None:
     if d is None:
         return
     began = time.monotonic()
+    log0 = len(d.log or [])
     try:
-        _run(d)
+        _run(d, allow_wait)
+    except NodeWait:
+        _park(d, log0)
     except Exception as exc:  # noqa: BLE001
         logger.exception("photoedit.designer: design %s failed", d.pk)
         _log(d, f"خطای داخلی: {exc}", message="ناموفق", state=PhotoDesign.State.FAILED, error=str(exc)[:1500])
@@ -161,7 +206,31 @@ def run(design_id: int) -> None:
         logger.info("photoedit.designer: design %s done in %.1fs", d.pk, time.monotonic() - began)
 
 
-def _run(d: PhotoDesign) -> None:
+def _park(d: PhotoDesign, log0: int) -> None:
+    """طراحی «در صف — منتظرِ سرورِ پردازش»: وضعیت QUEUED، یک بیدارباشِ بعدی؛ گزارشِ کار فقط یک سطرِ انتظار می‌گیرد (نه هزار سطر در ۲۴ ساعت)."""
+    d.refresh_from_db()
+    opts = dict(d.options or {})
+    opts["wait_next"] = time.time() + DESIGN_WAIT_POLL_S - 5
+    line = {"t": timezone.now().isoformat(timespec="seconds"),
+            "text": "هوشِ مصنوعی روی سرورِ پردازش است و الان خاموش است؛ طراحی در صف می‌ماند و با روشن‌شدنِ سرور خودکار ادامه می‌دهد."}
+    kept = (d.log or [])[:log0]
+    if not (kept and kept[-1].get("text") == line["text"]):
+        kept = kept + [line]
+    d.log = kept
+    d.options = opts
+    d.state = PhotoDesign.State.QUEUED
+    d.message = WAIT_NODE
+    d.progress = 0.05
+    d.save(update_fields=["log", "options", "state", "message", "progress", "updated_at"])
+    from django.conf import settings
+
+    if not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        from ..tasks import run_design_task
+
+        run_design_task.apply_async((d.pk, True), countdown=DESIGN_WAIT_POLL_S)
+
+
+def _run(d: PhotoDesign, allow_wait: bool = False) -> None:
     asset, store, user = d.asset, d.store, d.created_by
     t0 = time.monotonic()
     n = int((d.options or {}).get("variants") or 3)
@@ -188,6 +257,8 @@ def _run(d: PhotoDesign) -> None:
                                   "notes": ai_plan.get("notes", ""), "reason": ""}
             _log(d, f"{meta.get('label') or 'هوش مصنوعی'}: {ai_plan.get('notes') or 'برنامه را نوشت'}", 0.22)
         except ai_mod.AIUnavailable as exc:
+            if allow_wait and _should_wait(d):
+                raise NodeWait(str(exc)) from exc
             ai_info["planner"] = {"used": False, "reason": str(exc)}
             _log(d, f"هوشِ مصنوعی در دسترس نبود ({exc}). الگو و متن‌ها را با قاعده‌های آماده می‌سازم.", 0.22)
     else:
@@ -239,6 +310,8 @@ def _run(d: PhotoDesign) -> None:
                 try:
                     crit, meta = ai_mod.critique_with_ai(store, img, brief, summary, fmt)
                 except ai_mod.AIUnavailable as exc:
+                    if allow_wait and used_rounds == 0 and _should_wait(d):
+                        raise NodeWait(str(exc)) from exc
                     crit_dead = str(exc)
                     break
                 label = meta.get("label", label)

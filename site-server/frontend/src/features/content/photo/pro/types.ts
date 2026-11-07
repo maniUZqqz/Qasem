@@ -84,8 +84,17 @@ export type TextStroke = { w: number; color: string } | null;
 export type TextShadow = { color: string; opacity: number; blur: number; dx: number; dy: number } | null;
 export type TextBox = { color: string; opacity: number; pad: number; radius: number } | null;
 
+export type TextWarpStyle = "arc" | "wave" | "flag" | "bulge" | "rise";
+/** متنِ خمیده (نوبت ۶): amount −۱..۱؛ فرمولش در gl/raster.ts › warpParams و backend textlayer.warp_params یکی است */
+export type TextWarp = { style: TextWarpStyle; amount: number };
+
 export type TextLayer = Common & {
   type: "text";
+  underline?: boolean;
+  strike?: boolean;
+  /** حروفِ لاتین بزرگ نمایش داده می‌شود (فارسی بی‌اثر) */
+  caps?: boolean;
+  warp?: TextWarp | null;
   text: string;
   font: string;
   weight: number;

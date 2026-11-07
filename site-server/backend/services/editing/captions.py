@@ -36,8 +36,29 @@ OFFLINE_MESSAGE = (
 )
 
 
+#: a registered processing server that is merely OFF: the work waits in the durable queue instead of failing (apps.compute.park)
+WAITING_TEXT = "در صف — منتظرِ روشن شدنِ سرورِ پردازش؛ هر وقت روشن شد خودکار انجام می‌شود."
+
+
 class CaptionsUnavailable(TimelineError):
     """Speech recognition cannot run now. Always says what to do, in Persian."""
+
+
+def node_registered(capability: str = "voice") -> bool:
+    """Is there a processing server with this ability on record (online or not)? Then «off» means «wait», not «impossible»."""
+    try:
+        from apps.compute import services as compute
+
+        return bool(compute.known_nodes(capability))
+    except Exception:  # noqa: BLE001 — compute app unavailable in this process
+        return False
+
+
+def waiting_error(message: str = WAITING_TEXT, capability: str = "voice") -> CaptionsUnavailable:
+    """Raised where the node is needed and off: `Job.mark_failed` sees `node_waiting` and parks the job instead of failing it."""
+    exc = CaptionsUnavailable(message)
+    exc.node_waiting = capability                      # type: ignore[attr-defined]
+    return exc
 
 
 # ------------------------------------------------------------------ parsing
@@ -237,7 +258,9 @@ def status() -> dict:
     except Exception:  # noqa: BLE001 — compute app unavailable in this process
         node = False
     local = _local_ready()
-    return {"node": node, "local": local, "ok": node or local, "message": "" if (node or local) else OFFLINE_MESSAGE}
+    waiting = bool(not node and not local and node_registered("voice"))
+    return {"node": node, "local": local, "ok": node or local, "waiting": waiting,
+            "message": "" if (node or local) else (WAITING_TEXT if waiting else OFFLINE_MESSAGE)}
 
 
 def _result_words(compute, job) -> list[dict]:
@@ -270,9 +293,11 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
         try:
             job = compute.enqueue("voice.asr", {"audio": "audio.wav"}, files={"audio.wav": wav}, store=store,
                                   origin="video-editor-captions", timeout_s=timeout_s)
-            job = compute.wait(job, timeout_s, on_tick=on_tick)
+            job = compute.wait(job, timeout_s, on_tick=on_tick, patient=True, park_after_s=120)
         except compute.ComputeUnavailable:
             nodes = []
+        except getattr(compute, "NodeWaiting", ()):
+            raise waiting_error() from None
         except compute.ComputeCancelled as exc:
             raise CaptionsUnavailable("زیرنویسِ خودکار لغو شد.") from exc
         except compute.ComputeTimeout as exc:
@@ -297,4 +322,6 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
             raise CaptionsUnavailable("در این بخش گفتاری شنیده نشد.")
         return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "local"}
 
+    if node_registered("voice"):
+        raise waiting_error()
     raise CaptionsUnavailable(OFFLINE_MESSAGE)

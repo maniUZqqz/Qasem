@@ -160,6 +160,15 @@ def _norm_text(src: dict, out: dict) -> None:
     out["box"] = ({"color": _color(bx.get("color"), "#000000"), "opacity": _r(_num(bx.get("opacity"), 0, 1, 0.5)),
                    "pad": _r(_num(bx.get("pad"), 0, 2, 0.3)), "radius": _r(_num(bx.get("radius"), 0, 1, 0.2))}
                   if isinstance(bx, dict) else None)
+    out["underline"] = _bool(src.get("underline"))
+    out["strike"] = _bool(src.get("strike"))
+    out["caps"] = _bool(src.get("caps"))
+    wp = src.get("warp")
+    out["warp"] = None
+    if isinstance(wp, dict) and wp.get("style") in textlayer.WARP_STYLES:
+        amt = _r(_num(wp.get("amount"), -1, 1, 0.5))
+        if abs(amt) > 0.001:
+            out["warp"] = {"style": wp["style"], "amount": amt}
     tl = src.get("tile")
     out["tile"] = ({"angle": _r(_num(tl.get("angle"), -90, 90, 28)), "gap": _r(_num(tl.get("gap"), 0.5, 5, 1.6))}
                    if isinstance(tl, dict) else None)
@@ -1026,6 +1035,38 @@ def _render_level(acc, items, ctx, state, W, H, by_parent, in_group=False):
         except MemoryError:
             ctx["notes"].append(f"حافظه برای لایهٔ «{layer['name']}» کافی نبود")
     return dirty
+
+
+def layer_rasters(base: Image.Image, layers: list[dict], ctx: dict, project: int = 0) -> list[dict]:
+    """هر لایهٔ پیکسل‌دار (عکس، تصویر، نقاشی، متن، شکل) جدا ⇒ [{layer, tile(uint8 h×w×4)، x0، y0}] از پایین به بالا؛ ماسکِ لایه در آلفا پخته می‌شود.
+
+    لایه‌های تنظیم/روتوش/قرمزیِ چشم و خودِ گروه‌ها نمی‌آیند (فقط در ``compose`` اثر دارند). برای خروجیِ لایه‌دار (PSD)."""
+    ctx.setdefault("notes", [])
+    layers = normalize_layers(layers, base="one")
+    if base.mode != "RGBA":
+        base = base.convert("RGBA")
+    W, H = base.size
+    state = {"paint": {}, "images": {}, "project": project, "base": base}
+    by_parent: dict = {}
+    for l in layers:
+        by_parent.setdefault(l.get("parent"), []).append(l)
+    out = []
+    for l in layers:
+        if l["type"] in ("adjust", "retouch", "redeye", "group"):
+            continue
+        r = _layer_tile(l, ctx, state, W, H, by_parent)
+        if r is None:
+            continue
+        tile, x0, y0 = r
+        h, w = tile.shape[:2]
+        if w <= 0 or h <= 0:
+            continue
+        m = _mask_region(l.get("mask"), ctx, state, x0, y0, x0 + w, y0 + h, W, H)
+        if m is not None:
+            tile = tile.copy()
+            tile[..., 3] = (tile[..., 3].astype(np.float32) * m).astype(np.uint8)
+        out.append({"layer": l, "tile": tile, "x0": x0, "y0": y0})
+    return out
 
 
 def compose(base: Image.Image, layers: list[dict], ctx: dict, project: int = 0) -> Image.Image:

@@ -15,6 +15,7 @@ urlpatterns = [
     path("metrics", MetricsView.as_view(), name="metrics"),
 
     path("admin/", admin.site.urls),
+    path("api/v1/", include("apps.common.version_urls")),   # نسخهٔ نرم‌افزار + «چه چیزی تازه است» (عمومی)
     path("api/v1/auth/", include("apps.accounts.urls")),
     path("api/v1/", include("apps.stores.urls")),
     path("api/v1/", include("apps.products.urls")),

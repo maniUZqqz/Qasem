@@ -5,6 +5,7 @@ import Workspace from "../../../../components/Workspace";
 import { Alert, Badge, Button, Select, Spinner, fa } from "../../../../components/ui";
 import { useHistory } from "../../../../hooks/useHistory";
 import type { Asset, FontInfo, Operation, Params, Tool } from "../api";
+import type { Preset } from "../api";
 import { photoApi, proApi } from "../api";
 import CurveEditor from "../manual/CurveEditor";
 import type { Adjust } from "../manual/engine";
@@ -15,6 +16,10 @@ import OperationForm from "../OperationForm";
 import { detectTilt } from "./autostraighten";
 import CropBar from "./CropBar";
 import FrameCard, { STORE_FRAME } from "./FrameCard";
+import ActionsCard, { type RecState } from "./ActionsCard";
+import { channelCanvas } from "./channels";
+import PathsCard, { type SavedPath } from "./PathsCard";
+import { ACTION_MAX_STEPS, diffStates, parseAction, playAction } from "./actions";
 import { cropFormatOpParams, effectiveCropFormat, makeFrameSpec, normalizeCropFormat } from "./frame";
 import { photoGeoSizes } from "./geo";
 import { neutralizeToTempTint } from "./gl/engine";
@@ -41,13 +46,14 @@ import {
 } from "./tree";
 import CommandPalette, { pushRecent } from "./menu/CommandPalette";
 import EffectDialog, { type FxResult } from "./menu/EffectDialog";
+import ChannelsDialog from "./menu/ChannelsDialog";
 import { AmountDialog, ColorRangeDialog, SavedSelDialog } from "./menu/SelDialogs";
 import * as selOps from "./selectionOps";
 import { PaintStore, fillAll, fillMask, floodMask, normColor, sampleHex, selectionMask } from "./paint";
 import { settingsApi } from "../designer/brandApi";
 import { effectCommands } from "./menu/effects";
 import MenuBar from "./menu/MenuBar";
-import { buildCommands, pageCommands, type Command, type Host } from "./menu/registry";
+import { actionCommands, buildCommands, pageCommands, type Command, type Host } from "./menu/registry";
 import "./pro.css";
 import "./fonts.css";
 
@@ -243,6 +249,15 @@ export default function ProWorkspace(props: Props) {
   type Snap = { id: string; name: string; state: ProState; thumb: string };
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [snapName, setSnapName] = useState("");
+  // ───────────────────────── اکشن‌های ضبط‌شدنی (نوبت ۶)
+  const [savedPaths, setSavedPaths] = useState<SavedPath[]>([]);
+  const [chanOpen, setChanOpen] = useState(false);
+  const [rec, setRec] = useState<RecState | null>(null);
+  const [pendingAct, setPendingAct] = useState<RecState | null>(null);
+  const [savedActs, setSavedActs] = useState<Preset[] | null>(null);
+  const [actErr, setActErr] = useState("");
+  const [actBusy, setActBusy] = useState(false);
+  const recCtx = useRef<{ added: Map<string, string>; entries: unknown; last: ProState | null }>({ added: new Map(), entries: null, last: null });
   const startState = useRef<ProState | null>(null);
   const histCanvas = useRef<HTMLCanvasElement | null>(null);
   const histTmpVer = useRef(0);
@@ -1089,7 +1104,7 @@ export default function ProWorkspace(props: Props) {
     if (!pen.active) return false;
     if (key === "Enter") pen.finish();
     else if (key === "Escape") pen.clear();
-    else if (key === "Backspace" || key === "Delete") pen.removeLast();
+    else if (key === "Backspace" || key === "Delete") pen.removeSelected();
     else return false;
     bumpPen();
     return true;
@@ -1934,6 +1949,152 @@ export default function ProWorkspace(props: Props) {
     </div>
   );
 
+  // ───────────────────────── مسیرِ قلم: ویرایش، ذخیره و بارگذاری؛ کانال‌ها (نوبت ۷)
+  const savePath = () => {
+    if (pen.pts.length < 2) return setNotice({ tone: "info", text: "اول با ابزارِ قلم یک مسیر (دست‌کم ۲ نقطه) بکشید." });
+    const n = savedPaths.length + 1;
+    setSavedPaths((l) => [...l, { id: nid(), name: `مسیر ${fa(n)}`, path: pen.toShapePath(), frameKey: stage?.frame()?.key ?? "" }].slice(-20));
+    setStatus("مسیر در پنلِ «مسیرها» (زبانهٔ لایه‌ها) نگه داشته شد");
+  };
+  const loadPath = (id: string): boolean => {
+    const s = savedPaths.find((x) => x.id === id);
+    if (!s) return false;
+    pen.load(s.path);
+    bumpPen();
+    setTool("pen");
+    const now = stage?.frame()?.key ?? "";
+    setStatus(s.frameKey && now && s.frameKey !== now ? "مسیر بارگذاری شد؛ ولی قابِ تصویر از زمانِ ذخیره عوض شده و ممکن است جابه‌جا بیفتد" : `«${s.name}» بارگذاری شد؛ نقطه‌ها را بکشید یا روی مسیر کلیک کنید تا نقطه بیفزایید`);
+    return true;
+  };
+  const pathOp = (op: "toSelection" | "toMask" | "toShape" | "close" | "addAnchors" | "deleteAnchor" | "smooth" | "reverse" | "save") => {
+    if (op === "save") return savePath();
+    if (op === "toSelection") {
+      if (penToSel("new")) setStatus("مسیر به انتخاب تبدیل شد");
+      return;
+    }
+    if (op === "toMask") return penMask();
+    if (op === "toShape") return penShape();
+    if (op === "close") {
+      pen.close();
+      return bumpPen();
+    }
+    if (op === "addAnchors") {
+      const n = pen.subdivide();
+      bumpPen();
+      return setStatus(n ? `${fa(n)} نقطه افزوده شد` : "نقطه‌ای افزوده نشد (سقفِ ۲۰۰ نقطه یا مسیر کوتاه است)");
+    }
+    if (op === "deleteAnchor") return void penKey("Delete");
+    if (op === "reverse") {
+      pen.reverse();
+      return bumpPen();
+    }
+    if (pen.sel !== null) {
+      pen.toggleSmooth(pen.sel);
+      bumpPen();
+    } else setStatus("اول روی یک نقطه کلیک کنید (یا آخرین نقطه را بسازید)");
+  };
+  const channelSource = async () => {
+    const { cv, w, h } = await gfCanvas();
+    const d = cv.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h);
+    return { data: d.data, w, h };
+  };
+  const channelLoad = (ch: "r" | "g" | "b" | "a" | "l", invert: boolean, mode: "new" | "add" | "sub", src: { data: Uint8ClampedArray; w: number; h: number }) => {
+    const c = channelCanvas(src.data, src.w, src.h, ch, invert);
+    const t = document.createElement("canvas");
+    t.width = selection.w;
+    t.height = selection.h;
+    t.getContext("2d")!.drawImage(c, 0, 0, t.width, t.height);
+    selection.fromImage(t, mode);
+    setChanOpen(false);
+    bumpSel();
+    stage?.redraw();
+    setStatus("کانال به‌عنوان انتخاب بارگذاری شد؛ روشن‌ترها بیشتر انتخاب شده‌اند");
+  };
+
+  // ───────────────────────── اکشن‌های ضبط‌شدنی: فهرستِ ذخیره‌شده‌ها، ضبطِ گام‌ها از تاریخچه، اجرا (نوبت ۶)
+  useEffect(() => {
+    let live = true;
+    proApi
+      .presets(storeId)
+      .then((l) => live && setSavedActs(l.filter((p) => p.kind === "action")))
+      .catch(() => {
+        if (!live) return;
+        setSavedActs([]);
+        setActErr("فهرستِ اکشن‌ها خوانده نشد؛ بعداً دوباره امتحان کنید.");
+      });
+    return () => {
+      live = false;
+    };
+  }, [storeId]);
+  // هر گامِ تازهٔ تاریخچه (نه برگشت/جلو) هنگامِ ضبط ⇒ تفاوتش با حالتِ پیشین
+  useEffect(() => {
+    const c = recCtx.current;
+    const cur = hist.entries[hist.index]?.state ?? null;
+    const before = c.last;
+    c.last = cur;
+    if (c.entries === hist.entries) return; // فقط شاخص جابه‌جا شد (برگشت/جلو)
+    c.entries = hist.entries;
+    if (!rec || !before || !cur || hist.entries.length < 2 || hist.index !== hist.entries.length - 1) return;
+    const d = diffStates(before, cur, c);
+    if (!d.ops.length && !d.skipped) return;
+    const label = hist.entries[hist.index].label;
+    setRec((r) => (r ? { steps: d.ops.length ? [...r.steps, { label, ops: d.ops }].slice(0, ACTION_MAX_STEPS) : r.steps, skipped: r.skipped + d.skipped } : r));
+  }, [hist.entries, hist.index, rec]);
+  const actionRecord = () => {
+    recCtx.current.added = new Map();
+    recCtx.current.last = hist.entries[hist.index]?.state ?? null;
+    setPendingAct(null);
+    setRec({ steps: [], skipped: 0 });
+    setTab("history");
+    setPanelOpen(true);
+    setStatus("ضبط شروع شد؛ حالا کارهایتان را انجام دهید و در پایان «پایان و ذخیره» را بزنید");
+  };
+  const actionStop = () => {
+    if (!rec) return;
+    if (!rec.steps.length) {
+      setRec(null);
+      setNotice({ tone: "warn", text: rec.skipped ? "هیچ کاری که روی عکسِ دیگر هم بنشیند ضبط نشد (نقاشی و ترمیمِ همین عکس ضبط نمی‌شود)." : "چیزی ضبط نشد؛ بعد از شروع، یک تنظیم یا لایه بسازید." });
+      return;
+    }
+    setPendingAct(rec);
+    setRec(null);
+    setTab("history");
+    setPanelOpen(true);
+    setStatus("ضبط تمام شد؛ یک نام بدهید و «ذخیره» را بزنید");
+  };
+  const actionSave = async (name: string) => {
+    if (!pendingAct) return;
+    setActBusy(true);
+    setActErr("");
+    try {
+      const p = await proApi.createPreset(storeId, name, { steps: pendingAct.steps } as unknown as Record<string, unknown>, "action");
+      setSavedActs((l) => [...(l ?? []), p]);
+      setPendingAct(null);
+      setStatus(`اکشنِ «${name}» ذخیره شد؛ روی هر عکسِ دیگر هم اجرا می‌شود`);
+    } catch (e) {
+      setActErr(e instanceof Error ? e.message : "اکشن ذخیره نشد.");
+    } finally {
+      setActBusy(false);
+    }
+  };
+  const actionPlayP = (p: Preset) => {
+    const data = parseAction(p.data);
+    if (!data || !data.steps.length) return setNotice({ tone: "warn", text: "این اکشن گامی ندارد." });
+    hist.apply(`اکشن: ${p.name}`, (s) => playAction(s, data));
+    setStatus(`اکشنِ «${p.name}» اجرا شد (${fa(data.steps.length)} گام)؛ با یک برگشت یک‌جا برمی‌گردد`);
+  };
+  const actionRemove = async (p: Preset) => {
+    setActBusy(true);
+    try {
+      await proApi.removePreset(storeId, p.id);
+      setSavedActs((l) => (l ?? []).filter((x) => x.id !== p.id));
+    } catch (e) {
+      setActErr(e instanceof Error ? e.message : "حذف نشد.");
+    } finally {
+      setActBusy(false);
+    }
+  };
+
   const layersTab = (
     <div data-testid="layers-tab">
       <div className="mb-2 flex flex-wrap gap-1">
@@ -1949,6 +2110,13 @@ export default function ProWorkspace(props: Props) {
         state={state} hist={H} layer={activeLayer} actions={actions} fonts={fonts} kit={kit} assets={allAssets} storeLogo={props.storeLogo ?? null}
         layerBox={(id) => { const l = state.layers.find((x) => x.id === id); return l && stage ? stage.layerSize(l) : null; }}
         canvasAspect={frameSpec.Hf / frameSpec.Wf}
+      />
+      <PathsCard
+        paths={savedPaths} aspect={frameSpec.Wf / frameSpec.Hf} penPoints={pen.pts.length}
+        onSave={savePath} onLoad={(id) => void loadPath(id)}
+        onSelect={(id) => { if (loadPath(id)) penToSel("new"); }}
+        onDelete={(id) => setSavedPaths((l) => l.filter((x) => x.id !== id))}
+        onChannels={() => setChanOpen(true)}
       />
     </div>
   );
@@ -1981,6 +2149,11 @@ export default function ProWorkspace(props: Props) {
           {!snaps.length && <li className="ws-muted">هنوز عکسی نگرفته‌اید.</li>}
         </ul>
       </div>
+      <ActionsCard
+        rec={rec} pending={pendingAct} saved={savedActs} err={actErr} busy={actBusy}
+        onStart={actionRecord} onStop={actionStop} onDiscard={() => { setRec(null); setPendingAct(null); }}
+        onSave={(n) => void actionSave(n)} onPlay={actionPlayP} onRemove={(p) => void actionRemove(p)}
+      />
       <ol className="ws-history">
         {hist.entries.map((e, i) => (
           <li key={i}>
@@ -2119,9 +2292,10 @@ export default function ProWorkspace(props: Props) {
 
   // ───────────────────────── فهرستِ یگانهٔ دستورها: منوی کامل + جستجوی ابزار (نوبت ۴)
   const hasPageCmds = !!props.onOpenSettings && !!props.onOpenBatch;
+  const actionList = useMemo(() => (savedActs ?? []).map((a) => ({ id: a.id, name: a.name })), [savedActs]);
   const menuCmds = useMemo(
-    () => buildCommands(TOOLS.map((x) => ({ id: x.id, key: x.key, title: x.title, hint: x.hint })), [...effectCommands(), ...(hasPageCmds ? pageCommands() : [])]),
-    [hasPageCmds],
+    () => buildCommands(TOOLS.map((x) => ({ id: x.id, key: x.key, title: x.title, hint: x.hint })), [...effectCommands(), ...(hasPageCmds ? pageCommands() : []), ...actionCommands(actionList)]),
+    [hasPageCmds, actionList],
   );
   /** تصویرِ مبدأِ فیلتر: ترکیبِ همهٔ لایه‌ها یا فقط لایهٔ فعال (PNG، حداکثر ۳۰۰۰ پیکسل) */
   const fxSource = async (layerOnly: boolean): Promise<Blob> => {
@@ -2192,6 +2366,17 @@ export default function ProWorkspace(props: Props) {
       activeIsPaint: isPaintLayer(activeLayer),
       storeFrameOn,
       nodeOn,
+      recording: !!rec,
+      penPoints: pen.pts.length,
+      penClosed: pen.closed,
+    },
+    pathOp,
+    channels: () => setChanOpen(true),
+    actionRecord,
+    actionStop,
+    actionPlay: (id) => {
+      const p = (savedActs ?? []).find((x) => x.id === id);
+      if (p) actionPlayP(p);
     },
     tool: (id) => setTool(id as ToolId),
     tab: (x) => {
@@ -2263,10 +2448,20 @@ export default function ProWorkspace(props: Props) {
     removeMask: () => actId && actions.removeMask(actId),
     maskFromSelection: () => actId && actions.maskFromSelection(actId),
     paintMask: () => actId && actions.paintMask(actId),
+    exportAs: (fmt) => void exportAs(fmt),
     newPaint: () => {
       newPaintLayer();
       setTool("paint");
       setTab("layers");
+    },
+    textFlag: (k) => {
+      if (!actId) return;
+      const lab = { underline: "زیرخط", strike: "خط‌خوردگی", caps: "حروفِ بزرگ" }[k];
+      hist.apply(lab, (s) => ({ ...s, layers: s.layers.map((l) => (l.id === actId && l.type === "text" ? ({ ...l, [k]: !l[k], ...(k === "caps" ? { lines: undefined } : {}) } as Layer) : l)) }));
+    },
+    textWarp: (style) => {
+      if (!actId) return;
+      hist.apply("خمیدگیِ متن", (s) => ({ ...s, layers: s.layers.map((l) => (l.id === actId && l.type === "text" ? ({ ...l, warp: style ? { style, amount: l.warp?.amount || 0.5 } : null } as Layer) : l)) }));
     },
     fillPaint: () => fillPaintLayer(),
     clearPaint: () => clearPaintLayer(),
@@ -2343,6 +2538,34 @@ export default function ProWorkspace(props: Props) {
       setActiveId(nl.id);
     } catch (e) {
       setNotice({ tone: "bad", text: e instanceof Error ? e.message : "ادغام نشد." });
+    } finally {
+      setBusyOp("");
+    }
+  };
+  /** پروژه را ذخیره می‌کند و فایلِ قالبِ خواسته را از سرور می‌گیرد و دانلود می‌کند (نوبت ۶) */
+  const exportAs = async (fmt: string) => {
+    setBusyOp("ساختِ فایل روی سرور…");
+    try {
+      // پروژه هنگامِ بازشدنِ عکس ساخته می‌شود؛ اگر کاربر همان لحظه خروجی خواست تا ۲۰ ثانیه منتظرش می‌مانیم
+      let pr = projRef.current;
+      for (let i = 0; i < 40 && !pr; i++) {
+        await new Promise((r) => window.setTimeout(r, 500));
+        pr = projRef.current;
+      }
+      if (!pr) throw new Error("پروژه هنوز آماده نیست؛ چند ثانیه بعد دوباره امتحان کنید.");
+      if (!(await saveProject())) throw new Error("ذخیرهٔ پروژه ممکن نشد؛ دوباره امتحان کنید.");
+      const r = await proApi.exportProject(storeId, pr.id, fmt);
+      const url = URL.createObjectURL(r.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setNotice({ tone: "info", text: `«${r.name}» ساخته شد${r.notes ? " — " + r.notes : ""}` });
+    } catch (e) {
+      setNotice({ tone: "bad", text: e instanceof Error ? e.message : "فایل ساخته نشد." });
     } finally {
       setBusyOp("");
     }
@@ -2466,6 +2689,7 @@ export default function ProWorkspace(props: Props) {
             }}
           />
         )}
+        {chanOpen && <ChannelsDialog getSource={channelSource} onLoad={channelLoad} onClose={() => setChanOpen(false)} />}
         {crOpen && (
           <ColorRangeDialog
             getSource={async () => (await gfCanvas()).cv}
@@ -2507,6 +2731,12 @@ export default function ProWorkspace(props: Props) {
 
         <div className={`pw-panel ${panelOpen ? "" : "is-closed"}`} dir="rtl" data-testid="right-panel">
           <Histogram data={hdata} />
+          {rec && (
+            <div className="pw-rec pw-rec-chip" data-testid="rec-chip" role="status">
+              <b className="pw-rec-dot">● در حالِ ضبطِ اکشن</b> {fa(rec.steps.length)} گام
+              <button type="button" className="ws-btn primary" onClick={actionStop} data-testid="rec-chip-stop">پایان و ذخیره</button>
+            </div>
+          )}
           <div className="ws-tabs pro-tabs" role="tablist">
             {([["edit", "تنظیم"], ["layers", "لایه‌ها"], ["presets", "فیلتر"], ["smart", "هوشمند"], ["history", "تاریخچه"], ["export", "خروجی"]] as [Tab, string][]).map(([k, t]) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)} data-tab={k}>{t}</button>

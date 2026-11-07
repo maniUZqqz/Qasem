@@ -485,6 +485,38 @@ class MaskView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProjectExportView(APIView):
+    """GET stores/<id>/photo-editor/projects/<pid>/export/?fmt=psd|tiff|pdf|gif|bmp|png|jpeg|webp&quality=92 ⇒ فایلِ دانلودی.
+
+    پروژه (آخرین ذخیره) روی سرورِ سایت ترکیب می‌شود؛ psd = لایه‌ها جدا، بقیه = تصویرِ نهایی. یادداشت‌ها در هدرِ X-Export-Notes (URL-encoded)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, pk):
+        from urllib.parse import quote
+
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        p = PhotoProject.objects.filter(pk=pk, store=store).select_related("asset", "store").first()
+        if p is None:
+            return _not_found()
+        # نام «format» را DRF برای انتخابِ رندرر می‌خواند (قالبِ ناشناخته ⇒ ۴۰۴)؛ پس پارامتر «fmt» است
+        fmt = str(request.query_params.get("fmt") or "").lower()
+        try:
+            q = int(request.query_params.get("quality") or 92)
+        except ValueError:
+            q = 92
+        try:
+            data, mime, name, notes = services.export_project(p, fmt, q)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        except MemoryError:
+            return _err("حافظهٔ سرور برای این اندازه کم است؛ عکسِ کوچک‌تری بدهید.")
+        resp = HttpResponse(data, content_type=mime)
+        resp["Content-Disposition"] = f"attachment; filename=\"{quote(name)}\"; filename*=UTF-8''{quote(name)}"
+        resp["X-Export-Notes"] = quote(" | ".join(notes))
+        resp["Cache-Control"] = "no-store"
+        return resp
+
+
 class PaintView(APIView):
     """PUT|GET|DELETE stores/<id>/photo-editor/projects/<pid>/paints/<paint-id>/ — PNG ِ RGBA ِ لایهٔ نقاشی (نوبت ۵)."""
     permission_classes = [IsAuthenticated]
@@ -619,10 +651,10 @@ class PresetListView(APIView):
             return _err(f"بیشتر از {MAX_PRESETS} پیش‌تنظیم نمی‌شود.")
         try:
             raw = request.data.get("data")
-            data = services.normalize_preset_data(raw if raw is not None else {})
+            kind = str(request.data.get("kind") or "develop")[:20]
+            data = services.normalize_by_kind(kind, raw if raw is not None else ({"steps": []} if kind == "action" else {}))
         except services.PhotoError as exc:
             return _err(str(exc))
-        kind = str(request.data.get("kind") or "develop")[:20]
         p = PhotoPreset.objects.create(store=store, created_by=request.user, name=name, kind=kind, data=data)
         return Response({"preset": services.preset_dict(p)}, status=status.HTTP_201_CREATED)
 
@@ -645,7 +677,7 @@ class PresetView(APIView):
             p.name = name
         if "data" in request.data:
             try:
-                p.data = services.normalize_preset_data(request.data.get("data"))
+                p.data = services.normalize_by_kind(p.kind, request.data.get("data"))
             except services.PhotoError as exc:
                 return _err(str(exc))
         p.save()
@@ -670,6 +702,8 @@ class PresetApplyView(APIView):
         p = PhotoPreset.objects.filter(pk=pk, store=store).first()
         if p is None:
             return _not_found()
+        if p.kind == "action":
+            return _err("اکشن فقط داخلِ ویرایشگر روی عکسِ باز اجرا می‌شود؛ عکس را باز کنید و از زبانهٔ «تاریخچه» اجرایش کنید.")
         try:
             operations = services.preset_operations(p.data, services.node_status()["online"])
             edits = services.create_edits(store, request.user, request.data.get("assets") or [], "manual", operations)

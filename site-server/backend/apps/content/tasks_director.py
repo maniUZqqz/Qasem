@@ -17,6 +17,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.jobs.models import Job
+from apps.jobs.services import dispatch_job
 from services.editing import timeline as tl
 from services.editing.director import loop as director_loop
 from services.editing.director import drafts as drafts_mod
@@ -44,6 +45,43 @@ def slim_plan(views: list[dict]) -> list[dict]:
 def slim_critique(report: dict) -> dict:
     return {"score": report["score"], "summary": report["summary"], "vision": report.get("vision"),
             "items": [{k: i.get(k) for k in ("key", "title", "ok", "severity", "detail")} for i in report["items"]]}
+
+
+#: steps that need the processing server (speech recognition, text-to-speech). When it is only OFF the Director still builds every variant at once and
+#: these steps are filled in later (`director_fill_task`), instead of the whole job failing or the owner getting variants without captions for good.
+NODE_STEPS = ("add_captions", "remove_fillers", "add_voiceover")
+STEP_KEYS = ("id", "tool", "params", "on", "why")
+
+
+def node_pending(variants: list[dict]) -> list[dict]:
+    """[{draft, steps}] — plan steps that failed ONLY because the processing server is off (their message says «در صف …»)."""
+    out = []
+    for v in variants:
+        steps = [s for s in v.get("plan", []) if s.get("tool") in NODE_STEPS and s.get("ok") is False and s.get("on", True) and str(s.get("message") or "").startswith("در صف")]
+        if steps and v.get("draft_id"):
+            out.append({"draft": v["draft_id"], "steps": [{k: s[k] for k in STEP_KEYS if k in s} for s in steps]})
+    return out
+
+
+def _queue_fill(job: Job, store, payload: dict, result: dict, final: dict) -> None:
+    """After a run: queue the node-only steps (and the vision critique) as durable follow-up jobs; they park themselves while the server is off."""
+    try:
+        pending = node_pending(result["variants"]) if payload.get("asr", True) else []
+        if pending:
+            count = sum(len(p["steps"]) for p in pending)
+            fill = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director_fill", "of": job.id, "count": count})
+            if dispatch_job(fill, director_fill_task, fill.id, {"items": pending}) is None:
+                final["waiting_node"] = {"job_id": fill.id, "steps": count}
+                final.setdefault("degraded", []).append(f"{count} مرحله (زیرنویس، حذفِ «اِم و اوم» یا گویندگی) به سرورِ پردازش نیاز دارد که الان روشن نیست؛ در صفِ پردازش ماند و با روشن شدنش خودکار به پیش‌نویس‌ها اضافه می‌شود.")
+        opts = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+        primary = next((v for v in result["variants"] if v["key"] == result.get("primary")), None)
+        if opts.get("use_ai") and opts.get("preview", True) and primary and primary.get("draft_id") and not (primary.get("critique") or {}).get("vision"):
+            vis = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director_vision", "of": job.id})
+            body = {"draft": primary["draft_id"], "request": str(payload.get("prompt") or "")[:600], "brief": result.get("brief") or {}}
+            if dispatch_job(vis, director_vision_task, vis.id, body) is None:
+                final["waiting_vision"] = {"job_id": vis.id}
+    except Exception:  # noqa: BLE001 — the follow-ups are a courtesy; the variants are already saved
+        logger.exception("could not queue the Director follow-ups of job %s", job.id)
 
 
 def _frames_of(video: Path, total: float, n: int = 6) -> list[str]:
@@ -167,9 +205,99 @@ def director_task(self, job_id, payload):
                           "ai_steps": v.get("ai_steps", 0), "plan": slim_plan(v["plan"]), "critique": slim_critique(v["critique"]), "problems": v.get("problems", [])}
                          for v in result["variants"]],
         }
+        if kind == "run":
+            _queue_fill(job, store, payload, result, final)
         job.mark_completed(final)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Director job %s failed", job_id)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+
+
+@shared_task(bind=True)
+def director_fill_task(self, job_id, payload):
+    """Run, later, the steps of the drafts that needed the processing server (captions, filler removal, voice-over). The job waits in the
+    durable queue while the server is off (`park.gate`) and is started again by the queue when it comes online."""
+    from apps.compute import park
+    from services.editing.director.brief import PLATFORMS
+    from services.editing.director.runner import apply_steps
+
+    job = Job.objects.get(id=job_id)
+    store = job.store
+    try:
+        if park.gate(job, "voice"):
+            return {"waiting": "node"}
+        job.total_steps = max(1, len(payload.get("items") or []))
+        job.mark_running("سرورِ پردازش روشن شد؛ تکمیلِ زیرنویس‌ها")
+        ctx = store_ctx(store, user=None, asr=True)
+        done = still = 0
+        for n, item in enumerate(payload.get("items") or [], start=1):
+            draft = DirectorDraft.objects.filter(pk=item.get("draft"), store=store, promoted_at__isnull=True).first()   # an opened draft is the owner's: never touched
+            if draft is None:
+                continue
+            meta = dict((draft.data or {}).get("director") or {})
+            platform = ((meta.get("brief") or {}).get("platform")) or "reels"
+            zone = (PLATFORMS.get(platform) or PLATFORMS["reels"])["zone"]
+            new, results = apply_steps(draft.data, item.get("steps") or [], ctx, platform=zone)
+            by_id = {r["id"]: r for r in results}
+            for p in meta.get("plan") or []:
+                r = by_id.get(p.get("id"))
+                if r:
+                    p.update(ok=r["ok"], skipped=r["skipped"], message=r["message"], notes=r["notes"])
+            ok_now = sum(1 for r in results if r["ok"])
+            done += ok_now
+            still += len(results) - ok_now
+            if ok_now:
+                new["director"] = {**meta, "filled_at": timezone.now().isoformat()}
+                drafts_mod.replace(draft, title=draft.title, data=new, score=draft.score, length=ops.project_length(new))
+            job.mark_progress(n, "")
+        job.mark_completed({"filled": done, "still_missing": still})
+        return {"ok": True, "filled": done}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Director fill job %s failed", job_id)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
+
+
+@shared_task(bind=True)
+def director_vision_task(self, job_id, payload):
+    """The vision critique of the primary draft's preview, done later when a model that can look at pictures is available (it needs the
+    processing server's Ollama or the paid API). The Director itself never waits for it."""
+    from apps.compute import park
+    from services.editing.director import ai as ai_mod
+
+    job = Job.objects.get(id=job_id)
+    store = job.store
+    try:
+        if park.gate(job, "ollama"):
+            return {"waiting": "node"}
+        job.total_steps = 3
+        job.mark_running("نقدِ تصویریِ پیش‌نمایش")
+        draft = DirectorDraft.objects.filter(pk=payload.get("draft"), store=store, promoted_at__isnull=True).first()
+        if draft is None:
+            job.mark_completed({"skipped": "draft gone or opened"})
+            return {"ok": True}
+        frames = preview_reviewer(job, store, {})(draft.data) or []
+        job.mark_progress(2, "")
+        if not frames:
+            job.mark_completed({"ok": False, "reason": "پیش‌نمایش ساخته نشد"})
+            return {"ok": False}
+        parsed, info = ai_mod.vision_review(store, str(payload.get("request") or ""), payload.get("brief") or {}, frames, job=job)
+        if not parsed:
+            job.mark_completed({"ok": False, "reason": info.get("error") or "مدلِ بینایی جواب نداد"})
+            return {"ok": False}
+        data = dict(draft.data)
+        meta = dict(data.get("director") or {})
+        critique = dict(meta.get("critique") or {})
+        critique["vision"] = {"scores": parsed.get("scores"), "issues": (parsed.get("issues") or [])[:5], "verdict": parsed.get("verdict", ""), "via": info.get("via", "")}
+        meta["critique"] = critique
+        data["director"] = meta
+        draft.data = data
+        draft.save(update_fields=["data", "updated_at"])
+        job.mark_completed({"ok": True})
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Director vision job %s failed", job_id)
         job.mark_failed(exc)
         return {"error": str(exc)}

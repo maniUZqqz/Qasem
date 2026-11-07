@@ -212,7 +212,7 @@ class CaptionsView(APIView):
         if end - start > captions.MAX_SECONDS:
             return _err("too_long", f"زیرنویسِ خودکار تا {captions.MAX_SECONDS // 60} دقیقه در هر بار.")
         state = captions.status()
-        if not state["ok"]:
+        if not state["ok"] and not state.get("waiting"):
             return _err("captions_unavailable", state["message"], status.HTTP_503_SERVICE_UNAVAILABLE)
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "captions", "ref": ref})
         failed = dispatch_job(job, captions_task, job.id, ref, start, end, at, speed)

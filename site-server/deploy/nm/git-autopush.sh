@@ -16,6 +16,9 @@ if [ ! -d "$REPO/.git" ]; then
 fi
 cd "$REPO" || exit 1
 
+# نسخهٔ نرم‌افزار: اگر از آخرین بار چیزی عوض شده یک شماره بالا می‌رود (پیش از rsync و commit؛ بی‌تغییر ⇒ هیچ)
+[ -f "$SRC/deploy/nm/bump-version.sh" ] && NM_ROOT="$SRC" bash "$SRC/deploy/nm/bump-version.sh" --if-changed --quiet >/dev/null 2>&1 || true
+
 EXCL=(--exclude='.git' --exclude='venv/' --exclude='node_modules/' --exclude='__pycache__/' --exclude='*.pyc' --exclude='*.log'
       --exclude='frontend/dist/' --exclude='website/.next/' --exclude='backend/staticfiles/' --exclude='backend/media/'
       --exclude='backend/.env' --exclude='backend/.env.local' --exclude='deploy/nm/ai.env' --exclude='website/.env.production.local'

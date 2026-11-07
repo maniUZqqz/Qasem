@@ -218,7 +218,7 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
   const total = sources.reduce((s, x) => s + (x.clip.end - x.clip.start) / (x.clip.speed || 1), 0);
   const jobFrac = runner.job && runner.job.total_steps ? runner.job.progress_step / runner.job.total_steps : 0;
   const overall = progress ? Math.min(1, (progress.idx + jobFrac) / Math.max(1, progress.total)) : 0;
-  const ok = !!status?.ok;
+  const ok = !!status?.ok || !!status?.waiting;          // «در انتظارِ سرور» هم یعنی می‌شود درخواست داد
 
   return (
     <div className="cap-panel" dir="rtl" data-testid="captions-panel">
@@ -229,7 +229,9 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
         {status === null ? (
           <span className="ws-muted"><Spinner size={12} /> در حالِ بررسیِ سرورِ پردازش…</span>
         ) : ok ? (
-          <Badge tone="ok">{status.node ? "سرورِ پردازش (گفتارخوان) آنلاین است" : "مدلِ محلی آماده است"}</Badge>
+          status.waiting
+            ? <Badge tone="warn"><span data-testid="captions-waiting">{status.message}</span></Badge>
+            : <Badge tone="ok">{status.node ? "سرورِ پردازش (گفتارخوان) آنلاین است" : "مدلِ محلی آماده است"}</Badge>
         ) : (
           <Alert tone="warn" title="الان نمی‌شود گفتار را تشخیص داد">
             <span data-testid="captions-offline">{status.message || "سرورِ پردازش خاموش است."}</span>

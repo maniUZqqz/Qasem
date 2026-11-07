@@ -55,7 +55,7 @@ class EffectsCoreTests(SimpleTestCase):
         mask = bbox_mask(src, (90, 60, 150, 120))
         n = 0
         for eid, e in effects.REGISTRY.items():
-            im = framed if e.group.startswith("سبکِ لایه") else src
+            im = framed if e.group.startswith(("سبکِ لایه", "تبدیلِ لایه")) else src
             out, _ef = effects.run(eid, im, {}, mask if e.needs_mask else None)
             self.assertEqual(out.mode, "RGBA", eid)
             if e.kind == "layer":

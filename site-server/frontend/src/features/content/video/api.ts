@@ -72,7 +72,8 @@ export type Check = { ok: boolean; error: string; length?: number; gaps?: { star
 
 // ───────────── کاتالوگِ ادیتورِ حرفه‌ای (GET editor/catalogue/)
 export type Choice = { key: string; title: string } & Record<string, unknown>;
-export type CaptionsStatus = { node: boolean; local: boolean; ok: boolean; message: string };
+/** waiting = سرورِ پردازش ثبت شده ولی الان خاموش است: درخواست در صفِ ماندگار می‌ماند و با روشن شدنش انجام می‌شود (ناموفق نمی‌شود) */
+export type CaptionsStatus = { node: boolean; local: boolean; ok: boolean; message: string; waiting?: boolean };
 export type ExportPreset = { key: string; title: string; group: string; short: number | null; fps: number | null; codec: string; quality: string; audio_kbps: number; max_seconds: number | null; aspect: string | null };
 export type Catalogue = {
   color: {

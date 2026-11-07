@@ -68,6 +68,14 @@ export const EFFECT_ROWS: Row[] = [
   { id: "inner_glow", menu: "layer", group: "سبکِ لایه (پخته‌شده)", title: "درخششِ درونی", en: "Inner glow", syn: ["درخشش داخلی", "نور لبه", "layer style"], tip: "نورِ ملایم از لبه‌ها به درونِ لایه" },
   { id: "bevel_emboss", menu: "layer", group: "سبکِ لایه (پخته‌شده)", title: "برجسته‌سازی (بوِل)", en: "Bevel & emboss", syn: ["بول", "برجسته", "سه بعدی", "bevel", "emboss", "layer style"], tip: "لبه‌های لایه برجسته و براق دیده می‌شود" },
   { id: "pattern_overlay", menu: "layer", group: "سبکِ لایه (پخته‌شده)", title: "پوششِ الگو", en: "Pattern overlay", syn: ["الگو", "راه راه", "نقطه چین", "pattern", "stripes", "dots", "layer style"], tip: "الگوی راه‌راه، نقطه‌چین یا شطرنجی روی لایه" },
+  // ── ویرایش ‹ تبدیلِ لایه (پخته‌شده)
+  { id: "skew_layer", menu: "edit", group: "تبدیل", title: "کجی (Skew)", en: "Skew", syn: ["کج کردن", "مورب", "شیب دادن", "shear", "slant", "skew"], tip: "لایهٔ فعال (یا کلِ تصویر) را مورب می‌کند؛ نتیجه لایهٔ تازه است" },
+  { id: "perspective_layer", menu: "edit", group: "تبدیل", title: "پرسپکتیوِ لایه", en: "Perspective (layer)", syn: ["پرسپکتیو", "دورنما", "ماکت", "کارت ویزیت روی میز", "mockup", "keystone", "distort", "perspective"], tip: "لبه‌های بالا، پایین، چپ و راستِ لایه را جمع یا باز می‌کند تا سه‌بعدی دیده شود" },
+  { id: "warp_layer", menu: "edit", group: "تبدیل", title: "تاب (Warp)", en: "Warp", syn: ["تاب", "خم کردن", "قوس", "موج", "پرچم", "bend", "curve", "warp", "arc", "bulge"], tip: "لایه را مثلِ پارچه خم می‌کند: قوس، موج، پرچم، برآمده، شیب" },
+  // ── لایه ‹ لایهٔ پرکننده
+  { id: "fill_solid", menu: "layer", group: "لایهٔ پرکننده", title: "لایهٔ پرکننده: تک‌رنگ", en: "Solid color fill layer", syn: ["زمینه رنگی", "پر کردن با رنگ", "solid color", "fill layer", "color fill"], tip: "یک لایهٔ تمام‌بومِ تک‌رنگ" },
+  { id: "fill_gradient", menu: "layer", group: "لایهٔ پرکننده", title: "لایهٔ پرکننده: شیب", en: "Gradient fill layer", syn: ["گرادینت", "شیب رنگی", "غروب", "کتابخانه شیب", "gradient", "gradient fill", "gradient library"], tip: "شیبِ رنگیِ تمام‌بوم؛ با نمونه‌های آماده (غروب، اقیانوس، طلایی…) یا دو رنگِ دلخواه" },
+  { id: "fill_pattern", menu: "layer", group: "لایهٔ پرکننده", title: "لایهٔ پرکننده: الگو", en: "Pattern fill layer", syn: ["الگو", "راه راه", "نقطه چین", "شطرنجی", "pattern", "pattern fill", "texture", "pattern library"], tip: "الگوی راه‌راه، نقطه‌چین، شطرنجی، لوزی یا موجی روی کلِ بوم" },
   // ── ویرایش ‹ ترمیم
   { id: "remove_object", menu: "edit", group: "ترمیم", title: "حذفِ شیء (پرکردنِ سبک)", en: "Remove object / Inpaint", syn: ["پاک کردن", "حذف لکه", "حذف شیء", "inpaint", "content aware fill", "heal selection", "remove"], tip: "ناحیهٔ انتخاب‌شده را از اطراف پر می‌کند (برای لکه و خطِ نازک)" },
 ];

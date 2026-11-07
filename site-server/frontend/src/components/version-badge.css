@@ -1,0 +1,78 @@
+/* نشانِ نسخه — قرصِ کوچکِ گوشهٔ پایین-انتهای صفحه (RTL: پایین-چپ).
+
+   • خودِ قرص تنها عنصر است (بی پوششِ تمام‌صفحه)، پس فقط همان ~۴۰×۱۸ پیکسل کلیک می‌گیرد.
+   • z-index ۱۰۰: بالای ویرایشگرهای تمام‌صفحه (قابِ ویرایشگر ۸۰، ویرایشگرِ سه‌بعدی ۶۰) و
+     پایین‌تر از همهٔ مودال‌ها و پوشش‌ها (۱۲۰ به بالا) — پنجره‌ای که باز می‌شود آن را می‌پوشاند.
+   • سایت‌ساز تمام‌صفحه (`.nbe`، z-index ۱۰۰۰) خودش را بالاتر از همه می‌گذارد؛ برایش جدا بالا می‌رود.
+   • کم‌رنگ (۰٫۷) و کوچک (۱۱px) تا به نوارهای ابزارِ پایینِ ویرایشگرها نچسبد. */
+
+.nm-ver {
+  position: fixed;
+  inset-block-end: calc(8px + env(safe-area-inset-bottom, 0px));
+  inset-inline-end: 8px;
+  z-index: 100;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line, rgb(255 255 255 / 0.09));
+  background: var(--surface-2, rgb(255 255 255 / 0.06));
+  color: var(--text-3, #7c88a8);
+  font: 500 11px/1.6 var(--font-sans, Vazirmatn, Tahoma, sans-serif);
+  letter-spacing: 0.02em;
+  /* direction را عمداً روی خودِ قرص نمی‌گذاریم: inset-inline-end با direction ِ همان عنصر حل می‌شود
+     و با ltr گوشه به راست می‌پرید. «v2.60» در متنِ راست‌به‌چپ هم درست و پشت‌سرهم دیده می‌شود. */
+  unicode-bidi: isolate;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.nm-ver:hover,
+.nm-ver:focus-visible {
+  opacity: 1;
+  color: var(--text-2, #b9c4e0);
+  text-decoration: none;
+}
+
+/* ── گوشهٔ جایگزین — جایی که پایین-انتها دکمه یا متن دارد (با مرورگرِ واقعی سنجیده شد) ───────────
+   • فضای کارِ تمام‌صفحهٔ ویدیو (`.ws-root.is-full .vw-grid`) و ویرایشگرِ سه‌بعدی (`.u3e-root`): ستونِ دکمه‌های هر
+     ترکِ تایم‌لاین (قفل، بی‌صدا، حذف) پایین-چپ است و قرص رویشان می‌نشست. گوشهٔ مقابل (راست در RTL) فقط خطِ زمان است.
+   • فضای کارِ تمام‌صفحهٔ عکس (`.pw-grid`): یک نوارِ وضعیتِ ۲۶px تمام‌عرضِ پایین دارد (اندازه و زمانِ ترکیب، راهنمای
+     کلیدها)؛ قرص بالای آن، روی ستونِ خالیِ پایینِ نوارِ ابزار (چپ) می‌نشیند.
+   زیرِ این عرض‌ها چیدمانِ ویرایشگرها عمودی است و این قاعده‌ها لازم نیستند.
+   حالتِ درون‌صفحه‌ایِ (غیرتمام‌صفحه) ویرایشگرها عمداً دست نخورده است: آن‌جا سایدبارِ پنل سمتِ راست است و گوشهٔ راست
+   روی لینک‌هایش می‌افتاد؛ قرص در گوشهٔ پیش‌فرض می‌ماند و محتوای صفحه هنگام اسکرول از زیرش رد می‌شود. */
+@media (min-width: 1001px) {
+  body:has(.ws-root.is-full .vw-grid) .nm-ver,
+  body:has(.u3e-root) .nm-ver {
+    inset-inline-end: auto;
+    inset-inline-start: 20px; /* کمی از لبه فاصله: نوارِ اسکرولِ تایم‌لاین کنارِ لبه است */
+  }
+}
+@media (min-width: 901px) {
+  body:has(.ws-root.is-full .pw-grid) .nm-ver {
+    inset-block-end: 34px;
+  }
+}
+
+/* سایت‌ساز تمام‌صفحه (`.nbe`، z-index: 1000) — و در موبایل نوارِ پایینِ چهار دکمه‌ای‌اش (۵۶px) */
+body:has(.nbe) .nm-ver {
+  z-index: 1001;
+}
+@media (max-width: 900px) {
+  body:has(.nbe-bottom) .nm-ver {
+    inset-block-end: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* فیلم‌برداریِ هدایت‌شده: نوارِ ثابتِ پایین (ضبط/ذخیره) — کلاسِ lift را VersionBadge از روی نشانی می‌گذارد */
+.nm-ver--lift {
+  inset-block-end: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+
+@media print {
+  .nm-ver {
+    display: none;
+  }
+}

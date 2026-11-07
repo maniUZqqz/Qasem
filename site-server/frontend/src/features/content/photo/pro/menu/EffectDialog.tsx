@@ -82,7 +82,7 @@ export default function EffectDialog({ storeId, effectId, getSource, getMask, ca
         const [s, ms] = await Promise.all([shrink(src, 900), mk ? shrink(mk, 900) : Promise.resolve(null)]);
         if (!live) return;
         setInfo(fx);
-        if (fx.group.startsWith("سبکِ لایه") && canLayerOnly) setLayerOnly(true);
+        if ((fx.group.startsWith("سبکِ لایه") || fx.group.startsWith("تبدیلِ لایه")) && canLayerOnly) setLayerOnly(true);
         setVals(Object.fromEntries(fx.params.map((p) => [p.key, p.default])));
         setBlend(fx.blend as BlendMode);
         setFull(src);
@@ -261,7 +261,7 @@ export default function EffectDialog({ storeId, effectId, getSource, getMask, ca
             {info?.kind === "layer" && (
               <>
                 <hr className="fx-hr" />
-                {canLayerOnly && (
+                {canLayerOnly && !info.group.startsWith("لایهٔ پرکننده") && (
                   <label className="fx-row is-check">
                     <span>فقط روی لایهٔ فعال (نه کلِ تصویر)</span>
                     <input type="checkbox" checked={layerOnly} onChange={(e) => setLayerOnly(e.target.checked)} data-testid="fx-layer-only" />

@@ -691,6 +691,170 @@ def _pattern_overlay(rgb, a, p):
     return _u8(_f(rgb) * (1 - k) + np.array(_hex(p["color"]), np.float32) * k), None
 
 
+# ───────────────────────────── تبدیلِ لایه (پخته‌شده): کجی، پرسپکتیو، تاب — مثلِ «تبدیل» ِ ویرایشگرهای حرفه‌ای، ولی نتیجه یک لایهٔ تازه است
+XF_GROUP = "تبدیلِ لایه (پخته‌شده)"
+XF_NOTE = "روی لایهٔ فعال (یا کلِ تصویر) اعمال می‌شود و لایهٔ تازه‌ای می‌سازد؛ لایهٔ اصلی پنهان می‌شود و می‌شود برگشت. اگر شکل از بوم بیرون بزند بریده می‌شود."
+
+
+def _bbox(a):
+    """کادرِ پیکسل‌های دیدنی (آلفا > ۸) ⇒ (x0, y0, x1, y1)؛ همه‌جا شفاف ⇒ کلِ بوم."""
+    ys, xs = np.where(a > 8)
+    if len(xs) == 0:
+        h, w = a.shape
+        return 0, 0, w, h
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def _remap_pm(rgb, a, mx, my):
+    """بازنمونه‌گیریِ RGBA ِ پیش‌ضرب‌شده (لبه‌ها هاله نمی‌گیرند)."""
+    af = a.astype(np.float32) / 255.0
+    pm = np.dstack([rgb.astype(np.float32) * af[..., None], a.astype(np.float32)])
+    out = cv2.remap(pm, mx.astype(np.float32), my.astype(np.float32), cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    al = out[..., 3]
+    col = np.where(al[..., None] > 0.5, out[..., :3] / np.maximum(al[..., None] / 255.0, 1e-3), 0)
+    return _u8(col), _u8(al)
+
+
+@effect("skew_layer", XF_GROUP, "کجی (Skew)", [R("ax", "کجیِ افقی", -60, 60, 20, 1, "°"), R("ay", "کجیِ عمودی", -60, 60, 0, 1, "°")], note=XF_NOTE)
+def _skew(rgb, a, p):
+    h, w = a.shape
+    x0, y0, x1, y1 = _bbox(a)
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    kx, ky = math.tan(math.radians(p["ax"])), math.tan(math.radians(p["ay"]))
+    M = np.array([[1.0, kx], [ky, 1.0]])
+    Mi = np.linalg.inv(M)
+    x, y = _grid(h, w)
+    dx, dy = x - cx, y - cy
+    sx = cx + Mi[0, 0] * dx + Mi[0, 1] * dy
+    sy = cy + Mi[1, 0] * dx + Mi[1, 1] * dy
+    return _remap_pm(rgb, a, sx, sy)
+
+
+@effect("perspective_layer", XF_GROUP, "پرسپکتیو", [R("top", "بالا (− باز، + جمع)", -60, 60, 25, 1, "%"), R("bottom", "پایین (− باز، + جمع)", -60, 60, 0, 1, "%"),
+                                                  R("left", "چپ (− باز، + جمع)", -60, 60, 0, 1, "%"), R("right", "راست (− باز، + جمع)", -60, 60, 0, 1, "%")], note=XF_NOTE)
+def _perspective(rgb, a, p):
+    h, w = a.shape
+    x0, y0, x1, y1 = _bbox(a)
+    bw, bh = float(x1 - x0), float(y1 - y0)
+    src = np.float32([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+    t, b, l, r = p["top"] / 100.0, p["bottom"] / 100.0, p["left"] / 100.0, p["right"] / 100.0
+    dst = np.float32([
+        [x0 + bw * t / 2, y0 + bh * l / 2],           # بالا-چپ
+        [x1 - bw * t / 2, y0 + bh * r / 2],           # بالا-راست
+        [x1 - bw * b / 2, y1 - bh * r / 2],           # پایین-راست
+        [x0 + bw * b / 2, y1 - bh * l / 2],           # پایین-چپ
+    ])
+    H_ = cv2.getPerspectiveTransform(dst, src)          # از خروجی به منبع
+    x, y = _grid(h, w)
+    den = H_[2, 0] * x + H_[2, 1] * y + H_[2, 2]
+    sx = (H_[0, 0] * x + H_[0, 1] * y + H_[0, 2]) / den
+    sy = (H_[1, 0] * x + H_[1, 1] * y + H_[1, 2]) / den
+    return _remap_pm(rgb, a, sx, sy)
+
+
+@effect("warp_layer", XF_GROUP, "تاب (Warp)", [S("style", "شکل", [("arc", "قوس"), ("wave", "موج"), ("flag", "پرچم"), ("bulge", "برآمده"), ("rise", "شیب")], "arc"), R("amount", "مقدار", -100, 100, 50, 1, "%")], note=XF_NOTE)
+def _warp_layer(rgb, a, p):
+    from . import textlayer
+
+    h, w = a.shape
+    x0, y0, x1, y1 = _bbox(a)
+    cy = (y0 + y1) / 2.0
+    bh = float(y1 - y0)
+    xs = np.arange(w, dtype=np.float64)
+    u = np.clip(((xs + 0.5 - x0) / max(1.0, float(x1 - x0))) * 2 - 1, -1.0, 1.0)
+    dy, s = textlayer.warp_params(p["style"], p["amount"] / 100.0, u, 0.25 * bh)
+    y = np.arange(h, dtype=np.float64)[:, None]
+    sy = cy + (y + 0.5 - cy - dy[None, :]) / s[None, :] - 0.5
+    sx = np.broadcast_to(xs[None, :], (h, w))
+    return _remap_pm(rgb, a, sx, sy)
+
+
+# ───────────────────────────── لایهٔ پرکننده (تک‌رنگ، شیب، الگو): ورودی را نادیده می‌گیرند و کلِ بوم را می‌پوشانند
+FILL_GROUP = "لایهٔ پرکننده"
+FILL_NOTE = "یک لایهٔ تازهٔ تمام‌بوم می‌سازد؛ با شفافیت، حالتِ ترکیب و ماسکِ لایه می‌شود روی عکس نشاندش."
+
+#: کتابخانهٔ شیب‌ها: کلید ⇒ (عنوان، [(جایگاه ۰..۱، رنگ)، …])
+GRADIENT_PRESETS = {
+    "custom": ("دلخواه (دو رنگِ زیر)", None),
+    "sunset": ("غروب", [(0.0, "#1f1147"), (0.45, "#c0467a"), (0.8, "#f59e0b"), (1.0, "#ffe9b0")]),
+    "ocean": ("اقیانوس", [(0.0, "#022c5b"), (0.5, "#0ea5e9"), (1.0, "#a5f3fc")]),
+    "forest": ("جنگل", [(0.0, "#052e16"), (0.55, "#16a34a"), (1.0, "#d9f99d")]),
+    "candy": ("آب‌نبات", [(0.0, "#ec4899"), (0.5, "#a855f7"), (1.0, "#60a5fa")]),
+    "gold": ("طلایی", [(0.0, "#7c4a03"), (0.35, "#f59e0b"), (0.6, "#fde68a"), (1.0, "#b45309")]),
+    "steel": ("فولادی", [(0.0, "#1f2937"), (0.5, "#9ca3af"), (1.0, "#f3f4f6")]),
+    "mono": ("سیاه تا سفید", [(0.0, "#000000"), (1.0, "#ffffff")]),
+}
+
+
+def _ramp(stops, t):
+    """t ∈ [0,1] (آرایه) ⇒ رنگ (…×3) با درون‌یابیِ خطی میانِ توقف‌ها."""
+    pos = np.array([s[0] for s in stops], np.float32)
+    cols = np.array([_hex(s[1]) for s in stops], np.float32)
+    out = np.empty(t.shape + (3,), np.float32)
+    for k in range(3):
+        out[..., k] = np.interp(t, pos, cols[:, k])
+    return out
+
+
+@effect("fill_solid", FILL_GROUP, "تک‌رنگ", [C("color", "رنگ", "#e11d48")], note=FILL_NOTE)
+def _fill_solid(rgb, a, p):
+    out = np.empty_like(rgb)
+    out[...] = _hex(p["color"])
+    return out, np.full(a.shape, 255, np.uint8)
+
+
+@effect("fill_gradient", FILL_GROUP, "شیب (با نمونه‌های آماده)", [S("preset", "نمونه", [(k, v[0]) for k, v in GRADIENT_PRESETS.items()], "sunset"), C("c0", "رنگِ اول (دلخواه)", "#7c3aed"),
+                                                                C("c1", "رنگِ دوم (دلخواه)", "#f59e0b"), S("kind", "نوع", [("linear", "خطی"), ("radial", "شعاعی"), ("angle", "زاویه‌ای")], "linear"),
+                                                                R("angle", "زاویه", 0, 360, 90, 1, "°"), B("reverse", "برعکس", False)], note=FILL_NOTE)
+def _fill_gradient(rgb, a, p):
+    h, w = a.shape
+    x, y = _grid(h, w)
+    cx, cy = w / 2.0, h / 2.0
+    if p["kind"] == "radial":
+        tt = np.sqrt((x - cx) ** 2 + (y - cy) ** 2) / max(1.0, math.hypot(cx, cy))
+    elif p["kind"] == "angle":
+        tt = (np.arctan2(y - cy, x - cx) / (2 * math.pi) + 0.5 + p["angle"] / 360.0) % 1.0
+    else:
+        th = math.radians(p["angle"])
+        dx, dy = math.cos(th), math.sin(th)
+        half = max(1e-6, (abs(dx) * w + abs(dy) * h) / 2.0)
+        tt = ((x - cx) * dx + (y - cy) * dy) / (2 * half) + 0.5
+    tt = np.clip(tt, 0, 1).astype(np.float32)
+    if p["reverse"]:
+        tt = 1 - tt
+    stops = GRADIENT_PRESETS[p["preset"]][1] or [(0.0, p["c0"]), (1.0, p["c1"])]
+    return _u8(_ramp(stops, tt)), np.full(a.shape, 255, np.uint8)
+
+
+@effect("fill_pattern", FILL_GROUP, "الگو", [S("pattern", "الگو", [("stripes", "راه‌راه"), ("dots", "نقطه‌چین"), ("grid", "شطرنجی"), ("checker", "مربع‌مربع"), ("diamonds", "لوزی"), ("waves", "موجی")], "dots"),
+                                              R("scale", "اندازه", 4, 200, 28, 1, "px"), R("angle", "زاویه", 0, 180, 0, 1, "°"), C("fg", "رنگِ الگو", "#ffffff"), C("bg", "رنگِ زمینه", "#1e293b"),
+                                              B("transparent_bg", "زمینهٔ شفاف", False)], note=FILL_NOTE)
+def _fill_pattern(rgb, a, p):
+    h, w = a.shape
+    x, y = _grid(h, w)
+    s = max(3.0, _scale(rgb.shape, p["scale"]))
+    th = math.radians(p["angle"])
+    u = (x * math.cos(th) + y * math.sin(th)) / s
+    v = (-x * math.sin(th) + y * math.cos(th)) / s
+    fu, fv = u % 1.0, v % 1.0
+    if p["pattern"] == "stripes":
+        m = (fu < 0.5)
+    elif p["pattern"] == "dots":
+        m = np.hypot(fu - 0.5, fv - 0.5) < 0.3
+    elif p["pattern"] == "grid":
+        m = (fu < 0.1) | (fv < 0.1)
+    elif p["pattern"] == "checker":
+        m = ((np.floor(u) + np.floor(v)) % 2) == 0
+    elif p["pattern"] == "diamonds":
+        m = (np.abs(fu - 0.5) + np.abs(fv - 0.5)) < 0.4
+    else:
+        m = np.abs(fv - 0.5 - 0.25 * np.sin(2 * math.pi * fu)) < 0.12
+    fg, bg = np.array(_hex(p["fg"]), np.float32), np.array(_hex(p["bg"], (30, 41, 59)), np.float32)
+    out = np.where(m[..., None], fg, bg)
+    al = np.where(m, 255, 0 if p["transparent_bg"] else 255).astype(np.uint8)
+    return _u8(out), al
+
+
 # ───────────────────────────── حذفِ شیء (سبک، روی پردازنده)
 @effect("remove_object", "ترمیم", "حذفِ شیء (پرکردنِ سبک)", [S("method", "روش", [("telea", "نرم و تدریجی"), ("ns", "حفظِ خط‌ها")], "telea"), R("radius", "شعاعِ همسایگی", 2, 40, 8, 1, "px")],
         needs_mask=True, note="ناحیه‌ای را انتخاب کنید؛ برای لکه و خطِ نازک عالی است. برای حذفِ شیءِ بزرگ «پرکردنِ هوشمند» (سرورِ پردازش) بهتر است.")

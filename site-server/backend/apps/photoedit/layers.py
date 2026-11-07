@@ -61,6 +61,7 @@ TYPE_TITLES = {"base": "عکس", "image": "تصویر", "text": "متن", "shape
                "group": "گروه", "redeye": "قرمزیِ چشم"}
 #: لایه‌هایی که می‌توانند «بُرش به لایهٔ پایین» (clip) بشوند و هدفِ بُرش باشند
 CLIP_TYPES = ("image", "text", "shape", "group")
+LAYER_LABELS = ("red", "orange", "yellow", "green", "blue", "violet", "gray")
 FX_TYPES = ("image", "text", "shape")
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,24}$")
 MASK_ID_RE = re.compile(r"^[a-z0-9_-]{1,24}$")
@@ -163,6 +164,15 @@ def _norm_text(src: dict, out: dict) -> None:
     out["underline"] = _bool(src.get("underline"))
     out["strike"] = _bool(src.get("strike"))
     out["caps"] = _bool(src.get("caps"))
+    out["vertical"] = _bool(src.get("vertical"))                         # هر نویسه یک خط (دورِ ۸)
+    out["justify"] = _bool(src.get("justify"))                           # تراز دوطرفه (با عرضِ ثابت)
+    out["indent"] = _r(_num(src.get("indent"), 0, 3, 0))                 # تورفتگیِ خطِ اول، کسری از اندازهٔ قلم
+    tp = src.get("tpath")                                                # متن روی مسیر: نقطه‌ها کسری از پهنای بوم، نسبت به مرکزِ لایه
+    out["tpath"] = None
+    if isinstance(tp, dict) and isinstance(tp.get("pts"), list) and len(tp["pts"]) >= 2:
+        np_ = _norm_path(dict(tp, closed=False))
+        if len(np_["pts"]) >= 2:
+            out["tpath"] = np_
     wp = src.get("warp")
     out["warp"] = None
     if isinstance(wp, dict) and wp.get("style") in textlayer.WARP_STYLES:
@@ -328,6 +338,13 @@ def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
              "opacity": _r(_num(src.get("opacity"), 0, 1, 1)),
              "blend": "normal" if t in ("adjust", "retouch", "redeye") else blend,
              "mask": normalize_mask(src.get("mask"))}
+        # برچسبِ رنگی و پیوندِ لایه‌ها (دورِ ۸): فقط سازمان‌دهیِ پنل است و روی ترکیب اثری ندارد
+        if t != "base":
+            if src.get("label") in LAYER_LABELS:
+                o["label"] = src["label"]
+            lk = src.get("link")
+            if isinstance(lk, str) and _ID_RE.match(lk):
+                o["link"] = lk
         if t == "base":
             if src.get("parent"):
                 raise LayerError("لایهٔ «عکس» نمی‌تواند داخلِ گروه باشد.")

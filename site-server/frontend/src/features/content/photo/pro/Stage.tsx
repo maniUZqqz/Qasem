@@ -13,7 +13,7 @@ import { StrokeSession, selectionAlpha, type StrokeMode } from "./paint";
 import type { PaintStore } from "./paint";
 import { PEN_MAX, PenPath, penSvgD } from "./pen";
 import { estimateEye } from "./redeye";
-import { MaskStore, Selection, ToolId, ToolOpts, ZoomCmd } from "./session";
+import { MaskStore, Selection, ToolId, ToolOpts, ZoomCmd, isSampleTool } from "./session";
 import { canonical, descendantIds, effectivelyHidden, effectivelyLocked } from "./tree";
 import {
   AdjustLayer, Layer, ProState, Pt2, Quad, RetouchLayer, Stroke, isPaintLayer, makeAdjust, makeRedeye, makeRetouch, makeText,
@@ -57,6 +57,8 @@ type Props = {
   onPickColor: (nx: number, ny: number) => void;
   /** بومِ منبعِ قلمِ تاریخچه (هم‌اندازهٔ بوم) یا null */
   historySource: () => HTMLCanvasElement | null;
+  /** نوکِ تصویریِ قلم‌موی دلخواه (یا null) */
+  brushTip: () => HTMLCanvasElement | null;
   selection: Selection;
   assets: Asset[];
   storeLogo: string | null;
@@ -108,8 +110,8 @@ type Drag =
 const SNAP_PX = 7;
 const SEL_TOOLS = new Set<ToolId>(["marquee", "ellipse", "lasso", "subject", "genfill", "pen"]);
 /** ابزارهایی که دایرهٔ اندازهٔ قلم زیرِ اشاره‌گر دارند */
-const CURSOR_TOOLS = new Set<ToolId>(["brush", "clone", "heal", "liquify", "genfill", "redeye", "paint", "pencil", "eraser", "history"]);
-const CROSS_TOOLS = ["brush", "clone", "heal", "spot", "gradient", "marquee", "ellipse", "lasso", "wb", "subject", "text", "pen", "redeye", "liquify", "genfill", "paint", "pencil", "eraser", "bucket", "history", "picker"];
+const CURSOR_TOOLS = new Set<ToolId>(["brush", "clone", "heal", "liquify", "genfill", "redeye", "paint", "pencil", "eraser", "history", "blur", "sharpen", "smudge", "dodge", "burn", "sponge"]);
+const CROSS_TOOLS = ["brush", "clone", "heal", "spot", "gradient", "marquee", "ellipse", "lasso", "wb", "subject", "text", "pen", "redeye", "liquify", "genfill", "paint", "pencil", "eraser", "bucket", "history", "picker", "blur", "sharpen", "smudge", "dodge", "burn", "sponge"];
 
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -839,7 +841,17 @@ export default function Stage(p: Props) {
             }
           }
           p.setActiveId(hit.id);
-          if (!effLocked(hit) && "cx" in hit) beginDrag(e, { k: "move", id: hit.id, start: pt, c0: [hit.cx, hit.cy], moved: false });
+          if (!effLocked(hit) && "cx" in hit) {
+            // لایه‌های پیوندشده (هم‌شناسهٔ link) با هم جابه‌جا می‌شوند (دورِ ۸)
+            const lk = (hit as { link?: string }).link;
+            const mates = lk ? stateRef.current.layers.filter((l) => (l as { link?: string }).link === lk && "cx" in l && !effLocked(l)) : [];
+            if (mates.length > 1) {
+              const orig: [string, Pt2][] = mates.map((l) => [l.id, [(l as { cx: number }).cx, (l as { cy: number }).cy] as Pt2]);
+              beginDrag(e, { k: "gmove", id: hit.id, hitId: hit.id, start: pt, orig, box: null, moved: false });
+              return;
+            }
+            beginDrag(e, { k: "move", id: hit.id, start: pt, c0: [hit.cx, hit.cy], moved: false });
+          }
           return;
         }
         if (inDoc) {
@@ -894,7 +906,13 @@ export default function Stage(p: Props) {
       case "paint":
       case "pencil":
       case "eraser":
-      case "history": {
+      case "history":
+      case "blur":
+      case "sharpen":
+      case "dodge":
+      case "burn":
+      case "sponge":
+      case "smudge": {
         if (e.altKey && (tool === "paint" || tool === "pencil")) {
           if (inDoc) p.onPickColor(pt[0], pt[1]);
           return;
@@ -915,24 +933,24 @@ export default function Stage(p: Props) {
         }
         if (act0 && isPaintLayer(act0) && (effLocked(act0) || !act0.visible)) return p.onStatus(effLocked(act0) ? "این لایهٔ نقاشی قفل است." : "لایهٔ نقاشی پنهان است؛ اول نمایشش دهید.");
         let hsrc: HTMLCanvasElement | null = null;
-        if (tool === "history") {
+        if (tool === "history" || isSampleTool(tool)) {
           hsrc = p.historySource();
-          if (!hsrc) return p.onStatus("منبعِ قلمِ تاریخچه آماده نیست؛ در زبانهٔ «تاریخچه» یک عکسِ لحظه‌ای را به‌عنوانِ منبع انتخاب کنید.");
+          if (!hsrc) return p.onStatus(tool === "history" ? "منبعِ قلمِ تاریخچه آماده نیست؛ در زبانهٔ «تاریخچه» یک عکسِ لحظه‌ای را به‌عنوانِ منبع انتخاب کنید." : "تصویرِ نمونه هنوز آماده نیست؛ چند لحظه بعد دوباره امتحان کنید.");
         }
         const pl = p.ensurePaint();
         if (!pl) return;
         const ent = p.paints.get(pl.paintId);
         if (!ent) return;
-        const mode: StrokeMode = tool === "paint" ? "paint" : tool === "pencil" ? "pencil" : tool === "eraser" ? "erase" : "history";
+        const mode: StrokeMode = tool === "paint" ? "paint" : tool === "pencil" ? "pencil" : tool === "eraser" ? "erase" : tool === "smudge" ? "smudge" : "history";
         const cw = ent.canvas.width;
         const ch = ent.canvas.height;
         const clip = p.selection.active && p.selection.canvas ? selectionAlpha(p.selection.canvas, cw, ch) : null;
-        const ss = new StrokeSession(ent.canvas, mode, { color: p.opts.color, size: p.opts.size, hardness: p.opts.hardness, opacity: p.opts.flow, kind: p.opts.brushKind }, hsrc, clip);
+        const ss = new StrokeSession(ent.canvas, mode, { color: p.opts.color, size: p.opts.size, hardness: p.opts.hardness, opacity: p.opts.flow, kind: p.opts.brushKind, spacing: p.opts.brushSpacing, scatter: p.opts.brushScatter, tip: tool === "paint" || tool === "eraser" ? p.brushTip() : null }, hsrc, clip);
         ss.line(pt[0] * cw, pt[1] * ch, pt[0] * cw, pt[1] * ch);
         p.paints.touch(pl.paintId);
         dirty.current.render = true;
         schedule();
-        const label = mode === "paint" ? "نقاشی" : mode === "pencil" ? "مداد" : mode === "erase" ? "پاک‌کردنِ نقاشی" : "قلمِ تاریخچه";
+        const label = mode === "paint" ? "نقاشی" : mode === "pencil" ? "مداد" : mode === "erase" ? "پاک‌کردنِ نقاشی" : mode === "smudge" ? "لکه‌کش" : tool === "blur" ? "محو" : tool === "sharpen" ? "تیز" : tool === "dodge" ? "روشن‌کردن" : tool === "burn" ? "تیره‌کردن" : tool === "sponge" ? "اسفنج" : "قلمِ تاریخچه";
         beginDrag(e, { k: "pt", layerId: pl.layerId, paintId: pl.paintId, ss, last: [pt[0], pt[1]], label });
         return;
       }

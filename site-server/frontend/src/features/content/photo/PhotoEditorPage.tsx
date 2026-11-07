@@ -29,12 +29,15 @@ import {
   ACTIVE_STATES,
   Asset,
   Edit,
+  NEEDS_CHOICE,
   NodeStatus,
+  OfflineChoice,
   Operation,
   Overview,
   Params,
   Sources,
   Tool,
+  isNeedsChoice,
   photoApi,
   stateTone,
 } from "./api";
@@ -195,14 +198,14 @@ export default function PhotoEditorPage() {
    * ops = null ⇒ سرور برای هر عکس از روی اندازه‌گیریِ خودش می‌چیند («پیشنهادی»). ⇐ جملهٔ خطا، یا null اگر شروع شد.
    */
   const runEdits = useCallback(
-    async (recipe: string, ops: Operation[] | null, assetIds?: number[]): Promise<string | null> => {
+    async (recipe: string, ops: Operation[] | null, assetIds?: number[], extra?: OfflineChoice): Promise<string | null> => {
       const ids = assetIds ?? selected;
       if (ids.length === 0) return "اول یک عکس انتخاب کنید.";
       setBusy(true);
       setError(null);
       setNotice(null);
       try {
-        const res = ops ? await photoApi.apply(id, ids, recipe, ops) : await photoApi.applyRecipe(id, ids, recipe);
+        const res = ops ? await photoApi.apply(id, ids, recipe, ops, extra) : await photoApi.applyRecipe(id, ids, recipe);
         setNode(res.node);
         setTracking((cur) => [...res.edits, ...cur.filter((e) => !res.edits.some((x) => x.id === e.id))]);
         setLastBatch(res.batch);
@@ -225,6 +228,7 @@ export default function PhotoEditorPage() {
         if (ids.length === 1) await openDetail(ids[0], false, res.edits[0]?.id);
         return null;
       } catch (err) {
+        if (isNeedsChoice(err)) return NEEDS_CHOICE;          // سرورِ پردازش خاموش است؛ پنل از کاربر می‌پرسد و دوباره می‌فرستد
         const msg = errorMessage(err);
         setError(msg);
         return msg;

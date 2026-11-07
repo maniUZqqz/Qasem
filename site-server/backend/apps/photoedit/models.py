@@ -194,8 +194,13 @@ class PhotoStoreSetting(TimeStampedModel):
     """تنظیماتِ ادیتورِ عکسِ هر فروشگاه (نوبت ۴): پیش‌فرضِ «کمکِ هوش مصنوعی» و «سبکِ برند» (رنگ، فونت، لوگو، لحن)."""
 
     store = models.OneToOneField("stores.Store", on_delete=models.CASCADE, related_name="photo_setting")
-    ai_assist = models.BooleanField(default=True)
+    #: تصمیمِ مالک (۱۴۰۵/۰۸/۱۶): پیش‌فرض خاموش، ولی در تنظیمات و هر بار اجرا قابلِ روشن‌شدن است
+    ai_assist = models.BooleanField(default=False)
     brand = models.JSONField(default=dict, blank=True)
+    #: «ویرایش با دستور» وقتی سرورِ پردازش خاموش است: ask = هر بار بپرس · site = با هوشِ سادهٔ سایت · queue = در صف بماند
+    smart_offline = models.CharField(max_length=8, default="ask")
+    #: مدلِ پیش‌فرضِ حذفِ پس‌زمینه: rvm (روی سایت) | u2netp | isnet | birefnet-lite (روی سرورِ پردازش)
+    matting_model = models.CharField(max_length=16, default="rvm")
 
     class Meta:
         verbose_name = "تنظیماتِ ادیتورِ عکس"

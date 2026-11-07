@@ -67,7 +67,7 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied, asset
   const [quality, setQuality] = useState("normal");
   const [copy, setCopy] = useState<Record<string, string>>({});
   const [copyOpen, setCopyOpen] = useState(false);
-  const [useAi, setUseAi] = useState(true);
+  const [useAi, setUseAi] = useState(false);
   const [useBrand, setUseBrand] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
   const [brand, setBrand] = useState<Brand>(emptyBrand());

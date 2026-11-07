@@ -29,7 +29,8 @@ function spyHost(s: HostState) {
 
 const cmds = buildCommands(TOOLS, [...effectCommands(), ...pageCommands(), ...actionCommands([{ id: 7, name: "لوگو و روشن" }, { id: 9, name: "Square" }])]);
 ok(EFFECT_ROWS.length >= 40, `دست‌کم ۴۰ فیلتر در فهرست (${EFFECT_ROWS.length})`);
-ok(searchCommands(cmds, "blur")[0]?.cmd.id.startsWith("fx."), "جستجوی blur ⇒ یک فیلتر");
+ok(searchCommands(cmds, "blur").some((x) => x.cmd.id.startsWith("fx.")), "جستجوی blur ⇒ فیلتر");
+ok(searchCommands(cmds, "blur").some((x) => x.cmd.id === "tool.blur"), "جستجوی blur ⇒ ابزارِ محو");
 ok(searchCommands(cmds, "بوکه").some((x) => x.cmd.id === "fx.lens_blur"), "بوکه ⇒ محوِ لنز");
 ok(searchCommands(cmds, "ریسایز").some((x) => x.cmd.id === "fx.image_size"), "ریسایز ⇒ اندازهٔ تصویر");
 ok(searchCommands(cmds, "pixelate")[0]?.cmd.id === "fx.mosaic", "pixelate ⇒ موزاییک");
@@ -44,9 +45,13 @@ ok(searchCommands(cmds, "underline")[0]?.cmd.id === "text.underline", "underline
 ok(searchCommands(cmds, "قیمت قبلی")[0]?.cmd.id === "text.strike", "قیمت قبلی ⇒ خط‌خوردگی");
 ok(searchCommands(cmds, "curved text").some((x) => x.cmd.id.startsWith("text.warp.")), "curved text ⇒ متنِ خمیده");
 ok(searchCommands(cmds, "warp text arc").some((x) => x.cmd.id === "text.warp.arc"), "warp text arc");
-ok(searchCommands(cmds, "psd")[0]?.cmd.id === "file.export.psd", "psd ⇒ فایلِ لایه‌دار");
+ok(searchCommands(cmds, "psd").some((x) => x.cmd.id === "file.export.psd"), "psd ⇒ خروجیِ فایلِ لایه‌دار");
+ok(searchCommands(cmds, "psd").some((x) => x.cmd.id === "file.openPsd"), "psd ⇒ بازکردنِ فایلِ لایه‌دار");
 ok(searchCommands(cmds, "pdf")[0]?.cmd.id === "file.export.pdf", "pdf");
 ok(searchCommands(cmds, "tiff").some((x) => x.cmd.id === "file.export.tiff"), "tiff");
+ok(searchCommands(cmds, "birefnet")[0]?.cmd.id === "image.matting", "birefnet ⇒ حذفِ پس‌زمینه با مدل");
+ok(searchCommands(cmds, "مقایسه مدل")[0]?.cmd.id === "image.matting", "مقایسه مدل");
+ok(searchCommands(cmds, "u2netp").some((x) => x.cmd.id === "image.matting"), "u2netp");
 ok(searchCommands(cmds, "record action")[0]?.cmd.id === "action.record", "record action");
 ok(searchCommands(cmds, "ضبط اکشن")[0]?.cmd.id === "action.record", "ضبط اکشن");
 ok(searchCommands(cmds, "macro").some((x) => x.cmd.id === "action.record"), "macro");

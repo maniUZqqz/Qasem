@@ -5,12 +5,15 @@ import { Spinner, fa } from "../../../../../components/ui";
 import type { Asset } from "../../api";
 import { BLEND_MODES, type BlendMode } from "../types";
 import "./effects.css";
+import { normStops } from "../gradients";
+import GradientStopsEditor from "./GradientStopsEditor";
 
 export type FxParam =
   | { key: string; title: string; type: "range"; min: number; max: number; default: number; step: number; unit: string }
   | { key: string; title: string; type: "select"; options: [string, string][]; default: string }
   | { key: string; title: string; type: "color"; default: string }
-  | { key: string; title: string; type: "bool"; default: boolean };
+  | { key: string; title: string; type: "bool"; default: boolean }
+  | { key: string; title: string; type: "stops"; default: [number, string][] };
 export type FxInfo = { id: string; group: string; title: string; kind: "layer" | "photo"; blend: string; needs_mask: boolean; note: string; params: FxParam[] };
 export type FxResult = { asset: Asset; effect: string; kind: "layer" | "photo"; blend: BlendMode; title: string; size: [number, number]; opacity: number; layerOnly: boolean; hideSource: boolean };
 
@@ -52,7 +55,7 @@ type Props = {
 /** فرمِ یک فیلتر: پارامترها از سرور، پیش‌نمایشِ زنده (کم‌اندازه)، «اعمال» ⇒ لایهٔ تازه (یا عکسِ تازه برای کارهای اندازه/بوم). */
 export default function EffectDialog({ storeId, effectId, getSource, getMask, canLayerOnly, onApplied, onClose }: Props) {
   const [info, setInfo] = useState<FxInfo | null>(null);
-  const [vals, setVals] = useState<Record<string, number | string | boolean>>({});
+  const [vals, setVals] = useState<Record<string, number | string | boolean | [number, string][]>>({});
   const [layerOnly, setLayerOnly] = useState(false);
   const [hideSource, setHideSource] = useState(true);
   const [blend, setBlend] = useState<BlendMode>("normal");
@@ -220,7 +223,7 @@ export default function EffectDialog({ storeId, effectId, getSource, getMask, ca
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  const setVal = (k: string, v: number | string | boolean) => setVals((o) => ({ ...o, [k]: v }));
+  const setVal = (k: string, v: number | string | boolean | [number, string][]) => setVals((o) => ({ ...o, [k]: v }));
   const shown = useMemo(() => (showBefore || !afterUrl ? beforeUrl : afterUrl), [showBefore, afterUrl, beforeUrl]);
 
   return (
@@ -240,7 +243,12 @@ export default function EffectDialog({ storeId, effectId, getSource, getMask, ca
           </div>
           <div className="fx-form">
             {info?.note && <p className="fx-note">{info.note}</p>}
-            {info?.params.map((p) => (
+            {info?.params.map((p) => p.type === "stops" ? (
+              <div key={p.key} className="fx-row" style={{ flexDirection: "column", alignItems: "stretch" }} data-fx-param={p.key}>
+                <span>{p.title}</span>
+                <GradientStopsEditor stops={normStops(vals[p.key] ?? p.default)} onChange={(s) => { setVal(p.key, s); if (info.id === "fill_gradient") setVal("preset", "stops"); }} testId="fx-stops" />
+              </div>
+            ) : (
               <label key={p.key} className={`fx-row ${p.type === "bool" ? "is-check" : ""}`}>
                 <span>{p.title}</span>
                 {p.type === "range" && (

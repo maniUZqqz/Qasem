@@ -11,7 +11,14 @@ export type Brand = {
   tone: string;
 };
 export type AiCost = { variants: number; fast: number; normal: number; best: number; batch_per_photo: number };
-export type StoreSettings = { ai_assist: boolean; brand: Brand; brand_set: boolean; ai_cost: AiCost; positions: string[] };
+export type SmartOffline = "ask" | "site" | "queue";
+export type MattingModelId = "rvm" | "u2netp" | "isnet" | "birefnet-lite";
+export type StoreSettings = {
+  ai_assist: boolean; brand: Brand; brand_set: boolean; ai_cost: AiCost; positions: string[];
+  /** «ویرایش با دستور» وقتی سرورِ پردازش خاموش است: ask = هر بار بپرس */
+  smart_offline: SmartOffline;
+  matting_model: MattingModelId;
+};
 
 export const emptyBrand = (): Brand => ({ colors: [], heading_font: "", body_font: "", logo: { mode: "store", asset: null, position: "", size: 0 }, tone: "" });
 
@@ -28,7 +35,7 @@ const base = (store: string) => `/stores/${store}/photo-editor`;
 
 export const settingsApi = {
   get: (store: string) => api.get<StoreSettings>(`${base(store)}/settings/`).then((r) => r.data),
-  put: (store: string, body: { ai_assist?: boolean; brand?: Brand }) => api.put<StoreSettings>(`${base(store)}/settings/`, body).then((r) => r.data),
+  put: (store: string, body: { ai_assist?: boolean; brand?: Brand; smart_offline?: SmartOffline; matting_model?: MattingModelId }) => api.put<StoreSettings>(`${base(store)}/settings/`, body).then((r) => r.data),
 };
 
 export type BatchItem = {

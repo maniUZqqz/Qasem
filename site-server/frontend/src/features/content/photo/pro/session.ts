@@ -4,7 +4,11 @@ import { newCanvas } from "./gl/raster";
 export type ToolId =
   | "move" | "hand" | "crop" | "straighten" | "persp" | "text" | "brush" | "gradient" | "clone" | "heal" | "spot"
   | "marquee" | "ellipse" | "lasso" | "subject" | "wb" | "redeye" | "pen" | "liquify" | "genfill"
-  | "paint" | "pencil" | "eraser" | "bucket" | "history" | "picker";
+  | "paint" | "pencil" | "eraser" | "bucket" | "history" | "picker" | "blur" | "sharpen" | "smudge" | "dodge" | "burn" | "sponge";
+
+export const SAMPLE_TOOLS = ["blur", "sharpen", "smudge", "dodge", "burn", "sponge"] as const;
+/** ابزارهایی که از یک «نمونهٔ فیلترشدهٔ ترکیبِ لایه‌ها» می‌کشند (دورِ ۸) */
+export const isSampleTool = (t: string): boolean => (SAMPLE_TOOLS as readonly string[]).includes(t);
 
 export type ToolOpts = {
   /** شعاعِ قلم، کسری از پهنای بوم */
@@ -35,12 +39,19 @@ export type ToolOpts = {
   bucketContig: boolean;
   /** شناسهٔ عکسِ لحظه‌ایِ منبعِ «قلمِ تاریخچه» ("" = اولِ کار) */
   histSrc: string;
+  /** قلم‌موی دلخواه (دورِ ۸): فاصلهٔ نقطه‌ها و پخش (کسری از قطر)؛ شناسهٔ پیش‌تنظیمِ فعال ("" = هیچ) */
+  brushSpacing: number;
+  brushScatter: number;
+  brushPreset: string;
+  /** اسفنج: true = اشباع را زیاد می‌کند، false = کم (دورِ ۸) */
+  spongeUp: boolean;
 };
 
 export const defaultToolOpts = (): ToolOpts => ({
   size: 0.04, hardness: 0.5, flow: 1, erase: false, gradKind: "linear", feather: 0, spotR: 0.02, heal: false, grid: "off",
   eyeR: 0.012, eyeAmount: 1, eyeDarken: 0.6, liq: "push", liqSize: 0.08, liqStrength: 0.7, liqRate: 0.5,
   color: "#e11d48", brushKind: "soft", bucketTol: 24, bucketAll: true, bucketContig: true, histSrc: "",
+  brushSpacing: 0.14, brushScatter: 0, brushPreset: "", spongeUp: false,
 });
 
 export type ZoomCmd = { id: number; kind: "fit" | "100" | "in" | "out" } | null;

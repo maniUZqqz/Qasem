@@ -415,7 +415,7 @@ export class ProEngine {
 
   private textRaster(l: Layer & { type: "text" }): Raster | null {
     const key = `t:${l.id}`;
-    const sig = JSON.stringify([l.text, l.font, l.weight, l.size, l.color, l.align, l.dir, l.line_height, l.letter_spacing, l.width, l.stroke, l.shadow, l.box, l.tile, l.lines, this.Wc, this.Hc]);
+    const sig = JSON.stringify([l.text, l.font, l.weight, l.size, l.color, l.align, l.dir, l.line_height, l.letter_spacing, l.width, l.stroke, l.shadow, l.box, l.tile, l.lines, l.underline, l.strike, l.caps, l.warp, l.vertical, l.justify, l.indent, l.tpath, this.Wc, this.Hc]);
     const have = this.rasters.get(key);
     if (have && have.sig === sig) return have;
     if (!this.fontReady(l.weight, familyOf(l.font))) return have ?? null;

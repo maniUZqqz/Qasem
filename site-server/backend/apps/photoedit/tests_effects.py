@@ -75,7 +75,7 @@ class EffectsCoreTests(SimpleTestCase):
             self.assertIn(e["kind"], ("layer", "photo"))
             for p in e["params"]:
                 self.assertTrue(re.search(r"[؀-ۿ]", p["title"]), (e["id"], p["key"]))
-                self.assertIn(p["type"], ("range", "select", "color", "bool"))
+                self.assertIn(p["type"], ("range", "select", "color", "bool", "stops"))
                 if p["type"] == "range":
                     self.assertLessEqual(p["min"], p["default"])
                     self.assertLessEqual(p["default"], p["max"], (e["id"], p["key"]))

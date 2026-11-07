@@ -40,6 +40,33 @@ def B(key, title, default=False):
     return {"key": key, "title": title, "type": "bool", "default": default}
 
 
+DEFAULT_STOPS = [[0.0, "#7c3aed"], [0.55, "#ec4899"], [1.0, "#f59e0b"]]
+
+
+def G(key, title, default=None):
+    """شیبِ چندتوقفی: [[جایگاه ۰..۱، "#rrggbb"], …] (۲ تا ۱۲ توقف)؛ ویرایشگرِ دیداری در فرانت."""
+    return {"key": key, "title": title, "type": "stops", "default": [list(s) for s in (default or DEFAULT_STOPS)]}
+
+
+def clean_stops(v, default=None) -> list[list]:
+    """هر ورودی ⇒ ۲ تا ۱۲ توقفِ معتبر (جایگاه گیره‌شده و مرتب، رنگِ شش‌رقمی)؛ نامعتبر ⇒ پیش‌فرض. ≡ pro/gradients.ts › normStops"""
+    out = []
+    if isinstance(v, (list, tuple)):
+        for s in list(v)[:12]:
+            if isinstance(s, (list, tuple)) and len(s) >= 2:
+                try:
+                    pos = float(s[0])
+                except (TypeError, ValueError):
+                    continue
+                col = str(s[1]).lower()
+                if len(col) == 7 and col.startswith("#") and all(ch in "0123456789abcdef" for ch in col[1:]):
+                    out.append([round(min(1.0, max(0.0, pos)), 3), col])
+    if len(out) < 2:
+        return [list(s) for s in (default or DEFAULT_STOPS)]
+    out.sort(key=lambda s: s[0])
+    return out
+
+
 @dataclass
 class Effect:
     id: str
@@ -776,6 +803,7 @@ FILL_NOTE = "یک لایهٔ تازهٔ تمام‌بوم می‌سازد؛ با
 #: کتابخانهٔ شیب‌ها: کلید ⇒ (عنوان، [(جایگاه ۰..۱، رنگ)، …])
 GRADIENT_PRESETS = {
     "custom": ("دلخواه (دو رنگِ زیر)", None),
+    "stops": ("دلخواه با توقف‌ها (ویرایشگرِ شیب)", None),
     "sunset": ("غروب", [(0.0, "#1f1147"), (0.45, "#c0467a"), (0.8, "#f59e0b"), (1.0, "#ffe9b0")]),
     "ocean": ("اقیانوس", [(0.0, "#022c5b"), (0.5, "#0ea5e9"), (1.0, "#a5f3fc")]),
     "forest": ("جنگل", [(0.0, "#052e16"), (0.55, "#16a34a"), (1.0, "#d9f99d")]),
@@ -805,7 +833,8 @@ def _fill_solid(rgb, a, p):
 
 @effect("fill_gradient", FILL_GROUP, "شیب (با نمونه‌های آماده)", [S("preset", "نمونه", [(k, v[0]) for k, v in GRADIENT_PRESETS.items()], "sunset"), C("c0", "رنگِ اول (دلخواه)", "#7c3aed"),
                                                                 C("c1", "رنگِ دوم (دلخواه)", "#f59e0b"), S("kind", "نوع", [("linear", "خطی"), ("radial", "شعاعی"), ("angle", "زاویه‌ای")], "linear"),
-                                                                R("angle", "زاویه", 0, 360, 90, 1, "°"), B("reverse", "برعکس", False)], note=FILL_NOTE)
+                                                                R("angle", "زاویه", 0, 360, 90, 1, "°"), B("reverse", "برعکس", False),
+                                                                G("stops", "توقف‌های شیب (برای نمونهٔ «دلخواه با توقف‌ها»)")], note=FILL_NOTE)
 def _fill_gradient(rgb, a, p):
     h, w = a.shape
     x, y = _grid(h, w)
@@ -822,7 +851,7 @@ def _fill_gradient(rgb, a, p):
     tt = np.clip(tt, 0, 1).astype(np.float32)
     if p["reverse"]:
         tt = 1 - tt
-    stops = GRADIENT_PRESETS[p["preset"]][1] or [(0.0, p["c0"]), (1.0, p["c1"])]
+    stops = p["stops"] if p["preset"] == "stops" else (GRADIENT_PRESETS[p["preset"]][1] or [(0.0, p["c0"]), (1.0, p["c1"])])
     return _u8(_ramp(stops, tt)), np.full(a.shape, 255, np.uint8)
 
 
@@ -995,8 +1024,184 @@ def _clean_params(e: Effect, raw) -> dict:
             v = bool(v) if isinstance(v, (bool, int)) else bool(sp["default"])
         elif t == "color":
             v = v if isinstance(v, str) and len(v) in (4, 7) and v.startswith("#") else sp["default"]
+        elif t == "stops":
+            v = clean_stops(v, sp["default"])
         out[k] = v
     return out
+
+
+# ───────────────────────────── دورِ ۸: رنگِ انتخابی (CMYK)، تُن HDR، نقطه‌نقطه، پوستری با خطِ لبه، ساتن، نورپردازیِ چندتایی
+
+SEL_RANGES = [("reds", "قرمزها"), ("yellows", "زردها"), ("greens", "سبزها"), ("cyans", "فیروزه‌ای‌ها"), ("blues", "آبی‌ها"), ("magentas", "سرخابی‌ها"),
+              ("whites", "سفیدها"), ("neutrals", "خاکستری‌ها (میانه‌ها)"), ("blacks", "سیاه‌ها")]
+_SEL_HUE = {"reds": 0.0, "yellows": 60.0, "greens": 120.0, "cyans": 180.0, "blues": 240.0, "magentas": 300.0}
+
+
+def _selective_weight(f, rng):
+    """وزنِ ۰..۱ هر پیکسل برای محدودهٔ رنگ (نرم؛ فامِ نزدیک و اشباعِ کافی)."""
+    mx, mn = f.max(axis=2), f.min(axis=2)
+    sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+    if rng in _SEL_HUE:
+        r, g, b = f[..., 0], f[..., 1], f[..., 2]
+        d = np.maximum(mx - mn, 1e-6)
+        hue = np.where(mx == r, ((g - b) / d) % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+        dist = np.abs((hue - _SEL_HUE[rng] + 180.0) % 360.0 - 180.0)
+        return np.clip(1.0 - dist / 60.0, 0, 1) * np.clip(sat * 3.0, 0, 1) * np.clip(mx * 4.0, 0, 1)
+    if rng == "whites":
+        return np.clip((mn - 0.65) / 0.35, 0, 1)
+    if rng == "blacks":
+        return np.clip((0.32 - mx) / 0.32, 0, 1)
+    return np.clip(1.0 - sat * 4.0, 0, 1) * np.clip(1.0 - np.abs(mx - 0.5) * 2.2, 0, 1)
+
+
+@effect("selective_color", "رنگ", "رنگِ انتخابی (سیان، سرخابی، زرد، مشکی)",
+        [S("range", "محدودهٔ رنگ", SEL_RANGES, "reds"), R("cyan", "سیان", -100, 100, 35, 1, "%"), R("magenta", "سرخابی", -100, 100, -20, 1, "%"),
+         R("yellow", "زرد", -100, 100, 20, 1, "%"), R("black", "مشکی", -100, 100, 0, 1, "%"), B("relative", "نسبی (به‌جای مطلق)", False)],
+        note="مثلِ «رنگ انتخابی» در نرم‌افزارهای چاپ: سهمِ جوهرهای سیان/سرخابی/زرد/مشکیِ یک محدودهٔ رنگ را کم و زیاد می‌کند؛ برای چند محدوده چند بار اعمال کنید.")
+def _selective_color(rgb, a, p):
+    f = _f(rgb) / 255.0
+    k = 1.0 - f.max(axis=2)
+    d = np.maximum(1.0 - k, 1e-6)
+    ch = [(1.0 - f[..., i] - k) / d for i in range(3)] + [k]
+    w = _selective_weight(f, p["range"])
+    for i, key in enumerate(("cyan", "magenta", "yellow", "black")):
+        adj = p[key] / 100.0
+        if adj:
+            ch[i] = ch[i] + (ch[i] * adj if p["relative"] else adj) * w
+        ch[i] = np.clip(ch[i], 0, 1)
+    out = np.stack([(1 - ch[0]) * (1 - ch[3]), (1 - ch[1]) * (1 - ch[3]), (1 - ch[2]) * (1 - ch[3])], axis=2)
+    return _u8(out * 255.0 + 0.5), None
+
+
+@effect("hdr_toning", "رنگ", "تُن HDR (جزئیاتِ سایه و روشن)",
+        [R("radius", "اندازهٔ ناحیه‌ها", 5, 100, 30, 1, "px"), R("compress", "فشردنِ روشنایی", 0, 100, 55, 1, "%"), R("detail", "جزئیات", 0, 300, 150, 1, "%"),
+         R("saturation", "اشباع", 0, 200, 110, 1, "%")],
+        note="روشنایی به دو بخشِ «کلی» و «جزئیات» شکسته می‌شود؛ بخشِ کلی فشرده و جزئیات تقویت می‌شود تا سایه‌ها و آسمان هم‌زمان خوانا شوند.")
+def _hdr_toning(rgb, a, p):
+    f = _f(rgb) / 255.0 + 1e-3
+    L = _lum(f)
+    logL = np.log(L).astype(np.float32)
+    h, w = logL.shape
+    k = min(1.0, 700.0 / max(h, w))
+    small = cv2.resize(logL, (max(2, int(w * k)), max(2, int(h * k))), interpolation=cv2.INTER_AREA) if k < 1 else logL
+    sp = max(2.0, _scale(rgb.shape, p["radius"]) * k)
+    base_s = cv2.bilateralFilter(small, 0, 0.35, sp)
+    base = cv2.resize(base_s, (w, h), interpolation=cv2.INTER_LINEAR) if k < 1 else base_s
+    detail = logL - base
+    comp = p["compress"] / 100.0 * 0.85
+    newlog = base * (1.0 - comp) + detail * (p["detail"] / 100.0)
+    newL = np.exp(newlog - float(np.percentile(newlog, 99.5)))
+    out = f * (newL / L)[..., None]
+    gray = _lum(out)[..., None]
+    out = gray + (out - gray) * (p["saturation"] / 100.0)
+    return _u8(np.clip(out, 0, 1) * 255.0 + 0.5), None
+
+
+@effect("pointillize", "سبک‌سازی", "نقطه‌نقطه", [R("size", "اندازهٔ نقطه", 4, 100, 18, 1, "px"), S("bg", "زمینه", [("white", "سفید"), ("black", "سیاه"), ("blur", "همرنگِ تصویر (محو)")], "white"),
+                                              R("seed", "دانه", 0, 999, 3, 1)])
+def _pointillize(rgb, a, p):
+    h, w = rgb.shape[:2]
+    s = max(4, int(round(_scale(rgb.shape, p["size"]))))
+    rng = np.random.default_rng(int(p["seed"]))
+    blurred = cv2.GaussianBlur(rgb, (0, 0), s / 3.0)
+    if p["bg"] == "white":
+        canvas = np.full_like(rgb, 255)
+    elif p["bg"] == "black":
+        canvas = np.zeros_like(rgb)
+    else:
+        canvas = cv2.GaussianBlur(rgb, (0, 0), s)
+    gy, gx = np.mgrid[0:h:s, 0:w:s]
+    if gy.size > 250_000:
+        raise EffectError("نقطه‌ها خیلی ریز و زیاد می‌شود؛ اندازهٔ نقطه را بزرگ‌تر کنید.")
+    py = np.clip(gy + rng.integers(0, s, gy.shape), 0, h - 1).ravel()
+    px = np.clip(gx + rng.integers(0, s, gx.shape), 0, w - 1).ravel()
+    order = rng.permutation(len(py))
+    rad = max(2, int(round(s * 0.62)))
+    cols = blurred[py, px]
+    for i in order:
+        cv2.circle(canvas, (int(px[i]), int(py[i])), rad, tuple(int(v) for v in cols[i]), -1, cv2.LINE_AA)
+    return canvas, None
+
+
+@effect("poster_edges", "سبک‌سازی", "پوستری با خطِ لبه", [R("levels", "تعدادِ سطح‌ها", 2, 10, 4, 1), R("edge", "شدتِ خطِ لبه", 0, 100, 60, 1, "%"), R("width", "ضخامتِ خط", 1, 6, 2, 1, "px")],
+        note="رنگ‌ها به چند سطحِ ثابت تقسیم می‌شود و روی لبه‌ها خطِ تیره می‌افتد؛ حالتِ کارتونیِ سریع.")
+def _poster_edges(rgb, a, p):
+    lv = int(p["levels"])
+    step = 255.0 / max(1, lv - 1)
+    post = np.round(_f(rgb) / step) * step
+    g = cv2.GaussianBlur(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY), (0, 0), 1.2).astype(np.float32)
+    mag = np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3))
+    th = max(1.0, float(np.percentile(mag, 88)))
+    edge = np.clip((mag - th * 0.5) / (th * 0.5), 0, 1)
+    wpx = max(1, int(round(_scale(rgb.shape, p["width"]))))
+    if wpx > 1:
+        edge = cv2.dilate(edge, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (wpx, wpx)))
+    out = post * (1.0 - edge[..., None] * (p["edge"] / 100.0))
+    return _u8(out), None
+
+
+@effect("satin", STYLE_GROUP, "ساتن", [C("color", "رنگ", "#000000"), R("opacity", "شدت", 0, 100, 50, 1, "%"), R("distance", "فاصله", 0, 80, 11, 1, "px"), R("size", "نرمی", 0, 80, 14, 1, "px"),
+                                       R("angle", "زاویه", 0, 360, 19, 1, "°"), B("invert", "معکوس", False)], note=STYLE_NOTE)
+def _satin(rgb, a, p):
+    A = _a01(a)
+    d, bl = _scale(rgb.shape, p["distance"]), _scale(rgb.shape, p["size"])
+    th = math.radians(p["angle"])
+    dx, dy = d * math.cos(th), -d * math.sin(th)
+    m1 = np.float32([[1, 0, dx], [0, 1, dy]])
+    m2 = np.float32([[1, 0, -dx], [0, 1, -dy]])
+    size = (A.shape[1], A.shape[0])
+    a1 = cv2.warpAffine(A, m1, size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    a2 = cv2.warpAffine(A, m2, size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    s = np.abs(a1 - a2)
+    if bl > 0.3:
+        s = cv2.GaussianBlur(s, (0, 0), bl / 2.0)
+    if p["invert"]:
+        s = 1.0 - s
+    s = np.clip(s * (p["opacity"] / 100.0), 0, 1) * A
+    col = np.array(_hex(p["color"], (0, 0, 0)), np.float32)
+    return _u8(_f(rgb) * (1 - s[..., None]) + col * s[..., None]), None
+
+
+def _light_params():
+    out = []
+    defaults = [(25, 25, 80, "#ffffff"), (82, 30, 45, "#ffd9a0"), (50, 88, 0, "#a0c8ff")]
+    for i, (lx, ly, pw, col) in enumerate(defaults, 1):
+        out += [R(f"x{i}", f"نورِ {i}: جای افقی", 0, 100, lx, 1, "%"), R(f"y{i}", f"نورِ {i}: جای عمودی", 0, 100, ly, 1, "%"),
+                R(f"power{i}", f"نورِ {i}: شدت", 0, 100, pw, 1, "%"), C(f"color{i}", f"نورِ {i}: رنگ", col)]
+    return out
+
+
+@effect("lighting_multi", "رندر", "نورپردازیِ چندتایی (تا سه نور + برجستگی)",
+        [R("ambient", "نورِ محیط", 0, 100, 40, 1, "%"), R("radius", "گسترشِ نورها", 10, 150, 60, 1, "%"), R("relief", "برجستگیِ بافت", 0, 100, 30, 1, "%")] + _light_params(),
+        note="تا سه نورِ رنگی با نقطهٔ دلخواه؛ «برجستگی» روشناییِ خودِ عکس را مثلِ بافتِ برجسته می‌خواند تا نور روی آن سایه‌روشن بسازد.")
+def _lighting_multi(rgb, a, p):
+    h, w = rgb.shape[:2]
+    x, y = _grid(h, w)
+    big = float(max(h, w))
+    f = _f(rgb) / 255.0
+    height = cv2.GaussianBlur(_lum(f), (0, 0), max(1.0, big / 400.0))
+    k = max(0.0, p["relief"] / 100.0) * 6.0
+    nx, ny = -cv2.Sobel(height, cv2.CV_32F, 1, 0, ksize=3) * k, -cv2.Sobel(height, cv2.CV_32F, 0, 1, ksize=3) * k
+    nz = np.ones_like(nx)
+    nl = np.sqrt(nx * nx + ny * ny + nz * nz)
+    nx, ny, nz = nx / nl, ny / nl, nz / nl
+    lit = np.full((h, w, 3), p["ambient"] / 100.0, np.float32)
+    rad = max(1.0, p["radius"] / 100.0 * big)
+    for i in (1, 2, 3):
+        power = p[f"power{i}"] / 100.0
+        if power <= 0:
+            continue
+        lx, ly = p[f"x{i}"] / 100.0 * w, p[f"y{i}"] / 100.0 * h
+        dxv, dyv = lx - x, ly - y
+        dist = np.sqrt(dxv * dxv + dyv * dyv)
+        fall = np.clip(1.0 - dist / rad, 0, 1) ** 2
+        lz = rad * 0.35
+        ln = np.sqrt(dxv * dxv + dyv * dyv + lz * lz)
+        dot = (nx * dxv + ny * dyv + nz * lz) / ln
+        term = np.clip(1.0 + (p["relief"] / 100.0) * (2.0 * dot - 1.0), 0, 2)
+        col = np.array(_hex(p[f"color{i}"]), np.float32) / 255.0
+        lit += (fall * power * 1.6 * term)[..., None] * col
+    return _u8(f * lit * 255.0 + 0.5), None
 
 
 def catalog() -> list[dict]:

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { errorMessage } from "../../../api/client";
 import { Alert, Button, Card, SectionTitle, Spinner, TextArea, fa } from "../../../components/ui";
-import type { Asset, Edit, Operation, Overview, SmartDecision, Tool } from "./api";
-import { photoApi } from "./api";
+import type { Asset, Edit, OfflineChoice, Operation, Overview, SmartDecision, Tool } from "./api";
+import { NEEDS_CHOICE, photoApi } from "./api";
+import OfflineChoiceDialog from "./OfflineChoiceDialog";
 import ResultCard from "./ResultCard";
 import StepList from "./StepList";
 
@@ -15,7 +16,7 @@ type Common = {
   nodeOn: boolean;
   busy: boolean;
   /** ساختِ نسخه برای عکس‌های انتخاب‌شده؛ ops = null یعنی سرور برای هر عکس خودش می‌چیند. ⇐ جملهٔ خطا یا null */
-  run: (recipe: string, ops: Operation[] | null) => Promise<string | null>;
+  run: (recipe: string, ops: Operation[] | null, assetIds?: number[], extra?: OfflineChoice) => Promise<string | null>;
   latest: (assetId: number) => Edit | null;
   asset: Asset | null;
   /** باز کردنِ مراحلِ یک نسخه در حالتِ دستی */
@@ -224,13 +225,24 @@ export function PhotoPromptPanel(p: Common) {
     };
   }, [p.storeId, firstSelected, p.nodeOn]);
 
+  // سرورِ پردازش خاموش و انتخابی ذخیره نشده ⇒ سرور 409 می‌دهد و این پنجره از کاربر می‌پرسد (هر دو راه ممکن است)
+  const [askOps, setAskOps] = useState<{ ops: Operation[]; refine: boolean } | null>(null);
+  async function send(ops: Operation[], refine: boolean, extra?: OfflineChoice) {
+    const err = await p.run("smart", ops, undefined, extra);
+    if (err === NEEDS_CHOICE) {
+      setAskOps({ ops, refine });
+      return;
+    }
+    if (err) setError(err);
+    else if (refine) setFollow("");
+  }
+
   async function ask() {
     setError(null);
-    const err = await p.run("smart", [
+    await send([
       { tool: "kit_smart", params: { goal: goal.trim() }, on: true, reason: "دستورِ شما" },
       { tool: "export", params: { format: "jpeg", quality: 92 }, on: true },
-    ]);
-    if (err) setError(err);
+    ], false);
   }
 
   async function refine() {
@@ -247,13 +259,21 @@ export function PhotoPromptPanel(p: Common) {
       { tool: "kit_smart", params: { goal: follow.trim() }, on: true, reason: "اصلاحِ شما" },
       { tool: "export", params: { format: "jpeg", quality: 92 }, on: true },
     ];
-    const err = await p.run("smart", ops);
-    if (err) setError(err);
-    else setFollow("");
+    await send(ops, true);
   }
 
   return (
     <Card className="mt-2">
+      {askOps && (
+        <OfflineChoiceDialog
+          onCancel={() => setAskOps(null)}
+          onChoose={(choice, remember) => {
+            const pending = askOps;
+            setAskOps(null);
+            void send(pending.ops, pending.refine, { smart_offline: choice, remember });
+          }}
+        />
+      )}
       <div data-testid="prompt-panel">
         <SectionTitle>ویرایش با دستور (نیمه‌خودکار)</SectionTitle>
         <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>

@@ -169,26 +169,60 @@ def _hex(c: str, alpha: int = 255) -> tuple[int, int, int, int]:
     return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16), max(0, min(255, int(alpha)))
 
 
-def _line_pieces(draw, line: str, font, rtl: bool, spacing_px: float):
-    """[(متن، x نسبی از ابتدای خط)] و پهنای خط، با فاصلهٔ حروف/کلمه‌ها."""
-    if not spacing_px or not line.strip():
+def _line_pieces(draw, line: str, font, rtl: bool, spacing_px: float, word_extra: float = 0.0):
+    """[(متن، x نسبی از ابتدای خط)] و پهنای خط، با فاصلهٔ حروف/کلمه‌ها. ``word_extra`` فقط به فاصلهٔ میانِ کلمه‌ها اضافه می‌شود (تراز دوطرفه)."""
+    if (not spacing_px and not word_extra) or not line.strip():
         return [(line, 0.0)], _len(draw, line, font, rtl)
     if not rtl:
         pieces, x = [], 0.0
         for ch in line:
             pieces.append((ch, x))
-            x += _len(draw, ch, font, False) + spacing_px
+            x += _len(draw, ch, font, False) + spacing_px + (word_extra if ch == " " else 0.0)
         return pieces, max(0.0, x - spacing_px)
     # فارسی: کلمه‌به‌کلمه، از راست به چپ؛ پهنای هر کلمهٔ متصل دست‌نخورده
     words = line.split(" ")
     space = _len(draw, " ", font, True)
     widths = [_len(draw, w, font, True) for w in words]
-    total = sum(widths) + (len(words) - 1) * (space + spacing_px)
+    total = sum(widths) + (len(words) - 1) * (space + spacing_px + word_extra)
     pieces, x = [], total
     for w, wd in zip(words, widths):
         pieces.append((w, x - wd))
-        x -= wd + space + spacing_px
+        x -= wd + space + spacing_px + word_extra
     return pieces, total
+
+
+def vertical_lines(text: str) -> list[str]:
+    """متنِ عمودی: هر نویسه (با نشانه‌هایش) یک خط؛ فاصله ⇒ خطِ خالی، خطِ تازه ⇒ دو خطِ خالی. همان در مرورگر (raster.ts › verticalLines)."""
+    out: list[str] = []
+    for ch in text.replace("\r", ""):
+        if ch == "\n":
+            out.extend(["", ""])
+        elif ch.isspace():
+            out.append("")
+        elif unicodedata.combining(ch) and out and out[-1]:
+            out[-1] += ch
+        else:
+            out.append(ch)
+    return out[:MAX_LINES]
+
+
+def lines_for(layer: dict, text: str, probe, font, canvas_w: int, width_px: float) -> list[str]:
+    """خط‌های متن: عمودی ⇒ هر نویسه یک خط؛ lines دادهٔ مرورگر؛ عرضِ ثابت ⇒ شکستن؛ وگرنه عرضِ خودکار (۹۴٪ بوم)."""
+    if layer.get("vertical"):
+        return vertical_lines(text)
+    given = layer.get("lines")
+    if isinstance(given, list) and given:
+        return [str(x).upper() if layer.get("caps") else str(x) for x in given][:MAX_LINES]
+    if width_px > 0:
+        return wrap_lines(probe, text, font, width_px)
+    lines: list[str] = []
+    limit = AUTO_WRAP * canvas_w
+    for para in text.split("\n"):
+        if _len(probe, para, font, is_rtl_text(para)) > limit:
+            lines.extend(wrap_lines(probe, para, font, limit))
+        else:
+            lines.append(para)
+    return lines[:MAX_LINES]
 
 
 def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, float]] | None:
@@ -203,24 +237,10 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     font = _font(path, size_px)
     probe = ImageDraw.Draw(Image.new("L", (8, 8)))
     width_px = float(layer.get("width") or 0) * canvas_w
-    given = layer.get("lines")
-    if isinstance(given, list) and given:
-        lines = [str(x).upper() if layer.get("caps") else str(x) for x in given][:MAX_LINES]
-    elif width_px > 0:
-        lines = wrap_lines(probe, text, font, width_px)
-    else:
-        # auto width: a line longer than 94% of the canvas width is wrapped (the browser does the same)
-        lines = []
-        limit = AUTO_WRAP * canvas_w
-        for para in text.split("\n"):
-            if _len(probe, para, font, is_rtl_text(para)) > limit:
-                lines.extend(wrap_lines(probe, para, font, limit))
-            else:
-                lines.append(para)
-        lines = lines[:MAX_LINES]
+    lines = lines_for(layer, text, probe, font, canvas_w, width_px)
     spacing_px = float(layer.get("letter_spacing") or 0) * size_px
     forced = layer.get("dir", "auto")
-    align = layer.get("align", "center")
+    align = "center" if layer.get("vertical") else layer.get("align", "center")
 
     metrics = font.getmetrics()
     asc, desc = float(metrics[0]), float(metrics[1])
@@ -235,6 +255,14 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     content_w = max([wd for *_x, wd in laid] + [1.0])
     block_w = max(width_px, content_w) if width_px > 0 else content_w
     block_h = lh * len(laid)
+    # «تراز دوطرفه»: همهٔ خط‌ها جز آخری با پهن‌کردنِ فاصلهٔ کلمه‌ها به پهنای بلوک می‌رسند (فقط با عرضِ ثابت، نه در متنِ عمودی)
+    if layer.get("justify") and width_px > 0 and not layer.get("vertical"):
+        for i, (line, rtl, pieces, wd) in enumerate(laid[:-1]):
+            nw = len(line.split(" "))
+            if line.strip() and nw > 1 and wd < block_w:
+                pieces, wd = _line_pieces(probe, line, font, rtl, spacing_px, (block_w - wd) / (nw - 1))
+                laid[i] = (line, rtl, pieces, wd)
+    indent_px = float(layer.get("indent") or 0) * size_px
 
     stroke = layer.get("stroke") or None
     shadow = layer.get("shadow") or None
@@ -271,6 +299,8 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
             x0 = 0.0
         else:
             x0 = (block_w - wd) / 2
+        if i == 0 and indent_px:
+            x0 += -indent_px if rtl else indent_px        # تورفتگیِ خطِ اول از لبهٔ شروعِ خواندن
         y = oy + i * lh + base_y_in_line
         for piece, px in pieces:
             kw = _kw(rtl)
@@ -306,7 +336,82 @@ def render_text(layer: dict, canvas_w: int) -> tuple[Image.Image, tuple[float, f
     if isinstance(wp, dict) and wp.get("style") in WARP_STYLES and abs(float(wp.get("amount") or 0)) > 0.001:
         tile, extra = warp_tile(tile, wp["style"], float(wp["amount"]), size_px)
         pivot = (pivot[0], pivot[1] + extra)
+    tp = layer.get("tpath")
+    if isinstance(tp, dict) and len(tp.get("pts") or []) >= 2:
+        from . import paths as pathsmod
+
+        tile, pivot = path_tile(tile, pathsmod.flatten(tp, float(canvas_w), float(canvas_w)))
     return tile, pivot
+
+
+PATH_STEP = 0.5          # گامِ نمونه‌برداریِ طول و ارتفاعِ تایل (پیکسل)؛ همان در مرورگر (raster.ts › pathTile)
+PATH_MAX_PIXELS = 36_000_000
+
+
+def path_tile(tile: Image.Image, poly) -> tuple[Image.Image, tuple[float, float]]:
+    """متن روی مسیر: ستونِ x از تایل ⇒ نقطه‌ای از مسیر (متن وسطِ مسیر؛ بیرون از دو سر با امتدادِ مماس) و ردیفِ y ⇒ فاصله روی عمودِ مسیر.
+    نقشهٔ معکوس با نمونه‌برداریِ متراکم ساخته می‌شود (هر نمونه به نزدیک‌ترین پیکسل می‌رود)، حفره‌ها با دو گذرِ همسایهٔ ۸تایی پر می‌شوند و
+    cv2.remap دوخطی روی تایلِ پیش‌ضرب‌شده نمونه می‌گیرد. ⇒ (تایلِ متقارن حولِ مرکزِ لایه، محور = مرکز). مسیر کوتاه ⇒ همان تایل."""
+    import cv2
+    import numpy as np
+
+    pts = np.asarray(poly, np.float64)
+    if len(pts) < 2:
+        return tile, (tile.width / 2, tile.height / 2)
+    seg = np.hypot(pts[1:, 0] - pts[:-1, 0], pts[1:, 1] - pts[:-1, 1])
+    keep = seg > 1e-9
+    if keep.sum() < 1:
+        return tile, (tile.width / 2, tile.height / 2)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    total = float(cum[-1])
+    tw, th = tile.size
+    if total < 2:
+        return tile, (tw / 2, th / 2)
+    s0 = (total - tw) / 2.0
+    xs = np.arange(0.0, tw + PATH_STEP, PATH_STEP)
+    ys = np.arange(0.0, th + PATH_STEP, PATH_STEP)
+    pos = s0 + xs
+    idx = np.clip(np.searchsorted(cum, pos, side="right") - 1, 0, len(seg) - 1)
+    # قطعه‌های هم‌نقطه (طول صفر) از مماس کنار گذاشته می‌شوند
+    good = np.flatnonzero(keep)
+    idx = good[np.clip(np.searchsorted(good, idx, side="left"), 0, len(good) - 1)]
+    tang = (pts[idx + 1] - pts[idx]) / np.maximum(seg[idx], 1e-9)[:, None]
+    P = pts[idx] + tang * (pos - cum[idx])[:, None]
+    nrm = np.stack([-tang[:, 1], tang[:, 0]], axis=1)
+    off = ys - th / 2.0
+    D = P[:, None, :] + nrm[:, None, :] * off[None, :, None]
+    half_x = int(math.ceil(float(np.abs(D[..., 0]).max()))) + 3
+    half_y = int(math.ceil(float(np.abs(D[..., 1]).max()))) + 3
+    W2, H2 = 2 * half_x, 2 * half_y
+    if W2 * H2 > PATH_MAX_PIXELS:
+        raise tov.OverlayError("متن روی مسیر خیلی بزرگ است.")
+    ix = np.rint(D[..., 0] + half_x).astype(np.int64)
+    iy = np.rint(D[..., 1] + half_y).astype(np.int64)
+    ok = (ix >= 0) & (ix < W2) & (iy >= 0) & (iy < H2)
+    map_x = np.full((H2, W2), -1.0, np.float32)
+    map_y = np.full((H2, W2), -1.0, np.float32)
+    sx = np.broadcast_to(xs[:, None], ok.shape).astype(np.float32)
+    sy = np.broadcast_to(ys[None, :], ok.shape).astype(np.float32)
+    map_x[iy[ok], ix[ok]] = sx[ok]
+    map_y[iy[ok], ix[ok]] = sy[ok]
+    for _pass in range(2):                                        # حفره‌های بینِ نمونه‌ها (سمتِ بیرونیِ خم)
+        valid = map_x >= 0
+        nx, ny = map_x.copy(), map_y.copy()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            sh_x = np.roll(map_x, (dy, dx), axis=(0, 1))
+            sh_y = np.roll(map_y, (dy, dx), axis=(0, 1))
+            take = (nx < 0) & (sh_x >= 0)
+            nx[take] = sh_x[take]
+            ny[take] = sh_y[take]
+        map_x, map_y = nx, ny
+        del valid
+    a = np.asarray(tile.convert("RGBA")).astype(np.float32)
+    a[..., :3] *= a[..., 3:4] / 255.0
+    out = cv2.remap(a, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    al = out[..., 3:4]
+    rgb = np.where(al > 0.5, out[..., :3] / np.maximum(al / 255.0, 1e-3), 0.0)
+    res = np.concatenate([np.clip(rgb, 0, 255), np.clip(al, 0, 255)], axis=2)
+    return Image.fromarray(np.rint(res).astype(np.uint8), "RGBA"), (float(half_x), float(half_y))
 
 
 def layout(layer: dict, canvas_w: int) -> dict:
@@ -322,20 +427,7 @@ def layout(layer: dict, canvas_w: int) -> dict:
     font = _font(path, size_px)
     probe = ImageDraw.Draw(Image.new("L", (8, 8)))
     width_px = float(layer.get("width") or 0) * canvas_w
-    given = layer.get("lines")
-    if isinstance(given, list) and given:
-        lines = [str(x).upper() if layer.get("caps") else str(x) for x in given][:MAX_LINES]
-    elif width_px > 0:
-        lines = wrap_lines(probe, text, font, width_px)
-    else:
-        lines = []
-        limit = AUTO_WRAP * canvas_w
-        for para in text.split("\n"):
-            if _len(probe, para, font, is_rtl_text(para)) > limit:
-                lines.extend(wrap_lines(probe, para, font, limit))
-            else:
-                lines.append(para)
-        lines = lines[:MAX_LINES]
+    lines = lines_for(layer, text, probe, font, canvas_w, width_px)
     spacing_px = float(layer.get("letter_spacing") or 0) * size_px
     forced = layer.get("dir", "auto")
     widths = []

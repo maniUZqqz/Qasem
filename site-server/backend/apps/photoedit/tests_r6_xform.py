@@ -124,7 +124,7 @@ class FillLayerTests(SimpleTestCase):
         self.assertGreater(custom[80, 2, 0], 200)
         self.assertGreater(custom[80, -3, 2], 200)
         for k in effects.GRADIENT_PRESETS:
-            self.assertTrue(k == "custom" or effects.GRADIENT_PRESETS[k][1][0][0] == 0.0 and effects.GRADIENT_PRESETS[k][1][-1][0] == 1.0, k)
+            self.assertTrue(k in ("custom", "stops") or effects.GRADIENT_PRESETS[k][1][0][0] == 0.0 and effects.GRADIENT_PRESETS[k][1][-1][0] == 1.0, k)
 
     def test_pattern_has_two_levels_and_transparent_background_option(self):
         out, _ = effects.run("fill_pattern", block(), {"pattern": "stripes", "scale": 20, "fg": "#ffffff", "bg": "#000000"})

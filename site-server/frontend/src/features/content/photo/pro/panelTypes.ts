@@ -35,6 +35,8 @@ export type ProActions = {
   paintMask: (id: string) => void;
   /** شروعِ ویرایشِ متن روی بوم (فوکوس روی textarea بازرس) */
   focusText: () => void;
+  /** متن روی مسیرِ قلم (on) یا برداشتنِ مسیر (دورِ ۸) */
+  textPath: (id: string, on: boolean) => void;
   // ── گروه‌ها و برش (درخت: `parent` + فهرستِ تخت؛ نگاه کنید به tree.ts)
   /** گروهِ خالیِ تازه، بالای لایهٔ فعال و هم‌سطحش */
   newGroup: () => void;

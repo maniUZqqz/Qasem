@@ -62,6 +62,12 @@ export interface Host {
   exportPreset(key: string): void;
   storeFrame(): void;
   kit(key: string): void;
+  /** «حذفِ پس‌زمینه با مدل…»: انتخابِ مدل و مقایسه (دورِ ۸) */
+  matting(): void;
+  /** قلم‌موی دلخواه: ذخیرهٔ قلمِ فعلی / ساختنِ نوک از تصویر / برداشتنِ نوک (دورِ ۸) */
+  brushOp(op: "save" | "fromImage" | "clearTip"): void;
+  fillGradient(): void;
+  openPsd(): void;
   // تصویر
   rotate(delta: number): void;
   flip(axis: "h" | "v"): void;
@@ -105,9 +111,11 @@ export interface Host {
   actionStop(): void;
   actionPlay(id: number): void;
   /** خروجی با قالبِ دیگر از پروژه (نوبت ۶) */
-  exportAs(fmt: "psd" | "tiff" | "pdf" | "gif" | "bmp"): void;
+  exportAs(fmt: "psd" | "tiff" | "pdf" | "gif" | "bmp" | "png" | "svg", mode?: "gray" | "cmyk" | "indexed" | "rgb16" | "lab"): void;
   /** ویژگی‌های متنِ لایهٔ فعال (نوبت ۶) */
-  textFlag(k: "underline" | "strike" | "caps"): void;
+  textFlag(k: "underline" | "strike" | "caps" | "vertical" | "justify"): void;
+  /** متن روی مسیرِ قلم (on) / برداشتنِ مسیر (دورِ ۸) */
+  textPath(on: boolean): void;
   textWarp(style: "arc" | "wave" | "flag" | "bulge" | "rise" | null): void;
   fillPaint(): void;
   clearPaint(): void;
@@ -196,6 +204,12 @@ export const TOOL_META: Record<string, { en: string; syn: string[] }> = {
   eraser: { en: "Eraser", syn: ["پاک کن", "پاک‌کن", "پاک کردن", "eraser", "erase", "rubber"] },
   bucket: { en: "Paint Bucket", syn: ["سطل", "سطل رنگ", "پر کردن", "رنگ کردن ناحیه", "bucket", "paint bucket", "fill", "flood fill"] },
   history: { en: "History Brush", syn: ["تاریخچه", "بازگرداندن", "برگرداندن موضعی", "history brush", "restore", "revert area"] },
+  blur: { en: "Blur tool", syn: ["محو", "ابزار محو", "نرم کردن", "blur", "soften", "smooth brush"] },
+  sharpen: { en: "Sharpen tool", syn: ["تیز", "ابزار تیز", "وضوح", "sharpen", "sharpen brush", "crisp"] },
+  dodge: { en: "Dodge tool", syn: ["روشن کننده", "روشن‌کردن موضعی", "دوج", "dodge", "lighten brush", "brighten brush"] },
+  burn: { en: "Burn tool", syn: ["تیره کننده", "تیره‌کردن موضعی", "برن", "burn", "darken brush", "shadow brush"] },
+  sponge: { en: "Sponge tool", syn: ["اسفنج", "اشباع موضعی", "sponge", "saturate brush", "desaturate brush"] },
+  smudge: { en: "Smudge tool", syn: ["لکه کش", "لکه‌کش", "انگشت", "کشیدن رنگ", "smudge", "finger", "drag color"] },
   picker: { en: "Eyedropper", syn: ["قطره چکان", "برداشتن رنگ", "رنگ", "eyedropper", "color picker", "sample color", "pipette"] },
   genfill: { en: "Generative Fill", syn: ["هوش مصنوعی", "حذف شیء", "پر کردن", "inpaint", "remove object", "content aware", "ai fill"] },
 };
@@ -220,6 +234,16 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   ] as const) {
     add({ id: `file.export.${k}`, menu: "file", group: "خروجی با قالبِ دیگر", title: fa, en, syn: [...syn], tip, run: (h) => h.exportAs(k) });
   }
+  add({ id: "file.export.svg", menu: "file", group: "خروجی با قالبِ دیگر", title: "خروجی SVG (فقط شکل‌ها)", en: "Export SVG (shapes)", syn: ["اس وی جی", "svg", "برداری", "وکتور", "vector", "لوگو برداری"], tip: "لایه‌های شکل (مستطیل، بیضی، خط، مسیر و شکل‌های آماده) به‌صورتِ فایلِ برداری؛ عکس و متن در SVG نمی‌آید", run: (h) => h.exportAs("svg") });
+  for (const [k, fmt, mode, fa, en, syn, tip] of [
+    ["gray", "png", "gray", "خروجیِ سیاه‌وسفید (۸ بیت)", "Export grayscale", ["خاکستری", "سیاه و سفید", "grayscale", "gray", "تک کانال"], "تصویر با یک کانالِ روشنایی (PNG)؛ کم‌حجم‌تر و مناسبِ چاپِ سیاه‌وسفید"],
+    ["cmyk", "tiff", "cmyk", "خروجیِ CMYK (TIFF، تبدیلِ ساده)", "Export CMYK", ["سی ام وای کی", "cmyk", "چاپخانه", "چاپ", "جوهر"], "چهار کانالِ جوهر برای چاپخانه؛ تبدیلِ ساده است (بی پروفایلِ ماشین) — اگر دقتِ رنگ مهم است همان RGB را به چاپخانه بدهید"],
+    ["indexed", "png", "indexed", "خروجیِ ۲۵۶ رنگ (PNG)", "Export indexed color", ["۲۵۶ رنگ", "پالت", "indexed", "palette", "کم حجم", "آیکون"], "تصویر با پالتِ ۲۵۶ رنگ (برای آیکون و گرافیکِ ساده)"],
+    ["rgb16", "tiff", "rgb16", "خروجیِ ۱۶ بیت (TIFF)", "Export 16-bit TIFF", ["۱۶ بیت", "16 bit", "16-bit", "عمق رنگ", "tiff16", "هایبیت"], "فایلِ ۱۶ بیت در هر کانال برای نرم‌افزارهایی که می‌خواهند؛ ترکیبِ ما ۸ بیتی است و دقتِ بیشتری ساخته نمی‌شود"],
+    ["lab", "tiff", "lab", "خروجیِ Lab (TIFF)", "Export Lab TIFF", ["لب", "lab", "cielab", "l*a*b"], "فضای رنگیِ CIE L*a*b* برای کارهای رنگ‌سنجی و چاپ"],
+  ] as const) {
+    add({ id: `file.export.${k}`, menu: "file", group: "خروجی با حالتِ رنگ", title: fa, en, syn: [...syn], tip, run: (h) => h.exportAs(fmt, mode) });
+  }
   add({ id: "file.exportInstagram", menu: "file", group: "اندازه‌های آمادهٔ خروجی", title: "اندازهٔ اینستاگرام", en: "Instagram size", syn: ["اینستا", "پست", "instagram", "square", "post"], tip: "قاب و قالبِ فایل برای پستِ اینستاگرام تنظیم می‌شود", run: (h) => h.exportPreset("insta") });
   add({ id: "file.exportStory", menu: "file", group: "اندازه‌های آمادهٔ خروجی", title: "اندازهٔ استوری", en: "Story size", syn: ["استوری", "ریلز", "story", "reels", "9:16"], tip: "قابِ عمودیِ ۹:۱۶", run: (h) => h.exportPreset("story") });
   add({ id: "file.exportBanner", menu: "file", group: "اندازه‌های آمادهٔ خروجی", title: "بنرِ سایت و تلگرام", en: "Banner size", syn: ["بنر", "تلگرام", "banner", "telegram", "cover"], tip: "۱۲۰۰×۶۳۰، تا ۲۵۰ کیلوبایت", run: (h) => h.exportPreset("banner") });
@@ -233,6 +257,39 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   add({ id: "action.record", menu: "edit", group: "اکشن (ضبط و اجرا)", title: "شروعِ ضبطِ اکشن", en: "Record action", syn: ["اکشن", "ضبط", "ماکرو", "تکرارِ کارها", "کارهای تکراری", "ضبط کارها", "record", "macro", "actions", "automate", "repeat"], tip: "از این لحظه تنظیمِ نور و رنگ، برش، متن، لوگو و لایه‌های بی‌پیکسلی که می‌سازید ثبت می‌شود تا با یک کلیک روی هر عکسِ دیگر اجرا شود (نقاشی و ترمیمِ همین عکس ثبت نمی‌شود)", run: (h) => h.actionRecord(), enabled: (h) => (h.s.recording ? "ضبط همین حالا روشن است" : null) });
   add({ id: "action.stop", menu: "edit", group: "اکشن (ضبط و اجرا)", title: "پایانِ ضبط و ذخیرهٔ اکشن", en: "Stop recording and save action", syn: ["توقف ضبط", "ذخیره اکشن", "تمام ضبط", "stop recording", "save action", "finish macro"], tip: "ضبط را تمام می‌کند و از شما یک نام می‌خواهد؛ اکشنِ ذخیره‌شده برای همهٔ عکس‌های این فروشگاه در دسترس است", run: (h) => h.actionStop(), enabled: (h) => (h.s.recording ? null : "اول ضبط را شروع کنید") });
   add({ id: "action.panel", menu: "edit", group: "اکشن (ضبط و اجرا)", title: "اکشن‌های ذخیره‌شده (اجرا و حذف)", en: "Saved actions", syn: ["اجرای اکشن", "فهرست اکشن", "اکشن ها", "play action", "run action", "actions list", "batch steps"], tip: "فهرستِ اکشن‌های ذخیره‌شده؛ هر کدام را با یک کلیک روی عکسِ باز اجرا کنید", run: (h) => h.tab("history") });
+  add({ id: "brush.save", menu: "edit", group: "قلم‌موی دلخواه", title: "ذخیرهٔ قلمِ فعلی با یک نام…", en: "Save brush preset", syn: ["ذخیره قلم", "پیش تنظیم قلم", "قلم من", "save brush", "brush preset", "custom brush"], tip: "اندازه، سختی، شدت، فاصله، پخش و نوکِ تصویریِ قلمِ فعلی را با یک نام نگه می‌دارد تا بعداً با یک کلیک برگردد", run: (h) => h.brushOp("save") });
+  add({ id: "brush.fromImage", menu: "edit", group: "قلم‌موی دلخواه", title: "ساختنِ قلم از روی یک تصویر…", en: "Brush from image", syn: ["قلم از تصویر", "نوک قلم", "قلم تصویری", "brush tip", "image brush", "stamp brush", "define brush"], tip: "یک تصویر (مثلاً ستاره یا برگ) انتخاب کنید؛ نوکِ قلم همان شکل می‌شود (تاریک‌تر = پُررنگ‌تر)", run: (h) => h.brushOp("fromImage") });
+  add({ id: "brush.clearTip", menu: "edit", group: "قلم‌موی دلخواه", title: "برداشتنِ نوکِ تصویریِ قلم", en: "Clear brush tip", syn: ["برداشتن نوک", "قلم ساده", "clear brush tip"], tip: "قلم دوباره گرد و ساده می‌شود", run: (h) => h.brushOp("clearTip") });
+  add({ id: "edit.fillGradient", menu: "edit", group: "نقاشی", title: "پرکردنِ لایهٔ نقاشی با شیب…", en: "Fill with gradient", syn: ["پر کردن با شیب", "گرادینت", "شیب چندرنگ", "gradient fill", "gradient tool", "fill gradient", "stops"], tip: "لایهٔ نقاشیِ فعال (یا فقط ناحیهٔ انتخاب) را با شیبِ چندتوقفی پر می‌کند؛ توقف‌ها را بکشید و رنگ بدهید", run: (h) => h.fillGradient(), enabled: (h) => (h.s.activeIsPaint ? null : "اول یک لایهٔ نقاشی را انتخاب کنید") });
+  add({ id: "layer.shapeLibrary", menu: "layer", group: "افزودن", title: "شکل‌های آماده (چندضلعی، ستاره، قلب، فلش…)", en: "Custom shapes / polygon / star", syn: ["شکل آماده", "چندضلعی", "ستاره", "قلب", "فلش", "کادر گفتگو", "ابر", "polygon", "star", "heart", "arrow", "custom shape", "shape library", "badge"], tip: "یک شکلِ آماده یا چندضلعی/ستارهٔ دلخواه را به‌صورتِ لایهٔ شکل اضافه می‌کند", run: (h) => h.extra.shapeLibrary() });
+  add({ id: "image.flatten", menu: "image", group: "ترکیب", title: "تخت‌کردنِ همهٔ لایه‌ها (تصویرِ تازه)", en: "Flatten image", syn: ["تخت کردن", "یکی کردن لایه ها", "ادغام همه", "flatten", "flatten image", "merge all"], tip: "همهٔ لایه‌ها را در یک تصویر می‌ریزد و آن را به‌عنوانِ عکسِ تازه در کتابخانه باز می‌کند؛ عکسِ فعلی با لایه‌هایش سر جایش می‌ماند", run: (h) => h.extra.flatten() });
+  add({ id: "layer.copy", menu: "layer", group: "رونوشت", title: "رونوشتِ لایه (برای چسباندن در عکسِ دیگر)", en: "Copy layer", syn: ["کپی لایه", "رونوشت لایه", "copy layer"], tip: "لایه (با زیرمجموعه‌اش) را نگه می‌دارد؛ بعد در همین عکس یا عکسِ دیگر می‌چسبانید", run: (h) => h.extra.layerCopy(), enabled: (h) => (h.s.hasActive && !h.s.activeIsBase ? null : "اول یک لایه (غیر از «عکس») را انتخاب کنید") });
+  add({ id: "layer.paste", menu: "layer", group: "رونوشت", title: "چسباندنِ لایه", en: "Paste layer", syn: ["چسباندن لایه", "paste layer"], tip: "آخرین لایهٔ رونوشت‌شده را بالای لایهٔ فعال می‌گذارد", run: (h) => h.extra.layerPaste() });
+  add({ id: "layer.link", menu: "layer", group: "پیوند", title: "پیوندِ لایه با لایهٔ زیرین", en: "Link layers", syn: ["پیوند لایه", "لینک لایه", "همراه کردن", "link layers", "link"], tip: "دو لایه با هم جابه‌جا می‌شوند؛ کشیدنِ یکی هر دو را می‌برد", run: (h) => h.extra.layerLink(), enabled: (h) => (h.s.hasActive && !h.s.activeIsBase ? null : "اول یک لایه (غیر از «عکس») را انتخاب کنید") });
+  add({ id: "layer.unlink", menu: "layer", group: "پیوند", title: "قطعِ پیوندِ لایه", en: "Unlink layer", syn: ["قطع پیوند", "جدا کردن لایه", "unlink"], tip: "لایهٔ فعال از گروهِ پیوندی بیرون می‌آید", run: (h) => h.extra.layerUnlink(), enabled: (h) => (h.s.hasActive ? null : "اول یک لایه را انتخاب کنید") });
+  for (const [lid, lt] of [["red", "قرمز"], ["orange", "نارنجی"], ["yellow", "زرد"], ["green", "سبز"], ["blue", "آبی"], ["violet", "بنفش"], ["gray", "خاکستری"]] as const) {
+    add({ id: `layer.label.${lid}`, menu: "layer", group: "برچسبِ رنگی", title: `برچسبِ ${lt}`, en: `Color label ${lid}`, syn: ["برچسب رنگی", "رنگ لایه", "color label", `label ${lid}`], tip: "یک نقطهٔ رنگی کنارِ نامِ لایه می‌گذارد تا لایه‌ها را دسته‌بندی کنید", run: (h) => h.extra.layerLabel(lid), enabled: (h) => (h.s.hasActive ? null : "اول یک لایه را انتخاب کنید") });
+  }
+  add({ id: "layer.label.none", menu: "layer", group: "برچسبِ رنگی", title: "برداشتنِ برچسبِ رنگی", en: "Clear color label", syn: ["برداشتن برچسب", "بی رنگ", "clear label"], tip: "نقطهٔ رنگیِ لایه برداشته می‌شود", run: (h) => h.extra.layerLabel(null), enabled: (h) => (h.s.hasActive ? null : "اول یک لایه را انتخاب کنید") });
+  add({ id: "layer.rasterize", menu: "layer", group: "تبدیل", title: "تبدیلِ متن/شکل به تصویرِ پیکسلی", en: "Rasterize layer", syn: ["رستر", "پیکسلی کردن", "تبدیل به تصویر", "rasterize", "rasterize layer", "convert to image"], tip: "متن یا شکل (با سایه و دورخطش) به یک لایهٔ تصویری تبدیل می‌شود؛ بعد با فیلترها و قلم‌ها ویرایش‌پذیر است ولی دیگر متن نیست", run: (h) => h.extra.rasterize(), enabled: (h) => (h.s.activeType === "text" || h.s.activeType === "shape" ? null : "فقط لایهٔ متن یا شکل") });
+  add({ id: "select.typeMask", menu: "select", group: "از لایه", title: "ماسکِ متن: انتخابِ شکلِ حرف‌ها", en: "Type mask", syn: ["ماسک متن", "انتخاب از متن", "شکل حرف", "type mask", "text selection", "text to selection"], tip: "شکلِ حرف‌های لایهٔ متن (یا شکل) را به‌صورتِ انتخاب درمی‌آورد؛ بعد می‌توانید ماسک یا لایهٔ تنظیم روی همان حرف‌ها بسازید", run: (h) => h.extra.typeMask(), enabled: (h) => (h.s.activeType === "text" || h.s.activeType === "shape" ? null : "اول یک لایهٔ متن (یا شکل) را انتخاب کنید") });
+  add({ id: "text.inShape", menu: "layer", group: "متن", title: "متن داخلِ شکلِ زیرین", en: "Text in shape", syn: ["متن داخل شکل", "متن در شکل", "جا دادن متن", "text in shape", "fit text to shape"], tip: "متن را وسطِ نزدیک‌ترین شکلِ زیرش می‌گذارد و خط‌ها را به اندازهٔ داخلِ شکل می‌شکند", run: (h) => h.extra.textInShape(), enabled: (h) => (h.s.activeType === "text" ? null : "اول یک لایهٔ متن را انتخاب کنید") });
+  add({ id: "select.transform", menu: "select", group: "ویرایشِ انتخاب", title: "تبدیلِ انتخاب (بزرگ/کوچک، چرخش، جابه‌جایی)…", en: "Transform selection", syn: ["تبدیل انتخاب", "چرخاندن انتخاب", "بزرگ کردن انتخاب", "transform selection", "rotate selection", "scale selection"], tip: "خودِ ناحیهٔ انتخاب را (نه پیکسل‌ها را) بزرگ/کوچک، بچرخان و جابه‌جا می‌کند", run: (h) => h.extra.selTransform(), enabled: (h) => (h.s.hasSelection ? null : "اول ناحیه‌ای را انتخاب کنید") });
+  add({ id: "layer.styles", menu: "layer", group: "سبک‌ها", title: "سبک‌ها: لایه، حرف و پاراگراف…", en: "Styles library", syn: ["سبک", "سبک لایه", "سبک متن", "سبک حرف", "سبک پاراگراف", "ذخیره سبک", "styles", "layer style", "character style", "paragraph style", "text style", "preset style"], tip: "سبکِ آماده یا ذخیره‌شده را روی لایهٔ فعال می‌گذارد؛ سبکِ لایهٔ فعال (سایه، درخشش، دورخط؛ برای متن: قلم، رنگ، فاصله…) را با یک نام نگه می‌دارد", run: (h) => h.extra.styles(), enabled: (h) => (h.s.hasActive ? null : "اول یک لایه را انتخاب کنید") });
+  for (const [k, mode, fa, en, syn, tip] of [
+    ["contactSheet", "sheet", "شیتِ تماس (چند عکس در یک صفحه)…", "Contact sheet", ["شیت تماس", "کاتالوگ", "چند عکس در یک صفحه", "contact sheet", "catalog", "grid of photos"], "عکس‌های انتخابی را با نام در یک صفحهٔ شبکه‌ای می‌چیند"],
+    ["hdr", "hdr", "ادغامِ HDR (چند نوردهی)…", "HDR merge", ["اچ دی آر", "hdr", "نوردهی", "exposure fusion", "bracketing", "merge exposures"], "۲ تا ۷ عکسِ هم‌کادر با نوردهیِ متفاوت را به یک عکسِ متعادل تبدیل می‌کند"],
+    ["panorama", "pano", "پانوراما (دوختنِ چند عکس)…", "Panorama stitch", ["پانوراما", "دوختن", "عکس پهن", "panorama", "stitch", "photomerge"], "عکس‌های هم‌پوشان را به یک عکسِ پهن می‌دوزد"],
+    ["processor", "proc", "پردازشگرِ تصویر (چند اندازه، چند عکس)…", "Image processor", ["پردازشگر تصویر", "چند اندازه", "تغییر اندازه گروهی", "image processor", "batch resize", "bulk export", "zip"], "هر عکس را در چند اندازه می‌سازد و همه را در یک zip می‌دهد"],
+    ["batchAction", "action", "اجرای اکشن روی چند عکس…", "Run action on many photos", ["اکشن روی چند عکس", "دسته ای", "گروهی", "batch", "droplet", "run action", "apply to all", "اسکریپت"], "اکشنِ ذخیره‌شده را روی چند عکسِ کتابخانه اجرا می‌کند؛ هر عکس یک نسخهٔ تازه می‌شود"],
+  ] as const) {
+    add({ id: `file.${k}`, menu: "file", group: "چند عکس با هم", title: fa, en, syn: [...syn], tip, run: (h) => h.extra.multi(mode) });
+  }
+  add({ id: "image.lut", menu: "image", group: "رنگ از فایل یا عکسِ دیگر", title: "LUT رنگی (فایلِ .cube)…", en: "Color lookup (LUT .cube)", syn: ["ال یو تی", "lut", "cube", "جدول رنگ", "فیلتر رنگی فایل", "color lookup", "3dlut"], tip: "فایلِ LUT را روی عکس اعمال می‌کند؛ نتیجه عکسِ تازه است", run: (h) => h.extra.colorTool("lut") });
+  add({ id: "image.matchColor", menu: "image", group: "رنگ از فایل یا عکسِ دیگر", title: "تطبیقِ رنگ با عکسِ دیگر…", en: "Match color", syn: ["تطبیق رنگ", "هم رنگ کردن", "رنگ از عکس دیگر", "match color", "color transfer", "reference color"], tip: "رنگ و روشناییِ کلیِ یک عکسِ مرجع را روی این عکس می‌آورد؛ نتیجه عکسِ تازه است", run: (h) => h.extra.colorTool("match") });
+  add({ id: "select.sky", menu: "select", group: "انتخابِ خودکار", title: "انتخابِ آسمان", en: "Select sky", syn: ["آسمان", "انتخاب آسمان", "sky", "select sky"], tip: "آسمانِ آبی/ابری/غروبِ روشنِ بالای عکس را انتخاب می‌کند (روشِ سبک)", run: (h) => h.extra.selectAuto("sky") });
+  add({ id: "select.focus", menu: "select", group: "انتخابِ خودکار", title: "ناحیهٔ تمرکز (جاهای تیز)", en: "Focus area", syn: ["ناحیه تمرکز", "جاهای تیز", "فوکوس", "focus area", "in focus", "sharp area"], tip: "جاهایی از عکس که تیز (در فوکوس) هستند را انتخاب می‌کند", run: (h) => h.extra.selectAuto("focus") });
+  add({ id: "file.openPsd", menu: "file", group: "افزودن به صفحه", title: "باز کردنِ فایلِ لایه‌دار (PSD)…", en: "Open layered file (PSD)", syn: ["باز کردن psd", "فایل لایه دار", "ورود psd", "import psd", "open psd", "layered file"], tip: "فایلِ PSD را انتخاب کنید؛ هر لایه (شفافیت، حالتِ ترکیب و پنهان‌بودن) جدا در یک عکسِ تازه باز می‌شود. لایهٔ متن و تنظیم به‌صورتِ تصویر می‌آید یا نمی‌آید (یادداشت می‌دهد)", run: (h) => h.openPsd() });
   add({ id: "edit.fillFg", menu: "edit", group: "نقاشی", title: "پرکردنِ لایه (یا انتخاب) با رنگِ پیش‌زمینه", en: "Fill with foreground color", syn: ["پر کردن", "رنگ کردن لایه", "fill layer", "fill selection", "foreground"], key: "Alt+Backspace", tip: "لایهٔ نقاشیِ فعال (یا فقط ناحیهٔ انتخاب‌شده) را با رنگِ پیش‌زمینه پر می‌کند", run: (h) => h.fillPaint(), enabled: (h) => (h.s.activeIsPaint ? null : "اول یک لایهٔ نقاشی را انتخاب کنید") });
   add({ id: "edit.clearPaint", menu: "edit", group: "نقاشی", title: "پاک‌کردنِ محتوای لایهٔ نقاشی (یا انتخاب)", en: "Clear paint layer", syn: ["خالی کردن لایه", "پاک کردن نقاشی", "clear layer", "erase all"], tip: "همهٔ نقاشیِ این لایه (یا فقط ناحیهٔ انتخاب‌شده) را پاک می‌کند؛ برگشت‌پذیر", run: (h) => h.clearPaint(), enabled: (h) => (h.s.activeIsPaint ? null : "اول یک لایهٔ نقاشی را انتخاب کنید") });
   add({ id: "edit.snapshot", menu: "edit", group: "تاریخچه", title: "عکسِ لحظه‌ایِ تازه", en: "New snapshot", syn: ["اسنپ شات", "نگه داشتن حالت", "ذخیره حالت", "snapshot", "save state", "checkpoint"], tip: "حالتِ فعلیِ کار را نگه می‌دارد تا بعداً به آن برگردید یا قلمِ تاریخچه از آن رنگ بگیرد", run: (h) => h.snapshotNew() });
@@ -254,6 +311,7 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   add({ id: "image.persp", menu: "image", group: "برش و چرخش", title: "اصلاحِ پرسپکتیو", en: "Perspective correction", syn: ["پرسپکتیو", "ساختمان", "keystone", "perspective crop"], key: "Y", tip: "چهار گوشه را روی لبه‌های کج بکشید تا صاف شود", run: (h) => h.tool("persp") });
   add({ id: "image.storeFrame", menu: "image", group: "قاب", title: "قابِ مربعِ فروشگاه", en: "Store square frame", syn: ["مربع", "قاب", "فروشگاه", "square", "frame", "padding"], tip: "عکس را در مربعِ ۲۰۰۰ با حاشیهٔ یکسان می‌گذارد؛ دوباره بزنید تا برداشته شود", run: (h) => h.storeFrame() });
   add({ id: "image.removeBg", menu: "image", group: "هوش مصنوعی (سرورِ پردازش)", title: "حذف / تعویضِ پس‌زمینه", en: "Remove background", syn: ["بک گراند", "پس زمینه", "background", "cutout", "remove bg", "برش سوژه"], tip: "پس‌زمینه را حذف یا سفید می‌کند (روی سرورِ پردازش انجام می‌شود؛ اگر خاموش باشد «در صف — منتظرِ سرورِ پردازش» می‌ماند و بعداً خودکار انجام می‌شود)", run: (h) => h.kit("kit_background") });
+  add({ id: "image.matting", menu: "image", group: "هوش مصنوعی (سرورِ پردازش)", title: "حذفِ پس‌زمینه با مدل (انتخاب و مقایسه)…", en: "Remove background with models (compare)", syn: ["مدل", "مقایسه مدل", "u2netp", "isnet", "is-net", "birefnet", "rvm", "matting", "cutout compare", "بک گراند", "پس زمینه", "جداسازی سوژه"], tip: "یکی از چهار مدل (RVM روی سایت، u2netp، IS-Net، BiRefNet-lite روی سرورِ پردازش) را انتخاب کنید یا همه را کنارِ هم مقایسه کنید؛ وضعیتِ نصبِ مدل‌ها دیده می‌شود و کارِ مدل‌های دانلودنشده در صف می‌ماند", run: (h) => h.matting() });
   add({ id: "image.upscale", menu: "image", group: "هوش مصنوعی (سرورِ پردازش)", title: "بزرگ‌نماییِ هوشمند", en: "Super resolution", syn: ["بزرگ کردن", "افزایش کیفیت", "upscale", "enlarge", "resolution"], tip: "عکس را بدونِ کدر شدن بزرگ می‌کند (روی سرورِ پردازش انجام می‌شود؛ اگر خاموش باشد «در صف — منتظرِ سرورِ پردازش» می‌ماند و بعداً خودکار انجام می‌شود)", run: (h) => h.kit("kit_upscale") });
   add({ id: "image.denoise", menu: "image", group: "هوش مصنوعی (سرورِ پردازش)", title: "نویزگیریِ هوشمند", en: "Denoise", syn: ["نویز", "دانه", "noise", "grain", "denoise"], tip: "دانه‌دانه‌شدنِ عکسِ شب را کم می‌کند (روی سرورِ پردازش انجام می‌شود؛ اگر خاموش باشد «در صف — منتظرِ سرورِ پردازش» می‌ماند و بعداً خودکار انجام می‌شود)", run: (h) => h.kit("kit_denoise") });
   add({ id: "image.sharpenKit", menu: "image", group: "هوش مصنوعی (سرورِ پردازش)", title: "شارپِ حرفه‌ای", en: "Smart sharpen", syn: ["تیز کردن", "شارپ", "sharpen"], tip: "جزئیات را تیز می‌کند (روی سرورِ پردازش انجام می‌شود؛ اگر خاموش باشد «در صف — منتظرِ سرورِ پردازش» می‌ماند و بعداً خودکار انجام می‌شود)", run: (h) => h.kit("kit_sharpen") });
@@ -263,6 +321,10 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   const needText = (h: Host) => (h.s.activeType === "text" && !h.s.activeLocked ? null : "اول یک لایهٔ متن را انتخاب کنید");
   add({ id: "text.underline", menu: "layer", group: "متن", title: "زیرخط (روشن/خاموش)", en: "Underline", syn: ["خط زیر متن", "زیر خط", "underline"], tip: "زیرِ هر خطِ متنِ لایهٔ فعال خط می‌کشد", run: (h) => h.textFlag("underline"), enabled: needText });
   add({ id: "text.strike", menu: "layer", group: "متن", title: "خط‌خوردگی (روشن/خاموش)", en: "Strikethrough", syn: ["خط وسط", "خط زدن", "قیمت قبلی", "strikethrough", "strike", "line through"], tip: "وسطِ هر خطِ متن خط می‌کشد؛ برای «قیمتِ قبلی» عالی است", run: (h) => h.textFlag("strike"), enabled: needText });
+  add({ id: "text.vertical", menu: "layer", group: "متن", title: "متنِ عمودی (روشن/خاموش)", en: "Vertical type", syn: ["عمودی", "حرف زیر حرف", "نوشتن عمودی", "vertical text", "vertical type", "stacked letters"], tip: "هر حرفِ متن زیرِ حرفِ قبلی می‌آید؛ برای تابلو و عنوان‌های باریک (در فارسی حروف جدا می‌شوند)", run: (h) => h.textFlag("vertical"), enabled: needText });
+  add({ id: "text.justify", menu: "layer", group: "متن", title: "تراز دوطرفه (روشن/خاموش)", en: "Justify", syn: ["دوطرفه", "جاگذاری خط ها", "justify", "justified", "تورفتگی", "indent"], tip: "فاصلهٔ کلمه‌ها پهن می‌شود تا همهٔ خط‌ها (جز آخری) به پهنای کادر برسند؛ پهنای کادر را در بازرس تعیین کنید", run: (h) => h.textFlag("justify"), enabled: needText });
+  add({ id: "text.onPath", menu: "layer", group: "متن", title: "متن روی مسیرِ قلم", en: "Text on path", syn: ["متن روی مسیر", "متن روی منحنی", "متن منحنی", "text on a path", "text on path", "curved path text"], tip: "اول با ابزارِ قلم یک مسیر بکشید؛ متنِ لایهٔ فعال در امتدادِ همان مسیر می‌نشیند", run: (h) => h.textPath(true), enabled: needText });
+  add({ id: "text.offPath", menu: "layer", group: "متن", title: "برداشتنِ متن از روی مسیر", en: "Remove text from path", syn: ["برداشتن مسیر متن", "remove text path"], tip: "متن دوباره صاف و افقی می‌شود", run: (h) => h.textPath(false), enabled: needText });
   add({ id: "text.caps", menu: "layer", group: "متن", title: "حروفِ بزرگِ لاتین (روشن/خاموش)", en: "All caps", syn: ["حروف بزرگ", "کپیتال", "uppercase", "caps", "all caps", "capital"], tip: "حروفِ انگلیسیِ متن بزرگ دیده می‌شود؛ متنِ فارسی تغییری نمی‌کند", run: (h) => h.textFlag("caps"), enabled: needText });
   for (const [k, fa, en, syn] of [
     ["arc", "قوس", "Arc", ["کمان", "نیم دایره", "قوسی", "arch", "curve"]],
@@ -357,7 +419,7 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
     if (["clone", "heal", "spot", "redeye"].includes(id)) return { menu: "image", group: "ابزارهای ترمیم" };
     if (id === "liquify") return { menu: "filter", group: "ابزارهای ویژه" };
     if (id === "genfill") return { menu: "select", group: "استفاده از انتخاب" };
-    if (["paint", "pencil", "eraser", "bucket", "history", "picker"].includes(id)) return { menu: "layer", group: "ابزارهای نقاشی" };
+    if (["paint", "pencil", "eraser", "bucket", "history", "picker", "blur", "sharpen", "smudge", "dodge", "burn", "sponge"].includes(id)) return { menu: "layer", group: "ابزارهای نقاشی" };
     if (["text", "brush", "gradient", "pen"].includes(id)) return { menu: "layer", group: "ابزارهای ساخت" };
     return { menu: "view", group: "ابزارها" };
   };

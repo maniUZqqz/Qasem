@@ -5,7 +5,7 @@ import Icon from "../../../../components/Icon";
 import { Select, Spinner, fa } from "../../../../components/ui";
 import type { LayersPanelProps, MaskKind } from "./panelTypes";
 import { CLIP_TYPES, canMoveTo, clipTarget, descendantIds, effectivelyLocked, parentIdOf, siblingsOf, treeRows } from "./tree";
-import { BLEND_MODES, BlendMode, GroupLayer, LAYER_ICON, Layer, ProState } from "./types";
+import { BLEND_MODES, BlendMode, GroupLayer, LAYER_ICON, LAYER_LABELS, Layer, ProState } from "./types";
 import "./panels.css";
 
 /** آیکون‌های کوچکِ هم‌ضخامت با آیکون‌های پنل */
@@ -361,6 +361,13 @@ export default function LayersPanel(props: LayersPanelProps) {
                 <span className="pn-clipmark" data-testid="layer-clip-mark" title="بریده به لایهٔ زیرین">
                   <Ico d={D_CLIP} size={14} />
                 </span>
+              )}
+              {l.label && (
+                <span className="pn-labeldot" data-testid="layer-label" data-label={l.label} title={`برچسب: ${LAYER_LABELS.find((x) => x.id === l.label)?.title ?? ""}`}
+                  style={{ width: 10, height: 10, borderRadius: 10, flex: "none", background: LAYER_LABELS.find((x) => x.id === l.label)?.color ?? "#9ca3af" }} />
+              )}
+              {l.link && (
+                <span className="pn-linkmark" data-testid="layer-link-mark" title="پیوندشده؛ این لایه با لایه‌های هم‌پیوندش جابه‌جا می‌شود" aria-label="پیوندشده" style={{ fontSize: 12, flex: "none" }}>🔗</span>
               )}
               {renaming === l.id ? (
                 <div className="pn-select">

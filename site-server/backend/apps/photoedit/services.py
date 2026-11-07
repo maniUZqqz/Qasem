@@ -280,7 +280,8 @@ def _next_number(asset: PhotoAsset) -> int:
     return (asset.edits.aggregate(m=Max("number"))["m"] or 0) + 1
 
 
-def create_edits(store, user, asset_ids, recipe_key: str, operations, order: int = catalog.ORDER_CURRENT) -> list[PhotoEdit]:
+def create_edits(store, user, asset_ids, recipe_key: str, operations, order: int = catalog.ORDER_CURRENT,
+                 extra_stats: dict | None = None) -> list[PhotoEdit]:
     """یک نسخه برای هر عکس. ``order``: نسخهٔ ترتیبِ کارها (۲ = قاب‌اول، برای کارِ تازه؛ ۱ = ترتیبِ قدیمی، برای ساختِ دوبارهٔ
     نسخه‌های قدیمی)؛ روی ``PhotoEdit.stats["order"]`` نشان می‌خورد تا «تلاشِ دوباره» عیناً همان را بسازد."""
     order = 1 if int(order or 1) < 2 else catalog.ORDER_CURRENT
@@ -330,7 +331,7 @@ def create_edits(store, user, asset_ids, recipe_key: str, operations, order: int
             asset = PhotoAsset.objects.select_for_update().get(pk=pk)
             out.append(PhotoEdit.objects.create(asset=asset, number=_next_number(asset), batch=batch, created_by=user,
                                                 recipe=recipe_key if recipe_key in catalog.RECIPE_BY_KEY else "",
-                                                operations=per_asset[pk], message="در صف", stats={"order": order}))
+                                                operations=per_asset[pk], message="در صف", stats={"order": order} | dict(extra_stats or {})))
     return out
 
 
@@ -360,7 +361,9 @@ def _prepare_smart(edit: PhotoEdit) -> bool:
     base_stats = dict(edit.stats or {})
     goal = next((o["params"].get("goal", "") for o in ops_in if o["tool"] == "kit_smart"), "")
     decision = smart.decide_path(asset.store)
-    if decision["path"] == "node":
+    # سرورِ پردازش خاموش بود و کاربر «در صف بماند» را انتخاب کرد (یا در تنظیمات به‌خاطر سپرده شد) ⇒ مثلِ مسیرِ گره: کار در صفِ ماندگار
+    # می‌ماند تا سرور روشن شود (نه هوشِ سادهٔ سایت). «با هوشِ سادهٔ سایت» همان مسیرِ پایین است.
+    if (base_stats.get("smart_offline") == "queue" and not node_status()["online"]) or decision["path"] == "node":
         _set(edit, stats=base_stats | {"smart": {"path": "node", "pending": True, "goal": goal, "via": "", "model": "",
                                                  "label": "", "fell_back": False, "reason": "", "adjust": {}, "notes": "",
                                                  "fallback": False}})
@@ -536,19 +539,32 @@ def server_ctx(store) -> dict:
             "paint_path": paint_path, "liquify_path": liquify_path, "scale": 1.0}
 
 
-def export_project(project: PhotoProject, fmt: str, quality: int = 92) -> tuple[bytes, str, str, list[str]]:
+def export_project(project: PhotoProject, fmt: str, quality: int = 92, mode: str = "rgb") -> tuple[bytes, str, str, list[str]]:
     """پروژهٔ ویرایشگر ⇒ فایل با قالبِ خواسته ⇒ (بایت‌ها، نوعِ محتوا، نامِ فایل، یادداشت‌ها). ترکیب روی سرورِ سایت (همان خط‌لوله‌ی «ساخت»)."""
     from . import exportfmt
     from .designer import render
 
     fmt = {"jpg": "jpeg", "tif": "tiff"}.get(fmt, fmt)
+    mode = mode or "rgb"
     if fmt not in exportfmt.FORMATS:
         raise PhotoError("این قالب پشتیبانی نمی‌شود.")
+    if mode not in exportfmt.MODES:
+        raise PhotoError("حالتِ رنگِ خروجی ناشناخته است.")
+    if fmt in ("psd", "svg") and mode != "rgb":
+        raise PhotoError("حالتِ رنگ فقط برای قالب‌های تصویری است، نه PSD و SVG.")
     asset = project.asset
     state = dict(project.data or {})
     state.setdefault("layers", [])
     frame, n1 = render.render_frame(asset, state)
     notes = list(n1)
+    if fmt == "svg":
+        try:
+            data, n4 = exportfmt.svg_bytes(state["layers"], frame.width, frame.height)
+        except (exportfmt.ExportError, layers_mod.LayerError) as exc:
+            raise PhotoError(str(exc)) from exc
+        ext, mime, _t = exportfmt.FORMATS["svg"]
+        name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (project.title or asset.title or "photo"))[:40].strip("-") or "photo"
+        return data, mime, f"{name}.{ext}", list(dict.fromkeys(notes + n4))[:8]
     if render.has_overlays(state):
         ctx = server_ctx(asset.store)
         ctx["scale"] = (frame.width / asset.width) if asset.width else 1.0
@@ -564,11 +580,17 @@ def export_project(project: PhotoProject, fmt: str, quality: int = 92) -> tuple[
             data, n3 = exportfmt.psd_bytes(final, frame, state["layers"], ctx2, project.pk, base_name=asset.title or "عکس")
             notes += n3 + ctx2["notes"]
         else:
-            data = exportfmt.convert(final, fmt, quality)
+            data = exportfmt.convert(final, fmt, quality, mode)
+            if mode == "cmyk":
+                notes.append("CMYK با تبدیلِ ساده ساخته شد (بی پروفایلِ چاپخانه)؛ اگر دقتِ رنگ مهم است همان RGB را به چاپخانه بدهید")
+            elif mode == "rgb16":
+                notes.append("ترکیبِ ما ۸ بیتی است؛ فایل در قالبِ ۱۶ بیتی ساخته شد (دقتِ بیشتری اضافه نمی‌شود)")
     except exportfmt.ExportError as exc:
         raise PhotoError(str(exc)) from exc
     ext, mime, _t = exportfmt.FORMATS[fmt]
     name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (project.title or asset.title or "photo"))[:40].strip("-") or "photo"
+    if mode != "rgb":
+        name += "-" + mode
     return data, mime, f"{name}.{ext}", list(dict.fromkeys(notes))[:8]
 
 
@@ -1510,9 +1532,100 @@ def normalize_action_data(data) -> dict:
     return out
 
 
+# ───────────────────────────── قلم‌موی دلخواه (دورِ ۸): kind="brush"؛ فقط پارامترها + نوکِ تصویریِ کوچک (PNG داده‌نشانی)
+
+BRUSH_MAX_TIP_BYTES = 60 * 1024
+_BRUSH_TIP = re.compile(r"^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$")
+_BRUSH_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _brush_num(data: dict, key: str, lo: float, hi: float, default: float) -> float:
+    try:
+        v = float(data.get(key, default))
+    except (TypeError, ValueError):
+        raise PhotoError(f"مقدارِ «{key}» برای قلم درست نیست.") from None
+    if v != v:  # NaN
+        raise PhotoError(f"مقدارِ «{key}» برای قلم درست نیست.")
+    return round(min(hi, max(lo, v)), 3)
+
+
+def normalize_brush_data(data) -> dict:
+    """{size, hardness, flow, spacing, scatter, kind, color?, tip?} ⇒ همان با مقدارهای در بازه؛ نوک فقط PNGِ داده‌نشانیِ ≤ ۶۰ کیلوبایت."""
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise PhotoError("دادهٔ قلم باید یک شیء باشد.")
+    kind = str(data.get("kind") or "soft")
+    if kind not in ("soft", "hard", "spray"):
+        raise PhotoError("نوعِ قلم باید «نرم»، «سخت» یا «اسپری» باشد.")
+    out: dict = {
+        "size": _brush_num(data, "size", 1, 400, 24),
+        "hardness": _brush_num(data, "hardness", 0, 1, 0.5),
+        "flow": _brush_num(data, "flow", 0.02, 1, 1),
+        "spacing": _brush_num(data, "spacing", 0.02, 2, 0.14),
+        "scatter": _brush_num(data, "scatter", 0, 2, 0),
+        "kind": kind,
+        "tip": None,
+    }
+    color = data.get("color")
+    if color:
+        if not isinstance(color, str) or not _BRUSH_COLOR.match(color):
+            raise PhotoError("رنگِ قلم درست نیست.")
+        out["color"] = color.lower()
+    tip = data.get("tip")
+    if tip:
+        if not isinstance(tip, str) or not _BRUSH_TIP.match(tip):
+            raise PhotoError("نوکِ قلم باید یک تصویرِ PNG باشد.")
+        if len(tip) > BRUSH_MAX_TIP_BYTES:
+            raise PhotoError("نوکِ قلم خیلی بزرگ است (حداکثر ۶۰ کیلوبایت).")
+        out["tip"] = tip
+    return out
+
+
+# ───────────────────────────── سبک‌ها (دورِ ۸): kind="style"؛ ویژگی‌های یک لایهٔ متن/شکل/تصویر با نام (سبکِ لایه و سبکِ حرف/پاراگراف)
+
+STYLE_MAX_BYTES = 12 * 1024
+STYLE_TARGETS = ("text", "shape", "image", "any")
+STYLE_KEYS = {
+    "opacity", "blend", "fx",
+    "font", "weight", "size", "color", "align", "dir", "line_height", "letter_spacing", "stroke", "shadow", "box",
+    "underline", "strike", "caps", "warp", "justify", "indent",
+    "fill", "radius",
+}
+
+
+def normalize_style_data(data) -> dict:
+    """{target, props} ⇒ فقط کلیدهای مجاز؛ مقدارها JSON ساده (اندازه ≤ ۱۲ کیلوبایت). اعتبارِ دقیقِ مقدارها هنگامِ ذخیرهٔ پروژه با ``layers.normalize_layers`` است."""
+    if not isinstance(data, dict):
+        raise PhotoError("دادهٔ سبک باید {target, props} باشد.")
+    target = str(data.get("target") or "any")
+    if target not in STYLE_TARGETS:
+        raise PhotoError("نوعِ سبک باید متن، شکل، تصویر یا همه باشد.")
+    props_in = data.get("props")
+    if not isinstance(props_in, dict):
+        raise PhotoError("سبک باید «props» داشته باشد.")
+    props = {}
+    for k, v in props_in.items():
+        if k not in STYLE_KEYS:
+            continue
+        props[k] = _act_json(v, str(k))
+    if not props:
+        raise PhotoError("سبک هیچ ویژگیِ مجازی ندارد.")
+    out = {"target": target, "props": props}
+    if len(json.dumps(out, ensure_ascii=False)) > STYLE_MAX_BYTES:
+        raise PhotoError("سبک خیلی بزرگ است.")
+    return out
+
+
 def normalize_by_kind(kind: str, data) -> dict:
-    """داده‌ی پیش‌تنظیم یا اکشن، بر پایهٔ kind."""
-    return normalize_action_data(data) if kind == "action" else normalize_preset_data(data)
+    """داده‌ی پیش‌تنظیم، اکشن، قلم یا سبک، بر پایهٔ kind."""
+    if kind == "action":
+        return normalize_action_data(data)
+    if kind == "brush":
+        return normalize_brush_data(data)
+    if kind == "style":
+        return normalize_style_data(data)
+    return normalize_preset_data(data)
 
 
 def preset_dict(p: PhotoPreset) -> dict:

@@ -48,6 +48,7 @@ from rest_framework.views import APIView
 
 from apps.stores import access
 
+from . import brand as brand_mod
 from . import catalog, services
 from . import blend as blendmod
 from . import layers as layers_mod
@@ -267,9 +268,24 @@ class EditListView(APIView):
     def post(self, request, store_id):
         store = access.get_store(request.user, store_id, access.CONTENT)
         ops = request.data.get("operations")
+        extra = {}
+        # «ویرایش با دستور» وقتی سرورِ پردازش خاموش است: کاربر انتخاب می‌کند (یا تنظیمِ فروشگاه) — هر بار می‌پرسیم مگر «به‌خاطر بسپار»
+        if isinstance(ops, list) and any(isinstance(o, dict) and o.get("tool") == "kit_smart" and o.get("on", True) is not False
+                                         and str((o.get("params") or {}).get("goal") or "").strip() for o in ops) \
+                and not services.node_status()["online"]:
+            choice = request.data.get("smart_offline")
+            if choice not in ("site", "queue"):
+                saved = brand_mod.smart_offline(store)
+                choice = saved if saved in ("site", "queue") else None
+            if choice is None:
+                return Response({"error": {"code": "needs_choice", "message": "سرورِ پردازش الان خاموش است؛ یکی را انتخاب کنید."},
+                                 "needs_choice": {"kind": "smart_offline", "options": ["site", "queue"]}}, status=status.HTTP_409_CONFLICT)
+            if request.data.get("remember") is True:
+                brand_mod.save(store, {"smart_offline": choice})
+            extra["smart_offline"] = choice
         try:
             edits = services.create_edits(store, request.user, request.data.get("assets") or [],
-                                          str(request.data.get("recipe") or ""), ops if ops is not None else None)
+                                          str(request.data.get("recipe") or ""), ops if ops is not None else None, extra_stats=extra)
         except services.PhotoError as exc:
             return _err(str(exc))
         for e in edits:
@@ -486,7 +502,7 @@ class MaskView(APIView):
 
 
 class ProjectExportView(APIView):
-    """GET stores/<id>/photo-editor/projects/<pid>/export/?fmt=psd|tiff|pdf|gif|bmp|png|jpeg|webp&quality=92 ⇒ فایلِ دانلودی.
+    """GET stores/<id>/photo-editor/projects/<pid>/export/?fmt=psd|tiff|pdf|gif|bmp|png|jpeg|webp|svg&quality=92&mode=rgb|gray|cmyk|indexed|rgb16|lab ⇒ فایلِ دانلودی.
 
     پروژه (آخرین ذخیره) روی سرورِ سایت ترکیب می‌شود؛ psd = لایه‌ها جدا، بقیه = تصویرِ نهایی. یادداشت‌ها در هدرِ X-Export-Notes (URL-encoded)."""
     permission_classes = [IsAuthenticated]
@@ -500,12 +516,13 @@ class ProjectExportView(APIView):
             return _not_found()
         # نام «format» را DRF برای انتخابِ رندرر می‌خواند (قالبِ ناشناخته ⇒ ۴۰۴)؛ پس پارامتر «fmt» است
         fmt = str(request.query_params.get("fmt") or "").lower()
+        mode = str(request.query_params.get("mode") or "rgb").lower()
         try:
             q = int(request.query_params.get("quality") or 92)
         except ValueError:
             q = 92
         try:
-            data, mime, name, notes = services.export_project(p, fmt, q)
+            data, mime, name, notes = services.export_project(p, fmt, q, mode)
         except services.PhotoError as exc:
             return _err(str(exc))
         except MemoryError:
@@ -704,6 +721,10 @@ class PresetApplyView(APIView):
             return _not_found()
         if p.kind == "action":
             return _err("اکشن فقط داخلِ ویرایشگر روی عکسِ باز اجرا می‌شود؛ عکس را باز کنید و از زبانهٔ «تاریخچه» اجرایش کنید.")
+        if p.kind == "brush":
+            return _err("قلم را فقط داخلِ ویرایشگر و با ابزارهای نقاشی می‌شود به کار برد.")
+        if p.kind == "style":
+            return _err("سبک را فقط داخلِ ویرایشگر و روی لایهٔ فعال می‌شود گذاشت (لایه ‹ سبک‌ها).")
         try:
             operations = services.preset_operations(p.data, services.node_status()["online"])
             edits = services.create_edits(store, request.user, request.data.get("assets") or [], "manual", operations)

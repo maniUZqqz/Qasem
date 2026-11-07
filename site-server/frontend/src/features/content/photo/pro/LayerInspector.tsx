@@ -213,10 +213,10 @@ function RotationSlider<T extends TextLayer | ImageLayer | ShapeLayer>({ layer, 
 
 // ───────────────────────────── متن
 
-const LINE_KEYS = new Set(["text", "size", "weight", "font", "letter_spacing", "line_height", "width", "align", "dir", "caps"]);
+const LINE_KEYS = new Set(["text", "size", "weight", "font", "letter_spacing", "line_height", "width", "align", "dir", "caps", "vertical", "justify", "indent"]);
 const WARP_FA: [string, string][] = [["", "بدون خمیدگی"], ["arc", "قوس"], ["wave", "موج"], ["flag", "پرچم"], ["bulge", "برآمده"], ["rise", "شیب"]];
 
-function TextInspector({ layer, hist, fonts }: { layer: TextLayer; hist: Hist; fonts: FontInfo[] }) {
+function TextInspector({ layer, hist, fonts, actions }: { layer: TextLayer; hist: Hist; fonts: FontInfo[]; actions: ProActions }) {
   const ed = useEdit<TextLayer>(hist, layer.id, "text", (p) => (Object.keys(p).some((k) => LINE_KEYS.has(k)) ? { ...p, lines: undefined } : p));
   const idle = useIdleEnd(hist);
   const font = fonts.find((f) => f.key === layer.font);
@@ -268,6 +268,14 @@ function TextInspector({ layer, hist, fonts }: { layer: TextLayer; hist: Hist; f
           <button type="button" className={`pn-btn ${layer.underline ? "is-on" : ""}`} aria-pressed={!!layer.underline} onClick={() => ed.apply("زیرخط", { underline: !layer.underline })} data-testid="text-underline">زیرخط</button>
           <button type="button" className={`pn-btn ${layer.strike ? "is-on" : ""}`} aria-pressed={!!layer.strike} onClick={() => ed.apply("خط‌خوردگی", { strike: !layer.strike })} data-testid="text-strike">خط‌خورده</button>
           <button type="button" className={`pn-btn ${layer.caps ? "is-on" : ""}`} aria-pressed={!!layer.caps} onClick={() => ed.apply("حروفِ بزرگ", { caps: !layer.caps })} data-testid="text-caps" title="حروفِ لاتین بزرگ می‌شوند؛ فارسی تغییری نمی‌کند">ABC</button>
+          <button type="button" className={`pn-btn ${layer.vertical ? "is-on" : ""}`} aria-pressed={!!layer.vertical} onClick={() => ed.apply("متنِ عمودی", { vertical: !layer.vertical })} data-testid="text-vertical" title="هر حرف زیرِ حرفِ قبلی می‌آید (برای فارسی حروف جدا می‌شوند)">عمودی</button>
+          <button type="button" className={`pn-btn ${layer.justify ? "is-on" : ""}`} aria-pressed={!!layer.justify} onClick={() => ed.apply("ترازِ دوطرفه", { justify: !layer.justify })} data-testid="text-justify" title="فاصلهٔ کلمه‌ها پهن می‌شود تا خط‌ها به پهنای کادر برسند (با «پهنای کادر» کار می‌کند)">دوطرفه</button>
+        </div>
+        <Num label="تورفتگیِ خطِ اول (em)" value={layer.indent ?? 0} min={0} max={3} step={0.1} testId="text-indent" fmt={(v) => fa(round(v, 1))}
+          onLive={(v) => ed.live({ indent: v })} onEnd={() => ed.end("تورفتگیِ خطِ اول")} onReset={() => ed.apply("تورفتگیِ خطِ اول", { indent: 0 })} />
+        <div className="pn-actions">
+          <button type="button" className={`pn-btn ${layer.tpath ? "is-on" : ""}`} onClick={() => actions.textPath(layer.id, true)} data-testid="text-on-path" title="اول با ابزارِ قلم یک مسیر بکشید؛ متن در امتدادِ همان مسیر می‌نشیند">{layer.tpath ? "روی مسیرِ تازه" : "روی مسیرِ قلم بگذار"}</button>
+          {layer.tpath && <button type="button" className="pn-btn" onClick={() => actions.textPath(layer.id, false)} data-testid="text-off-path">برداشتنِ مسیر</button>}
         </div>
         <label className="ws-field" style={{ margin: 0 }}>
           <span>خمیدگیِ متن</span>
@@ -501,11 +509,11 @@ function RetouchInspector({ layer, hist }: { layer: RetouchLayer; hist: Hist }) 
 // ───────────────────────────── ریشه
 
 export default function LayerInspector(props: LayerInspectorProps) {
-  const { layer, hist, fonts, kit, assets } = props;
+  const { layer, hist, fonts, kit, assets, actions } = props;
   if (!layer) return <p className="pn-hint" data-testid="inspector-empty">یک لایه را انتخاب کنید تا ویژگی‌هایش این‌جا بیاید.</p>;
   const body = (() => {
     switch (layer.type) {
-      case "text": return <TextInspector layer={layer} hist={hist} fonts={fonts} />;
+      case "text": return <TextInspector layer={layer} hist={hist} fonts={fonts} actions={actions} />;
       case "shape": return <ShapeInspector layer={layer} hist={hist} />;
       case "image": return <ImageInspector layer={layer} hist={hist} assets={assets} storeLogo={props.storeLogo} />;
       case "adjust": return <AdjustInspector layer={layer} hist={hist} kit={kit} />;

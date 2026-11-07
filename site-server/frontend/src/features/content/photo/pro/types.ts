@@ -56,7 +56,22 @@ type Common = {
   parent?: string | null;
   /** بریده‌شده به لایهٔ زیرین (clipping mask): آلفای این لایه × آلفای نزدیک‌ترین لایهٔ تصویر/متن/شکل/گروهِ هم‌سطحِ پایین‌تر */
   clip?: boolean;
+  /** برچسبِ رنگیِ لایه برای سازمان‌دهی در پنل (دورِ ۸) */
+  label?: LayerLabel;
+  /** لایه‌های هم‌شناسه با هم جابه‌جا می‌شوند (پیوندِ لایه‌ها، دورِ ۸) */
+  link?: string;
 };
+
+export type LayerLabel = "red" | "orange" | "yellow" | "green" | "blue" | "violet" | "gray";
+export const LAYER_LABELS: { id: LayerLabel; title: string; color: string }[] = [
+  { id: "red", title: "قرمز", color: "#ef4444" },
+  { id: "orange", title: "نارنجی", color: "#f97316" },
+  { id: "yellow", title: "زرد", color: "#eab308" },
+  { id: "green", title: "سبز", color: "#22c55e" },
+  { id: "blue", title: "آبی", color: "#3b82f6" },
+  { id: "violet", title: "بنفش", color: "#8b5cf6" },
+  { id: "gray", title: "خاکستری", color: "#9ca3af" },
+];
 
 /** جلوه‌های لایه (SPEC §3): همهٔ طول‌ها کسری از پهنای بوم؛ پیش از حالتِ ترکیب/پیدایی/ماسک در خودِ لایه پخته می‌شوند.
  *  ترتیبِ کشیدن از پایین: سایه، درخشش، دورخط، پیکسل‌های لایه. */
@@ -94,6 +109,13 @@ export type TextLayer = Common & {
   strike?: boolean;
   /** حروفِ لاتین بزرگ نمایش داده می‌شود (فارسی بی‌اثر) */
   caps?: boolean;
+  /** متنِ عمودی: هر نویسه یک خط (دورِ ۸؛ raster.ts › verticalLines ≡ textlayer.vertical_lines) */
+  vertical?: boolean;
+  /** تراز دوطرفه (با عرضِ ثابت) و تورفتگیِ خطِ اول (کسری از اندازهٔ قلم) */
+  justify?: boolean;
+  indent?: number;
+  /** متن روی مسیر: نقطه‌ها کسری از پهنای بوم، نسبت به مرکزِ لایه (همان مسیرِ قلم) */
+  tpath?: ShapePath | null;
   warp?: TextWarp | null;
   text: string;
   font: string;

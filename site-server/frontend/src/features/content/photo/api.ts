@@ -217,6 +217,13 @@ export type Plan = {
 
 const base = (store: string) => `/stores/${store}/photo-editor`;
 
+/** «ویرایش با دستور» وقتی سرورِ پردازش خاموش است: انتخابِ کاربر (و «به‌خاطر بسپار») */
+export type OfflineChoice = { smart_offline?: "site" | "queue"; remember?: boolean };
+/** run() به‌جای جملهٔ خطا این را برمی‌گرداند وقتی سرور می‌گوید باید از کاربر پرسید */
+export const NEEDS_CHOICE = "__needs_choice__";
+export const isNeedsChoice = (err: unknown): boolean =>
+  (err as { response?: { status?: number; data?: { error?: { code?: string } } } })?.response?.data?.error?.code === "needs_choice";
+
 export const photoApi = {
   overview: (store: string) => api.get<Overview>(`${base(store)}/`).then((r) => r.data),
   sources: (store: string) => api.get<Sources>(`${base(store)}/sources/`).then((r) => r.data),
@@ -236,12 +243,13 @@ export const photoApi = {
     api.post<{ asset: Asset }>(`${base(store)}/assets/${id}/analyze/`).then((r) => r.data.asset),
   plan: (store: string, asset: number, recipe: string) =>
     api.post<Plan>(`${base(store)}/plan/`, { asset, recipe }).then((r) => r.data),
-  apply: (store: string, assets: number[], recipe: string, operations: Operation[]) =>
+  apply: (store: string, assets: number[], recipe: string, operations: Operation[], extra?: OfflineChoice) =>
     api
       .post<{ batch: string; edits: Edit[]; node: NodeStatus }>(`${base(store)}/edits/`, {
         assets,
         recipe,
         operations: operations.map((o) => ({ tool: o.tool, params: o.params, on: o.on !== false })),
+        ...(extra ?? {}),
       })
       .then((r) => r.data),
   /** «پیشنهادی» برای چند عکس: کارها را سرور برای هر عکس از روی اندازه‌گیریِ خودش می‌چیند */
@@ -408,10 +416,67 @@ export const proApi = {
         headers: { "Content-Type": "image/png" },
       })
       .then((r) => r.data),
-  /** خروجی با قالبِ دیگر (psd|tiff|pdf|gif|bmp|png|jpeg|webp) از آخرین ذخیرهٔ پروژه؛ نوبت ۶ */
-  exportProject: async (store: string, pid: number, fmt: string, quality = 92): Promise<{ blob: Blob; name: string; notes: string }> => {
+  /** «بازکردنِ PSD» (دورِ ۸): فایلِ لایه‌دار ⇒ عکسِ تازه + پروژه با لایه‌ها */
+  importPsd: (store: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<{ asset: Asset; project: number | null; layers: number; notes: string[] }>(`${base(store)}/psd/import/`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
+  },
+  /** کارهای چندعکسی (دورِ ۸): شیتِ تماس، HDR، پانوراما، اکشن روی یک عکس ⇒ عکسِ تازه؛ پردازشگر ⇒ zip */
+  multiSheet: (store: string, body: { assets: number[]; cols: number; cell: number; labels: boolean; bg: string }) =>
+    api.post<{ asset: Asset }>(`${base(store)}/multi/contact-sheet/`, body).then((r) => r.data.asset),
+  multiMerge: (store: string, assets: number[], kind: "hdr" | "panorama") =>
+    api.post<{ asset: Asset }>(`${base(store)}/multi/merge/`, { assets, kind }, { timeout: 120000 }).then((r) => r.data.asset),
+  multiAction: (store: string, preset: number, asset: number) =>
+    api.post<{ asset: Asset }>(`${base(store)}/multi/action/`, { preset, asset }, { timeout: 120000 }).then((r) => r.data.asset),
+  multiProcessor: async (store: string, body: { assets: number[]; sizes: { w: number; h: number }[]; fmt: string; quality: number; fit: string; no_upscale: boolean }): Promise<{ blob: Blob; count: number }> => {
     try {
-      const r = await api.get<Blob>(`${base(store)}/projects/${pid}/export/`, { params: { fmt, quality }, responseType: "blob" });
+      const r = await api.post<Blob>(`${base(store)}/multi/processor/`, body, { responseType: "blob", timeout: 120000 });
+      return { blob: r.data, count: Number(r.headers["x-file-count"] ?? 0) };
+    } catch (e) {
+      const data = (e as { response?: { data?: Blob } }).response?.data;
+      if (data instanceof Blob) {
+        try {
+          const j = JSON.parse(await data.text()) as { error?: { message?: string } };
+          if (j.error?.message) throw new Error(j.error.message);
+        } catch (e2) {
+          if (e2 instanceof Error && !(e2 instanceof SyntaxError)) throw e2;
+        }
+      }
+      throw e;
+    }
+  },
+  /** انتخابِ آسمان / ناحیهٔ تمرکز ⇒ ماسکِ PNG (سفید = انتخاب‌شده) */
+  selectAuto: async (store: string, asset: number, kind: "sky" | "focus"): Promise<Blob> => {
+    try {
+      const r = await api.post<Blob>(`${base(store)}/select/auto/`, { asset, kind }, { responseType: "blob" });
+      return r.data;
+    } catch (e) {
+      const data = (e as { response?: { data?: Blob } }).response?.data;
+      if (data instanceof Blob) {
+        try {
+          const j = JSON.parse(await data.text()) as { error?: { message?: string } };
+          if (j.error?.message) throw new Error(j.error.message);
+        } catch (e2) {
+          if (e2 instanceof Error && !(e2 instanceof SyntaxError)) throw e2;
+        }
+      }
+      throw e;
+    }
+  },
+  lutApply: (store: string, asset: number, file: File, strength: number) => {
+    const fd = new FormData();
+    fd.append("asset", String(asset));
+    fd.append("lut", file);
+    fd.append("strength", String(strength));
+    return api.post<{ asset: Asset }>(`${base(store)}/color/lut/`, fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }).then((r) => r.data.asset);
+  },
+  matchColor: (store: string, asset: number, reference: number, strength: number, keepLuma: number) =>
+    api.post<{ asset: Asset }>(`${base(store)}/color/match/`, { asset, reference, strength, keep_luma: keepLuma }, { timeout: 120000 }).then((r) => r.data.asset),
+  /** خروجی با قالبِ دیگر (psd|tiff|pdf|gif|bmp|png|jpeg|webp) از آخرین ذخیرهٔ پروژه؛ نوبت ۶ */
+  exportProject: async (store: string, pid: number, fmt: string, quality = 92, mode = "rgb"): Promise<{ blob: Blob; name: string; notes: string }> => {
+    try {
+      const r = await api.get<Blob>(`${base(store)}/projects/${pid}/export/`, { params: { fmt, quality, ...(mode !== "rgb" ? { mode } : {}) }, responseType: "blob" });
       const cd = String(r.headers["content-disposition"] ?? "");
       const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
       let notes = "";

@@ -5,7 +5,7 @@ import { Alert, Button, Spinner, fa } from "../../../../components/ui";
 import type { Asset } from "../api";
 import { designerApi, type DesignerInfo } from "./api";
 import BrandForm from "./BrandForm";
-import { Brand, StoreSettings, emptyBrand, settingsApi } from "./brandApi";
+import { Brand, SmartOffline, StoreSettings, emptyBrand, settingsApi } from "./brandApi";
 import "./designer.css";
 
 type Tab = "ai" | "brand";
@@ -15,7 +15,8 @@ export default function EditorSettings({ storeId, assets, initialTab = "ai", onC
   const [tab, setTab] = useState<Tab>(initialTab);
   const [info, setInfo] = useState<DesignerInfo | null>(null);
   const [st, setSt] = useState<StoreSettings | null>(null);
-  const [ai, setAi] = useState(true);
+  const [ai, setAi] = useState(false);
+  const [offline, setOffline] = useState<SmartOffline>("ask");
   const [brand, setBrand] = useState<Brand>(emptyBrand());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function EditorSettings({ storeId, assets, initialTab = "ai", onC
         setInfo(i);
         setSt(s);
         setAi(s.ai_assist);
+        setOffline(s.smart_offline ?? "ask");
         setBrand(s.brand);
       })
       .catch((e) => live && setErr(errorMessage(e)));
@@ -55,7 +57,7 @@ export default function EditorSettings({ storeId, assets, initialTab = "ai", onC
     setErr(null);
     setSaved(false);
     try {
-      const s = await settingsApi.put(storeId, { ai_assist: ai, brand });
+      const s = await settingsApi.put(storeId, { ai_assist: ai, brand, smart_offline: offline });
       setSt(s);
       setSaved(true);
       onSaved?.(s);
@@ -90,6 +92,15 @@ export default function EditorSettings({ storeId, assets, initialTab = "ai", onC
               این فقط مقدارِ اولِ تیکِ «از هوش مصنوعی هم کمک بگیر» در طراحِ خودکار و طراحیِ گروهی است؛ هر بار که بخواهید می‌توانید همان‌جا عوضش کنید.
               وقتی خاموش است هیچ‌وقت از هوش مصنوعی نمی‌پرسیم و طراحی با الگوها و قاعده‌های آماده انجام می‌شود (فوری، بدونِ هزینه؛ فقط انتخابِ الگو و نوشتنِ متن ساده‌تر است).
             </p>
+            <fieldset className="mt-3" data-testid="settings-offline" style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 10, padding: 10 }}>
+              <legend className="text-sm font-bold">«ویرایش با دستور» وقتی سرورِ پردازش خاموش است</legend>
+              {([["ask", "هر بار از من بپرس"], ["site", "همیشه همین حالا با هوشِ سادهٔ سایت"], ["queue", "همیشه منتظرِ سرورِ پردازش بماند (در صف)"]] as [SmartOffline, string][]).map(([k, label]) => (
+                <label key={k} className="es-switch" style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <input type="radio" name="smart-offline" checked={offline === k} onChange={() => setOffline(k)} data-testid={`settings-offline-${k}`} />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </fieldset>
             {cost && (
               <Alert tone="info" title="هزینه چقدر است؟">
                 هر بار هوش مصنوعی «می‌پرسد» یعنی یک فراخوانیِ بینا (عکس + متن). در طراحِ خودکار: دقتِ «سریع» {fa(cost.fast)} فراخوانی، «معمولی» تا {fa(cost.normal)} فراخوانی

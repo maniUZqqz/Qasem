@@ -53,7 +53,7 @@ class QueuedMessageTests(ApiTestBase):
 
 class DesignWaitsForNodeTests(DesignerBase):
     def new_design(self, asset, **kw):
-        base = {"prompt": "حراجِ پاییزه برای کفش ورزشی، تخفیف ۳۰ درصد", "quality": "normal", "variants": 1}
+        base = {"prompt": "حراجِ پاییزه برای کفش ورزشی، تخفیف ۳۰ درصد", "quality": "normal", "variants": 1, "use_ai": True}
         return engine.create(self.store, self.owner, asset, base | kw)
 
     def test_ai_design_parks_then_resumes_when_the_node_returns(self):
@@ -138,3 +138,65 @@ class DesignWaitsForNodeTests(DesignerBase):
             engine.run(d.pk, allow_wait=True)
         d.refresh_from_db()
         self.assertEqual(d.state, "READY", d.error)
+
+
+class SmartOfflineChoiceTests(ApiTestBase):
+    """«ویرایش با دستور» وقتی سرورِ پردازش خاموش است: کاربر انتخاب می‌کند (هوشِ سادهٔ سایت یا در صف بماند)؛ «به‌خاطر بسپار» در تنظیمات."""
+
+    def post(self, **kw):
+        ids = self.upload(photo(seed=3))
+        body = {"assets": ids, "recipe": "smart", "operations": [{"tool": "kit_smart", "params": {"goal": "گرم و روشن"}},
+                                                                  {"tool": "export", "params": {"format": "jpeg", "quality": 92}}]} | kw
+        return self.api.post(f"{self.base}/edits/", body, format="json")
+
+    def test_offline_asks_first_and_creates_nothing(self):
+        offline_node()
+        r = self.post()
+        self.assertEqual(r.status_code, 409, r.content)
+        j = r.json()
+        self.assertEqual(j["error"]["code"], "needs_choice")
+        self.assertEqual(j["needs_choice"]["options"], ["site", "queue"])
+        self.assertEqual(PhotoEdit.objects.count(), 0)
+
+    def test_queue_choice_waits_durably_for_the_node(self):
+        offline_node()
+        r = self.post(smart_offline="queue")
+        self.assertEqual(r.status_code, 201, r.content)
+        e = PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
+        self.assertEqual((e.state, e.message), ("NODE", WAIT))
+        self.assertEqual(e.stats["smart_offline"], "queue")
+        job = ComputeJob.objects.get(uid=e.compute_job)
+        self.assertEqual((job.kind, job.state), ("photo.edit", "QUEUED"))
+        self.assertTrue(e.stats["smart"]["pending"])
+
+    def test_site_choice_uses_the_light_site_path_without_a_compute_job(self):
+        offline_node()
+        with patch_ai(FakeVision(RuntimeError("down"))):
+            r = self.post(smart_offline="site")
+        self.assertEqual(r.status_code, 201, r.content)
+        e = PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
+        self.assertEqual(e.stats["smart_offline"], "site")
+        self.assertEqual(e.stats["smart"]["path"], "site")
+        self.assertEqual(e.compute_job, "")
+
+    def test_remember_stores_the_choice_and_later_runs_do_not_ask(self):
+        offline_node()
+        r = self.post(smart_offline="queue", remember=True)
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(self.api.get(f"{self.base}/settings/").json()["smart_offline"], "queue")
+        r2 = self.post()
+        self.assertEqual(r2.status_code, 201, r2.content)
+        e2 = PhotoEdit.objects.get(pk=r2.json()["edits"][0]["id"])
+        self.assertEqual(e2.stats["smart_offline"], "queue")
+        # تنظیم را به «بپرس» برگردان ⇒ دوباره می‌پرسد
+        self.api.put(f"{self.base}/settings/", {"smart_offline": "ask"}, format="json")
+        self.assertEqual(self.post().status_code, 409)
+
+    def test_a_working_node_never_asks_and_other_tools_never_ask(self):
+        self.node()
+        self.assertEqual(self.post().status_code, 201)
+        offline_node()
+        ComputeNode.objects.filter(name="gpu-photo").update(last_seen=timezone.now() - timedelta(hours=3))
+        ids = self.upload(photo(seed=4))
+        r = self.api.post(f"{self.base}/edits/", {"assets": ids, "operations": [{"tool": "kit_auto"}]}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)

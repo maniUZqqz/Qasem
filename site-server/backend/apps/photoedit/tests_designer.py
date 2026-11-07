@@ -674,7 +674,7 @@ class AiValidatorTests(SimpleTestCase):
 
 class DesignRunTests(DesignerBase):
     def new_design(self, asset, **kw):
-        base = {"prompt": "حراجِ پاییزه برای کفش ورزشی، تخفیف ۳۰ درصد", "quality": "normal", "variants": 3}
+        base = {"prompt": "حراجِ پاییزه برای کفش ورزشی، تخفیف ۳۰ درصد", "quality": "normal", "variants": 3, "use_ai": True}   # پیش‌فرضِ فروشگاه خاموش است؛ این آزمون‌ها هوش مصنوعی را روشن می‌خواهند
         return engine.create(self.store, self.owner, asset, base | kw)
 
     def test_runs_without_ai_and_says_which_parts_needed_it(self):

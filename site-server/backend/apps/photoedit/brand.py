@@ -69,8 +69,25 @@ def get_setting(store) -> PhotoStoreSetting | None:
 
 
 def ai_default(store) -> bool:
+    """پیش‌فرضِ «کمکِ هوش مصنوعی»: خاموش (تصمیمِ مالک)؛ فقط اگر فروشگاه خودش روشن کرده باشد روشن است."""
     s = get_setting(store)
-    return True if s is None else bool(s.ai_assist)
+    return False if s is None else bool(s.ai_assist)
+
+
+SMART_OFFLINE_CHOICES = ("ask", "site", "queue")
+MATTING_MODELS = ("rvm", "u2netp", "isnet", "birefnet-lite")
+
+
+def smart_offline(store) -> str:
+    s = get_setting(store)
+    v = getattr(s, "smart_offline", "ask") if s is not None else "ask"
+    return v if v in SMART_OFFLINE_CHOICES else "ask"
+
+
+def matting_model(store) -> str:
+    s = get_setting(store)
+    v = getattr(s, "matting_model", "rvm") if s is not None else "rvm"
+    return v if v in MATTING_MODELS else "rvm"
 
 
 def stored_brand(store) -> dict:
@@ -80,13 +97,18 @@ def stored_brand(store) -> dict:
 
 def public(store) -> dict:
     b = stored_brand(store)
-    return {"ai_assist": ai_default(store), "brand": b, "brand_set": is_set(b), "ai_cost": AI_COST, "positions": list(POSITIONS)}
+    return {"ai_assist": ai_default(store), "brand": b, "brand_set": is_set(b), "ai_cost": AI_COST, "positions": list(POSITIONS),
+            "smart_offline": smart_offline(store), "matting_model": matting_model(store)}
 
 
 def save(store, data: dict) -> dict:
     s, _ = PhotoStoreSetting.objects.get_or_create(store=store)
     if "ai_assist" in data:
         s.ai_assist = bool(data.get("ai_assist"))
+    if data.get("smart_offline") in SMART_OFFLINE_CHOICES:
+        s.smart_offline = data["smart_offline"]
+    if data.get("matting_model") in MATTING_MODELS:
+        s.matting_model = data["matting_model"]
     if "brand" in data:
         s.brand = clean(data.get("brand"))
     s.save()

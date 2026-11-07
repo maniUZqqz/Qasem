@@ -11,8 +11,9 @@ import type { MaskEntry } from "./gl/engine";
 import { newCanvas } from "./gl/raster";
 
 export type BrushKind = "soft" | "hard" | "spray";
-export type StrokeMode = "paint" | "pencil" | "erase" | "history";
-export type BrushOpts = { color: string; size: number; hardness: number; opacity: number; kind: BrushKind };
+export type StrokeMode = "paint" | "pencil" | "erase" | "history" | "smudge";
+/** spacing: فاصلهٔ نقطه‌ها (کسری از قطر)، scatter: پخش (کسری از قطر)، tip: نوکِ تصویری (آلفا) — قلم‌موی دلخواه (دورِ ۸) */
+export type BrushOpts = { color: string; size: number; hardness: number; opacity: number; kind: BrushKind; spacing?: number; scatter?: number; tip?: HTMLCanvasElement | null };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 export const normColor = (c: string, fallback = "#e11d48"): string => (HEX.test(c) ? c.toLowerCase() : fallback);
@@ -194,6 +195,51 @@ export class PaintStore {
 
 const sprites = new Map<string, HTMLCanvasElement>();
 
+const tipSprites = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+
+/** نوکِ تصویریِ قطرِ d با رنگِ color (آلفای نوک ⇒ شکلِ قلم) */
+function tipSprite(tip: HTMLCanvasElement, d: number, color: string): HTMLCanvasElement {
+  const dd = Math.max(1, Math.round(d));
+  let m = tipSprites.get(tip);
+  if (!m) tipSprites.set(tip, (m = new Map()));
+  const k = `${dd}|${color}`;
+  let s = m.get(k);
+  if (s) return s;
+  s = newCanvas(dd, dd);
+  const x = s.getContext("2d")!;
+  x.imageSmoothingQuality = "high";
+  x.drawImage(tip, 0, 0, dd, dd);
+  x.globalCompositeOperation = "source-in";
+  x.fillStyle = color;
+  x.fillRect(0, 0, dd, dd);
+  if (m.size > 40) m.clear();
+  m.set(k, s);
+  return s;
+}
+
+/**
+ * ساختنِ نوکِ قلم از یک تصویر (دورِ ۸): تاریک‌تر = پُررنگ‌تر (مثلِ قلمِ ساخته‌شده از عکس)، شفافیتِ تصویر هم حساب می‌شود؛ بوم مربعِ side×side
+ * با تصویرِ وسط‌چین. ⇒ بومِ RGBA که فقط آلفایش مهم است.
+ */
+export function tipFromImage(img: CanvasImageSource & { width?: number; height?: number; naturalWidth?: number; naturalHeight?: number }, side = 96): HTMLCanvasElement {
+  const iw = (img as { naturalWidth?: number }).naturalWidth || (img as { width?: number }).width || side;
+  const ih = (img as { naturalHeight?: number }).naturalHeight || (img as { height?: number }).height || side;
+  const k = Math.min(side / iw, side / ih);
+  const w = Math.max(1, Math.round(iw * k));
+  const h = Math.max(1, Math.round(ih * k));
+  const c = newCanvas(side, side);
+  const x = c.getContext("2d", { willReadFrequently: true })!;
+  x.drawImage(img, Math.round((side - w) / 2), Math.round((side - h) / 2), w, h);
+  const d = x.getImageData(0, 0, side, side);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const lum = (0.2126 * d.data[i] + 0.7152 * d.data[i + 1] + 0.0722 * d.data[i + 2]) / 255;
+    d.data[i + 3] = Math.round(d.data[i + 3] * (1 - lum));
+    d.data[i] = d.data[i + 1] = d.data[i + 2] = 0;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
 /** دایرهٔ رنگیِ قطرِ d با لبهٔ نرم؛ hardness ۱ = لبهٔ تیز (با کمی آنتی‌آلیاس) */
 function sprite(d: number, hardness: number, color: string): HTMLCanvasElement {
   const dd = Math.max(1, Math.round(d));
@@ -225,6 +271,9 @@ export class StrokeSession {
   private layer: HTMLCanvasElement;
   private shape: HTMLCanvasElement | null = null;
   private tmp: HTMLCanvasElement | null = null;
+  /** لکه‌کش: رنگی که انگشت با خودش می‌کشد (دورِ ۸) */
+  private carry: HTMLCanvasElement | null = null;
+  private carryReady = false;
   private W: number;
   private H: number;
   changed = false;
@@ -243,6 +292,10 @@ export class StrokeSession {
     this.before.getContext("2d")!.drawImage(target, 0, 0);
     this.layer = newCanvas(this.W, this.H);
     if (mode === "history") this.shape = newCanvas(this.W, this.H);
+    if (mode === "smudge") {
+      const d = Math.max(2, Math.round(this.radius * 2));
+      this.carry = newCanvas(d, d);
+    }
     if (clip) this.tmp = newCanvas(this.W, this.H);
   }
 
@@ -251,7 +304,59 @@ export class StrokeSession {
     return Math.max(this.mode === "pencil" ? 0.5 : 0.75, this.o.size * this.W);
   }
 
+  /** لکه‌کش: اولین بار از منبع می‌گیرد؛ هر نقطه رنگِ حمل‌شده را با قدرتِ o.opacity می‌گذارد و با زیرِ قلم (منبع + اثرِ تا اینجا) مخلوط می‌کند */
+  private smudgeDab(x: number, y: number) {
+    const R = this.radius;
+    const d = this.carry!.width;
+    const cx = this.carry!.getContext("2d")!;
+    const under = (): HTMLCanvasElement => {
+      const u = newCanvas(d, d);
+      const ux = u.getContext("2d")!;
+      if (this.source) {
+        const sw = this.source.width / this.W;
+        const sh = this.source.height / this.H;
+        ux.drawImage(this.source, (x - R) * sw, (y - R) * sh, d * sw, d * sh, 0, 0, d, d);
+      }
+      ux.drawImage(this.layer, x - R, y - R, d, d, 0, 0, d, d);
+      return u;
+    };
+    if (!this.carryReady) {
+      cx.drawImage(under(), 0, 0);
+      this.carryReady = true;
+      return;
+    }
+    const strength = Math.max(0.05, Math.min(1, this.o.opacity));
+    // رنگِ حمل‌شده ⇒ روی لایه (با شکلِ نرمِ قلم و قدرت)
+    const stamp = newCanvas(d, d);
+    const sx = stamp.getContext("2d")!;
+    sx.drawImage(this.carry!, 0, 0);
+    sx.globalCompositeOperation = "destination-in";
+    sx.drawImage(sprite(d, this.o.kind === "hard" ? 1 : this.o.hardness, "#000000"), 0, 0);
+    const lx = this.layer.getContext("2d")!;
+    lx.save();
+    lx.globalAlpha = strength;
+    lx.drawImage(stamp, x - R, y - R);
+    lx.restore();
+    // حمل‌شده ← مخلوطِ (حمل‌شده، زیرِ قلم): هرچه قدرت کمتر، رنگِ تازه بیشتر
+    const u = under();
+    cx.save();
+    cx.globalAlpha = 1 - strength * 0.85;
+    cx.drawImage(u, 0, 0);
+    cx.restore();
+  }
+
   private dab(x: number, y: number) {
+    if (this.mode === "smudge") {
+      this.smudgeDab(x, y);
+      return;
+    }
+    const sc = this.o.scatter ?? 0;
+    if (sc > 0 && this.mode !== "pencil") {
+      const a = Math.random() * Math.PI * 2;
+      const rr = this.radius * 2 * sc * Math.sqrt(Math.random());
+      x += Math.cos(a) * rr;
+      y += Math.sin(a) * rr;
+    }
     const R = this.radius;
     const d = R * 2;
     const draw = this.mode === "history" ? this.shape!.getContext("2d")! : this.layer.getContext("2d")!;
@@ -276,6 +381,10 @@ export class StrokeSession {
       draw.globalAlpha = 1;
       return;
     }
+    if (this.o.tip && this.mode !== "history") {
+      draw.drawImage(tipSprite(this.o.tip, d, color), x - R, y - R);
+      return;
+    }
     const hard = this.o.kind === "hard" ? 1 : this.o.hardness;
     draw.drawImage(sprite(d, hard, color), x - R, y - R);
   }
@@ -283,7 +392,8 @@ export class StrokeSession {
   /** پاره‌خطی از a تا b (پیکسلِ بوم)؛ فقط مستطیلِ تغییرکرده در بومِ هدف تازه می‌شود */
   line(ax: number, ay: number, bx: number, by: number): void {
     const R = this.radius;
-    const step = Math.max(this.mode === "pencil" ? 1 : 0.75, (this.o.kind === "hard" || this.mode === "pencil" ? 0.1 : 0.14) * R * 2);
+    const spacing = this.o.spacing ?? (this.o.kind === "hard" || this.mode === "pencil" ? 0.1 : 0.14);
+    const step = Math.max(this.mode === "pencil" ? 1 : 0.75, spacing * R * 2);
     const dist = Math.hypot(bx - ax, by - ay);
     const n = Math.max(1, Math.ceil(dist / step));
     for (let k = 1; k <= n; k++) this.dab(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
@@ -333,11 +443,61 @@ export class StrokeSession {
     t.clip();
     t.clearRect(x, y, w, h);
     t.drawImage(this.before, x, y, w, h, x, y, w, h);
-    t.globalAlpha = Math.max(0.01, Math.min(1, this.o.opacity));
+    t.globalAlpha = this.mode === "smudge" ? 1 : Math.max(0.01, Math.min(1, this.o.opacity));   // لکه‌کش قدرت را خودش در هر نقطه اعمال کرده
     t.globalCompositeOperation = this.mode === "erase" ? "destination-out" : "source-over";
     t.drawImage(paintSrc, x, y, w, h, x, y, w, h);
     t.restore();
   }
+}
+
+/**
+ * نمونهٔ ابزارهای «محو» و «تیز» (دورِ ۸): از ترکیبِ همهٔ لایه‌ها یک نسخهٔ محو (blur) یا تیز (unsharp: o + ۱٫۴·(o − محو)) می‌سازد؛ ابزار همان را با شکلِ قلم
+ * روی لایهٔ نقاشی می‌گذارد.
+ */
+export function filterSample(src: HTMLCanvasElement, kind: "blur" | "sharpen" | "dodge" | "burn" | "sponge", up = false): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  if (kind === "dodge" || kind === "burn" || kind === "sponge") {
+    const o = src.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h);
+    const d = o.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      if (kind === "dodge") {
+        // روشن‌کردنِ میانه‌ها: هرچه تاریک‌تر، بیشتر به سفید نزدیک می‌شود
+        d[i] = r + (255 - r) * 0.32;
+        d[i + 1] = g + (255 - g) * 0.32;
+        d[i + 2] = b + (255 - b) * 0.32;
+      } else if (kind === "burn") {
+        d[i] = r * 0.7;
+        d[i + 1] = g * 0.7;
+        d[i + 2] = b * 0.7;
+      } else {
+        const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const k = up ? 1.7 : 0.15;
+        d[i] = Math.max(0, Math.min(255, l + (r - l) * k));
+        d[i + 1] = Math.max(0, Math.min(255, l + (g - l) * k));
+        d[i + 2] = Math.max(0, Math.min(255, l + (b - l) * k));
+      }
+    }
+    const out0 = newCanvas(w, h);
+    out0.getContext("2d")!.putImageData(o, 0, 0);
+    return out0;
+  }
+  const b = newCanvas(w, h);
+  const bx = b.getContext("2d", { willReadFrequently: true })!;
+  const sigma = kind === "blur" ? Math.max(2, w * 0.006) : Math.max(1, w * 0.003);
+  if ("filter" in bx) bx.filter = `blur(${sigma}px)`;
+  bx.drawImage(src, 0, 0);
+  bx.filter = "none";
+  if (kind === "blur") return b;
+  const o = src.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h);
+  const bl = bx.getImageData(0, 0, w, h).data;
+  for (let i = 0; i < o.data.length; i += 4) {
+    for (let c = 0; c < 3; c++) o.data[i + c] = Math.max(0, Math.min(255, o.data[i + c] + 1.4 * (o.data[i + c] - bl[i + c])));
+  }
+  const out = newCanvas(w, h);
+  out.getContext("2d")!.putImageData(o, 0, 0);
+  return out;
 }
 
 // ───────────────────────────── سطلِ رنگ

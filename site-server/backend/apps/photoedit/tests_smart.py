@@ -511,7 +511,7 @@ class EndToEndTests(ApiTestBase):
     def post_smart(self, aid, extra=None):
         ops_ = [{"tool": "kit_smart", "params": {"goal": self.GOAL}, "reason": "دستورِ شما"}] + (extra or []) + \
                [{"tool": "export", "params": {"format": "jpeg", "quality": 90}}]
-        r = self.api.post(f"{self.base}/edits/", {"assets": [aid], "recipe": "smart", "operations": ops_}, format="json")
+        r = self.api.post(f"{self.base}/edits/", {"assets": [aid], "recipe": "smart", "operations": ops_, "smart_offline": "site"}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
         return PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
 
@@ -706,7 +706,7 @@ class EndToEndTests(ApiTestBase):
         metis2 = FakeLeg({"adjust": {"temperature": 40}, "notes": "گرم‌تر"}, model="gpt-4o-mini")
         with Routed(local=None, metis=metis2):
             r = self.api.post(f"{self.base}/edits/", {"assets": [aid], "recipe": "smart", "operations": prior + [
-                {"tool": "kit_smart", "params": {"goal": "گرم‌ترش کن"}}, {"tool": "export", "params": {"format": "jpeg"}}]},
+                {"tool": "kit_smart", "params": {"goal": "گرم‌ترش کن"}}, {"tool": "export", "params": {"format": "jpeg"}}], "smart_offline": "site"},
                               format="json")
         e2 = PhotoEdit.objects.get(pk=r.json()["edits"][0]["id"])
         self.assertEqual(e2.state, "READY", e2.error)

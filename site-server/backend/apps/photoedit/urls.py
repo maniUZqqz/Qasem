@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_designer, views_effects
+from . import views, views_designer, views_effects, views_matting, views_multi
 
 P = "stores/<int:store_id>/photo-editor/"
 
@@ -47,6 +47,20 @@ urlpatterns = [
     path(P + "designer/batches/<int:pk>/", views_designer.BatchView.as_view(), name="photoedit-batch"),
     path(P + "designer/batches/<int:pk>/zip/", views_designer.BatchZipView.as_view(), name="photoedit-batch-zip2"),
     # نوبت ۴: جعبهٔ فیلترها
+    path(P + "matting/", views_matting.MattingStatusView.as_view(), name="photoedit-matting"),
+    path(P + "matting/run/", views_matting.MattingRunView.as_view(), name="photoedit-matting-run"),
+    path(P + "matting/jobs/", views_matting.MattingJobsView.as_view(), name="photoedit-matting-jobs"),
+    path(P + "matting/jobs/<uuid:uid>/cutout.png", views_matting.MattingCutoutView.as_view(), name="photoedit-matting-cutout"),
+    path(P + "matting/site/<int:asset_id>/", views_matting.MattingSiteResultView.as_view(), name="photoedit-matting-site"),
+    path(P + "matting/apply/", views_matting.MattingApplyView.as_view(), name="photoedit-matting-apply"),
+    path(P + "psd/import/", views_matting.PsdImportView.as_view(), name="photoedit-psd-import"),
+    path(P + "multi/contact-sheet/", views_multi.ContactSheetView.as_view(), name="photoedit-multi-contact-sheet"),
+    path(P + "multi/merge/", views_multi.MergeView.as_view(), name="photoedit-multi-merge"),
+    path(P + "multi/processor/", views_multi.ProcessorView.as_view(), name="photoedit-multi-processor"),
+    path(P + "multi/action/", views_multi.ActionRunView.as_view(), name="photoedit-multi-action"),
+    path(P + "select/auto/", views_multi.SelectAutoView.as_view(), name="photoedit-select-auto"),
+    path(P + "color/lut/", views_multi.LutApplyView.as_view(), name="photoedit-color-lut"),
+    path(P + "color/match/", views_multi.MatchColorView.as_view(), name="photoedit-color-match"),
     path(P + "effects/", views_effects.EffectsCatalogView.as_view(), name="photoedit-effects"),
     path(P + "effects/preview/", views_effects.EffectPreviewView.as_view(), name="photoedit-effect-preview"),
     path(P + "effects/apply/", views_effects.EffectApplyView.as_view(), name="photoedit-effect-apply"),

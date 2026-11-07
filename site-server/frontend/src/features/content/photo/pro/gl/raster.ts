@@ -1,5 +1,6 @@
 import type { Adjust, Curve, Pt } from "../../manual/engine";
 import type { ShapeLayer, Stroke, TextLayer } from "../types";
+import { flattenPx } from "../pen";
 import { rasterPath } from "./pathraster";
 
 /** رسم‌های دوبعدیِ لایه‌ها (متن، شکل، قلم) و جدول‌های منحنی. همه با همان قراردادِ بک‌اند (layers.py / textlayer.py). */
@@ -87,26 +88,26 @@ export function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: num
 
 type Piece = { text: string; x: number };
 
-function linePieces(ctx: CanvasRenderingContext2D, line: string, rtl: boolean, spacing: number): { pieces: Piece[]; width: number } {
-  if (!spacing || !line.trim()) return { pieces: [{ text: line, x: 0 }], width: len(ctx, line, rtl) };
+function linePieces(ctx: CanvasRenderingContext2D, line: string, rtl: boolean, spacing: number, wordExtra = 0): { pieces: Piece[]; width: number } {
+  if ((!spacing && !wordExtra) || !line.trim()) return { pieces: [{ text: line, x: 0 }], width: len(ctx, line, rtl) };
   if (!rtl) {
     const pieces: Piece[] = [];
     let x = 0;
     for (const ch of Array.from(line)) {
       pieces.push({ text: ch, x });
-      x += len(ctx, ch, false) + spacing;
+      x += len(ctx, ch, false) + spacing + (ch === " " ? wordExtra : 0);
     }
     return { pieces, width: Math.max(0, x - spacing) };
   }
   const words = line.split(" ");
   const space = len(ctx, " ", true);
   const widths = words.map((w) => len(ctx, w, true));
-  const total = widths.reduce((a, b) => a + b, 0) + (words.length - 1) * (space + spacing);
+  const total = widths.reduce((a, b) => a + b, 0) + (words.length - 1) * (space + spacing + wordExtra);
   const pieces: Piece[] = [];
   let x = total;
   words.forEach((w, i) => {
     pieces.push({ text: w, x: x - widths[i] });
-    x -= widths[i] + space + spacing;
+    x -= widths[i] + space + spacing + wordExtra;
   });
   return { pieces, width: total };
 }
@@ -150,6 +151,157 @@ export function warpTile(tile: HTMLCanvasElement, style: WarpStyle, amount: numb
   return out;
 }
 
+/** متنِ عمودی: هر نویسه (با نشانه‌هایش) یک خط؛ فاصله ⇒ خطِ خالی، خطِ تازه ⇒ دو خطِ خالی (≡ textlayer.vertical_lines) */
+export function verticalLines(text: string): string[] {
+  const out: string[] = [];
+  for (const ch of text.replace(/\r/g, "")) {
+    if (ch === "\n") out.push("", "");
+    else if (/\s/u.test(ch)) out.push("");
+    else if (/\p{M}/u.test(ch) && out.length && out[out.length - 1]) out[out.length - 1] += ch;
+    else out.push(ch);
+  }
+  return out.slice(0, MAX_LINES);
+}
+
+export const PATH_STEP = 0.5;
+export const PATH_MAX_PIXELS = 36_000_000;
+
+/**
+ * متن روی مسیر (≡ textlayer.path_tile): ستونِ x ⇒ نقطه‌ای از مسیر (متن وسطِ مسیر؛ بیرون از دو سر با امتدادِ مماس)، ردیفِ y ⇒ فاصله روی عمود.
+ * نقشهٔ معکوس با نمونه‌برداریِ متراکم، دو گذرِ پُرکردنِ حفره (همسایهٔ ۸تایی) و نمونه‌گیریِ دوخطی روی تایلِ پیش‌ضرب‌شده.
+ * خروجی بوم متقارن حولِ مرکزِ لایه است (مرکزِ بوم = محورِ لایه).
+ */
+export function pathTile(tile: HTMLCanvasElement, poly: [number, number][]): HTMLCanvasElement {
+  const tw = tile.width;
+  const th = tile.height;
+  const n = poly.length;
+  if (n < 2) return tile;
+  const seg: number[] = [];
+  const cum: number[] = [0];
+  for (let i = 0; i < n - 1; i++) {
+    const d = Math.hypot(poly[i + 1][0] - poly[i][0], poly[i + 1][1] - poly[i][1]);
+    seg.push(d);
+    cum.push(cum[i] + d);
+  }
+  const total = cum[n - 1];
+  const good: number[] = [];
+  seg.forEach((d, i) => d > 1e-9 && good.push(i));
+  if (!good.length || total < 2) return tile;
+  const s0 = (total - tw) / 2;
+  const nXs = Math.ceil((tw + PATH_STEP) / PATH_STEP);
+  const nYs = Math.ceil((th + PATH_STEP) / PATH_STEP);
+  const px = new Float64Array(nXs);
+  const py = new Float64Array(nXs);
+  const nx = new Float64Array(nXs);
+  const ny = new Float64Array(nXs);
+  for (let i = 0; i < nXs; i++) {
+    const pos = s0 + i * PATH_STEP;
+    let lo = 0;
+    let hi = cum.length; // searchsorted(cum, pos, right) - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= pos) lo = mid + 1;
+      else hi = mid;
+    }
+    let idx = Math.min(Math.max(lo - 1, 0), seg.length - 1);
+    let g = 0;
+    while (g < good.length - 1 && good[g] < idx) g++;
+    idx = good[g];
+    const tx = (poly[idx + 1][0] - poly[idx][0]) / Math.max(seg[idx], 1e-9);
+    const ty = (poly[idx + 1][1] - poly[idx][1]) / Math.max(seg[idx], 1e-9);
+    px[i] = poly[idx][0] + tx * (pos - cum[idx]);
+    py[i] = poly[idx][1] + ty * (pos - cum[idx]);
+    nx[i] = -ty;
+    ny[i] = tx;
+  }
+  let mx = 0;
+  let my = 0;
+  for (let i = 0; i < nXs; i++) {
+    for (const j of [0, nYs - 1]) {
+      const off = j * PATH_STEP - th / 2;
+      mx = Math.max(mx, Math.abs(px[i] + nx[i] * off));
+      my = Math.max(my, Math.abs(py[i] + ny[i] * off));
+    }
+  }
+  const halfX = Math.ceil(mx) + 3;
+  const halfY = Math.ceil(my) + 3;
+  const W2 = 2 * halfX;
+  const H2 = 2 * halfY;
+  if (W2 * H2 > PATH_MAX_PIXELS) return tile;
+  let mapX = new Float32Array(W2 * H2).fill(-1);
+  let mapY = new Float32Array(W2 * H2).fill(-1);
+  for (let i = 0; i < nXs; i++) {
+    const sx = i * PATH_STEP;
+    for (let j = 0; j < nYs; j++) {
+      const off = j * PATH_STEP - th / 2;
+      const ix = Math.round(px[i] + nx[i] * off + halfX);
+      const iy = Math.round(py[i] + ny[i] * off + halfY);
+      if (ix < 0 || ix >= W2 || iy < 0 || iy >= H2) continue;
+      mapX[iy * W2 + ix] = sx;
+      mapY[iy * W2 + ix] = j * PATH_STEP;
+    }
+  }
+  const nb: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+  for (let pass = 0; pass < 2; pass++) {
+    const cx = mapX.slice();
+    const cy = mapY.slice();
+    for (let y = 0; y < H2; y++) {
+      for (let x = 0; x < W2; x++) {
+        const o = y * W2 + x;
+        if (cx[o] >= 0) continue;
+        for (const [dy, dx] of nb) {
+          const yy = y - dy;
+          const xx = x - dx;
+          if (yy < 0 || yy >= H2 || xx < 0 || xx >= W2) continue;
+          const q = yy * W2 + xx;
+          if (mapX[q] >= 0) {
+            cx[o] = mapX[q];
+            cy[o] = mapY[q];
+            break;
+          }
+        }
+      }
+    }
+    mapX = cx;
+    mapY = cy;
+  }
+  const src = tile.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, tw, th).data;
+  const pm = new Float32Array(tw * th * 4);
+  for (let i = 0; i < tw * th; i++) {
+    const a = src[i * 4 + 3];
+    pm[i * 4] = (src[i * 4] * a) / 255;
+    pm[i * 4 + 1] = (src[i * 4 + 1] * a) / 255;
+    pm[i * 4 + 2] = (src[i * 4 + 2] * a) / 255;
+    pm[i * 4 + 3] = a;
+  }
+  const out = mk(W2, H2);
+  const octx = out.getContext("2d")!;
+  const img = octx.createImageData(W2, H2);
+  const at = (x: number, y: number, c: number) => (x < 0 || y < 0 || x >= tw || y >= th ? 0 : pm[(y * tw + x) * 4 + c]);
+  for (let o = 0; o < W2 * H2; o++) {
+    const fx = mapX[o];
+    if (fx < 0) continue;
+    const fy = mapY[o];
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const ax = fx - x0;
+    const ay = fy - y0;
+    const v = [0, 0, 0, 0];
+    for (let c = 0; c < 4; c++) {
+      v[c] = at(x0, y0, c) * (1 - ax) * (1 - ay) + at(x0 + 1, y0, c) * ax * (1 - ay) + at(x0, y0 + 1, c) * (1 - ax) * ay + at(x0 + 1, y0 + 1, c) * ax * ay;
+    }
+    const a = v[3];
+    if (a > 0.5) {
+      img.data[o * 4] = Math.min(255, (v[0] * 255) / a);
+      img.data[o * 4 + 1] = Math.min(255, (v[1] * 255) / a);
+      img.data[o * 4 + 2] = Math.min(255, (v[2] * 255) / a);
+    }
+    img.data[o * 4 + 3] = Math.min(255, Math.max(0, a));
+  }
+  octx.putImageData(img, 0, 0);
+  return out;
+}
+
 /** مثلِ textlayer.render_text ⇐ بوم + اندازه‌ها. canvasW = پهنای بومِ کاری (پیکسل) */
 export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): TextRaster | null {
   const up = (s: string) => (layer.caps ? s.toUpperCase() : s);
@@ -160,7 +312,8 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   ctx.font = fontStr(layer.weight, sizePx, layer.font);
   const widthPx = (layer.width || 0) * canvasW;
   let lines: string[];
-  if (layer.lines && layer.lines.length) lines = layer.lines.slice(0, MAX_LINES).map(up);
+  if (layer.vertical) lines = verticalLines(text);
+  else if (layer.lines && layer.lines.length) lines = layer.lines.slice(0, MAX_LINES).map(up);
   else if (widthPx > 0) lines = wrapLines(ctx, text, widthPx);
   else {
     // auto width: a line longer than 94% of the canvas width is wrapped (same as the server)
@@ -187,6 +340,18 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   const contentW = Math.max(1, ...laid.map((l) => l.width));
   const blockW = widthPx > 0 ? Math.max(widthPx, contentW) : contentW;
   const blockH = lh * laid.length;
+  // تراز دوطرفه: همهٔ خط‌ها جز آخری با پهن‌کردنِ فاصلهٔ کلمه‌ها به پهنای بلوک می‌رسند (فقط با عرضِ ثابت، نه عمودی) ≡ textlayer
+  if (layer.justify && widthPx > 0 && !layer.vertical) {
+    for (let i = 0; i < laid.length - 1; i++) {
+      const l = laid[i];
+      const nw = l.line.split(" ").length;
+      if (l.line.trim() && nw > 1 && l.width < blockW) {
+        const re = linePieces(ctx, l.line, l.rtl, spacing, (blockW - l.width) / (nw - 1));
+        laid[i] = { ...l, pieces: re.pieces, width: re.width };
+      }
+    }
+  }
+  const indentPx = (layer.indent || 0) * sizePx;
 
   const stroke = layer.stroke;
   const shadow = layer.shadow;
@@ -221,7 +386,9 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   g.miterLimit = 2;
   laid.forEach((l, i) => {
     if (!l.line.trim()) return;
-    const x0 = layer.align === "right" ? blockW - l.width : layer.align === "left" ? 0 : (blockW - l.width) / 2;
+    const align = layer.vertical ? "center" : layer.align;
+    let x0 = align === "right" ? blockW - l.width : align === "left" ? 0 : (blockW - l.width) / 2;
+    if (i === 0 && indentPx) x0 += l.rtl ? -indentPx : indentPx; // تورفتگیِ خطِ اول از لبهٔ شروعِ خواندن
     const y = oy + i * lh + baseY;
     g.direction = l.rtl ? "rtl" : "ltr";
     for (const p of l.pieces) {
@@ -258,7 +425,8 @@ export function rasterText(layer: TextLayer, canvasW: number, canvasH: number): 
   t.drawImage(glyphs, 0, 0);
 
   const wp = layer.warp;
-  const done = wp && Math.abs(wp.amount) > 0.001 ? warpTile(tile, wp.style, wp.amount, sizePx) : tile;
+  let done = wp && Math.abs(wp.amount) > 0.001 ? warpTile(tile, wp.style, wp.amount, sizePx) : tile;
+  if (layer.tpath && layer.tpath.pts.length >= 2) done = pathTile(done, flattenPx(layer.tpath, canvasW, canvasW));
   if (layer.tile) return { canvas: tilePattern(done, canvasW, canvasH, layer.tile.angle, layer.tile.gap), bw: 1, bh: canvasH / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: true };
   return { canvas: done, bw: done.width / canvasW, bh: done.height / canvasW, cw: blockW / canvasW, ch: blockH / canvasW, lines, full: false };
 }

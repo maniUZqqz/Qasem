@@ -212,6 +212,10 @@ class SettingsView(APIView):
         data = request.data if hasattr(request.data, "get") else {}
         if "ai_assist" in data and not isinstance(data.get("ai_assist"), bool):
             return _err("«کمکِ هوش مصنوعی» باید روشن یا خاموش باشد.")
+        if "smart_offline" in data and data.get("smart_offline") not in brand_mod.SMART_OFFLINE_CHOICES:
+            return _err("انتخابِ «وقتی سرورِ پردازش خاموش است» باید ask، site یا queue باشد.")
+        if "matting_model" in data and data.get("matting_model") not in brand_mod.MATTING_MODELS:
+            return _err("مدلِ حذفِ پس‌زمینه ناشناخته است.")
         return Response(brand_mod.save(store, data))
 
 

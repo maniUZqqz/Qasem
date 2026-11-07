@@ -50,9 +50,14 @@ from .views_editor_pro2 import (
 from .views_director import (
     DirectorApplyView,
     DirectorCatalogueView,
+    DirectorDraftDetailView,
+    DirectorDraftOpenView,
+    DirectorDraftsView,
     DirectorRerunView,
     DirectorRunView,
     EditorReframeView,
+    EditorScenesView,
+    EditorSettingsView,
     ProjectVersionRestoreView,
     ProjectVersionsView,
 )
@@ -175,7 +180,12 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/director/run/", DirectorRunView.as_view(), name="editor-director-run"),
     path("stores/<int:store_id>/editor/director/rerun/", DirectorRerunView.as_view(), name="editor-director-rerun"),
     path("stores/<int:store_id>/editor/director/apply/", DirectorApplyView.as_view(), name="editor-director-apply"),
+    path("stores/<int:store_id>/editor/director/drafts/", DirectorDraftsView.as_view(), name="editor-director-drafts"),
+    path("stores/<int:store_id>/editor/director/drafts/<int:pk>/open/", DirectorDraftOpenView.as_view(), name="editor-director-draft-open"),
+    path("stores/<int:store_id>/editor/director/drafts/<int:pk>/", DirectorDraftDetailView.as_view(), name="editor-director-draft"),
+    path("stores/<int:store_id>/editor/settings/", EditorSettingsView.as_view(), name="editor-settings"),
     path("stores/<int:store_id>/editor/reframe/", EditorReframeView.as_view(), name="editor-reframe"),
+    path("stores/<int:store_id>/editor/scenes/", EditorScenesView.as_view(), name="editor-scenes"),
     path("stores/<int:store_id>/editor/projects/<int:pk>/versions/", ProjectVersionsView.as_view(), name="editor-project-versions"),
     path("stores/<int:store_id>/editor/projects/<int:pk>/versions/<str:name>/", ProjectVersionRestoreView.as_view(), name="editor-project-version-restore"),
 

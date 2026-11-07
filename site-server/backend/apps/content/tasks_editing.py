@@ -715,16 +715,32 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 stage1.unlink(missing_ok=True)
 
         preset = str((timeline.export or {}).get("preset") or "")
-        dest = work / "exports" / f"{job.id}_{preset or quality}.mp4"
-        Path(final).replace(dest)
+        fmt = str((timeline.export or {}).get("format") or "mp4")
+        use_range = (timeline.export or {}).get("range") == "inout" and bool(timeline.inout)
+        convert_note = ""
+        if fmt != "mp4" or use_range:
+            # one-shot outputs (GIF, still frame, sound only, only the in–out range) are cut from the finished render
+            ext = export_module.FORMATS.get(fmt, ("mp4", ""))[0]
+            dest = work / "exports" / f"{job.id}_{fmt if fmt != 'mp4' else (preset or quality) + '_range'}.{ext}"
+            job.mark_progress(95, "ساختنِ خروجیِ خواسته‌شده")
+            t0 = float(timeline.inout["in"]) if use_range else None
+            t1 = float(timeline.inout["out"]) if use_range else None
+            done = export_module.convert(final, dest, fmt, t0=t0, t1=t1, frame_t=float((timeline.export or {}).get("frame_t") or 0.0), spec=spec,
+                                         cancel=lambda: _cancelled(job.id))
+            convert_note = done["note"]
+            Path(final).unlink(missing_ok=True)
+        else:
+            dest = work / "exports" / f"{job.id}_{preset or quality}.mp4"
+            Path(final).replace(dest)
         rel = media.media_rel(dest)
         w, h = export_module.size_for(timeline, spec.short_side if spec else None)
         project = VideoProject.objects.get(pk=project.pk)          # fresh: the editor may have saved meanwhile
         old = [e for e in (project.render_info or {}).get("exports", []) if isinstance(e, dict)]
         entry = {
             "job_id": job.id, "url": settings.MEDIA_URL.rstrip("/") + "/" + rel, "rel": rel, "preset": preset, "quality": quality,
-            "seconds": round(probe_duration(dest), 2), "bytes": dest.stat().st_size, "size": f"{w}x{h}",
-            "codec": spec.codec if spec else "h264", "note": spec.note if spec else "",
+            "seconds": 0.0 if fmt == "frame" else round(probe_duration(dest), 2), "bytes": dest.stat().st_size, "size": f"{w}x{h}",
+            "format": fmt, "range": "inout" if use_range else "all",
+            "codec": spec.codec if spec else "h264", "note": " ".join(x for x in (spec.note if spec else "", convert_note) if x),
             "rendered_at": timezone.now().isoformat(),
             "where": where["where"], "node": where["node"], "encoder": where["encoder"], "fallback": where["fallback"],
         }
@@ -734,8 +750,9 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 (Path(settings.MEDIA_ROOT) / gone.get("rel", "")).unlink(missing_ok=True)
             except OSError:
                 pass
-        project.output.name = rel
-        project.state = VideoProject.State.READY
+        if fmt == "mp4" and not use_range:
+            project.output.name = rel                  # «آخرین خروجیِ پروژه» = یک ویدیوی کامل؛ GIF و عکس و فقط‌صدا و بازهٔ برش‌خورده فقط در فهرستِ خروجی‌ها می‌آیند
+        project.state = VideoProject.State.READY if project.output else VideoProject.State.DRAFT
         project.error = ""
         project.render_info = {**entry, "refusals": refusals, "program_tools": [o["tool"] for o in program_ops], "exports": keep}
         project.save(update_fields=["output", "state", "error", "render_info", "updated_at"])

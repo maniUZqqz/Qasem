@@ -171,6 +171,7 @@ class PhotoDesign(TimeStampedModel):
     chosen = models.IntegerField(null=True, blank=True)
     project = models.ForeignKey(PhotoProject, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     edit = models.ForeignKey(PhotoEdit, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    batch = models.ForeignKey("PhotoDesignBatch", null=True, blank=True, on_delete=models.CASCADE, related_name="designs")
 
     class Meta:
         ordering = ["-created_at"]
@@ -183,6 +184,59 @@ class PhotoDesign(TimeStampedModel):
     @property
     def dir_rel(self) -> str:
         return f"{self.asset.dir_rel}/designs/d{self.pk}"
+
+    @property
+    def active(self) -> bool:
+        return self.state in self.ACTIVE
+
+
+class PhotoStoreSetting(TimeStampedModel):
+    """تنظیماتِ ادیتورِ عکسِ هر فروشگاه (نوبت ۴): پیش‌فرضِ «کمکِ هوش مصنوعی» و «سبکِ برند» (رنگ، فونت، لوگو، لحن)."""
+
+    store = models.OneToOneField("stores.Store", on_delete=models.CASCADE, related_name="photo_setting")
+    ai_assist = models.BooleanField(default=True)
+    brand = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "تنظیماتِ ادیتورِ عکس"
+        verbose_name_plural = "تنظیماتِ ادیتورِ عکس"
+
+
+class PhotoDesignBatch(TimeStampedModel):
+    """«طراحیِ گروهی»: یک الگو/دستور + سبکِ برند روی چند عکس؛ هر عکس یک PhotoDesign (۱ پیشنهاد). کارِ Celery با پیشرفت."""
+
+    class State(models.TextChoices):
+        QUEUED = "QUEUED", "در صف"
+        RUNNING = "RUNNING", "در حالِ طراحی"
+        READY = "READY", "آماده"
+        FAILED = "FAILED", "ناموفق"
+        CANCELLED = "CANCELLED", "لغو شد"
+
+    ACTIVE = ("QUEUED", "RUNNING")
+
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="photo_batches")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    title = models.CharField(max_length=120, blank=True)
+    recipe = models.CharField(max_length=30, blank=True)
+    prompt = models.TextField(blank=True)
+    fmt = models.CharField(max_length=12, default="square")
+    mood = models.CharField(max_length=12, default="auto")
+    copy = models.JSONField(default=dict, blank=True)
+    options = models.JSONField(default=dict, blank=True)
+    assets = models.JSONField(default=list, blank=True)
+    state = models.CharField(max_length=10, choices=State.choices, default=State.QUEUED, db_index=True)
+    progress = models.FloatField(default=0.0)
+    done = models.IntegerField(default=0)
+    message = models.CharField(max_length=300, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "طراحیِ گروهی"
+        verbose_name_plural = "طراحی‌های گروهی"
+
+    def __str__(self):
+        return f"batch #{self.pk} [{self.state}]"
 
     @property
     def active(self) -> bool:

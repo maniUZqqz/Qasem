@@ -1,5 +1,5 @@
 """The director's API: catalogue, one-click tools (`director/apply`), auto-reframe, project versions, and the whole job
-(analyse → recipes → three real VideoProject rows) with the model mocked. Real ffmpeg on tiny clips; no Metis, no node."""
+(analyse → recipes → three lightweight drafts) with the model mocked. Real ffmpeg on tiny clips; no Metis, no node."""
 import json
 import shutil
 import tempfile
@@ -15,7 +15,7 @@ from services.editing import captions
 from services.video.ffmpeg import FFMPEG
 
 from . import editor_project
-from .models import UploadedVideo, VideoProject
+from .models import DirectorDraft, UploadedVideo, VideoProject
 from .tests_editor_modes import make_video
 
 TEMP_MEDIA = tempfile.mkdtemp(prefix="nm-director-api-")
@@ -178,28 +178,33 @@ class DirectorApiTests(TestCase):
             r = self.call("post", "/editor/director/run/", body)
         return r
 
-    def test_run_builds_three_valid_editable_projects_without_ai_and_explains_what_was_skipped(self):
+    def test_run_builds_three_valid_editable_drafts_without_ai_and_explains_what_was_skipped(self):
         r = self.run_director({"prompt": "ریلز معرفی چای ۱۵ ثانیه‌ای", "refs": [f"video:{self.up1.pk}", f"video:{self.up2.pk}"], "options": {"use_ai": False, "preview": False}})
         self.assertEqual(r.status_code, 202, r.content)
         job = Job.objects.get(pk=r.json()["job_id"])
         self.assertEqual(job.state, Job.State.COMPLETED, job.error)
         result = job.result
-        self.assertEqual({p["key"] for p in result["projects"]}, {"a", "b", "c"})
+        self.assertEqual({p["key"] for p in result["drafts"]}, {"a", "b", "c"})
+        self.assertEqual(VideoProject.objects.count(), 0, "a «بساز» must not create real projects any more")
+        self.assertEqual(DirectorDraft.objects.filter(store=self.store).count(), 3)
+        self.assertEqual(result["draft_days"], 7)
         self.assertEqual(result["brief"]["platform"], "reels")
         self.assertEqual(result["brief"]["duration"], 15)
         text = " ".join(result["degraded"])
         self.assertIn("هوش مصنوعی", text) if result["ai"]["enabled"] else None
         self.assertTrue(any("زیرنویس" in d or "گفتار" in d for d in result["degraded"]), result["degraded"])   # ASR was off: said so
-        for row in result["projects"]:
-            project = VideoProject.objects.get(pk=row["id"])
-            self.assertEqual(project.data["director"]["variant"], row["key"])
-            self.assertTrue(project.data["director"]["plan"])
-            verdict = editor_project.check(self.store, project.data)
+        for row in result["drafts"]:
+            draft = DirectorDraft.objects.get(pk=row["id"])
+            self.assertEqual(draft.data["director"]["variant"], row["key"])
+            self.assertTrue(draft.data["director"]["plan"])
+            verdict = editor_project.check(self.store, draft.data)
             self.assertTrue(verdict["ok"], (row, verdict))
             self.assertLessEqual(verdict["length"], 22)
         for v in result["variants"]:
             self.assertTrue(all(s["text"] and s["title"] for s in v["plan"]))
             self.assertIn("score", v["critique"])
+            self.assertIsNone(v["project_id"])
+            self.assertTrue(v["draft_id"])
 
     def test_the_owner_can_switch_a_step_off_and_run_the_plan_again(self):
         refs = [f"video:{self.up1.pk}", f"video:{self.up2.pk}"]
@@ -210,15 +215,16 @@ class DirectorApiTests(TestCase):
         steps = [{"id": s["id"], "tool": s["tool"], "params": s["params"], "why": s["why"], "on": s["tool"] != "end_card"} for s in v["plan"] if not s["id"].startswith("f")]
         with patch("apps.content.views_director.dispatch_job", side_effect=run_inline), \
                 patch("services.editing.captions.status", return_value={"node": False, "local": False, "ok": False, "message": captions.OFFLINE_MESSAGE}):
-            r2 = self.call("post", "/editor/director/rerun/", {"brief": res["brief"], "steps": steps, "refs": refs, "variant": "a", "project_id": v["project_id"]})
+            r2 = self.call("post", "/editor/director/rerun/", {"brief": res["brief"], "steps": steps, "refs": refs, "variant": "a", "draft_id": v["draft_id"]})
         self.assertEqual(r2.status_code, 202, r2.content)
         job2 = Job.objects.get(pk=r2.json()["job_id"])
         self.assertEqual(job2.state, Job.State.COMPLETED, job2.error)
         again = job2.result["variants"][0]
-        self.assertEqual(again["project_id"], v["project_id"])                  # the same project was replaced, not duplicated
+        self.assertEqual(again["draft_id"], v["draft_id"])                      # the same draft was replaced, not duplicated
         self.assertTrue(any(s.get("skipped") for s in again["plan"] if s["tool"] == "end_card"))
         self.assertFalse(next(i for i in again["critique"]["items"] if i["key"] == "cta")["ok"])
-        self.assertEqual(VideoProject.objects.filter(store=self.store).count(), 1)
+        self.assertEqual(DirectorDraft.objects.filter(store=self.store).count(), 1)
+        self.assertEqual(VideoProject.objects.filter(store=self.store).count(), 0)
 
     def test_a_model_that_answers_improves_the_brief_and_one_that_fails_is_reported(self):
         refs = [f"video:{self.up1.pk}"]
@@ -231,7 +237,7 @@ class DirectorApiTests(TestCase):
         self.assertFalse(job.result["ai"]["ok"])
         self.assertTrue(any("۴۰۲" in d for d in job.result["degraded"]))
         self.assertTrue(job.result["ai"]["needed_for"])
-        VideoProject.objects.all().delete()
+        DirectorDraft.objects.all().delete()
         good = {"recipe": "sale", "platform": "story", "duration": 12, "pace": "fast", "title": "چای تازه", "subtitle": "", "cta": "الان بخر", "discount": 20,
                 "captions": True, "music": False, "look": "vivid", "hook_ref": "", "order": [], "notes_fa": ""}
         info_ok = {**info_bad, "ok": True, "error": "", "error_code": "", "via": "node", "model": "gemma3:12b"}
@@ -263,16 +269,6 @@ class DirectorApiTests(TestCase):
         self.assertEqual(job.state, Job.State.FAILED)
         self.assertIn("ویدیو یا عکس", job.error)
 
-    def test_old_director_projects_are_pruned_but_a_hand_edited_one_is_kept(self):
-        from . import tasks_director
-        keep = VideoProject.objects.create(store=self.store, title="ویرایش‌شده", data={"director": {"run": "x"}, **self.project_data()})
-        VideoProject.objects.filter(pk=keep.pk).update(created_at=keep.created_at.replace(year=2025), updated_at=keep.updated_at)     # edited long after creation
-        for i in range(tasks_director.MAX_PROJECTS - 1):
-            VideoProject.objects.create(store=self.store, title=f"d{i}", data={"director": {"run": "old"}, **self.project_data()})
-        removed = tasks_director.prune_director_projects(self.store, 3)
-        self.assertEqual(removed, 3)
-        self.assertTrue(VideoProject.objects.filter(pk=keep.pk).exists())
-
     def test_a_transcript_is_listened_to_once_and_then_kept(self):
         from services.editing.director.ctx import store_ctx
         calls = []
@@ -301,6 +297,264 @@ class DirectorApiTests(TestCase):
         self.assertEqual(job.state, Job.State.COMPLETED, job.error)
         b = job.result["brief"]
         self.assertEqual((b["recipe"], b["platform"], b["duration"], b["pace"], b["music"]), ("sale", "tiktok", 20, "fast", False))
+
+
+    # ------------------------------------------------------------ drafts and editor settings (round 4)
+    def run_plain(self, **opts):
+        r = self.run_director({"prompt": "ریلز", "refs": [f"video:{self.up1.pk}", f"video:{self.up2.pk}"], "options": {"use_ai": False, "preview": False, **opts}})
+        job = Job.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.state, Job.State.COMPLETED, job.error)
+        return job.result
+
+    def test_settings_default_clamp_validate_and_keep_other_preferences(self):
+        from apps.stores.models import StoreProfile
+        StoreProfile.objects.update_or_create(store=self.store, defaults={"ai_preferences": {"editing": {"never": ["stabilize"]}}})
+        s = self.call("get", "/editor/settings/").json()
+        self.assertEqual((s["ai_default"], s["draft_days"], s["min_days"], s["max_days"]), (True, 7, 1, 30))
+        self.assertIn("اعتبار", s["cost_note"])
+        self.assertIn("هزینه", s["cost_note"])
+        self.assertEqual(self.call("put", "/editor/settings/", {"ai_default": False}).json()["ai_default"], False)
+        self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": 100}).json()["draft_days"], 30)
+        self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": 0}).json()["draft_days"], 1)
+        self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": "3"}).json()["draft_days"], 3)
+        self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": "x"}).status_code, 400)
+        self.assertEqual(self.call("put", "/editor/settings/", {"ai_default": "yes"}).status_code, 400)
+        again = self.call("get", "/editor/settings/").json()
+        self.assertEqual((again["ai_default"], again["draft_days"]), (False, 3))          # a failed PUT changed nothing
+        self.assertEqual(StoreProfile.objects.get(store=self.store).ai_preferences["editing"], {"never": ["stabilize"]})
+        cat = self.call("get", "/editor/director/catalogue/").json()
+        self.assertEqual(cat["settings"]["ai_default"], False)                           # the panel learns the default from the catalogue
+        other = User.objects.create_user("set-intruder", password="x")
+        self.client.force_login(other)
+        self.assertIn(self.call("get", "/editor/settings/").status_code, (403, 404))
+        self.assertIn(self.call("put", "/editor/settings/", {"ai_default": True}).status_code, (403, 404))
+
+    def test_the_ai_tick_starts_from_the_store_default_and_one_run_can_still_override_it(self):
+        refs = [f"video:{self.up1.pk}"]
+        asked = []
+
+        def fake(store, **kw):
+            asked.append(kw["prompt_id"])
+            return (None, {"asked": True, "ok": False, "via": "", "model": "", "error": "x", "error_code": "x", "fell_back": False, "fallback_reason": ""})
+        self.call("put", "/editor/settings/", {"ai_default": False})
+        with patch("services.editing.director.ai.call_json", side_effect=fake):
+            r = self.run_director({"prompt": "ریلز", "refs": refs, "options": {"preview": False, "variants": 1}})            # no use_ai given
+        res = Job.objects.get(pk=r.json()["job_id"]).result
+        self.assertEqual((res["ai"]["enabled"], asked), (False, []), "default OFF: the model must not be called at all")
+        with patch("services.editing.director.ai.call_json", side_effect=fake):
+            r = self.run_director({"prompt": "ریلز", "refs": refs, "options": {"preview": False, "variants": 1, "use_ai": True}})
+        res = Job.objects.get(pk=r.json()["job_id"]).result
+        self.assertTrue(res["ai"]["enabled"])
+        self.assertIn("video_director_brief", asked)                                      # the per-run tick wins over the default
+        self.call("put", "/editor/settings/", {"ai_default": True})
+        asked.clear()
+        with patch("services.editing.director.ai.call_json", side_effect=fake):
+            r = self.run_director({"prompt": "ریلز", "refs": refs, "options": {"preview": False, "variants": 1}})
+        self.assertTrue(Job.objects.get(pk=r.json()["job_id"]).result["ai"]["enabled"])
+        self.assertTrue(asked)
+
+    def test_draft_lifetime_follows_the_store_setting(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.call("put", "/editor/settings/", {"draft_days": 2})
+        res = self.run_plain(variants=1)
+        self.assertEqual(res["draft_days"], 2)
+        d = DirectorDraft.objects.get(pk=res["drafts"][0]["id"])
+        self.assertAlmostEqual((d.expires_at - timezone.now()).total_seconds(), timedelta(days=2).total_seconds(), delta=120)
+        listing = self.call("get", "/editor/director/drafts/").json()
+        self.assertEqual((listing["draft_days"], listing["drafts"][0]["days_left"]), (2, 2))
+
+    def test_drafts_list_open_once_and_delete(self):
+        res = self.run_plain()
+        listing = self.call("get", "/editor/director/drafts/").json()
+        self.assertEqual({d["key"] for d in listing["drafts"]}, {"a", "b", "c"})
+        self.assertTrue(all(d["days_left"] == 7 and d["project_id"] is None for d in listing["drafts"]))
+        a = next(d for d in listing["drafts"] if d["key"] == "a")
+        r = self.call("post", f"/editor/director/drafts/{a['id']}/open/")
+        self.assertEqual(r.status_code, 200, r.content)
+        pid = r.json()["project_id"]
+        project = VideoProject.objects.get(pk=pid)
+        self.assertEqual(project.data["director"]["variant"], "a")
+        self.assertEqual(project.data["tracks"], DirectorDraft.objects.get(pk=a["id"]).data["tracks"])           # nothing lost on the way
+        self.assertEqual(self.call("post", f"/editor/director/drafts/{a['id']}/open/").json()["project_id"], pid)     # a double click: same project
+        self.assertEqual(VideoProject.objects.count(), 1)
+        self.assertEqual({d["key"] for d in self.call("get", "/editor/director/drafts/").json()["drafts"]}, {"b", "c"})   # opened ones leave the list
+        b = next(d for d in listing["drafts"] if d["key"] == "b")
+        self.assertEqual(self.call("delete", f"/editor/director/drafts/{b['id']}/").status_code, 204)
+        self.assertEqual(self.call("delete", f"/editor/director/drafts/{b['id']}/").status_code, 404)
+        self.assertEqual(self.call("delete", f"/editor/director/drafts/{a['id']}/").status_code, 404)          # an opened one is not a draft any more
+        self.assertEqual(len(self.call("get", "/editor/director/drafts/").json()["drafts"]), 1)
+        self.assertTrue(VideoProject.objects.filter(pk=pid).exists())
+        other = User.objects.create_user("draft-intruder", password="x")
+        self.client.force_login(other)
+        c = next(d for d in listing["drafts"] if d["key"] == "c")
+        self.assertIn(self.call("post", f"/editor/director/drafts/{c['id']}/open/").status_code, (403, 404))
+        self.assertIn(self.call("delete", f"/editor/director/drafts/{c['id']}/").status_code, (403, 404))
+        self.assertEqual(DirectorDraft.objects.filter(pk=c["id"]).count(), 1)
+        self.assertEqual(res["draft_days"], 7)
+
+    def test_unopened_drafts_expire_by_age_and_an_opened_project_never_does(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from services.editing.director import drafts as drafts_mod
+        self.run_plain()
+        mine = list(DirectorDraft.objects.filter(store=self.store).order_by("key"))
+        opened = drafts_mod.promote(mine[0])
+        edited = VideoProject.objects.create(store=self.store, title="ویرایش‌شده", data=self.project_data())
+        old = timezone.now() - timedelta(days=30)
+        VideoProject.objects.filter(pk__in=[opened.pk, edited.pk]).update(created_at=old, updated_at=old)         # ancient, but a real project
+        DirectorDraft.objects.filter(pk=mine[1].pk).update(expires_at=timezone.now() - timedelta(minutes=1))     # one unopened draft is past its window
+        out = drafts_mod.purge(self.store)
+        self.assertEqual(out["expired"], 1)
+        self.assertEqual(set(DirectorDraft.objects.filter(store=self.store).values_list("key", flat=True)), {"a", "c"})
+        self.assertEqual(VideoProject.objects.count(), 2, "purging must never delete a real project")
+        # the pointer of an opened draft is kept for a day (a double click), then it goes; the project stays; the other unopened draft is still inside its 7 days
+        out = drafts_mod.purge(self.store, now=timezone.now() + timedelta(days=2))
+        self.assertEqual((out["pointers"], out["expired"]), (1, 0))
+        self.assertEqual(set(DirectorDraft.objects.filter(store=self.store).values_list("key", flat=True)), {"c"})
+        self.assertTrue(VideoProject.objects.filter(pk=opened.pk).exists() and VideoProject.objects.filter(pk=edited.pk).exists())
+        out = drafts_mod.purge(self.store, now=timezone.now() + timedelta(days=8))
+        self.assertEqual(out["expired"], 1)
+        self.assertEqual(VideoProject.objects.count(), 2)
+
+    def test_nothing_expires_before_its_window_and_the_listing_purges_lazily(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.run_plain(variants=2)
+        DirectorDraft.objects.filter(store=self.store).update(expires_at=timezone.now() + timedelta(hours=1))
+        self.assertEqual(len(self.call("get", "/editor/director/drafts/").json()["drafts"]), 2)
+        DirectorDraft.objects.filter(store=self.store).update(expires_at=timezone.now() - timedelta(seconds=5))
+        self.assertEqual(self.call("get", "/editor/director/drafts/").json()["drafts"], [])
+        self.assertEqual(DirectorDraft.objects.count(), 0)
+
+    def test_the_oldest_unopened_drafts_expire_beyond_the_cap(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from services.editing.director import drafts as drafts_mod
+        base = {"tracks": [], "director": {"run": "x"}}
+        for i in range(drafts_mod.MAX_DRAFTS + 3):
+            d = DirectorDraft.objects.create(store=self.store, run=f"r{i}", key="a", title=f"d{i}", data=base, expires_at=timezone.now() + timedelta(days=5))
+            DirectorDraft.objects.filter(pk=d.pk).update(created_at=timezone.now() - timedelta(minutes=drafts_mod.MAX_DRAFTS + 3 - i))
+        out = drafts_mod.purge(self.store)
+        self.assertEqual(out["over_cap"], 3)
+        self.assertEqual(DirectorDraft.objects.filter(store=self.store).count(), drafts_mod.MAX_DRAFTS)
+        self.assertFalse(DirectorDraft.objects.filter(title="d0").exists())                  # the oldest went first
+        self.assertTrue(DirectorDraft.objects.filter(title=f"d{drafts_mod.MAX_DRAFTS + 2}").exists())
+
+    def test_the_shared_preview_file_goes_only_when_the_last_draft_of_its_run_goes(self):
+        res = self.run_plain(variants=2)
+        draft = DirectorDraft.objects.get(pk=res["drafts"][0]["id"])
+        folder = Path(TEMP_MEDIA) / "generated" / "editing" / f"director_{draft.job_id}"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "preview.mp4").write_bytes(b"x" * 2048)
+        ids = [d["id"] for d in res["drafts"]]
+        self.assertEqual(self.call("delete", f"/editor/director/drafts/{ids[0]}/").status_code, 204)
+        self.assertTrue((folder / "preview.mp4").exists(), "the second draft still needs the preview")
+        self.assertEqual(self.call("delete", f"/editor/director/drafts/{ids[1]}/").status_code, 204)
+        self.assertFalse(folder.exists())
+
+    def test_a_rerun_never_overwrites_a_project_the_owner_opened(self):
+        refs = [f"video:{self.up1.pk}", f"video:{self.up2.pk}"]
+        res = self.run_plain(variants=1)
+        v = res["variants"][0]
+        opened = self.call("post", f"/editor/director/drafts/{v['draft_id']}/open/").json()["project_id"]
+        before = json.dumps(VideoProject.objects.get(pk=opened).data, sort_keys=True)
+        steps = [{"id": s["id"], "tool": s["tool"], "params": s["params"], "why": s["why"], "on": s["tool"] != "end_card"} for s in v["plan"] if not s["id"].startswith("f")]
+        with patch("apps.content.views_director.dispatch_job", side_effect=run_inline), \
+                patch("services.editing.captions.status", return_value={"node": False, "local": False, "ok": False, "message": captions.OFFLINE_MESSAGE}):
+            r = self.call("post", "/editor/director/rerun/", {"brief": res["brief"], "steps": steps, "refs": refs, "variant": "a", "draft_id": v["draft_id"]})
+        job = Job.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.state, Job.State.COMPLETED, job.error)
+        self.assertEqual(json.dumps(VideoProject.objects.get(pk=opened).data, sort_keys=True), before)
+        self.assertNotEqual(job.result["variants"][0]["draft_id"], v["draft_id"])                 # it became a NEW draft instead
+        self.assertEqual(len(self.call("get", "/editor/director/drafts/").json()["drafts"]), 1)
+
+    # ------------------------------------------------------------ migrating the old auto-created projects
+    def test_migration_moves_only_untouched_director_projects_after_writing_a_backup(self):
+        import io
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        data = {**self.project_data(), "director": {"run": "old1", "variant": "a", "critique": {"score": 83}, "plan": [], "prompt": "x"}}
+        untouched = VideoProject.objects.create(store=self.store, title="دست‌نخورده", data=data)
+        edited = VideoProject.objects.create(store=self.store, title="ویرایش‌شده", data=data)
+        VideoProject.objects.filter(pk=edited.pk).update(updated_at=timezone.now() + timedelta(minutes=10))
+        rendered = VideoProject.objects.create(store=self.store, title="رندرشده", data=data, state=VideoProject.State.READY)
+        snap = VideoProject.objects.create(store=self.store, title="نسخه‌دار", data=data)
+        (Path(TEMP_MEDIA) / "generated" / "editing" / f"project_{snap.pk}" / "versions").mkdir(parents=True, exist_ok=True)
+        plain = VideoProject.objects.create(store=self.store, title="معمولی", data=self.project_data())
+        out = io.StringIO()
+        call_command("director_drafts", "migrate", "--dry-run", stdout=out)
+        self.assertIn("candidates: 1", out.getvalue())
+        self.assertEqual(DirectorDraft.objects.count(), 0)                                        # a dry run changes nothing
+        backup = Path(TEMP_MEDIA) / "backup" / "projects.json"
+        out = io.StringIO()
+        call_command("director_drafts", "migrate", "--backup", str(backup), stdout=out)
+        self.assertIn("moved 1", out.getvalue())
+        saved = json.loads(backup.read_text(encoding="utf-8"))
+        self.assertEqual([x["id"] for x in saved], [untouched.pk])
+        self.assertEqual(saved[0]["data"]["director"]["run"], "old1")
+        self.assertFalse(VideoProject.objects.filter(pk=untouched.pk).exists())
+        for keep in (edited, rendered, snap, plain):
+            self.assertTrue(VideoProject.objects.filter(pk=keep.pk).exists(), keep.title)
+        d = DirectorDraft.objects.get()
+        self.assertEqual((d.title, d.score, d.key, d.run), ("دست‌نخورده", 83, "a", "old1"))
+        self.assertEqual(d.data["tracks"], data["tracks"])
+        self.assertGreater(d.expires_at, timezone.now() + timedelta(days=6))                       # a full fresh window from the migration
+        out = io.StringIO()
+        call_command("director_drafts", "migrate", "--backup", str(backup), stdout=out)
+        self.assertIn("nothing to do", out.getvalue())                                            # idempotent
+        out = io.StringIO()
+        call_command("director_drafts", "stats", stdout=out)
+        self.assertIn("drafts=1", out.getvalue())
+
+    def test_migration_refuses_to_run_without_a_backup_path(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        VideoProject.objects.create(store=self.store, title="x", data={**self.project_data(), "director": {"run": "o"}})
+        with self.assertRaises(CommandError):
+            call_command("director_drafts", "migrate")
+        self.assertEqual(VideoProject.objects.count(), 1)
+
+
+    # ------------------------------------------------------------ scene-cut detection (round 4)
+    def two_scene_video(self, name, cut_at=2.0, total=5.0):
+        import subprocess
+        path = Path(TEMP_MEDIA) / "uploads/videos" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([FFMPEG, "-y", "-f", "lavfi", "-i", f"color=c=red:s=160x90:r=10:d={cut_at}", "-f", "lavfi", "-i", f"color=c=blue:s=160x90:r=10:d={total - cut_at}",
+                        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-pix_fmt", "yuv420p", str(path)], check=True, capture_output=True)
+        return UploadedVideo.objects.create(store=self.store, title="دو صحنه", video=f"uploads/videos/{name}", state="READY", duration=total, has_audio=False)
+
+    def test_scene_detection_finds_the_cut_and_stays_quiet_when_there_is_none(self):
+        up = self.two_scene_video("scenes_cut.mp4")
+        r = self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}"})
+        self.assertEqual(r.status_code, 200, r.content)
+        cuts = r.json()["cuts"]
+        self.assertEqual(len(cuts), 1, cuts)
+        self.assertAlmostEqual(cuts[0], 2.0, delta=0.25)
+        # a window that excludes the cut finds nothing; the times are always SOURCE seconds
+        self.assertEqual(self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}", "start": 2.5, "end": 5}).json()["cuts"], [])
+        late = self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}", "start": 1, "end": 4}).json()["cuts"]
+        self.assertEqual(len(late), 1)
+        self.assertAlmostEqual(late[0], 2.0, delta=0.25)
+        plain = self.call("post", "/editor/scenes/", {"ref": f"video:{self.up1.pk}"}).json()
+        self.assertEqual(plain["cuts"], [])                                       # the test pattern never cuts
+
+    def test_scene_detection_validates_and_is_private(self):
+        up = self.two_scene_video("scenes_cut2.mp4")
+        self.assertEqual(self.call("post", "/editor/scenes/", {"ref": "video:424242"}).status_code, 404)
+        self.assertEqual(self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}", "start": "x"}).status_code, 400)
+        self.assertEqual(self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}", "start": 4.9, "end": 5}).status_code, 400)
+        self.assertEqual(self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}", "sensitivity": "weird"}).status_code, 200)    # unknown level = normal
+        other = User.objects.create_user("scene-intruder", password="x")
+        self.client.force_login(other)
+        self.assertIn(self.call("post", "/editor/scenes/", {"ref": f"video:{up.pk}"}).status_code, (403, 404))
+
+    def test_the_cuts_are_close_together_only_once(self):
+        from services.editing import scenes
+        self.assertGreater(scenes.SENSITIVITY["low"], scenes.SENSITIVITY["normal"], "less sensitive = a higher bar")
+        self.assertGreater(scenes.SENSITIVITY["normal"], scenes.SENSITIVITY["high"])
 
 
 @override_settings(MEDIA_ROOT=TEMP_MEDIA)

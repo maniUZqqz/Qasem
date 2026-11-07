@@ -546,6 +546,7 @@ export default function TimelineView(props: Props) {
             {t.kind !== "text" && <button type="button" className={t.muted ? "is-on" : ""} title={t.muted ? "صدای این ترک روشن شود" : "بی‌صدا (M)"} onClick={() => onTrack(t.id, { muted: !t.muted })} data-mute={t.id}>M</button>}
             {t.kind !== "text" && <button type="button" className={t.solo ? "is-on solo" : ""} title="تک‌صدا (Solo)" onClick={() => onTrack(t.id, { solo: !t.solo })} data-solo={t.id}>S</button>}
             <button type="button" className={t.locked ? "is-on" : ""} title="قفل (قطعه‌ها جابه‌جا نمی‌شوند)" onClick={() => onTrack(t.id, { locked: !t.locked })} data-lock={t.id}>L</button>
+            {t.kind !== "text" && <button type="button" className={t.target ? "is-on" : ""} title="هدف: درج و رویه‌گذاری از مانیتورِ منبع روی این ترک می‌نشینند" onClick={() => onTrack(t.id, { target: !t.target })} data-target={t.id}>◎</button>}
             <button type="button" title="حذفِ ترک" onClick={() => onRemoveTrack(t.id)}>×</button>
           </div>
         ))}

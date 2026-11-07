@@ -30,7 +30,7 @@ export const MENUS: { id: MenuId; title: string }[] = [
 ];
 
 /** کلیدهای روشن/خاموشِ نما */
-export type FlagName = "snap" | "scopes" | "volLine" | "autoRipple" | "crop" | "menubar";
+export type FlagName = "snap" | "scopes" | "volLine" | "autoRipple" | "crop" | "menubar" | "loop";
 
 /** آنچه ویژگی‌ها از فضای کار می‌خواهند. VideoWorkspace همین را می‌سازد؛ پنل‌ها هم همین را می‌گیرند. */
 export type WorkspaceApi = {
@@ -57,6 +57,8 @@ export type WorkspaceApi = {
   history: { entries: { label: string }[]; index: number };
   /** آیا پروژه قطعه‌ای دارد */
   hasClips: boolean;
+  /** تنظیماتِ ویرایشگرِ این فروشگاه (null تا وقتی بارگیری نشده) */
+  editorSettings: { ai_default: boolean; draft_days: number } | null;
 
   // ───────── ویرایش (همه با گامِ برگشت)
   /** یک کارِ یک‌باره = یک گامِ برگشت */
@@ -124,6 +126,20 @@ export type WorkspaceApi = {
     gotoEdit: (dir: -1 | 1) => void;
     /** چینشِ کار: نمایشِ تب و اسکوپ و خطِ بلندی برای یک کارِ خاص */
     workspace: (name: "edit" | "color" | "audio" | "graphics" | "export") => void;
+    /** پیش‌فرضِ «کمکِ هوش مصنوعی» را برای این فروشگاه برعکس می‌کند و ذخیره می‌کند */
+    toggleAiDefault: () => void;
+    /** قطعه‌های کپی‌شده را در سرِ پخش می‌گذارد و بعدی‌ها را جلو می‌برد */
+    pasteInsert: () => void;
+    /** زیرنویس‌های تایم‌لاین را به‌صورتِ فایلِ SRT دانلود می‌کند */
+    exportSrt: () => void;
+    /** یک فایلِ SRT را می‌پرسد و به ترکِ زیرنویس می‌آورد */
+    importSrt: () => void;
+    /** نسخهٔ دومِ پروژه */
+    duplicateProject: () => void;
+    /** یک خروجیِ یک‌باره: GIF، عکسِ فریمِ سرِ پخش، فقط صدا، یا فقط بازهٔ ورودی–خروجی */
+    renderAs: (what: "gif" | "frame" | "audio" | "range") => void;
+    /** برش‌های (تغییرِ نما) فیلمِ انتخاب‌شده را پیدا می‌کند و قطعه را همان‌جا می‌برد */
+    detectScenes: (sensitivity: "low" | "normal" | "high") => void;
   };
   /** رفتن به حالتِ «نیمه‌خودکار» (کارگردان)؛ null = از این صفحه ممکن نیست */
   goDirector: (() => void) | null;

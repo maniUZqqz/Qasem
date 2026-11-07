@@ -2,9 +2,14 @@
 
     GET   stores/<id>/editor/director/catalogue/    tools, recipes, variants, platforms, safe zones, caption looks, AI/ASR status
     POST  stores/<id>/editor/director/run/          {prompt, refs[], options{variants,rounds,use_ai,preview,music_ref}} → job (result: plan + variants)
-    POST  stores/<id>/editor/director/rerun/        {brief, steps[], refs[], variant?, project_id?} → job: an EDITED plan run again, no model
+    POST  stores/<id>/editor/director/rerun/        {brief, steps[], refs[], variant?, draft_id?} → job: an EDITED plan run again, no model
+    GET   stores/<id>/editor/director/drafts/       unopened drafts (lightweight results of earlier «بساز»), newest first, with days left
+    POST  stores/<id>/editor/director/drafts/<pk>/open/   → {project_id}: the draft becomes a real project (idempotent)
+    DELETE stores/<id>/editor/director/drafts/<pk>/       throw one draft away
+    GET/PUT stores/<id>/editor/settings/            {ai_default, draft_days} — what the «کمکِ هوش مصنوعی» tick starts from, and how long drafts live
     POST  stores/<id>/editor/director/apply/        {data: project, steps[]} → {data, results[], notes[]}  (sync; the one-click sound tools)
     POST  stores/<id>/editor/reframe/               {ref, start, end, aspect, follow?, zoom?, speed?} → {reframe, engine, samples, notes}
+    POST  stores/<id>/editor/scenes/                {ref, start?, end?, sensitivity?(low|normal|high)} → {cuts[] (source seconds), threshold, scanned}
     GET   stores/<id>/editor/projects/<pk>/versions/            saved snapshots of a project
     POST  stores/<id>/editor/projects/<pk>/versions/            {label?, data?} → snapshot now
     POST  stores/<id>/editor/projects/<pk>/versions/<name>/     restore (the current state is snapshotted first)
@@ -27,8 +32,9 @@ from rest_framework.views import APIView
 from apps.jobs.models import Job
 from apps.jobs.services import dispatch_job
 from apps.stores import access
-from services.editing import captions, reframe, safezones
+from services.editing import captions, reframe, safezones, scenes
 from services.editing import timeline as tl
+from services.editing.director import drafts as drafts_mod
 from services.editing.director import projectops as ops
 from services.editing.director.brief import PLATFORMS, RECIPES
 from services.editing.director.ctx import store_ctx
@@ -37,7 +43,7 @@ from services.editing.director.runner import apply_steps, validate_plan
 from services.editing.director.tools import CAPTION_STYLES, catalogue_for_ui
 
 from . import editor_project
-from .models import VideoProject
+from .models import DirectorDraft, VideoProject
 from .tasks_director import director_task
 
 logger = logging.getLogger(__name__)
@@ -78,6 +84,7 @@ class DirectorCatalogueView(APIView):
             "caption_styles": [{"key": k, "title": v["title"]} for k, v in CAPTION_STYLES.items()],
             "captions": captions.status(),
             "ai": ai_status(store),
+            "settings": drafts_mod.public_settings(store),
         })
 
 
@@ -105,7 +112,11 @@ class DirectorRunView(APIView):
             return _err("no_refs", "اول ویدیو یا عکس‌هایی را که می‌خواهید در ویدیو باشند انتخاب کنید.")
         if _busy(store):
             return _err("busy", "یک کارگردانِ دیگر هنوز در حال کار است؛ تمام شدنش را صبر کنید.", status.HTTP_409_CONFLICT)
-        opts = request.data.get("options") if isinstance(request.data.get("options"), dict) else {}
+        opts = dict(request.data.get("options")) if isinstance(request.data.get("options"), dict) else {}
+        # the «کمکِ هوش مصنوعی» tick starts from the store's own default; the panel can still override it for one run
+        if "use_ai" not in opts:
+            opts["use_ai"] = drafts_mod.get_settings(store)["ai_default"]
+        drafts_mod.purge(store)
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director", "kind": "run"})
         failed = dispatch_job(job, director_task, job.id, {"kind": "run", "prompt": prompt, "refs": refs, "options": opts})
         if failed is not None:
@@ -127,11 +138,67 @@ class DirectorRerunView(APIView):
         brief = request.data.get("brief") if isinstance(request.data.get("brief"), dict) else {}
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director", "kind": "rerun"})
         payload = {"kind": "rerun", "refs": refs, "steps": steps[:80], "brief": brief, "variant": str(request.data.get("variant") or "a")[:2],
-                   "replace_project": request.data.get("project_id")}
+                   "replace_draft": request.data.get("draft_id")}
         failed = dispatch_job(job, director_task, job.id, payload)
         if failed is not None:
             return failed
         return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)
+
+
+class DirectorDraftsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        return Response({"drafts": drafts_mod.drafts_of(store), "draft_days": drafts_mod.get_settings(store)["draft_days"], "max_drafts": drafts_mod.MAX_DRAFTS})
+
+
+class DirectorDraftOpenView(APIView):
+    """Open a draft in the manual editor: this is the moment it becomes a real project."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id, pk):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        draft = get_object_or_404(DirectorDraft, pk=pk, store=store)
+        project = drafts_mod.promote(draft)
+        return Response({"project_id": project.pk, "title": project.title})
+
+
+class DirectorDraftDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, store_id, pk):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        draft = get_object_or_404(DirectorDraft, pk=pk, store=store, project__isnull=True, promoted_at__isnull=True)
+        run, job_id, sid = draft.run, draft.job_id, draft.store_id
+        draft.delete()
+        drafts_mod._drop_previews([(run, job_id, sid)])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EditorSettingsView(APIView):
+    """Store-level editor settings: the default of the «هوش مصنوعی کمک کند» tick and the lifetime of unopened drafts."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        return Response(drafts_mod.public_settings(store))
+
+    def put(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        ai = request.data.get("ai_default")
+        days = request.data.get("draft_days")
+        if ai is not None and not isinstance(ai, bool):
+            return _err("bad_request", "مقدارِ «کمکِ هوش مصنوعی» باید روشن یا خاموش باشد.")
+        if days is not None:
+            try:
+                int(days)
+            except (TypeError, ValueError):
+                return _err("bad_request", "مدتِ نگهداریِ پیش‌نویس باید یک عدد (روز) باشد.")
+        drafts_mod.save_settings(store, ai_default=ai, draft_days=days)
+        return Response(drafts_mod.public_settings(store))
 
 
 class DirectorApplyView(APIView):
@@ -195,6 +262,31 @@ class EditorReframeView(APIView):
         except tl.TimelineError as exc:
             return _err("reframe_failed", str(exc), status.HTTP_422_UNPROCESSABLE_ENTITY)
         return Response(res)
+
+
+class EditorScenesView(APIView):
+    """Where does this video change shot? (the manual editor's «تشخیصِ برش‌ها»); the panel splits the clip at those times."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=False)
+        ref = str(request.data.get("ref") or "")
+        try:
+            item = editor_project.describe(store, ref)
+        except tl.TimelineError as exc:
+            return _err("bad_ref", str(exc), status.HTTP_404_NOT_FOUND)
+        if item["kind"] != "video":
+            return _err("not_video", "تشخیصِ برش فقط روی ویدیو شدنی است.")
+        try:
+            start = max(0.0, float(request.data.get("start") or 0))
+            end = float(request.data.get("end") if request.data.get("end") is not None else item.get("duration") or 0)
+        except (TypeError, ValueError):
+            return _err("bad_request", "مقدارها درست نیست.")
+        if end <= start + 0.5:
+            return _err("bad_range", "بازهٔ ویدیو خیلی کوتاه است.")
+        sens = str(request.data.get("sensitivity") or "normal")
+        return Response(scenes.detect_cuts(item["path"], start, end, sens if sens in scenes.SENSITIVITY else "normal"))
 
 
 # ------------------------------------------------------------------ versions (snapshots on disk; no migration)

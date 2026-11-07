@@ -88,6 +88,14 @@ def run_design_task(design_id: int) -> None:
     engine.run(design_id)
 
 
+@shared_task(ignore_result=True, soft_time_limit=3300, time_limit=3400)
+def run_batch_task(batch_id: int) -> None:
+    """«طراحیِ گروهی»: عکس‌ها تک‌به‌تک (batch.run)؛ پیشرفت روی خودِ گروه می‌نشیند."""
+    from . import batch
+
+    batch.run(batch_id)
+
+
 # ───────────────────────────── ترجمهٔ توضیحِ «پرکردنِ هوشمند» (فارسی ⇒ انگلیسی)
 
 @shared_task(ignore_result=True)

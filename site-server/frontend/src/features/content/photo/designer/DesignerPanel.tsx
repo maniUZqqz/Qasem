@@ -4,6 +4,8 @@ import { errorMessage } from "../../../../api/client";
 import { Alert, Badge, Button, Card, EmptyState, SectionTitle, Select, Spinner, TextArea, fa } from "../../../../components/ui";
 import type { Asset, Edit } from "../api";
 import { DPlan, DStep, DVariant, Design, DesignerInfo, designerApi } from "./api";
+import BrandForm from "./BrandForm";
+import { Brand, emptyBrand } from "./brandApi";
 import { COPY_FIELDS, CRITERIA_FA, EXAMPLES } from "./labels";
 import StepEditor from "./StepEditor";
 import "./designer.css";
@@ -14,6 +16,10 @@ type Props = {
   nodeOn: boolean;
   /** بعد از «اعمال»: نسخهٔ ساخته‌شده را به صفحه بده؛ openManual = پروژه در حالتِ دستی باز شود */
   onApplied: (edit: Edit, openManual: boolean) => void;
+  /** کتابخانهٔ عکس‌ها (برای انتخابِ عکسِ لوگو در «تغییرِ سبکِ برند») */
+  assets?: Asset[];
+  /** بازکردنِ «تنظیماتِ ادیتور» (پیش‌فرضِ هوش مصنوعی و سبکِ برند) */
+  onOpenSettings?: (tab: "ai" | "brand") => void;
 };
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -49,7 +55,9 @@ function AiUsed({ ai }: { ai: Design["ai"] }) {
   );
 }
 
-export default function DesignerPanel({ storeId, asset, nodeOn, onApplied }: Props) {
+const AI_CALLS: Record<string, string> = { fast: "fast", normal: "normal", best: "best" };
+
+export default function DesignerPanel({ storeId, asset, nodeOn, onApplied, assets = [], onOpenSettings }: Props) {
   const [info, setInfo] = useState<DesignerInfo | null>(null);
   const [infoErr, setInfoErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -60,6 +68,9 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied }: Pro
   const [copy, setCopy] = useState<Record<string, string>>({});
   const [copyOpen, setCopyOpen] = useState(false);
   const [useAi, setUseAi] = useState(true);
+  const [useBrand, setUseBrand] = useState(false);
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [brand, setBrand] = useState<Brand>(emptyBrand());
   const [analysis, setAnalysis] = useState<Awaited<ReturnType<typeof designerApi.analyze>> | null>(null);
   const [design, setDesign] = useState<Design | null>(null);
   const [past, setPast] = useState<Design[]>([]);
@@ -74,7 +85,16 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied }: Pro
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    designerApi.info(storeId).then(setInfo).catch((e) => setInfoErr(errorMessage(e)));
+    designerApi
+      .info(storeId)
+      .then((i) => {
+        setInfo(i);
+        // تیکِ «کمکِ هوش مصنوعی» از «پیش‌فرضِ فروشگاه» شروع می‌شود؛ سبکِ برند اگر ذخیره شده باشد پیش‌فرض روشن است
+        setUseAi(i.settings.ai_assist);
+        setUseBrand(i.settings.brand_set);
+        setBrand(i.settings.brand);
+      })
+      .catch((e) => setInfoErr(errorMessage(e)));
   }, [storeId]);
 
   // عکس عوض شد ⇒ تحلیلِ فوری و طراحی‌های قبلیِ همان عکس
@@ -134,7 +154,7 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied }: Pro
     try {
       const d = await designerApi.create(storeId, {
         asset: asset.id, prompt: prompt.trim(), recipe, format: fmt, mood, quality, copy: Object.fromEntries(Object.entries(copy).filter(([, v]) => v.trim())),
-        variants: 3, use_ai: useAi,
+        variants: 3, use_ai: useAi, use_brand: useBrand, ...(useBrand && brandOpen ? { brand } : {}),
       });
       setDesign(d);
       setSel(null);
@@ -301,8 +321,29 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied }: Pro
             <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} data-testid="designer-use-ai" />
             از هوش مصنوعی هم کمک بگیر
           </label>
+          <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+            <input type="checkbox" checked={useBrand} onChange={(e) => setUseBrand(e.target.checked)} data-testid="designer-use-brand" />
+            سبکِ برند را اعمال کن
+          </label>
           {!prompt.trim() && !recipe && <span className="text-sm" style={{ color: "var(--warn)" }}>دستور بنویسید یا یک الگو را بزنید.</span>}
         </div>
+        <p className="dz-muted mt-2" data-testid="designer-ai-cost">
+          {useAi
+            ? `هوش مصنوعی روشن است: در دقتِ «${info?.quality.find((q) => q.key === quality)?.title ?? quality}» حداکثر ${fa(info?.settings.ai_cost[(AI_CALLS[quality] ?? "normal") as "fast" | "normal" | "best"] ?? 4)} فراخوانیِ بینا برای این طراحی (۱ برنامه‌ریز${quality === "fast" ? "" : " + نقدِ سه پیشنهاد" + (quality === "best" ? " در دو دور" : "")}).`
+            : "هوش مصنوعی خاموش است: هیچ فراخوانی‌ای زده نمی‌شود و طراحی فوری و بی‌هزینه با قاعده‌های آماده انجام می‌شود."}{" "}
+          {onOpenSettings && <button type="button" className="dz-link" onClick={() => onOpenSettings("ai")} data-testid="designer-open-settings">پیش‌فرضِ فروشگاه را عوض کنید</button>}
+        </p>
+        {useBrand && (
+          <div className="mt-1" data-testid="designer-brand">
+            {!info?.settings.brand_set && !brandOpen && (
+              <p className="dz-muted">سبکِ برندی ذخیره نشده است. {onOpenSettings && <button type="button" className="dz-link" onClick={() => onOpenSettings("brand")}>الان تنظیمش کنید</button>}</p>
+            )}
+            <button type="button" className="dz-link" onClick={() => setBrandOpen((v) => !v)} data-testid="designer-brand-override">
+              {brandOpen ? "▾ برگشت به سبکِ ذخیره‌شده" : "▸ تغییرِ سبکِ برند فقط برای این طراحی"}
+            </button>
+            {brandOpen && info && <BrandForm value={brand} onChange={setBrand} fonts={info.fonts} assets={assets} hasStoreLogo={info.has_logo} positions={info.settings.positions} tid="designer-brand" />}
+          </div>
+        )}
         {past.length > 0 && !design && (
           <div className="mt-3" data-testid="designer-past">
             <div className="dz-label">طراحی‌های قبلیِ این عکس</div>

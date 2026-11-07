@@ -21,7 +21,9 @@ type Props = {
   onExport: (block: ExportBlock) => void;
   /** تغییرِ مسترِ پروژه (یکسان‌سازیِ بلندیِ خروجی = `master.loudness`) با یک گامِ برگشت */
   onMaster?: (patch: Partial<Master>) => void;
-  onRender: (quality: "draft" | "final") => Promise<void>;
+  onRender: (quality: "draft" | "final", override?: Record<string, unknown>) => Promise<void>;
+  /** جای سرِ پخش (برای «عکسِ یک فریم») */
+  playhead?: number;
   busy: boolean;
   /** آیا سرورِ پردازش برای رندرِ نهایی آماده است (از کاتالوگ یا تازه) */
   where?: RenderWhere | null;
@@ -40,7 +42,7 @@ function outSize(w: number, h: number, short: number | null): [number, number] {
 const whereText = (e: { where?: string; node?: string; encoder?: string }) =>
   e.where === "node" ? `سرورِ پردازش${e.node ? ` «${e.node}»` : ""}${e.encoder ? ` · ${e.encoder}` : ""}` : e.where === "server" ? "سرورِ سایت" : "";
 
-export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onMaster, onRender, busy, where }: Props) {
+export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onMaster, onRender, busy, where, playhead = 0 }: Props) {
   const block: ExportBlock = project.export ?? {};
   const loudness = project.master?.loudness;
   const loudOn = !!loudness?.on;
@@ -99,10 +101,11 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
   const heavyWarn = short && short >= 1440 ? "۱۴۴۰ پیکسل برای سرورِ کوچک سنگین است و ممکن است چند دقیقه طول بکشد." : "";
   const blocked = !!check && !check.ok;
 
-  const go = async (q: "draft" | "final") => {
+  const hasRange = !!project.inout && project.inout.out > project.inout.in + 0.05;
+  const go = async (q: "draft" | "final", override?: Record<string, unknown>) => {
     setPending(q);
     try {
-      await onRender(q);
+      await onRender(q, override);
     } finally {
       setPending(null);
       await refresh();
@@ -120,7 +123,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
     await refresh();
   };
 
-  const presetTitle = (e: ExportRow) => cat.presets.find((p) => p.key === e.preset)?.title ?? (e.quality === "draft" ? "پیش‌نویسِ سریع" : "خروجیِ نهایی");
+  const presetTitle = (e: ExportRow) => (e.format === "gif" ? "GIF" : e.format === "frame" ? "عکسِ یک فریم" : e.format === "audio" ? "فقط صدا" : e.range === "inout" ? "فقط بازهٔ ورودی–خروجی" : cat.presets.find((p) => p.key === e.preset)?.title ?? (e.quality === "draft" ? "پیش‌نویسِ سریع" : "خروجیِ نهایی"));
   const jobs = data?.jobs ?? [];
   const failed = jobs.filter((j) => j.state === "FAILED" && !dismissed.has(j.id)).slice(0, 2);
   const exports = data?.exports ?? [];
@@ -171,6 +174,22 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
           «پیش‌نویسِ سریع» پیش‌فرض روی سرورِ سایت ساخته می‌شود. فقط وقتی سنگین باشد (سایت حدس می‌زند بیش از حدود ۴۵ ثانیه طول بکشد) و سرورِ پردازش روشن و بی‌کار باشد و
           فایل‌های اصلی را از قبل داشته باشد (یا حجمشان کم باشد)، خودکار آن‌جا ساخته می‌شود؛ تنظیمی لازم نیست. زیرِ هر خروجی نوشته می‌شود «ساخته‌شده روی: …».
         </p>
+      </Section>
+
+      <Section title="خروجی‌های دیگر: GIF، عکسِ یک فریم، فقط صدا، فقط یک بازه" testId="xp-formats">
+        <p className="ws-hint">هر کدام یک بار ساخته می‌شود و به تنظیم‌های پروژه دست نمی‌زند. از همان رندرِ نهایی (با همهٔ افکت‌ها و عنوان‌ها) بریده می‌شود.</p>
+        <div className="xp-actions" style={{ flexWrap: "wrap" }}>
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { range: "inout" })} data-testid="xf-range"
+            title={hasRange ? "فقط بخشِ بینِ ورودی و خروجی (I و O) به‌صورتِ ویدیو" : "اول روی تایم‌لاین ورودی و خروجی بگذارید (I و O)؛ وگرنه کلِ ویدیو ساخته می‌شود"}>
+            فقط بازهٔ ورودی–خروجی{hasRange ? "" : " (بازه نیست)"}
+          </button>
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "gif", ...(hasRange ? { range: "inout" } : {}) })} data-testid="xf-gif"
+            title="تصویرِ متحرکِ بی‌صدا؛ تا ۲۰ ثانیه، ارتفاعِ ۴۰۰ پیکسل">GIF{hasRange ? " (از بازه)" : ""}</button>
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "frame", frame_t: Math.round(playhead * 100) / 100 })} data-testid="xf-frame"
+            title="فریمِ زیرِ سرِ پخش به‌صورتِ عکسِ JPG">عکسِ فریمِ سرِ پخش</button>
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "audio", ...(hasRange ? { range: "inout" } : {}) })} data-testid="xf-audio"
+            title="فقط صدای میکس‌شده (M4A)؛ مثلاً برای پادکست یا آهنگ">فقط صدا (M4A){hasRange ? " (از بازه)" : ""}</button>
+        </div>
       </Section>
 
       <Section title="تنظیمِ دقیق" testId="xp-manual">
@@ -259,7 +278,15 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
       {latest && (
         <div className="xp-done" data-testid="export-latest">
           <div className="tx-sub">آخرین خروجی</div>
-          <video className="xp-video" src={latest.url} controls preload="metadata" playsInline />
+          {latest.format === "frame" ? (
+            <img className="xp-video" src={latest.url} alt="عکسِ فریم" data-testid="export-image" />
+          ) : latest.format === "gif" ? (
+            <img className="xp-video" src={latest.url} alt="GIF" data-testid="export-gif" />
+          ) : latest.format === "audio" ? (
+            <audio src={latest.url} controls preload="metadata" style={{ width: "100%" }} data-testid="export-audio" />
+          ) : (
+            <video className="xp-video" src={latest.url} controls preload="metadata" playsInline />
+          )}
           <div className="xp-exp-meta">
             <b>{presetTitle(latest)}</b> · <span dir="ltr">{latest.size}</span> · {timecode(latest.seconds).slice(0, 5)} · {mb(latest.bytes)}
             {latest.codec === "h265" ? " · H.265" : ""}

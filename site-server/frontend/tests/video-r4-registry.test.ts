@@ -60,6 +60,11 @@ const FIXTURES: Record<string, () => Fixture> = {
   empty: () => ({ project: emptyProject(), selection: [] }),
   nested: () => ({ project: projectWith([{ track: "video", clip: videoClip() }]), selection: ["v1"], extra: { path: ["s1"] } }),
   playing: () => ({ project: projectWith([{ track: "video", clip: videoClip() }]), selection: ["v1"], extra: { playing: true } }),
+  gap: () => ({ project: projectWith([{ track: "video", clip: videoClip({ end: 2 }) }, { track: "video", clip: videoClip({ id: "v2", at: 5, end: 2 }) }]), selection: ["v1"], extra: { time: 3 } }),
+  targeted: () => {
+    const p = projectWith([{ track: "video", clip: videoClip() }]);
+    return { project: { ...p, tracks: p.tracks.map((t) => (t.kind === "video" ? { ...t, target: true } : t)) }, selection: ["v1"] };
+  },
   colored: () => ({ project: projectWith([{ track: "video", clip: videoClip({ color: { exposure: 0.2 } as MediaClip["color"] }) }]), selection: ["v1"] }),
 };
 
@@ -80,7 +85,7 @@ function makeApi(fx: Fixture): Rec {
   const op = new Proxy({}, { get: (_t, name) => (..._a: unknown[]) => { calls.push(`op.${String(name)}`); } });
   const api = {
     storeId: "s", project: fx.project, root: fx.project, path: [], selection: fx.selection, selected: found, time: 2, playing: false, fps: 30, projectId: 7, media: {},
-    bin: null, tool: "select", flags: { snap: true, scopes: false, volLine: true, autoRipple: true, crop: false, menubar: false },
+    bin: null, tool: "select", flags: { snap: true, scopes: false, volLine: true, autoRipple: true, crop: false, menubar: false, loop: false },
     canUndo: true, canRedo: true, history: { entries: [{ label: "اصل" }, { label: "برش" }], index: 1 }, hasClips: fx.project.tracks.some((t) => t.clips.length > 0),
     apply: (_l: string, fn: (p: Project) => Project) => { calls.push("apply"); check_(fn(fx.project)); },
     applyRoot: (_l: string, fn: (p: Project) => Project) => { calls.push("applyRoot"); check_(fn(fx.project)); },

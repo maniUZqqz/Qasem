@@ -297,6 +297,57 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
     return out
 
 
+#: output kinds beyond the normal MP4 → (file extension, Persian label)
+FORMATS = {"mp4": ("mp4", "ویدیو"), "gif": ("gif", "GIF"), "frame": ("jpg", "عکسِ یک فریم"), "audio": ("m4a", "فقط صدا")}
+GIF_MAX_SECONDS = 20.0           # a GIF is huge; longer ones are cut and the person is told
+GIF_FPS, GIF_HEIGHT = 12, 400
+
+
+def convert(src, dest, fmt: str, *, t0: float | None = None, t1: float | None = None, frame_t: float = 0.0, spec: ExportSpec | None = None,
+            cancel=None) -> dict:
+    """Turn a finished render into another output: the in–out range only (`mp4`), a GIF, one still frame, or the sound alone.
+
+    Times are seconds of the finished file (the timeline starts at 0). Returns {"cut": seconds actually kept, "note": sentence or ""}.
+    Never reads the original media: it works on what the editor already rendered, so every effect, title and mix is in it."""
+    import subprocess
+
+    from services.video.ffmpeg import FFMPEG, VideoProcessingError, probe_duration
+
+    src, dest = Path(src), Path(dest)
+    total = probe_duration(src)
+    a = max(0.0, min(float(t0 or 0.0), total - 0.1))
+    b = total if t1 is None else max(a + 0.1, min(float(t1), total))
+    note = ""
+    cmd = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error"]
+    if fmt == "frame":
+        t = max(0.0, min(float(frame_t or 0.0), total - 0.04))
+        cmd += ["-ss", f"{t:.3f}", "-i", str(src), "-frames:v", "1", "-q:v", "2", str(dest)]
+        kept = 0.0
+    elif fmt == "gif":
+        if b - a > GIF_MAX_SECONDS:
+            b = a + GIF_MAX_SECONDS
+            note = f"GIF بیشتر از {int(GIF_MAX_SECONDS)} ثانیه نمی‌شود؛ ابتدای بازه برداشته شد."
+        vf = (f"fps={GIF_FPS},scale=-2:{GIF_HEIGHT}:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];"
+              f"[s1][p]paletteuse=dither=bayer:bayer_scale=5")
+        cmd += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-an", "-vf", vf, "-loop", "0", str(dest)]
+        kept = b - a
+    elif fmt == "audio":
+        kbps = int(spec.audio_kbps) if spec else 192
+        cmd += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-vn", "-c:a", "aac", "-b:a", f"{kbps}k", "-ar", "48000", "-movflags", "+faststart", str(dest)]
+        kept = b - a
+    else:  # "mp4": only a range of the picture + sound, re-encoded the same way as a normal export
+        enc = encode_args(spec) if spec is not None else list(DRAFT_VIDEO)
+        kbps = int(spec.audio_kbps) if spec else 160
+        cmd += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), *enc, "-c:a", "aac", "-b:a", f"{kbps}k", "-ar", "48000", "-threads", "2", str(dest)]
+        kept = b - a
+    if cancel and cancel():
+        raise RenderCancelled()
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800, stdin=subprocess.DEVNULL)
+    if r.returncode != 0 or not dest.exists() or dest.stat().st_size == 0:
+        raise VideoProcessingError(f"ساختنِ خروجیِ «{FORMATS.get(fmt, ('', fmt))[1]}» نشد: {(r.stderr or '').strip()[-200:]}")
+    return {"cut": round(kept, 2), "note": note}
+
+
 def render_preview(timeline: Timeline, out_path, t0: float, t1: float, *, height: int = 360, progress=None, cancel=None,
                    spans=None) -> dict:
     """«پیش‌نمایشِ دقیقِ این بازه»: the real graph for [t0, t1] at a small size — what the browser cannot do exactly

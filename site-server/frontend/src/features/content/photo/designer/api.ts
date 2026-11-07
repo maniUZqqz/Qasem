@@ -84,7 +84,8 @@ export type DesignerInfo = {
   fonts: FontInfo[];
   ai: { path: "node" | "site"; first: "local" | "metis"; node_online: boolean; reason: string };
   has_logo: boolean;
-  limits: { variants: number; prompt: number };
+  limits: { variants: number; prompt: number; batch: number; batch_ai: number };
+  settings: import("./brandApi").StoreSettings;
 };
 export type DesignInput = {
   asset: number;
@@ -96,6 +97,8 @@ export type DesignInput = {
   copy: Record<string, string>;
   variants: number;
   use_ai: boolean;
+  use_brand?: boolean;
+  brand?: Partial<import("./brandApi").Brand>;
 };
 
 const base = (store: string) => `/stores/${store}/photo-editor/designer`;

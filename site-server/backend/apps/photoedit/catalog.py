@@ -166,13 +166,13 @@ def _tools() -> list[dict]:
         # ─────────────── سرورِ پردازش (کیتِ PersianAiKit.Photo)
         {"key": "kit_auto", "title": "بهبودِ خودکارِ حرفه‌ای", "where": "node", "icon": "sparkle",
          "help": "کیت عکس را اندازه می‌گیرد و خودش تعادلِ سفیدی، نوردهی، سیاه/سفید، روشنی‌ها/سایه‌ها، کنتراست، مه، وایبرنس، "
-                 "نویز و شارپ را تنظیم می‌کند (Auto Tone/Contrast/Color ِ Camera Raw).",
+                 "نویز و شارپ را تنظیم می‌کند (تنظیمِ خودکارِ تُن، کنتراست و رنگ).",
          "params": []},
         {"key": "kit_preset", "title": "فیلترِ حرفه‌ای", "where": "node", "icon": "image",
          "help": "فیلترهای آمادهٔ کیت (مثلِ پریست‌های لایت‌روم).",
          "params": [_sel("preset", "فیلتر", [{"value": p["key"], "label": p["title"], "help": p["help"]}
                                              for p in presets if p["kind"] == "look"], "clean")]},
-        {"key": "kit_adjust", "title": "تنظیمِ دستیِ حرفه‌ای (Camera Raw)", "where": "node", "icon": "settings",
+        {"key": "kit_adjust", "title": "تنظیمِ دستیِ حرفه‌ای (ظهورِ خام)", "where": "node", "icon": "settings",
          "help": "۵۸ لغزندهٔ کیت: نور، رنگ، رنگ‌به‌رنگ (HSL)، رنگ‌دهیِ سایه/روشنی، سطوح، بافت/وضوح/مه، شارپ و نویز، "
                  "وینیت و دانه، اعوجاجِ لنز.",
          "params": [{"key": "adjust", "title": "لغزنده‌ها", "type": "adjust", "default": {}, "help": ""},

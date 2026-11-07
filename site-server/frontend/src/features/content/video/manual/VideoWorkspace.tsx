@@ -32,6 +32,8 @@ import {
   deleteClips, duplicateClips, emptyProject, extractAudio, findClip, freeSpot, freezeFrameAt, fromApi, isMedia, linkClips, liftRange, moveClips, pasteAttrs, projectLength,
   newMediaClip, nudgeEdge, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
 } from "./model";
+import { cuesOf, makeRoom, parseSrt, spanOf, splitAtSourceCuts, toSrt } from "./r4ops";
+import { detectScenes } from "./reframeApi";
 import Scopes from "./Scopes";
 import QuickStart from "./QuickStart";
 import ShortcutSheet from "./ShortcutSheet";
@@ -42,6 +44,7 @@ import type { FeatureDef, WorkspaceApi } from "../registry";
 import CommandPalette from "../registry/CommandPalette";
 import MenuBar from "../registry/MenuBar";
 import PanelHost from "../registry/PanelHost";
+import { directorApi } from "../director/api";
 import type { FlagName } from "../registry/types";
 import "./workspace.css";
 
@@ -121,10 +124,20 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [beatsBusy, setBeatsBusy] = useState(false);
   const [renderStarting, setRenderStarting] = useState(false);
   const [help, setHelp] = useState(false);
+  const [loopOn, setLoopOn] = useState(false);
+  const loopRef = useRef(false);
+  loopRef.current = loopOn;
   const [menubar, setMenubar] = useState<boolean>(() => {
     try { return localStorage.getItem("nm.video.menubar") === "1"; } catch { return false; }
   });
   const [searchOpen, setSearchOpen] = useState(false);
+  const [editorSettings, setEditorSettings] = useState<{ ai_default: boolean; draft_days: number } | null>(null);
+  useEffect(() => {
+    const load = () => void directorApi.settings(storeId).then((v) => setEditorSettings({ ai_default: v.ai_default, draft_days: v.draft_days })).catch(() => undefined);
+    load();
+    window.addEventListener("nm-editor-settings-changed", load);
+    return () => window.removeEventListener("nm-editor-settings-changed", load);
+  }, [storeId]);
   const [panel, setPanel] = useState<{ id: string; props?: Record<string, unknown> } | null>(null);
   useEffect(() => {
     try { localStorage.setItem("nm.video.menubar", menubar ? "1" : "0"); } catch { /* حافظهٔ مرورگر بسته است */ }
@@ -405,10 +418,11 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     setClipsBoard(selection.map((id) => findClip(project, id)).filter((f): f is NonNullable<typeof f> => !!f).map((f) => ({ clip: f.clip, kind: f.track.kind })));
     setNotice(`${selection.length} قطعه کپی شد (Ctrl+V = چسباندن در سرِ پخش).`);
   }
-  function pasteClips() {
+  function pasteClips(prep?: (p: Project) => Project, label = "چسباندن") {
     if (!clipsBoard.length) return;
     const t0 = Math.min(...clipsBoard.map((x) => x.clip.at));
-    apply("چسباندن", (pr) => {
+    apply(label, (pr0) => {
+      const pr = prep ? prep(pr0) : pr0;
       let next = pr;
       const made: string[] = [];
       for (const { clip, kind } of clipsBoard) {
@@ -520,7 +534,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     }
   }
 
-  async function doRender(q: "draft" | "final") {
+  async function doRender(q: "draft" | "final", override?: Record<string, unknown>) {
     setRenderStarting(true);
     try {
       const id = await saveNow();
@@ -528,7 +542,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         setNotice("ذخیرهٔ پروژه نشد؛ رندر شروع نشد.");
         return;
       }
-      await videoApi.render(storeId, id, q, { data: JSON.parse(saveRef.current.key) });
+      await videoApi.render(storeId, id, q, { data: JSON.parse(saveRef.current.key), ...(override ? { export: override } : {}) });
     } catch (err) {
       setNotice(errorMessage(err));
     } finally {
@@ -986,19 +1000,80 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     else live((pr) => updateClip(pr, id, patch));
   };
 
+  // ───────────── تشخیصِ برش‌ها (Scene edit detection)
+  async function detectScenesOnSelection(sensitivity: "low" | "normal" | "high") {
+    const c = selected && selected.clip.type === "media" && selected.clip.kind === "video" ? selected.clip : null;
+    if (!c) { setNotice("اول یک ویدیو را روی تایم‌لاین انتخاب کنید."); return; }
+    if (c.reverse || c.freeze || (c.ramp && c.ramp.length)) { setNotice("روی قطعهٔ وارونه، فریمِ ثابت یا دارای منحنیِ سرعت، برشِ خودکار نمی‌خورد."); return; }
+    setNotice("در حالِ پیدا کردنِ برش‌ها…");
+    try {
+      const r = await detectScenes(storeId, c.ref, c.start, c.end, sensitivity);
+      if (!r.cuts.length) { setNotice("برشی پیدا نشد؛ این قطعه یک نما است. اگر مطمئنید برش دارد «پرحساس» را امتحان کنید."); return; }
+      const res = splitAtSourceCuts(project, c.id, r.cuts);
+      if (!res.made) { setNotice("برش‌ها پیدا شد ولی جایی برای بریدن نبود."); return; }
+      apply("تقسیم در برش‌های تشخیص‌داده‌شده", () => res.project);
+      setNotice(`${res.made} برش پیدا و قطعه به ${res.made + 1} تکه تقسیم شد؛ هر تکه را می‌شود جدا ویرایش کرد (با «برگشت» همه برمی‌گردد).`);
+    } catch (err) {
+      setNotice(errorMessage(err));
+    }
+  }
+
+  // ───────────── زیرنویس SRT و نسخهٔ دومِ پروژه
+  function exportSrtFile() {
+    const cues = cuesOf(project);
+    if (!cues.length) { setNotice("زیرنویسی روی تایم‌لاین نیست."); return; }
+    const blob = new Blob(["\uFEFF", toSrt(cues)], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${(title || "captions").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 40)}.srt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 3000);
+    setNotice(`${cues.length} خط زیرنویس در فایلِ SRT ذخیره شد.`);
+  }
+  function importSrtFile() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".srt,.txt,text/plain,application/x-subrip";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      void f.text().then((text) => {
+        const cues = parseSrt(text);
+        if (!cues.length) { setNotice("در این فایل زیرنویسِ قابلِ خواندن پیدا نشد."); return; }
+        insertCaptions(cues.map((c) => ({ text: c.text, at: c.start, duration: Math.max(0.3, c.end - c.start), label: c.text.slice(0, 20) })));
+      });
+    };
+    input.click();
+  }
+  async function duplicateCurrentProject() {
+    const id = await saveNow();
+    if (!id) return;
+    try {
+      const res = await videoApi.createProject(storeId, `${title} (نسخه)`.slice(0, 200), JSON.parse(saveRef.current.key));
+      setProjects((cur) => [res.project, ...cur]);
+      await openProject(res.project.id);
+      setNotice("نسخهٔ دوم ساخته شد و باز است؛ پروژهٔ اصلی همان‌طور مانده.");
+    } catch (err) {
+      setNotice(errorMessage(err));
+    }
+  }
+
   // ───────────── «ثبتِ ویژگی‌ها»: منوی کامل، جستجوی ابزار و میان‌برهای قابل‌تغییر
   const km = useKeymap(ALL_FEATURES);
   const kmRef = useRef(km);
   kmRef.current = km;
   const apiRef = useRef<WorkspaceApi>(null as unknown as WorkspaceApi);
   const getApi = useCallback(() => apiRef.current, []);
-  const flags: Record<FlagName, boolean> = { snap: snapOn, scopes: scopesOpen, volLine, autoRipple: rippleOn, crop: cropMode, menubar };
+  const flags: Record<FlagName, boolean> = { snap: snapOn, scopes: scopesOpen, volLine, autoRipple: rippleOn, crop: cropMode, menubar, loop: loopOn };
   function toggleFlag(f: FlagName) {
     if (f === "snap") setSnapOn((v) => !v);
     else if (f === "scopes") setScopesOpen((v) => !v);
     else if (f === "volLine") setVolLine((v) => !v);
     else if (f === "autoRipple") applyRoot("جابه‌جایی خودکارِ بعدی‌ها", (r) => ({ ...r, auto_ripple: r.auto_ripple === false ? undefined : false }));
     else if (f === "crop") setCropMode((v) => !v);
+    else if (f === "loop") setLoopOn((v) => !v);
     else setMenubar((v) => !v);
   }
   /** یک دکمه یا کادرِ موجود در صفحه را (با data-testid یا انتخابگرِ CSS) می‌زند؛ تا ~۲ ثانیه منتظرِ آمدنش می‌ماند */
@@ -1053,7 +1128,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
   const wsApi: WorkspaceApi = {
     storeId, project, root, path, selection, selected, time, playing, fps: project.format.fps || 30, projectId, media, bin, tool, flags,
-    canUndo: hist.canUndo, canRedo: hist.canRedo, history: { entries: hist.entries, index: hist.index }, hasClips,
+    canUndo: hist.canUndo, canRedo: hist.canRedo, history: { entries: hist.entries, index: hist.index }, hasClips, editorSettings,
     apply, applyRoot, live, end: hist.end, select: setSelection, undo: hist.undo, redo: hist.redo, jumpHistory: hist.jump,
     seek, togglePlay, step, setRate: shuttle, setTool, toggle: toggleFlag,
     zoom: (f) => setPx((v) => (f === "fit" ? Math.max(8, Math.min(200, 700 / Math.max(5, totalRef.current))) : Math.max(8, Math.min(400, v * f)))),
@@ -1081,6 +1156,30 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       proxy: () => { if (selected?.clip.type === "media" && media[selected.clip.ref]) void buildProxy(media[selected.clip.ref]); },
       gotoEdit,
       workspace: workspaceLayout,
+      pasteInsert: () => {
+        if (!clipsBoard.length) { setNotice("اول چیزی را کپی کنید (Ctrl+C)."); return; }
+        const span = spanOf(clipsBoard);
+        const t0 = time;
+        pasteClips((pr) => makeRoom(pr, t0, span), "چسباندنِ درج");
+      },
+      exportSrt: exportSrtFile,
+      importSrt: importSrtFile,
+      duplicateProject: () => void duplicateCurrentProject(),
+      detectScenes: (sens) => void detectScenesOnSelection(sens),
+      renderAs: (what) => {
+        const io = project.inout && project.inout.out > project.inout.in + 0.05 ? { range: "inout" } : {};
+        const t = Math.round(time * 100) / 100;
+        const o: Record<string, unknown> = what === "range" ? { range: "inout" } : what === "gif" ? { format: "gif", ...io } : what === "audio" ? { format: "audio", ...io } : { format: "frame", frame_t: t };
+        setTab("out");
+        void doRender("final", o);
+      },
+      toggleAiDefault: () => {
+        const next = !(editorSettings?.ai_default ?? true);
+        void directorApi.saveSettings(storeId, { ai_default: next }).then((v) => {
+          setEditorSettings({ ai_default: v.ai_default, draft_days: v.draft_days });
+          setNotice(next ? "کمکِ هوش مصنوعی از این به بعد روشن شروع می‌شود (هر «بساز» چند درخواستِ کوچک به مدل می‌فرستد و از اعتبار کم می‌شود)." : "کمکِ هوش مصنوعی از این به بعد خاموش شروع می‌شود؛ فقط قالب‌های آماده کار می‌کنند و هزینه‌ای ندارد.");
+        }).catch((err) => setNotice(errorMessage(err)));
+      },
     },
     goDirector: onGoDirector ?? null,
   };
@@ -1153,7 +1252,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           ref={monitor}
           project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
           luts={lutData} matteMeta={matteMeta} pickOverlay={pickOverlay}
-          onTime={setTime} onEnded={() => { setPlaying(false); setTime(totalRef.current); }}
+          onTime={setTime} onEnded={() => { if (loopRef.current) { setTime(project.inout?.in ?? 0); setPlaying(true); } else { setPlaying(false); setTime(totalRef.current); } }}
           onSeek={seek} onPlay={togglePlay} onStep={step}
           onRate={(r) => { void engine.resume(); setRate(r); setPlaying(true); }}
           onGizmo={onGizmo}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spinner, fa } from "../../../../components/ui";
 import { AudioOverview, VoiceOption, loadOverview } from "../../../audio/api";
+import { Recorder, micErrorText, micSupport, startRecording } from "./micRecorder";
 import { timecode } from "./model";
 import SoundDialog from "./SoundDialog";
 import { makeAsset, soundError, uploadAudio } from "./soundApi";
@@ -14,13 +15,9 @@ export const AUDIO_UPLOAD_READY = true;
 const MAX_CHARS = 600;
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
-const RECORD_WHY = AUDIO_UPLOAD_READY
-  ? "ضبط در مرورگر روی نشانیِ http کار نمی‌کند؛ بعد از فعال‌شدنِ https روشن می‌شود. فعلاً صدا را با گوشی ضبط و آپلود کنید یا از متن بسازید."
-  : "ضبط در مرورگر روی نشانیِ http کار نمی‌کند؛ بعد از فعال‌شدنِ https روشن می‌شود. فعلاً صدا را از متن بسازید.";
-
 /**
  * «گویندگی از متن»: متن + گوینده + سرعت ⇒ ساختِ گفتار (سرورِ پردازش یا موتورِ سایت) ⇒ ذخیره در کتابخانه ⇒ ابزارِ add_voiceover
- * که صدا را از سرِ پخش روی ترکِ گفتار می‌گذارد. ضبط با میکروفون و آپلود فعلاً خاموش‌اند (دلیلشان روی صفحه نوشته شده).
+ * که صدا را از سرِ پخش روی ترکِ گفتار می‌گذارد. ضبط با میکروفون فقط روی نشانیِ امن (https) کار می‌کند؛ تا آن موقع دکمه خاموش است و دلیلش روی صفحه نوشته شده.
  */
 export default function VoiceOverDialog({
   storeId, playhead, busy, onAdd, onBinChanged, onClose,
@@ -80,6 +77,13 @@ export default function VoiceOverDialog({
   const [error, setError] = useState<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
+  // ---- ضبط با میکروفون (فقط روی https/localhost)
+  const mic = useMemo(() => micSupport(), []);
+  const recorder = useRef<Recorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recSec, setRecSec] = useState(0);
+  const [micError, setMicError] = useState<string | null>(null);
+  useEffect(() => () => recorder.current?.cancel(), []);
   const upload = async (file: File) => {
     setGenBusy(true);
     setError(null);
@@ -99,6 +103,27 @@ export default function VoiceOverDialog({
         setGenText("");
         if (fileInput.current) fileInput.current.value = "";
       }
+    }
+  };
+
+  const toggleRecord = async () => {
+    if (recording) {
+      recorder.current?.stop();
+      return;
+    }
+    setMicError(null);
+    setRecSec(0);
+    try {
+      recorder.current = await startRecording((file) => {
+        recorder.current = null;
+        if (!alive.current) return;
+        setRecording(false);
+        if (file) void upload(file);
+        else setMicError("چیزی ضبط نشد.");
+      }, (sec) => alive.current && setRecSec(sec));
+      setRecording(true);
+    } catch (err) {
+      setMicError(micErrorText(err));
     }
   };
 
@@ -181,12 +206,22 @@ export default function VoiceOverDialog({
 
       <div className="sq-sub">یا صدای خودتان</div>
       <div className="sq-actions">
-        <button type="button" className="ws-btn sq-act" disabled title={RECORD_WHY} data-testid="vo-record-disabled">⏺ ضبط با میکروفون</button>
+        {mic.ok ? (
+          <button type="button" className={`ws-btn sq-act ${recording ? "is-on" : ""}`} disabled={working && !recording} onClick={() => void toggleRecord()} aria-pressed={recording}
+            title={recording ? "ایستادن و گذاشتنِ صدا روی تایم‌لاین" : "با میکروفونِ همین دستگاه ضبط کنید؛ بعد از ایستادن، صدا از سرِ پخش روی تایم‌لاین می‌نشیند"} data-testid="vo-record">
+            {recording ? `⏹ ایست و گذاشتن (${fa(Math.floor(recSec / 60))}:${fa(String(recSec % 60).padStart(2, "0"))})` : "⏺ ضبط با میکروفون"}
+          </button>
+        ) : (
+          <button type="button" className="ws-btn sq-act" disabled title={mic.reason} data-testid="vo-record-disabled">⏺ ضبط با میکروفون</button>
+        )}
         <input ref={fileInput} type="file" accept="audio/*,video/mp4,.m4a,.aac,.amr,.3gp,.opus,.webm" hidden data-testid="vo-upload-input"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
         <button type="button" className="ws-btn sq-act" disabled={working} onClick={() => fileInput.current?.click()} title="صدایی که با گوشی ضبط کرده‌اید (m4a، mp3، wav…) را بیاورید؛ روی تایم‌لاین از سرِ پخش می‌نشیند" data-testid="vo-upload">⬆ آپلودِ صدای ضبط‌شده</button>
       </div>
-      <p className="ws-hint" data-testid="vo-record-why">{RECORD_WHY}</p>
+      {mic.ok
+        ? <p className="ws-hint" data-testid="vo-record-why">ضبط را بزنید و حرف بزنید؛ با «ایست» صدا ذخیره و روی تایم‌لاین گذاشته می‌شود (حداکثر ۵ دقیقه). اولین بار مرورگر اجازهٔ میکروفون را می‌پرسد.</p>
+        : <p className="ws-hint" data-testid="vo-record-why">{mic.reason}</p>}
+      {micError && <p className="sq-note is-warn" role="alert" data-testid="vo-mic-error">{micError}</p>}
     </SoundDialog>
   );
 }

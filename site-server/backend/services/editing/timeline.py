@@ -671,6 +671,36 @@ def _clean_extras(rc: dict) -> dict:
         "comp": _num(au.get("comp"), 0, 1, 0.0), "enhance": _bool(au.get("enhance")),
         "denoise": _bool(au.get("denoise")), "normalize": _bool(au.get("normalize")), "denoise_ai": _bool(au.get("denoise_ai")),
     }.items() if v not in (0.0, "flat", False)}
+    out["audio"].update(_clean_audio_pro(au))
+    return out
+
+
+MAX_EQ_BANDS = 5
+
+
+def _clean_audio_pro(au: dict) -> dict:
+    """«EQ پارامتریک / کمپرسورِ دقیق / زیر و بمی / پژواک» of a clip: every number clamped, neutral settings dropped (so a project that never
+    touched them serialises exactly as before)."""
+    out: dict = {}
+    bands = []
+    for b in (au.get("bands") if isinstance(au.get("bands"), list) else [])[:3 * MAX_EQ_BANDS]:
+        if isinstance(b, dict) and len(bands) < MAX_EQ_BANDS:
+            g = _num(b.get("g"), -18, 18, 0.0)
+            if abs(g) >= 0.1:
+                bands.append({"f": round(_num(b.get("f"), 20, 20000, 1000.0), 1), "g": round(g, 1), "q": round(_num(b.get("q"), 0.2, 10, 1.0), 2)})
+    if bands:
+        out["bands"] = bands
+    cd = au.get("cdetail")
+    if isinstance(cd, dict) and cd.get("on"):
+        out["cdetail"] = {"on": True, "thr": round(_num(cd.get("thr"), -40, 0, -18.0), 1), "ratio": round(_num(cd.get("ratio"), 1, 20, 3.0), 1),
+                          "attack": round(_num(cd.get("attack"), 1, 200, 20.0)), "release": round(_num(cd.get("release"), 10, 2000, 250.0)),
+                          "makeup": round(_num(cd.get("makeup"), 0, 24, 0.0), 1)}
+    pitch = _num(au.get("pitch"), -12, 12, 0.0)
+    if abs(pitch) >= 0.05:
+        out["pitch"] = round(pitch, 2)
+    ec = au.get("echo")
+    if isinstance(ec, dict) and ec.get("on"):
+        out["echo"] = {"on": True, "delay": round(_num(ec.get("delay"), 20, 1000, 250.0)), "decay": round(_num(ec.get("decay"), 0.05, 0.9, 0.4), 2)}
     return out
 
 
@@ -687,9 +717,16 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
                "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
                "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
     e = data.get("export") if isinstance(data.get("export"), dict) else {}
-    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb")}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb", "format", "range", "frame_t")}
     if export.get("where") not in (None, "auto", "server"):
         export.pop("where")
+    # one-shot output kinds (GIF, one still, sound only, only the in–out range): anything else means the normal video
+    if export.get("format") not in (None, "mp4", "gif", "frame", "audio"):
+        export.pop("format")
+    if export.get("range") not in (None, "all", "inout"):
+        export.pop("range")
+    if "frame_t" in export:
+        export["frame_t"] = _num(export.get("frame_t"), 0, 86400, 0.0)
     markers = []
     for item in (data.get("markers") if isinstance(data.get("markers"), list) else [])[:400]:
         if isinstance(item, dict):

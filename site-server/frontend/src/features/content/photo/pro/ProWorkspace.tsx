@@ -39,10 +39,23 @@ import {
   canonical, cloneSubtree, clipTarget, descendantIds, effectivelyLocked, moveSibling as treeMoveSibling, moveTo, parentIdOf, removeWithDescendants,
   siblingsOf, ungroupLayers, wrapInGroup,
 } from "./tree";
+import CommandPalette, { pushRecent } from "./menu/CommandPalette";
+import EffectDialog, { type FxResult } from "./menu/EffectDialog";
+import { AmountDialog, ColorRangeDialog, SavedSelDialog } from "./menu/SelDialogs";
+import * as selOps from "./selectionOps";
+import { effectCommands } from "./menu/effects";
+import MenuBar from "./menu/MenuBar";
+import { buildCommands, pageCommands, type Command, type Host } from "./menu/registry";
 import "./pro.css";
 import "./fonts.css";
 
-type Props = PhotoWorkspaceProps & { storeLogo?: string | null };
+type Props = PhotoWorkspaceProps & {
+  storeLogo?: string | null;
+  onOpenSettings?: (tab: "ai" | "brand") => void;
+  onOpenBatch?: () => void;
+  /** فیلترهای «اندازه/بوم» عکسِ تازه در کتابخانه می‌سازند؛ صفحه کتابخانه را تازه می‌کند و آن را باز می‌کند */
+  onNewPhoto?: (a: Asset) => void;
+};
 type Tab = "edit" | "layers" | "presets" | "smart" | "history" | "export";
 
 type ToolDef = { id: ToolId; key: string; title: string; hint: string; icon: string; dashed?: boolean; sep?: boolean };
@@ -200,6 +213,29 @@ export default function ProWorkspace(props: Props) {
     }
   };
   const [help, setHelp] = useState(false);
+  // منوی کامل + جستجوی ابزار (نوبت ۴)
+  const [menuOn, setMenuOnRaw] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("nm.photo.menu") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setMenuOn = (v: boolean) => {
+    setMenuOnRaw(v);
+    try {
+      window.localStorage.setItem("nm.photo.menu", v ? "1" : "0");
+    } catch {
+      /* حافظهٔ مرورگر بسته است */
+    }
+  };
+  const [palOpen, setPalOpen] = useState(false);
+  const [fxOpen, setFxOpen] = useState<string | null>(null);
+  const [amountOp, setAmountOp] = useState<"grow" | "shrink" | "smooth" | "border" | null>(null);
+  const [crOpen, setCrOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const lastSel = useRef<HTMLCanvasElement | null>(null);
+  const savedSels = useRef<{ id: string; name: string; canvas: HTMLCanvasElement }[]>([]);
   const [hdata, setHdata] = useState<HistData | null>(null);
   const [buildMsg, setBuildMsg] = useState<string | null>(null);
   const [fonts, setFonts] = useState<FontInfo[]>([{ key: "vazirmatn", title: "وزیرمتن", family: "Vazirmatn", weights: [300, 400, 500, 600, 700, 800], rtl: true }]);
@@ -886,7 +922,13 @@ export default function ProWorkspace(props: Props) {
     bumpSel();
     stage?.redraw();
   };
+  const selAll = () => {
+    selection.paint((c) => c.rect(0, 0, selection.w, selection.h), "new");
+    bumpSel();
+    stage?.redraw();
+  };
   const selClear = () => {
+    lastSel.current = selection.snapshot() ?? lastSel.current;
     selection.clear();
     bumpSel();
     stage?.redraw();
@@ -972,7 +1014,8 @@ export default function ProWorkspace(props: Props) {
   // ───────────────────────── پرکردنِ هوشمند: ترکیبِ فعلی + انتخاب ⇒ سرور ⇒ لایهٔ تصویریِ تازه
   const gfCanvas = async (): Promise<{ cv: HTMLCanvasElement; w: number; h: number }> => {
     stage?.redraw();
-    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    // دو فریمِ رسم؛ اگر مرورگر فریم نداد (تبِ پس‌زمینه / بارِ سنگین) بعد از ۵۰۰ میلی‌ثانیه همان‌طور ادامه می‌دهیم تا فیلتر و پرکردنِ هوشمند گیر نکنند
+    await Promise.race([new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))), new Promise<void>((r) => window.setTimeout(r, 500))]);
     const full = stage?.readFull();
     if (!full) throw new Error("بوم هنوز آماده نیست.");
     const cv = document.createElement("canvas");
@@ -1116,6 +1159,7 @@ export default function ProWorkspace(props: Props) {
   // ───────────────────────── کلیدهای میان‌بر
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  const hostRef = useRef<Host | null>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -1129,7 +1173,10 @@ export default function ProWorkspace(props: Props) {
         if (k === "y") { e.preventDefault(); hist.redo(); return; }
         if (k === "j" && act) { e.preventDefault(); actionsRef.current.duplicate(act.id); return; }
         if (k === "t") { e.preventDefault(); setTool("move"); return; }
+        if (k === "d" && e.shiftKey) { e.preventDefault(); hostRef.current?.selReselect(); return; }
         if (k === "d") { e.preventDefault(); selClear(); return; }
+        if (k === "a") { e.preventDefault(); selAll(); return; }
+        if (k === "e" && e.shiftKey) { e.preventDefault(); hostRef.current?.mergeVisible(); return; }
         if (k === "e" && act) { e.preventDefault(); void actionsRef.current.mergeDown(act.id); return; }
         if (k === "g" && act) {
           e.preventDefault();
@@ -1181,6 +1228,17 @@ export default function ProWorkspace(props: Props) {
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hist.undo, hist.redo, stage]);
+  useEffect(() => {
+    const onK = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        e.stopPropagation();
+        setPalOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onK, true);
+    return () => window.removeEventListener("keydown", onK, true);
+  }, []);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const toolRef = useRef(tool);
@@ -1702,6 +1760,236 @@ export default function ProWorkspace(props: Props) {
           ? <Badge tone="warn">فوری · پیش‌نمایشِ دقیق ناموفق</Badge>
           : <Badge tone="neutral">فوری</Badge>;
 
+  // ───────────────────────── فهرستِ یگانهٔ دستورها: منوی کامل + جستجوی ابزار (نوبت ۴)
+  const hasPageCmds = !!props.onOpenSettings && !!props.onOpenBatch;
+  const menuCmds = useMemo(
+    () => buildCommands(TOOLS.map((x) => ({ id: x.id, key: x.key, title: x.title, hint: x.hint })), [...effectCommands(), ...(hasPageCmds ? pageCommands() : [])]),
+    [hasPageCmds],
+  );
+  /** تصویرِ مبدأِ فیلتر: ترکیبِ همهٔ لایه‌ها یا فقط لایهٔ فعال (PNG، حداکثر ۳۰۰۰ پیکسل) */
+  const fxSource = async (layerOnly: boolean): Promise<Blob> => {
+    const api = stageRef.current;
+    if (!api) throw new Error("بوم هنوز آماده نیست.");
+    let cv: HTMLCanvasElement;
+    if (layerOnly && activeLayer && activeLayer.type !== "base") {
+      const st = stateRef.current;
+      api.engine.render(st, { masks: masks.map, only: new Set([activeLayer.id]) });
+      const full = api.readFull();
+      api.redraw();
+      if (!full) throw new Error("لایه خوانده نشد.");
+      cv = document.createElement("canvas");
+      cv.width = full.w;
+      cv.height = full.h;
+      cv.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(full.data), full.w, full.h), 0, 0);
+    } else {
+      cv = (await gfCanvas()).cv;
+    }
+    const k = Math.min(1, 3000 / Math.max(cv.width, cv.height));
+    if (k < 1) {
+      const o = document.createElement("canvas");
+      o.width = Math.round(cv.width * k);
+      o.height = Math.round(cv.height * k);
+      const x = o.getContext("2d")!;
+      x.imageSmoothingQuality = "high";
+      x.drawImage(cv, 0, 0, o.width, o.height);
+      cv = o;
+    }
+    return toPng(cv);
+  };
+  const fxApplied = (r: FxResult) => {
+    setFxOpen(null);
+    setExtraAssets((e) => (e.some((a) => a.id === r.asset.id) ? e : [...e, r.asset]));
+    if (r.kind === "photo") {
+      if (props.onNewPhoto) props.onNewPhoto(r.asset);
+      else setNotice({ tone: "info", text: `«${r.title}»: عکسِ تازه در کتابخانه ساخته شد (${fa(r.size[0])}×${fa(r.size[1])}).` });
+      return;
+    }
+    const srcLayer = r.hideSource ? activeLayer : null;
+    const l = makeImage({ kind: "asset", asset: r.asset.id }, srcLayer ? `${srcLayer.name} · ${r.title}` : r.title);
+    l.cx = 0.5;
+    l.cy = 0.5;
+    l.w = 1;
+    l.blend = r.blend;
+    l.opacity = r.opacity;
+    addLayer(l, `فیلتر: ${r.title}`);
+    if (srcLayer) hist.apply("پنهان‌کردنِ لایهٔ اصلی", (s) => ({ ...s, layers: s.layers.map((x) => (x.id === srcLayer.id ? ({ ...x, visible: false } as Layer) : x)) }));
+    selection.clear();
+    bumpSel();
+    stage?.redraw();
+    setTab("layers");
+    setPanelOpen(true);
+    setStatus(`«${r.title}» روی یک لایهٔ تازه اعمال شد؛ لایهٔ زیرین سالم است.`);
+  };
+  const actId = activeLayer?.id ?? null;
+  const host: Host = {
+    s: {
+      hasActive: !!activeLayer,
+      activeType: activeLayer?.type ?? null,
+      activeIsBase: activeLayer?.type === "base",
+      activeLocked: activeLayer ? effectivelyLocked(state.layers, activeLayer) : false,
+      activeHasMask: !!activeLayer?.mask,
+      hasSelection: selection.active,
+      canUndo: hist.canUndo,
+      canRedo: hist.canRedo,
+      layerCount: state.layers.length,
+      storeFrameOn,
+      nodeOn,
+    },
+    tool: (id) => setTool(id as ToolId),
+    tab: (x) => {
+      setTab(x);
+      setPanelOpen(true);
+    },
+    panelToggle: () => setPanelOpen((v) => !v),
+    undo: () => hist.undo(),
+    redo: () => hist.redo(),
+    zoom: (kind) => setZoomCmd({ id: Date.now(), kind }),
+    compare: () => setCompare((c) => (c === "before" ? "off" : "before")),
+    helpToggle: () => setHelp((v) => !v),
+    build: () => void build(false),
+    exportPreset: (key) => {
+      const pr = EXPORT_PRESETS.find((x) => x.key === key);
+      if (pr) applyExportPreset(pr);
+      setTab("export");
+      setPanelOpen(true);
+    },
+    storeFrame: () => toggleStoreFrame(),
+    kit: (key) => {
+      const tl = tools[key];
+      if (!tl) return setNotice({ tone: "info", text: "این ابزار در این نسخهٔ سرورِ پردازش نیست." });
+      const title = KIT_TOOLS.find((x) => x.key === key)?.title ?? key;
+      setTools(state.tools[key] ? `برداشتنِ ${title}` : title, key, state.tools[key] ? null : defaultsOf(tl));
+      setTab("smart");
+      setPanelOpen(true);
+    },
+    rotate: (d) => rotate(d),
+    flip: (axis) => hist.apply(axis === "h" ? "قرینهٔ افقی" : "قرینهٔ عمودی", (s) => (axis === "h" ? { ...s, flipH: !s.flipH } : { ...s, flipV: !s.flipV })),
+    autoStraighten: () => autoStraighten(),
+    quickAuto: () => quickAuto(),
+    addText: () => actions.addText(),
+    addShape: (k) => actions.addShape(k),
+    pickImage: () => {
+      const inp = document.createElement("input");
+      inp.type = "file";
+      inp.accept = "image/*";
+      inp.onchange = () => {
+        const f = inp.files?.[0];
+        if (f) void actions.uploadImage(f);
+      };
+      inp.click();
+    },
+    addLogo: () => actions.addLogo(),
+    addAdjust: () => actions.addAdjust(),
+    addRetouch: () => actions.addRetouch(),
+    addWatermark: () => actions.addWatermark(),
+    duplicate: () => actId && actions.duplicate(actId),
+    remove: () => actId && actions.remove(actId),
+    mergeDown: () => {
+      if (actId) void actions.mergeDown(actId);
+    },
+    mergeVisible: () => void mergeVisible(),
+    group: () => {
+      if (actId) actions.group(actId);
+    },
+    ungroup: () => actId && actions.ungroup(actId),
+    newGroup: () => actions.newGroup(),
+    toggleClip: () => actId && actions.toggleClip(actId),
+    move: (where) => {
+      if (!actId) return;
+      if (where === "up") return actions.moveSibling(actId, 1);
+      if (where === "down") return actions.moveSibling(actId, -1);
+      const sibs = siblingsOf(state.layers, actId);
+      actions.moveLayer(actId, (activeLayer && "parent" in activeLayer ? activeLayer.parent ?? null : null), where === "top" ? sibs.length - 1 : 0);
+    },
+    addMask: (kind) => actId && actions.addMask(actId, kind),
+    removeMask: () => actId && actions.removeMask(actId),
+    maskFromSelection: () => actId && actions.maskFromSelection(actId),
+    paintMask: () => actId && actions.paintMask(actId),
+    selOp: (op) => setAmountOp(op),
+    selReselect: () => {
+      if (!lastSel.current) return setNotice({ tone: "info", text: "انتخابی برای بازگرداندن نیست (اول یک انتخاب بکشید و برش دارید)." });
+      selection.setCanvas(lastSel.current);
+      bumpSel();
+      stage?.redraw();
+    },
+    selSave: () => {
+      const c = selection.snapshot();
+      if (!c) return setNotice({ tone: "info", text: "اول ناحیه‌ای را انتخاب کنید." });
+      const n = savedSels.current.length + 1;
+      savedSels.current = [...savedSels.current, { id: nid(), name: `انتخابِ ${fa(n)}`, canvas: c }].slice(-8);
+      setStatus(`انتخاب ذخیره شد («انتخابِ ${fa(n)}»)؛ از منوی انتخاب ‹ بارگذاری برمی‌گردد.`);
+    },
+    selLoad: () => setSavedOpen(true),
+    colorRange: () => setCrOpen(true),
+    selAll: () => selAll(),
+    selClear: () => selClear(),
+    selInvert: () => selInvert(),
+    selFeather: () => selApplyFeather(),
+    pickSubject: () => void pickSubject(),
+    adjustFromSelection: () => adjustFromSelection(),
+    settings: (t) => props.onOpenSettings?.(t),
+    batch: () => props.onOpenBatch?.(),
+    effect: (id) => setFxOpen(id),
+    extra: {},
+  };
+  hostRef.current = host;
+  /** همهٔ لایه‌های تصویر/متن/شکلِ دیده‌شدهٔ سطحِ بالا ⇒ یک لایهٔ تصویری (مثلِ ادغامِ دیده‌شده‌ها) */
+  const mergeVisible = async () => {
+    const st = stateRef.current;
+    const ids = st.layers.filter((l) => l.type !== "base" && l.visible && !l.parent && (l.type === "image" || l.type === "text" || l.type === "shape")).map((l) => l.id);
+    const api = stageRef.current;
+    if (!api || ids.length < 2) return setNotice({ tone: "info", text: "برای ادغام دست‌کم دو لایهٔ دیده‌شدهٔ تصویر، متن یا شکل لازم است." });
+    setBusyOp("ادغامِ لایه‌ها…");
+    try {
+      api.engine.render(st, { masks: masks.map, only: new Set(ids) });
+      const full = api.readFull();
+      api.redraw();
+      if (!full) return;
+      const { data, w, h } = full;
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 2) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      if (x1 < 0) return setNotice({ tone: "info", text: "لایه‌ها چیزی نمی‌کشند؛ ادغام انجام نشد." });
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      const cv = document.createElement("canvas");
+      cv.width = bw;
+      cv.height = bh;
+      const sub = new ImageData(bw, bh);
+      for (let y = 0; y < bh; y++) sub.data.set(data.subarray(((y + y0) * w + x0) * 4, ((y + y0) * w + x0 + bw) * 4), y * bw * 4);
+      cv.getContext("2d")!.putImageData(sub, 0, 0);
+      const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, "image/png"));
+      if (!blob) return;
+      const res = await photoApi.upload(storeId, [new File([blob], `merged-${nid()}.png`, { type: "image/png" })]);
+      const a = res.assets[0];
+      if (!a) throw new Error(res.errors[0] ?? "آپلود نشد.");
+      setExtraAssets((e) => [...e, a]);
+      const nl = makeImage({ kind: "asset", asset: a.id }, "لایه‌های ادغام‌شده");
+      nl.w = bw / w;
+      nl.cx = (x0 + bw / 2) / w;
+      nl.cy = (y0 + bh / 2) / h;
+      const gone = new Set(ids);
+      for (const l of st.layers) if (gone.has(l.id) && l.mask?.type === "paint") masks.remove(l.mask.id);
+      hist.apply("ادغامِ لایه‌های دیده‌شده", (s) => {
+        const first = Math.max(0, s.layers.findIndex((l) => gone.has(l.id)));
+        const arr = s.layers.filter((l) => !gone.has(l.id));
+        arr.splice(Math.min(first, arr.length), 0, nl);
+        return { ...s, layers: arr };
+      });
+      setActiveId(nl.id);
+    } catch (e) {
+      setNotice({ tone: "bad", text: e instanceof Error ? e.message : "ادغام نشد." });
+    } finally {
+      setBusyOp("");
+    }
+  };
+  const runCmd = (c: Command) => {
+    pushRecent(c.id);
+    try {
+      c.run(host);
+    } catch (e) {
+      setNotice({ tone: "bad", text: e instanceof Error ? e.message : "اجرا نشد." });
+    }
+  };
+
   return (
     <Workspace
       testId="photo-workspace"
@@ -1715,6 +2003,14 @@ export default function ProWorkspace(props: Props) {
     >
       <div className="pw-grid pro-grid" dir="ltr" data-pro="1">
         <div className="pw-top" dir="rtl">
+          <div className="mn-wrap">
+            <button type="button" className={`mn-menu-toggle ${menuOn ? "is-on" : ""}`} aria-pressed={menuOn} onClick={() => setMenuOn(!menuOn)} title="نمایش یا پنهان‌کردنِ منوی کامل (پرونده، ویرایش، تصویر، لایه، انتخاب، فیلتر…)" data-testid="menu-toggle">☰ منوی کامل</button>
+            {menuOn && <MenuBar cmds={menuCmds} host={host} run={runCmd} />}
+            <button type="button" className="mn-search" onClick={() => setPalOpen(true)} title="هر قابلیتی را با نامِ فارسی یا انگلیسی پیدا کنید (Ctrl+K)" data-testid="palette-btn">
+              <span>جستجوی ابزار…</span>
+              <kbd className="mn-k" dir="ltr">Ctrl K</kbd>
+            </button>
+          </div>
           <Select value={asset.id} onChange={(e) => props.onPick(Number(e.target.value))} aria-label="عکس" className="!w-44">
             {props.assets.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
           </Select>
@@ -1775,6 +2071,71 @@ export default function ProWorkspace(props: Props) {
             </div>
           )}
         </div>
+        {fxOpen && (
+          <EffectDialog
+            key={fxOpen}
+            storeId={storeId}
+            effectId={fxOpen}
+            getSource={fxSource}
+            getMask={gfGetMask}
+            canLayerOnly={!!activeLayer && activeLayer.type !== "base" && ["image", "text", "shape"].includes(activeLayer.type)}
+            onApplied={fxApplied}
+            onClose={() => setFxOpen(null)}
+          />
+        )}
+        {amountOp && (
+          <AmountDialog
+            title={{ grow: "گسترشِ انتخاب", shrink: "انقباضِ انتخاب", smooth: "هموارسازیِ انتخاب", border: "حاشیهٔ انتخاب" }[amountOp]}
+            hint={{ grow: "لبهٔ انتخاب این‌قدر به بیرون می‌رود.", shrink: "لبهٔ انتخاب این‌قدر به داخل می‌آید.", smooth: "گوشه‌ها و دندانه‌ها تا این شعاع گرد می‌شوند.", border: "نواری به این پهنا در دو طرفِ لبه انتخاب می‌شود." }[amountOp]}
+            min={1}
+            max={amountOp === "smooth" ? 60 : 150}
+            def={amountOp === "smooth" ? 10 : 12}
+            onClose={() => setAmountOp(null)}
+            onApply={(v) => {
+              ({ grow: selOps.grow, shrink: selOps.shrink, smooth: selOps.smooth, border: selOps.border }[amountOp])(selection, v);
+              setAmountOp(null);
+              bumpSel();
+              stage?.redraw();
+            }}
+          />
+        )}
+        {crOpen && (
+          <ColorRangeDialog
+            getSource={async () => (await gfCanvas()).cv}
+            onClose={() => setCrOpen(false)}
+            onApply={(mask, mode) => {
+              selection.fromImage(mask, mode);
+              setCrOpen(false);
+              bumpSel();
+              stage?.redraw();
+            }}
+          />
+        )}
+        {savedOpen && (
+          <SavedSelDialog
+            items={savedSels.current.map((s) => ({ id: s.id, name: s.name, thumb: s.canvas.toDataURL("image/png") }))}
+            onClose={() => setSavedOpen(false)}
+            onLoad={(id) => {
+              const s = savedSels.current.find((x) => x.id === id);
+              if (s) {
+                const c = document.createElement("canvas");
+                c.width = s.canvas.width;
+                c.height = s.canvas.height;
+                c.getContext("2d")!.drawImage(s.canvas, 0, 0);
+                selection.setCanvas(c);
+                bumpSel();
+                stage?.redraw();
+              }
+              setSavedOpen(false);
+            }}
+            onDelete={(id) => {
+              savedSels.current = savedSels.current.filter((x) => x.id !== id);
+              setSavedOpen(false);
+              window.setTimeout(() => setSavedOpen(true), 0);
+            }}
+          />
+        )}
+        {palOpen && <CommandPalette cmds={menuCmds} host={host} run={runCmd} onClose={() => setPalOpen(false)} />}
         {help && <Shortcuts tools={TOOLS.map((t) => ({ key: t.key, title: t.title }))} onClose={() => setHelp(false)} />}
 
         <div className={`pw-panel ${panelOpen ? "" : "is-closed"}`} dir="rtl" data-testid="right-panel">

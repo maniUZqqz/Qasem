@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_designer
+from . import views, views_designer, views_effects
 
 P = "stores/<int:store_id>/photo-editor/"
 
@@ -39,4 +39,13 @@ urlpatterns = [
     path(P + "designer/designs/<int:pk>/", views_designer.DesignView.as_view(), name="photoedit-design"),
     path(P + "designer/designs/<int:pk>/rerender/", views_designer.DesignRerenderView.as_view(), name="photoedit-design-rerender"),
     path(P + "designer/designs/<int:pk>/apply/", views_designer.DesignApplyView.as_view(), name="photoedit-design-apply"),
+    # نوبت ۴: تنظیماتِ فروشگاه (پیش‌فرضِ هوش مصنوعی + سبکِ برند) و طراحیِ گروهی
+    path(P + "settings/", views_designer.SettingsView.as_view(), name="photoedit-settings"),
+    path(P + "designer/batches/", views_designer.BatchListView.as_view(), name="photoedit-batches"),
+    path(P + "designer/batches/<int:pk>/", views_designer.BatchView.as_view(), name="photoedit-batch"),
+    path(P + "designer/batches/<int:pk>/zip/", views_designer.BatchZipView.as_view(), name="photoedit-batch-zip2"),
+    # نوبت ۴: جعبهٔ فیلترها
+    path(P + "effects/", views_effects.EffectsCatalogView.as_view(), name="photoedit-effects"),
+    path(P + "effects/preview/", views_effects.EffectPreviewView.as_view(), name="photoedit-effect-preview"),
+    path(P + "effects/apply/", views_effects.EffectApplyView.as_view(), name="photoedit-effect-apply"),
 ]

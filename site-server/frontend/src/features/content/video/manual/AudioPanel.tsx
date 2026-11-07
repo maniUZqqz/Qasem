@@ -2,6 +2,7 @@ import { fa } from "../../../../components/ui";
 import { Chips, Section, Slider, Toggle } from "./controls";
 import { keyNear, removeKey, setKey } from "./keyframes";
 import { Kf, MediaClip, clipLength, propAt } from "./model";
+import AudioAdvanced from "./AudioAdvanced";
 import "./audio.css";
 
 const EQ_OPTIONS = [
@@ -111,6 +112,8 @@ export default function AudioPanel({
           حذفِ نویز و یکسان‌سازیِ بلندی در پخشِ فوری شنیده نمی‌شوند؛ در خروجی و «پیش‌نمایشِ دقیق» اعمال می‌شوند. EQ و کمپرسور در پیش‌نمایش نزدیک‌اند نه یکسان.
         </p>
       </Section>
+
+      <AudioAdvanced clip={clip} onLive={onLive} onEnd={onEnd} onApply={onApply} />
 
       {onExtractAudio && trackKind === "video" && clip.kind === "video" && clip.audio_on && (
         <div className="ap-extract">

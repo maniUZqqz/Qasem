@@ -1,7 +1,8 @@
-"""The director's background job: analyse → plan → build real projects → (maybe) preview + vision critique.
+"""The director's background job: analyse → plan → build the variants → (maybe) preview + vision critique.
 
-The job result carries everything the panel shows (brief, AI notes, what was degraded, per-variant Persian plan + critique); the
-projects themselves are ordinary `VideoProject` rows the owner can open in the manual workspace.
+The job result carries everything the panel shows (brief, AI notes, what was degraded, per-variant Persian plan + critique). Each variant
+is saved as a lightweight `DirectorDraft` (the project JSON + plan + critique; the media stay where they are). It becomes an ordinary
+`VideoProject` only when the owner opens it in the manual workspace; unopened drafts expire (`services.editing.director.drafts`).
 """
 from __future__ import annotations
 
@@ -18,16 +19,15 @@ from django.utils import timezone
 from apps.jobs.models import Job
 from services.editing import timeline as tl
 from services.editing.director import loop as director_loop
+from services.editing.director import drafts as drafts_mod
 from services.editing.director import projectops as ops
 from services.editing.director.ctx import store_ctx
 from services.editing.director.runner import validate_plan
 from services.media import files as media
 
-from .models import VideoProject
+from .models import DirectorDraft
 
 logger = logging.getLogger(__name__)
-
-MAX_PROJECTS = 60
 
 
 def _editing_root() -> Path:
@@ -44,22 +44,6 @@ def slim_plan(views: list[dict]) -> list[dict]:
 def slim_critique(report: dict) -> dict:
     return {"score": report["score"], "summary": report["summary"], "vision": report.get("vision"),
             "items": [{k: i.get(k) for k in ("key", "title", "ok", "severity", "detail")} for i in report["items"]]}
-
-
-def prune_director_projects(store, need: int) -> int:
-    """Make room for `need` new projects by deleting the OLDEST director-made projects that nobody touched since they were
-    made (a person who edited one — autosave bumps `updated_at` — keeps it)."""
-    over = store.video_projects.count() + need - MAX_PROJECTS
-    if over <= 0:
-        return 0
-    gone = 0
-    for p in store.video_projects.order_by("created_at"):
-        if gone >= over:
-            break
-        if (p.data or {}).get("director") and (p.updated_at - p.created_at).total_seconds() < 90 and p.state == VideoProject.State.DRAFT:
-            p.delete()
-            gone += 1
-    return gone
 
 
 def _frames_of(video: Path, total: float, n: int = 6) -> list[str]:
@@ -91,7 +75,7 @@ def preview_reviewer(job: Job, store, holder: dict):
         with _render_slot(job):
             with editor_project.sources(store) as resolve:
                 timeline = tl.from_project(project, resolve)
-                export_module.render(timeline, out, quality="draft", export={"height": 360, "quality": "small", "fps": 24, "audio_kbps": 96})
+                export_module.render(timeline, out, quality="draft", export={"height": 360, "quality": "small", "fps": 15, "audio_kbps": 64})
         holder["url"] = settings.MEDIA_URL.rstrip("/") + "/" + media.media_rel(out)
         holder["seconds"] = round(timeline.length, 1)
         return _frames_of(out, timeline.length)
@@ -152,33 +136,34 @@ def director_task(self, job_id, payload):
         if missing:
             result.setdefault("degraded", []).append(f"{len(missing)} منبع پیدا نشد و کنار گذاشته شد.")
 
-        prune_director_projects(store, len(result["variants"]))
+        drafts_mod.purge(store)
         run_id = uuid.uuid4().hex[:10]
         title_base = (result.get("brief") or {}).get("title") or "ویدیو"
         rows = []
-        replace_id = payload.get("replace_project")
+        replace_id = payload.get("replace_draft")
         for v in result["variants"]:
             data = dict(v["project"])
             data["director"] = {"run": run_id, "variant": v["key"], "variant_title": v["title"], "brief": result.get("brief"), "plan": slim_plan(v["plan"]),
                                 "critique": slim_critique(v["critique"]), "refs": refs, "prompt": str(payload.get("prompt") or "")[:600],
                                 "made_at": timezone.now().isoformat()}
             title = f"{title_base} — {v['title']}"[:200]
-            row = None
+            length = ops.project_length(v["project"])
+            draft = None
             if replace_id and kind == "rerun":
-                row = VideoProject.objects.filter(pk=replace_id, store=store).first()
-            if row is not None:
-                row.data = data
-                row.save()
+                # only an UNOPENED draft is replaced in place; a project the owner opened is never touched by a re-run
+                draft = DirectorDraft.objects.filter(pk=replace_id, store=store, promoted_at__isnull=True).first()
+            if draft is not None:
+                drafts_mod.replace(draft, title=title, data=data, score=v["score"], length=length)
             else:
-                row = VideoProject.objects.create(store=store, title=title, data=data)
-            rows.append({"key": v["key"], "id": row.pk, "title": row.title, "score": v["score"], "length": round(ops.project_length(v["project"]), 1)})
-            v["project_id"] = row.pk
-        job.mark_progress(99, "ذخیرهٔ پروژه‌ها")
+                draft = drafts_mod.create(store, run=run_id, job_id=job.id, key=v["key"], title=title, data=data, score=v["score"], length=length)
+            rows.append({"key": v["key"], "id": draft.pk, "title": draft.title, "score": v["score"], "length": round(length, 1)})
+            v["draft_id"] = draft.pk
+        job.mark_progress(99, "ذخیرهٔ پیش‌نویس‌ها")
         final = {
             "run": run_id, "kind": kind, "brief": result.get("brief"), "platform": result.get("platform"), "recipe_title": result.get("recipe_title"),
             "ai": result.get("ai"), "degraded": result.get("degraded", []), "primary": result.get("primary"), "analysis": result.get("analysis"),
-            "projects": rows, "preview": holder or None,
-            "variants": [{"key": v["key"], "title": v["title"], "project_id": v.get("project_id"), "score": v["score"], "rounds": v.get("rounds", 0),
+            "drafts": rows, "preview": holder or None, "draft_days": drafts_mod.get_settings(store)["draft_days"],
+            "variants": [{"key": v["key"], "title": v["title"], "draft_id": v.get("draft_id"), "project_id": None, "score": v["score"], "rounds": v.get("rounds", 0),
                           "ai_steps": v.get("ai_steps", 0), "plan": slim_plan(v["plan"]), "critique": slim_critique(v["critique"]), "problems": v.get("problems", [])}
                          for v in result["variants"]],
         }

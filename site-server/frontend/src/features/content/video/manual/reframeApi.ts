@@ -36,3 +36,9 @@ export const reframeApi = {
   run: (store: string, body: ReframeRequest) =>
     api.post<ReframeResult>(`/stores/${store}/editor/reframe/`, body, { timeout: 90_000 }).then((r) => r.data),
 };
+
+/** برش‌های (تغییرِ نما) یک ویدیو، به ثانیهٔ خودِ فایل */
+export async function detectScenes(storeId: string, ref: string, start: number, end: number, sensitivity: "low" | "normal" | "high" = "normal"): Promise<{ cuts: number[]; threshold: number; scanned: number }> {
+  const { data } = await api.post(`/stores/${storeId}/editor/scenes/`, { ref, start, end, sensitivity });
+  return data;
+}

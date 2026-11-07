@@ -85,3 +85,11 @@
   .dr-step-head { flex-wrap: wrap; }
   .dr-edit-btn { margin-inline-start: auto; }
 }
+
+/* تنظیماتِ ویرایشگر و پیش‌نویس‌ها (دورِ چهارم) */
+.es-card { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px; }
+.es-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dr-draft-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dr-draft { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.dr-draft-main { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
+.dr-draft-main small { color: var(--text-3); font-size: 11.5px; }

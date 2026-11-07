@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .. import matting
 from . import analyze
 
 SIDE = 512
@@ -26,6 +27,23 @@ def _fill_holes(m: np.ndarray) -> np.ndarray:
     cv2.floodFill(ff, pad, (0, 0), 255)
     holes = cv2.bitwise_not(ff)
     return cv2.bitwise_or(m, holes)
+
+
+def _cpu_model_mask(img: Image.Image) -> dict | None:
+    """زمینهٔ شلوغ: اول مدلِ ONNX ِ سبکِ روی همین سرور (matting.py)؛ اگر نبود یا از دروازهٔ کیفیت رد نشد ⇒ None و GrabCut ِ قدیمی."""
+    if not matting.available():
+        return None
+    a = matting.alpha(img)
+    ok, cov, _why = matting.quality(a)
+    if not ok:
+        return None
+    m = (a > 0.5).astype(np.uint8) * 255
+    m = analyze._largest_component(m, 0.005) * 255
+    m = _fill_holes(m.astype(np.uint8))
+    soft = np.clip(a, 0, 1)
+    soft = np.where(m > 0, np.maximum(soft, 0.9), soft * 0)          # داخلِ سوژه محکم، لبه نرم
+    out = cv2.GaussianBlur((soft * 255).astype(np.uint8), (0, 0), 1.0)
+    return {"ok": True, "method": "cpu-model", "coverage": round(cov, 3), "mask": out, "reason": "", "note": matting.NOTE_FA}
 
 
 def compute(img: Image.Image, subject_box=None) -> dict:
@@ -49,6 +67,9 @@ def compute(img: Image.Image, subject_box=None) -> dict:
         gc[core > 0] = cv2.GC_FGD
         method = "plain-bg"
     else:
+        cpu = _cpu_model_mask(img)
+        if cpu is not None:
+            return cpu
         b = subject_box or [0.1, 0.1, 0.9, 0.9]
         x0, y0 = max(0, int((b[0] - 0.02) * w)), max(0, int((b[1] - 0.02) * h))
         x1, y1 = min(w, int((b[2] + 0.02) * w)), min(h, int((b[3] + 0.02) * h))

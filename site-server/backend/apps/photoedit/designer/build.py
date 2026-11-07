@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from PIL import Image
 
-from .. import catalog, develop_np, fontreg, services
+from .. import brand as brand_mod, catalog, develop_np, fontreg, matting, services
 from ..models import PhotoAsset
 from . import analyze, colorx, grid, matte, render, toolspec, typo
 
@@ -39,6 +39,8 @@ class Ctx:
     pal: dict
     rgb_small: object
     logo_aspect: float | None
+    kit: dict | None = None                          # سبکِ برندِ مؤثر (brand.effective) یا None
+    logo_src: dict = field(default_factory=lambda: {"kind": "logo"})
     layers: list = field(default_factory=list)       # [(z, order, layer)]
     meta: dict = field(default_factory=dict)
     notes: list = field(default_factory=list)
@@ -180,6 +182,8 @@ def h_cutout(c: Ctx, st: dict) -> None:
                   "rot": 0, "flip_h": False, "flip_v": False, "fx": None})
     _add(c, Z["product"], layer, step=st["id"], kind="product")
     c.product = {"id": lid, "cx": cx, "cy": cy, "w": w_frac, "h_px": h_px, "box": [cx - w_frac / 2, cy - h_px / H / 2, cx + w_frac / 2, cy + h_px / H / 2]}
+    if cut["method"] == "cpu-model":
+        c.notes.append(matting.NOTE_FA)
     _done(c, st, "محصول از زمینه جدا شد", method=cut["method"], box=[round(v, 3) for v in c.product["box"]])
 
 
@@ -310,7 +314,12 @@ def _text_layer(lid: str, text: str, size: float, *, font: str, weight: int, col
     return d
 
 
-def _font_for(role: str, font: str) -> str:
+def _font_for(role: str, font: str, kit: dict | None = None) -> str:
+    """فونتِ نقش. سبکِ برند: تیتر ⇐ فونتِ تیتر، متنِ دوم/توضیح/دکمه ⇐ فونتِ متن؛ بقیه (قیمت، برچسب) همان فونتِ الگو."""
+    if kit:
+        k = kit.get("heading_font") if role in ("display", "hero", "title") else kit.get("body_font") if role in ("sub", "caption", "cta") else ""
+        if k and fontreg.known(k):
+            return k
     if font and fontreg.known(font):
         return font
     return fontreg.DEFAULT
@@ -342,7 +351,7 @@ def h_text(c: Ctx, st: dict) -> None:
         x0, x1 = c.meta[below]["slot_x"]
     size = typo.role_size(role, p["scale"])
     weight = p["weight"]
-    font = _font_for(role, p["font"])
+    font = _font_for(role, p["font"], c.kit)
     plate = p["plate"]
     color_tok = p["color"]
     auto_color = color_tok == "auto" and plate != "accent"
@@ -385,7 +394,7 @@ def h_text(c: Ctx, st: dict) -> None:
                    and s["params"]["text"].strip()), None)
     if follow is not None and not below:
         fp = follow["params"]
-        fl = _text_layer("tmp", fp["text"], typo.role_size(fp["role"], fp["scale"]), font=_font_for(fp["role"], fp["font"]),
+        fl = _text_layer("tmp", fp["text"], typo.role_size(fp["role"], fp["scale"]), font=_font_for(fp["role"], fp["font"], c.kit),
                          weight=fp["weight"], color="#000000", align=fp["align"])
         room = max(0.0, (y1 - y0) * H - outer_h - 0.012 * H)
         fr = typo.fit_text(fl, W, (x1 - x0) * W, room, min_size=typo.MIN_LEGIBLE, max_lines=fp["max_lines"])
@@ -515,15 +524,16 @@ def h_logo(c: Ctx, st: dict) -> None:
         return
     p = st["params"]
     W, H = c.W, c.H
-    w = p["size"]
+    lgk = (c.kit or {}).get("logo") or {}
+    w = lgk.get("size") or p["size"]
     h_px = w * W / c.logo_aspect
     sx0, sy0, sx1, sy1 = grid.safe_rect(c.fmt)
     m = 0.0
-    pos = p["position"]
+    pos = lgk.get("position") or p["position"]
     cx = {"tl": sx0 + w / 2, "bl": sx0 + w / 2, "tr": sx1 - w / 2, "br": sx1 - w / 2}.get(pos, 0.5)
     cy = {"tl": sy0 + h_px / H / 2, "tr": sy0 + h_px / H / 2, "top_center": sy0 + h_px / H / 2}.get(pos, sy1 - h_px / H / 2)
     lay = _common("logo", "لوگو", "image", p["opacity"])
-    lay.update({"src": {"kind": "logo"}, "cx": round(cx, 5), "cy": round(cy, 5), "w": round(w, 5), "rot": 0, "flip_h": False,
+    lay.update({"src": dict(c.logo_src), "cx": round(cx, 5), "cy": round(cy, 5), "w": round(w, 5), "rot": 0, "flip_h": False,
                 "flip_v": False, "fx": None})
     _add(c, Z["logo"], lay, step=st["id"], kind="logo", bbox=[cx - w / 2, cy - h_px / H / 2, cx + w / 2, cy + h_px / H / 2])
     _done(c, st, "لوگو", position=pos)
@@ -593,9 +603,15 @@ def _store_brand(store) -> list[str]:
     return []
 
 
-def _logo_aspect(store) -> float | None:
+def _logo_aspect(store, kit: dict | None = None) -> float | None:
     try:
-        p = services._store_logo(store)
+        la = brand_mod.logo_asset(store, kit)
+        if la is not None:
+            p = services.abs_path(la.original)
+        elif ((kit or {}).get("logo") or {}).get("mode") == "none":
+            return None
+        else:
+            p = services._store_logo(store)
         if p is None:
             return None
         with Image.open(p) as im:
@@ -627,7 +643,7 @@ def base_state(plan: dict) -> dict:
     return s
 
 
-def build(asset: PhotoAsset, plan: dict, *, user=None, tag: str = "", src: Image.Image | None = None) -> dict:
+def build(asset: PhotoAsset, plan: dict, *, user=None, tag: str = "", src: Image.Image | None = None, kit: dict | None = None) -> dict:
     """برنامهٔ وارسی‌شده ⇒ {state, canvas, report, notes, needs, analysis, palette, meta, frame}.
 
     ``frame`` (تصویرِ PIL) برای رندر و وارسی نگه داشته می‌شود و در JSON نمی‌آید."""
@@ -647,11 +663,14 @@ def build(asset: PhotoAsset, plan: dict, *, user=None, tag: str = "", src: Image
     fmt = plan["format"]
     an = analyze.analyze(frame, fmt=fmt, facts=asset.facts, findings=asset.findings)
     rgb_small, _a = analyze._small(frame)
-    brand = _store_brand(store)
+    brand = (kit or {}).get("colors") or _store_brand(store)
     pal = colorx.make_palette(an["dominant"], an["accent"], mood=plan.get("mood", "auto"), variation=plan.get("variation", 0), brand=brand,
                               image_luma=an["brightness"]["mean"])
     c = Ctx(asset=asset, store=store, user=user, plan=plan, fmt=fmt, W=W, H=H, frame=frame, an=an, pal=pal, rgb_small=rgb_small,
-            logo_aspect=_logo_aspect(store), tag=tag)
+            logo_aspect=_logo_aspect(store, kit), kit=kit, tag=tag)
+    la = brand_mod.logo_asset(store, kit)
+    if la is not None:
+        c.logo_src = {"kind": "asset", "asset": la.pk}
     c.notes += fnotes
     c.layers.append((Z["base"], 0, _base_layer()))
     c.meta["base"] = {"z": 0, "kind": "base"}

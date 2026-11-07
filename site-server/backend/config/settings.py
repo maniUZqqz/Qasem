@@ -198,6 +198,18 @@ else:
         }
     }
 
+    if "test" in sys.argv:
+        # LiveServerTestCase + an IN-MEMORY test database = Django hands the SAME sqlite connection to the test thread and to every thread
+        # of the live server (and eager Celery tasks run inside those). Two threads then fetch and commit on one connection, and sqlite fails at
+        # random with "Cursor needed to be reset because of commit/rollback and can no longer be fetched from" (tests_node_tools, tests_node_render).
+        # A FILE test database gives every thread its own connection (WAL + busy_timeout above make them wait for each other instead of failing).
+        # One uniquely named file per test process, in the temp folder: nothing is left in the project and two test runs never meet. Tests only: no effect at runtime.
+        import tempfile as _tempfile
+        import uuid as _uuid
+
+        DATABASES["default"]["TEST"] = {"NAME": str(Path(_tempfile.gettempdir()) / f"nm-test-{os.getpid()}-{_uuid.uuid4().hex[:8]}.sqlite3")}
+        DATABASES["default"]["OPTIONS"]["init_command"] = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=20000; PRAGMA synchronous=OFF;"
+
 # Refuse to run production on SQLite. Getting this wrong is silent until the
 # first concurrent write, and by then there are real customers on it.
 if not DEBUG and not DATABASE_URL:

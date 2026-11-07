@@ -98,7 +98,7 @@ class PreviewApiTests(ApiTestBase):
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(r["Content-Type"], "image/jpeg")
         info = json.loads(urllib.parse.unquote(r["X-Preview-Info"]))
-        self.assertEqual(info["skipped"], ["تنظیمِ دستیِ حرفه‌ای (Camera Raw)"])
+        self.assertEqual(info["skipped"], ["تنظیمِ دستیِ حرفه‌ای (ظهورِ خام)"])
         self.assertEqual(info["size"], [640, 400])          # ۱۲۸۰ پیکسل ⇐ نیمه
         import io
         with Image.open(io.BytesIO(r.content)) as im:

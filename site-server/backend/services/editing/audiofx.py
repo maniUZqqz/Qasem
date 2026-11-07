@@ -74,9 +74,22 @@ def fx_chain(audio: dict, *, rnn: str | None = None) -> list[str]:
     eq = audio.get("eq")
     if eq in EQ_CHAINS and not audio.get("enhance"):
         out += EQ_CHAINS[eq]
+    for band in audio.get("bands") or []:                 # EQ پارامتریک: فرکانس، بهره (dB)، Q
+        out.append(f"equalizer=f={float(band['f']):.1f}:t=q:w={float(band['q']):.2f}:g={float(band['g']):.1f}")
     comp = float(audio.get("comp") or 0)
     if comp > 0.01:
         out.append(f"acompressor=threshold={0.25 - 0.2 * comp:.3f}:ratio={2 + 6 * comp:.1f}:attack=20:release=250:makeup={1 + 2 * comp:.2f}")
+    cd = audio.get("cdetail")
+    if cd and cd.get("on"):                                # کمپرسورِ دقیق: آستانه (dB)، نسبت، حمله/رهایی (ms)، جبرانِ بلندی (dB)
+        out.append("acompressor=threshold={:.4f}:ratio={:.1f}:attack={:.0f}:release={:.0f}:makeup={:.2f}".format(
+            10 ** (float(cd["thr"]) / 20), float(cd["ratio"]), float(cd["attack"]), float(cd["release"]), 10 ** (float(cd["makeup"]) / 20)))
+    pitch = float(audio.get("pitch") or 0)
+    if abs(pitch) >= 0.05:                                 # زیر و بمی بدونِ تغییرِ سرعت: نرخ را عوض کن، با atempo جبران کن
+        r = 2 ** (pitch / 12)
+        out += ["aresample=48000", f"asetrate={int(round(48000 * r))}", "aresample=48000", _atempo(1 / r)]
+    echo = audio.get("echo")
+    if echo and echo.get("on"):
+        out.append(f"aecho=0.8:0.88:{int(echo['delay'])}:{float(echo['decay']):.2f}")
     if audio.get("normalize"):
         out.append("loudnorm=I=-16:TP=-1.5:LRA=11")
     return out

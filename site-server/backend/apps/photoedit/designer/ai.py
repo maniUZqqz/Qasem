@@ -75,7 +75,8 @@ def _plan_prompt(brief: dict, an_public: dict, store_name: str) -> str:
         "owner's request, then choose the best design template and write the Persian copy. You do NOT place things by pixels: a layout engine "
         "does that. You only decide: template, mood, copy, colour grade and (optionally) a few extra steps from the tool catalogue.\n\n"
         f"Shop name: {store_name or '-'}\n"
-        f"Owner's request (Persian): «{brief.get('prompt') or '-'}»\n"
+        + (f"Brand voice (write the copy in this tone, Persian): «{brief['brand_tone']}»\n" if brief.get("brand_tone") else "")
+        + f"Owner's request (Persian): «{brief.get('prompt') or '-'}»\n"
         f"Target format: {grid.FORMAT_FA.get(brief.get('format'), brief.get('format'))}\n"
         f"Owner already typed these texts (keep them exactly): {json.dumps({k: v for k, v in (brief.get('copy') or {}).items() if v}, ensure_ascii=False)}\n\n"
         "Measured facts about the photo (trust them): "

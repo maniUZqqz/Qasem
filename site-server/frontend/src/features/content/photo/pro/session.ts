@@ -191,6 +191,20 @@ export class Selection {
     this.ver++;
   }
 
+  /** جایگزینیِ کاملِ انتخاب با یک بومِ هم‌اندازهٔ سیاه/سفید (گسترش، انقباض، بازهٔ رنگ…) */
+  setCanvas(c: HTMLCanvasElement) {
+    this.canvas = c;
+    this.ver++;
+  }
+
+  /** رونوشتِ مستقل از بومِ انتخاب (برای «انتخابِ دوباره» و «ذخیرهٔ انتخاب») یا null */
+  snapshot(): HTMLCanvasElement | null {
+    if (!this.canvas) return null;
+    const c = newCanvas(this.w, this.h);
+    c.getContext("2d", { willReadFrequently: true })!.drawImage(this.canvas, 0, 0);
+    return c;
+  }
+
   /** shape: تابعی که مسیر را روی ctx بسازد. mode: new / add / sub */
   paint(shape: (c: CanvasRenderingContext2D) => void, mode: "new" | "add" | "sub") {
     if (mode === "new") this.canvas = null;

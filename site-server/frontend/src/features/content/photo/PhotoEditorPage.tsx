@@ -17,7 +17,9 @@ import {
   fa,
 } from "../../../components/ui";
 import CompareSlider from "./CompareSlider";
+import BatchPanel from "./designer/BatchPanel";
 import DesignerPanel from "./designer/DesignerPanel";
+import EditorSettings from "./designer/EditorSettings";
 import { PhotoAutoPanel, PhotoPromptPanel } from "./ModePanels";
 import { smartChipText } from "./ResultCard";
 import PhotoWorkspace from "./manual/PhotoWorkspace";
@@ -77,6 +79,8 @@ export default function PhotoEditorPage() {
   const [sources, setSources] = useState<Sources | null>(null);
   /** بازکردنِ پروژهٔ تازهٔ «طراحِ خودکار» در حالتِ دستی: کلیدِ فضای کار عوض می‌شود تا پروژه از سرور دوباره خوانده شود */
   const [reloadKey, setReloadKey] = useState(0);
+  const [settingsTab, setSettingsTab] = useState<"ai" | "brand" | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [promptTab, setPromptTabState] = useState<"design" | "quick">(() => {
     try {
       return localStorage.getItem("nm.photo.prompttab") === "quick" ? "quick" : "design";
@@ -262,6 +266,21 @@ export default function PhotoEditorPage() {
     return best;
   };
 
+  /** بعد از «اعمال» ِ یک طراحی (تکی یا از طراحیِ گروهی) */
+  const onDesignApplied = (edit: Edit, openManual: boolean) => {
+    setTracking((cur) => [edit, ...cur.filter((e) => e.id !== edit.id)]);
+    setLastBatch(edit.batch);
+    void load();
+    if (openManual) {
+      setSelected([edit.asset]);
+      setReloadKey((k) => k + 1);
+      setMode("manual");
+      setBatchOpen(false);
+      // فضای کار بالای صفحه است؛ کاربر را همان‌جا ببر
+      window.setTimeout(() => document.querySelector('[data-testid="photo-workspace"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 500);
+    }
+  };
+
   const panelProps = {
     storeId: id, data, tools, selected, nodeOn, busy, run: runEdits, latest, asset: focusAsset,
     openManual: (steps: Operation[]) => {
@@ -274,9 +293,11 @@ export default function PhotoEditorPage() {
     <>
       <PageHeader
         title="ادیتور عکس"
-        subtitle="عکس بدهید — برای اینستاگرام، استوری و فروشگاه آماده‌اش می‌کنیم: خودکار، با یک دستور، یا خودتان مثلِ فتوشاپ"
+        subtitle="عکس بدهید — برای اینستاگرام، استوری و فروشگاه آماده‌اش می‌کنیم: خودکار، با یک دستور، یا خودتان با ابزارهای کامل"
         actions={
           <>
+            <Button variant="secondary" onClick={() => setBatchOpen((v) => !v)} data-testid="open-batch">طراحیِ گروهی</Button>
+            <Button variant="secondary" onClick={() => setSettingsTab("ai")} data-testid="open-settings">تنظیمات و سبکِ برند</Button>
             <Link to={`/stores/${id}/editor`}>
               <Button variant="secondary">ادیتور ویدیو</Button>
             </Link>
@@ -310,13 +331,16 @@ export default function PhotoEditorPage() {
         )}
       </div>
 
+      {batchOpen && <BatchPanel storeId={id} assets={assets} onClose={() => setBatchOpen(false)} onApplied={onDesignApplied} onOpenSettings={(t) => setSettingsTab(t)} />}
+      {settingsTab && <EditorSettings storeId={id} assets={assets} initialTab={settingsTab} onClose={() => setSettingsTab(null)} />}
+
       <ModeSwitch
         mode={mode}
         onChange={setMode}
         hints={{
           auto: "عکس را می‌سنجد و خودش ادیت می‌زند — یک کلیک",
           prompt: "بنویسید چه می‌خواهید؛ طراحِ خودکار چند پیشنهادِ آماده با متنِ فارسی می‌سازد",
-          manual: "فضای کامل مثلِ فتوشاپ: برش، لغزنده‌ها، منحنی، ترمیم…",
+          manual: "فضای کامل: لایه، ماسک، برش، منحنی، ترمیم، فیلتر و منوی کامل…",
         }}
       />
 
@@ -342,6 +366,12 @@ export default function PhotoEditorPage() {
             onOpenVersions={() => void openDetail(focusAsset.id)}
             startFrom={manualStart?.ops ?? null}
             storeLogo={data.store_logo}
+            onOpenSettings={(t) => setSettingsTab(t)}
+            onOpenBatch={() => setBatchOpen(true)}
+            onNewPhoto={(a) => {
+              void load().then(() => setSelected([a.id]));
+              setNotice(`عکسِ تازه «${a.title}» در کتابخانه ساخته شد و باز است.`);
+            }}
           />
           ) : (
           <PhotoWorkspace
@@ -477,17 +507,9 @@ export default function PhotoEditorPage() {
               storeId={id}
               asset={focusAsset}
               nodeOn={nodeOn}
-              onApplied={(edit, openManual) => {
-                setTracking((cur) => [edit, ...cur.filter((e) => e.id !== edit.id)]);
-                setLastBatch(edit.batch);
-                void load();
-                if (openManual) {
-                  setReloadKey((k) => k + 1);
-                  setMode("manual");
-                  // فضای کار بالای صفحه است؛ کاربر را همان‌جا ببر
-                  window.setTimeout(() => document.querySelector('[data-testid="photo-workspace"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 500);
-                }
-              }}
+              assets={assets}
+              onOpenSettings={(t) => setSettingsTab(t)}
+              onApplied={onDesignApplied}
             />
           ) : (
             <PhotoPromptPanel {...panelProps} />

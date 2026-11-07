@@ -5,7 +5,9 @@ import { Alert, Badge, Button, Card, Spinner, TextArea, fa } from "../../../../c
 import { useJobRunner } from "../../../../hooks/useJobRunner";
 import type { Bin, MediaItem } from "../api";
 import { videoApi } from "../api";
-import { DirectorCatalogue, DirectorResult, DirectorVariant, ParamSpec, PlanStep, ToolSpec, directorApi } from "./api";
+import { DirectorCatalogue, DirectorResult, DirectorVariant, EditorSettings, ParamSpec, PlanStep, ToolSpec, directorApi } from "./api";
+import DraftsList from "./DraftsList";
+import EditorSettingsCard from "./EditorSettings";
 import "./director.css";
 
 const EXAMPLES = [
@@ -31,7 +33,7 @@ function useCatalogue(storeId: string) {
       stop = true;
     };
   }, [storeId]);
-  return cat;
+  return [cat, setCat] as const;
 }
 
 /** یک مرحله: کلید، شرح، دلیل، نتیجه و ویرایشِ پارامترها (از مشخصاتِ ابزار) */
@@ -145,13 +147,18 @@ function Critique({ v }: { v: DirectorVariant }) {
 }
 
 export default function VideoDirector({ storeId, onOpenProject }: { storeId: string; onOpenProject: (projectId: number) => void }) {
-  const cat = useCatalogue(storeId);
+  const [cat, setCat] = useCatalogue(storeId);
   const [bin, setBin] = useState<Bin | null>(null);
   const [binTab, setBinTab] = useState<"videos" | "images" | "audio">("videos");
   const [picked, setPicked] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto" });
   const [useAi, setUseAi] = useState(true);
+  /** تیکِ هوش مصنوعی تا وقتی کاربر دست نزده از «پیش‌فرضِ فروشگاه» می‌آید */
+  const aiTouched = useRef(false);
+  const [opened, setOpened] = useState<Record<number, number>>({});
+  const [draftsKey, setDraftsKey] = useState(0);
+  const [openBusy, setOpenBusy] = useState(false);
   const [preview, setPreview] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DirectorResult | null>(null);
@@ -163,6 +170,10 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
   const lastJob = useRef<{ id: number | null; kind: "run" | "rerun"; variant: string }>({ id: null, kind: "run", variant: "a" });
   const resultRef = useRef<DirectorResult | null>(null);
   resultRef.current = result;
+  useEffect(() => {
+    if (cat?.settings && !aiTouched.current) setUseAi(cat.settings.ai_default);
+  }, [cat?.settings]);
+  const onSettings = useCallback((st: EditorSettings) => setCat((c) => (c ? { ...c, settings: st } : c)), [setCat]);
 
   const loadBin = useCallback(async () => {
     try {
@@ -199,8 +210,10 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
         setResult(res);
         setPlans(toPlans(res.variants));
         setDirty({});
+        setOpened({});
         setVkey(res.primary || res.variants[0]?.key || "a");
       }
+      setDraftsKey((k) => k + 1);
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -249,7 +262,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
     try {
       runner.begin();
       const steps = (plans[v.key] ?? v.plan).map((s) => ({ id: s.id, tool: s.tool, params: s.params, why: s.why ?? "", on: s.on !== false }));
-      const r = await directorApi.rerun(storeId, { brief: result.brief, steps, refs: result.projects.length ? picked : picked, variant: v.key, project_id: v.project_id });
+      const r = await directorApi.rerun(storeId, { brief: result.brief, steps, refs: picked, variant: v.key, draft_id: v.draft_id });
       lastJob.current = { id: r.job_id, kind: "rerun", variant: v.key };
       runner.track(r.job_id);
     } catch (err) {
@@ -260,6 +273,27 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
   }
 
   const variant = result?.variants.find((v) => v.key === vkey) ?? result?.variants[0];
+  /** «باز کردن در تدوینِ دستی»: همین لحظه پیش‌نویس پروژهٔ واقعی می‌شود (بار دوم همان پروژه باز می‌شود) */
+  async function openVariant(v: DirectorVariant) {
+    const known = v.project_id ?? (v.draft_id ? opened[v.draft_id] : undefined);
+    if (known) {
+      onOpenProject(known);
+      return;
+    }
+    if (!v.draft_id) return;
+    setOpenBusy(true);
+    setError(null);
+    try {
+      const r = await directorApi.openDraft(storeId, v.draft_id);
+      setOpened((cur) => ({ ...cur, [v.draft_id!]: r.project_id }));
+      setDraftsKey((k) => k + 1);
+      onOpenProject(r.project_id);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setOpenBusy(false);
+    }
+  }
   const specOf = (tool: string) => cat?.tools.find((t) => t.tool === tool);
 
   return (
@@ -358,10 +392,16 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
               </label>
             </div>
             <div className="dr-row">
-              <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>
+              <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => { aiTouched.current = true; setUseAi(e.target.checked); }} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>
               <label className="dr-check"><input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} data-testid="dr-preview" /> پیش‌نمایشِ کم‌حجم بساز و نقد کن (فقط وقتی هوش مصنوعی جواب بدهد)</label>
             </div>
+            {cat?.settings && <p className="dr-hint" data-testid="dr-ai-cost">{cat.settings.cost_note}</p>}
           </div>
+        </details>
+
+        <details className="dr-more" data-testid="dr-settings">
+          <summary>تنظیمات (پیش‌فرضِ کمکِ هوش مصنوعی، مدتِ نگهداریِ پیش‌نویس)</summary>
+          <EditorSettingsCard storeId={storeId} onChange={onSettings} />
         </details>
 
         <div className="dr-go">
@@ -417,6 +457,9 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
               </div>
             )}
 
+            <p className="dr-hint" data-testid="dr-draft-note">
+              این نسخه‌ها فعلاً «پیش‌نویسِ سبک»‌اند (فیلم‌ها کپی نشده‌اند) و اگر باز نشوند {fa(result.draft_days ?? 7)} روز می‌مانند. هر کدام را در «تدوینِ دستی» باز کنید پروژهٔ واقعی می‌شود و دیگر خودکار پاک نمی‌شود.
+            </p>
             <div className="dr-variants" role="tablist" aria-label="نسخه‌ها">
               {result.variants.map((v, i) => (
                 <button key={v.key} type="button" role="tab" aria-selected={vkey === v.key} className={`dr-variant ${vkey === v.key ? "is-on" : ""}`} onClick={() => setVkey(v.key)} data-testid={`dr-variant-${v.key}`}>
@@ -429,7 +472,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
             </div>
 
             <div className="dr-actions">
-              {variant.project_id && <Button onClick={() => onOpenProject(variant.project_id!)} data-testid="dr-open-manual">باز کردن در تدوینِ دستی</Button>}
+              {(variant.project_id || variant.draft_id) && <Button onClick={() => void openVariant(variant)} disabled={openBusy} data-testid="dr-open-manual">باز کردن در تدوینِ دستی</Button>}
               <Button variant="secondary" onClick={() => void rerun(variant)} disabled={running || !dirty[variant.key]} data-testid="dr-rerun" title="مرحله‌ها را با تغییرهای شما از اول اجرا می‌کند (بدونِ هوش مصنوعی)">
                 اجرای دوباره با تغییرها
               </Button>
@@ -461,6 +504,13 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
           </div>
         </Card>
       )}
+
+      <Card>
+        <details className="dr-more" data-testid="dr-drafts-box" open={false}>
+          <summary>پیش‌نویس‌های قبلی (بازنشده)</summary>
+          <DraftsList storeId={storeId} refreshKey={draftsKey} onOpen={onOpenProject} />
+        </details>
+      </Card>
     </div>
   );
 }

@@ -17,7 +17,7 @@ from services.ai.ollama import (
     repair_json,
     strip_reasoning,
 )
-from services.ai.router import TASK_CODE, TASK_REASONING, TASK_VISION, model_for
+from services.ai.router import TASK_CODE, TASK_REASONING, TASK_RESEARCH, TASK_VISION, model_for
 from services.comfyui.workflows import WorkflowError, load_workflow, patch_workflow
 from services.video.ffmpeg import (
     concat_audio,
@@ -177,7 +177,9 @@ class OllamaProviderTests(SimpleTestCase):
                 add_poster_text(src, out, headline="", subline="", badge="")
 
     def test_router_maps_tasks_to_configured_models(self):
-        self.assertEqual(model_for(TASK_REASONING), "qwq:32b")
+        # "REASONING" is the everyday-text task (gemma3:12b, services.ai.priority.DEFAULT_MODELS); qwq:32b is what "RESEARCH" uses
+        self.assertEqual(model_for(TASK_REASONING), "gemma3:12b")
+        self.assertEqual(model_for(TASK_RESEARCH), "qwq:32b")
         self.assertEqual(model_for(TASK_VISION), "qwen3-vl:30b")
         self.assertEqual(model_for(TASK_CODE), "qwen3-coder:30b")
         with self.assertRaises(ValueError):

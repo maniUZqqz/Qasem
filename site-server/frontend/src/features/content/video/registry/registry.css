@@ -176,3 +176,40 @@
   .rg-back { padding-top: 8vh; }
   .rg-ke-menu { display: none; }
 }
+
+/* مانیتورِ منبع / نشانگرها / رفتن به زمان */
+.src-panel { display: flex; flex-direction: column; gap: 8px; outline: none; }
+.src-stage { background: #000; border-radius: 8px; min-height: 120px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.src-media { max-width: 100%; max-height: 220px; display: block; }
+.src-bar { display: flex; align-items: center; gap: 6px; }
+.src-tc { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--text-2); min-width: 64px; text-align: end; }
+.src-range { position: relative; height: 5px; border-radius: 3px; background: var(--line); }
+.src-range-fill { position: absolute; top: 0; bottom: 0; background: var(--brand); border-radius: 3px; }
+.src-marks, .src-go { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.src-info { font-size: 11.5px; color: var(--text-3); }
+.mk-top { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+.mk-top .u-input { flex: 1; min-width: 120px; }
+.mk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.mk-row { display: flex; align-items: center; gap: 6px; }
+.mk-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-strong); cursor: pointer; flex: none; padding: 0; }
+.mk-time { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: transparent; border: 0; color: var(--text-2); cursor: pointer; min-width: 62px; }
+.mk-time:hover { color: var(--text); text-decoration: underline; }
+.mk-time-in { width: 84px; }
+.mk-label { flex: 1; min-width: 80px; }
+.mk-kind { width: 78px; flex: none; }
+
+/* گرافِ کلیدفریم */
+.kg-svg { width: 100%; height: auto; max-height: 260px; display: block; background: color-mix(in srgb, var(--void) 70%, transparent); border-radius: 8px; touch-action: none; }
+.kg-plot { fill: none; stroke: var(--line); }
+.kg-grid { stroke: var(--line); stroke-dasharray: 3 4; }
+.kg-axis { fill: var(--text-3); font-size: 9px; }
+.kg-now { stroke: #ef4444; stroke-width: 1.2; }
+.kg-curve { stroke: var(--brand); stroke-width: 2; }
+.kg-key { fill: var(--surface-2); stroke: var(--brand); stroke-width: 2; cursor: grab; }
+.kg-key.is-sel { fill: var(--brand); }
+.kg-key:focus-visible { outline: 2px solid #fff; }
+.kg-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.kg-key-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; align-items: end; }
+
+/* صدای پیشرفته */
+.aa-band { padding: 6px 0 8px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 4px; }

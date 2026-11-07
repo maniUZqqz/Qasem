@@ -403,3 +403,35 @@ class VideoProject(TimeStampedModel):
 
     def __str__(self):
         return self.title or f"Project #{self.pk}"
+
+
+class DirectorDraft(TimeStampedModel):
+    """A «کارگردان» result that nobody has opened yet.
+
+    One «بساز» used to create up to three full `VideoProject` rows, which filled the project list (and the 60-project cap) with
+    things the owner never asked to keep. Now each variant is only a draft: the project JSON (it points at the same source media
+    by `ref`, nothing is copied) plus the plan and critique it came with. It becomes a real `VideoProject` only when the owner
+    opens it in the manual editor (`project` is set then), and an unopened draft expires after `expires_at`
+    (`services.editing.director.drafts` — the window is a per-store setting, 7 days by default).
+    """
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="director_drafts")
+    #: the «بساز» these variants came from (`final["run"]`) and the job that rendered their shared preview folder
+    run = models.CharField(max_length=16, db_index=True)
+    job_id = models.IntegerField(null=True, blank=True)
+    key = models.CharField(max_length=4)
+    title = models.CharField(max_length=200, blank=True)
+    score = models.PositiveSmallIntegerField(default=0)
+    length = models.FloatField(default=0)
+    #: the built project (with `data["director"]` = brief, plan, critique, refs, prompt)
+    data = models.JSONField(default=dict, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    #: set when the owner opened it: the real project made from it, and when
+    project = models.ForeignKey(VideoProject, null=True, blank=True, on_delete=models.SET_NULL, related_name="from_drafts")
+    promoted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "key"]
+
+    def __str__(self):
+        return self.title or f"Draft #{self.pk}"

@@ -34,7 +34,16 @@ export type ShapeSpec = {
 /** وصل‌بودن به یک ردیاب: همیشه به اندازهٔ (bx,by) (کسری از قاب) از نقطهٔ ردیابی‌شده فاصله دارد؛ کلیدها از مسیر پخته می‌شوند */
 export type Follow = { tracker: string; bx: number; by: number };
 export type Chroma = { on: boolean; color: string; similarity: number; blend: number; spill: number };
-export type ClipAudio = { pan?: number; eq?: string; comp?: number; enhance?: boolean; denoise?: boolean; normalize?: boolean; denoise_ai?: boolean };
+export type ClipAudio = {
+  pan?: number; eq?: string; comp?: number; enhance?: boolean; denoise?: boolean; normalize?: boolean; denoise_ai?: boolean;
+  /** EQ پارامتریک: فرکانس (Hz)، بهره (dB)، پهنا (Q) — تا ۵ باند */
+  bands?: { f: number; g: number; q: number }[];
+  /** کمپرسورِ دقیق: آستانه dB، نسبت، حمله و رهایی ms، جبرانِ بلندی dB */
+  cdetail?: { on: boolean; thr: number; ratio: number; attack: number; release: number; makeup: number };
+  /** زیر و بمی بر حسبِ نیم‌پرده (−۱۲..۱۲) */
+  pitch?: number;
+  echo?: { on: boolean; delay: number; decay: number };
+ };
 /**
  * بازتنظیمِ قاب (Reframe): پنجره‌ای در «خودِ منبع» که پیش از جا دادن (fit) بریده می‌شود؛ بنابراین کیفیت از فایلِ اصلی است.
  * w,h = اندازهٔ پنجره (کسری از پهنا/ارتفاعِ منبع)؛ cx,cy = مرکزِ پنجره (کسری از منبع). kx,ky = کلیدفریمِ مرکز در زمانِ قطعه
@@ -139,6 +148,8 @@ export type Track = {
   pan?: number;
   role?: TrackRole;
   caption?: boolean;
+  /** «هدف» (◎): ویرایش‌های درج و رویه‌گذاری از مانیتورِ منبع روی این ترک می‌نشینند */
+  target?: boolean;
   clips: AnyClip[];
 };
 

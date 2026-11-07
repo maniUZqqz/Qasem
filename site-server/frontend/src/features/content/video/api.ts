@@ -114,6 +114,8 @@ export type RenderJobRow = {
 export type ExportRow = {
   job_id: number; url: string; rel: string; preset: string; quality: string; seconds: number; bytes: number; size: string; codec: string; note: string;
   rendered_at: string; where?: "node" | "server"; node?: string; encoder?: string; fallback?: string;
+  /** نوعِ خروجی: ویدیو (پیش‌فرض)، GIF، عکسِ یک فریم، فقط صدا؛ و آیا فقط بازهٔ ورودی–خروجی بوده */
+  format?: "mp4" | "gif" | "frame" | "audio"; range?: "all" | "inout";
 };
 export type RenderWhere = { online: boolean; message: string; node: string; nvenc: boolean; gpu?: string };
 export type LutRow = { key: string; title: string; size: number; bytes: number; created: number };

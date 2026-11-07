@@ -56,9 +56,11 @@ class ModelRegistryTests(SimpleTestCase):
         self.assertEqual(chosen, ["qwen3-vl:30b"])
 
     def test_unreachable_ollama_falls_back_to_configured_names(self):
+        # Ollama unreachable ⇒ the configured names come back unchanged. "REASONING" is the everyday-text task, whose configured
+        # model is gemma3:12b (services.ai.priority.DEFAULT_MODELS); the deep-reasoning model qwq:32b is what "RESEARCH" prefers.
         with self._with([]):
-            chosen = models_registry.candidates("REASONING")
-        self.assertEqual(chosen[0], "qwq:32b")
+            self.assertEqual(models_registry.candidates("REASONING")[0], "gemma3:12b")
+            self.assertEqual(models_registry.candidates("RESEARCH")[0], "qwq:32b")
 
     def test_tag_matching_is_tolerant(self):
         self.assertTrue(models_registry._same_model("qwq", "qwq:32b"))

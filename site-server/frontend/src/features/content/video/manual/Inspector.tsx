@@ -64,7 +64,7 @@ export type InspectorProps = {
   onFreeze: () => void;
   onJLCut: (kind: "J" | "L") => void;
   linked: boolean;
-  onRender: (q: "draft" | "final") => Promise<void>;
+  onRender: (q: "draft" | "final", override?: Record<string, unknown>) => Promise<void>;
   renderBusy: boolean;
   onSubtitles: (ref: string) => void;
   hasSubtitleSource: boolean;
@@ -331,7 +331,7 @@ function OutTab(p: InspectorProps) {
           storeId={p.storeId} projectId={projectId} project={project} check={p.check} cat={p.cat.export} busy={p.renderBusy} where={p.exportWhere ?? p.cat.render_where}
           onExport={(block: ExportBlock) => edit.apply("تنظیماتِ خروجی", (pr) => ({ ...pr, export: block }))}
           onMaster={(patch) => p.sound.applyRoot("بلندیِ صدای خروجی", (pr) => ({ ...pr, master: { ...(pr.master ?? DEFAULT_MASTER), ...patch } }))}
-          onRender={p.onRender}
+          onRender={p.onRender} playhead={p.playhead}
         />
       ) : <p className="ws-hint">در حالِ بارگیریِ تنظیماتِ خروجی…</p>}
     </div>

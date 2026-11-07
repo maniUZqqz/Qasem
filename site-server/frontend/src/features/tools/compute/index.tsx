@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../../api/client";
 import { NodeAudioSection } from "../../audio/NodeAudioCard";
+import DownloadScheduleCard from "./DownloadSchedule";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
   Alert,
@@ -637,6 +638,7 @@ export default function ComputePage() {
       )}
 
       <EnrollCard settings={settings} error={settingsError} onChange={setSettings} />
+      <DownloadScheduleCard />
 
       <Card padded={false}>
         <div className="px-5 pt-5">

@@ -35,6 +35,7 @@ import {
 import { cuesOf, makeRoom, parseSrt, spanOf, splitAtSourceCuts, toSrt } from "./r4ops";
 import { foldersOf, rippleDeleteSync, syncTracks } from "./r5ops";
 import { addAdjustment, adjustmentSpan } from "./r5fx";
+import { finalExport } from "./exportDefaults";
 import { applyReplace, pollJob, replaceSpec } from "./r5replace";
 import { autoColor, eyedropper, frameStats, patchToParams, samplePixel } from "./colorTools";
 import { grabFrame } from "./frameGrab";
@@ -550,7 +551,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         setNotice("ذخیرهٔ پروژه نشد؛ رندر شروع نشد.");
         return;
       }
-      await videoApi.render(storeId, id, q, { data: JSON.parse(saveRef.current.key), ...(override ? { export: override } : {}) });
+      // «نهایی» همیشه با تنظیماتِ کامل و درست می‌رود (حتی اگر تبِ خروجی دست نخورده باشد)؛ پیش‌نویسِ سریع مثلِ قبل
+      const data = JSON.parse(saveRef.current.key) as { export?: Parameters<typeof finalExport>[0] };
+      const exp = q === "final" ? finalExport(data.export, override) : override;
+      await videoApi.render(storeId, id, q, { data, ...(exp ? { export: exp } : {}) });
     } catch (err) {
       setNotice(errorMessage(err));
     } finally {
@@ -563,7 +567,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     try {
       const id = await saveNow();
       if (!id) return { ok: false, message: "ذخیرهٔ پروژه نشد؛ رندر شروع نشد." };
-      await videoApi.render(storeId, id, "final", { data: JSON.parse(saveRef.current.key), export: override });
+      const data = JSON.parse(saveRef.current.key) as { export?: Parameters<typeof finalExport>[0] };
+      await videoApi.render(storeId, id, "final", { data, export: finalExport(data.export, override) });
       return { ok: true };
     } catch (err) {
       const code = (err as { response?: { data?: { error?: { code?: string } } } }).response?.data?.error?.code;

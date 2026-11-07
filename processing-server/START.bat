@@ -1,5 +1,5 @@
 @echo off
-title UpMarket processing node
+title NMarketing processing node
 rem ================================================================
 rem  UpMarket - processing node (GPU machine, no public IP needed)
 rem  The ONLY file to run. Every start:
@@ -44,6 +44,7 @@ if not "%NM_COMFY_BAT%"=="" if exist "%NM_COMFY_BAT%" start "ComfyUI" /min cmd /
     exit /b 1
   )
   if not "%NM_AUTO_UPDATE%"=="0" python "%~dp0update.py" --auto
+  python "%~dp0agent.py" --version
   echo.
   echo Processing node is starting. Keep this window open. ^(Ctrl+C to stop^)
   echo.

@@ -79,6 +79,18 @@ path, which stays as the fallback). Model: package 'video-matting' (downloads/ma
 by Download-Models.bat / the start-up download / Update.bat, or by the first video job that finds it missing. Needs numpy +
 onnxruntime in some Python of this computer (nothing is installed by the node). The heartbeat's edit caps also name the
 originals this node already caches (caps.edit.cache), so the site can send it a quick draft render without an upload.
+Agent 2.6 - downloads on a schedule. The site's «زمان‌بندیِ دانلود» (panel > Processing servers) says whether downloads run
+"now" or only inside a night window (default 02:00-07:00, Tehran time = UTC+3:30, a fixed offset: no tzdata). The answer to
+every heartbeat / claim carries it (downloads, site_version, server_time); it is also kept in <data>\\download_window.json so a
+restart while the site is unreachable still knows it. What obeys the window: the background model download (default set at
+start-up, the panel's «دانلود» of voice models - paused cleanly when the window closes, partial files resume, NOT a failure),
+ollama.pull (waits inside the job keeping its lease alive; a window closing mid-pull stops the stream and waits for the next one;
+Ollama keeps the partial layers), and editor builds / kit packs started in the background. What never waits: the node's own
+code update, and a download that is part of a job the user is waiting for right now (edit_rvm inside edit.matte,
+setup_voice_service inside voice.clone, an editor a running job needs). A job payload may carry its own "window" ("" = no
+limit; the panel's «الان» / «در ساعتِ ...» choices). Also: finish() and the output upload keep retrying (up to ~5 min) when the
+site is briefly unreachable, WORK\\<job> folders older than a day are removed at start, and the heartbeat reports disk_free_gb /
+disk_total_gb / gpu_util_pct / gpu_temp_c. `python agent.py --version` prints the banner.
 """
 import glob
 import hashlib
@@ -101,7 +113,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.5"
+VERSION = "2.6"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -370,17 +382,27 @@ def nuget_reachable():
     return _NUGET["ok"]
 
 
-def ensure_editor(key, tick=None):
+def ensure_editor(key, tick=None, background=False):
     """Make a PersianAiKit editor runnable without any manual setup: build it with the local .NET SDK
-    (the owner has one), else take the ready build from the site; then fetch what it needs (ffmpeg, voice models)."""
+    (the owner has one), else take the ready build from the site; then fetch what it needs (ffmpeg, voice models).
+
+    background=True (agent 2.6: started by the panel's desired state or by the start-up setup, nobody is waiting for it):
+    outside the site's download window it raises DownloadDeferred instead of downloading. A job that needs the editor
+    right now calls it with background=False and is never delayed."""
     kit = KIT_DIRS[key]
     root = kit_dir(kit)
+
+    def gate(what):
+        if background and not download_allowed():
+            raise DownloadDeferred("%s editor: %s waits for the download window" % (key, what))
+
     if not os.path.isdir(os.path.join(root, "src")):
         try:                                       # the kit's source comes from the code folder (first start, or new code)
             nm_data.sync_kit(DATA, HERE)
         except Exception as e:  # noqa: BLE001
             warn("could not copy the editors' source into the data folder: %s" % e)
     if not editor_published(key):
+        gate("the build / package")
         dn = find_dotnet()
         if dn and not nuget_reachable():
             log("%s: nuget.org is not reachable - taking the ready build from the site instead of building" % key)
@@ -401,14 +423,19 @@ def ensure_editor(key, tick=None):
         if not editor_published(key):
             raise RuntimeError("the %s editor could not be prepared (no .NET build and no site package)" % key)
     if key == "video" and not ffmpeg_ok():
+        gate("ffmpeg")
         fetch_pack("kit-ffmpeg.zip", tick)
     if key == "voice" and not voice_models_ok():
+        gate("the voice models")
         fetch_pack("kit-models-voice-min.zip", tick)
     if key == "photo" and not os.path.isfile(os.path.join(root, "models", "upscale", "realesr-general-x4v3.onnx")):
-        try:
-            fetch_pack("kit-models-photo.zip", tick)
-        except Exception as e:  # noqa: BLE001 - optional model
-            warn("photo upscaler model not fetched (%s); the editor works without it" % e)
+        if background and not download_allowed():
+            pass                       # optional model: the editor starts without it now; the next start inside the window fetches it
+        else:
+            try:
+                fetch_pack("kit-models-photo.zip", tick)
+            except Exception as e:  # noqa: BLE001 - optional model
+                warn("photo upscaler model not fetched (%s); the editor works without it" % e)
     return True
 
 
@@ -681,7 +708,9 @@ class Site:
             time.sleep(min(30, 3 * attempt))
         raise SiteError("download failed after %d attempts: %s" % (attempts, last))
 
-    def upload(self, path, files, timeout=1800, attempts=4):
+    def upload(self, path, files, timeout=1800, attempts=8, sleep=None):
+        """Upload output files; a site that is briefly unreachable is asked again (8 tries, the waits grow 5 -> 60 s: about
+        4 minutes in all). A rejected upload (HTTP 4xx) is not repeated."""
         body, ctype = multipart({}, files)
         last = None
         for attempt in range(1, attempts + 1):
@@ -692,7 +721,8 @@ class Site:
                     raise
                 last = e
                 warn("upload %s failed (attempt %d/%d): %s" % (path, attempt, attempts, e))
-                time.sleep(min(30, 5 * attempt))
+                if attempt < attempts:
+                    (sleep or time.sleep)(min(60, 5 * 2 ** (attempt - 1)))
         raise last
 
 
@@ -780,6 +810,7 @@ class ServiceManager:
         self.cfg = load_services_cfg()
         self.procs = {}          # key -> Popen we started
         self.warned = set()
+        self.deferred = {}       # editor key -> when we last said it waits for the download window
         self.applied = None
         self.lock = threading.Lock()
 
@@ -848,7 +879,9 @@ class ServiceManager:
             first, rest = parts[0], (parts[1] if len(parts) > 1 else "")
         return "& '%s' %s" % (first.replace("'", "''"), rest.strip())
 
-    def start(self, key, wait=True, tick=None):
+    def start(self, key, wait=True, tick=None, background=False):
+        """background=True: the panel's desired state started it (nobody is waiting): an editor that still has to be built /
+        downloaded waits for the download window instead of blocking the main loop; jobs (tick given) never wait."""
         if self.running(key):
             return True
         cmd = self._command(key)
@@ -860,7 +893,13 @@ class ServiceManager:
             return False
         if key in KIT_DIRS:
             try:
-                ensure_editor(key, tick)
+                ensure_editor(key, tick, background=background)
+            except DownloadDeferred as e:
+                if time.time() - self.deferred.get(key, 0.0) > 1800:      # said once per half hour, not on every heartbeat
+                    self.deferred[key] = time.time()
+                    log("%s (opens in %d min, %s Tehran time)" % (
+                        e, seconds_until_window() // 60, hhmm_tehran(_now() + seconds_until_window())))
+                return False
             except Exception as e:  # noqa: BLE001
                 error("cannot prepare the %s editor: %s" % (key, e))
                 return False
@@ -973,7 +1012,7 @@ class ServiceManager:
                 if key not in SERVICE_KEYS:
                     continue
                 if want and not self.running(key):
-                    self.start(key)                       # "on": keep it alive
+                    self.start(key, background=True)      # "on": keep it alive (a download it needs waits for the window)
                 elif want is False and prev.get(key) != want and self.running(key):
                     self.stop(key)                        # "off": stop it when the panel switches it off
             for key in AUDIO_ENGINES:                     # a voice model switched off in the panel: free its VRAM now
@@ -1017,7 +1056,7 @@ class ServiceManager:
             raise JobError(audio_disabled_message(key, purpose), retryable=False)
         if not audio_installed(key):
             pkg = AUDIO_ENGINES[key]["package"]
-            if DOWNLOADS.downloading(pkg):
+            if DOWNLOADS.downloading(pkg) or DOWNLOADS.waiting_for(pkg):
                 raise JobError("DOWNLOADING: the models of %s are still being downloaded (%s) - the job is tried again "
                                "later | مدل‌های «%s» هنوز در حالِ دانلود است" % (
                                    AUDIO_ENGINES[key]["label"], DOWNLOADS.percent_text(), AUDIO_ENGINES[key]["label"]))
@@ -1065,6 +1104,276 @@ MANAGER = None
 STATE = {"auto_switch": True, "desired": {}, "ai": {}}
 
 
+# ───────────────────────────────────────────── download window (agent 2.6)
+# The site's «زمان‌بندیِ دانلود»: downloads run now, or only inside a night window (Tehran time). Console text stays English
+# (a Persian console breaks on Windows); text that goes to the SITE (job message, live progress, site log) is Persian.
+
+TZ_OFFSET_S = 210 * 60              # Tehran = UTC+3:30, no daylight saving: a fixed offset, so no tzdata is ever needed
+WINDOW_FILE = "download_window.json"
+DEFAULT_WINDOW = "02:00-07:00"
+FIRST_CONTROL = threading.Event()   # set once an answer of the site (heartbeat / claim) was read
+SETUP_WAIT_S = float(os.environ.get("NM_SETUP_WAIT_S") or 90)
+_FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+class DownloadDeferred(Exception):
+    """A download started in the background has to wait for the download window (a job the user is waiting for never
+    raises this: it is exempt)."""
+
+
+def _now():
+    """Seconds since the epoch on the SITE's clock: this computer's clock plus the skew the site told us about."""
+    return time.time() + float(STATE.get("clock_skew_s") or 0.0)
+
+
+def parse_window(text):
+    """«02:00-07:00» -> (start minute, end minute) of the Tehran day, or None when empty / invalid."""
+    try:
+        a, b = (text or "").strip().split("-")
+        ah, am = (int(x) for x in a.split(":"))
+        bh, bm = (int(x) for x in b.split(":"))
+        start, end = ah * 60 + am, bh * 60 + bm
+        if 0 <= am < 60 and 0 <= bm < 60 and 0 <= start < 1440 and 0 <= end < 1440 and start != end:
+            return start, end
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def in_window(window, now=None):
+    """Is `now` (epoch seconds; default the site's clock) inside the window? Empty / invalid window = always. A window
+    that crosses midnight (22:00-04:00) works."""
+    parsed = parse_window(window)
+    if not parsed:
+        return True
+    start, end = parsed
+    minute = int(((_now() if now is None else now) + TZ_OFFSET_S) // 60) % 1440
+    return (start <= minute < end) if start < end else (minute >= start or minute < end)
+
+
+def seconds_to_window(window, now=None):
+    """Seconds until the window opens (0.0 when it is open now, or there is no window)."""
+    parsed = parse_window(window)
+    if not parsed or in_window(window, now):
+        return 0.0
+    t = (_now() if now is None else now) + TZ_OFFSET_S
+    delta = parsed[0] * 60 - (t % 86400)
+    return delta if delta > 0 else delta + 86400
+
+
+def effective_window(window=None):
+    """The window that limits a download now: an explicit one (a job payload; "" = no limit), else the site's global
+    one - which applies only when the site's mode is "window"."""
+    if window is not None:
+        return str(window).strip()
+    d = STATE.get("downloads") or {}
+    return str(d.get("window") or "").strip() if d.get("mode") == "window" else ""
+
+
+def download_allowed(now=None, window=None):
+    """May a download that nobody is waiting for start (or go on) right now?"""
+    return in_window(effective_window(window), now)
+
+
+def seconds_until_window(now=None, window=None):
+    return seconds_to_window(effective_window(window), now)
+
+
+def hhmm_tehran(epoch):
+    t = int(epoch + TZ_OFFSET_S)
+    return "%02d:%02d" % (t % 86400 // 3600, t % 3600 // 60)
+
+
+def fa_clock(epoch, now=None):
+    """«امروز ۰۲:۰۰» / «فردا ۰۲:۰۰» / «۳ روزِ دیگر، ۰۲:۰۰» (Tehran time): the text the panel shows."""
+    now = _now() if now is None else now
+    day = int((epoch + TZ_OFFSET_S) // 86400) - int((now + TZ_OFFSET_S) // 86400)
+    hhmm = hhmm_tehran(epoch).translate(_FA_DIGITS)
+    if day <= 0:
+        return "امروز " + hhmm
+    if day == 1:
+        return "فردا " + hhmm
+    return "%s روزِ دیگر، %s" % (str(day).translate(_FA_DIGITS), hhmm)
+
+
+def _iso_epoch(text):
+    """ISO-8601 text -> epoch seconds (naive = UTC), or None."""
+    try:
+        dt = datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _iso_utc(epoch):
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat()
+
+
+def window_file():
+    return os.path.join(DATA, WINDOW_FILE)
+
+
+def set_download_settings(d, save=True):
+    """The site's global download settings ({"mode": "now"|"window", "window": "02:00-07:00"}) -> STATE, and into the data
+    folder so a restart while the site is unreachable still knows them. Returns True when something changed."""
+    if not isinstance(d, dict):
+        return False
+    window = str(d.get("window") or "").strip()
+    new = {"mode": "window" if str(d.get("mode")) == "window" else "now",
+           "window": window if parse_window(window) else DEFAULT_WINDOW}
+    if new == STATE.get("downloads"):
+        return False
+    STATE["downloads"] = new
+    log("download schedule: %s" % ("only %s (Tehran time)" % new["window"] if new["mode"] == "window" else "any time"))
+    if save:
+        try:
+            os.makedirs(DATA, exist_ok=True)
+            tmp = window_file() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(dict(new, saved=datetime.now(timezone.utc).isoformat()), fh)
+            os.replace(tmp, window_file())
+        except OSError as e:
+            warn("could not save the download window: %s" % e)
+    return True
+
+
+def load_download_settings():
+    """The window saved by the last run -> STATE (None when there is none or it is unreadable)."""
+    try:
+        with open(window_file(), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if isinstance(d, dict):
+        set_download_settings(d, save=False)
+        return STATE.get("downloads")
+    return None
+
+
+def banner_text():
+    sv = STATE.get("site_version")
+    return "NMarketing processing node v%s%s" % (VERSION, (" (site v%s)" % sv) if sv else "")
+
+
+def set_console_title(text):
+    """The Windows console title; nothing anywhere else (and never an error)."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleTitleW(text)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def absorb_control(r):
+    """What every heartbeat / claim answer carries besides the job: the download settings, the site's clock and its
+    version (agent 2.6). An older site sends none of it: the saved / default settings stay."""
+    if not isinstance(r, dict):
+        return
+    d = r.get("downloads")
+    server_time = None
+    if isinstance(d, dict):
+        set_download_settings(d)
+        server_time = _iso_epoch(d.get("server_time"))
+    if server_time is None:
+        server_time = _iso_epoch(r.get("server_time"))
+    if server_time is not None:
+        skew = server_time - time.time()
+        STATE["clock_skew_s"] = skew if abs(skew) < 3 * 86400 else 0.0     # a PC clock a few hours off still lands in the right window
+    sv = r.get("site_version")
+    if isinstance(sv, str) and sv.strip() and sv.strip()[:20] != STATE.get("site_version"):
+        STATE["site_version"] = sv.strip()[:20]
+        set_console_title(banner_text())
+        log(banner_text())
+    FIRST_CONTROL.set()
+
+
+def wait_first_control(timeout=None):
+    """background_setup waits for the first answer of the site (it carries the download window) before deciding what to
+    download now; after SETUP_WAIT_S without one the saved copy of the settings decides."""
+    return FIRST_CONTROL.wait(SETUP_WAIT_S if timeout is None else timeout)
+
+
+def _editor_needs_work(key):
+    return (not editor_published(key) or (key == "video" and not ffmpeg_ok()) or (key == "voice" and not voice_models_ok()))
+
+
+# ---- the numbers the panel's report page reads (heartbeat capabilities)
+
+_GPU = {"at": 0.0, "util": None, "temp": None}
+
+
+def _number(text):
+    try:
+        return int(round(float(str(text).strip())))
+    except (ValueError, OverflowError):
+        return None
+
+
+def gpu_stats(now=None, run=None, which=None):
+    """(utilisation %, temperature C) of the first NVIDIA GPU; one nvidia-smi call per 60 s at most (the answer, or its
+    absence, is cached); (None, None) when there is no NVIDIA driver."""
+    now = time.time() if now is None else now
+    if _GPU["at"] and 0 <= now - _GPU["at"] < 60:
+        return _GPU["util"], _GPU["temp"]
+    _GPU["at"] = now
+    util = temp = None
+    exe = (which or shutil.which)("nvidia-smi")
+    if exe:
+        try:
+            out = (run or subprocess.run)([exe, "--query-gpu=utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"],
+                                          capture_output=True, text=True, timeout=10).stdout.strip().splitlines()
+            if out:
+                parts = out[0].split(",")
+                util = _number(parts[0])
+                temp = _number(parts[1]) if len(parts) > 1 else None
+        except (OSError, subprocess.SubprocessError):
+            pass
+    _GPU.update(util=util, temp=temp)
+    return util, temp
+
+
+def disk_numbers():
+    """(free GB, total GB) of the drive the data folder lives on (decimal GB), or (None, None)."""
+    try:
+        du = shutil.disk_usage(DATA if os.path.isdir(DATA) else HERE)
+        return round(du.free / 1e9, 1), round(du.total / 1e9, 1)
+    except OSError:
+        return None, None
+
+
+def sweep_work(max_age_s=24 * 3600, now=None, root=None):
+    """Remove the folders of finished or abandoned jobs (WORK/<job uid>) that nothing touched for a day; returns how many.
+    Only folders named like a job uid are touched (the editors keep other things in WORK)."""
+    root = root or WORK
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        path = os.path.join(root, name)
+        try:
+            uuid.UUID(name)
+            if not os.path.isdir(path):
+                continue
+            newest = os.stat(path).st_mtime
+            for child in os.listdir(path):
+                newest = max(newest, os.stat(os.path.join(path, child)).st_mtime)
+        except (ValueError, OSError):
+            continue
+        if now - newest > max_age_s:
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 class Capabilities:
     def __init__(self, name, slots):
         self.name = name
@@ -1104,6 +1413,14 @@ class Capabilities:
         used, vtotal = vram_mb()
         if vtotal:
             caps["vram_used_mb"], caps["vram_total_mb"] = used, vtotal
+        free_gb, total_gb = disk_numbers()           # the drive of the data folder (the report page reads these)
+        if total_gb:
+            caps["disk_free_gb"], caps["disk_total_gb"] = free_gb, total_gb
+        util, temp = gpu_stats()
+        if util is not None:
+            caps["gpu_util_pct"] = util
+        if temp is not None:
+            caps["gpu_temp_c"] = temp
         if MANAGER is not None:
             caps["managed"] = MANAGER.managed_map()
             caps["startable"] = MANAGER.startable_map()   # the site may route jobs here when auto-switch can start the engine
@@ -1497,9 +1814,24 @@ class Job:
             self.site.upload("/api/v1/compute/jobs/%s/upload/" % self.uid, files)
         return names
 
-    def finish(self, ok, err="", meta=None):
-        self.site.post("/api/v1/compute/jobs/%s/finish/" % self.uid,
-                       {"ok": ok, "error": err[:4000], "meta": meta or {}}, timeout=120)
+    def finish(self, ok, err="", meta=None, patience_s=300, sleep=None):
+        """Report the end of the job. The result of hours of work must not be lost to a few minutes of bad internet: while
+        the site is unreachable (or answers 5xx) this asks again with growing waits for up to `patience_s` (~5 min). A job the
+        site gave to someone else (JobLost, 403) or a refusal (HTTP 4xx, a rejected token) is raised at once."""
+        body = {"ok": ok, "error": err[:4000], "meta": meta or {}}
+        waited, delay = 0.0, 2.0
+        while True:
+            try:
+                self.site.post("/api/v1/compute/jobs/%s/finish/" % self.uid, body, timeout=120)
+                return
+            except SiteError as e:
+                if "HTTP 4" in str(e) or "rejected the node token" in str(e) or waited >= patience_s:
+                    raise
+                step = min(delay, 30.0, patience_s - waited)
+                warn("could not report the end of job %s (%s) - asking again in %ds" % (self.uid[:8], str(e)[:120], step))
+                (sleep or time.sleep)(step)
+                waited += step
+                delay *= 2
 
 
 # ───────────────────────────────────────────── voice service (natural voices, cloning)
@@ -2168,7 +2500,12 @@ DOWNLOADER = os.path.join(HERE, "download_models.py")
 
 class DownloadManager:
     """Runs download_models.py in the background (one run at a time; more packages queue up) and tells the panel
-    what is installed per package and how far a download is (logs\\download-status.json)."""
+    what is installed per package and how far a download is (logs\\download-status.json).
+
+    Agent 2.6: it obeys the site's download window. Outside it a request WAITS (state "waiting", reported to the panel as
+    caps.models.waiting) and starts by itself when the window opens; a run that is going when the window closes is stopped
+    cleanly (partial files resume) and goes on by itself at the next opening - neither is a failure, nothing is retried
+    after an hour. `window` of start() is the job payload's own window ("" = no limit, None = the site's global one)."""
 
     def __init__(self):
         self.proc = None
@@ -2181,6 +2518,11 @@ class DownloadManager:
         self.last_error = ""
         self.retry_at = 0.0             # a failed default download is tried again by itself (pip source down, ...)
         self.retry_s = float(os.environ.get("NM_DOWNLOAD_RETRY_S") or 3600)
+        self.run_window = None          # the window the running download was started under
+        self.wait_pkgs = set()          # explicit packages waiting for the window
+        self.wait_default = False       # the default set waits for the window
+        self.wait_window = None
+        self.wait_since = 0.0
 
     def available(self):
         return os.path.isfile(DOWNLOADER)
@@ -2216,6 +2558,8 @@ class DownloadManager:
             return None
 
     def percent_text(self):
+        if self.waiting() and not self.running():
+            return "waiting for the download window"
         pr = self.progress() or {}
         total = pr.get("bytes_total") or 0
         return "%d%%" % (100 * (pr.get("bytes_done") or 0) / total) if total else "starting"
@@ -2226,11 +2570,42 @@ class DownloadManager:
         pr = self.progress() or {}
         return self.packages is None or package in (pr.get("packages") or self.packages or [])
 
+    def waiting(self):
+        return bool(self.wait_pkgs or self.wait_default)
+
+    def waiting_for(self, package):
+        """Is this package part of a download that waits for the window?"""
+        return self.wait_default or package in self.wait_pkgs
+
     def missing_default(self):
         st = self.refresh() or {}
         return [p for p, row in (st.get("packages") or {}).items() if not row.get("optional") and not row.get("installed")]
 
-    def start(self, packages=None, reason=""):
+    # ---- waiting for the window
+    def _wait(self, packages, window, why):
+        """Remember a download that has to wait (called with the lock held)."""
+        if not self.waiting():
+            self.wait_since = time.time()
+        if packages:
+            self.wait_pkgs |= set(packages)
+        else:
+            self.wait_default = True
+        self.wait_window = window
+        secs = seconds_until_window(window=window)
+        log("models: %s - waiting for the download window (opens in %d min, %s Tehran time)" % (
+            why, secs // 60, hhmm_tehran(_now() + secs)))
+        SITE_LOG.add("INFO", "دانلودِ مدل‌ها تا ساعتِ %s منتظر می‌ماند (بازهٔ دانلود)؛ آنچه گرفته شده می‌ماند و خودکار ادامه می‌یابد." % (
+            hhmm_tehran(_now() + secs).translate(_FA_DIGITS)))
+
+    def waiting_info(self):
+        """For the panel (caps.models.waiting): what waits and when the window opens (UTC ISO)."""
+        if not self.waiting():
+            return None
+        secs = seconds_until_window(window=self.wait_window)
+        return {"until": _iso_utc(_now() + secs), "packages": sorted(self.wait_pkgs), "default": self.wait_default,
+                "reason": "window", "since": _iso_utc(self.wait_since) if self.wait_since else None}
+
+    def start(self, packages=None, reason="", window=None):
         """Start (or queue) a background download. packages=None: the default set (everything not optional)."""
         with self.lock:
             if not self.available():
@@ -2239,6 +2614,9 @@ class DownloadManager:
                 if packages:
                     self.queue = sorted(set(self.queue) | set(packages))
                 return "queued"
+            if not download_allowed(window=window):
+                self._wait(packages, window, reason or "download requested")
+                return "waiting"
             os.makedirs(LOGS, exist_ok=True)
             cmd = [sys.executable, DOWNLOADER, "--yes", "--status-file", self.status_file]
             if packages:
@@ -2252,12 +2630,63 @@ class DownloadManager:
                 self.last_error = str(e)
                 return "failed: %s" % e
             self.packages = list(packages) if packages else None
+            self.run_window = window
+            # what was waiting for this very run is no longer waiting
+            if packages:
+                self.wait_pkgs -= set(packages)
+            else:
+                self.wait_default = False
             log("models: downloading %s in the background%s (progress in the panel; log: logs\\download-models-agent.log)"
                 % (", ".join(packages) if packages else "the default set", (" - " + reason) if reason else ""))
             return "started"
 
+    def _stop_proc(self):
+        """Stop the running download without hurting its partial files (they resume): the whole process tree on Windows
+        (pip / git children included), a plain terminate elsewhere."""
+        proc = self.proc
+        if proc is None:
+            return
+        try:
+            if sys.platform.startswith("win"):
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=30)
+            else:
+                proc.terminate()
+            proc.wait(timeout=20)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _pause(self):
+        """The download window closed while a download was running: stop it cleanly and remember to go on."""
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                return
+            packages, window = self.packages, self.run_window
+            self._stop_proc()
+            self.proc = None
+            self.last_error = ""
+            self.retry_at = 0.0
+            self._wait(packages, window, "paused - the download window closed (partial files are kept)")
+
+    def _resume(self):
+        """The window is open and something waits: explicit packages first, then the default set."""
+        if not self.waiting() or self.running() or not download_allowed(window=self.wait_window):
+            return
+        window = self.wait_window
+        if self.wait_pkgs:
+            self.start(sorted(self.wait_pkgs), "the download window is open", window=window)
+        elif self.wait_default:
+            self.start(None, "the download window is open", window=window)
+
     def poll(self):
-        """Called by the main loop: a finished run refreshes the status and starts what was queued."""
+        """Called by the main loop: a finished run refreshes the status and starts what was queued; a run whose window
+        closed is paused, and what waited for the window starts when it opens."""
+        if self.proc is not None and self.proc.poll() is None:
+            if not download_allowed(window=self.run_window):
+                self._pause()
+            return
         if self.proc is not None and self.proc.poll() is not None:
             code = self.proc.returncode
             self.proc = None
@@ -2273,11 +2702,12 @@ class DownloadManager:
                 log("models: download finished")
             if self.queue:
                 nxt, self.queue = self.queue, []
-                self.start(nxt, "queued from the panel")
+                self.start(nxt, "queued from the panel", window=self.run_window)
         elif self.proc is None and self.retry_at and time.time() > self.retry_at:
             self.retry_at = 0.0
             if self.missing_default() and not self.running():
                 self.start(None, "retrying the download that failed earlier")
+        self._resume()
 
     def caps(self):
         st = self.status or {}
@@ -2293,6 +2723,9 @@ class DownloadManager:
                                "bytes_total": pr.get("bytes_total"), "items_done": pr.get("items_done"),
                                "items_total": pr.get("items_total"), "current": cur.get("id"),
                                "current_done": cur.get("done"), "current_total": cur.get("total")}
+        waiting = self.waiting_info()
+        if waiting and not out["running"]:
+            out["waiting"] = waiting
         return out
 
 
@@ -2357,7 +2790,7 @@ def preflight(cfg, site=None, out=print):
         except UnicodeEncodeError:
             out("  %s %-22s %s" % ("[OK]" if ok else "[X ]" if ok is False else "[..]", label, detail))
 
-    out("UpMarket processing node %s - start-up checklist" % VERSION)
+    out("%s - start-up checklist" % banner_text())
     row("python", sys.version_info >= (3, 10), "Python", sys.version.split()[0])
     row("data", os.path.isdir(DATA), "data folder", "%s (models, environments, node.json; kept across updates)" % DATA)
     git = shutil.which("git")
@@ -2366,6 +2799,7 @@ def preflight(cfg, site=None, out=print):
     if site is not None:
         try:
             r = site.post("/api/v1/compute/heartbeat/", {}, timeout=15)
+            absorb_control(r)                    # the download window comes with the very first answer
             row("site", True, "site + registration", "%s, node '%s'" % (cfg["site"], (r or {}).get("name") or cfg["name"]))
         except SiteError as e:
             row("site", False, "site + registration", "%s (check the internet connection; a rejected token: delete "
@@ -2401,8 +2835,11 @@ def preflight(cfg, site=None, out=print):
         optional = [p for p, r in pk.items() if r.get("optional") and not r.get("installed")]
         if missing:
             gb = sum(r.get("bytes_missing") or 0 for r in missing.values()) / 1e9
-            row("models", None, "models", "%s missing (%.1f GB) - downloading in the background%s" % (
-                ", ".join(sorted(missing)), gb, " (already running)" if st.get("running") else ""))
+            row("models", None, "models", "%s missing (%.1f GB) - %s%s" % (
+                ", ".join(sorted(missing)), gb,
+                "downloading in the background" if download_allowed() else
+                "waiting for the download window (%s Tehran time)" % hhmm_tehran(_now() + seconds_until_window()),
+                " (already running)" if st.get("running") else ""))
         else:
             row("models", True, "models", "all present%s" % (" (optional, from the panel: %s)" % ", ".join(sorted(optional))
                                                              if optional else ""))
@@ -2413,18 +2850,43 @@ def preflight(cfg, site=None, out=print):
     return rows
 
 
-def background_setup():
-    """After the checklist: build or fetch what is missing, then download the default models - while jobs run."""
+def background_setup(sleep=None):
+    """After the checklist: build or fetch what is missing, then download the default models - while jobs run.
+
+    Agent 2.6: nobody is waiting for this, so it obeys the site's download window. It first waits for the first answer of
+    the site (that is where the window comes from; after SETUP_WAIT_S the saved copy decides). Outside the window the
+    default-model download is parked in DOWNLOADS (it starts by itself when the window opens) and the editors that still
+    need a build / package are retried here when it opens."""
+    sleep = sleep or time.sleep
     try:
+        if not wait_first_control():
+            warn("background setup: no answer from the site yet - using the saved download window (%s)" % (
+                json.dumps(STATE.get("downloads")) if STATE.get("downloads") else "none: any time"))
+        deferred = []
         for key in KIT_DIRS:
-            needs = not editor_published(key) or (key == "video" and not ffmpeg_ok()) or (key == "voice" and not voice_models_ok())
-            if needs:
+            if _editor_needs_work(key):
                 try:
-                    ensure_editor(key)
+                    ensure_editor(key, background=True)
+                except DownloadDeferred as e:
+                    deferred.append(key)
+                    log("%s - will be done in the window (opens in %d min)" % (e, seconds_until_window() // 60))
                 except Exception as e:  # noqa: BLE001
                     warn("could not prepare the %s editor in the background: %s" % (key, e))
         if DOWNLOADS.available() and DOWNLOADS.missing_default() and not DOWNLOADS.running():
-            DOWNLOADS.start(None, "found missing at start-up")
+            DOWNLOADS.start(None, "found missing at start-up")        # outside the window it waits (see DownloadManager)
+        while deferred:
+            if not download_allowed():
+                sleep(min(60.0, max(1.0, seconds_until_window())))
+                continue
+            for key in list(deferred):
+                try:
+                    ensure_editor(key, background=True)
+                    deferred.remove(key)
+                except DownloadDeferred:
+                    break                                            # the window closed again meanwhile
+                except Exception as e:  # noqa: BLE001
+                    deferred.remove(key)
+                    warn("could not prepare the %s editor in the background: %s" % (key, e))
     except Exception as e:  # noqa: BLE001
         warn("background setup: %s" % e)
 
@@ -2554,7 +3016,9 @@ def h_node_models(job):
         st = DOWNLOADS.refresh(force=True)
         res = {"refreshed": bool(st)}
     else:
-        res = {"result": DOWNLOADS.start(pkgs or None, "asked from the panel"), "packages": pkgs or "default"}
+        # the job's own window ("" = the owner said «now» / a clock time: no limit) beats the site's global one
+        window = p.get("window") if isinstance(p.get("window"), str) else None
+        res = {"result": DOWNLOADS.start(pkgs or None, "asked from the panel", window=window), "packages": pkgs or "default"}
     with open(job.out("models.json"), "w", encoding="utf-8") as fh:
         json.dump({**res, "status": DOWNLOADS.caps()}, fh, ensure_ascii=False, indent=2)
     return {"primary": "models.json", "engine": "node", **res}
@@ -3040,6 +3504,7 @@ class PullTracker:
                 interval = 4.0
         self.job, self.tag, self.expected, self.max_attempts, self.interval = job, tag, int(expected or 0), max_attempts, interval
         self.layers = {}                       # digest -> [completed, total]
+        self.waiting_until = None              # epoch seconds the download window opens (phase "window")
         self.phase, self.attempt = "manifest", 1
         self.speed = 0.0                       # bytes / second (smoothed)
         self._last_at, self._last_done, self._reported = time.time(), 0, 0.0
@@ -3080,9 +3545,15 @@ class PullTracker:
         frac = min(0.98, max(0.02, done / total)) if total else 0.02
         msg = "pull %s: %d / %d MB%s" % (self.tag, done // 1000000, total // 1000000,
                                          (" (%.1f MB/s)" % (self.speed / 1e6)) if self.speed else "")
-        self.job.progress(frac, msg[:200], {"kind": "pull", "tag": self.tag, "done": done, "total": total,
-                                           "speed_mbs": round(self.speed / 1e6, 1), "phase": self.phase,
-                                           "attempt": self.attempt, "max_attempts": self.max_attempts})
+        meta = {"kind": "pull", "tag": self.tag, "done": done, "total": total,
+                "speed_mbs": round(self.speed / 1e6, 1), "phase": self.phase,
+                "attempt": self.attempt, "max_attempts": self.max_attempts}
+        if self.phase == "window" and self.waiting_until:
+            # outside the download window: the panel says so (Persian) and when it goes on
+            meta["resume_at"] = _iso_utc(self.waiting_until)
+            meta["resume_text"] = "ادامه " + fa_clock(self.waiting_until)
+            msg = "منتظرِ بازهٔ دانلود — " + meta["resume_text"] + " (وقتِ تهران)"
+        self.job.progress(frac, msg[:200], meta)
 
 
 def _ollama_up_for_pull():
@@ -3095,8 +3566,47 @@ def _ollama_up_for_pull():
     raise PullBroken("Ollama is not running at %s" % base)
 
 
-def _pull_once(job, tag, tracker):
-    """One POST /api/pull stream until «success». Raises PullBroken (try again), JobError (fatal) or Cancelled."""
+class PullWindowClosed(Exception):
+    """The download window closed while the stream ran: stop it (Ollama keeps the partial layers) and wait for the next one."""
+
+
+def pull_window(job):
+    """The window an ollama.pull stays inside: the job's own (payload "window"; "" = no limit), else the site's global one."""
+    p = job.payload if isinstance(job.payload, dict) else {}
+    return effective_window(p["window"] if isinstance(p.get("window"), str) else None)
+
+
+def _window_sleep(seconds):
+    time.sleep(seconds)                 # one place the tests replace to move a fake clock
+
+
+def _pull_wait_window(job, tracker, window, sleep=None):
+    """Hold the download until its window is open, telling the site every ~25 s that we are alive (its lease on the job)
+    and honouring «cancel» (job.progress raises Cancelled)."""
+    first = True
+    while not in_window(window):
+        wait = seconds_to_window(window)
+        tracker.phase, tracker.waiting_until = "window", _now() + wait
+        if first:
+            first = False
+            log("ollama.pull: %s waits for the download window (opens in %d min, %s Tehran time)" % (
+                tracker.tag, wait // 60, hhmm_tehran(tracker.waiting_until)))
+        tracker.report(force=True)
+        (sleep or _window_sleep)(min(25.0, max(1.0, wait)))
+    if tracker.phase == "window":
+        tracker.phase, tracker.waiting_until = "manifest", None
+
+
+def _take_pull_lock(tracker):
+    while not PULL_LOCK.acquire(timeout=5):         # another download is running: wait (and keep the lease alive)
+        tracker.phase = "waiting"
+        tracker.report(force=True)
+    return True
+
+
+def _pull_once(job, tag, tracker, window=""):
+    """One POST /api/pull stream until «success». Raises PullBroken (try again), JobError (fatal), PullWindowClosed
+    (the download window closed) or Cancelled."""
     body = json.dumps({"model": tag, "name": tag, "stream": True}).encode("utf-8")
     req = urllib.request.Request(service_url("ollama") + "/api/pull", data=body, method="POST",
                                  headers={"Content-Type": "application/json", "Accept": "application/x-ndjson"})
@@ -3128,6 +3638,8 @@ def _pull_once(job, tag, tracker):
             tracker.report(force=obj.get("status") == "success")
             if obj.get("status") == "success":
                 return
+            if window and not in_window(window):
+                raise PullWindowClosed()
     raise PullBroken("the download stream ended before 'success'")
 
 
@@ -3151,10 +3663,10 @@ def h_ollama_pull(job):
                        "و عامل هم نمی‌تواند روشنش کند؛ برنامهٔ Ollama را باز کنید و دوباره دانلود را بزنید", retryable=False)
     tries = max(1, int(os.environ.get("NM_PULL_TRIES") or 30))
     tracker = PullTracker(job, tag, int(job.payload.get("expected_bytes") or 0), tries)
+    window = pull_window(job)
     t0 = time.time()
-    while not PULL_LOCK.acquire(timeout=5):         # another download is running: wait (and keep the lease alive)
-        tracker.phase = "waiting"
-        tracker.report(force=True)
+    _pull_wait_window(job, tracker, window)         # a download meant for the night waits for it BEFORE it takes the lock
+    held = _take_pull_lock(tracker)
     try:
         if any(str(n).lower() == tag.lower() for n in ollama_model_names()):
             log("ollama.pull: %s is already installed" % tag)
@@ -3163,13 +3675,22 @@ def h_ollama_pull(job):
         else:
             log("ollama.pull: downloading %s (about %d MB)" % (tag, tracker.expected // 1000000))
             stalled, attempt = 0, 0
-            for attempt in range(1, tries + 1):
+            while attempt < tries:
+                attempt += 1
                 tracker.attempt = attempt
                 before = tracker.done()
                 try:
                     _ollama_up_for_pull()
-                    _pull_once(job, tag, tracker)
+                    _pull_once(job, tag, tracker, window)
                     break
+                except PullWindowClosed:
+                    attempt -= 1                    # a closed window is not a failed try
+                    log("ollama.pull: the download window closed - %s paused (the bytes already downloaded stay)" % tag)
+                    PULL_LOCK.release()             # other downloads (not bound to this window) may use the line meanwhile
+                    held = False
+                    _pull_wait_window(job, tracker, window)
+                    held = _take_pull_lock(tracker)
+                    continue
                 except (Cancelled, JobLost, JobError):
                     raise
                 except (PullBroken, OSError, http_client.HTTPException) as e:   # URLError / socket.timeout are OSErrors
@@ -3186,7 +3707,8 @@ def h_ollama_pull(job):
                 raise JobError("NOT_INSTALLED: Ollama reported success but %s is not in its list | مدل بعد از دانلود در فهرستِ Ollama "
                                "دیده نشد" % tag)
     finally:
-        PULL_LOCK.release()
+        if held:
+            PULL_LOCK.release()
     seconds = round(time.time() - t0, 1)
     with open(job.out("pull.json"), "w", encoding="utf-8") as fh:
         json.dump({"tag": tag, "bytes": tracker.done(), "seconds": seconds, "attempts": attempt,
@@ -3289,7 +3811,7 @@ def run_job(site, data):
         if getattr(e, "retryable", True) is False:
             meta["retryable"] = False          # e.g. VOICE_MISSING: the site re-sends it with the recordings instead
         try:
-            job.finish(False, err, meta)
+            job.finish(False, err, meta, patience_s=120)       # if the site was the problem, the first finish already waited
         except JobLost:
             warn("job %s: the site had already put it back in the queue (no news from this node for too long); "
                  "this attempt is discarded" % job.uid[:8])
@@ -3339,6 +3861,10 @@ def _confirm_update():
 
 def main():
     global CONFIG
+    if "--version" in sys.argv:                   # START.bat prints this line
+        print(banner_text(), flush=True)
+        return 0
+    set_console_title(banner_text())
     if "--prepare" in sys.argv:                   # START.bat, before the loop: data folder + registration
         prepare_data()
         CONFIG = load_config(interactive=True)
@@ -3362,11 +3888,20 @@ def main():
               "(Tools > Processing servers > Register a new server); the site URL is read from site.json.")
         return 2
     os.makedirs(WORK, exist_ok=True)
+    if not os.environ.get("NM_KEEP_WORK"):
+        try:
+            removed = sweep_work()
+            if removed:
+                log("removed %d old job folder(s) from the work folder (older than a day)" % removed)
+        except Exception as e:  # noqa: BLE001 - housekeeping must never keep the node down
+            warn("work folder cleanup: %s" % e)
+    load_download_settings()                      # the window of the last run, in case the site cannot be reached now
     site = Site(CONFIG["site"], CONFIG["token"])
     SITE_LOG.site = site
     caps = Capabilities(CONFIG["name"], CONFIG["slots"])
     global MANAGER
     MANAGER = ServiceManager()
+    print(banner_text(), flush=True)
     log("processing node '%s' v%s -> %s" % (CONFIG["name"], VERSION, CONFIG["site"]))
     try:
         preflight(CONFIG, site)
@@ -3378,6 +3913,7 @@ def main():
         """desired services / auto-switch come back with every heartbeat and claim."""
         if not isinstance(r, dict):
             return
+        absorb_control(r)           # download window, the site's clock and version (agent 2.6)
         if "auto_switch" in r:
             STATE["auto_switch"] = bool(r["auto_switch"])
         if isinstance(r.get("ai"), dict):

@@ -7,6 +7,8 @@
   POST /api/v1/compute/jobs/<uid>/upload/        فایل‌های خروجی (multipart)
   POST /api/v1/compute/jobs/<uid>/finish/        پایان {ok, error, meta, outputs}
 """
+import functools
+import logging
 import os
 
 from django.contrib.auth.models import AnonymousUser
@@ -18,8 +20,15 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from . import queue as QV
+from . import report as report_stats
 from . import services as SV
+from .dbretry import call_with_retry, is_lock_error
 from .models import ComputeJob, ComputeNode, ComputeNodeLog, ComputeSettings, new_token
+
+logger = logging.getLogger(__name__)
+
+#: last_seen را بیش از هر این‌قدر ثانیه برای یک گره ننویس (هر درخواستِ گره یک نوشتن بود؛ «آنلاین» = ۹۰ ثانیه)
+LAST_SEEN_EVERY_S = 8
 
 #: سرویس‌هایی که گره بلد است روشن/خاموش کند (services.json روی خودِ گره دستورِ اجرایشان را دارد)
 SERVICE_KEYS = ("ollama", "comfyui", "voice", "photo", "video", "worker3d")
@@ -35,8 +44,15 @@ class NodeAuth(authentication.BaseAuthentication):
         node = ComputeNode.objects.filter(token=header.split(" ", 1)[1].strip(), enabled=True).first()
         if not node:
             raise exceptions.AuthenticationFailed("توکنِ سرورِ پردازش نامعتبر است یا غیرفعال شده.")
-        node.last_seen = timezone.now()
-        node.save(update_fields=["last_seen"])
+        now = timezone.now()
+        if not node.last_seen or (now - node.last_seen).total_seconds() >= LAST_SEEN_EVERY_S:
+            node.last_seen = now
+            try:
+                call_with_retry(node.save, update_fields=["last_seen"], _what="last_seen")
+            except Exception as exc:  # noqa: BLE001
+                if not is_lock_error(exc):
+                    raise
+                logger.warning("compute: last_seen of %s not stored (database locked); the next call stores it", node.name)
         return (AnonymousUser(), node)
 
     def authenticate_header(self, request):
@@ -51,8 +67,19 @@ def _node(request) -> ComputeNode:
 
 def node_api(*methods):
     def deco(fn):
+        @functools.wraps(fn)
+        def guarded(request, *a, **kw):
+            try:
+                return fn(request, *a, **kw)
+            except Exception as exc:  # noqa: BLE001
+                if not is_lock_error(exc):
+                    raise
+                # SQLite پس از همهٔ تکرارها هم قفل بود: خطای واقعی نیست. ۵۰۳ + Retry-After ⇒ عامل «تکرارپذیر» می‌شمارد و دوباره می‌فرستد
+                logger.warning("compute: %s answered 503 (database locked)", getattr(fn, "__name__", "view"))
+                return Response({"error": "پایگاه‌داده لحظه‌ای مشغول است؛ چند ثانیهٔ دیگر دوباره بفرستید.", "retry": True},
+                                status=503, headers={"Retry-After": "5"})
         return api_view(list(methods))(authentication_classes([NodeAuth])(
-            permission_classes([permissions.AllowAny])(throttle_classes([])(fn))))
+            permission_classes([permissions.AllowAny])(throttle_classes([])(guarded))))
     return deco
 
 
@@ -116,6 +143,15 @@ def _control(node) -> dict:
                      "research_model": priority.local_model(priority.RESEARCH, cfg)}
     except Exception:  # noqa: BLE001 — این راهنما نباید heartbeat را بیندازد
         pass
+    try:
+        # زمانِ دانلودها (تنظیمِ کلی) و نسخهٔ سایت برای عامل (۲٫۶ به بعد؛ عاملِ قدیمی کلیدهای ناشناخته را نادیده می‌گیرد)
+        from django.conf import settings as dj_settings
+
+        from . import schedule
+        out["downloads"] = schedule.control_block()
+        out["site_version"] = getattr(dj_settings, "NM_VERSION", "") or ""
+    except Exception:  # noqa: BLE001 — این هم نباید heartbeat را بیندازد
+        pass
     return out
 
 
@@ -128,7 +164,7 @@ def _store_caps(node, incoming: dict) -> None:
         caps["ollama_models"] = old["ollama_models"]
         caps["ollama_models_stale"] = True
     node.capabilities = caps
-    node.save(update_fields=["capabilities"])
+    call_with_retry(node.save, update_fields=["capabilities"], _what="capabilities")
 
 
 @node_api("POST")
@@ -136,6 +172,7 @@ def heartbeat(request):
     node = _node(request)
     if isinstance(request.data, dict) and request.data:
         _store_caps(node, request.data)
+    report_stats.record_heartbeat(node)       # نوبتِ اتصال + نمونهٔ منابع؛ هرگز خطا نمی‌دهد
     return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **_control(node)})
 
 
@@ -144,6 +181,7 @@ def claim(request):
     node = _node(request)
     if isinstance(request.data, dict) and request.data.get("capabilities"):
         _store_caps(node, request.data["capabilities"])
+    report_stats.record_heartbeat(node)
     job = SV.claim(node)
     control = _control(node)
     if not job:
@@ -178,7 +216,7 @@ def upload(request, uid):
     node, job = _job_of(request, uid)
     saved = [SV.save_output(job, f.name, f) for f in request.FILES.values()]
     job.heartbeat_at = timezone.now()
-    job.save(update_fields=["heartbeat_at"])
+    call_with_retry(job.save, update_fields=["heartbeat_at"], _what="upload heartbeat")
     return Response({"ok": True, "saved": saved})
 
 
@@ -348,7 +386,7 @@ def node_log(request):
         rows.append(ComputeNodeLog(node=node, level=str(line.get("level") or "INFO")[:10].upper(),
                                    message=str(line["message"])[:4000], logged_at=ts))
     if rows:
-        ComputeNodeLog.objects.bulk_create(rows)
+        call_with_retry(ComputeNodeLog.objects.bulk_create, rows, _what="node logs")
         keep = list(ComputeNodeLog.objects.filter(node=node).order_by("-created_at").values_list("pk", flat=True)[:500])
         ComputeNodeLog.objects.filter(node=node).exclude(pk__in=keep).delete()
     return Response({"ok": True, "saved": len(rows)})

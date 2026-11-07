@@ -119,31 +119,64 @@ def active_job(tag: str, node_name: str):
     return None
 
 
-def start_pull(tag: str, node_name: str = ""):
-    """کارِ دانلود را در صف می‌گذارد (یا کارِ فعالِ همین مدل را برمی‌گرداند). ⇒ ComputeJob؛ خطا ⇒ PullError."""
+def _reschedule(job, sched: dict) -> None:
+    """کارِ هنوز-شروع‌نشده را به زمانِ تازه می‌برد (مثلاً «الان» روی دانلودی که برای شب زمان‌بندی شده بود)."""
+    from apps.compute import schedule
+    from apps.compute import services as compute
+    from apps.compute.models import ComputeJob
+
+    payload = {**(job.payload or {}), **schedule.payload_fields(sched)}
+    text = schedule.schedule_text(sched["not_before"], sched["window"])
+    updated = ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED).update(
+        not_before=sched["not_before"], window=sched["window"], category=schedule.CATEGORY, payload=payload,
+        message=text or "در صف")
+    if updated:
+        try:
+            (compute.job_root(job) / "package.zip").unlink(missing_ok=True)     # بستهٔ ساخته‌شده payload ِ کهنه دارد
+        except OSError:
+            pass
+        job.refresh_from_db()
+
+
+def start_pull(tag: str, node_name: str = "", when=None):
+    """کارِ دانلود را در صف می‌گذارد (یا کارِ فعالِ همین مدل را برمی‌گرداند). ⇒ ComputeJob؛ خطا ⇒ PullError.
+
+    `when` (اختیاری): زمانِ شروع — {"mode": "default|now|at|window", "time": "03:30"}؛ نبودنش = «طبقِ تنظیمِ کلیِ دانلودها»
+    (apps.compute.schedule). کارِ زمان‌بندی‌شده تا زمانش در صف می‌ماند و گره آن را نمی‌گیرد."""
+    from apps.compute import schedule
     from apps.compute import services as compute
 
     tag = (tag or "").strip()
     if not model_catalog.is_pullable(tag):
         raise PullError("«%s» در فهرستِ مجازِ دانلودِ سایت نیست؛ فقط مدل‌های فهرست از این‌جا دانلود می‌شوند." % (tag or "؟"), 400)
+    try:
+        sched = schedule.schedule_from_when(when)
+    except schedule.ScheduleError as exc:
+        raise PullError(exc.message, 400)
     node = choose_node(tag, node_name)
     existing = active_job(tag, node.name)
     if existing is not None:
+        if when not in (None, "") and existing.state == "QUEUED":
+            _reschedule(existing, sched)               # دانلودِ منتظر: زمانِ تازهٔ انتخاب‌شده جایگزین می‌شود
         return existing
     if not pull_ready(node):
         raise PullError(update_hint(node), 409)
     if node_has_model(node, tag) is True:
         raise PullError("مدلِ %s از قبل روی سرورِ پردازشِ «%s» نصب است." % (tag, node.name), 409)
     row = model_catalog.info(tag)
-    payload = {"tag": tag, "label": row.get("label") or tag, "expected_bytes": int(row.get("size_mb") or 0) * 1_000_000}
+    payload = {"tag": tag, "label": row.get("label") or tag, "expected_bytes": int(row.get("size_mb") or 0) * 1_000_000,
+               **schedule.payload_fields(sched)}        # window/not_before: عامل هم در پس‌زمینه از بازه بیرون نمی‌زند
     # require_online=False: گرهٔ خاموش هم کار را در صف می‌گذارد؛ هر وقت روشن شد شروع می‌کند
     job = compute.enqueue(JOB_KIND, payload, origin="ai_models", priority=30, timeout_s=TIMEOUT_S, node=node.name,
-                          dedupe=False, require_online=False)
+                          dedupe=False, require_online=False, not_before=sched["not_before"], window=sched["window"],
+                          category=schedule.CATEGORY)
     job.lease_s = LEASE_S
     job.max_attempts = MAX_ATTEMPTS
-    job.message = "در صف" if node.online else "در صف؛ سرورِ پردازش خاموش است"
+    job.message = (schedule.schedule_text(sched["not_before"], sched["window"])
+                   or ("در صف" if node.online else "در صف؛ سرورِ پردازش خاموش است"))
     job.save(update_fields=["lease_s", "max_attempts", "message"])
-    logger.info("model pull queued: %s on %s (job %s)", tag, node.name, job.uid)
+    logger.info("model pull queued: %s on %s (job %s, window=%r, not_before=%s)", tag, node.name, job.uid,
+                sched["window"], sched["not_before"])
     return job
 
 
@@ -187,13 +220,26 @@ def friendly_error(error: str) -> str:
     return text[:400]
 
 
+def _scheduled_text(job) -> str:
+    from apps.compute import schedule
+
+    return schedule.schedule_text(job.not_before, job.window) if job.state == "QUEUED" else ""
+
+
 def _live_text(live: dict, job, node_online: bool) -> str:
     phase = live.get("phase") or ""
     if job.state == "QUEUED":
+        scheduled = _scheduled_text(job)
+        if scheduled:
+            return scheduled + ("؛ همان موقع خودکار شروع می‌شود." if node_online
+                                else "؛ سرورِ پردازش تا آن موقع باید روشن باشد.")
         return "در صف است؛ " + ("سرورِ پردازش همین حالا شروعش می‌کند." if node_online
                                 else "سرورِ پردازش خاموش است — همین که روشن شد دانلود شروع می‌شود.")
     if job.state in ("CLAIMED", "RUNNING") and not node_online:
         return "سرورِ پردازش وسطِ دانلود خاموش شد؛ وقتی روشن شود دانلود از همان‌جا ادامه می‌یابد."
+    if phase in ("window", "scheduled"):
+        return "منتظرِ بازهٔ دانلود%s؛ بعد از آن خودکار ادامه می‌یابد (آنچه گرفته شده می‌ماند)." % (
+            (" — " + live["resume_text"]) if live.get("resume_text") else "")
     if phase == "manifest":
         return "در حال گرفتنِ مشخصاتِ مدل…"
     if phase == "verifying":
@@ -248,6 +294,8 @@ def job_view(job) -> dict:
         "node": node.name if node else job.node_wanted, "node_online": node_online,
         "waiting_for_node": job.state in ("QUEUED", "CLAIMED", "RUNNING") and not node_online,
         "attempts": job.attempts, "text": text,
+        "scheduled_for": job.not_before.isoformat() if job.not_before else None, "window": job.window or "",
+        "scheduled_text": _scheduled_text(job), "category": job.category,
         "error": friendly_error(job.error) if job.state == "FAILED" else "",
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,

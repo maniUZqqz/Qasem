@@ -689,8 +689,9 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 if not timeline.inout:
                     raise RuntimeError("بازهٔ جایگزینی نامعتبر است.")
                 timeline = tl.window(timeline, timeline.inout["in"], timeline.inout["out"])
-            spec_export = dict(timeline.export or {}) if quality != "draft" else None
-            spec = export_module.resolve(spec_export, timeline) if spec_export else None
+            # a final render always has settings: what the shop set, completed with defaults and the Director's platform preset
+            spec_export = export_module.default_export(dict(timeline.export or {}), export_module.preset_hint(data)) if quality != "draft" else None
+            spec = export_module.resolve(spec_export or {}, timeline) if quality != "draft" else None
             hi = 85 if program_ops else 98
             on_node = False
             # the final render goes to the processing node when one is online (and the shop did not pick «فقط سرورِ سایت»);
@@ -753,7 +754,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 shutil.rmtree(stage2, ignore_errors=True)
                 stage1.unlink(missing_ok=True)
 
-        preset = str((timeline.export or {}).get("preset") or "")
+        preset = str((spec_export or timeline.export or {}).get("preset") or "")
         fmt = str((timeline.export or {}).get("format") or "mp4")
         use_range = (timeline.export or {}).get("range") == "inout" and bool(timeline.inout)
         convert_note = " ".join(lowmem_notes)

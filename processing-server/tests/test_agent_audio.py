@@ -200,7 +200,7 @@ class AgentAudioTests(unittest.TestCase):
         calls = []
         state = set(running)
         m.running = lambda key: key in state
-        m.start = lambda key, wait=True, tick=None: (calls.append(("start", key)), state.add(key), True)[-1]
+        m.start = lambda key, wait=True, tick=None, **kw: (calls.append(("start", key)), state.add(key), True)[-1]
         m.stop = lambda key: (calls.append(("stop", key)), state.discard(key), True)[-1]
         m.unload_ollama = lambda: calls.append(("unload_ollama",)) or True
         m.free_comfy = lambda: calls.append(("free_comfy",)) or True

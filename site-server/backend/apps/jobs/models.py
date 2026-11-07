@@ -83,6 +83,15 @@ class Job(TimeStampedModel):
     def __str__(self):
         return f"{self.type} #{self.id} [{self.state}]"
 
+    def save(self, *args, **kwargs):
+        """Celery workers and web threads write job status at the same time on SQLite: a momentary «database is locked»
+        is retried (apps.compute.dbretry) instead of failing the user's job. Inside atomic() it simply propagates."""
+        try:
+            from apps.compute.dbretry import call_with_retry
+        except Exception:  # noqa: BLE001
+            return super().save(*args, **kwargs)
+        return call_with_retry(super().save, *args, _what="Job.save", **kwargs)
+
     # ---- state machine ---------------------------------------------------
 
     def advance(self, target: str, *, label: str = "", preview: dict | None = None):

@@ -3,7 +3,7 @@
     GET  PATCH  /api/v1/compute/nodes/<pk>/audio/            the card · {speech, clone, sfx, music: bool, idle_min}
     POST        /api/v1/compute/nodes/<pk>/audio/test/       {model} -> a node.bench job (waits while the node is off)
     GET         /api/v1/compute/nodes/<pk>/audio/tests/      history (?model=)
-    POST        /api/v1/compute/nodes/<pk>/models/download/  {packages: [...]} -> a node.models job
+    POST        /api/v1/compute/nodes/<pk>/models/download/  {packages: [...], when?: {mode: default|now|at|window, time}} -> a node.models job
 """
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
@@ -57,7 +57,7 @@ def node_audio_tests(request, pk):
 def node_models_download(request, pk):
     node = get_object_or_404(ComputeNode, pk=pk)
     try:
-        job = vm.start_download(node, request.data.get("packages") or [])
+        job = vm.start_download(node, request.data.get("packages") or [], when=request.data.get("when"))
     except vm.VoiceModelsError as exc:
         return _err(exc)
     return Response({"job": str(job.uid), "packages": job.payload.get("packages"), **vm.card(node)},

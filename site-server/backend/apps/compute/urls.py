@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, transfer, views_ollama, views_update, views_voice
+from . import api, transfer, views_ollama, views_report, views_update, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -40,6 +40,10 @@ urlpatterns = [
     path("queue/cancel-waiting/", api.queue_cancel_waiting),
     path("queue/<uuid:uid>/cancel/", api.queue_cancel),
     path("queue/<uuid:uid>/retry/", api.queue_retry),
+    # گزارشِ سرورهای پردازش (کارکنان): یک JSON برای کلِ صفحه، لاگ‌ها با فیلتر، خروجیِ CSV
+    path("report/", views_report.report),
+    path("report/logs/", views_report.logs),
+    path("report/export.csv", views_report.export_csv),
     # «مدل‌های صدا» of a node: switches, «تست», status, «دانلود» (staff)
     path("nodes/<int:pk>/audio/", views_voice.node_audio),
     path("nodes/<int:pk>/audio/test/", views_voice.node_audio_test),

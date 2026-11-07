@@ -23,6 +23,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import services as SV
+from .dbretry import call_with_retry
 from .models import ComputeJob
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,12 @@ PARK_KIND = "wait.node"
 MAX_PARKED = int(getattr(settings, "NM_COMPUTE_MAX_PARKED", 200))
 #: کارِ فرستاده‌شدهٔ دوباره که ده دقیقه بعد هنوز «در صف» است ⇒ نشانهٔ منتظر برداشته شود
 DISPATCH_GRACE_S = 600
+#: وقتی سرور روشن می‌شود و ده‌ها کارِ منتظر هست، همه را یک‌جا نمی‌فرستیم (Celery چهار نخ دارد و SQLite یک نویسنده):
+#: در هر دقیقه حداکثر این‌قدر (به ترتیبِ نوبت)؛ ۲۴ کار ≈ سه دقیقه
+WAKE_BATCH = int(getattr(settings, "NM_COMPUTE_WAKE_BATCH", 8))
+#: متنِ هوشمند (ollama) روی یک گره پشتِ‌سرهم اجرا می‌شود و هر تسک فقط ۴۵ ثانیه منتظرِ برداشته‌شدنِ کارش می‌ماند؛ پس از آن‌ها
+#: در هر دقیقه کمتر بیدار می‌کنیم تا ردیفِ آخر بیهوده منقضی و دوباره پارک نشود
+WAKE_BATCH_BY_CAP = {"ollama": 3}
 
 
 def _flag_of(error) -> str:
@@ -88,26 +95,30 @@ def maybe_park(job, error) -> bool:
         return False
     from apps.jobs.models import Job
     now = timezone.now()
-    with transaction.atomic():
-        old = [ph for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED)
-               if (ph.payload or {}).get("ref") == payload["ref"]]
-        if old:
-            ph = old[0]
-            ph.payload = payload
-            ph.save(update_fields=["payload", "updated_at"])
-        else:
-            ph = ComputeJob.objects.create(
-                kind=PARK_KIND, payload=payload, origin="park", store=getattr(job, "store", None), priority=100,
-                state=ComputeJob.State.QUEUED, queued_at=now, message=SV.NO_NODE_QUEUED_TEXT,
-                request_hash="", timeout_s=0)
-        ctx = dict(job.context or {})
-        ctx["node_wait"] = {"since": ctx.get("node_wait", {}).get("since") or now.isoformat(), "cap": cap,
-                            "park": str(ph.uid)}
-        job.state = Job.State.QUEUED
-        job.current_step_label = SV.NO_NODE_QUEUED_TEXT
-        job.error = ""
-        job.context = ctx
-        job.save(update_fields=["state", "current_step_label", "error", "context", "updated_at"])
+    def _write():
+        with transaction.atomic():
+            old = [ph for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED)
+                   if (ph.payload or {}).get("ref") == payload["ref"]]
+            if old:
+                ph = old[0]
+                ph.payload = payload
+                ph.save(update_fields=["payload", "updated_at"])
+            else:
+                ph = ComputeJob.objects.create(
+                    kind=PARK_KIND, payload=payload, origin="park", store=getattr(job, "store", None), priority=100,
+                    state=ComputeJob.State.QUEUED, queued_at=now, message=SV.NO_NODE_QUEUED_TEXT,
+                    request_hash="", timeout_s=0)
+            ctx = dict(job.context or {})
+            ctx["node_wait"] = {"since": ctx.get("node_wait", {}).get("since") or now.isoformat(), "cap": cap,
+                                "park": str(ph.uid)}
+            job.state = Job.State.QUEUED
+            job.current_step_label = SV.NO_NODE_QUEUED_TEXT
+            job.error = ""
+            job.context = ctx
+            job.save(update_fields=["state", "current_step_label", "error", "context", "updated_at"])
+        return ph
+
+    ph = call_with_retry(_write, _what="park")
     logger.info("park: job %s waits for a '%s' node (placeholder %s)", job.pk, cap, ph.uid)
     return True
 
@@ -160,13 +171,14 @@ def wake_parked() -> int:
     کارِ لغوشده (از خودِ صفحهٔ کاربر) دوباره فرستاده نمی‌شود."""
     from apps.jobs import machine
     n = 0
+    woken: dict = {}
     now = timezone.now()
     for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED).order_by("created_at"):
         payload = ph.payload or {}
         row = _row(payload.get("ref"))
         if row is None or row.state in machine.TERMINAL or row.cancel_requested:
-            ComputeJob.objects.filter(pk=ph.pk, state=ComputeJob.State.QUEUED).update(
-                state=ComputeJob.State.CANCELLED, finished_at=now, message="لغو شد")
+            call_with_retry(ComputeJob.objects.filter(pk=ph.pk, state=ComputeJob.State.QUEUED).update,
+                            state=ComputeJob.State.CANCELLED, finished_at=now, message="لغو شد")
             if row is not None and row.state not in machine.TERMINAL:
                 from apps.jobs import cancellation
                 cancellation.cancel(row, reason="توسط کاربر لغو شد.")
@@ -174,8 +186,13 @@ def wake_parked() -> int:
         cap = payload.get("capability") or "any"
         if cap != "any" and not SV.online_nodes(cap):
             continue
+        if n >= WAKE_BATCH:
+            break                          # بقیه در دقیقهٔ بعد؛ همان ترتیبِ نوبت
+        if woken.get(cap, 0) >= WAKE_BATCH_BY_CAP.get(cap, WAKE_BATCH):
+            continue                       # سهمِ این توانایی در این دقیقه پر شد؛ توانایی‌های دیگر ادامه می‌دهند
         if not _dispatch(ph, payload):
             continue
+        woken[cap] = woken.get(cap, 0) + 1
         waited = round(max(0.0, (now - (ph.queued_at or ph.created_at)).total_seconds()), 1)
         ctx = dict(row.context or {})
         nw = dict(ctx.get("node_wait") or {})
@@ -183,8 +200,8 @@ def wake_parked() -> int:
         ctx["node_wait"] = nw
         row.current_step_label = "سرورِ پردازش روشن شد؛ در حال شروع…"
         row.context = ctx
-        row.save(update_fields=["current_step_label", "context", "updated_at"])
-        ph.delete()                       # کارِ منتظر تمام شد؛ ردیفِ موقت لازم نیست
+        call_with_retry(row.save, update_fields=["current_step_label", "context", "updated_at"])
+        call_with_retry(ph.delete)        # کارِ منتظر تمام شد؛ ردیفِ موقت لازم نیست
         n += 1
         logger.info("park: woke job %s after %ss", row.pk, waited)
     n += _release_stuck(now)
@@ -210,7 +227,7 @@ def _release_stuck(now) -> int:
                 ctx = dict(row.context or {})
                 ctx.pop("node_wait", None)
                 row.context = ctx
-                row.save(update_fields=["context", "updated_at"])
+                call_with_retry(row.save, update_fields=["context", "updated_at"])
                 n += 1
     except Exception as exc:  # noqa: BLE001 — فقط نظافت است
         logger.debug("park: stuck sweep skipped: %s", exc)

@@ -500,6 +500,7 @@ class UpdateTests(unittest.TestCase):
         write(os.path.join(d, "agent.py"), (
             "import os, shutil, sys\nh = os.path.dirname(os.path.abspath(__file__))\n"
             "if '--prepare' in sys.argv:\n    print('PREPARED'); sys.exit(0)\n"
+            "if '--version' in sys.argv:\n    print('NMarketing processing node vTEST'); sys.exit(0)\n"
             "open(os.path.join(h, 'runs.txt'), 'a').write('run\\n')\n"
             "shutil.copy(os.path.join(h, 'c.txt'), os.path.join(h, 'START.bat'))\nprint('AGENT-RAN'); sys.exit(75)\n"))
         out = subprocess.run(["cmd.exe", "/c", os.path.join(d, "START.bat")], cwd=d, capture_output=True, text=True,

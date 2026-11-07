@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Meter, SectionTitle, Spinner, fa } from "../../components/ui";
+import DownloadWhen from "../tools/compute/DownloadWhen";
+import { DEFAULT_WHEN, scheduleLabel, whenBody, whenError, whenValid, type WhenChoice } from "../tools/compute/schedule";
 import { useAuthAudio } from "./useAuthAudio";
 
 /**
@@ -59,7 +61,11 @@ type CardData = {
   rows: Row[];
   packages: Pkg[];
   download: { running: boolean; percent: number | null; error: string; queued: string[];
-    progress: { current?: string; items_done?: number; items_total?: number } | null };
+    progress: { current?: string; items_done?: number; items_total?: number } | null;
+    /** دانلودهایی که برای یک ساعتِ مشخص یا بازهٔ شبانه گذاشته شده و هنوز شروع نشده‌اند (نسخهٔ ۲٫۶ به بعد) */
+    scheduled?: { uid: string; packages: string[]; scheduled_for: string | null; window: string; text: string }[];
+    /** عامل می‌گوید دانلودِ جاری یا منتظر تا بازهٔ شبانه باز شود منتظر مانده */
+    waiting?: { until: string; packages: string[]; default?: boolean; reason: string; text: string } | null };
   preflight: { key: string; ok: boolean | null; detail: string }[];
 };
 
@@ -102,6 +108,8 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [src, setSrc] = useState<Record<string, string>>({});
   const audio = useAuthAudio();
+  /** زمانِ دانلودِ همهٔ دکمه‌های این کارت (طبقِ تنظیمِ کلی مگر کاربر چیزِ دیگری بخواهد) */
+  const [when, setWhen] = useState<WhenChoice>(DEFAULT_WHEN);
   const url = `/compute/nodes/${nodeId}/audio/`;
 
   const load = useCallback(async () => {
@@ -154,10 +162,16 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
   };
 
   const download = async (packages: string[]) => {
+    if (!whenValid(when)) {
+      setError(whenError(when));
+      return;
+    }
     setBusy(`dl-${packages.join(",")}`);
     setError(null);
     try {
-      const { data: d } = await api.post<CardData>(`/compute/nodes/${nodeId}/models/download/`, { packages });
+      const chosen = whenBody(when);
+      const { data: d } = await api.post<CardData>(`/compute/nodes/${nodeId}/models/download/`,
+        chosen ? { packages, when: chosen } : { packages });
       setData(d);
     } catch (err) {
       setError(errorMessage(err));
@@ -188,8 +202,13 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
 
   const optional = data.packages.filter((p) => p.optional || !p.installed);
   const queued = new Set(data.download.queued);
+  // «زمان‌بندی‌شده — شروع امروز ۰۲:۰۰»: از جملهٔ آمادهٔ سایت؛ نبود آن را از scheduled_for / window می‌سازیم
+  const scheduled = (data.download.scheduled ?? []).map((sj) => ({ ...sj, label: sj.text || scheduleLabel(sj, Date.now(), true) }));
+  const scheduledPackages = new Set(scheduled.flatMap((sj) => sj.packages));
+  const heldForWindow = Boolean(data.download.waiting) && !data.download.running;
   // an agent older than 1.8 cannot run «تست» / «دانلود»: the warning above says what to do, the buttons wait for it
   const old = !data.node.agent_ok && Boolean(data.node.agent);
+  const canDownload = !old && (data.rows.some((r) => r.installed === false && !r.downloading) || optional.some((p) => !p.installed));
 
   return (
     <Card>
@@ -217,6 +236,26 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
         </div>
       )}
       {data.download.error && <Alert tone="warn">{data.download.error}</Alert>}
+      {data.download.waiting && !data.download.running && (
+        <div className="mb-3" data-testid="download-waiting">
+          <Alert tone="info">{data.download.waiting.text}</Alert>
+        </div>
+      )}
+      {scheduled.length > 0 && (
+        <div className="mb-3 flex flex-col gap-1 text-sm" style={{ color: "var(--text-2)" }} data-testid="download-scheduled">
+          {scheduled.map((sj) => (
+            <span key={sj.uid} className="flex flex-wrap items-center gap-2">
+              <Icon name="clock" size={14} /> {sj.label}
+              <code dir="ltr" className="text-xs">{sj.packages.join(", ")}</code>
+            </span>
+          ))}
+        </div>
+      )}
+      {canDownload && (
+        <div className="mb-3">
+          <DownloadWhen value={when} onChange={setWhen} disabled={busy !== null} />
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         {data.rows.map((r) => {
@@ -241,7 +280,7 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
                 {r.installed === false && !r.downloading && (
                   <Button size="sm" variant="secondary" disabled={busy !== null || old || queued.has(r.package)}
                     onClick={() => void download([r.package])}>
-                    <Icon name="download" size={13} /> {queued.has(r.package) ? "در صفِ دانلود" : `دانلود (${gbText(r.missing_mb)})`}
+                    <Icon name="download" size={13} /> {queued.has(r.package) ? (scheduledPackages.has(r.package) ? "زمان‌بندی‌شده" : heldForWindow ? "منتظرِ بازهٔ شبانه" : "در صفِ دانلود") : `دانلود (${gbText(r.missing_mb)})`}
                   </Button>
                 )}
                 <Button size="sm" disabled={busy !== null || old || !r.enabled || r.installed === false}
@@ -298,7 +337,7 @@ export default function NodeAudioCard({ nodeId }: { nodeId: number }) {
                 {!p.installed && (
                   <Button size="sm" variant="secondary" disabled={busy !== null || old || queued.has(p.package) || data.download.running}
                     onClick={() => void download([p.package])}>
-                    <Icon name="download" size={13} /> {queued.has(p.package) ? "در صف" : "دانلود"}
+                    <Icon name="download" size={13} /> {queued.has(p.package) ? (scheduledPackages.has(p.package) ? "زمان‌بندی‌شده" : heldForWindow ? "منتظرِ بازهٔ شبانه" : "در صف") : "دانلود"}
                   </Button>
                 )}
               </div>

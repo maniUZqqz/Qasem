@@ -1,0 +1,162 @@
+/* گزارشِ سرورهای پردازش — رنگ و اندازه فقط از توکن‌های پنل (index.css) می‌آید، پس در تم تیره و روشن هر دو درست است.
+
+   مثلِ «صفِ پردازش» چیدمان از روی عرضِ خودِ صفحه (container query) عوض می‌شود، نه عرضِ مرورگر؛ هیچ‌کدام اسکرولِ افقیِ
+   صفحه ندارند (جدول‌ها فقط داخلِ کارتِ خودشان اسکرول می‌شوند). */
+
+.nmr { container: nmr / inline-size; min-width: 0; }
+.nmr-muted { color: var(--text-3); }
+.nmr-small { font-size: .76rem; color: var(--text-3); }
+.nmr-mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.nmr-wrap { overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------- نوار ابزار */
+.nmr-bar { display: grid; gap: 10px; padding: 12px 14px; }
+.nmr-range { display: flex; flex-wrap: wrap; gap: 6px; }
+.nmr-range .u-btn { flex: 0 1 auto; }
+.nmr-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nmr .nmr-node-select { flex: 1 1 180px; max-width: 280px; width: auto; }
+.nmr-bar-end { margin-inline-start: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nmr-custom { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding-top: 4px; }
+.nmr-custom label { display: grid; gap: 4px; flex: 1 1 140px; max-width: 200px; font-size: .76rem; color: var(--text-3); }
+.nmr .nmr-date { width: 100%; direction: ltr; text-align: center; }
+.nmr-spin { animation: nmr-rot .8s linear infinite; }
+@keyframes nmr-rot { to { transform: rotate(360deg); } }
+.nmr-note { margin: 0; font-size: .78rem; line-height: 1.9; color: var(--text-3); }
+.nmr-err { color: var(--bad); font-size: .8rem; margin: 0; }
+
+/* ------------------------------------------------------------- کاشی‌های خلاصه */
+.nmr-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.nmr-tiles .u-card { padding: 12px 14px; }
+.nmr-tiles .text-2xl { font-size: 1.25rem; line-height: 1.7rem; }
+@container nmr (min-width: 640px) { .nmr-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container nmr (min-width: 960px) { .nmr-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .nmr-tiles .text-2xl { font-size: 1.5rem; } }
+
+/* ------------------------------------------------------------- کارتِ سرور */
+.nmr-node { overflow: hidden; }
+.nmr-node.disabled { opacity: .72; }
+.nmr-node-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 14px 16px 4px; }
+.nmr-node-name { font-weight: 800; font-size: 1.02rem; color: var(--text); overflow-wrap: anywhere; }
+.nmr-dot { width: 10px; height: 10px; border-radius: 999px; flex: none; background: var(--text-3); }
+.nmr-dot.online { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.nmr-dot.offline { background: var(--bad); }
+.nmr-node-head-end { margin-inline-start: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.nmr-meta { display: flex; flex-wrap: wrap; gap: 2px 18px; padding: 2px 16px 10px; font-size: .8rem; color: var(--text-2); }
+.nmr-meta b { color: var(--text-3); font-weight: 600; }
+.nmr-sec { padding: 10px 16px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.nmr-sec-title { font-size: .8rem; font-weight: 700; color: var(--text-2); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; }
+.nmr-sec-title span { font-weight: 500; color: var(--text-3); }
+
+.nmr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nmr-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: .76rem; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-3);
+}
+.nmr-chip::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--text-3); opacity: .6; }
+.nmr-chip.on { color: var(--text); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.nmr-chip.on::before { background: var(--ok); opacity: 1; }
+.nmr-chip.plain::before { display: none; }
+.nmr-chip.ltr { direction: ltr; }
+
+.nmr-res { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.nmr-res-item { display: grid; gap: 4px; font-size: .78rem; }
+.nmr-res-label { color: var(--text-3); font-weight: 600; }
+.nmr-res-value { color: var(--text); overflow-wrap: anywhere; }
+.nmr-res-item .u-meter { height: 6px; }
+@container nmr (min-width: 760px) { .nmr-res { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+
+/* نوارِ روشن/خاموش */
+.nmr-timeline { position: relative; height: 18px; border-radius: 8px; background: color-mix(in srgb, var(--bad) 16%, var(--surface-2)); overflow: hidden; direction: ltr; border: 1px solid var(--line); }
+.nmr-timeline > i { position: absolute; top: 0; bottom: 0; background: var(--ok); opacity: .9; border-radius: 3px; }
+.nmr-axis { display: flex; justify-content: space-between; direction: ltr; font-size: .7rem; color: var(--text-3); }
+
+/* نمودارها */
+.nmr-charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@container nmr (min-width: 560px) { .nmr-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container nmr (min-width: 1000px) { .nmr-charts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.nmr-chart { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
+.nmr-chart-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: .78rem; color: var(--text-2); font-weight: 600; }
+.nmr-chart-now { color: var(--text); font-weight: 800; }
+.nmr-chart svg { display: block; width: 100%; height: 76px; direction: ltr; overflow: visible; }
+.nmr-chart .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.nmr-chart .line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.nmr-chart .area { opacity: .16; stroke: none; }
+.nmr-chart .dot { stroke: none; }
+.nmr-chart.c-brand { color: var(--brand); }
+.nmr-chart.c-info { color: var(--info); }
+.nmr-chart.c-ok { color: var(--ok); }
+.nmr-chart.c-warn { color: var(--warn); }
+.nmr-chart.c-bad { color: var(--bad); }
+.nmr-chart .line, .nmr-chart .area, .nmr-chart .dot { stroke: currentColor; }
+.nmr-chart .area, .nmr-chart .dot { fill: currentColor; stroke: none; }
+.nmr-chart-foot { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .7rem; color: var(--text-3); }
+.nmr-chart-empty { display: grid; place-items: center; height: 76px; font-size: .76rem; color: var(--text-3); }
+
+/* بازشونده‌ها */
+.nmr-det { border-top: 1px solid var(--line); }
+.nmr-det > summary {
+  list-style: none; cursor: pointer; padding: 11px 16px; font-size: .82rem; font-weight: 700; color: var(--text-2);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.nmr-det > summary::-webkit-details-marker { display: none; }
+.nmr-det > summary::after { content: "+"; color: var(--text-3); font-weight: 400; font-size: 1.1rem; line-height: 1; }
+.nmr-det[open] > summary::after { content: "−"; }
+.nmr-det > summary:hover { color: var(--text); }
+.nmr-det-body { padding: 2px 16px 14px; display: grid; gap: 10px; }
+
+/* ------------------------------------------------------------- جدول‌ها */
+.nmr-tablewrap { overflow-x: auto; }
+.nmr .u-table td, .nmr .u-table th { white-space: nowrap; }
+.nmr .u-table td.wrap, .nmr .u-table th.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 140px; }
+.nmr .u-table td.num, .nmr .u-table th.num { text-align: end; font-variant-numeric: tabular-nums; }
+.nmr .u-table tfoot td { font-weight: 700; color: var(--text); border-top: 1px solid var(--line-strong); }
+.nmr-seg { display: inline-flex; gap: 4px; padding: 3px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.nmr-seg button { border: none; background: none; font: inherit; font-size: .78rem; font-weight: 600; padding: 5px 12px; border-radius: 9px; cursor: pointer; color: var(--text-3); }
+.nmr-seg button.on { background: var(--brand-soft); color: var(--brand-strong); }
+
+/* ------------------------------------------------------------- خطا و لاگ */
+.nmr-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.nmr .nmr-search { flex: 2 1 200px; width: auto; }
+.nmr .nmr-level { flex: 1 1 130px; max-width: 200px; width: auto; }
+.nmr-list > div { border-bottom: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 6px; }
+.nmr-list > div:last-child { border-bottom: none; }
+.nmr-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: .78rem; color: var(--text-3); }
+.nmr-item-head b { color: var(--text); font-size: .86rem; }
+.nmr-what { margin: 0; font-size: .86rem; font-weight: 700; color: var(--text); line-height: 1.9; }
+.nmr-advice { margin: 0; font-size: .82rem; line-height: 1.9; color: var(--text-2); padding: 8px 12px; border-radius: 10px; background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 26%, transparent); }
+.nmr-advice b { color: var(--text-3); font-weight: 600; }
+.nmr-raw {
+  margin: 0; max-height: 180px; overflow: auto; padding: 10px 12px; border-radius: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .76rem; line-height: 1.7;
+  white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bad-soft); color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 28%, transparent);
+}
+.nmr-raw.plain { background: var(--surface-2); color: var(--text-2); border-color: var(--line); }
+.nmr-rawhead { display: flex; align-items: center; justify-content: space-between; font-size: .78rem; color: var(--text-2); margin-bottom: 4px; }
+.nmr-copy {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); font: inherit; font-size: .74rem; cursor: pointer;
+}
+.nmr-copy:hover { border-color: var(--line-strong); color: var(--text); }
+.nmr-groups { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.nmr-group { display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 12px; font-size: .78rem; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); max-width: 100%; }
+.nmr-group b { color: var(--bad); font-variant-numeric: tabular-nums; }
+.nmr-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); font-size: .8rem; color: var(--text-3); }
+.nmr-stale { transition: opacity .15s; }
+.nmr-stale[data-stale="1"] { opacity: .5; pointer-events: none; }
+
+/* ------------------------------------------------------------- دانلود */
+.nmr-dl { padding: 12px 16px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); }
+.nmr-dl:last-child { border-bottom: none; }
+.nmr-dl-title { font-weight: 700; font-size: .88rem; color: var(--text); overflow-wrap: anywhere; }
+.nmr-dl .u-meter { height: 8px; max-width: 420px; }
+.nmr-indeterminate { width: 35% !important; animation: nmr-slide 1.3s ease-in-out infinite; }
+@keyframes nmr-slide { from { margin-inline-start: -35%; } to { margin-inline-start: 100%; } }
+
+/* ------------------------------------------------------------- تنظیمات */
+.nmr-set { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.nmr-set label { display: grid; gap: 4px; font-size: .78rem; color: var(--text-2); font-weight: 600; }
+.nmr .nmr-days { width: 110px; direction: ltr; text-align: center; }
+
+@media (max-width: 639px) {
+  .nmr-node-head, .nmr-meta, .nmr-sec, .nmr-det > summary, .nmr-det-body, .nmr-toolbar, .nmr-list > div, .nmr-groups, .nmr-foot, .nmr-dl { padding-inline: 12px; }
+}

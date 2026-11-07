@@ -4,6 +4,7 @@ import { getSite } from "@/lib/site";
 import { dict } from "@/lib/dict";
 import { localePath, type Locale } from "@/lib/i18n";
 import { getProof, getResources } from "@/lib/proof";
+import VersionBadge from "@/components/VersionBadge";
 
 /* These links were 22px tall — the height of the text and nothing else.
    On a phone that is half of what a thumb reliably hits, and the footer is
@@ -57,7 +58,7 @@ export default async function Footer({ locale }: { locale: Locale }) {
   };
 
   return (
-    <footer style={{ borderTop: "1px solid var(--line)", background: "var(--bg-soft)" }}>
+    <footer style={{ position: "relative", borderTop: "1px solid var(--line)", background: "var(--bg-soft)" }}>
       <div className="wrap" style={{ paddingBlock: 48 }}>
         <div className="grid g4">
           <div>
@@ -130,6 +131,8 @@ export default async function Footer({ locale }: { locale: Locale }) {
           </a>
         </div>
       </div>
+      {/* «v2.xx» — گوشهٔ پایین؛ از فایل VERSION، با پیوند به «چه چیزی تازه است» */}
+      <VersionBadge locale={locale} panelUrl={site.panelUrl} />
     </footer>
   );
 }

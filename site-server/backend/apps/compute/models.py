@@ -220,3 +220,5 @@ class ComputeSettings(models.Model):
 
 # «تست» of the voice models per node (apps.compute.voice_models).
 from .bench_models import AudioBenchmark  # noqa: E402,F401
+# «گزارشِ سرورها»: نوبت‌های اتصال و نمونه‌های منابع (apps.compute.report).
+from .models_report import ComputeNodeSample, ComputeNodeSession  # noqa: E402,F401

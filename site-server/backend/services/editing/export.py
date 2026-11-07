@@ -78,6 +78,33 @@ FPS_CHOICES = (24, 25, 30, 50, 60)
 DRAFT_VIDEO = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
 
 
+#: the Director's platforms → the export preset of the same name (story and shorts are 9:16 like reels; a square post goes out as a feed post)
+PLATFORM_PRESET = {"reels": "reels", "story": "reels", "shorts": "reels", "tiktok": "tiktok", "feed": "feed", "square": "feed", "youtube": "youtube"}
+
+
+def preset_hint(data) -> str:
+    """The export preset the project's platform implies («» when the project does not know its platform)."""
+    brief = ((data or {}).get("director") or {}).get("brief") if isinstance(data, dict) else None
+    platform = str((brief or {}).get("platform") or "")
+    hint = PLATFORM_PRESET.get(platform) or (platform if platform in PRESETS else "")
+    return hint if hint in PRESETS else ""
+
+
+def default_export(export, hint: str = "") -> dict:
+    """The export block a FINAL render uses: what the shop set, completed so that a render can never start without settings.
+    The shop's own preset always wins; the platform's preset is only added when none is set."""
+    block = dict(export) if isinstance(export, dict) else {}
+    if not block.get("preset") and hint in PRESETS:
+        block["preset"] = hint
+    return block
+
+
+def default_spec(timeline, hint: str = "") -> "ExportSpec":
+    """Sensible final-render settings when nothing was given: the project's own size and fps, H.264 + AAC in an MP4, high quality; a known
+    platform adds its preset (size, fps, loudness-free limits)."""
+    return resolve(default_export({}, hint), timeline)
+
+
 def catalogue() -> dict:
     return {
         "presets": [{"key": k, "title": v["title"], "group": v["group"], "short": v["short"], "fps": v["fps"], "codec": v["codec"],
@@ -400,6 +427,8 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
     spec = resolve(export, timeline) if export else None
     if quality == "draft" and spec is None:
         spec = ExportSpec(preset="veryfast", crf=27, audio_kbps=160)
+    elif spec is None:
+        spec = default_spec(timeline)                   # a final render with no settings: the defaults, never a crash (it used to die in encode_args)
     work = timeline
     if spec is not None:
         w, h = size_for(timeline, spec.short_side if quality != "draft" or export else None)

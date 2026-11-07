@@ -130,7 +130,13 @@ def promote(draft):
 
     if draft.project_id and VideoProject.objects.filter(pk=draft.project_id).exists():
         return draft.project
-    project = VideoProject.objects.create(store=draft.store, title=draft.title, data=draft.data)
+    from services.editing import export as export_module
+
+    data = dict(draft.data or {})
+    filled = export_module.default_export(data.get("export"), export_module.preset_hint(data))
+    if filled:
+        data["export"] = filled                  # the Export tab opens on the platform's preset instead of on nothing
+    project = VideoProject.objects.create(store=draft.store, title=draft.title, data=data)
     draft.project = project
     draft.promoted_at = timezone.now()
     draft.save(update_fields=["project", "promoted_at", "updated_at"])

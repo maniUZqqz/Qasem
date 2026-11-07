@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from services.audio import node_audio
 
+from . import schedule
 from .bench_models import AudioBenchmark
 from .models import ComputeJob, ComputeNode
 
@@ -150,7 +151,10 @@ def test_json(b: AudioBenchmark, node: ComputeNode) -> dict:
 
 # ───────────────────────────── downloads
 
-def start_download(node: ComputeNode, packages: list[str]) -> ComputeJob:
+def start_download(node: ComputeNode, packages: list[str], when=None) -> ComputeJob:
+    """«دانلود»: یک کارِ node.models. `when` = زمانِ شروع (apps.compute.schedule: default | now | at | window)؛ کار تا آن زمان
+    در صف می‌ماند و عاملِ گره (۲٫۶ به بعد) همان بازه را برای دانلودِ پس‌زمینه‌ای که خودش راه می‌اندازد هم رعایت می‌کند."""
+    from . import schedule
     from . import services as compute
 
     packages = [str(p).strip() for p in packages if str(p).strip()]
@@ -159,12 +163,40 @@ def start_download(node: ComputeNode, packages: list[str]) -> ComputeJob:
     if (node.capabilities or {}).get("agent") and not _agent_ok(node):
         raise VoiceModelsError("عاملِ این سرور قدیمی است (دانلود از پنل از نسخهٔ ۱٫۸): روی آن کامپیوتر git pull و "
                                "START.bat، یا Download-Models.bat.", 409)
-    return compute.enqueue("node.models", {"action": "download", "packages": sorted(set(packages))},
-                           origin="voice_models", priority=30, timeout_s=600, node=node.name, dedupe=False,
-                           require_online=False)
+    try:
+        sched = schedule.schedule_from_when(when)
+    except schedule.ScheduleError as exc:
+        raise VoiceModelsError(exc.message, 400)
+    job = compute.enqueue("node.models", {"action": "download", "packages": sorted(set(packages)),
+                                          **schedule.payload_fields(sched)},
+                          origin="voice_models", priority=30, timeout_s=600, node=node.name, dedupe=False,
+                          require_online=False, not_before=sched["not_before"], window=sched["window"],
+                          category=schedule.CATEGORY)
+    text = schedule.schedule_text(sched["not_before"], sched["window"])
+    if text:
+        job.message = text
+        job.save(update_fields=["message"])
+    return job
 
 
 # ───────────────────────────── the card
+
+def waiting_download(waiting) -> dict | None:
+    """عامل می‌گوید دانلود تا بازهٔ شبانه صبر کرده: {"until": ISO (UTC), "packages": [...], "reason": "window"} ⇒ با متنِ فارسی."""
+    if not isinstance(waiting, dict) or not waiting.get("until"):
+        return None
+    from django.utils.dateparse import parse_datetime
+
+    until = parse_datetime(str(waiting["until"]))
+    if until is None:
+        return None
+    if timezone.is_naive(until):
+        until = timezone.make_aware(until)
+    return {"until": until.isoformat(), "packages": list(waiting.get("packages") or [])[:20],
+            "reason": str(waiting.get("reason") or "window")[:20],
+            "text": "دانلود تا بازهٔ شبانه صبر می‌کند — ادامه %s (وقتِ تهران)؛ آنچه گرفته شده می‌ماند."
+                    % schedule.clock_text(until)}
+
 
 def card(node: ComputeNode) -> dict:
     caps = node.capabilities or {}
@@ -194,16 +226,31 @@ def card(node: ComputeNode) -> dict:
         pct = round(100.0 * (pr.get("bytes_done") or 0) / pr["bytes_total"], 1)
     jobs = ComputeJob.objects.filter(kind="node.models", node_wanted=node.name)
     pending = list(jobs.exclude(state__in=ComputeJob.FINAL).values_list("payload", flat=True))
+    scheduled = []
+    for sj in jobs.filter(state="QUEUED"):
+        text = schedule.schedule_text(sj.not_before, sj.window)
+        if text:
+            scheduled.append({"uid": str(sj.uid), "packages": list((sj.payload or {}).get("packages") or []),
+                              "scheduled_for": sj.not_before.isoformat() if sj.not_before else None,
+                              "window": sj.window, "text": text})
     started = jobs.filter(state="COMPLETED", finished_at__gte=timezone.now() - timedelta(seconds=90))
     pending += [pl for pl in started.values_list("payload", flat=True)
                 if any(not (pkgs.get(p) or {}).get("installed") and p not in running_pkgs
                        for p in (pl or {}).get("packages") or [])]
+    waiting = waiting_download(models.get("waiting"))
+    if waiting:                  # the agent holds these for the night window: they count as queued (no second «دانلود» button)
+        held = list(waiting["packages"])
+        if (models.get("waiting") or {}).get("default"):
+            held += [p for p, r in pkgs.items() if not r.get("optional") and not r.get("installed")]
+        if held:
+            pending.append({"packages": held})
     return {
         "node": {"id": node.pk, "name": node.name, "online": node.online, "agent": caps.get("agent") or "",
                  "agent_ok": _agent_ok(node), "gpu": caps.get("gpu") or ""},
         "settings": settings, "rows": row_dicts, "packages": packages,
         "download": {"running": bool(models.get("running")), "percent": pct, "progress": pr,
-                     "error": models.get("error") or "",
+                     "error": models.get("error") or "", "scheduled": scheduled,
+                     "waiting": waiting,
                      "queued": sorted({p for pl in pending for p in (pl or {}).get("packages") or []
                                        if not (pkgs.get(p) or {}).get("installed") and p not in running_pkgs})},
         "preflight": caps.get("preflight") or [],

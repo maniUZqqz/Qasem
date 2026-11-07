@@ -5,7 +5,7 @@ GET  /api/v1/ai/priority/         تنظیم + وضعِ زندهٔ هر مسیر
 PATCH|POST /api/v1/ai/priority/   ذخیرهٔ تنظیم: priority، priority_text/research/code/vision، model_text/research/code/vision، breaker_minutes
 POST /api/v1/ai/priority/test/    {provider: "local"|"metis", kind?: "text"|"research"|"code"|"vision"} — «آزمون» ِ یک درخواستِ کوچک
 POST /api/v1/ai/priority/reset/   مدارِ باز (مسیرهای کنارگذاشته) را می‌بندد
-POST /api/v1/ai/models/pull/      {tag, node?} «دانلود مدل» (کارِ ollama.pull؛ فقط فهرستِ مجاز) ⇒ وضعِ زنده + pull
+POST /api/v1/ai/models/pull/      {tag, node?, when?} «دانلود مدل» (کارِ ollama.pull؛ فقط فهرستِ مجاز؛ when = زمان‌بندی: {mode: default|now|at|window, time}) ⇒ وضعِ زنده + pull
 POST /api/v1/ai/models/pull/cancel/  {uid} لغوِ دانلود
 """
 from rest_framework import status as http
@@ -61,7 +61,8 @@ class AIModelPullView(APIView):
         from services.ai import model_pull
 
         try:
-            job = model_pull.start_pull(str(request.data.get("tag") or ""), str(request.data.get("node") or ""))
+            job = model_pull.start_pull(str(request.data.get("tag") or ""), str(request.data.get("node") or ""),
+                                        when=request.data.get("when"))
         except model_pull.PullError as exc:
             return Response({"error": str(exc)}, status=exc.status)
         data = status.snapshot()

@@ -192,6 +192,10 @@ class ProjectRenderView(APIView):
         if not verdict["ok"]:
             return _err("bad_project", verdict["error"])
         export_block = data.get("export") or {}
+        if quality == "final":
+            from services.editing import export as export_module
+
+            export_block = export_module.default_export(export_block, export_module.preset_hint(data))
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={
             "what": "project", "project_id": project.pk, "quality": quality, "preset": str(export_block.get("preset") or "")})
         project.state = VideoProject.State.RENDERING

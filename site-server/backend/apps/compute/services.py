@@ -17,6 +17,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from .dbretry import call_with_retry, is_lock_error, retry_on_lock
 from .models import ComputeJob, ComputeNode, capability_for
 
 logger = logging.getLogger(__name__)
@@ -124,8 +125,10 @@ def parse_window(window: str):
         a, b = (window or "").strip().split("-")
         ah, am = a.split(":")
         bh, bm = b.split(":")
+        if not (0 <= int(ah) < 24 and 0 <= int(bh) < 24 and 0 <= int(am) < 60 and 0 <= int(bm) < 60):
+            return None
         start, end = int(ah) * 60 + int(am), int(bh) * 60 + int(bm)
-        if 0 <= start < 1440 and 0 <= end < 1440 and start != end:
+        if start != end:
             return start, end
     except (ValueError, AttributeError):
         pass
@@ -179,6 +182,41 @@ def next_clock_time(hhmm: str, now=None):
     return base - TEHRAN_OFFSET
 
 
+# ───────────────────────────── نوشتن‌های کوتاه و تکرارپذیر (SQLite «database is locked» ⇒ دوباره، نه ناموفق)
+
+@retry_on_lock
+def _insert(job: ComputeJob) -> None:
+    job.save()
+
+
+@retry_on_lock
+def _save(job: ComputeJob, update_fields=None) -> None:
+    if update_fields:
+        job.save(update_fields=update_fields)
+    else:
+        job.save()
+
+
+@retry_on_lock
+def _claim_row(pk, node: ComputeNode, now) -> int:
+    return ComputeJob.objects.filter(pk=pk, state=ComputeJob.State.QUEUED, node__isnull=True).update(
+        state=ComputeJob.State.CLAIMED, node=node, claimed_at=now, heartbeat_at=now, attempts=F("attempts") + 1,
+        message="گرفته شد توسطِ " + node.name)
+
+
+@retry_on_lock
+def _mark_waited(job: ComputeJob, now) -> None:
+    job.refresh_from_db()
+    waited = round(max(0.0, (now - (job.queued_at or job.created_at)).total_seconds()), 1)
+    ComputeJob.objects.filter(pk=job.pk).update(waited_s=waited)
+    job.waited_s = waited
+
+
+@retry_on_lock
+def _bump_jobs_done(node: ComputeNode) -> None:
+    ComputeNode.objects.filter(pk=node.pk).update(jobs_done=F("jobs_done") + 1)
+
+
 def enqueue(kind: str, payload: dict | None = None, files: dict | None = None, *, store=None, origin: str = "",
             priority: int = 100, timeout_s: int | None = None, node: str = "", dedupe: bool = True,
             dedupe_hours: int | None = None, require_online: bool = True, not_before=None, window: str = "",
@@ -219,16 +257,20 @@ def enqueue(kind: str, payload: dict | None = None, files: dict | None = None, *
         job.max_attempts = int(max_attempts)
     if capability != "any" and not online_nodes(capability):
         job.message = NO_NODE_QUEUED_TEXT       # صفِ ماندگار: تا روشن شدنِ سرور همین‌جا می‌ماند
-    job.save()
+    # ورودی‌ها پیش از ردیف کپی می‌شوند و ردیف فقط یک بار و کامل ساخته می‌شود (با تکرار روی قفلِ SQLite): هیچ کاری
+    # نیمه‌ساخته (بی‌inputs) نمی‌ماند، و اگر ساخت نشد پوشهٔ ورودی‌ها هم پاک می‌شود
     root = job_root(job)
     inputs = {}
-    for name, src in files.items():
-        safe = os.path.basename(name)
-        shutil.copyfile(src, root / "inputs" / safe)
-        inputs[safe] = f"inputs/{safe}"
-    if inputs:
+    try:
+        for name, src in files.items():
+            safe = os.path.basename(name)
+            shutil.copyfile(src, root / "inputs" / safe)
+            inputs[safe] = f"inputs/{safe}"
         job.inputs = inputs
-        job.save(update_fields=["inputs"])
+        _insert(job)
+    except BaseException:
+        shutil.rmtree(root, ignore_errors=True)
+        raise
     return job
 
 
@@ -371,14 +413,10 @@ def claim(node: ComputeNode) -> ComputeJob | None:
     for job in candidates:
         if audio_blocked(node, job):
             continue
-        updated = ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED, node__isnull=True).update(
-            state=ComputeJob.State.CLAIMED, node=node, claimed_at=now, heartbeat_at=now, attempts=F("attempts") + 1,
-            message="گرفته شد توسطِ " + node.name)
+        updated = _claim_row(job.pk, node, now)
         if updated == 1:
-            job.refresh_from_db()
-            waited = round(max(0.0, (now - (job.queued_at or job.created_at)).total_seconds()), 1)
-            ComputeJob.objects.filter(pk=job.pk).update(waited_s=waited)
-            job.waited_s = waited
+            _mark_waited(job, now)
+            waited = job.waited_s
             logger.info("compute: %s claimed by %s (waited %ss)", job.uid, node.name, waited)
             return job
     return None
@@ -436,7 +474,7 @@ def progress(job: ComputeJob, data: dict) -> dict:
         # پیشرفتِ زنده (مثلاً دانلودِ مدل: بایتِ گرفته‌شده/کل، سرعت، مرحله) — پنل از result["live"] می‌خواند؛ finish آن را نگه می‌دارد
         job.result = {**(job.result or {}), "live": live}
         fields.append("result")
-    job.save(update_fields=fields)
+    _save(job, fields)
     return {"cancel": job.cancel_requested}
 
 
@@ -464,7 +502,7 @@ def _media_kind(name: str) -> str:
 
 def finish(job: ComputeJob, node: ComputeNode, ok: bool, error: str = "", meta: dict | None = None,
            outputs: list | None = None) -> ComputeJob:
-    job.refresh_from_db()  # شمارهٔ تلاش و وضعیت باید تازه باشد، نه نسخهٔ در حافظه
+    call_with_retry(job.refresh_from_db)  # شمارهٔ تلاش و وضعیت باید تازه باشد، نه نسخهٔ در حافظه
     if job.final:
         return job
     now = timezone.now()
@@ -483,10 +521,6 @@ def finish(job: ComputeJob, node: ComputeNode, ok: bool, error: str = "", meta: 
         job.message = "تمام شد"
         if job.claimed_at:
             job.run_s = round(max(0.0, (now - job.claimed_at).total_seconds()), 1)
-        node.jobs_done = F("jobs_done") + 1
-        node.save(update_fields=["jobs_done"])
-        node.refresh_from_db()
-        _learn_timing(node, job, now)
     else:
         job.error = (error or "خطای نامشخص روی سرورِ پردازش")[:4000]
         if job.cancel_requested:
@@ -498,7 +532,7 @@ def finish(job: ComputeJob, node: ComputeNode, ok: bool, error: str = "", meta: 
             job.claimed_at = None
             job.queued_at = now
             job.message = "تلاشِ دوباره پس از خطا: " + job.error[:120]
-            job.save()
+            _save(job)
             logger.warning("compute: %s failed on %s, requeued (attempt %s)", job.uid, node.name, job.attempts)
             return job
         else:
@@ -507,8 +541,22 @@ def finish(job: ComputeJob, node: ComputeNode, ok: bool, error: str = "", meta: 
         if job.claimed_at:
             job.run_s = round(max(0.0, (now - job.claimed_at).total_seconds()), 1)
     job.finished_at = now
-    job.save()
+    _save(job)                       # اول خودِ کار (مهم‌ترین)، بعد آمارِ گره (فرعی)
+    if ok:
+        _note_success(node, job, now)
     return job
+
+
+def _note_success(node: ComputeNode, job: ComputeJob, now) -> None:
+    """شمارندهٔ کارهای انجام‌شده و میانگینِ زمان — فرعی است؛ قفلِ پایدارِ SQLite کارِ تمام‌شده را خراب نمی‌کند."""
+    try:
+        _bump_jobs_done(node)
+        node.refresh_from_db()
+        _learn_timing(node, job, now)
+    except Exception as exc:  # noqa: BLE001
+        if not is_lock_error(exc):
+            raise
+        logger.warning("compute: could not update node stats after %s (database locked)", job.uid)
 
 
 def _learn_timing(node: ComputeNode, job: ComputeJob, now) -> None:
@@ -521,7 +569,7 @@ def _learn_timing(node: ComputeNode, job: ComputeJob, now) -> None:
     n = old["n"] + 1
     stats[job.kind] = {"seconds": round((old["seconds"] * old["n"] + seconds) / n, 1), "n": n}
     node.stats = stats
-    node.save(update_fields=["stats"])
+    call_with_retry(node.save, update_fields=["stats"])
 
 
 def cancel(job: ComputeJob) -> None:
@@ -533,7 +581,7 @@ def cancel(job: ComputeJob) -> None:
         job.state = ComputeJob.State.CANCELLED
         job.finished_at = timezone.now()
         job.message = "لغو شد"
-        job.save()
+        _save(job)
         _after_cancel(job)
         return
     node = job.node
@@ -542,11 +590,11 @@ def cancel(job: ComputeJob) -> None:
         job.state = ComputeJob.State.CANCELLED
         job.finished_at = timezone.now()
         job.message = "لغو شد"
-        job.save()
+        _save(job)
         _after_cancel(job)
     else:
         job.cancel_requested = True
-        job.save(update_fields=["cancel_requested"])
+        _save(job, ["cancel_requested"])
 
 
 def _after_cancel(job: ComputeJob) -> None:
@@ -571,23 +619,31 @@ def requeue_stale() -> int:
         last = job.heartbeat_at or job.claimed_at or job.created_at
         if (now - last).total_seconds() < job.lease_s:
             continue
-        with transaction.atomic():
-            fresh = ComputeJob.objects.select_for_update().get(pk=job.pk)
-            if fresh.state not in (ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING):
-                continue
-            node = fresh.node
-            who = node.name if node else "?"
-            node_gone = node is None or not node.online
-            if fresh.cancel_requested:
-                # لغو خواسته شده بود؛ دوباره در صف گذاشتنش یعنی کارِ مرده برای هیچ‌کس اجرا شود
-                fresh.state = ComputeJob.State.CANCELLED
-                fresh.node = None
-                fresh.finished_at = now
-                fresh.message = "لغو شد"
-                fresh.save()
-                _after_cancel(fresh)
-                n += 1
-                continue
+        n += _requeue_one(job.pk, now)
+    n += expire_overdue(now)
+    return n
+
+
+@retry_on_lock
+def _requeue_one(pk, now) -> int:
+    """یک کارِ بی‌خبر را به صف برمی‌گرداند (۱) یا کاری نمی‌کند (۰). تراکنشِ خودش را دارد و روی قفلِ SQLite تکرار می‌شود."""
+    with transaction.atomic():
+        fresh = ComputeJob.objects.select_for_update().get(pk=pk)
+        if fresh.state not in (ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING):
+            return 0
+        node = fresh.node
+        who = node.name if node else "?"
+        node_gone = node is None or not node.online
+        if fresh.cancel_requested:
+            # لغو خواسته شده بود؛ دوباره در صف گذاشتنش یعنی کارِ مرده برای هیچ‌کس اجرا شود
+            fresh.state = ComputeJob.State.CANCELLED
+            fresh.node = None
+            fresh.finished_at = now
+            fresh.message = "لغو شد"
+            fresh.save()
+            cancelled = True
+        else:
+            cancelled = False
             if node_gone:
                 fresh.lost_count += 1
                 if fresh.lost_count <= MAX_LOST_FREE and fresh.attempts > 0:
@@ -604,9 +660,9 @@ def requeue_stale() -> int:
                 fresh.finished_at = now
                 fresh.message = "ناموفق"
             fresh.save()
-            n += 1
-    n += expire_overdue(now)
-    return n
+    if cancelled:
+        _after_cancel(fresh)
+    return 1
 
 
 _expire_checked = 0.0
@@ -632,10 +688,15 @@ def expire_overdue(now=None, force: bool = False) -> int:
     n = 0
     for job in ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).filter(q):
         limit = job.max_wait_s or global_s
+        # دانلودِ زمان‌بندی‌شده منتظرِ ساعتِ خودش است، نه منتظرِ سرور: تا وقتِ شروع / بازشدنِ بازه سقفِ انتظار نمی‌شمارد
+        if (job.not_before and job.not_before > now) or (job.window and not in_window(job.window, now)):
+            continue
         since = job.queued_at or job.created_at
+        if job.not_before and job.not_before > since:
+            since = job.not_before
         if not limit or (now - since).total_seconds() < limit:
             continue
-        updated = ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED).update(
+        updated = call_with_retry(ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED).update,
             state=ComputeJob.State.FAILED, finished_at=now, message="ناموفق",
             error=f"کار بیش از {max(1, limit // 3600)} ساعت منتظرِ روشن شدنِ سرورِ پردازش ماند و مهلتِ انتظار تمام شد.")
         if updated:

@@ -478,7 +478,8 @@ class _Router:
         # صفِ ماندگار: لوکال فقط «خاموش» است (نه مدل‌نصب‌نیست) و چنین سروری ثبت است ⇒ کارِ Celeryِ کاربر می‌تواند در صف بماند
         # (Job.mark_failed ⇒ apps.compute.park). فراخوان‌های بی‌Job (مثلاً چتِ مشتری) مثلِ قبل همین خطا را می‌بینند.
         local = failures.get(LOCAL)
-        if local is not None and getattr(local, 'kind', '') == 'offline':
+        # «offline» = گره خاموش/قطع؛ «busy» = گره روشن است ولی در ۴۵ثانیه کار را برنداشت (سرش شلوغ است): هر دو یعنی «بعداً»، نه شکست
+        if local is not None and getattr(local, 'kind', '') in ('offline', 'busy'):
             try:
                 from apps.compute import services as compute
                 if compute.known_nodes('ollama'):

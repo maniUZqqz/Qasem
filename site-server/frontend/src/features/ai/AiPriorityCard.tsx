@@ -4,6 +4,8 @@ import axios from "axios";
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Select, Spinner, fa } from "../../components/ui";
+import DownloadWhen, { useDownloadSettings } from "../tools/compute/DownloadWhen";
+import { DEFAULT_WHEN, scheduleLabel, whenBody, whenConfirmLine, whenError, whenValid, type WhenChoice } from "../tools/compute/schedule";
 
 /**
  * اولویتِ هوش مصنوعی: لوکال یا متیس — تنظیمِ واحدِ همهٔ کارهای هوش مصنوعیِ NM.
@@ -61,6 +63,10 @@ type Pull = {
   waiting_for_node: boolean;
   text: string;
   error: string;
+  /** زمان‌بندی (۲٫۶): شروعِ برنامه‌ریزی‌شده، بازهٔ شبانه و جملهٔ آمادهٔ فارسی؛ فقط وقتی کار هنوز در صف و منتظرِ زمانش است پر است */
+  scheduled_for?: string | null;
+  window?: string;
+  scheduled_text?: string;
 };
 
 type Recent = {
@@ -156,7 +162,14 @@ function Tick({ installed, online }: { installed: boolean | null; online: boolea
   return <Badge>نامعلوم</Badge>;
 }
 
+/** «زمان‌بندی‌شده — شروع امروز ۰۲:۰۰» برای دانلودی که در صف منتظرِ زمانش است؛ وگرنه «» */
+function scheduledOf(pull: Pull): string {
+  if (pull.state !== "QUEUED") return "";
+  return pull.scheduled_text || scheduleLabel(pull, Date.now(), true);
+}
+
 function PullBar({ pull, onCancel, busy }: { pull: Pull; onCancel: (uid: string) => void; busy: boolean }) {
+  const scheduled = scheduledOf(pull);
   const failed = pull.state === "FAILED";
   const done = pull.state === "COMPLETED";
   const tone = failed ? "var(--bad)" : done ? "var(--ok)" : pull.waiting_for_node ? "var(--warn)" : "var(--brand)";
@@ -167,7 +180,7 @@ function PullBar({ pull, onCancel, busy }: { pull: Pull; onCancel: (uid: string)
           {pull.tag}
         </b>
         <span className="flex items-center gap-2">
-          {failed ? <Badge tone="bad">ناموفق</Badge> : done ? <Badge tone="ok">نصب شد</Badge> : pull.state === "CANCELLED" ? <Badge>لغو شد</Badge> : pull.state === "QUEUED" ? <Badge tone="warn">در صف</Badge> : pull.waiting_for_node ? <Badge tone="warn">متوقف (سرور خاموش)</Badge> : <Badge tone="brand">در حال دانلود</Badge>}
+          {failed ? <Badge tone="bad">ناموفق</Badge> : done ? <Badge tone="ok">نصب شد</Badge> : pull.state === "CANCELLED" ? <Badge>لغو شد</Badge> : pull.state === "QUEUED" ? (scheduled ? <Badge tone="info">زمان‌بندی‌شده</Badge> : <Badge tone="warn">در صف</Badge>) : pull.waiting_for_node ? <Badge tone="warn">متوقف (سرور خاموش)</Badge> : <Badge tone="brand">در حال دانلود</Badge>}
           {!pull.final && (
             <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => onCancel(pull.uid)} data-testid={`pull-cancel-${pull.uid}`}>
               لغو
@@ -194,6 +207,9 @@ export default function AiPriorityCard() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** زمانِ دانلودِ مدل (طبقِ تنظیمِ کلیِ «زمان‌بندیِ دانلود» مگر کاربر چیزِ دیگری بخواهد) */
+  const [pullWhen, setPullWhen] = useState<WhenChoice>(DEFAULT_WHEN);
+  const downloadSettings = useDownloadSettings();
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
   const [priority, setPriority] = useState<Order>("local_first");
@@ -319,9 +335,14 @@ export default function AiPriorityCard() {
   }
 
   async function startPull(tag: string, sizeMb: number) {
+    if (!whenValid(pullWhen)) {
+      setError(whenError(pullWhen));
+      return;
+    }
     const queued = !snap?.local.online;
     const ask =
       `مدلِ ${tag} حدود ${gb(sizeMb)} گیگابایت است و روی سرورِ پردازشِ شما دانلود می‌شود.` +
+      `\n${whenConfirmLine(pullWhen, downloadSettings)}` +
       (queued ? "\nسرورِ پردازش الان خاموش است؛ دانلود در صف می‌ماند و همین که کامپیوتر روشن شد خودکار شروع می‌شود." : "") +
       "\nشروع شود؟";
     if (!window.confirm(ask)) return;
@@ -329,7 +350,8 @@ export default function AiPriorityCard() {
     setError(null);
     setNotice(null);
     try {
-      const { data } = await api.post<Snapshot>("/ai/models/pull/", { tag });
+      const chosen = whenBody(pullWhen);
+      const { data } = await api.post<Snapshot>("/ai/models/pull/", chosen ? { tag, when: chosen } : { tag });
       accept(data);
       setNotice(data.message ?? "دانلود در صف گذاشته شد.");
     } catch (err) {
@@ -371,7 +393,7 @@ export default function AiPriorityCard() {
     if (active) {
       return (
         <span className="text-xs" style={{ color: active.waiting_for_node ? "var(--warn)" : "var(--brand)" }} data-testid={`${testId}-active`}>
-          {active.state === "QUEUED" ? "در صفِ دانلود" : active.waiting_for_node ? "دانلود متوقف (سرور خاموش)" : `در حال دانلود ${fa(Math.round(active.percent))}٪`}
+          {active.state === "QUEUED" ? scheduledOf(active) || "در صفِ دانلود" : active.waiting_for_node ? "دانلود متوقف (سرور خاموش)" : `در حال دانلود ${fa(Math.round(active.percent))}٪`}
         </span>
       );
     }
@@ -483,6 +505,11 @@ export default function AiPriorityCard() {
               <p className="mt-2 text-sm" style={{ color: "var(--warn)" }}>
                 هیچ سرورِ پردازشی با Ollama ثبت نشده؛ دانلودِ مدل ممکن نیست.
               </p>
+            )}
+            {!noPullNode && !oldAgent && KINDS.some((k) => snap.kinds[k].installed !== true && snap.kinds[k].pullable && !activeFor(snap.kinds[k].model)) && (
+              <div className="mt-3" data-testid="pull-when">
+                <DownloadWhen value={pullWhen} onChange={setPullWhen} settings={downloadSettings} disabled={busy !== null} />
+              </div>
             )}
             <ul className="mt-3 space-y-3 text-sm" style={{ color: "var(--text-2)" }}>
               {KINDS.map((k) => {

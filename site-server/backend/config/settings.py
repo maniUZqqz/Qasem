@@ -193,7 +193,13 @@ else:
                 # busy timeout turns "database is locked" into a short wait
                 # rather than an instant error. Both only matter in dev, but
                 # they make dev behave a little more like production.
-                "init_command": "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;",
+                "init_command": "PRAGMA busy_timeout=30000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
+                # صفِ پردازش و کارهای Celery هم‌زمان می‌نویسند و SQLite یک نویسنده دارد. ۱) ثانیهٔ انتظارِ قفل ۵ ⇒ ۳۰ (نویسندهٔ
+                # کُندِ دیگر، مثلاً ورودِ CSV، کارِ صف را «database is locked» نکند)؛ ۲) تراکنش با BEGIN IMMEDIATE شروع شود:
+                # با پیش‌فرضِ DEFERRED هر «خواندن ⇒ نوشتن» داخلِ atomic() اگر کسی میانِ‌اش نوشته بود فوراً (بی‌انتظار) خطا می‌داد.
+                # (Django ≥ 5.1). تکرارِ نوشتن‌های صف: apps/compute/dbretry.py
+                "timeout": 30,
+                "transaction_mode": "IMMEDIATE",
             },
         }
     }
@@ -209,6 +215,9 @@ else:
 
         DATABASES["default"]["TEST"] = {"NAME": str(Path(_tempfile.gettempdir()) / f"nm-test-{os.getpid()}-{_uuid.uuid4().hex[:8]}.sqlite3")}
         DATABASES["default"]["OPTIONS"]["init_command"] = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=20000; PRAGMA synchronous=OFF;"
+        # آزمون‌ها داخلِ یک تراکنشِ فراگیر (TestCase) اجرا می‌شوند؛ BEGIN IMMEDIATE آن‌جا نخ‌های هم‌زمانِ آزمون را قفل می‌کرد
+        DATABASES["default"]["OPTIONS"].pop("transaction_mode", None)
+        DATABASES["default"]["OPTIONS"]["timeout"] = 20
 
 # Refuse to run production on SQLite. Getting this wrong is silent until the
 # first concurrent write, and by then there are real customers on it.

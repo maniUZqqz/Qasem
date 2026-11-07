@@ -77,6 +77,7 @@ export default function VoiceOverDialog({
   const [error, setError] = useState<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
+  const captureInput = useRef<HTMLInputElement>(null);
   // ---- ضبط با میکروفون (فقط روی https/localhost)
   const mic = useMemo(() => micSupport(), []);
   const recorder = useRef<Recorder | null>(null);
@@ -212,7 +213,13 @@ export default function VoiceOverDialog({
             {recording ? `⏹ ایست و گذاشتن (${fa(Math.floor(recSec / 60))}:${fa(String(recSec % 60).padStart(2, "0"))})` : "⏺ ضبط با میکروفون"}
           </button>
         ) : (
-          <button type="button" className="ws-btn sq-act" disabled title={mic.reason} data-testid="vo-record-disabled">⏺ ضبط با میکروفون</button>
+          <>
+            <button type="button" className="ws-btn sq-act" disabled title={mic.reason} data-testid="vo-record-disabled">⏺ ضبط با میکروفون</button>
+            {/* روی نشانیِ ناامن (http) مرورگر میکروفون نمی‌دهد؛ ولی «گرفتنِ فایل با ضبطِ خودِ گوشی» همه‌جا کار می‌کند */}
+            <input ref={captureInput} type="file" accept="audio/*" capture hidden data-testid="vo-capture-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ""; }} />
+            <button type="button" className="ws-btn sq-act" disabled={working} onClick={() => captureInput.current?.click()} data-testid="vo-phone-record"
+              title="برنامهٔ ضبطِ صدای خودِ گوشی باز می‌شود؛ بعد از ضبط، صدا خودکار روی تایم‌لاین می‌نشیند (روی کامپیوتر پنجرهٔ انتخابِ فایل باز می‌شود)">⏺ ضبط با برنامهٔ ضبطِ گوشی</button>
+          </>
         )}
         <input ref={fileInput} type="file" accept="audio/*,video/mp4,.m4a,.aac,.amr,.3gp,.opus,.webm" hidden data-testid="vo-upload-input"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
@@ -220,7 +227,7 @@ export default function VoiceOverDialog({
       </div>
       {mic.ok
         ? <p className="ws-hint" data-testid="vo-record-why">ضبط را بزنید و حرف بزنید؛ با «ایست» صدا ذخیره و روی تایم‌لاین گذاشته می‌شود (حداکثر ۵ دقیقه). اولین بار مرورگر اجازهٔ میکروفون را می‌پرسد.</p>
-        : <p className="ws-hint" data-testid="vo-record-why">{mic.reason}</p>}
+        : <p className="ws-hint" data-testid="vo-record-why">{mic.reason} روی گوشی دکمهٔ «ضبط با برنامهٔ ضبطِ گوشی» ضبطِ خودِ گوشی را باز می‌کند و صدا همان‌جا روی تایم‌لاین می‌نشیند.</p>}
       {micError && <p className="sq-note is-warn" role="alert" data-testid="vo-mic-error">{micError}</p>}
     </SoundDialog>
   );

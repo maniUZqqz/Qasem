@@ -141,3 +141,12 @@
   .tl-toolbar .ws-btn, .tl-toolbar .ws-sep { flex: none; }
   .tb-title { flex-basis: 64px; }
 }
+
+/* دورِ ششم: ردیفِ جمع‌شده/کوتاه، رسانهٔ گم‌شده */
+.tl-track.size-c .tl-clip, .tl-track.size-s .tl-clip { font-size: 10px; }
+.tl-track.size-c .tl-clip { top: 2px; bottom: 2px; padding: 0; }
+.tl-track.size-c .tl-clip > .tl-label, .tl-track.size-c .tl-clip > span { display: none; }
+.tl-head.size-c button, .tl-head.size-c .role { display: none; }
+.tl-head.size-c [data-size] { display: inline-block; }
+.tl-clip.is-offline { background: repeating-linear-gradient(135deg, #7f1d1d 0 8px, #b91c1c 8px 16px) !important; border-color: #fca5a5; }
+.vw-offline { margin: 6px 0; padding: 8px 12px; border-radius: 10px; border: 1px solid #fca5a5; background: color-mix(in srgb, #b91c1c 12%, transparent); font-size: 12.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

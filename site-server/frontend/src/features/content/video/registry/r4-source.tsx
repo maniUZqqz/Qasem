@@ -4,6 +4,7 @@ import { fa } from "../../../../components/ui";
 import type { MediaItem } from "../api";
 import { useMediaUrls } from "../manual/Monitor";
 import { timecode } from "../manual/model";
+import { replaceEdit } from "../manual/r6ops";
 import { ThreePointInput, clipFromSource, fitToFill, insertAt, overwriteAt, targetTrack, threePoint } from "../manual/r4ops";
 import type { PanelProps } from "./types";
 
@@ -163,6 +164,16 @@ export default function SourcePanel({ api, props }: PanelProps) {
     api.seek(io.in);
   };
 
+  const replace = () => {
+    if (!item) { api.notice("اول یک رسانه را در مانیتورِ منبع انتخاب کنید."); return; }
+    const sel = api.selected;
+    if (!sel || sel.clip.type !== "media") { api.notice("اول قطعه‌ای را روی تایم‌لاین انتخاب کنید که باید جایگزین شود."); return; }
+    const r = replaceEdit(api.project, sel.clip.id, item, inP ?? 0);
+    if ("error" in r) { api.notice(r.error); return; }
+    api.apply("جایگزینی از مانیتورِ منبع", () => r.project);
+    api.notice(`قطعه با «${item.title}» از ${tc(inP ?? 0)} جایگزین شد؛ جا، طول، رنگ و جلوه‌هایش همان ماند (برگشت: Ctrl+Z).`);
+  };
+
   const onKey = (e: React.KeyboardEvent) => {
     const k = e.key.toLowerCase();
     if (e.target instanceof HTMLSelectElement || (e.target instanceof HTMLInputElement && e.target.type !== "range")) return;
@@ -238,6 +249,7 @@ export default function SourcePanel({ api, props }: PanelProps) {
       <div className="src-go">
         <button type="button" className="ws-btn primary" onClick={() => place("insert")} disabled={!!why} title="درج: از آن نقطه به بعد همهٔ ترک‌ها به اندازهٔ طول جلو می‌روند" data-testid="src-insert">درج (Insert)</button>
         <button type="button" className="ws-btn primary" onClick={() => place("overwrite")} disabled={!!why} title="رویه‌گذاری: روی همان بازه می‌نشیند و چیزی جابه‌جا نمی‌شود" data-testid="src-overwrite">رویه‌گذاری (Overwrite)</button>
+        <button type="button" className="ws-btn" onClick={replace} disabled={!item || !api.selected} title="Replace edit: قطعهٔ انتخاب‌شده در تایم‌لاین در همان جا و با همان طول، محتوایش از نقطهٔ ورودیِ منبع می‌شود" data-testid="src-replace">جایگزینی (Replace)</button>
         <button type="button" className="ws-btn" onClick={fill} disabled={!item || !target || item.kind !== "video"} title="ورودی/خروجی را روی منبع و روی تایم‌لاین بگذارید؛ سرعتِ منبع طوری عوض می‌شود که دقیقاً همان بازه را پر کند (ویرایشِ چهارنقطه‌ای)" data-testid="src-fill">پر کردنِ بازه (Fit to fill)</button>
       </div>
       {why && <p className="ws-hint" data-testid="src-why">{why}</p>}

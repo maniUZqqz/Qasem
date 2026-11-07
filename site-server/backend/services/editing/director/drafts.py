@@ -6,7 +6,7 @@ file per run. A draft turns into a real project only when the owner opens it in 
 
 Rules that keep this safe:
   * a real `VideoProject` is never deleted here (opened, edited and saved projects are not this module's business);
-  * only UNOPENED drafts expire, by age (`draft_days`, a per-store setting, 7 by default) or when a store has more than `MAX_DRAFTS`;
+  * only UNOPENED drafts expire, by age (`draft_days`, a per-store setting, 7 by default) or when a store has more than its `max_drafts` (60 by default, 10–200);
   * a preview folder is removed only when no draft of its run is left;
   * purging is done lazily (on listing, on each run, or by `manage.py director_drafts purge`) — no scheduler is needed.
 """
@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 
 #: where the editor settings live on the store profile (`StoreProfile.ai_preferences[KEY]`)
 KEY = "video_editor"
-DEFAULTS = {"ai_default": True, "draft_days": 7}
+#: the owner's decision (۱۱/۰۷): the AI tick starts OFF but can be switched on (a store setting and a per-run tick); drafts live 7 days and at most 60 are kept —
+#: both editable per store within sane bounds
+DEFAULTS = {"ai_default": False, "draft_days": 7, "max_drafts": 60}
 MIN_DAYS, MAX_DAYS = 1, 30
-#: unopened drafts per store; the oldest beyond this expire early
-MAX_DRAFTS = 60
+MIN_DRAFTS, MAX_DRAFTS_LIMIT = 10, 200
+#: unopened drafts per store by default; the oldest beyond the store's cap expire early
+MAX_DRAFTS = DEFAULTS["max_drafts"]
 #: a promoted draft only stays as a pointer (so a double click opens the same project), then it is removed
 PROMOTED_KEEP = timedelta(days=1)
 
@@ -55,6 +58,7 @@ def get_settings(store) -> dict:
         if isinstance(saved.get("ai_default"), bool):
             out["ai_default"] = saved["ai_default"]
         out["draft_days"] = _days(saved.get("draft_days"))
+        out["max_drafts"] = _cap(saved.get("max_drafts"))
     return out
 
 
@@ -65,16 +69,25 @@ def _days(value) -> int:
         return DEFAULTS["draft_days"]
 
 
-def save_settings(store, *, ai_default=None, draft_days=None) -> dict:
-    """Change one or both settings; every other AI preference of the store is kept."""
+def _cap(value) -> int:
+    try:
+        return max(MIN_DRAFTS, min(MAX_DRAFTS_LIMIT, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULTS["max_drafts"]
+
+
+def save_settings(store, *, ai_default=None, draft_days=None, max_drafts=None) -> dict:
+    """Change any of the settings; every other AI preference of the store is kept."""
     cur = get_settings(store)
     if isinstance(ai_default, bool):
         cur["ai_default"] = ai_default
     if draft_days is not None:
         cur["draft_days"] = _days(draft_days)
+    if max_drafts is not None:
+        cur["max_drafts"] = _cap(max_drafts)
     p = _profile(store, create=True)
     prefs = dict(p.ai_preferences or {})
-    prefs[KEY] = {"ai_default": cur["ai_default"], "draft_days": cur["draft_days"]}
+    prefs[KEY] = {"ai_default": cur["ai_default"], "draft_days": cur["draft_days"], "max_drafts": cur["max_drafts"]}
     p.ai_preferences = prefs
     p.save(update_fields=["ai_preferences"])
     return cur
@@ -82,7 +95,7 @@ def save_settings(store, *, ai_default=None, draft_days=None) -> dict:
 
 def public_settings(store) -> dict:
     s = get_settings(store)
-    return {**s, "min_days": MIN_DAYS, "max_days": MAX_DAYS, "max_drafts": MAX_DRAFTS, "cost_note": COST_NOTE}
+    return {**s, "min_days": MIN_DAYS, "max_days": MAX_DAYS, "min_drafts": MIN_DRAFTS, "max_drafts_limit": MAX_DRAFTS_LIMIT, "cost_note": COST_NOTE}
 
 
 # ───────────────────────────── drafts
@@ -182,8 +195,12 @@ def purge(store=None, *, now=None) -> dict:
     ptr.delete()
 
     stores = [store.pk] if store is not None else list(scope.values_list("store_id", flat=True).distinct())
+    from apps.stores.models import Store
+
     for sid in stores:
-        extra = list(DirectorDraft.objects.filter(store_id=sid, promoted_at__isnull=True).order_by("-created_at").values_list("pk", flat=True)[MAX_DRAFTS:])
+        owner = Store.objects.filter(pk=sid).first()
+        cap = get_settings(owner)["max_drafts"] if owner is not None else MAX_DRAFTS
+        extra = list(DirectorDraft.objects.filter(store_id=sid, promoted_at__isnull=True).order_by("-created_at").values_list("pk", flat=True)[cap:])
         if extra:
             rows = DirectorDraft.objects.filter(pk__in=extra)
             gone += [(d.run, d.job_id, d.store_id) for d in rows]

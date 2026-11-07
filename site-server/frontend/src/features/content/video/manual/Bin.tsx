@@ -25,7 +25,7 @@ const TABS: { key: keyof BinData; title: string }[] = [
 
 /** سطلِ رسانه: ویدیوهای فروشگاه (آپلودی، تدوین‌شده، ساخته‌شده)، صدای کتابخانه و عکس‌ها. بکشید روی تایم‌لاین یا «+». */
 export default function Bin({
-  bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound, uploadSlot, folders = [], onFolderOp,
+  bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound, uploadSlot, folders = [], meta, onFolderOp,
 }: {
   bin: BinData | null;
   loading: boolean;
@@ -41,6 +41,8 @@ export default function Bin({
   uploadSlot?: ReactNode;
   /** پوشه‌های کاربر (در پروژه ذخیره می‌شوند) و ویرایششان با یک گامِ برگشت */
   folders?: BinFolder[];
+  /** برچسب و یادداشتِ رسانه‌ها (از پروژه) */
+  meta?: Record<string, { tags: string[]; note: string }>;
   onFolderOp?: (label: string, fn: (p: Project) => Project) => void;
 }) {
   const [tab, setTab] = useState<keyof BinData>("videos");
@@ -53,7 +55,7 @@ export default function Bin({
   const folder = folders.find((f) => f.id === folderId) ?? null;
   const all = bin?.[tab] ?? [];
   const byKind = tab === "audio" && audioFilter !== "all" ? all.filter((it) => kinds?.[it.ref] === audioFilter) : all;
-  const items = tab === "stickers" ? byKind : filterBin(byKind, q, folder);
+  const items = tab === "stickers" ? byKind : filterBin(byKind, q, folder, meta);
   const filtering = tab !== "stickers" && (!!q.trim() || !!folder);
   const sticker = tab === "stickers";
   return (
@@ -135,6 +137,11 @@ export default function Bin({
             >
               {sticker ? <img src={it.url} alt="" width={22} height={22} style={{ objectFit: "contain" }} /> : <span aria-hidden>{it.kind === "video" ? "🎞" : it.kind === "audio" ? "🔊" : "🖼"}</span>}
               <span className="t">{it.title}</span>
+              {meta?.[it.ref] && (
+                <span className="bn-tags" data-testid="bin-tags" title={meta[it.ref].note || undefined}>
+                  {meta[it.ref].tags.slice(0, 3).map((g) => <em key={g}>{g}</em>)}{meta[it.ref].note ? <em title={meta[it.ref].note}>📝</em> : null}
+                </span>
+              )}
               {onFolderOp && folders.length > 0 && tab !== "stickers" && (
                 <select className="u-input bn-sel" value={folders.find((f) => f.refs.includes(it.ref))?.id ?? ""} aria-label={`پوشهٔ «${it.title}»`} data-testid="bin-item-folder"
                   onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}

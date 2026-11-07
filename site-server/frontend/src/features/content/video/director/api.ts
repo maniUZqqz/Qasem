@@ -18,7 +18,7 @@ export type ParamSpec = {
 export type ToolSpec = { tool: string; title: string; group: string; does: string; params: ParamSpec[] };
 
 /** تنظیماتِ ویرایشگر برای هر فروشگاه: تیکِ «کمکِ هوش مصنوعی» از چه حالتی شروع شود و پیش‌نویس‌های بازنشده چند روز بمانند */
-export type EditorSettings = { ai_default: boolean; draft_days: number; min_days: number; max_days: number; max_drafts: number; cost_note: string };
+export type EditorSettings = { ai_default: boolean; draft_days: number; min_days: number; max_days: number; max_drafts: number; min_drafts: number; max_drafts_limit: number; cost_note: string };
 
 /** نتیجهٔ ذخیره‌شدهٔ یک «بساز» که هنوز کسی بازش نکرده (سبک؛ با باز کردن در تدوینِ دستی پروژهٔ واقعی می‌شود) */
 export type DraftRow = { id: number; key: string; title: string; score: number; length: number; run: string; created_at: string; expires_at: string; days_left: number | null; project_id: number | null; prompt: string };
@@ -106,6 +106,6 @@ export const directorApi = {
   openDraft: (store: string, id: number) => api.post<{ project_id: number; title: string }>(`${base(store)}/drafts/${id}/open/`).then((r) => r.data),
   deleteDraft: (store: string, id: number) => api.delete(`${base(store)}/drafts/${id}/`).then(() => undefined),
   settings: (store: string) => api.get<EditorSettings>(`/stores/${store}/editor/settings/`).then((r) => r.data),
-  saveSettings: (store: string, body: Partial<Pick<EditorSettings, "ai_default" | "draft_days">>) => api.put<EditorSettings>(`/stores/${store}/editor/settings/`, body).then((r) => r.data),
+  saveSettings: (store: string, body: Partial<Pick<EditorSettings, "ai_default" | "draft_days" | "max_drafts">>) => api.put<EditorSettings>(`/stores/${store}/editor/settings/`, body).then((r) => r.data),
   job: (id: number) => api.get<Job>(`/jobs/${id}/`).then((r) => r.data),
 };

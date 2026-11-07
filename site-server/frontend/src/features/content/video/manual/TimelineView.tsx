@@ -17,6 +17,7 @@ import "./timeline.css";
 export type Tool = "select" | "razor" | "ripple" | "roll" | "slip" | "slide" | "rate" | "trackfwd";
 
 export const ROW = 52;
+import { TRACK_SIZES, trackRow } from "./r6ops";
 const LANE = 22;
 const STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 
@@ -121,11 +122,12 @@ type ClipProps = {
   fps: number;
   /** «خط بلندی» برای قطعه‌های انتخاب‌نشده هم نشان داده شود */
   volLine: boolean;
+  offline?: boolean;
   acts: ClipActs;
   onDown: (e: React.PointerEvent, c: AnyClip, t: Track, mode: "move" | "l" | "r") => void;
 };
 
-const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, px, tool, storeId, item, visible, dragging, linked, trim, fps, volLine, acts, onDown }: ClipProps) {
+const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, px, tool, storeId, item, visible, dragging, linked, trim, fps, volLine, offline, acts, onDown }: ClipProps) {
   const w = Math.max(6, (clipEnd(c) - c.at) * px);
   const isAudio = c.type === "media" && (c.kind === "audio" || t.kind === "audio");
   const hasSound = c.type === "media" && (isAudio || (c.has_audio && c.audio_on));
@@ -145,10 +147,10 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
   const showVol = !!media && hasSound && (selected || (volLine && (isAudio || volEdited)));
   return (
     <div
-      className={`tl-clip ${kindClass} ${selected ? "is-sel" : ""} ${primary ? "is-primary" : ""} ${dragging ? "is-drag" : ""} ${trim ? "is-trim" : ""} tool-${tool}`}
+      className={`tl-clip ${kindClass} ${offline ? "is-offline" : ""} ${selected ? "is-sel" : ""} ${primary ? "is-primary" : ""} ${dragging ? "is-drag" : ""} ${trim ? "is-trim" : ""} tool-${tool}`}
       data-clip={c.id} data-clip-kind={c.type === "text" ? "text" : c.kind} data-trim={trim ?? undefined}
       style={{ left: c.at * px, width: w, opacity: t.muted ? 0.5 : 1 }}
-      title={c.type === "text" ? c.text : `${c.label} — ${timecode(c.at, fps)}`}
+      title={c.type === "text" ? c.text : `${c.label} — ${timecode(c.at, fps)}${offline ? " — رسانه‌اش گم شده (Offline)" : ""}`}
       onPointerDown={(e) => onDown(e, c, t, "move")}
     >
       {film && c.type === "media" && <Film sprite={film} clip={c} px={px} width={w} height={inner} />}
@@ -199,6 +201,8 @@ type Props = {
   onKeyPick: (id: string, ch: KfChannel, t: number) => void;
   /** «خط بلندی» برای قطعه‌های انتخاب‌نشده هم نشان داده شود (پیش‌فرض: بله) */
   volLine?: boolean;
+  /** قطعه‌هایی که رسانه‌شان گم شده (Offline): با رنگِ هاشورخورده نشان داده می‌شوند */
+  offlineIds?: Set<string>;
 };
 
 export default function TimelineView(props: Props) {
@@ -272,10 +276,19 @@ export default function TimelineView(props: Props) {
     const rect = el.getBoundingClientRect();
     return Math.max(0, (clientX - rect.left + el.scrollLeft) / px);
   };
+  /** ردیفِ زیرِ یک ارتفاع (ردیف‌ها بلندیِ متفاوت دارند: جمع‌شده/کوتاه/معمولی/بلند) */
+  const rowIndexAtY = (y: number) => {
+    let acc = 0;
+    for (let i = 0; i < display.length; i++) {
+      acc += trackRow(display[i]);
+      if (y < acc) return i;
+    }
+    return display.length - 1;
+  };
   const displayRowAt = (clientY: number) => {
     const rect = rows.current?.getBoundingClientRect();
     if (!rect) return -1;
-    return Math.floor((clientY - rect.top) / ROW);
+    return rowIndexAtY(clientY - rect.top);
   };
 
   // ───────────── کشیدن
@@ -291,7 +304,7 @@ export default function TimelineView(props: Props) {
         const y = e.clientY - (rows.current?.getBoundingClientRect().top ?? 0);
         setDrag({ ...drag, x, y });
         const x0 = Math.min(drag.sx, x) / px, x1 = Math.max(drag.sx, x) / px;
-        const r0 = Math.floor(Math.min(drag.sy, y) / ROW), r1 = Math.floor(Math.max(drag.sy, y) / ROW);
+        const r0 = rowIndexAtY(Math.min(drag.sy, y)), r1 = rowIndexAtY(Math.max(drag.sy, y));
         const picked: string[] = [];
         display.forEach((t, i) => {
           if (i < r0 || i > r1) return;
@@ -538,8 +551,8 @@ export default function TimelineView(props: Props) {
       <div className="tl-heads" dir="rtl">
         <div className="tl-ruler-spacer" />
         {display.map((t) => (
-          <div key={t.id} className={`tl-head kind-${t.kind}`} data-track-head={t.id}>
-            <span className="name" title={t.name}>{t.kind === "video" ? "🎞 " : t.kind === "audio" ? "🔊 " : "T "}{t.name}{t.role ? <small className="role">{t.role === "speech" ? " گفتار" : t.role === "music" ? " موسیقی" : " افکت"}</small> : null}</span>
+          <div key={t.id} className={`tl-head kind-${t.kind} size-${t.size ?? "m"}`} style={{ height: trackRow(t) }} data-track-head={t.id}>
+            <span className="name" title={t.name}>{t.kind === "video" ? "🎞 " : t.kind === "audio" ? "🔊 " : "T "}{t.name}{t.role ? <small className="role">{t.role === "speech" ? " گفتار" : t.role === "music" ? " موسیقی" : t.role === "ambience" ? " محیط" : " افکت"}</small> : null}</span>
             {t.kind === "video" && (
               <button type="button" className={t.hidden ? "is-on" : ""} title={t.hidden ? "نمایشِ تصویرِ این ترک" : "پنهان‌کردنِ تصویرِ این ترک (چشم)"} onClick={() => onTrack(t.id, { hidden: !t.hidden })} data-hide={t.id}>👁</button>
             )}
@@ -548,6 +561,8 @@ export default function TimelineView(props: Props) {
             <button type="button" className={t.locked ? "is-on" : ""} title="قفل (قطعه‌ها جابه‌جا نمی‌شوند)" onClick={() => onTrack(t.id, { locked: !t.locked })} data-lock={t.id}>L</button>
             {t.kind !== "text" && <button type="button" className={t.sync ? "is-on" : ""} title="قفلِ همگامی: با «حذفِ بی‌فاصله» روی ترکی دیگر، این ترک هم به اندازهٔ جای خالی جلو می‌آید" onClick={() => onTrack(t.id, { sync: !t.sync })} data-sync={t.id}>⛓</button>}
             {t.kind !== "text" && <button type="button" className={t.target ? "is-on" : ""} title="هدف: درج و رویه‌گذاری از مانیتورِ منبع روی این ترک می‌نشینند" onClick={() => onTrack(t.id, { target: !t.target })} data-target={t.id}>◎</button>}
+            <button type="button" className={t.size && t.size !== "m" ? "is-on" : ""} title={`بلندیِ ردیف: ${{ c: "جمع‌شده", s: "کوتاه", m: "معمولی", l: "بلند" }[t.size ?? "m"]} (کلیک = اندازهٔ بعدی)`}
+              onClick={() => onTrack(t.id, { size: ((): Track["size"] => { const n = TRACK_SIZES[(TRACK_SIZES.indexOf(t.size ?? "m") + 1) % TRACK_SIZES.length]; return n === "m" ? undefined : n; })() })} data-size={t.id}>↕</button>
             <button type="button" title="حذفِ ترک" onClick={() => onRemoveTrack(t.id)}>×</button>
           </div>
         ))}
@@ -596,8 +611,8 @@ export default function TimelineView(props: Props) {
             {display.map((t) => (
               <div
                 key={t.id}
-                className={`tl-track kind-${t.kind} ${t.locked ? "is-locked" : ""} ${dropTrack === t.id ? "is-drop" : ""}`}
-                style={{ height: ROW }}
+                className={`tl-track kind-${t.kind} ${t.locked ? "is-locked" : ""} ${dropTrack === t.id ? "is-drop" : ""} size-${t.size ?? "m"}`}
+                style={{ height: trackRow(t) }}
                 data-track={t.id} data-kind={t.kind}
                 onPointerDown={(e) => {
                   if (e.target !== e.currentTarget) return;
@@ -630,7 +645,7 @@ export default function TimelineView(props: Props) {
                     dragging={!!drag && "ids" in drag && drag.ids.includes(c.id)}
                     trim={drag?.kind === "edge" && drag.id === c.id ? drag.side : null}
                     linked={c.type === "media" && !!c.link && (linkedSet.get(c.link) ?? 0) > 1}
-                    fps={fps} volLine={volLine} acts={acts} onDown={onDownStable}
+                    fps={fps} volLine={volLine} offline={c.type === "media" && !!props.offlineIds?.has(c.id)} acts={acts} onDown={onDownStable}
                   />
                 ))}
                 {transitions.filter((x) => x.trackId === t.id).map((x) => (

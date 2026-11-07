@@ -2,10 +2,11 @@ import { useState } from "react";
 
 import { fa } from "../../../../components/ui";
 import { MediaClip } from "../manual/model";
+import { INTERPRET_FPS, clearInterpretFps, interpretFps, isSlowed, setDenoise, setFrames, setInterpret } from "../manual/r6ops";
 import { ANCHOR_PRESETS, DEFAULT_LUMA, DEFAULT_MATTE, anchorIsCentre, lensIsFlat, matteSourceFor, setAnchor, setLens, setLuma, setTrackMatte } from "../manual/r5fx";
 import type { PanelProps } from "./types";
 
-type Section = "luma" | "lens" | "anchor" | "matte";
+type Section = "luma" | "lens" | "anchor" | "matte" | "denoise" | "frames" | "interpret";
 
 function Slider({ label, value, min, max, step, onLive, onCommit, testId, hint }: {
   label: string; value: number; min: number; max: number; step: number; onLive: (v: number) => void; onCommit: (v: number) => void; testId: string; hint?: string;
@@ -32,12 +33,15 @@ export function ClipFxPanel({ api, props }: PanelProps) {
   const anchor = clip.anchor ?? { x: 0, y: 0 };
   const matte = clip.track_matte ?? DEFAULT_MATTE;
   const matteSrc = matteSourceFor(api.project, clip.id);
+  const native = api.media[clip.ref]?.fps ?? 0;
+  const interp = clip.interpret ?? {};
+  const slowed = isSlowed(clip);
   const tab = (k: Section, t: string) => (
     <button key={k} type="button" role="tab" aria-selected={open === k} className={`ws-chip ${open === k ? "is-on" : ""}`} onClick={() => setOpen(k)} data-testid={`fx-tab-${k}`}>{t}</button>
   );
   return (
     <div data-testid="clipfx-panel">
-      <div className="hv-tabs" role="tablist">{tab("luma", "کلیدِ روشنایی")}{tab("lens", "اصلاحِ لنز")}{tab("anchor", "نقطهٔ لنگر")}{tab("matte", "ماتِ ترک")}</div>
+      <div className="hv-tabs" role="tablist">{tab("luma", "کلیدِ روشنایی")}{tab("lens", "اصلاحِ لنز")}{tab("anchor", "نقطهٔ لنگر")}{tab("matte", "ماتِ ترک")}{tab("denoise", "نویزگیر")}{tab("frames", "ترکیبِ فریم")}{tab("interpret", "تفسیرِ فیلم")}</div>
       {open === "luma" && (
         <div data-testid="fx-luma">
           <label className="fx-check">
@@ -83,6 +87,52 @@ export function ClipFxPanel({ api, props }: PanelProps) {
             ? <p className="ws-hint" data-testid="matte-source">ماتِ این قطعه: «{matteSrc.label}» روی ترکِ بالاتر؛ خودش نمایش داده نمی‌شود.</p>
             : <p className="ws-hint" data-testid="matte-missing">هنوز مات پیدا نشد: روی ترکِ تصویرِ بالاتر باید قطعه‌ای هم‌زمان با این قطعه باشد (متن یا شکل و عکس هم می‌شود، فقط روی ترکِ تصویر).</p>)}
           <p className="ws-hint">مثلاً یک شکل یا عنوانِ سفید روی ترکِ بالا بگذارید و ویدیو را زیرش؛ ویدیو فقط داخلِ آن شکل دیده می‌شود. روشنایی: سفید دیده، سیاه پنهان. اگر مات یک عکسِ شفاف (استیکر) است «شفافیتِ مات» را بزنید.</p>
+        </div>
+      )}
+      {open === "denoise" && (
+        <div data-testid="fx-denoise">
+          <Slider label="شدتِ نویزگیر" value={clip.denoise?.amount ?? 0} min={0} max={1} step={0.05} testId="dn-amount" hint="۰ = خاموش؛ بالاتر = تمیزتر ولی نرم‌تر"
+            onLive={(v) => api.live((p) => setDenoise(p, clip.id, { amount: v }))} onCommit={() => api.end("نویزگیرِ تصویر")} />
+          <div className="mk-top">
+            <button type="button" className={`ws-chip ${(clip.denoise?.mode ?? "fast") === "fast" ? "is-on" : ""}`} data-testid="dn-fast" disabled={!clip.denoise}
+              onClick={() => api.apply("نویزگیرِ سریع", (p) => setDenoise(p, clip.id, { mode: "fast" }))}>سریع (hqdn3d)</button>
+            <button type="button" className={`ws-chip ${clip.denoise?.mode === "strong" ? "is-on" : ""}`} data-testid="dn-strong" disabled={!clip.denoise}
+              onClick={() => api.apply("نویزگیرِ قوی", (p) => setDenoise(p, clip.id, { mode: "strong" }))}>قوی (nlmeans، کندتر)</button>
+            <button type="button" className="ws-btn" disabled={!clip.denoise} data-testid="dn-off" onClick={() => api.apply("خاموش‌کردنِ نویزگیر", (p) => setDenoise(p, clip.id, null))}>خاموش</button>
+          </div>
+          <p className="ws-hint">برای فیلم‌هایی که شب یا با گوشیِ قدیمی گرفته شده و دانه‌دانه است. پیش‌نمایش فقط کمی نرم می‌شود؛ تمیزی‌اش را در خروجی می‌بینید. «قوی» روی سرورِ پردازش (در خروجیِ نهایی) خیلی بهتر و سریع‌تر است.</p>
+        </div>
+      )}
+      {open === "frames" && (
+        <div data-testid="fx-frames">
+          <div className="mk-top">
+            {([[undefined, "هیچ (تکرارِ فریم)"], ["blend", "ترکیبِ فریم‌ها (Blend)"], ["flow", "فریمِ میانیِ اپتیکال‌فلو"]] as const).map(([k, t]) => (
+              <button key={String(k)} type="button" className={`ws-chip ${clip.frames === k ? "is-on" : ""}`} data-testid={`fr-${k ?? "none"}`}
+                onClick={() => api.apply("ترکیبِ فریم‌ها", (p) => setFrames(p, clip.id, k ?? null))}>{t}</button>
+            ))}
+          </div>
+          {!slowed && <p className="ws-hint" data-testid="fr-not-slowed">این قطعه کند نشده؛ ترکیبِ فریم‌ها فقط وقتی اثر دارد که سرعتِ قطعه کمتر از ۱ باشد (یا منحنیِ سرعت جایی کند شود).</p>}
+          <p className="ws-hint">وقتی قطعه را کند می‌کنید فریم‌ها تکرار می‌شوند و تصویر «پله‌پله» می‌شود. «ترکیبِ فریم‌ها» فریم‌های کنارِ هم را قاطی می‌کند (سریع)؛ «اپتیکال‌فلو» فریم‌های تازه با حرکتِ درست می‌سازد (کندتر و بهتر). اپتیکال‌فلو فقط در خروجیِ نهایی روی سرورِ پردازش ساخته می‌شود و در پیش‌نویسِ سریعِ روی سایت اجرا نمی‌شود (مگر خودتان خروجی را دستی روی سایت بسازید). پیش‌نمایشِ مرورگر هیچ‌کدام را نشان نمی‌دهد.</p>
+        </div>
+      )}
+      {open === "interpret" && (
+        <div data-testid="fx-interpret">
+          <p className="ws-hint">{native ? `فریم‌بر‌ثانیهٔ واقعیِ این فیلم: ${fa(Math.round(native * 100) / 100)}` : "فریم‌بر‌ثانیهٔ این فیلم معلوم نیست."}{interp.fps ? ` — الان مثلِ ${fa(interp.fps.to)} خوانده می‌شود (سرعتِ ${fa(Math.round((clip.speed || 1) * 100) / 100)} برابر).` : ""}</p>
+          <div className="mk-top">
+            {INTERPRET_FPS.map((f) => (
+              <button key={f} type="button" className={`ws-chip ${interp.fps?.to === f ? "is-on" : ""}`} data-testid={`ip-fps-${f}`} disabled={!native}
+                onClick={() => { const r = interpretFps(api.project, clip.id, native, f); if ("error" in r) { api.notice(r.error); return; } api.apply(`تفسیرِ فیلم مثلِ ${f} فریم`, () => r.project); if (r.clamped) api.notice("سرعت از بازهٔ ۰٫۲۵ تا ۴ برابر بیرون می‌زد و محدود شد."); }}>{fa(f)}</button>
+            ))}
+            <button type="button" className="ws-btn" disabled={!interp.fps} data-testid="ip-fps-reset" onClick={() => api.apply("برگشتِ تفسیرِ فریم", (p) => clearInterpretFps(p, clip.id))}>برگشت</button>
+          </div>
+          <p className="ws-hint">مثلاً فیلمِ ۶۰ فریمی را «مثلِ ۳۰ فریم» بخوانید تا نیمه‌سرعت (اسلوموشن) شود؛ قطعه‌های بعدی به‌اندازهٔ کش‌آمدن جلو می‌روند. با «برگشت» به سرعتِ قبلی برمی‌گردد.</p>
+          <Slider label="نسبتِ پیکسل" value={interp.par ?? 1} min={0.5} max={2} step={0.01} testId="ip-par" hint="۱ = پیکسلِ مربع؛ ۱٫۳۳ = فیلمِ آنامورفیکِ قدیمی (۴:۳ خوانده‌شده ۱۶:۹)"
+            onLive={(v) => api.live((p) => setInterpret(p, clip.id, { par: v }))} onCommit={() => api.end("نسبتِ پیکسل")} />
+          <label className="fx-check">
+            <input type="checkbox" checked={!!interp.deinterlace} data-testid="ip-deint" onChange={(e) => api.apply("حذفِ خط‌های درهم", (p) => setInterpret(p, clip.id, { deinterlace: e.target.checked }))} />
+            <span>خط‌های درهم (Interlace) را به فریمِ کامل تبدیل کن (yadif)</span>
+          </label>
+          <p className="ws-hint">نسبتِ پیکسل در پیش‌نمایش و خروجی هر دو دیده می‌شود؛ حذفِ خط‌های درهم فقط در خروجی اعمال می‌شود. فیلمِ گوشی و دوربین‌های امروزی معمولاً به هیچ‌کدام نیاز ندارد.</p>
         </div>
       )}
       {open === "anchor" && (

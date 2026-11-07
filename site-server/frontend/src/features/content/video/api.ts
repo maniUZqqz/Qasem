@@ -54,6 +54,8 @@ export type MediaItem = {
   proxy_url: string | null;
   /** استیکرها: "emoji" | "badge" */
   group?: string;
+  /** فریم‌بر‌ثانیهٔ واقعیِ فیلم (برای «تفسیرِ فیلم») */
+  fps?: number;
 };
 
 export type Bin = { videos: MediaItem[]; audio: MediaItem[]; images: MediaItem[]; stickers: MediaItem[] };
@@ -158,6 +160,8 @@ export const videoApi = {
   captions: (store: string, body: { ref: string; start: number; end: number; at: number; speed?: number }) =>
     api.post<{ job_id: number }>(`${base(store)}/captions/`, body).then((r) => r.data),
   /** ترجمهٔ زیرنویس — job؛ نتیجه {lang, items: [{id, text}]} */
+  /** جمع‌کردنِ فایل‌های پروژه — job؛ نتیجه {url, files, bytes, skipped, name} */
+  collect: (store: string, id: number) => api.post<{ job_id: number }>(`${base(store)}/projects/${id}/collect/`).then((r) => r.data),
   translateCaptions: (store: string, body: { lang: string; clips: { id: string; text: string }[] }) =>
     api.post<{ job_id: number }>(`${base(store)}/captions/translate/`, body).then((r) => r.data),
   renders: (store: string, id: number) => api.get<{ jobs: RenderJobRow[]; exports: ExportRow[]; replaced?: Record<string, { ref: string; seconds: number; has_audio: boolean; title?: string }> }>(`${base(store)}/projects/${id}/renders/`).then((r) => r.data),

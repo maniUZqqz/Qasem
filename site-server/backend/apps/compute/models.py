@@ -32,8 +32,17 @@ CAPABILITY_FOR_KIND = {
 }
 
 
+#: a few kinds have their OWN capability although their prefix belongs to another family
+EXACT_CAPABILITY_FOR_KIND = {
+    "photo.matting": "photo_matting",   # u2netp / isnet / birefnet-lite run in plain Python on the node, not in the .NET photo kit
+}
+
+
 def capability_for(kind: str) -> str:
-    return CAPABILITY_FOR_KIND.get((kind or "").split(".", 1)[0], "any")
+    kind = kind or ""
+    if kind in EXACT_CAPABILITY_FOR_KIND:
+        return EXACT_CAPABILITY_FOR_KIND[kind]
+    return CAPABILITY_FOR_KIND.get(kind.split(".", 1)[0], "any")
 
 
 def new_token() -> str:

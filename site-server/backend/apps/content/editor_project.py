@@ -61,13 +61,18 @@ def _probe(path: Path) -> dict:
         return _PROBE_CACHE[key]
     from services.video.ffmpeg import probe
 
-    info = {"duration": 0.0, "has_audio": False, "width": 0, "height": 0}
+    info = {"duration": 0.0, "has_audio": False, "width": 0, "height": 0, "fps": 0.0}
     try:
         data = probe(path)
         info["duration"] = float((data.get("format") or {}).get("duration") or 0)
         for stream in data.get("streams", []):
             if stream.get("codec_type") == "video" and not info["width"]:
                 info["width"], info["height"] = int(stream.get("width") or 0), int(stream.get("height") or 0)
+                num, _, den = str(stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "0/1").partition("/")
+                try:
+                    info["fps"] = round(float(num) / float(den or 1), 3) if float(den or 1) else 0.0
+                except ValueError:
+                    info["fps"] = 0.0
             if stream.get("codec_type") == "audio":
                 info["has_audio"] = True
     except Exception as exc:  # noqa: BLE001
@@ -188,7 +193,7 @@ def describe(store, ref: str) -> dict:
     out = {
         "ref": ref, "title": found["title"], "kind": found["kind"], "source": found["source"],
         "duration": round(duration, 2), "has_audio": has_audio,
-        "width": facts.get("width", 0), "height": facts.get("height", 0), "path": path,
+        "width": facts.get("width", 0), "height": facts.get("height", 0), "fps": facts.get("fps", 0.0), "path": path,
     }
     if found["kind"] == "audio":
         out["url"] = f"/api/v1/stores/{store.pk}/audio/assets/{pk}/file/"

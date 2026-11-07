@@ -7,6 +7,10 @@ const MAX_BANDS = 5;
 const SUGGEST: Band[] = [{ f: 120, g: 3, q: 1 }, { f: 400, g: -3, q: 1 }, { f: 1500, g: 3, q: 1 }, { f: 4000, g: 3, q: 1 }, { f: 9000, g: 3, q: 1 }];
 const DEF_COMP = { on: true, thr: -18, ratio: 3, attack: 20, release: 250, makeup: 0 };
 const DEF_ECHO = { on: true, delay: 250, decay: 0.4 };
+const DEF_REVERB = { on: true, room: "small" as const, mix: 0.35 };
+const ROOMS: { key: "small" | "bathroom" | "hall" | "cathedral"; title: string }[] = [
+  { key: "small", title: "اتاقِ کوچک" }, { key: "bathroom", title: "حمام" }, { key: "hall", title: "سالن" }, { key: "cathedral", title: "کلیسا" },
+];
 const sign = (v: number) => (v < 0 ? "−" : v > 0 ? "+" : "");
 
 /**
@@ -32,7 +36,9 @@ export default function AudioAdvanced({
   };
   const setBands = (b: Band[]) => set({ bands: b.length ? b : undefined });
   const upd = (i: number, p: Partial<Band>) => bands.map((x, j) => (j === i ? { ...x, ...p } : x));
-  const used = bands.length + (cd?.on ? 1 : 0) + (audio.pitch ? 1 : 0) + (echo?.on ? 1 : 0);
+  const reverb = audio.reverb;
+  const dereverb = audio.dereverb;
+  const used = bands.length + (cd?.on ? 1 : 0) + (audio.pitch ? 1 : 0) + (echo?.on ? 1 : 0) + (reverb?.on ? 1 : 0) + (dereverb?.on ? 1 : 0);
 
   return (
     <Section title="صدای پیشرفته: EQ پارامتریک، کمپرسورِ دقیق، زیر و بمی، پژواک" testId="ap-adv" badge={used ? <span className="ws-dot" /> : undefined}>
@@ -76,6 +82,28 @@ export default function AudioAdvanced({
           <Slider label="شدتِ تکرار" value={echo.decay} min={0.05} max={0.9} step={0.05} def={0.4} fmt={(v) => `${fa(Math.round(v * 100))}٪`} onLive={(v) => onLive(set({ echo: { ...echo, decay: v } }))} onEnd={() => onEnd("شدتِ پژواک")} />
         </>
       )}
+      <div className="ws-group-title">ریورب (بازتابِ اتاق)</div>
+      <Toggle label="روشن" checked={!!reverb?.on} onChange={(v) => onApply("ریورب", set({ reverb: v ? { ...DEF_REVERB, ...(reverb ?? {}), on: true } : undefined }))} />
+      {reverb?.on && (
+        <>
+          <div className="aa-rooms" role="group" aria-label="اندازهٔ اتاق" data-testid="aa-rooms">
+            {ROOMS.map((r) => (
+              <button key={r.key} type="button" className={`ws-chip ${reverb.room === r.key ? "is-on" : ""}`} aria-pressed={reverb.room === r.key} data-testid={`aa-room-${r.key}`}
+                onClick={() => onApply("اتاقِ ریورب", set({ reverb: { ...reverb, room: r.key } }))}>{r.title}</button>
+            ))}
+          </div>
+          <Slider label="میزانِ ریورب" value={reverb.mix} min={0.05} max={1} step={0.05} def={0.35} fmt={(v) => `${fa(Math.round(v * 100))}٪`}
+            onLive={(v) => onLive(set({ reverb: { ...reverb, mix: v } }))} onEnd={() => onEnd("میزانِ ریورب")} />
+        </>
+      )}
+
+      <div className="ws-group-title">کاهشِ پژواکِ اتاق (Dereverb)</div>
+      <Toggle label="روشن" checked={!!dereverb?.on} onChange={(v) => onApply("کاهشِ پژواک", set({ dereverb: v ? { on: true, amount: dereverb?.amount ?? 0.5 } : undefined }))} />
+      {dereverb?.on && (
+        <Slider label="شدت" value={dereverb.amount} min={0.1} max={1} step={0.05} def={0.5} fmt={(v) => `${fa(Math.round(v * 100))}٪`}
+          onLive={(v) => onLive(set({ dereverb: { on: true, amount: v } }))} onEnd={() => onEnd("شدتِ کاهشِ پژواک")} />
+      )}
+      <p className="ws-hint">کاهشِ پژواک روشِ ساده‌ای است (نویزگیرِ طیفی + گیتِ نرم)؛ برای ضبطِ خیلی پژواک‌دار مدلِ هوشمند بهتر است که نیازِ نصبِ مدل دارد.</p>
       <p className="ws-hint">این‌ها در خروجی و در «پیش‌نمایشِ دقیق» شنیده می‌شوند؛ پخشِ فوریِ مرورگر نشانشان نمی‌دهد. بعد از تنظیم، «پیش‌نمایشِ دقیقِ این بازه» را بزنید و بشنوید.</p>
     </Section>
   );

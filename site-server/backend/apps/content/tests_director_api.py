@@ -231,7 +231,7 @@ class DirectorApiTests(TestCase):
         info_bad = {"asked": True, "ok": False, "via": "", "model": "", "error_code": "no_credit", "error": "اعتبارِ حسابِ سرویسِ هوش مصنوعی (Metis) تمام شده است (خطای ۴۰۲).",
                     "fell_back": False, "fallback_reason": ""}
         with patch("services.editing.director.ai.call_json", return_value=(None, info_bad)):
-            r = self.run_director({"prompt": "ریلز", "refs": refs, "options": {"preview": False, "variants": 1}})
+            r = self.run_director({"prompt": "ریلز", "refs": refs, "options": {"preview": False, "variants": 1, "use_ai": True}})       # AI is OFF by default: ask for it
         job = Job.objects.get(pk=r.json()["job_id"])
         self.assertEqual(job.state, Job.State.COMPLETED, job.error)
         self.assertFalse(job.result["ai"]["ok"])
@@ -245,7 +245,7 @@ class DirectorApiTests(TestCase):
         def fake(store, **kw):
             return (good, info_ok) if kw["prompt_id"] == "video_director_brief" else ({"steps": []}, info_ok)
         with patch("services.editing.director.ai.call_json", side_effect=fake):
-            r = self.run_director({"prompt": "", "refs": refs, "options": {"preview": False, "variants": 1}})
+            r = self.run_director({"prompt": "", "refs": refs, "options": {"preview": False, "variants": 1, "use_ai": True}})
         job = Job.objects.get(pk=r.json()["job_id"])
         self.assertEqual(job.state, Job.State.COMPLETED, job.error)
         self.assertEqual((job.result["brief"]["recipe"], job.result["brief"]["platform"], job.result["brief"]["title"]), ("sale", "story", "چای تازه"))
@@ -310,7 +310,8 @@ class DirectorApiTests(TestCase):
         from apps.stores.models import StoreProfile
         StoreProfile.objects.update_or_create(store=self.store, defaults={"ai_preferences": {"editing": {"never": ["stabilize"]}}})
         s = self.call("get", "/editor/settings/").json()
-        self.assertEqual((s["ai_default"], s["draft_days"], s["min_days"], s["max_days"]), (True, 7, 1, 30))
+        self.assertEqual((s["ai_default"], s["draft_days"], s["min_days"], s["max_days"]), (False, 7, 1, 30), "the owner's decision: the AI tick starts OFF")
+        self.assertEqual((s["max_drafts"], s["min_drafts"], s["max_drafts_limit"]), (60, 10, 200))
         self.assertIn("اعتبار", s["cost_note"])
         self.assertIn("هزینه", s["cost_note"])
         self.assertEqual(self.call("put", "/editor/settings/", {"ai_default": False}).json()["ai_default"], False)
@@ -319,6 +320,11 @@ class DirectorApiTests(TestCase):
         self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": "3"}).json()["draft_days"], 3)
         self.assertEqual(self.call("put", "/editor/settings/", {"draft_days": "x"}).status_code, 400)
         self.assertEqual(self.call("put", "/editor/settings/", {"ai_default": "yes"}).status_code, 400)
+        self.assertEqual(self.call("put", "/editor/settings/", {"max_drafts": 5}).json()["max_drafts"], 10)
+        self.assertEqual(self.call("put", "/editor/settings/", {"max_drafts": 9999}).json()["max_drafts"], 200)
+        self.assertEqual(self.call("put", "/editor/settings/", {"max_drafts": "40"}).json()["max_drafts"], 40)
+        self.assertEqual(self.call("put", "/editor/settings/", {"max_drafts": "x"}).status_code, 400)
+        self.assertEqual(self.call("put", "/editor/settings/", {"max_drafts": 60}).json()["max_drafts"], 60)
         again = self.call("get", "/editor/settings/").json()
         self.assertEqual((again["ai_default"], again["draft_days"]), (False, 3))          # a failed PUT changed nothing
         self.assertEqual(StoreProfile.objects.get(store=self.store).ai_preferences["editing"], {"never": ["stabilize"]})
@@ -440,6 +446,20 @@ class DirectorApiTests(TestCase):
         self.assertEqual(DirectorDraft.objects.filter(store=self.store).count(), drafts_mod.MAX_DRAFTS)
         self.assertFalse(DirectorDraft.objects.filter(title="d0").exists())                  # the oldest went first
         self.assertTrue(DirectorDraft.objects.filter(title=f"d{drafts_mod.MAX_DRAFTS + 2}").exists())
+
+    def test_the_cap_is_a_store_setting_and_purge_follows_it(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from services.editing.director import drafts as drafts_mod
+        self.call("put", "/editor/settings/", {"max_drafts": 12})
+        base = {"tracks": [], "director": {"run": "x"}}
+        for i in range(15):
+            d = DirectorDraft.objects.create(store=self.store, run=f"r{i}", key="a", title=f"d{i}", data=base, expires_at=timezone.now() + timedelta(days=5))
+            DirectorDraft.objects.filter(pk=d.pk).update(created_at=timezone.now() - timedelta(minutes=20 - i))
+        out = drafts_mod.purge(self.store)
+        self.assertEqual(out["over_cap"], 3)
+        self.assertEqual(DirectorDraft.objects.filter(store=self.store).count(), 12)
+        self.assertEqual(self.call("get", "/editor/director/drafts/").json()["max_drafts"], 12, "the list tells the panel the store's own cap")
 
     def test_the_shared_preview_file_goes_only_when_the_last_draft_of_its_run_goes(self):
         res = self.run_plain(variants=2)

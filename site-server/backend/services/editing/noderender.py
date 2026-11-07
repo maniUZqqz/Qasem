@@ -43,6 +43,8 @@ QUEUE_GRACE = 75.0
 #: a running job whose node has been silent this long is given up
 SILENT_LIMIT = 300.0
 POLL = 1.5
+#: how often the waiting render asks the queue what to tell the owner
+QUEUE_LABEL_EVERY = 5.0
 _SHA_CACHE: dict[tuple, str] = {}
 
 
@@ -66,6 +68,16 @@ def _sha256(path: Path) -> str:
             _SHA_CACHE.clear()
         _SHA_CACHE[key] = h.hexdigest()
     return _SHA_CACHE[key]
+
+
+def queue_text(cjob) -> str:
+    """The Persian status of a render that waits in the processing queue («در صف — منتظرِ روشن شدنِ سرورِ پردازش»، «در صف — نفرِ ۲ام»…)."""
+    try:
+        from apps.compute import queue as QV
+
+        return str(QV.one(cjob).get("status_text") or "") or "در صف — منتظرِ سرورِ پردازش"
+    except Exception:  # noqa: BLE001 — the label is a courtesy
+        return "در صف — منتظرِ سرورِ پردازش"
 
 
 # ------------------------------------------------------------------ choosing the node
@@ -199,7 +211,7 @@ def build(timeline, export_block: dict | None, *, profile: str = "final") -> Bun
     if spec is not None:
         w, h = export.size_for(timeline, spec.short_side)
         work = dataclasses.replace(timeline, width=w, height=h, fps=spec.fps or timeline.fps)
-    built = compose.build_graph(work, portable=True)
+    built = compose.build_graph(work, portable=True, alpha=bool(spec is not None and spec.codec == "prores4444"))
     files: dict[str, dict] = {}
     by_path: dict[str, str] = {}
 
@@ -219,19 +231,20 @@ def build(timeline, export_block: dict | None, *, profile: str = "final") -> Bun
     assets = {token: fid_for(path) for token, path in built.assets.items()}
     fonts = [fid_for(p) for p in font_files()] if built.texts else []
     spec_for_encode = spec or export.ExportSpec()
+    out_name = "render.mov" if export.is_prores(spec_for_encode) else OUT_NAME      # ProRes lives in a .mov
     if draft:
         spec_for_encode = export.ExportSpec(preset="veryfast", crf=27, audio_kbps=160)
         audio_args = ["-c:a", "aac", "-b:a", f"{spec_for_encode.audio_kbps}k", "-ar", "48000"]
         cpu = export.encode_args(spec_for_encode, draft=True)
     elif spec is not None:
-        audio_args = ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
+        audio_args = export.audio_args_for(spec)
         cpu = export.encode_args(spec)
     else:
         audio_args, cpu = list(AUDIO_DELIVERY), list(VIDEO_DELIVERY)
     payload = {
         "v": 1, "graph": built.graph, "inputs": inputs, "texts": built.texts, "assets": assets, "fonts": fonts,
-        "audio": built.has_audio, "audio_args": audio_args, "length": built.length, "out": OUT_NAME,
-        "encode": {"cpu": cpu, "nvenc": export.nvenc_args(spec_for_encode), "codec": spec_for_encode.codec},
+        "audio": built.has_audio, "audio_args": audio_args, "length": built.length, "out": out_name,
+        "encode": {"cpu": cpu, "nvenc": cpu if export.is_prores(spec_for_encode) else export.nvenc_args(spec_for_encode), "codec": spec_for_encode.codec},
         "files": {fid: {"name": f["name"], "size": f["size"], "sha256": f["sha256"]} for fid, f in files.items()},
         "notes": list(built.notes), "size": [work.width, work.height],
     }
@@ -295,10 +308,12 @@ def plan_draft(timeline):
 
 
 def render_on_node(job_row, timeline, export_block, dest, *, progress=None, cancel=None, store=None, profile: str = "final",
-                   bundle: Bundle | None = None, budget: float | None = None, queue_grace: float | None = None) -> dict:
+                   bundle: Bundle | None = None, budget: float | None = None, queue_grace: float | None = None, patient: bool = False) -> dict:
     """Render `timeline` on a node into `dest`. `progress(fraction, label)` / `cancel()` as in `export.render`.
     `profile="draft"` renders the quick draft (a `bundle` already built by `plan_draft`, a `budget` in seconds and a short
     `queue_grace` may be given). → {"where": "node", "node", "encoder", "seconds", "ffmpeg"}.
+    `patient=True` is the FINAL render: it waits in the durable queue for as long as it takes for a node to claim it (no give-up, no fall-back to
+    the site); once claimed the run clock starts and a node that goes away just sends the job back to the queue.
     Raises NodeUnavailable / NodeFailed / export.RenderCancelled."""
     from apps.compute import services as compute
     from apps.compute import transfer
@@ -327,6 +342,7 @@ def render_on_node(job_row, timeline, export_block, dest, *, progress=None, canc
     cjob.save(update_fields=["max_attempts", "node_wanted"])
     started = time.monotonic()
     last_p, last_msg = -1.0, ""
+    claim_stamp, run_started, queue_label_t, queue_label = None, started, 0.0, ""
     try:
         while True:
             cjob.refresh_from_db()
@@ -341,19 +357,34 @@ def render_on_node(job_row, timeline, export_block, dest, *, progress=None, canc
                 raise NodeFailed(cjob.error or "رندر روی سرورِ پردازش ناموفق بود.")
             if state == cjob.State.CANCELLED:
                 raise NodeFailed("کار روی سرورِ پردازش لغو شد.")
-            if state == cjob.State.QUEUED and now - started > grace:
+            if state == cjob.State.QUEUED and patient:
+                if progress is not None and now - queue_label_t > QUEUE_LABEL_EVERY:         # «در صف — منتظرِ روشن شدنِ سرور» / «نفرِ ۲ام»
+                    queue_label_t = now
+                    text = queue_text(cjob)
+                    if text != queue_label:
+                        queue_label = text
+                        progress(0.0, text)
+            elif state == cjob.State.QUEUED and now - started > grace:
                 compute.cancel(cjob)
                 raise NodeUnavailable("سرورِ پردازش کار را برنداشت (مشغول است یا عاملش جواب نمی‌دهد).")
             if state != cjob.State.QUEUED:
                 silent = (cjob.heartbeat_at and (time.time() - cjob.heartbeat_at.timestamp())) or 0
-                if silent > SILENT_LIMIT or now - started > budget:
+                if patient:
+                    if cjob.claimed_at != claim_stamp:                       # a (new) node took it: the run clock starts now
+                        claim_stamp, run_started = cjob.claimed_at, now
+                    alive = bool(cjob.node is not None and cjob.node.online)
+                    if alive and (silent > SILENT_LIMIT or now - run_started > budget):
+                        compute.cancel(cjob)
+                        raise NodeFailed("سرورِ پردازش در زمانِ مقرر رندر را تمام نکرد.")
+                    # the node is gone: the queue takes the job back (apps.compute requeue) and it waits for the next one
+                elif silent > SILENT_LIMIT or now - started > budget:
                     compute.cancel(cjob)
                     raise NodeFailed("سرورِ پردازش در زمانِ مقرر رندر را تمام نکرد.")
             if progress is not None and (cjob.progress != last_p or cjob.message != last_msg):
                 last_p, last_msg = cjob.progress, cjob.message
                 progress(min(0.99, max(0.0, cjob.progress)), _label(cjob.message))
             time.sleep(POLL)
-        out = compute.output_path(cjob, OUT_NAME)
+        out = compute.output_path(cjob, str(bundle.payload.get("out") or OUT_NAME))
         meta = (cjob.result or {}).get("meta") or {}
         if not out.is_file() or out.stat().st_size <= 0:
             raise NodeFailed("سرورِ پردازش خروجی نفرستاد.")

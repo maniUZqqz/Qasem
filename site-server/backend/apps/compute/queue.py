@@ -33,7 +33,7 @@ KIND_LABELS = {
     "voice.sfx": "صدای محیط و افکت", "voice.music": "موسیقیِ زمینه", "voice.http": "فرمانِ سرویسِ صدا",
     "comfy.graph": "تولیدِ تصویر یا ویدیو (ComfyUI)", "comfy.profile": "تولیدِ تصویر یا ویدیو (پروفایل)",
     "ollama.chat": "گفتگوی هوشمند", "ollama.generate": "نوشتنِ متنِ هوشمند", "ollama.vision": "تحلیلِ تصویرِ هوشمند",
-    "ollama.pull": "دانلودِ مدلِ هوش مصنوعی", "node.models": "دانلودِ مدل‌های صدا و ویدیو",
+    "photo.matting": "جداسازیِ پس‌زمینهٔ عکس", "ollama.pull": "دانلودِ مدلِ هوش مصنوعی", "node.models": "دانلودِ مدل‌های صدا و ویدیو",
     "node.update": "به‌روزرسانیِ نرم‌افزارِ سرورِ پردازش", "node.bench": "آزمونِ مدلِ صدا", "echo": "آزمونِ اتصال",
     PARK_KIND: "کارِ منتظرِ سرورِ پردازش",
 }
@@ -99,6 +99,8 @@ def node_takes(node: ComputeNode, kind: str) -> bool:
         return True
     if kind == "ollama.pull" and (node.capabilities or {}).get("ollama_pull"):
         return True
+    if kind == "photo.matting":
+        return node.has("photo_matting")
     for prefix, capability in SV.CAPABILITY_PREFIXES.items():
         if kind.startswith(prefix):
             return node.has(capability)
@@ -147,7 +149,14 @@ def _wait_reason(j: ComputeJob, now, nodes: list, pos: int) -> tuple[str, str]:
     pool = [n for n in nodes if can_serve(n)]
     if not pool:
         return "no_node", SV.NO_NODE_QUEUED_TEXT
-    if j.kind != PARK_KIND and all(SV.audio_blocked(n, j) for n in pool):
+    if j.kind != PARK_KIND and all(SV.job_blocked(n, j) for n in pool):
+        if j.kind == "photo.matting":
+            from . import matting
+            model = (j.payload or {}).get("model") or ""
+            label = (matting.MODELS.get(model) or {}).get("label") or model
+            if any(matting.node_models(n).get(model, {}).get("state") == "installed" for n in pool):
+                return "model", "در صف — منتظرِ آماده شدنِ محیطِ اجرای جداسازی روی سرورِ پردازش"
+            return "model", "در صف — منتظرِ دانلودِ مدلِ «%s» روی سرورِ پردازش" % label
         return "model", "در صف — منتظرِ آماده شدنِ مدل روی سرورِ پردازش"
     if pos <= 1:
         return "busy", "در صف — نوبتِ بعدی"

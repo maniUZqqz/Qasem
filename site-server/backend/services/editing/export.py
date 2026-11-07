@@ -105,12 +105,27 @@ def default_spec(timeline, hint: str = "") -> "ExportSpec":
     return resolve(default_export({}, hint), timeline)
 
 
+PRORES = ("prores", "prores4444")
+
+
+def is_prores(spec) -> bool:
+    return bool(spec is not None and getattr(spec, "codec", "") in PRORES)
+
+
+def audio_args_for(spec) -> list[str]:
+    """The sound of an export: AAC for the web formats, uncompressed 16-bit PCM inside a ProRes .mov."""
+    if is_prores(spec):
+        return ["-c:a", "pcm_s16le", "-ar", "48000"]
+    return ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
+
+
 def catalogue() -> dict:
     return {
         "presets": [{"key": k, "title": v["title"], "group": v["group"], "short": v["short"], "fps": v["fps"], "codec": v["codec"],
                      "quality": v["quality"], "audio_kbps": v["audio_kbps"], "max_seconds": v.get("max_seconds"),
                      "aspect": v.get("aspect")} for k, v in PRESETS.items()],
-        "codecs": [{"key": "h264", "title": "H.264 (سازگارترین)"}, {"key": "h265", "title": "H.265 / HEVC (کوچک‌تر، کندتر)"}],
+        "codecs": [{"key": "h264", "title": "H.264 (سازگارترین)"}, {"key": "h265", "title": "H.265 / HEVC (کوچک‌تر، کندتر)"},
+                   {"key": "prores", "title": "ProRes 422 HQ (فایلِ مادر، .mov، حجمِ زیاد)"}, {"key": "prores4444", "title": "ProRes 4444 + آلفا (پس‌زمینهٔ شفاف، .mov)"}],
         "qualities": [{"key": "high", "title": "بالا"}, {"key": "medium", "title": "متوسط"}, {"key": "small", "title": "کم‌حجم"}],
         "resolutions": list(RESOLUTIONS),
         "fps": list(FPS_CHOICES),
@@ -128,7 +143,8 @@ def resolve(export: dict | None, timeline: Timeline) -> ExportSpec:
             merged[key] = e[key]
     if e.get("height") not in (None, "", 0):
         merged["short"] = e["height"]
-    codec = "h265" if str(merged.get("codec")) == "h265" else "h264"
+    codec = str(merged.get("codec"))
+    codec = codec if codec in ("h265", *PRORES) else "h264"
     q = QUALITY.get(str(merged.get("quality") or "high"), QUALITY["high"])
     crf, pset = (q[2], q[3]) if codec == "h265" else (q[0], q[1])
     short = merged.get("short")
@@ -176,6 +192,9 @@ def encode_args(spec: ExportSpec, *, draft: bool = False) -> list[str]:
 
     if draft:
         return list(DRAFT_VIDEO)
+    if spec.codec in PRORES:
+        four = spec.codec == "prores4444"
+        return ["-c:v", "prores_ks", "-profile:v", "4" if four else "3", "-pix_fmt", "yuva444p10le" if four else "yuv422p10le", "-vendor", "apl0"]
     if spec.codec == "h265":
         args = ["-c:v", "libx265", "-preset", spec.preset, "-crf", str(spec.crf), "-pix_fmt", "yuv420p", "-tag:v", "hvc1",
                 "-x265-params", "log-level=error", "-movflags", "+faststart"]
@@ -352,7 +371,8 @@ def _write_graph(graph: str, texts: dict, tmp_files: list[Path]) -> list[str]:
     return _graph_arg(graph, tmp_files)
 
 
-def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_given: bool, slices: list[tuple[float, float]], *, progress, cancel, spans) -> Path:
+def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_given: bool, slices: list[tuple[float, float]], *, progress, cancel, spans,
+                      flow: bool = True, alpha: bool = False) -> Path:
     """Picture slice by slice (video only), joined by stream copy; sound once; then muxed. Same pixels as the one-go render, a fraction of the memory."""
     import shutil
     import uuid
@@ -361,6 +381,7 @@ def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_give
 
     from . import compose
     from . import timeline as tlmod
+
 
     folder = out.parent / f".slices_{uuid.uuid4().hex[:8]}"
     folder.mkdir(parents=True, exist_ok=True)
@@ -373,14 +394,14 @@ def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_give
             if cancel is not None and cancel():
                 raise RenderCancelled()
             part = tlmod.window(work, t0, t1)
-            built = compose.build_graph(part, spans=spans, need_base=False, audio=False)
+            built = compose.build_graph(part, spans=spans, need_base=False, audio=False, flow=flow, alpha=alpha)
             glob, per_input = lean_flags(len(built.inputs), work.width, work.height)
             cmd = [FFMPEG, "-y", *glob]
             for source, args in zip(built.inputs, built.input_args):
                 cmd += [*args, *per_input, "-i", str(source)]
             cmd += [*_write_graph(built.graph, built.texts, tmp_files), "-map", "[vout]", "-an"]
             cmd += encode_args(spec, draft=(quality == "draft" and not export_given))
-            f = folder / f"s{i:03d}.mp4"
+            f = folder / f"s{i:03d}.{'mov' if is_prores(spec) else 'mp4'}"
             cmd += ["-frames:v", str(max(1, round((t1 - t0) * (work.fps or 30)))), "-threads", "2", str(f)]      # exact frame count: no drift against the sound
             lo, span = done, (t1 - t0)
             run_ffmpeg(cmd, total=built.length, progress=(lambda x, lo=lo, span=span: progress((lo + x * span) / total * 0.9)) if progress else None, cancel=cancel)
@@ -388,7 +409,7 @@ def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_give
             parts.append(f)
         listing = folder / "list.txt"
         listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
-        video_all = folder / "video.mp4"
+        video_all = folder / ("video.mov" if is_prores(spec) else "video.mp4")
         run_ffmpeg([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(video_all)], cancel=cancel)
         sound = compose.build_graph(work, spans=spans, need_base=False, video=False)
         if sound.has_audio:
@@ -397,10 +418,10 @@ def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_give
                 cmd += [*args, "-vn", "-i", str(source)]
             audio_args = list(AUDIO_DELIVERY)
             if spec is not None:
-                audio_args = ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
-            cmd += [*_write_graph(sound.graph, sound.texts, tmp_files), "-map", "[aout]", *audio_args, str(folder / "audio.m4a")]
+                audio_args = audio_args_for(spec)
+            cmd += [*_write_graph(sound.graph, sound.texts, tmp_files), "-map", "[aout]", *audio_args, str(folder / ("audio.mov" if is_prores(spec) else "audio.m4a"))]
             run_ffmpeg(cmd, total=sound.length, progress=(lambda x: progress(0.9 + x * 0.08)) if progress else None, cancel=cancel)
-            run_ffmpeg([FFMPEG, "-y", "-i", str(video_all), "-i", str(folder / "audio.m4a"), "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-shortest",
+            run_ffmpeg([FFMPEG, "-y", "-i", str(video_all), "-i", str(folder / ("audio.mov" if is_prores(spec) else "audio.m4a")), "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-shortest",
                         "-movflags", "+faststart", str(out)], cancel=cancel)
         else:
             run_ffmpeg([FFMPEG, "-y", "-i", str(video_all), "-c", "copy", "-movflags", "+faststart", str(out)], cancel=cancel)
@@ -440,8 +461,9 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
     try:
         slices = plan_slices(work, (slice_budget or CHUNK_BUDGET) >> _lowmem) if slice_budget != 0 else None
         if slices:
-            return _render_in_slices(work, out, spec, quality, bool(export), slices, progress=progress, cancel=cancel, spans=spans)
-        built = compose.build_graph(work, spans=spans)
+            return _render_in_slices(work, out, spec, quality, bool(export), slices, progress=progress, cancel=cancel, spans=spans,
+                                     flow=(quality != "draft"), alpha=(spec is not None and spec.codec == "prores4444"))
+        built = compose.build_graph(work, spans=spans, flow=(quality != "draft"), alpha=(spec is not None and spec.codec == "prores4444"))
         graph = built.graph
         for token, text in built.texts.items():
             handle = tempfile.NamedTemporaryFile("w", suffix=".ass", delete=False, encoding="utf-8")
@@ -457,7 +479,7 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
         if built.has_audio:
             audio = list(AUDIO_DELIVERY)
             if spec is not None:
-                audio = ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
+                audio = audio_args_for(spec)
             command += ["-map", "[aout]", *audio]
         if spec is None:
             from services.video.ffmpeg import VIDEO_DELIVERY

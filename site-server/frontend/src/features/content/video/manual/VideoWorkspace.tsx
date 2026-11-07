@@ -36,6 +36,7 @@ import { cuesOf, makeRoom, parseSrt, spanOf, splitAtSourceCuts, toSrt } from "./
 import { foldersOf, rippleDeleteSync, syncTracks } from "./r5ops";
 import { addAdjustment, adjustmentSpan } from "./r5fx";
 import { finalExport } from "./exportDefaults";
+import { offlineClips } from "./r6ops";
 import { applyReplace, pollJob, replaceSpec } from "./r5replace";
 import { autoColor, eyedropper, frameStats, patchToParams, samplePixel } from "./colorTools";
 import { grabFrame } from "./frameGrab";
@@ -189,6 +190,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     for (const list of bin ? [bin.videos, bin.audio, bin.images, bin.stickers ?? []] : []) for (const it of list) m[it.ref] = it;
     return m;
   }, [bin]);
+
+  // رسانهٔ گم‌شده (Offline): فقط وقتی فهرستِ رسانه‌ها بارگیری شده معنا دارد
+  const offline = useMemo(() => (bin ? offlineClips(root, new Set(Object.keys(media))) : []), [bin, root, media]);
+  const offlineIds = useMemo(() => new Set(offline.map((o) => o.id)), [offline]);
 
   // ───────────── آغاز: بسته + کاتالوگ + پروژه‌ها
   useEffect(() => {
@@ -573,6 +578,36 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     } catch (err) {
       const code = (err as { response?: { data?: { error?: { code?: string } } } }).response?.data?.error?.code;
       return { ok: false, full: code === "queue_full", message: errorMessage(err) };
+    }
+  }
+
+  // «جمع‌کردنِ فایل‌های پروژه»: یک zip از پروژه و همهٔ فایل‌های اصلی؛ ساختنش یک job است و آماده که شد دانلود شروع می‌شود
+  async function collectProject() {
+    try {
+      setNotice("در حال فرستادنِ درخواستِ جمع‌کردنِ فایل‌ها…");
+      const id = await saveNow();
+      if (!id) { setNotice("ذخیرهٔ پروژه نشد؛ کار شروع نشد."); return; }
+      const { job_id } = await videoApi.collect(storeId, id);
+      for (let i = 0; i < 900; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: job } = await api.get<{ state: string; error?: string; current_step_label?: string; result?: { url: string; files: number; bytes: number; skipped: string[]; name: string } }>(`/jobs/${job_id}/`);
+        if (job.state === "FAILED" || job.state === "CANCELLED") { setNotice(job.error || "جمع‌کردنِ فایل‌ها انجام نشد."); return; }
+        if (job.state === "COMPLETED" && job.result) {
+          const r = job.result;
+          const a = document.createElement("a");
+          a.href = r.url;
+          a.download = r.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setNotice(`بسته آماده شد: ${fa(r.files)} فایل، ${fa((r.bytes / 1048576).toFixed(1))} مگابایت؛ دانلود شروع شد.${r.skipped.length ? ` ${fa(r.skipped.length)} مورد کنار گذاشته شد (فهرستش داخلِ manifest.json است).` : ""}`);
+          return;
+        }
+        setNotice(job.current_step_label || "در حال جمع‌کردنِ فایل‌ها…");
+      }
+      setNotice("جمع‌کردنِ فایل‌ها بیش از حد طول کشید؛ بعداً دوباره امتحان کنید.");
+    } catch (err) {
+      setNotice(errorMessage(err));
     }
   }
 
@@ -1272,6 +1307,8 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       addAdjustment: addAdjustmentLayer,
       renderOne,
       renderReplace: () => void renderReplaceSelected(),
+      renderOnSite: () => void doRender("final", { where: "server" }),
+      collect: () => void collectProject(),
       renderAs: (what) => {
         const io = project.inout && project.inout.out > project.inout.in + 0.05 ? { range: "inout" } : {};
         const t = Math.round(time * 100) / 100;
@@ -1353,7 +1390,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       )}
       {menubar && <MenuBar features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onSearch={() => setSearchOpen(true)} />}
       <div className="vw-grid" dir="ltr">
-        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} uploadSlot={<UploadProgress up={upl as never} compact />} folders={foldersOf(root)} onFolderOp={applyRoot} onGoSound={() => setTab("audio")} />
+        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} uploadSlot={<UploadProgress up={upl as never} compact />} meta={root.media_meta} folders={foldersOf(root)} onFolderOp={applyRoot} onGoSound={() => setTab("audio")} />
         <Monitor
           ref={monitor}
           project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
@@ -1466,7 +1503,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             project={project} selection={selection} fps={project.format.fps}
             onApply={apply} onSeek={seek} onSplit={() => splitHere()} onRemove={() => removeSelected(true)}
           />
+          {offline.length > 0 && (
+            <div className="vw-offline" role="alert" data-testid="offline-banner">
+              <b>{fa(offline.length)} قطعه رسانه‌اش گم شده</b> (قرمزِ هاشورخورده)؛ خروجی از آن‌ها رد می‌شود تا جایگزین کنید.
+              <button type="button" className="ws-btn" onClick={() => setPanel({ id: "offline" })} data-testid="offline-open">دیدن و جایگزین‌کردن</button>
+            </div>
+          )}
           <TimelineView
+            offlineIds={offlineIds}
             project={project} selection={selection} playhead={time} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps} volLine={volLine}
             onProject={(p, liveDrag, base) => (liveDrag ? hist.live((r) => through(r, () => p, base)) : hist.apply("ویرایش", (r) => through(r, () => p, base)))}
             onCommit={(l) => hist.end(l)}

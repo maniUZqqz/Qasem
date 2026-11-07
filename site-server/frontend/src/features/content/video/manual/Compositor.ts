@@ -268,6 +268,15 @@ export class Compositor {
     this.h = H;
   }
 
+  /** منبع را به اندازهٔ «عرض × نسبتِ پیکسل» می‌کشد (کپی؛ فقط وقتی نسبت ۱ نیست) */
+  private widen(s: Source, par: number): Source {
+    const [sw, sh] = dims(s);
+    const S = this.get("par", Math.max(2, Math.round(sw * par)), Math.max(2, sh));
+    S.x.clearRect(0, 0, S.c.width, S.c.height);
+    S.x.drawImage(s, 0, 0, S.c.width, S.c.height);
+    return S.c;
+  }
+
   private get(name: string, w: number, h: number): Scratch {
     let s = this.scratch.get(name);
     if (!s || s.c.width !== w || s.c.height !== h) {
@@ -493,8 +502,10 @@ export class Compositor {
   private drawClip(ctx: CanvasRenderingContext2D, clip: MediaClip, t: number, a: RenderArgs, W: number, H: number) {
     const bw = Math.max(2, Math.round(clip.width * W));
     const bh = Math.max(2, Math.round(clip.height * H));
-    const src: Source | undefined = clip.shape ? shapeCanvas(clip.shape, bw, bh) : clip.ref.startsWith("seq:") ? this.nestedSource(clip, t, a, bw) : a.sources.get(clip.id);
+    let src: Source | undefined = clip.shape ? shapeCanvas(clip.shape, bw, bh) : clip.ref.startsWith("seq:") ? this.nestedSource(clip, t, a, bw) : a.sources.get(clip.id);
     if (!ready(src)) return;
+    const par = clip.interpret?.par;
+    if (par && Math.abs(par - 1) > 0.005 && src) src = this.widen(src, par);                       // نسبتِ پیکسلِ منبع (آنامورفیک) ⇒ پیکسلِ مربع، مثلِ سرور
     // برشِ قاب: پنجرهٔ منبع در این لحظه (کلیدهای kx/ky نسبت به شروعِ قطعه)؛ بدونِ reframe هیچ‌چیز عوض نمی‌شود
     const win = clip.reframe ? reframeWindow(clip, t, ...dims(src)) : undefined;
     const opacity = propAt(clip, "opacity", t);
@@ -521,7 +532,7 @@ export class Compositor {
     const matte = clip.matte ? a.mattes?.get(clip.id) : undefined;
     const needPixels = !!color || keyed || !!lut || !!lens || ready(matte);
     const mask = clip.mask && clip.mask.shape !== "none" && (clip.mask.shape !== "bezier" || (clip.mask.points?.length ?? 0) >= 3) ? clip.mask : null;
-    const css = cssFilterOf(clip.effects);
+    const css = [cssFilterOf(clip.effects), clip.denoise ? `blur(${(0.25 + 0.9 * clip.denoise.amount).toFixed(2)}px)` : ""].filter(Boolean).join(" ");   // نویزگیر: در پیش‌نمایش فقط نرم‌شدنِ تقریبی؛ خروجی hqdn3d/nlmeans
     const rotate = clip.effects.find((e) => e.tool === "rotate");
     const vignette = clip.effects.find((e) => e.tool === "vignette");
     const blurs = clip.effects.filter((e) => e.tool === "blur_region");

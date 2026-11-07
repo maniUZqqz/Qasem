@@ -117,3 +117,35 @@ class ActionTests(MobileTestCase):
     def test_actions_need_staff(self):
         self.assertEqual(self.act(self.panel_client(self.plain), "sms.pause").status_code, 403)
         self.assertTrue(MobileSettings.get().sms_enabled)
+
+
+class ComputeQueueFieldsTests(MobileTestCase):
+    """The phone's monitor still works with the durable queue's new job fields and kinds (compute-r1)."""
+
+    def test_phone_retry_resets_the_queue_bookkeeping(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        c = self.device_client()
+        old = timezone.now() - timedelta(days=2)
+        failed = ComputeJob.objects.create(kind="echo", state=ComputeJob.State.FAILED, error="x", attempts=2, lost_count=5,
+                                           queued_at=old, waited_s=9.0, run_s=3.0)
+        r = c.post(BASE + "monitor/actions/", {"action": "compute_job.retry", "target": str(failed.uid)}, format="json")
+        self.assertEqual(r.status_code, 200)
+        failed.refresh_from_db()
+        self.assertEqual((failed.state, failed.lost_count, failed.waited_s, failed.run_s), ("QUEUED", 0, None, None))
+        self.assertGreater(failed.queued_at, old + timedelta(days=1))
+
+    def test_summary_and_cancel_work_with_parked_and_matting_jobs(self):
+        c = self.device_client()
+        ComputeJob.objects.create(kind="wait.node", state=ComputeJob.State.QUEUED, payload={"capability": "comfyui", "ref": {"model": "jobs.Job", "id": 0}})
+        ComputeJob.objects.create(kind="photo.matting", state=ComputeJob.State.FAILED, error="x")
+        waiting = ComputeJob.objects.create(kind="photo.matting", state=ComputeJob.State.QUEUED, payload={"model": "isnet"})
+        r = c.get(BASE + "monitor/summary/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["queue"]["compute"]["queued"], 2)
+        r = c.post(BASE + "monitor/actions/", {"action": "compute_job.cancel", "target": str(waiting.uid)}, format="json")
+        self.assertEqual(r.status_code, 200)
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.state, "CANCELLED")

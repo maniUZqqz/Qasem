@@ -66,7 +66,7 @@ MAX_NEST = 3
 
 FITS = ("stretch", "cover", "contain")
 TRACK_KINDS = ("video", "audio", "text")
-ROLES = ("", "speech", "music", "sfx")
+ROLES = ("", "speech", "music", "sfx", "ambience")
 TEXT_POSITIONS = ("top", "middle", "bottom")
 BLENDS = ("normal", "multiply", "screen", "overlay", "add", "softlight", "lighten", "darken", "difference")
 EQ_PRESETS = ("flat", "voice", "bright", "warm", "phone", "bass_cut", "bass_boost", "deess")
@@ -218,6 +218,11 @@ class Clip:
     #: «Track matte»: this clip is seen only through the clip that overlaps it on the NEXT video track up (that clip is not shown itself).
     #: {mode: luma|alpha, invert}. luma = brightness of the upper clip is the opacity of this one; alpha = its transparency is.
     track_matte: dict = field(default_factory=dict)
+    #: «نویزگیرِ تصویر»: {amount 0–1, mode fast|strong} → hqdn3d / nlmeans.   «ترکیبِ فریم‌ها»: frames = "blend" | "flow" (optical flow) when the clip is slowed.
+    denoise: dict = field(default_factory=dict)
+    frames: str = ""
+    #: «تفسیرِ فیلم»: {par: pixel aspect ratio, deinterlace: bool}
+    interpret: dict = field(default_factory=dict)
     lens: dict = field(default_factory=dict)
 
     @property
@@ -695,6 +700,16 @@ def _clean_fx_r5(rc: dict) -> dict:
     if isinstance(lk, dict) and lk.get("on"):
         out["luma"] = {"on": True, "mode": "bright" if lk.get("mode") == "bright" else "dark", "tolerance": round(_num(lk.get("tolerance"), 0.0, 1.0, 0.1), 3),
                        "softness": round(_num(lk.get("softness"), 0.0, 1.0, 0.05), 3)}
+    dn = rc.get("denoise")
+    if isinstance(dn, dict) and dn.get("on", True) is not False and _num(dn.get("amount"), 0.0, 1.0, 0.5) > 0.02:
+        out["denoise"] = {"amount": round(_num(dn.get("amount"), 0.0, 1.0, 0.5), 2), "mode": "strong" if dn.get("mode") == "strong" else "fast"}
+    if rc.get("frames") in ("blend", "flow"):
+        out["frames"] = rc["frames"]
+    it = rc.get("interpret")
+    if isinstance(it, dict):
+        par, di = _num(it.get("par"), 0.5, 2.0, 1.0), it.get("deinterlace") is True
+        if abs(par - 1.0) > 0.005 or di:
+            out["interpret"] = {"par": round(par, 4), "deinterlace": di}
     tm = rc.get("track_matte")
     if isinstance(tm, dict) and tm.get("on", True) is not False:
         out["track_matte"] = {"mode": "alpha" if tm.get("mode") == "alpha" else "luma", "invert": tm.get("invert") is True}
@@ -734,6 +749,13 @@ def _clean_audio_pro(au: dict) -> dict:
     pitch = _num(au.get("pitch"), -12, 12, 0.0)
     if abs(pitch) >= 0.05:
         out["pitch"] = round(pitch, 2)
+    rv = au.get("reverb")
+    if isinstance(rv, dict) and rv.get("on"):
+        out["reverb"] = {"on": True, "room": rv.get("room") if rv.get("room") in ("small", "hall", "cathedral", "bathroom") else "small",
+                         "mix": round(_num(rv.get("mix"), 0.05, 1.0, 0.35), 2)}
+    dr = au.get("dereverb")
+    if isinstance(dr, dict) and dr.get("on"):
+        out["dereverb"] = {"on": True, "amount": round(_num(dr.get("amount"), 0.1, 1.0, 0.5), 2)}
     ec = au.get("echo")
     if isinstance(ec, dict) and ec.get("on"):
         out["echo"] = {"on": True, "delay": round(_num(ec.get("delay"), 20, 1000, 250.0)), "decay": round(_num(ec.get("decay"), 0.05, 0.9, 0.4), 2)}

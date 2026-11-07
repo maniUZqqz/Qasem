@@ -5,6 +5,7 @@
 import type { MediaItem } from "../api";
 import { AnyClip, Marker, MediaClip, Project, TextClip, clipEnd, clipLength, deleteClips, liftRange, updateClip, withLinked } from "./model";
 import { Key, KfChannel, setKey, valueAt } from "./keyframes";
+import { metaHay } from "./r6ops";
 
 const EPS = 0.02;
 
@@ -145,12 +146,12 @@ const DIG: Record<string, string> = {};
 const fold = (s: string) => String(s ?? "").toLowerCase().split("").map((c) => DIG[c] ?? (c === "ي" ? "ی" : c === "ك" ? "ک" : c)).join("").replace(/[‌\s]+/g, " ").trim();
 
 /** جستجو در نامِ رسانه (فارسی/انگلیسی؛ «ی/ي»، «ک/ك»، نیم‌فاصله و رقم‌های فارسی را یکی می‌گیرد)، و فیلتر با پوشه */
-export function filterBin(items: MediaItem[], query: string, folder: BinFolder | null): MediaItem[] {
+export function filterBin(items: MediaItem[], query: string, folder: BinFolder | null, meta?: Record<string, { tags: string[]; note: string }>): MediaItem[] {
   const q = fold(query);
   return items.filter((it) => {
     if (folder && !folder.refs.includes(it.ref)) return false;
     if (!q) return true;
-    const hay = fold(`${it.title} ${it.kind === "video" ? "ویدیو video فیلم" : it.kind === "audio" ? "صدا audio موسیقی music" : it.kind === "image" ? "عکس image photo تصویر" : ""} ${it.ref}`);
+    const hay = fold(`${it.title} ${it.kind === "video" ? "ویدیو video فیلم" : it.kind === "audio" ? "صدا audio موسیقی music" : it.kind === "image" ? "عکس image photo تصویر" : ""} ${it.ref} ${metaHay(meta?.[it.ref])}`);
     return q.split(" ").every((w) => hay.includes(w));
   });
 }

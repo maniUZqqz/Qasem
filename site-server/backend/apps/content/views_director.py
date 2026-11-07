@@ -6,7 +6,7 @@
     GET   stores/<id>/editor/director/drafts/       unopened drafts (lightweight results of earlier «بساز»), newest first, with days left
     POST  stores/<id>/editor/director/drafts/<pk>/open/   → {project_id}: the draft becomes a real project (idempotent)
     DELETE stores/<id>/editor/director/drafts/<pk>/       throw one draft away
-    GET/PUT stores/<id>/editor/settings/            {ai_default, draft_days} — what the «کمکِ هوش مصنوعی» tick starts from, and how long drafts live
+    GET/PUT stores/<id>/editor/settings/            {ai_default, draft_days, max_drafts} — what the «کمکِ هوش مصنوعی» tick starts from (OFF by default), how long drafts live and how many are kept
     POST  stores/<id>/editor/director/apply/        {data: project, steps[]} → {data, results[], notes[]}  (sync; the one-click sound tools)
     POST  stores/<id>/editor/reframe/               {ref, start, end, aspect, follow?, zoom?, speed?} → {reframe, engine, samples, notes}
     POST  stores/<id>/editor/scenes/                {ref, start?, end?, sensitivity?(low|normal|high)} → {cuts[] (source seconds), threshold, scanned}
@@ -150,7 +150,7 @@ class DirectorDraftsView(APIView):
 
     def get(self, request, store_id):
         store = access.get_store(request.user, store_id, access.CONTENT, write=False)
-        return Response({"drafts": drafts_mod.drafts_of(store), "draft_days": drafts_mod.get_settings(store)["draft_days"], "max_drafts": drafts_mod.MAX_DRAFTS})
+        return Response({"drafts": drafts_mod.drafts_of(store), "draft_days": drafts_mod.get_settings(store)["draft_days"], "max_drafts": drafts_mod.get_settings(store)["max_drafts"]})
 
 
 class DirectorDraftOpenView(APIView):
@@ -190,6 +190,12 @@ class EditorSettingsView(APIView):
         store = access.get_store(request.user, store_id, access.CONTENT)
         ai = request.data.get("ai_default")
         days = request.data.get("draft_days")
+        cap = request.data.get("max_drafts")
+        if cap is not None:
+            try:
+                int(cap)
+            except (TypeError, ValueError):
+                return _err("bad_request", "سقفِ پیش‌نویس‌ها باید یک عدد باشد.")
         if ai is not None and not isinstance(ai, bool):
             return _err("bad_request", "مقدارِ «کمکِ هوش مصنوعی» باید روشن یا خاموش باشد.")
         if days is not None:
@@ -197,7 +203,7 @@ class EditorSettingsView(APIView):
                 int(days)
             except (TypeError, ValueError):
                 return _err("bad_request", "مدتِ نگهداریِ پیش‌نویس باید یک عدد (روز) باشد.")
-        drafts_mod.save_settings(store, ai_default=ai, draft_days=days)
+        drafts_mod.save_settings(store, ai_default=ai, draft_days=days, max_drafts=cap)
         return Response(drafts_mod.public_settings(store))
 
 

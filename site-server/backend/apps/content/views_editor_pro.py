@@ -159,6 +159,23 @@ class ProjectPreviewView(APIView):
         return Response({"job_id": job.id, "t0": t0, "t1": t1}, status=status.HTTP_202_ACCEPTED)
 
 
+class ProjectCollectView(APIView):
+    """«جمع‌کردنِ فایل‌های پروژه»: job → {url, files, bytes, skipped}."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id, pk):
+        from .tasks_editing import collect_project_task
+
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        project = get_object_or_404(VideoProject, pk=pk, store=store)
+        job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "collect", "project_id": project.pk})
+        failed = dispatch_job(job, collect_project_task, job.id, project.pk)
+        if failed is not None:
+            return failed
+        return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)
+
+
 class CaptionsTranslateView(APIView):
     """«ترجمهٔ زیرنویس»: [{id, text}] + زبان → job؛ نتیجه {lang, items: [{id, text}]}."""
 

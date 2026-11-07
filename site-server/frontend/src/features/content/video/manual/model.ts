@@ -43,6 +43,10 @@ export type ClipAudio = {
   /** زیر و بمی بر حسبِ نیم‌پرده (−۱۲..۱۲) */
   pitch?: number;
   echo?: { on: boolean; delay: number; decay: number };
+  /** ریورب: اتاقِ کوچک / حمام / سالن / کلیسا و میزانِ آن */
+  reverb?: { on: boolean; room: "small" | "bathroom" | "hall" | "cathedral"; mix: number };
+  /** کاهشِ پژواکِ اتاقِ ضبط (تقریبی: نویزگیرِ طیفی + گیتِ نرم) */
+  dereverb?: { on: boolean; amount: number };
  };
 /**
  * بازتنظیمِ قاب (Reframe): پنجره‌ای در «خودِ منبع» که پیش از جا دادن (fit) بریده می‌شود؛ بنابراین کیفیت از فایلِ اصلی است.
@@ -111,6 +115,12 @@ export type MediaClip = {
   lens?: Lens;
   /** «نقطهٔ لنگر»: مرکزِ چرخش و بزرگ‌نمایی؛ کسری از جعبهٔ قطعه، از مرکز (۰ و ۰ = مرکز) */
   anchor?: Anchor;
+  /** «نویزگیرِ تصویر»: fast = hqdn3d (سریع)، strong = nlmeans (کندتر، تمیزتر) */
+  denoise?: Denoise;
+  /** «ترکیبِ فریم‌ها» هنگامِ کندکردن: blend = ترکیبِ فریم‌های کنار هم، flow = فریمِ میانیِ اپتیکال‌فلو (روی سرورِ پردازش) */
+  frames?: "blend" | "flow";
+  /** «تفسیرِ فیلم»: نسبتِ پیکسل، خط‌های درهم، و فریم‌بر‌ثانیه‌ای که فیلم باید جور دیگری خوانده شود */
+  interpret?: Interpret;
   /** «Track matte»: این قطعه فقط از پشتِ قطعهٔ هم‌زمانِ ترکِ تصویرِ بالاتر دیده می‌شود (آن قطعه خودش نمایش داده نمی‌شود) */
   track_matte?: TrackMatte;
 };
@@ -118,6 +128,10 @@ export type MediaClip = {
 export type Luma = { on: boolean; mode: "dark" | "bright"; tolerance: number; softness: number };
 export type Lens = { k1: number; k2: number };
 export type Anchor = { x: number; y: number };
+export type Denoise = { amount: number; mode: "fast" | "strong" };
+/** fps = {from: فریم‌بر‌ثانیهٔ واقعیِ فیلم، to: آنچه می‌خواهیم جور دیگری بخوانیم، base: سرعتِ قطعه پیش از تفسیر} (سرور فقط par و deinterlace را می‌خواند) */
+export type Interpret = { par?: number; deinterlace?: boolean; fps?: { from: number; to: number; base: number } };
+export type MediaMeta = { tags: string[]; note: string };
 export type TrackMatte = { mode: "luma" | "alpha"; invert: boolean };
 
 export type TextAnimIn = "none" | "fade" | "slide_up" | "slide_down" | "slide_left" | "slide_right" | "pop" | "zoom" | "typewriter" | "blur";
@@ -149,7 +163,7 @@ export type TextClip = {
 
 export type AnyClip = MediaClip | TextClip;
 
-export type TrackRole = "" | "speech" | "music" | "sfx";
+export type TrackRole = "" | "speech" | "music" | "sfx" | "ambience";
 
 export type Track = {
   id: string;
@@ -167,6 +181,8 @@ export type Track = {
   target?: boolean;
   /** قفلِ همگامی: با «حذفِ بی‌فاصله» روی ترکی دیگر، این ترک هم به اندازهٔ جای خالی جلو می‌آید */
   sync?: boolean;
+  /** بلندیِ ردیفِ ترک در تایم‌لاین: c = جمع‌شده، s = کوتاه، m = معمولی، l = بلند */
+  size?: "c" | "s" | "m" | "l";
   clips: AnyClip[];
 };
 
@@ -176,7 +192,7 @@ export type Ducking = { on: boolean; amount_db: number; threshold: number; attac
 /** بلندیِ نهاییِ خروجی برای شبکه‌های اجتماعی: loudnorm روی مستر (target = LUFS، tp = سقفِ اوج به dB) */
 export type Loudness = { on: boolean; target: number; tp: number };
 export type Master = { gain_db: number; limiter: boolean; loudness?: Loudness };
-export type ExportBlock = { preset?: string; codec?: "h264" | "h265"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number; where?: "auto" | "server"; target_mb?: number | null };
+export type ExportBlock = { preset?: string; codec?: "h264" | "h265" | "prores" | "prores4444"; fps?: number | null; height?: number | null; quality?: "high" | "medium" | "small"; audio_kbps?: number; where?: "auto" | "server"; target_mb?: number | null };
 
 export type ExportWhere = "auto" | "server";
 export type MulticamInfo = {
@@ -207,6 +223,10 @@ export type Project = {
   trackers?: Tracker[];
   /** false ⇒ درازترشدنِ یک قطعه (کندکردن، تغییرِ سرعت، منحنیِ سرعت) قطعه‌های بعدی را جلو نمی‌برد؛ نبودن = روشن */
   auto_ripple?: boolean;
+  /** برچسب و یادداشتِ هر رسانه (به ازای ref) */
+  media_meta?: Record<string, MediaMeta>;
+  /** گذارِ پیش‌فرض برای برش‌ها: با «گذارِ پیش‌فرض برای همهٔ برش‌ها» می‌نشیند */
+  default_transition?: { kind: string; duration: number };
 };
 
 export const DEFAULT_DUCKING: Ducking = { on: false, amount_db: 12, threshold: 0.04, attack_ms: 40, release_ms: 500 };

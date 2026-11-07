@@ -6,12 +6,13 @@ import { Slider, Toggle } from "./controls";
 import { DEFAULT_DUCKING, Ducking, Master, Project, Track, TrackRole } from "./model";
 import "./audio.css";
 
-const ROLES: TrackRole[] = ["", "speech", "music", "sfx"];
-const ROLE_TITLE: Record<TrackRole, string> = { "": "—", speech: "گفتار", music: "موسیقی", sfx: "افکت" };
+const ROLES: TrackRole[] = ["", "speech", "music", "ambience", "sfx"];
+const ROLE_TITLE: Record<TrackRole, string> = { "": "—", speech: "گفتار", music: "موسیقی", ambience: "محیط", sfx: "افکت" };
 const ROLE_HINT: Record<TrackRole, string> = {
   "": "نقش: ندارد (کلیک = گفتار)",
   speech: "نقش: گفتار — موسیقی زیرِ آن کم می‌شود (کلیک = موسیقی)",
-  music: "نقش: موسیقی — زیرِ گفتار کم می‌شود (کلیک = افکت)",
+  music: "نقش: موسیقی — زیرِ گفتار کم می‌شود (کلیک = صدای محیط)",
+  ambience: "نقش: صدای محیط (باد، خیابان، اتاق) — مثلِ موسیقی زیرِ گفتار کم می‌شود (کلیک = افکت)",
   sfx: "نقش: افکت (کلیک = بی‌نقش)",
 };
 

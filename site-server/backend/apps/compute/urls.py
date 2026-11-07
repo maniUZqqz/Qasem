@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, transfer, views_ollama, views_report, views_update, views_voice
+from . import api, transfer, views_matting, views_ollama, views_report, views_update, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -34,6 +34,10 @@ urlpatterns = [
     path("nodes/<int:pk>/logs/", api.node_logs),
     path("nodes/<int:pk>/desired/", api.node_desired),
     path("settings/", api.compute_settings),
+    # جداسازیِ پس‌زمینهٔ عکس (u2netp / isnet / birefnet-lite روی گره): وضعیت، دانلود، تست
+    path("matting/", views_matting.matting_status),
+    path("matting/download/", views_matting.matting_download),
+    path("matting/test/", views_matting.matting_test),
     # صفِ پردازش (کارکنان): فهرست، شمارش برای نوارِ بالا، لغو و تلاشِ دوباره
     path("queue/", api.queue_list),
     path("queue/summary/", api.queue_summary),

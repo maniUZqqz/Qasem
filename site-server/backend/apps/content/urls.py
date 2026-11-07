@@ -31,6 +31,7 @@ from .views_sound import (
 from .views_editor_pro import (
     CaptionsStatusView,
     CaptionsTranslateView,
+    ProjectCollectView,
     CaptionsView,
     EditorAnalysisView,
     EditorCatalogueView,
@@ -168,6 +169,7 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/<int:pk>/renders/", ProjectRendersView.as_view(), name="editor-project-renders"),
     path("stores/<int:store_id>/editor/captions/status/", CaptionsStatusView.as_view(), name="editor-captions-status"),
     path("stores/<int:store_id>/editor/captions/", CaptionsView.as_view(), name="editor-captions"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/collect/", ProjectCollectView.as_view(), name="editor-project-collect"),
     path("stores/<int:store_id>/editor/captions/translate/", CaptionsTranslateView.as_view(), name="editor-captions-translate"),
     path("stores/<int:store_id>/editor/luts/", EditorLutsView.as_view(), name="editor-luts"),
     path("stores/<int:store_id>/editor/luts/<str:key>/", EditorLutDetailView.as_view(), name="editor-lut"),

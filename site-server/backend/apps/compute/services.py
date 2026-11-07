@@ -361,7 +361,12 @@ def _kinds_q(node: ComputeNode) -> Q:
     q = Q(kind__startswith="echo") | Q(kind__startswith="node.")   # node.* always names its node (node_wanted)
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
-            q |= Q(kind__startswith=prefix)
+            fam = Q(kind__startswith=prefix)
+            if prefix == "photo":
+                fam &= ~Q(kind="photo.matting")      # its own capability (photo_matting): the photo kit being up is not enough
+            q |= fam
+    if node.has("photo_matting"):
+        q |= Q(kind="photo.matting")
     if (node.capabilities or {}).get("ollama_pull"):
         # a model download needs the agent, not a running Ollama: the agent starts it (or says clearly it cannot)
         q |= Q(kind="ollama.pull")
@@ -396,6 +401,23 @@ def audio_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     return bool(key and isinstance(audio, dict) and not audio.get(key))
 
 
+def matting_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """A photo.matting job this node must not take yet: the model is not installed here (or still downloading), or no Python on
+    the node can run it (yet). The job waits in the queue instead of failing (caps.matting_models / caps.matting_runtime)."""
+    if job.kind != "photo.matting":
+        return False
+    caps = node.capabilities or {}
+    if (caps.get("matting_runtime") or {}).get("ok") is not True:
+        return True
+    model = str((job.payload or {}).get("model") or "")
+    return ((caps.get("matting_models") or {}).get(model) or {}).get("state") != "installed"
+
+
+def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models)."""
+    return audio_blocked(node, job) or matting_blocked(node, job)
+
+
 def claim(node: ComputeNode) -> ComputeJob | None:
     """یک کار به این گره می‌دهد — اتمی، تا دو گره یک کار را نگیرند."""
     requeue_stale()
@@ -411,7 +433,7 @@ def claim(node: ComputeNode) -> ComputeJob | None:
                   .filter(Q(window="") | Q(window__in=open_windows))
                   .filter(_kinds_q(node)).order_by("priority", "created_at")[:50])
     for job in candidates:
-        if audio_blocked(node, job):
+        if job_blocked(node, job):
             continue
         updated = _claim_row(job.pk, node, now)
         if updated == 1:

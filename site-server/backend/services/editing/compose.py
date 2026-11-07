@@ -98,11 +98,13 @@ def _source_size(path: str) -> tuple[int, int]:
 
 
 class Builder:
-    def __init__(self, timeline: Timeline, *, spans=None, portable: bool = False, parent: "Builder | None" = None):
+    def __init__(self, timeline: Timeline, *, spans=None, portable: bool = False, parent: "Builder | None" = None, flow: bool = True, alpha: bool = False):
         self.tl = timeline
         self.W, self.H, self.fps = timeline.width, timeline.height, timeline.fps
         self.parent = parent
         self.root = parent.root if parent else self
+        self.flow = parent.flow if parent else flow           # optical flow (minterpolate) is heavy: not in the site's quick draft
+        self.alpha = parent.alpha if parent else alpha         # a transparent base (ProRes 4444 with alpha)
         if parent:                              # a nested sequence: one graph, one label space
             self.inputs, self.args, self.parts = parent.inputs, parent.args, parent.parts
             self.texts, self.notes, self.assets = parent.texts, parent.notes, parent.assets
@@ -184,7 +186,10 @@ class Builder:
         tl = self.tl
         length = max(0.1, tl.length)
         base = self.lab("base")
-        self.parts.append(f"color=c=black:s={self.W}x{self.H}:r={self.fps}:d={length:.3f}[{base}]")
+        if self.alpha:
+            self.parts.append(f"color=c=black@0:s={self.W}x{self.H}:r={self.fps}:d={length:.3f},format=yuva420p[{base}]")
+        else:
+            self.parts.append(f"color=c=black:s={self.W}x{self.H}:r={self.fps}:d={length:.3f}[{base}]")
         current = base
         self.plan_mattes()
         for track in tl.tracks:
@@ -192,7 +197,10 @@ class Builder:
                 current = self.video_track(track, current)
             elif track.kind == "text":
                 current = self.text_track(track, current)
-        self.parts.append(f"[{current}]null[{final}]")
+        if self.alpha:
+            self.parts.append(f"[{current}]format=yuva444p10le[{final}]")
+        else:
+            self.parts.append(f"[{current}]null[{final}]")
         return final
 
     def plan_mattes(self) -> None:
@@ -295,6 +303,19 @@ class Builder:
             current = self.transition_window(earlier, later, d, name, current)
         return current
 
+    def fps_filter(self, clip: Clip, segs) -> str:
+        """`fps=N`, or — for a SLOWED clip that asked for it — frame blending / optical-flow interpolation (`minterpolate`)."""
+        fps = self.fps
+        slowed = any(v < 0.999 for _a, _b, v in (segs or [])) and not clip.freeze
+        if clip.frames == "blend" and slowed:
+            return f"minterpolate=fps={fps}:mi_mode=blend"
+        if clip.frames == "flow" and slowed:
+            if not self.flow:
+                self.notes.append("اپتیکال‌فلو در پیش‌نویسِ سریعِ روی سایت اجرا نمی‌شود (سنگین است)؛ در خروجیِ نهایی روی سرورِ پردازش هست.")
+                return f"fps={fps}"
+            return f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+        return f"fps={fps}"
+
     # ------------------------------------------------------ adjustment layer
     def adjust_layer(self, current: str, clip: Clip, t_from: float, t_to: float) -> str:
         """A «لایهٔ تنظیم»: everything composed so far is split; one branch gets this layer's colour / LUT / effects; for the clip's duration the corrected
@@ -313,7 +334,7 @@ class Builder:
         self.parts.append(f"[{current}]split=2[{keep}][{fx0}]")
         self.parts.append(f"[{fx0}]" + ",".join(chain) + f"[{fx}]")
         if clip.opacity >= 0.999:
-            self.parts.append(f"[{keep}][{fx}]overlay=x=0:y=0:{enable}:eof_action=pass[{out}]")
+            self.parts.append(f"[{keep}][{fx}]overlay=x=0:y=0:{enable}:eof_action=pass{':format=auto' if self.alpha else ''}[{out}]")
         else:
             a, b = self.lab("aa"), self.lab("ab")
             self.parts.append(f"[{keep}]format=gbrp[{a}];[{fx}]format=gbrp[{b}]")
@@ -388,9 +409,13 @@ class Builder:
         if pad_tail > 0.001:
             ch.append(f"tpad=stop_mode=clone:stop_duration={_q(pad_tail)}")
         if clip.kind != "image":
-            ch.append(f"fps={fps}")
+            ch.append(self.fps_filter(clip, segs))
 
         # 2 · reframe window, orientation, fit -----------------------------
+        if clip.interpret.get("deinterlace"):
+            ch.append("yadif=mode=0")                          # خط‌های درهم (interlace) ⇒ فریمِ کامل
+        if clip.interpret and abs(float(clip.interpret.get("par", 1.0)) - 1.0) > 0.005:
+            ch.append(f"scale=trunc(iw*{_f(clip.interpret['par'])}/2)*2:ih")   # نسبتِ پیکسل (فیلمِ آنامورفیک) ⇒ پیکسلِ مربع
         if clip.reframe and clip.kind in ("video", "image") and src is None:
             ch.append(self.reframe_crop(clip, off_start - pad_head))
         for effect in clip.effects:
@@ -412,6 +437,13 @@ class Builder:
             ch += ["reverse", "setpts=PTS-STARTPTS"]
         if clip.lens:                                          # اصلاحِ اعوجاجِ لنز (k1 < 0 = بشکه‌ای را صاف می‌کند، k1 > 0 = بالشتکی را)
             ch.append(f"lenscorrection=cx=0.5:cy=0.5:k1={_f(clip.lens['k1'])}:k2={_f(clip.lens['k2'])}")
+
+        if clip.denoise:                                       # نویزگیرِ تصویر
+            a = float(clip.denoise["amount"])
+            if clip.denoise.get("mode") == "strong":
+                ch.append(f"nlmeans=s={1 + 5 * a:.1f}:p=5:r=11")
+            else:
+                ch.append(f"hqdn3d={1.5 + 6 * a:.1f}:{1.2 + 5 * a:.1f}:{2 + 8 * a:.1f}:{1.5 + 6 * a:.1f}")
 
         # 3 · colour and picture effects ----------------------------------
         if clip.color:
@@ -586,6 +618,7 @@ class Builder:
             xe, ye = f"x={int(W * clip.x)}", f"y={int(H * clip.y)}"
         enable = f"enable='between(t,{_q(t_from)},{_q(t_to)})'"
         out = self.lab("v")
+        fmt = fmt or (":format=auto" if self.alpha else "")
         if clip.blend == "normal" or clip.blend not in _BLEND:
             self.parts.append(f"[{current}][{layer}]overlay={xe}:{ye}:{enable}:eof_action=pass{fmt}[{out}]")
             return out
@@ -657,7 +690,20 @@ class Builder:
             self.parts.append(f"[{placed}]trim=duration={_q(d)},setpts=PTS-STARTPTS,format=yuv420p[{out}]")
             labels.append(out)
         x, shifted, out = self.lab("x"), self.lab("y"), self.lab("v")
-        self.parts.append(f"[{labels[0]}][{labels[1]}]xfade=transition={name}:duration={_q(d)}:offset=0[{x}]")
+        if name == "morphcut" and self.flow:
+            # an approximation of a morph cut: the first half of the window from the outgoing clip, the second half from the incoming one,
+            # joined, thinned to a third of the frame rate and re-interpolated with optical flow — the frames around the join are then SYNTHESISED
+            # (motion-compensated) instead of jumping
+            h0, h1 = self.lab("m"), self.lab("m")
+            low = max(6, int(fps // 3))
+            self.parts.append(f"[{labels[0]}]trim=duration={_q(d / 2)},setpts=PTS-STARTPTS[{h0}]")
+            self.parts.append(f"[{labels[1]}]trim=start={_q(d / 2)}:duration={_q(d / 2)},setpts=PTS-STARTPTS[{h1}]")
+            self.parts.append(f"[{h0}][{h1}]concat=n=2:v=1:a=0,fps={low},minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,format=yuv420p[{x}]")
+        else:
+            if name == "morphcut":
+                name = "fade"
+                self.notes.append("برشِ مورف در پیش‌نویسِ سریعِ روی سایت به محو تبدیل می‌شود؛ در خروجیِ نهایی هست.")
+            self.parts.append(f"[{labels[0]}][{labels[1]}]xfade=transition={name}:duration={_q(d)}:offset=0[{x}]")
         self.parts.append(f"[{x}]setpts=PTS+{_q(cut - half)}/TB[{shifted}]")
         self.parts.append(f"[{current}][{shifted}]overlay=x=0:y=0:enable='between(t,{_q(cut - half)},{_q(cut + half)})':eof_action=pass[{out}]")
         return out
@@ -676,13 +722,14 @@ class Builder:
         return out
 
 
-def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True, portable: bool = False, video: bool = True, audio: bool = True) -> Graph:
+def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True, portable: bool = False, video: bool = True, audio: bool = True, flow: bool = True,
+                alpha: bool = False) -> Graph:
     """The whole filtergraph plus what `export.render` needs to run it.
     `video=False` / `audio=False` build only the other half (used by the sliced render: the picture in time slices, the sound once)."""
     from . import audiofx
 
     timeline.validate(need_base=need_base)
-    b = Builder(timeline, spans=spans, portable=portable)
+    b = Builder(timeline, spans=spans, portable=portable, flow=flow, alpha=alpha)
     if video:
         b.build_video()
     else:

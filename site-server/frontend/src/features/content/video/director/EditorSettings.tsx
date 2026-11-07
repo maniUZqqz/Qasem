@@ -25,7 +25,7 @@ export default function EditorSettingsCard({ storeId, onChange }: { storeId: str
     };
   }, [storeId]);
 
-  const save = useCallback(async (body: Partial<Pick<EditorSettings, "ai_default" | "draft_days">>, say: string) => {
+  const save = useCallback(async (body: Partial<Pick<EditorSettings, "ai_default" | "draft_days" | "max_drafts">>, say: string) => {
     setError(null);
     const before = s;
     setS((cur) => (cur ? { ...cur, ...body } : cur));                // فوراً نشان بده؛ اگر ذخیره نشد برمی‌گردد
@@ -62,6 +62,13 @@ export default function EditorSettingsCard({ storeId, onChange }: { storeId: str
         هر «بساز» سه نسخه را فقط به‌صورتِ پیش‌نویسِ سبک نگه می‌دارد (فیلم‌ها کپی نمی‌شوند). پیش‌نویسی که در {fa(s.draft_days)} روز باز نشود خودکار پاک می‌شود (حداکثر {fa(s.max_drafts)} پیش‌نویس).
         پروژه‌ای که یک بار در تدوینِ دستی باز کرده یا ذخیره کرده باشید <b>هرگز</b> خودکار پاک نمی‌شود.
       </p>
+      <label className="ws-field es-row">
+        <span>حداکثر چند پیش‌نویسِ بازنشده نگه داشته شود؟</span>
+        <input type="number" className="u-input" min={s.min_drafts} max={s.max_drafts_limit} step={5} value={s.max_drafts} data-testid="es-max-drafts"
+          onChange={(e) => setS((cur) => (cur ? { ...cur, max_drafts: Number(e.target.value) } : cur))}
+          onBlur={(e) => { const v = Math.max(s.min_drafts, Math.min(s.max_drafts_limit, Math.round(Number(e.target.value)) || s.max_drafts)); void save({ max_drafts: v }, `حداکثر ${fa(v)} پیش‌نویس نگه داشته می‌شود (قدیمی‌ترها زودتر پاک می‌شوند).`); }} />
+      </label>
+      <p className="ws-hint" data-testid="es-cap-note">بینِ {fa(s.min_drafts)} تا {fa(s.max_drafts_limit)}. فقط پیش‌نویس‌های بازنشده شمرده می‌شوند؛ پروژه‌ای که باز کرده‌اید هرگز پاک نمی‌شود.</p>
       {saved && <p className="ws-hint" role="status" data-testid="es-saved">{saved}</p>}
       {error && <p className="ws-hint" role="alert">{error}</p>}
     </div>

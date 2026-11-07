@@ -17,6 +17,7 @@ XFADE: dict[str, tuple[str, str]] = {
     "fadeblack": ("محو از سیاه", "dissolve"),
     "fadewhite": ("محو از سفید", "dissolve"),
     "fadegrays": ("محو خاکستری", "dissolve"),
+    "morphcut": ("برشِ مورف (تقریبیِ اپتیکال‌فلو)", "dissolve"),
     "fadefast": ("محو تند", "dissolve"),
     "fadeslow": ("محو کند", "dissolve"),
     "dissolve": ("پراکندگی", "dissolve"),

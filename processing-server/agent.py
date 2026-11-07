@@ -91,6 +91,14 @@ setup_voice_service inside voice.clone, an editor a running job needs). A job pa
 limit; the panel's «الان» / «در ساعتِ ...» choices). Also: finish() and the output upload keep retrying (up to ~5 min) when the
 site is briefly unreachable, WORK\\<job> folders older than a day are removed at start, and the heartbeat reports disk_free_gb /
 disk_total_gb / gpu_util_pct / gpu_temp_c. `python agent.py --version` prints the banner.
+Agent 2.7 - photo.matting: cut the subject out of a photo with u2netp, IS-Net general or BiRefNet-lite (photo_matting.py;
+ONNX, onnxruntime in some Python of this computer - GPU when it can - else the CPU; the models run ONLY here, never on the
+site). The job {"image", "model", "feather", "keep_size"} answers cutout.png (RGBA), mask.png and photo-matting.json. The
+heartbeat reports caps.photo_matting, caps.matting_models {model: {state: installed|downloading|queued|missing|failed,
+size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a job in its queue until its model is installed.
+Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
+(BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
+onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
 """
 import glob
 import hashlib
@@ -113,7 +121,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.6"
+VERSION = "2.7"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -1030,6 +1038,8 @@ class ServiceManager:
         """Before a job: make sure its engine is up; with auto-switch also free the other engine's memory."""
         if kind == "ollama.pull":
             return        # a download loads no model: nothing to free, and h_ollama_pull starts / waits for the server itself
+        if kind == "photo.matting":
+            return        # runs in its own Python (photo_matting.py): no service to start (not even the photo kit's)
         audio = audio_engine_for(kind, payload)
         if audio:
             return self.prepare_audio(audio, auto_switch, tick, purpose=audio_purpose(kind, payload))
@@ -1471,6 +1481,13 @@ class Capabilities:
         except Exception as e:  # noqa: BLE001 - never let this keep the heartbeat from going out
             caps["ffmpeg"] = False
             warn("video editor capabilities could not be read: %s" % e)
+        try:                       # photo matting: which models are here, and can this computer run them (probed in the background)
+            import photo_matting
+
+            caps.update(photo_matting.caps(sys.modules[__name__]))
+        except Exception as e:  # noqa: BLE001 - never let this keep the heartbeat from going out
+            caps["photo_matting"] = False
+            warn("photo matting capabilities could not be read: %s" % e)
         self.cache = caps
         return caps
 
@@ -3767,6 +3784,15 @@ def h_edit_matte(job):
 
 
 HANDLERS.update({"edit.render": h_edit_render, "edit.track": h_edit_track, "edit.matte": h_edit_matte})
+
+
+def h_photo_matting(job):
+    import photo_matting
+
+    return photo_matting.run(job, sys.modules[__name__])
+
+
+HANDLERS["photo.matting"] = h_photo_matting
 
 
 def run_job(site, data):

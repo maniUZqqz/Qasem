@@ -149,6 +149,10 @@ export type WorkspaceApi = {
     renderOne: (override: Record<string, unknown>) => Promise<{ ok: true } | { ok: false; full?: boolean; message: string }>;
     /** قطعه‌های انتخاب‌شده را روی سرور به یک فایل می‌پزد و همان فایل را جایشان می‌گذارد (Render and replace) */
     renderReplace: () => void;
+    /** «ساختِ خروجی روی خودِ سایت (دستی)»: یک رندرِ نهایی که صریحاً روی سرورِ سایت ساخته می‌شود (هیچ‌وقت خودکار نیست) */
+    renderOnSite: () => void;
+    /** «جمع‌کردنِ فایل‌های پروژه»: پروژه و همهٔ فایل‌های اصلی در یک zip */
+    collect: () => void;
     detectScenes: (sensitivity: "low" | "normal" | "high") => void;
   };
   /** رفتن به حالتِ «نیمه‌خودکار» (کارگردان)؛ null = از این صفحه ممکن نیست */

@@ -164,12 +164,18 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
       </Section>
 
       <Section title="محلِ رندرِ نهایی" defaultOpen testId="xp-where">
-        <Chips value={(block.where ?? "auto") as "auto" | "server"} options={[{ key: "auto", title: "خودکار (سرورِ پردازش اگر روشن بود)" }, { key: "server", title: "فقط سرورِ سایت" }]} onPick={(k) => set({ where: k })} />
-        {where?.online ? (
-          <p className="ws-hint" data-testid="xp-where-online">سرورِ پردازشِ «{where.node}» روشن است{where.gpu ? ` (${where.gpu})` : ""}؛ خروجیِ نهایی {block.where === "server" ? "با انتخابِ شما روی سرورِ سایت" : `آن‌جا${where.nvenc ? " با NVENC (کارتِ گرافیک)" : ""}`} ساخته می‌شود. اگر خاموش شد یا خطا داد، خودکار روی سرورِ سایت ساخته می‌شود.</p>
+        <Chips value={(block.where ?? "auto") as "auto" | "server"} options={[{ key: "auto", title: "سرورِ پردازش (منتظر می‌ماند تا بگیرد)" }, { key: "server", title: "فقط سرورِ سایت (دستی)" }]} onPick={(k) => set({ where: k })} />
+        {block.where === "server" ? (
+          <p className="ws-hint" data-testid="xp-where-site">با انتخابِ شما خروجیِ نهایی روی خودِ سرورِ سایت ساخته می‌شود (کندتر؛ سایت کارهای دیگر هم دارد).</p>
+        ) : where?.online ? (
+          <p className="ws-hint" data-testid="xp-where-online">سرورِ پردازشِ «{where.node}» روشن است{where.gpu ? ` (${where.gpu})` : ""}؛ خروجیِ نهایی آن‌جا{where.nvenc ? " با NVENC (کارتِ گرافیک)" : ""} ساخته می‌شود. اگر مشغول باشد در صفِ ماندگار می‌ماند و به‌محضِ گرفتن شروع می‌شود؛ هیچ‌وقت خودکار روی سایت ساخته نمی‌شود.</p>
         ) : (
-          <p className="ws-hint" data-testid="xp-where-offline">خروجیِ نهایی روی سرورِ سایت ساخته می‌شود. {where?.message ?? ""}</p>
+          <p className="ws-hint" data-testid="xp-where-offline">سرورِ پردازش الان خاموش است؛ خروجیِ نهایی در صفِ ماندگار می‌ماند («در صف — منتظرِ سرورِ پردازش») و با روشن شدنش خودکار شروع می‌شود. {where?.message ?? ""}</p>
         )}
+        <div className="xp-actions">
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { where: "server" })} data-testid="render-on-site"
+            title="فقط وقتی خودتان بخواهید؛ هیچ‌وقت خودکار انجام نمی‌شود">ساختِ خروجی روی خودِ سایت (دستی)</button>
+        </div>
         <p className="ws-hint" data-testid="xp-draft-where">
           «پیش‌نویسِ سریع» پیش‌فرض روی سرورِ سایت ساخته می‌شود. فقط وقتی سنگین باشد (سایت حدس می‌زند بیش از حدود ۴۵ ثانیه طول بکشد) و سرورِ پردازش روشن و بی‌کار باشد و
           فایل‌های اصلی را از قبل داشته باشد (یا حجمشان کم باشد)، خودکار آن‌جا ساخته می‌شود؛ تنظیمی لازم نیست. زیرِ هر خروجی نوشته می‌شود «ساخته‌شده روی: …».
@@ -194,7 +200,12 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
 
       <Section title="تنظیمِ دقیق" testId="xp-manual">
         <div className="tx-sub">کدک</div>
-        <Chips value={codec} options={cat.codecs.map((c) => ({ key: c.key as "h264" | "h265", title: c.title }))} onPick={(k) => set({ codec: k })} />
+        <Chips value={codec} options={cat.codecs.map((c) => ({ key: c.key as NonNullable<ExportBlock["codec"]>, title: c.title }))} onPick={(k) => set({ codec: k })} />
+        {(codec === "prores" || codec === "prores4444") && (
+          <p className="ws-hint" data-testid="xp-prores-note">
+            ProRes فایلِ «مادر» برای تدوینِ بعدی است: {codec === "prores4444" ? "پس‌زمینه شفاف می‌ماند (آلفا)؛ " : ""}حجمش حدودِ ۱۰ برابرِ H.264 است، پسوندش .mov است و در مرورگر پخش نمی‌شود (دانلود کنید). افکت‌های «کلِ ویدیو» (مرحلهٔ دوم) روی آن اعمال نمی‌شود.
+          </p>
+        )}
         {codec === "h265" && <p className="ws-hint">H.265 فایلِ کوچک‌تر می‌دهد ولی رندرش کندتر است و بعضی پلتفرم‌ها/گوشی‌های قدیمی آن را نمی‌خوانند.</p>}
         <div className="tx-sub">اندازه (ضلعِ کوتاه)</div>
         <select className="u-input" value={block.height ?? ""} aria-label="اندازه" onChange={(e) => set({ height: e.target.value ? Number(e.target.value) : null })}>
@@ -233,7 +244,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
       )}
 
       <p className="ws-hint" data-testid="xp-summary">
-        خروجی: <b dir="ltr">{fa(w)}×{fa(h)}</b>{fps ? <> · <span dir="ltr">{fa(fps)}fps</span></> : null} · {codec === "h265" ? "H.265" : "H.264"} · صدا {fa(kbps)}k · {fa(Math.round(length))} ثانیه
+        خروجی: <b dir="ltr">{fa(w)}×{fa(h)}</b>{fps ? <> · <span dir="ltr">{fa(fps)}fps</span></> : null} · {codec === "h265" ? "H.265" : codec === "prores" ? "ProRes 422" : codec === "prores4444" ? "ProRes 4444 + آلفا" : "H.264"} · صدا {fa(kbps)}k · {fa(Math.round(length))} ثانیه
       </p>
 
       {blocked && <Alert tone="bad" title="این پروژه رندر نمی‌شود">{check?.error}</Alert>}
@@ -289,7 +300,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
           )}
           <div className="xp-exp-meta">
             <b>{presetTitle(latest)}</b> · <span dir="ltr">{latest.size}</span> · {timecode(latest.seconds).slice(0, 5)} · {mb(latest.bytes)}
-            {latest.codec === "h265" ? " · H.265" : ""}
+            {latest.codec === "h265" ? " · H.265" : latest.codec === "prores" ? " · ProRes 422 HQ" : latest.codec === "prores4444" ? " · ProRes 4444" : ""}
           </div>
           {whereText(latest) && <div className="ws-muted" data-testid="export-where">ساخته‌شده روی: {whereText(latest)}</div>}
           {latest.fallback && <p className="xp-warn" data-testid="export-fallback">{latest.fallback}</p>}

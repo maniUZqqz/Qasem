@@ -586,9 +586,32 @@ def _percent_labelled(job: Job, lo: int, hi: int):
         p = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
         if (p != state["p"] or label != state["label"]) and now - state["t"] > 0.7:
             state.update(t=now, p=p, label=label)
-            job.mark_progress(p, f"{label} — {p}٪")
+            job.mark_progress(p, label if label.startswith("در صف") else f"{label} — {p}٪")      # a waiting render shows its queue text, not «۰٪»
 
     return report
+
+
+def _node_on_record() -> bool:
+    """Is any processing server (online or not) registered for ffmpeg work? If not, a final render has nothing to wait for."""
+    try:
+        from apps.compute import services as compute
+
+        return bool(compute.known_nodes("ffmpeg"))
+    except Exception:  # noqa: BLE001 — compute app unavailable in this process
+        return False
+
+
+def _final_node_error(exc: Exception) -> Exception:
+    """A final render never silently turns into a site render. «No node online» becomes a wait (the job is parked); anything else says what
+    happened and where the manual site render is."""
+    from services.editing import noderender
+
+    text = str(exc)
+    if isinstance(exc, noderender.NodeUnavailable) and "روشن نیست" in text:
+        from apps.compute import services as compute
+
+        return compute.NodeWaiting("رندرِ نهایی منتظرِ روشن شدنِ سرورِ پردازش است", "ffmpeg")
+    return RuntimeError(f"رندرِ نهایی روی سرورِ پردازش انجام نشد: {text} — اگر می‌خواهید روی خودِ سایت ساخته شود از منوی پرونده «ساختِ خروجی روی خودِ سایت (دستی)» را بزنید.")
 
 
 def _set_where(job: Job, where: str) -> None:
@@ -667,11 +690,21 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
     job = Job.objects.get(id=job_id)
     project = None
     work = None
+    keep_snapshot = False                                 # a render parked for the processing server needs its snapshot when it is woken
     try:
         if job.state == Job.State.CANCELLED:             # cancelled before the worker even picked it up
             raise _Cancelled()
         project = VideoProject.objects.select_related("store").get(pk=project_id)
         data = _snapshot_data(project, snapshot)
+        # THE OWNER'S RULE: a final render goes to the processing node and waits in the durable queue until a node takes it (never an automatic
+        # fall-back to the site). Only when no processing server is on record at all is there nothing to wait for.
+        wants_site = (data.get("export") or {}).get("where") == "server"
+        if quality == "final" and not wants_site and _node_on_record():
+            from apps.compute import park
+
+            if park.gate(job, "ffmpeg", "رندرِ نهایی منتظرِ سرورِ پردازش است"):
+                keep_snapshot = True
+                return {"waiting": "node"}
         lowmem_notes: list[str] = []
         job.total_steps = 100
         job.mark_running("در حال چیدنِ تایم‌لاین")
@@ -679,9 +712,11 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
         (work / "exports").mkdir(parents=True, exist_ok=True)
         # «رندر و جایگزینی»: only the in–out range is rendered (the clips' own effects, no whole-video tools) and kept as a new media file
         replace = bool((data.get("export") or {}).get("replace") is True and isinstance(data.get("inout"), dict))
-        program_ops = [] if replace else tl.program_operations(data)
+        prores = str((data.get("export") or {}).get("codec") or "") in export_module.PRORES and quality != "draft"
+        ext = "mov" if prores else "mp4"                       # ProRes (422 / 4444 + alpha) is a .mov and skips the whole-video tools (they are the mp4 pipeline)
+        program_ops = [] if (replace or prores) else tl.program_operations(data)
         job.mark_progress(1, "در حال چیدنِ تایم‌لاین")
-        stage1 = work / f"program_{job.id}.mp4"
+        stage1 = work / f"program_{job.id}.{ext}"
         where = {"where": "server", "node": "", "encoder": "libx264", "fallback": ""}
         with editor_project.sources(project.store) as resolve:
             timeline = tl.from_project(data, resolve)
@@ -698,7 +733,8 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             # a quick draft only when placement.py finds it heavy and cheap to move (otherwise the site, quietly); offline,
             # failing or silent ⇒ the site renders it itself, and says so
             bundle, budget, grace = None, None, None
-            send = quality == "final" and (timeline.export or {}).get("where") != "server"
+            send = quality == "final" and (timeline.export or {}).get("where") != "server" and _node_on_record()
+            patient = bool(send and quality == "final")
             if quality == "draft" and (timeline.export or {}).get("where") != "server":
                 from services.editing import noderender, placement
 
@@ -717,10 +753,12 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                     _set_where(job, "node")
                     got = noderender.render_on_node(job, timeline, spec_export or {}, stage1, progress=_percent_labelled(job, 2, hi),
                                                     cancel=lambda: _cancelled(job.id), store=project.store, profile=quality, bundle=bundle,
-                                                    budget=budget, queue_grace=grace)
+                                                    budget=budget, queue_grace=grace, patient=patient)
                     where = {"where": "node", "node": got["node"], "encoder": got.get("encoder", ""), "fallback": ""}
                     on_node = True
                 except (noderender.NodeUnavailable, noderender.NodeFailed) as exc:
+                    if patient:
+                        raise _final_node_error(exc) from exc
                     quiet = isinstance(exc, noderender.NodeUnavailable) and "روشن نیست" in str(exc)
                     where["fallback"] = "" if quiet else f"رندر روی سرورِ پردازش ممکن نشد ({exc}) و روی سرورِ سایت ساخته شد."
                     logger.info("Node render of job %s not used: %s", job.id, exc)
@@ -773,7 +811,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             convert_note = " ".join(x for x in (convert_note, done["note"]) if x)
             Path(final).unlink(missing_ok=True)
         else:
-            dest = work / "exports" / f"{job.id}_{preset or quality}.mp4"
+            dest = work / "exports" / f"{job.id}_{preset or quality}.{ext}"
             Path(final).replace(dest)
         rel = media.media_rel(dest)
         if replace:
@@ -784,7 +822,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
         entry = {
             "job_id": job.id, "url": settings.MEDIA_URL.rstrip("/") + "/" + rel, "rel": rel, "preset": preset, "quality": quality,
             "seconds": 0.0 if fmt == "frame" else round(probe_duration(dest), 2), "bytes": dest.stat().st_size, "size": f"{w}x{h}",
-            "format": fmt, "range": "inout" if use_range else "all",
+            "format": "prores" if prores else fmt, "range": "inout" if use_range else "all",
             "codec": spec.codec if spec else "h264", "note": " ".join(x for x in (spec.note if spec else "", convert_note) if x),
             "rendered_at": timezone.now().isoformat(),
             "where": where["where"], "node": where["node"], "encoder": where["encoder"], "fallback": where["fallback"],
@@ -795,7 +833,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 (Path(settings.MEDIA_ROOT) / gone.get("rel", "")).unlink(missing_ok=True)
             except OSError:
                 pass
-        if fmt == "mp4" and not use_range:
+        if fmt == "mp4" and not use_range and not prores:
             project.output.name = rel                  # «آخرین خروجیِ پروژه» = یک ویدیوی کامل؛ GIF و عکس و فقط‌صدا و بازهٔ برش‌خورده فقط در فهرستِ خروجی‌ها می‌آیند
         project.state = VideoProject.State.READY if project.output else VideoProject.State.DRAFT
         project.error = ""
@@ -814,18 +852,25 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             project.save(update_fields=["state", "updated_at"])
         return {"cancelled": True}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Project render job %s failed", job_id)
-        if project is not None:
+        waiting = bool(getattr(exc, "node_waiting", ""))
+        if waiting:
+            logger.info("Project render job %s waits for a processing server", job_id)
+        else:
+            logger.exception("Project render job %s failed", job_id)
+        job.mark_failed(exc)                              # a node_waiting error parks the job instead (apps.compute.park)
+        job.refresh_from_db()
+        parked = waiting and job.state == Job.State.QUEUED
+        keep_snapshot = parked
+        if project is not None and not parked:
             project = VideoProject.objects.get(pk=project.pk)
             project.state = VideoProject.State.FAILED
             project.error = str(exc)[:1500]
             project.save(update_fields=["state", "error", "updated_at"])
-        job.mark_failed(exc)
-        return {"error": str(exc)}
+        return {"waiting": "node"} if parked else {"error": str(exc)}
     finally:
         if work is not None:
             (work / f"program_{job_id}.mp4").unlink(missing_ok=True)
-        if snapshot:
+        if snapshot and not keep_snapshot:
             (Path(settings.MEDIA_ROOT) / snapshot).unlink(missing_ok=True)
 
 
@@ -870,6 +915,32 @@ def preview_range_task(self, job_id, project_id, snapshot, t0, t1, height=360):
     finally:
         if snapshot:
             (Path(settings.MEDIA_ROOT) / snapshot).unlink(missing_ok=True)
+
+
+@shared_task(bind=True)
+def collect_project_task(self, job_id, project_id):
+    """«جمع‌کردنِ فایل‌های پروژه»: the project and every original it uses, in one zip under the project's export folder."""
+    from services.editing import collect
+
+    job = Job.objects.get(id=job_id)
+    try:
+        if job.state == Job.State.CANCELLED:
+            return {"cancelled": True}
+        project = VideoProject.objects.select_related("store").get(pk=project_id)
+        job.total_steps = 100
+        job.mark_running("در حال جمع‌کردنِ فایل‌ها")
+        folder = _editing_root() / f"project_{project.pk}" / "exports"
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in sorted(folder.glob("collect_*.zip"))[:-1]:                    # only the newest earlier archive is kept
+            old.unlink(missing_ok=True)
+        out = folder / f"collect_{job.id}.zip"
+        info = collect.build(project.data or {}, project.store, out, progress=_percent(job, 1, 98, "جمع‌کردنِ فایل‌ها"), cancel=lambda: _cancelled(job.id))
+        job.mark_completed({**info, "url": settings.MEDIA_URL.rstrip("/") + "/" + media.media_rel(out), "name": f"{(project.title or 'project')[:40]}.zip"})
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Collect job %s: %s", job_id, exc)
+        job.mark_failed(exc)
+        return {"error": str(exc)}
 
 
 @shared_task(bind=True)

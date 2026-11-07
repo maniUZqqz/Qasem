@@ -3,6 +3,7 @@ import GotoPanel from "./r4-goto";
 import KeyframeGraph from "./r4-graph";
 import { ColorMatchPanel, HueVsPanel } from "./r5-color";
 import { ClipFxPanel } from "./r5-fxpanel";
+import { DefaultTransitionPanel, MediaMetaPanel, OfflinePanel, TextMotionPanel } from "./r6-panels";
 import { OutputQueuePanel } from "./r5-queuepanel";
 import { TranslatePanel } from "./r5-translatepanel";
 import { MotionPathPanel, TranscriptPanel } from "./r5-panels";
@@ -27,6 +28,10 @@ export const R4_PANELS: PanelDef[] = [
   { id: "huevs", title: "منحنی‌های Hue-vs", size: "md", Component: HueVsPanel },
   { id: "transcript", title: "ویرایش با متنِ گفتار", size: "md", Component: TranscriptPanel },
   { id: "motionpath", title: "مسیرِ حرکت", size: "md", Component: MotionPathPanel },
+  { id: "mediameta", title: "برچسب و یادداشتِ رسانه‌ها", size: "md", Component: MediaMetaPanel },
+  { id: "offline", title: "رسانه‌های گم‌شده", size: "md", Component: OfflinePanel },
+  { id: "deftrans", title: "گذارِ پیش‌فرض برای همهٔ برش‌ها", size: "sm", Component: DefaultTransitionPanel },
+  { id: "textmotion", title: "حرکتِ متن (تیتراژ، نوارِ خبر، قوس، موج)", size: "sm", Component: TextMotionPanel },
   { id: "translate", title: "ترجمهٔ زیرنویس", size: "md", Component: TranslatePanel },
   { id: "outqueue", title: "چند خروجی یک‌جا (صفِ رندر)", size: "md", Component: OutputQueuePanel },
   { id: "clipfx", title: "کلیدِ روشنایی، لنز و نقطهٔ لنگر", size: "md", Component: ClipFxPanel },

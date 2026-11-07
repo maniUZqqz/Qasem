@@ -31,6 +31,14 @@ EQ_TITLES = {"flat": "بدون تغییر", "voice": "گفتار (واضح)", "b
 
 MAX_DUCK_SPANS = 40
 
+#: room → (echo taps in ms, relative level of each tap); the «mix» slider scales the levels
+REVERB_ROOMS: dict[str, tuple[list[int], list[float]]] = {
+    "small": ([23, 41, 67], [0.40, 0.30, 0.20]),
+    "bathroom": ([17, 29, 53, 89], [0.50, 0.42, 0.33, 0.22]),
+    "hall": ([61, 127, 211, 307], [0.38, 0.32, 0.24, 0.16]),
+    "cathedral": ([131, 263, 419, 601, 797], [0.36, 0.32, 0.27, 0.21, 0.15]),
+}
+
 
 def carries(track: Track, clip) -> bool:
     if getattr(clip, "kind", "") == "text":
@@ -87,9 +95,18 @@ def fx_chain(audio: dict, *, rnn: str | None = None) -> list[str]:
     if abs(pitch) >= 0.05:                                 # زیر و بمی بدونِ تغییرِ سرعت: نرخ را عوض کن، با atempo جبران کن
         r = 2 ** (pitch / 12)
         out += ["aresample=48000", f"asetrate={int(round(48000 * r))}", "aresample=48000", _atempo(1 / r)]
+    dr = audio.get("dereverb")
+    if dr and dr.get("on"):                                # کاهشِ پژواکِ اتاق (تقریبی): نویزگیرِ طیفی با ردیابیِ کفِ نویز + گیتِ نرم؛ مدلِ هوشمند نیاز به دانلودِ مدل دارد
+        a = float(dr["amount"])
+        out += [f"afftdn=nr={6 + 18 * a:.0f}:nf=-45:tn=1", f"agate=threshold={0.01 + 0.03 * a:.3f}:ratio={1.5 + 2 * a:.1f}:attack=8:release=140"]
     echo = audio.get("echo")
     if echo and echo.get("on"):
         out.append(f"aecho=0.8:0.88:{int(echo['delay'])}:{float(echo['decay']):.2f}")
+    rv = audio.get("reverb")
+    if rv and rv.get("on"):                                # ریورب = چند پژواکِ نزدیکِ هم که با اندازهٔ اتاق فرق می‌کنند
+        taps, decays = REVERB_ROOMS[rv["room"]]
+        mix = float(rv["mix"])
+        out.append("aecho=0.85:{:.2f}:{}:{}".format(0.5 + 0.4 * mix, "|".join(str(t) for t in taps), "|".join(f"{d * mix * 1.6:.2f}" for d in decays)))
     if audio.get("normalize"):
         out.append("loudnorm=I=-16:TP=-1.5:LRA=11")
     return out
@@ -274,7 +291,7 @@ def build_audio(b, final: str = "aout") -> bool:
             out = b.lab("g")
             b.parts.append(f"[{lab}]" + ",".join(post) + f"[{out}]")
             lab = out
-        buses[track.role if track.role in ("speech", "music") else "other"].append(lab)
+        buses["music" if track.role in ("music", "ambience") else track.role if track.role == "speech" else "other"].append(lab)       # صدای محیط مثلِ موسیقی زیرِ گفتار کم می‌شود
 
     duck = tl.ducking or {}
     if duck.get("on") and buses["music"] and speech_clips:

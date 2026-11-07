@@ -8,6 +8,7 @@ titles (Persian, libass) get their fonts shipped and pass the node's self-test; 
 Quick drafts (placement.py): light ones stay on the site; a heavy one goes to the node only when the node is online, free and either holds
 the originals or they are small — and falls back to the site (with a sentence) when the node fails, is silent or too slow."""
 import json
+from datetime import timedelta
 import os
 import shutil
 import sys
@@ -405,40 +406,81 @@ class NodeRenderTests(LiveServerTestCase):
         self.assertFalse(st["online"])
         self.assertIn("روشن نیست", st["message"])
 
-    def test_a_node_that_fails_the_job_is_replaced_by_the_site_with_a_sentence(self):
+    def test_a_node_that_cannot_render_fails_the_final_export_with_a_sentence_and_never_falls_back_to_the_site(self):
+        """The owner's rule: a final render waits for the node and is NEVER silently made on the site; the manual site render is offered instead."""
         self.start_node(missing_filter=True)
         job, project = self.render(self.data())
-        self.assertEqual(job.state, "COMPLETED", job.error)
-        info = project.render_info
-        self.assertEqual(info["where"], "server")
-        self.assertIn("ممکن نشد", info["fallback"])
-        self.assertIn("lacks filters", info["fallback"])
-        self.assertTrue(self.played(project)["audio"])
+        self.assertEqual(job.state, "FAILED")
+        self.assertIn("رندرِ نهایی روی سرورِ پردازش انجام نشد", job.error)
+        self.assertIn("lacks filters", job.error)
+        self.assertIn("ساختِ خروجی روی خودِ سایت (دستی)", job.error)
+        self.assertEqual(project.state, "FAILED")
+        self.assertFalse(project.output)
 
-    def test_a_node_that_never_picks_the_job_up_is_given_up_on(self):
-        ComputeNode.objects.create(name="gpu-sleepy", token="sleepy", last_seen=timezone.now(),
-                                   capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True}})
+    def test_a_node_on_record_but_offline_makes_the_final_export_wait_not_fail(self):
+        ComputeNode.objects.create(name="gpu-off", token="off", last_seen=timezone.now() - timedelta(hours=2), capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True}})
+        with mock.patch("apps.compute.park.gate", return_value=True) as gate:
+            job, project = self.render(self.data())
+        gate.assert_called_once()
+        self.assertEqual(gate.call_args.args[1], "ffmpeg")
+        self.assertNotEqual(job.state, "FAILED", "a waiting render is not a failed render")
+        self.assertEqual(project.state, "RENDERING")
+        self.assertFalse(project.output)
+        snaps = list((Path(MEDIA) / "generated/editing").rglob("render_*.json")) if (Path(MEDIA) / "generated/editing").exists() else []
+        self.assertTrue(snaps, "the snapshot is kept: the queue wakes the same task with the same arguments when the node is back")
+
+    def test_when_the_queue_cannot_park_the_job_the_render_still_does_not_run_on_the_site(self):
+        ComputeNode.objects.create(name="gpu-off2", token="off2", last_seen=timezone.now() - timedelta(hours=2), capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True}})
+        job, project = self.render(self.data())          # eager test mode: park.gate declines, the node is off
+        self.assertEqual(job.state, "FAILED")
+        self.assertIn("منتظرِ", job.error)
+        self.assertFalse(project.output)
+
+    def test_a_final_render_waits_in_the_queue_without_giving_up_and_says_so_in_persian(self):
+        node = ComputeNode.objects.create(name="gpu-sleepy", token="sleepy", last_seen=timezone.now(),
+                                          capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True}})
+        stop = threading.Event()
 
         def keep_alive():
             while not stop.is_set():
-                ComputeNode.objects.filter(name="gpu-sleepy").update(last_seen=timezone.now())
-                time.sleep(0.5)
+                ComputeNode.objects.filter(pk=node.pk).update(last_seen=timezone.now())
+                time.sleep(0.4)
+        t = threading.Thread(target=keep_alive, daemon=True)
+        t.start()
+        shown, started = [], time.monotonic()
+        job_row = Job.objects.create(store=self.store, type=Job.Type.VIDEO_EDIT, context={})
+        tlm = self.timeline(self.data())
+        try:
+            with mock.patch.object(noderender, "POLL", 0.3), mock.patch.object(noderender, "QUEUE_LABEL_EVERY", 0.2), mock.patch.object(noderender, "QUEUE_GRACE", 0.5),                     self.assertRaises(export.RenderCancelled):
+                noderender.render_on_node(job_row, tlm, {"preset": "draft"}, Path(self.node_tmp) / "x.mp4", patient=True, store=self.store,
+                                          progress=lambda f, label: shown.append(label), cancel=lambda: time.monotonic() - started > 4.0)
+        finally:
+            stop.set()
+            t.join(5)
+        self.assertGreater(time.monotonic() - started, 3.5, "it kept waiting well past the old give-up time")
+        self.assertTrue(any(x.startswith("در صف") for x in shown), shown)
+        from apps.compute.models import ComputeJob
 
+        self.assertTrue(ComputeJob.objects.filter(kind="edit.render", state="CANCELLED").exists(), "only the user's cancel ended it, and the node job is cancelled with it")
+
+    def test_a_draft_still_gives_up_on_a_silent_node_and_uses_the_site(self):
+        ComputeNode.objects.create(name="gpu-sleepy2", token="sleepy2", last_seen=timezone.now(), capabilities={"ffmpeg": True, "edit": {"v": 1, "render": True}})
         stop = threading.Event()
+
+        def keep_alive():
+            while not stop.is_set():
+                ComputeNode.objects.filter(name="gpu-sleepy2").update(last_seen=timezone.now())
+                time.sleep(0.4)
         t = threading.Thread(target=keep_alive, daemon=True)
         t.start()
         try:
-            with mock.patch.object(noderender, "QUEUE_GRACE", 2.0):
-                job, project = self.render(self.data())
+            with self.heavy(DRAFT_QUEUE_GRACE=1.0):
+                job, project = self.render_draft(self.data())
         finally:
             stop.set()
             t.join(5)
         self.assertEqual(job.state, "COMPLETED", job.error)
         self.assertEqual(project.render_info["where"], "server")
-        self.assertIn("برنداشت", project.render_info["fallback"])
-        from apps.compute.models import ComputeJob
-
-        self.assertTrue(ComputeJob.objects.filter(kind="edit.render", state="CANCELLED").exists(), "the abandoned node job is cancelled")
 
     def test_a_node_without_the_capability_is_not_chosen(self):
         ComputeNode.objects.create(name="gpu-old", token="old", last_seen=timezone.now(), capabilities={"ffmpeg": True, "edit": {"v": 1, "render": False, "missing": ["ass"]}})
@@ -482,10 +524,10 @@ class NodeRenderTests(LiveServerTestCase):
 
         with mock.patch.object(noderender, "selftest", wrong):
             job, project = self.render(self.data(with_title=True))
-        self.assertEqual(job.state, "COMPLETED", job.error)
-        info = project.render_info
-        self.assertEqual(info["where"], "server")
-        self.assertIn("SELFTEST", info["fallback"])
+        self.assertEqual(job.state, "FAILED")                       # the owner's rule: refused on the node, never silently made on the site
+        self.assertIn("SELFTEST", job.error)
+        self.assertIn("ساختِ خروجی روی خودِ سایت (دستی)", job.error)
+        self.assertFalse(project.output)
 
     def test_nvenc_that_cannot_encode_falls_back_and_says_which_encoder_made_the_file(self):
         _node, fake = self.start_node(nvenc=True)

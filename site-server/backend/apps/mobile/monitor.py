@@ -216,6 +216,8 @@ def _compute_retry(request, target, params):
         raise MobileError("bad_state", "فقط کارِ ناموفق یا لغوشده دوباره در صف می‌رود.", 409)
     job.state, job.node, job.claimed_at, job.finished_at = ComputeJob.State.QUEUED, None, None, None
     job.attempts, job.error, job.cancel_requested, job.progress = 0, "", False, 0.0
+    # صفِ ماندگار (compute-r1): انتظار از همین لحظه حساب شود و «قطعِ گره»های قبلی پاک شوند
+    job.lost_count, job.queued_at, job.waited_s, job.run_s = 0, timezone.now(), None, None
     job.message = "دوباره در صف (از موبایل)"
     job.save()
     return "کار دوباره در صف گذاشته شد."

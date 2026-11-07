@@ -1,10 +1,13 @@
 {
  "group": "matting",
  "title": "Video editor: Robust Video Matting (RVM, mobilenetv3, ONNX fp32) - steady, fast background removal for video on the GPU node",
- "license_note": "RVM (PeterL1n/RobustVideoMatting, release v1.0.0) is GPL-3.0. It is used here only inside this node, on the owner's own computer, to cut the subject out of the owner's own videos; the model file is not redistributed or linked into any product. ~14.3 MB. It runs through onnxruntime (CUDA when the card is usable, else CPU) - no other download is needed besides numpy + onnxruntime in some Python of this computer (the node never installs them by itself; without them the older per-frame BiRefNet path is used). The first URL is the site's own mirror (the line to GitHub is slow or blocked); the second is the original release asset, same bytes (sha256 checked either way).",
+ "license_note": "RVM (PeterL1n/RobustVideoMatting, release v1.0.0) is GPL-3.0. It is used here only inside this node, on the owner's own computer, to cut the subject out of the owner's own videos; the model file is not redistributed or linked into any product. ~14.3 MB. It runs through onnxruntime (CUDA when the card is usable, else CPU) - no other download is needed besides numpy + onnxruntime in some Python of this computer (the node never installs them by itself; without them the older per-frame BiRefNet path is used). The first URL is the site's own mirror (the line to GitHub is slow or blocked); the second is the original release asset, same bytes (sha256 checked either way). Photo matting (agent 2.7): u2netp and IS-Net general use are Apache-2.0, BiRefNet-lite is MIT; they are optional packages (matting-u2netp, matting-isnet, matting-runtime) fetched on request or by the panel's scheduled download, and run only on this node.",
  "generated": "2026-11-04",
  "packages": {
-  "video-matting": "Robust Video Matting mobilenetv3 fp32 (ONNX, 14 MB) - video background removal"
+  "video-matting": "Robust Video Matting mobilenetv3 fp32 (ONNX, 14 MB) - video background removal",
+  "matting-u2netp": "u2netp (U2-Net small, 5 MB) - photo background removal",
+  "matting-isnet": "IS-Net general use (170 MB) - photo background removal",
+  "matting-runtime": "onnxruntime-directml + numpy + Pillow in a small environment of its own - only when no Python here has onnxruntime"
  },
  "items": [
   {
@@ -19,6 +22,56 @@
    "dest": "{MODELS}\\video-matting\\rvm_mobilenetv3_fp32.onnx",
    "size": 14975696,
    "sha256": "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
+  },
+  {
+   "id": "matting:u2netp",
+   "package": "matting-u2netp",
+   "optional": true,
+   "kind": "file",
+   "title": "u2netp (U2-Net small, ~5 MB, Apache-2.0): fast photo background removal",
+   "urls": [
+    "{SITE}/3d/files/downloads/u2netp.onnx",
+    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+   ],
+   "dest": "{MODELS}\\photo-matting\\u2netp.onnx",
+   "size": 4574861,
+   "sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8"
+  },
+  {
+   "id": "matting:isnet-general-use",
+   "package": "matting-isnet",
+   "optional": true,
+   "kind": "file",
+   "title": "IS-Net general use (~170 MB, Apache-2.0): all-round photo background removal",
+   "urls": [
+    "{SITE}/3d/files/downloads/isnet-general-use.onnx",
+    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
+   ],
+   "dest": "{MODELS}\\photo-matting\\isnet-general-use.onnx",
+   "size": 178648008,
+   "sha256": "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
+  },
+  {
+   "id": "venv-matting",
+   "package": "matting-runtime",
+   "optional": true,
+   "kind": "pip",
+   "python": "{VENV:matting}",
+   "python_version": "3.10-3.12",
+   "title": "Python packages for photo matting (onnxruntime-directml, numpy, Pillow) - only needed when no Python of this computer already has onnxruntime",
+   "packages": [
+    "onnxruntime-directml==1.24.4",
+    "numpy",
+    "pillow"
+   ],
+   "index_urls": [
+    "https://mirrors.aliyun.com/pypi/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://pypi.org/simple"
+   ],
+   "estimate_mb": 60,
+   "install_mb": 160,
+   "sources_note": "DirectML works on every DX12 GPU (the RTX 3060 included) without installing CUDA; the model runs on the CPU if the GPU is busy or missing. Checked from Iran: aliyun serves the cp310-cp312 win_amd64 wheels."
   }
  ]
 }

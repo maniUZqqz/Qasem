@@ -23,6 +23,7 @@ import type { Video } from "./video/types";
 import VideoWorkspace from "./video/manual/VideoWorkspace";
 import { EditResult, VideoAutoBlock, VideoPromptBlock } from "./video/VideoModes";
 import VideoDirector from "./video/director/VideoDirector";
+import { UploadProgress, useVideoUpload } from "./video/useVideoUpload";
 
 type UploadSubtitles = {
   url: string | null;
@@ -72,6 +73,7 @@ export default function VideoEditorPage() {
   /** پروژه‌ای که «کارگردان» ساخته و باید در فضای دستی باز شود */
   const [manualProject, setManualProject] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const up = useVideoUpload<Video>(id!);
 
   const load = useCallback(async () => {
     try {
@@ -95,22 +97,19 @@ export default function VideoEditorPage() {
   }, [load]);
 
   async function upload(file: File) {
-    setBusy(true);
     setError(null);
     setNotice(null);
-    const body = new FormData();
-    body.append("video", file);
-    body.append("title", file.name);
+    const res = await up.start(file);
+    if (fileInput.current) fileInput.current.value = "";
+    if (!res) return;
+    setBusy(true);
     try {
-      const { data } = await api.post(`/stores/${id}/videos/`, body);
       setNotice("ویدیو آپلود شد؛ در حال بررسی…");
       await load();
-      if (data.job_id) runner.track(data.job_id);
-    } catch (err) {
-      setError(errorMessage(err));
+      const jobId = (res as { job_id?: number | null }).job_id;
+      if (jobId) runner.track(jobId);
     } finally {
       setBusy(false);
-      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -244,7 +243,7 @@ export default function VideoEditorPage() {
           type="file"
           accept="video/*"
           className="block w-full text-sm"
-          disabled={busy}
+          disabled={busy || up.active}
           data-testid="video-upload"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -252,8 +251,9 @@ export default function VideoEditorPage() {
           }}
         />
         <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-          فیلم موبایل هم مشکلی ندارد. حداکثر ۵۰۰ مگابایت.
+          فیلم موبایل هم مشکلی ندارد. حداکثر ۵۰۰ مگابایت. اگر اینترنت کند یا قطع شد، آپلود تکه‌تکه می‌رود و خودکار ادامه می‌دهد؛ اگر صفحه بسته شد همان فایل را دوباره انتخاب کنید تا از همان‌جا ادامه یابد.
         </p>
+        <UploadProgress up={up as never} />
         {runner.running && (
           <div className="mt-3 flex items-center gap-2" data-testid="job-progress">
             <Spinner size={18} />

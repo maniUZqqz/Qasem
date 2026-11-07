@@ -474,7 +474,18 @@ class _Router:
         for p in order:
             f = failures.get(p)
             parts.append('%s: %s' % (priority.PROVIDER_LABEL[p], f.sentence() if f is not None else 'امتحان نشد'))
-        return AllProvidersFailed('هیچ‌کدام از دو مسیرِ هوش مصنوعی جواب ندادند — ' + '؛ '.join(parts), failures)
+        exc = AllProvidersFailed('هیچ‌کدام از دو مسیرِ هوش مصنوعی جواب ندادند — ' + '؛ '.join(parts), failures)
+        # صفِ ماندگار: لوکال فقط «خاموش» است (نه مدل‌نصب‌نیست) و چنین سروری ثبت است ⇒ کارِ Celeryِ کاربر می‌تواند در صف بماند
+        # (Job.mark_failed ⇒ apps.compute.park). فراخوان‌های بی‌Job (مثلاً چتِ مشتری) مثلِ قبل همین خطا را می‌بینند.
+        local = failures.get(LOCAL)
+        if local is not None and getattr(local, 'kind', '') == 'offline':
+            try:
+                from apps.compute import services as compute
+                if compute.known_nodes('ollama'):
+                    exc.node_waiting = 'ollama'
+            except Exception:  # noqa: BLE001
+                pass
+        return exc
 
 
 def _tune_metis(prov, has_alt):

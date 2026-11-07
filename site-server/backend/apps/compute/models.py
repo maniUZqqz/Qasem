@@ -79,6 +79,10 @@ class ComputeNode(TimeStampedModel):
             return True
         return bool(self.auto_switch and (caps.get("startable") or {}).get(capability))
 
+    def could_run(self, kind: str) -> bool:
+        """گره (حتی خاموش) طبقِ آخرین گزارشش می‌تواند این نوعِ کار را بگیرد — برای صفِ ماندگار: کار تا روشن شدنِ این گره منتظر می‌ماند."""
+        return self.enabled and self.has(capability_for(kind))
+
     def can_start(self, capability: str) -> bool:
         return bool(((self.capabilities or {}).get("startable") or {}).get(capability))
 
@@ -124,6 +128,22 @@ class ComputeJob(TimeStampedModel):
     claimed_at = models.DateTimeField(null=True, blank=True)
     heartbeat_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    #: آخرین باری که کار وارد صف شد (ثبت، یا برگشت پس از قطعِ گره/خطا) — برای «چند وقت منتظر مانده»
+    queued_at = models.DateTimeField("آخرین ورود به صف", null=True, blank=True)
+    #: ثانیه‌ای که پیش از آخرین گرفته‌شدن در صف ماند (برای گزارش)
+    waited_s = models.FloatField("ثانیهٔ انتظار در صف", null=True, blank=True)
+    #: ثانیه‌ای که روی گره اجرا شد (از گرفته‌شدن تا پایان)
+    run_s = models.FloatField("ثانیهٔ اجرا", null=True, blank=True)
+    #: چند بار گره وسطِ کار قطع شد و کار بی‌خبر ماند؛ از تلاش‌ها کم نمی‌شود (فقط خطای واقعی تلاش را می‌خورد)
+    lost_count = models.PositiveSmallIntegerField("دفعاتِ قطعِ گره وسطِ کار", default=0)
+    #: سقفِ انتظار در صف به ثانیه؛ ۰ = بی‌پایان (پیش‌فرض). اگر بیشتر بماند ناموفق می‌شود.
+    max_wait_s = models.PositiveIntegerField("سقفِ انتظار (ثانیه؛ ۰ = بی‌پایان)", default=0)
+    #: زمان‌بندی: پیش از این لحظه هیچ گره‌ای کار را نمی‌گیرد
+    not_before = models.DateTimeField("شروعِ زمان‌بندی‌شده", null=True, blank=True)
+    #: بازهٔ مجازِ شروع به وقتِ تهران، مثلاً «02:00-07:00»؛ خالی = همیشه
+    window = models.CharField("بازهٔ مجازِ شروع", max_length=11, blank=True)
+    #: دسته برای فهرست/گزارش: «download» برای دانلودها
+    category = models.CharField("دسته", max_length=20, blank=True, db_index=True)
 
     class Meta:
         verbose_name = "کار پردازشی"
@@ -175,6 +195,15 @@ class ComputeSettings(models.Model):
     enroll_key = models.CharField(
         "کلیدِ ثبتِ سرورهای پردازش", max_length=80, default=new_token,
         help_text="روی هر کامپیوترِ گرافیکی فقط START.bat اجرا می‌شود و این کلید را می‌گیرد؛ خودش ثبت می‌شود و توکنِ خودش را می‌گیرد")
+    #: صفِ ماندگار: کارِ منتظرِ گره بعد از چند ساعت ناموفق شود؟ ۰ = هرگز (پیش‌فرض: تا وصل شدنِ گره منتظر می‌ماند)
+    max_wait_hours = models.PositiveIntegerField(
+        "سقفِ انتظارِ کارها (ساعت؛ ۰ = بی‌پایان)", default=0,
+        help_text="۰ یعنی کارِ منتظر هرگز به‌خاطرِ خاموش بودنِ سرورِ پردازش ناموفق نمی‌شود؛ فقط با خطای واقعی یا لغوِ شما")
+    #: دانلودها: «now» همین الان، «window» فقط در بازهٔ شبانه
+    download_mode = models.CharField("زمانِ دانلودها", max_length=10, default="now")
+    download_window = models.CharField("بازهٔ شبانهٔ دانلود (وقتِ تهران)", max_length=11, default="02:00-07:00")
+    #: نگه‌داریِ آمار و سابقه (روز) برای گزارشِ سرورهای پردازش
+    retention_days = models.PositiveIntegerField("نگه‌داریِ آمار (روز)", default=30)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

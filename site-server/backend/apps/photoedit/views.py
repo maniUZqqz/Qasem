@@ -485,6 +485,53 @@ class MaskView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class PaintView(APIView):
+    """PUT|GET|DELETE stores/<id>/photo-editor/projects/<pid>/paints/<paint-id>/ — PNG ِ RGBA ِ لایهٔ نقاشی (نوبت ۵)."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, RawParser]
+
+    def _project(self, request, store_id, pk, write):
+        store = access.get_store(request.user, store_id, access.CONTENT, write=write)
+        return PhotoProject.objects.filter(pk=pk, store=store).select_related("asset", "store").first()
+
+    def put(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        raw = request.FILES["file"].read() if "file" in request.FILES else (
+            request.data if isinstance(request.data, (bytes, bytearray)) else b"")
+        try:
+            path, w, h = services.save_paint(p, mid, bytes(raw))
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        rel = f"{p.dir_rel}/{path.name}"
+        return Response({"id": mid, "url": f"{services.media_url(rel)}?v={int(path.stat().st_mtime)}", "w": w, "h": h})
+
+    def get(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, False)
+        if p is None:
+            return _not_found()
+        try:
+            path = services.paint_file(p, mid)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        if not path.is_file():
+            return _not_found()
+        resp = HttpResponse(path.read_bytes(), content_type="image/png")
+        resp["Cache-Control"] = "no-store"
+        return resp
+
+    def delete(self, request, store_id, pk, mid):
+        p = self._project(request, store_id, pk, True)
+        if p is None:
+            return _not_found()
+        try:
+            services.paint_file(p, mid).unlink(missing_ok=True)
+        except services.PhotoError as exc:
+            return _err(str(exc))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ExactView(APIView):
     """POST {asset, operations, side?} ⇐ کارهای کیتِ لغزنده‌ها روی کپیِ کوچک، روی سرورِ پردازش (آنلاین)؛ خاموش ⇐ online:false."""
     permission_classes = [IsAuthenticated]

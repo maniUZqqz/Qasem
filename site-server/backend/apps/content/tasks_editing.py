@@ -615,6 +615,38 @@ def _snapshot_data(project: VideoProject, snapshot: str) -> dict:
     return project.data or {}
 
 
+def _finish_replace(job, project, dest, rel, notes):
+    """«رندر و جایگزینی» done: the rendered range becomes a media file of the shop (a ref the panel can put on the timeline)."""
+    from services.video.ffmpeg import probe
+    from services.video.ffmpeg import probe_duration
+
+    from .models import UploadedVideo
+
+    seconds = round(probe_duration(dest), 2)
+    has_audio = False
+    try:
+        has_audio = any(s.get("codec_type") == "audio" for s in probe(dest).get("streams", []))
+    except Exception:  # noqa: BLE001 — a probe failure only costs the audio flag
+        pass
+    title = f"رندرِ جایگزین · {project.title or project.pk}"[:200]
+    up = UploadedVideo.objects.create(store=project.store, title=title, video=rel, state=UploadedVideo.State.READY, duration=seconds, has_audio=has_audio)
+    project = VideoProject.objects.get(pk=project.pk)
+    info = dict(project.render_info or {})
+    replaced = dict(info.get("replaced") or {})
+    replaced[str(job.id)] = {"ref": f"video:{up.pk}", "seconds": seconds, "has_audio": has_audio, "title": title, "note": " ".join(notes)}
+    for stale in sorted(replaced, key=int)[:-20]:
+        replaced.pop(stale, None)
+    info["replaced"] = replaced
+    project.render_info = info
+    project.state = VideoProject.State.READY if project.output else VideoProject.State.DRAFT
+    project.error = ""
+    project.save(update_fields=["state", "error", "render_info", "updated_at"])
+    job.mark_progress(100, "")
+    result = {"project_id": project.pk, "replace_ref": f"video:{up.pk}", "seconds": seconds}
+    job.mark_completed(result)
+    return result
+
+
 @shared_task(bind=True)
 def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
     """The «دستی» workspace's Export: timeline → one ffmpeg graph (stage one), then the program-wide tools through the
@@ -640,16 +672,23 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             raise _Cancelled()
         project = VideoProject.objects.select_related("store").get(pk=project_id)
         data = _snapshot_data(project, snapshot)
+        lowmem_notes: list[str] = []
         job.total_steps = 100
         job.mark_running("در حال چیدنِ تایم‌لاین")
         work = _editing_root() / f"project_{project.pk}"
         (work / "exports").mkdir(parents=True, exist_ok=True)
-        program_ops = tl.program_operations(data)
+        # «رندر و جایگزینی»: only the in–out range is rendered (the clips' own effects, no whole-video tools) and kept as a new media file
+        replace = bool((data.get("export") or {}).get("replace") is True and isinstance(data.get("inout"), dict))
+        program_ops = [] if replace else tl.program_operations(data)
         job.mark_progress(1, "در حال چیدنِ تایم‌لاین")
         stage1 = work / f"program_{job.id}.mp4"
         where = {"where": "server", "node": "", "encoder": "libx264", "fallback": ""}
         with editor_project.sources(project.store) as resolve:
             timeline = tl.from_project(data, resolve)
+            if replace:
+                if not timeline.inout:
+                    raise RuntimeError("بازهٔ جایگزینی نامعتبر است.")
+                timeline = tl.window(timeline, timeline.inout["in"], timeline.inout["out"])
             spec_export = dict(timeline.export or {}) if quality != "draft" else None
             spec = export_module.resolve(spec_export, timeline) if spec_export else None
             hi = 85 if program_ops else 98
@@ -689,7 +728,7 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
                 with _render_slot(job):
                     job.mark_progress(2, "در حال رندر روی سرورِ سایت")
                     tl.render(timeline, stage1, quality=quality, export=spec_export or None,
-                              progress=_percent(job, 2, hi, "رندرِ تایم‌لاین"), cancel=lambda: _cancelled(job.id))
+                              progress=_percent(job, 2, hi, "رندرِ تایم‌لاین"), cancel=lambda: _cancelled(job.id), notes=lowmem_notes)
         job.mark_progress(hi, "افکت‌های کلِ ویدیو" if program_ops else "ذخیرهٔ خروجی")
 
         final = stage1
@@ -717,8 +756,11 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
         preset = str((timeline.export or {}).get("preset") or "")
         fmt = str((timeline.export or {}).get("format") or "mp4")
         use_range = (timeline.export or {}).get("range") == "inout" and bool(timeline.inout)
-        convert_note = ""
-        if fmt != "mp4" or use_range:
+        convert_note = " ".join(lowmem_notes)
+        if replace:
+            dest = work / "exports" / f"{job.id}_replace.mp4"
+            Path(final).replace(dest)
+        elif fmt != "mp4" or use_range:
             # one-shot outputs (GIF, still frame, sound only, only the in–out range) are cut from the finished render
             ext = export_module.FORMATS.get(fmt, ("mp4", ""))[0]
             dest = work / "exports" / f"{job.id}_{fmt if fmt != 'mp4' else (preset or quality) + '_range'}.{ext}"
@@ -727,12 +769,14 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             t1 = float(timeline.inout["out"]) if use_range else None
             done = export_module.convert(final, dest, fmt, t0=t0, t1=t1, frame_t=float((timeline.export or {}).get("frame_t") or 0.0), spec=spec,
                                          cancel=lambda: _cancelled(job.id))
-            convert_note = done["note"]
+            convert_note = " ".join(x for x in (convert_note, done["note"]) if x)
             Path(final).unlink(missing_ok=True)
         else:
             dest = work / "exports" / f"{job.id}_{preset or quality}.mp4"
             Path(final).replace(dest)
         rel = media.media_rel(dest)
+        if replace:
+            return _finish_replace(job, project, dest, rel, lowmem_notes)
         w, h = export_module.size_for(timeline, spec.short_side if spec else None)
         project = VideoProject.objects.get(pk=project.pk)          # fresh: the editor may have saved meanwhile
         old = [e for e in (project.render_info or {}).get("exports", []) if isinstance(e, dict)]
@@ -825,6 +869,29 @@ def preview_range_task(self, job_id, project_id, snapshot, t0, t1, height=360):
     finally:
         if snapshot:
             (Path(settings.MEDIA_ROOT) / snapshot).unlink(missing_ok=True)
+
+
+@shared_task(bind=True)
+def translate_captions_task(self, job_id, lang, items):
+    """Caption translation: the lines go to the shop's text model in batches (the processing server's Qwen when online, else the API) and come
+    back in the same order. A failure says WHY (no credit, server off, bad answer) instead of a blank error."""
+    from services.editing import agent, translate
+
+    job = Job.objects.get(id=job_id)
+    try:
+        if job.state == Job.State.CANCELLED:
+            return {"cancelled": True}
+        job.total_steps = max(1, -(-len(items) // translate.BATCH))
+        job.mark_running("در حال ترجمهٔ زیرنویس")
+        out = translate.translate(items, lang, store=job.store, job=job, progress=lambda done, total: job.mark_progress(done, f"ترجمهٔ بخش {done} از {total}"))
+        result = {"lang": lang, "items": out, "count": len(out)}
+        job.mark_completed(result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Caption translation job %s: %s", job_id, exc)
+        message = str(exc) if isinstance(exc, (translate.TranslateError, ValueError)) else agent.explain_failure(exc)[1]
+        job.mark_failed(RuntimeError(message))
+        return {"error": message}
 
 
 @shared_task(bind=True)

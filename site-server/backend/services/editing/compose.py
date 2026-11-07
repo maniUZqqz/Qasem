@@ -116,6 +116,9 @@ class Builder:
         self.seeks: dict[int, float] = {}
         self.spans = spans                      # callable(path) -> [[s, e], …] for ducking (None ⇒ media_cache)
         self.vis: dict[int, tuple[float, float]] = {}
+        self.matte_of: dict[int, Clip] = {}         # id(clip with a track matte) -> the clip that is its matte
+        self.matte_src: set[int] = set()
+        self.matte_used: set[int] = set()
         self.audio_fade_in: dict[int, float] = {}
         self.audio_fade_out: dict[int, float] = {}
 
@@ -183,6 +186,7 @@ class Builder:
         base = self.lab("base")
         self.parts.append(f"color=c=black:s={self.W}x{self.H}:r={self.fps}:d={length:.3f}[{base}]")
         current = base
+        self.plan_mattes()
         for track in tl.tracks:
             if track.kind == "video" and not track.hidden:
                 current = self.video_track(track, current)
@@ -190,6 +194,60 @@ class Builder:
                 current = self.text_track(track, current)
         self.parts.append(f"[{current}]null[{final}]")
         return final
+
+    def plan_mattes(self) -> None:
+        """Pair every clip that asks for a track matte with the clip that overlaps it most on the next video track up."""
+        tracks = [t for t in self.tl.tracks if t.kind == "video" and not t.hidden]
+        for lower, upper in zip(tracks, tracks[1:]):
+            for a in lower.clips:
+                if not a.track_matte or a.kind == "audio" or a.adjust:
+                    continue
+                best, over = None, 0.05
+                for m in upper.clips:
+                    if m.kind == "audio" or m.adjust or id(m) in self.matte_src:
+                        continue
+                    o = min(a.ends_at, m.ends_at) - max(a.at, m.at)
+                    if o > over:
+                        best, over = m, o
+                if best is None:
+                    self.notes.append("ماتِ ترک: روی ترکِ بالاتر قطعه‌ای هم‌زمان با «%s» نبود؛ مات نادیده گرفته شد." % (a.label or "قطعه"))
+                    continue
+                self.matte_of[id(a)] = best
+                self.matte_src.add(id(best))
+
+    def clip_layer(self, clip: Clip) -> str:
+        if clip.nested is not None:
+            return self.layer(clip, None, 0.0, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length, src=self.nested_video(clip))
+        idx, seek = self.main_input_for(clip)
+        return self.layer(clip, idx, seek, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length)
+
+    def matte_place(self, current: str, a: Clip, m: Clip, vs: float, ve: float) -> str:
+        """Clip `a` seen through clip `m`: both are laid on a full-frame canvas (a on a transparent one, m on black), the matte's brightness (or
+        transparency) is multiplied into a's own alpha, and the result goes over what is below."""
+        tm = a.track_matte
+        length = max(0.1, self.tl.length)
+        W, H, fps = self.W, self.H, self.fps
+        ca, cm = self.lab("ma"), self.lab("mm")
+        self.parts.append(f"color=c=black@0:s={W}x{H}:r={fps}:d={length:.3f},format=yuva420p[{ca}]")
+        layer_a = self.clip_layer(a)
+        full_a = self.place(ca, layer_a, a, vs, ve, at=a.at, off_start=0.0, fmt=":format=auto")
+        layer_m = self.clip_layer(m)
+        if tm["mode"] == "alpha":
+            self.parts.append(f"color=c=black@0:s={W}x{H}:r={fps}:d={length:.3f},format=yuva420p[{cm}]")
+        else:
+            self.parts.append(f"color=c=black:s={W}x{H}:r={fps}:d={length:.3f},format=yuva420p[{cm}]")
+        full_m = self.place(cm, layer_m, m, m.at, m.ends_at, at=m.at, off_start=0.0, fmt=":format=auto")
+        gm = self.lab("mg")
+        tail = ",negate" if tm["invert"] else ""
+        if tm["mode"] == "alpha":
+            self.parts.append(f"[{full_m}]alphaextract{tail}[{gm}]")
+        else:
+            self.parts.append(f"[{full_m}]format=gray{tail}[{gm}]")
+        k1, k2, ka, m2, am, out = (self.lab(x) for x in ("mk", "mk", "mk", "mk", "mx", "mv"))
+        self.parts.append(f"[{full_a}]split[{k1}][{k2}];[{k1}]alphaextract[{ka}];[{ka}][{gm}]blend=all_mode=multiply[{m2}];[{k2}][{m2}]alphamerge[{am}]")
+        self.parts.append(f"[{current}][{am}]overlay=x=0:y=0:enable='between(t,{_q(vs)},{_q(ve)})':eof_action=pass[{out}]")
+        self.matte_used.add(id(m))
+        return out
 
     def plan_transitions(self, track: Track) -> list[tuple[Clip, Clip, float, str]]:
         """Pairs of neighbours that touch and have a transition into the second one."""
@@ -217,6 +275,15 @@ class Builder:
             vs, ve = self.vis.get(id(clip), (clip.at, clip.ends_at))
             if ve <= vs + 0.001:
                 continue
+            if clip.adjust:
+                current = self.adjust_layer(current, clip, vs, ve)
+                continue
+            if id(clip) in self.matte_used:                      # this clip was used up as somebody's matte
+                continue
+            m = self.matte_of.get(id(clip))
+            if m is not None and id(clip) not in self.vis and clip.kind in ("video", "image"):
+                current = self.matte_place(current, clip, m, vs, ve)
+                continue
             if clip.nested is not None:
                 layer = self.layer(clip, None, 0.0, clip.segments(), clip.reverse, at=clip.at, off_start=0.0, length=clip.length,
                                    src=self.nested_video(clip))
@@ -227,6 +294,31 @@ class Builder:
         for earlier, later, d, name in pairs:
             current = self.transition_window(earlier, later, d, name, current)
         return current
+
+    # ------------------------------------------------------ adjustment layer
+    def adjust_layer(self, current: str, clip: Clip, t_from: float, t_to: float) -> str:
+        """A «لایهٔ تنظیم»: everything composed so far is split; one branch gets this layer's colour / LUT / effects; for the clip's duration the corrected
+        branch replaces the original (at the layer's opacity)."""
+        chain: list[str] = []
+        if clip.color:
+            chain += color_module.build_filters(clip.color)
+        if clip.lut_file:
+            chain.append(f"lut3d=file={self.file_opt(clip.lut_file)}:interp=tetrahedral")
+        for effect in clip.effects:
+            chain.append(_effect_fragment(effect))
+        if not chain:
+            return current
+        keep, fx0, fx, out = self.lab("ak"), self.lab("af"), self.lab("ax"), self.lab("av")
+        enable = f"enable='between(t,{_q(t_from)},{_q(t_to)})'"
+        self.parts.append(f"[{current}]split=2[{keep}][{fx0}]")
+        self.parts.append(f"[{fx0}]" + ",".join(chain) + f"[{fx}]")
+        if clip.opacity >= 0.999:
+            self.parts.append(f"[{keep}][{fx}]overlay=x=0:y=0:{enable}:eof_action=pass[{out}]")
+        else:
+            a, b = self.lab("aa"), self.lab("ab")
+            self.parts.append(f"[{keep}]format=gbrp[{a}];[{fx}]format=gbrp[{b}]")
+            self.parts.append(f"[{a}][{b}]blend=all_mode=normal:all_opacity={clip.opacity:.3f}:{enable},format=yuv420p[{out}]")
+        return out
 
     # ---------------------------------------------------------------- layer
     def apply_matte(self, clip: Clip, idx: int, seek: float) -> str:
@@ -318,6 +410,8 @@ class Builder:
         ch.append("setsar=1")
         if reverse and clip.kind == "video":
             ch += ["reverse", "setpts=PTS-STARTPTS"]
+        if clip.lens:                                          # اصلاحِ اعوجاجِ لنز (k1 < 0 = بشکه‌ای را صاف می‌کند، k1 > 0 = بالشتکی را)
+            ch.append(f"lenscorrection=cx=0.5:cy=0.5:k1={_f(clip.lens['k1'])}:k2={_f(clip.lens['k2'])}")
 
         # 3 · colour and picture effects ----------------------------------
         if clip.color:
@@ -328,9 +422,13 @@ class Builder:
             if effect.get("tool") != "rotate":
                 ch.append(_effect_fragment(effect))
 
-        # 4 · chroma key --------------------------------------------------
-        keyed = bool(clip.chroma and clip.chroma.get("on"))
-        if keyed:
+        # 4 · chroma key / luma key ---------------------------------------
+        luma_on = bool(clip.luma and clip.luma.get("on"))
+        keyed = bool(clip.chroma and clip.chroma.get("on")) or luma_on
+        if luma_on:
+            lk = clip.luma
+            ch += ["format=yuva420p", f"lumakey=threshold={1.0 if lk['mode'] == 'bright' else 0.0:g}:tolerance={_f(lk['tolerance'])}:softness={_f(lk['softness'])}"]
+        if clip.chroma and clip.chroma.get("on"):
             c = clip.chroma
             hexcolor = "0x" + c["color"].lstrip("#")
             red, green, blue = (int(c["color"][i:i + 2], 16) for i in (1, 3, 5))
@@ -464,11 +562,11 @@ class Builder:
         return out
 
     # --------------------------------------------------------------- place
-    def place(self, current: str, layer: str, clip: Clip, t_from: float, t_to: float, *, at: float, off_start: float) -> str:
+    def place(self, current: str, layer: str, clip: Clip, t_from: float, t_to: float, *, at: float, off_start: float, fmt: str = "") -> str:
         W, H = self.W, self.H
         kf = clip.kf
-        moved = bool(kf.get("px") or kf.get("py") or kf.get("scale") or kf.get("rot") or abs(clip.px) > 1e-6
-                     or abs(clip.py) > 1e-6 or abs(clip.rot) > 1e-6 or abs(clip.scale - 1) > 1e-6)
+        turned = bool(kf.get("scale") or kf.get("rot") or abs(clip.rot) > 1e-6 or abs(clip.scale - 1) > 1e-6)
+        moved = bool(kf.get("px") or kf.get("py") or turned or abs(clip.px) > 1e-6 or abs(clip.py) > 1e-6)
         if moved:
             tvar = f"(t-{_q(at)}+{_q(off_start)})"
             cx = clip.x + clip.width / 2
@@ -477,12 +575,19 @@ class Builder:
             pye = keyframes.expr(kf.get("py"), clip.py, tvar)
             xe = f"x='{W}*({_f(cx)}+{pxe})-w/2'"
             ye = f"y='{H}*({_f(cy)}+{pye})-h/2'"
+            if clip.anchor and turned:
+                # rotating / scaling about the anchor a (pixels from the box centre) = about the centre + moving the centre by  a − s·R(θ)·a
+                ax, ay = clip.anchor["x"] * _even(W * clip.width), clip.anchor["y"] * _even(H * clip.height)
+                ang = f"(({keyframes.expr(kf.get('rot'), clip.rot, tvar)})*PI/180)"
+                sc = f"({keyframes.expr(kf.get('scale'), clip.scale, tvar)})"
+                xe = f"x='{W}*({_f(cx)}+{pxe})-w/2+({_f(ax)})-{sc}*(({_f(ax)})*cos{ang}-({_f(ay)})*sin{ang})'"
+                ye = f"y='{H}*({_f(cy)}+{pye})-h/2+({_f(ay)})-{sc}*(({_f(ax)})*sin{ang}+({_f(ay)})*cos{ang})'"
         else:
             xe, ye = f"x={int(W * clip.x)}", f"y={int(H * clip.y)}"
         enable = f"enable='between(t,{_q(t_from)},{_q(t_to)})'"
         out = self.lab("v")
         if clip.blend == "normal" or clip.blend not in _BLEND:
-            self.parts.append(f"[{current}][{layer}]overlay={xe}:{ye}:{enable}:eof_action=pass[{out}]")
+            self.parts.append(f"[{current}][{layer}]overlay={xe}:{ye}:{enable}:eof_action=pass{fmt}[{out}]")
             return out
         neutral, mode = _BLEND[clip.blend]
         canvas, full, a, b = self.lab("n"), self.lab("f"), self.lab("g"), self.lab("h")
@@ -571,12 +676,18 @@ class Builder:
         return out
 
 
-def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True, portable: bool = False) -> Graph:
-    """The whole filtergraph plus what `export.render` needs to run it."""
+def build_graph(timeline: Timeline, *, spans=None, need_base: bool = True, portable: bool = False, video: bool = True, audio: bool = True) -> Graph:
+    """The whole filtergraph plus what `export.render` needs to run it.
+    `video=False` / `audio=False` build only the other half (used by the sliced render: the picture in time slices, the sound once)."""
     from . import audiofx
 
     timeline.validate(need_base=need_base)
     b = Builder(timeline, spans=spans, portable=portable)
-    b.build_video()
-    has_audio = audiofx.build_audio(b)
+    if video:
+        b.build_video()
+    else:
+        for track in timeline.tracks:                  # the half-transition dips of the sound are decided while the picture is planned
+            if track.kind == "video" and not track.hidden:
+                b.plan_transitions(track)
+    has_audio = audiofx.build_audio(b) if audio else False
     return Graph(b.inputs, b.args, ";".join(b.parts), b.texts, has_audio, timeline.length, b.notes, b.assets)

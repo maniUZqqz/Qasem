@@ -34,6 +34,12 @@ urlpatterns = [
     path("nodes/<int:pk>/logs/", api.node_logs),
     path("nodes/<int:pk>/desired/", api.node_desired),
     path("settings/", api.compute_settings),
+    # صفِ پردازش (کارکنان): فهرست، شمارش برای نوارِ بالا، لغو و تلاشِ دوباره
+    path("queue/", api.queue_list),
+    path("queue/summary/", api.queue_summary),
+    path("queue/cancel-waiting/", api.queue_cancel_waiting),
+    path("queue/<uuid:uid>/cancel/", api.queue_cancel),
+    path("queue/<uuid:uid>/retry/", api.queue_retry),
     # «مدل‌های صدا» of a node: switches, «تست», status, «دانلود» (staff)
     path("nodes/<int:pk>/audio/", views_voice.node_audio),
     path("nodes/<int:pk>/audio/test/", views_voice.node_audio_test),

@@ -6,6 +6,7 @@ import {
   AnyClip, Effect, MediaClip, Project, TextClip, Track, clipEnd, clipLength, propAt, srcTimeAt,
 } from "./model";
 import { reframeWindow, type Rect } from "./reframe";
+import { planMattes } from "./r5fx";
 import { shapeCanvas } from "./shapes";
 import { drawText } from "./textRender";
 
@@ -177,6 +178,63 @@ function chromaKey(img: ImageData, key: NonNullable<MediaClip["chroma"]>) {
   }
 }
 
+/** «کلیدِ روشنایی» مثلِ ffmpeg lumakey: هرچه از آستانه کمتر/بیشتر (با تلورانس و نرمی) باشد شفاف می‌شود */
+/** اصلاحِ لنز مثلِ lenscorrection ِ ffmpeg (مرکز وسطِ قاب): هر پیکسلِ خروجی از نقطهٔ c + d·(1 + r²(k1 + k2·r²)) خوانده می‌شود،
+ *  r² = مجذورِ فاصله از مرکز تقسیم بر مجذورِ نیم‌قطر. با خروجیِ واقعیِ ffmpeg سنجیده شده (میانگینِ خطا ≈ ۱ از ۲۵۵). */
+export function lensSource(x: number, y: number, w: number, h: number, k1: number, k2: number): [number, number] {
+  const dx = x - w / 2, dy = y - h / 2;
+  const r2 = (dx * dx + dy * dy) / ((w / 2) ** 2 + (h / 2) ** 2);
+  const c = 1 + r2 * (k1 + k2 * r2);
+  return [w / 2 + dx * c, h / 2 + dy * c];
+}
+
+/** روی خودِ تصویر (درجا). بیرون از منبع سیاهِ کدر، مثلِ ffmpeg */
+export function lensCorrect(img: ImageData, k1: number, k2: number): void {
+  const { width: w, height: h } = img;
+  const src = new Uint8ClampedArray(img.data);
+  const out = img.data;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const [sx, sy] = lensSource(x, y, w, h, k1, k2);
+      const o = (y * w + x) * 4;
+      if (sx < 0 || sy < 0 || sx > w - 1 || sy > h - 1) {
+        out[o] = out[o + 1] = out[o + 2] = 0;
+        out[o + 3] = 255;
+        continue;
+      }
+      const x0 = Math.floor(sx), y0 = Math.floor(sy);
+      const x1 = Math.min(w - 1, x0 + 1), y1 = Math.min(h - 1, y0 + 1);
+      const fx = sx - x0, fy = sy - y0;
+      for (let k = 0; k < 4; k++) {
+        out[o + k] =
+          src[(y0 * w + x0) * 4 + k] * (1 - fx) * (1 - fy) + src[(y0 * w + x1) * 4 + k] * fx * (1 - fy) +
+          src[(y1 * w + x0) * 4 + k] * (1 - fx) * fy + src[(y1 * w + x1) * 4 + k] * fx * fy;
+      }
+    }
+  }
+}
+
+export function matteMultiply(target: ImageData, matte: ImageData, mode: "luma" | "alpha", invert: boolean) {
+  const d = target.data, m = matte.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let v = mode === "alpha" ? m[i + 3] / 255 : ((0.299 * m[i] + 0.587 * m[i + 1] + 0.114 * m[i + 2]) / 255) * (m[i + 3] / 255);
+    if (invert) v = 1 - v;
+    d[i + 3] = d[i + 3] * v;
+  }
+}
+
+export function lumaKey(img: ImageData, key: { mode: "dark" | "bright"; tolerance: number; softness: number }) {
+  const d = img.data;
+  const th = key.mode === "bright" ? 1 : 0;
+  const tol = Math.max(0, key.tolerance);
+  const soft = Math.max(0.0001, key.softness);
+  for (let i = 0; i < d.length; i += 4) {
+    const y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+    const a = Math.min(1, Math.max(0, (Math.abs(y - th) - tol) / soft));
+    d[i + 3] = d[i + 3] * a;
+  }
+}
+
 function clipPathRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
   ctx.beginPath();
   ctx.rect(x, y, w, h);
@@ -231,9 +289,12 @@ export class Compositor {
     }
   }
 
+  private mattes: { of: Map<string, MediaClip>; src: Set<string> } = { of: new Map(), src: new Set() };
+
   render(a: RenderArgs): void {
     const { ctx, w, h } = this;
     const t = a.time;
+    this.mattes = planMattes(a.project);
     this.frameNo++;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
@@ -268,11 +329,61 @@ export class Compositor {
       if (c.type !== "media" || c.kind === "audio") continue;
       const [vs, ve] = this.visible(c, pairs);
       if (t < vs - 1e-6 || t >= ve) continue;
+      if (c.adjust) {
+        this.adjustLayer(c, a);
+        continue;
+      }
+      const m = this.mattes.of.get(c.id);
+      if (m) {
+        this.drawMatted(c, m, t, a);
+        continue;
+      }
+      if (this.mattes.src.has(c.id)) continue;                // مات خودش نمایش داده نمی‌شود
       this.drawClip(this.ctx, c, t, a, this.w, this.h);
     }
     for (const p of pairs) {
       if (t >= p.cut - p.d / 2 && t < p.cut + p.d / 2) this.drawTransition(p, a);
     }
+  }
+
+  /** Track matte: قطعه روی بومِ شفاف، مات روی بومِ سیاه؛ روشنی (یا شفافیتِ) مات در شفافیتِ قطعه ضرب می‌شود */
+  private drawMatted(c: MediaClip, m: MediaClip, t: number, a: RenderArgs) {
+    const { w, h } = this;
+    const tm = c.track_matte ?? { mode: "luma" as const, invert: false };
+    const SA = this.get("mtA", w, h);
+    const SM = this.get("mtM", w, h);
+    for (const s of [SA, SM]) {
+      s.x.setTransform(1, 0, 0, 1, 0, 0);
+      s.x.globalAlpha = 1;
+      s.x.globalCompositeOperation = "source-over";
+      s.x.clearRect(0, 0, w, h);
+    }
+    if (tm.mode === "luma") {
+      SM.x.fillStyle = "#000";
+      SM.x.fillRect(0, 0, w, h);
+    }
+    this.drawClip(SA.x, c, t, a, w, h);
+    if (t >= m.at - 1e-6 && t < clipEnd(m)) this.drawClip(SM.x, m, t, a, w, h);
+    const ia = SA.x.getImageData(0, 0, w, h);
+    matteMultiply(ia, SM.x.getImageData(0, 0, w, h), tm.mode, tm.invert);
+    SA.x.putImageData(ia, 0, 0);
+    this.ctx.drawImage(SA.c, 0, 0);
+  }
+
+  /** «لایهٔ تنظیم»: هرچه تا این‌جا کشیده شده رنگ/LUT این لایه را می‌گیرد (با شفافیتِ لایه) */
+  private adjustLayer(c: MediaClip, a: RenderArgs) {
+    if (a.compare === c.id) return;
+    const color = c.color && !colorIsNeutral(c.color, a.looks) ? c.color : undefined;
+    const lut = c.lut && a.luts?.[c.lut.key] ? { table: a.luts[c.lut.key], amount: c.lut.amount } : null;
+    if (!color && !lut) return;
+    const { ctx, w, h } = this;
+    const img = ctx.getImageData(0, 0, w, h);
+    const op = Math.max(0, Math.min(1, propAt(c, "opacity", a.time)));
+    const before = op < 0.999 ? new Uint8ClampedArray(img.data) : null;
+    if (color) applyColor(img, color, a.looks);
+    if (lut) applyLut(img, lut.table, lut.amount);
+    if (before) for (let i = 0; i < img.data.length; i += 4) for (let k = 0; k < 3; k++) img.data[i + k] = before[i + k] + (img.data[i + k] - before[i + k]) * op;
+    ctx.putImageData(img, 0, 0);
   }
 
   // ───────────── گذار
@@ -403,10 +514,12 @@ export class Compositor {
     const bypass = a.compare === clip.id;
     const color = !bypass && clip.color && !colorIsNeutral(clip.color, a.looks) ? clip.color : undefined;
     const fx = color ? postFx(color, a.looks) : null;
-    const keyed = !!clip.chroma?.on;
+    const luma = clip.luma?.on ? clip.luma : undefined;
+    const lens = clip.lens && (Math.abs(clip.lens.k1) > 0.005 || Math.abs(clip.lens.k2) > 0.005) ? clip.lens : undefined;
+    const keyed = !!clip.chroma?.on || !!luma;
     const lut = clip.lut && a.luts?.[clip.lut.key] ? { table: a.luts[clip.lut.key], amount: clip.lut.amount } : null;
     const matte = clip.matte ? a.mattes?.get(clip.id) : undefined;
-    const needPixels = !!color || keyed || !!lut || ready(matte);
+    const needPixels = !!color || keyed || !!lut || !!lens || ready(matte);
     const mask = clip.mask && clip.mask.shape !== "none" && (clip.mask.shape !== "bezier" || (clip.mask.points?.length ?? 0) >= 3) ? clip.mask : null;
     const css = cssFilterOf(clip.effects);
     const rotate = clip.effects.find((e) => e.tool === "rotate");
@@ -439,10 +552,12 @@ export class Compositor {
       lx.filter = "none";
       if (needPixels) {
         const img = lx.getImageData(0, 0, bw, bh);
+        if (lens) lensCorrect(img, lens.k1, lens.k2);
         if (color) applyColor(img, color, a.looks);
         if (lut) applyLut(img, lut.table, lut.amount);
         if (fx && (fx.sharpen > 0 || fx.vignette > 0 || fx.grain > 0)) applyPostFx(img, fx, this.frameNo);
-        if (keyed && clip.chroma) chromaKey(img, clip.chroma);
+        if (luma) lumaKey(img, luma);
+        if (clip.chroma?.on) chromaKey(img, clip.chroma);
         if (matte && ready(matte)) {
           // ماتِ حذفِ پس‌زمینه: همان جا دادنِ منبع در جعبه، روشنیِ آن می‌شود شفافیت
           const M = this.get("matte", bw, bh);
@@ -484,10 +599,12 @@ export class Compositor {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.globalCompositeOperation = BLEND_OP[clip.blend ?? "normal"] ?? "source-over";
-    ctx.translate(cx, cy);
+    const an = clip.anchor;
+    ctx.translate(cx + (an ? an.x * bw : 0), cy + (an ? an.y * bh : 0));      // چرخش و اندازه دورِ نقطهٔ لنگر (پیش‌فرض: مرکز)
     if (rot) ctx.rotate((rot * Math.PI) / 180);
     const s = Math.max(0.01, scale);
     ctx.scale(s, s);
+    if (an) ctx.translate(-an.x * bw, -an.y * bh);
     if (cl > 0 || cr > 0 || ct > 0 || cb > 0) clipPathRect(ctx, -bw / 2 + cl * bw, -bh / 2 + ct * bh, bw * (1 - cl - cr), bh * (1 - ct - cb));
     const bl = fx ? blurPx(fx, bw, bh) : 0;
     if (layerCanvas) {

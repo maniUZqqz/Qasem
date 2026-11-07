@@ -388,7 +388,7 @@ def create_music(store, user, *, description="", style="", seconds=30, bpm=None,
 def _node_or_error(key):
     """A node can make this (or will, once its download ends) - else a StudioError: 409 when switched off."""
     try:
-        return node_audio.pick_node(key, purpose=key, allow_pending=True)
+        return node_audio.pick_node(key, purpose=key, allow_pending=True, allow_offline=True)
     except node_audio.NodeAudioError as exc:
         raise StudioError(str(exc), 409 if exc.code == "disabled" else 503, "node_" + exc.code) from exc
 
@@ -396,7 +396,8 @@ def _node_or_error(key):
 def _queue(asset, key, kind, payload, timeout_s=1200):
     try:
         job = node_audio.enqueue(key, kind, payload, store=asset.store, origin="audio_studio", timeout_s=timeout_s,
-                                 purpose={"voice.sfx": "sfx", "voice.music": "music"}.get(kind, "speech"), allow_pending=True)
+                                 purpose={"voice.sfx": "sfx", "voice.music": "music"}.get(kind, "speech"), allow_pending=True,
+                                 durable=True)
     except node_audio.NodeAudioError as exc:
         asset.delete()
         raise StudioError(str(exc), 409 if exc.code == "disabled" else 503, "node_" + exc.code) from exc
@@ -471,6 +472,10 @@ def job_progress(asset) -> dict | None:
             if pct is not None:
                 message = f"در صف — مدل روی «{row['name']}» در حالِ دانلود است ({pct:.0f}٪)؛ بعد از دانلود ساخته می‌شود."
                 break
+        else:
+            from apps.compute.services import NO_NODE_QUEUED_TEXT
+            if not any(row["online"] for row in node_audio.node_rows()):
+                message = NO_NODE_QUEUED_TEXT + "؛ همین که روشن شد ساخته می‌شود (می‌توانید لغو کنید)."
     return {"state": job.state, "label": job.get_state_display(), "progress": round(job.progress, 3),
             "message": message, "node": job.node.name if job.node_id else None}
 

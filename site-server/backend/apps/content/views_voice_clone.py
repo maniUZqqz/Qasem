@@ -265,7 +265,7 @@ class ClonedVoiceTestView(APIView):
         from apps.compute import services as compute
 
         try:
-            job = vc.enqueue_tts(voice, spoken, origin="voice_clone_test")
+            job = vc.enqueue_tts(voice, spoken, origin="voice_clone_test", durable=True)
         except vc.NodeOffline as exc:
             return _error("node_offline", str(exc), status.HTTP_503_SERVICE_UNAVAILABLE)
         except compute.ComputeUnavailable:
@@ -294,7 +294,7 @@ class ClonedVoiceTestStatusView(APIView):
             # the node no longer has this voice: send it again with the best clips so the node rebuilds it
             try:
                 job = vc.enqueue_tts(voice, job.payload.get("text") or vc.SAMPLE_TEXT, origin="voice_clone_test",
-                                     restore=True)
+                                     restore=True, durable=True)
             except vc.NodeOffline as exc:
                 return _error("node_offline", str(exc), status.HTTP_503_SERVICE_UNAVAILABLE)
         if job.state == "COMPLETED":

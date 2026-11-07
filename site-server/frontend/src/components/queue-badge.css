@@ -1,0 +1,28 @@
+/* نشانِ «صفِ پردازش» در هدر (فقط کارکنان). رنگ‌ها از توکن‌های پنل‌اند؛ روی گوشی فقط آیکون و عدد می‌ماند. */
+.nmq-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
+  border-radius: 11px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text-2); font-size: .78rem; font-weight: 700; line-height: 1;
+  text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.nmq-pill:hover { background: var(--glass-2); border-color: var(--line-strong); color: var(--text); }
+.nmq-pill:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent); }
+.nmq-pill.warn {
+  background: var(--warn-soft); color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.nmq-pill.warn:hover { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.nmq-pill-run { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
+.nmq-pill.warn .nmq-pill-run { color: var(--warn); }
+.nmq-pulse {
+  width: 7px; height: 7px; border-radius: 999px; background: var(--brand-strong);
+  animation: nmq-pulse 1.4s ease-out infinite;
+}
+@keyframes nmq-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 55%, transparent); }
+  100% { box-shadow: 0 0 0 7px transparent; }
+}
+@media (max-width: 479px) {
+  .nmq-pill { padding: 0 8px; gap: 5px; }
+}

@@ -108,4 +108,7 @@ def apply_steps(project: dict, steps: list[dict], ctx: Ctx | None = None, *, pla
             res["message"] = "این مرحله به‌خاطر یک خطای غیرمنتظره انجام نشد."
             res["notes"].append(str(exc)[:120])
         results.append(res)
+    healed = ops.heal_overlaps(new)
+    if healed and results:
+        results[-1].setdefault("notes", []).append(f"همپوشانیِ {healed} قطعه روی یک ترک برطرف شد (تا پروژه رندر شود).")
     return new, results

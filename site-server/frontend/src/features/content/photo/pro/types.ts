@@ -69,7 +69,8 @@ export type BaseLayer = Common & { type: "base" };
 
 export type ImageLayer = Common & {
   type: "image";
-  src: { kind: "asset"; asset: number } | { kind: "logo" };
+  /** paint = لایهٔ نقاشی (نوبت ۵): پیکسل‌هایش در PaintStore/paint-<id>.png؛ همیشه کلِ بوم را می‌پوشاند؛ rev = شمارندهٔ ضربه‌ها برای برگشت */
+  src: { kind: "asset"; asset: number } | { kind: "logo" } | { kind: "paint"; id: string; rev: number };
   cx: number;
   cy: number;
   w: number;
@@ -187,6 +188,12 @@ export const makeText = (cx = 0.5, cy = 0.5, text = "متن شما"): TextLayer 
 export const makeImage = (src: ImageLayer["src"], name = "تصویر"): ImageLayer => ({
   ...common("image", name), type: "image", src, cx: 0.5, cy: 0.5, w: 0.4, rot: 0, flip_h: false, flip_v: false,
 });
+
+export type PaintLayer = ImageLayer & { src: { kind: "paint"; id: string; rev: number } };
+export const isPaintLayer = (l: Layer | null | undefined): l is PaintLayer => !!l && l.type === "image" && l.src.kind === "paint";
+export const makePaintLayer = (paintId: string, name = "نقاشی"): PaintLayer => ({
+  ...common("image", name), type: "image", src: { kind: "paint", id: paintId, rev: 0 }, cx: 0.5, cy: 0.5, w: 1, rot: 0, flip_h: false, flip_v: false,
+}) as PaintLayer;
 
 export const makeShape = (shape: ShapeLayer["shape"] = "rect"): ShapeLayer => ({
   ...common("shape", shape === "rect" ? "مستطیل" : shape === "ellipse" ? "بیضی" : "خط"), type: "shape", shape,

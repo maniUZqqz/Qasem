@@ -368,6 +368,13 @@ function ImageInspector({ layer, hist, assets, storeLogo }: { layer: ImageLayer;
   const ed = useEdit<ImageLayer>(hist, layer.id, "image");
   const [pick, setPick] = useState(false);
   const src = layer.src;
+  if (src.kind === "paint") {
+    return (
+      <Sub title="لایهٔ نقاشی">
+        <p className="pn-hint" data-testid="paint-source">روی این لایه با «قلمِ نقاشی» (N)، مداد (D) و پاک‌کن (Z) بکشید؛ سطلِ رنگ (U) ناحیه را پر می‌کند. لایه همیشه کلِ بوم را می‌پوشاند؛ شفافیت، حالتِ ترکیب و ماسکش در همین پنل است.</p>
+      </Sub>
+    );
+  }
   const cur = src.kind === "asset" ? assets.find((a) => a.id === src.asset) : null;
   return (
     <>
@@ -488,7 +495,7 @@ export default function LayerInspector(props: LayerInspectorProps) {
       default: return <p className="pn-hint">تنظیم‌های عکس در زبانهٔ «تنظیم» است؛ این‌جا فقط شفافیت، حالتِ ترکیب و ماسکِ لایهٔ عکس را می‌توان عوض کرد.</p>;
     }
   })();
-  const transformable = layer.type === "image" || layer.type === "text" || layer.type === "shape";
+  const transformable = (layer.type === "image" && layer.src.kind !== "paint") || layer.type === "text" || layer.type === "shape";
   const locked = effectivelyLocked(props.state.layers, layer);
   return (
     <div className="pn-root" data-testid="layer-inspector" data-layer-id={layer.id} data-type={layer.type}>

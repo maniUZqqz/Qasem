@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { ReactNode, useRef, useState } from "react";
 
 import { Spinner, fa } from "../../../../components/ui";
 import type { Bin as BinData, MediaItem } from "../api";
-import { timecode } from "./model";
+import { Project, timecode } from "./model";
+import { BinFolder, addFolder, assignToFolder, deleteFolder, filterBin } from "./r5ops";
 import { useAudioKinds } from "./soundApi";
 import "./sound.css";
 
@@ -24,7 +25,7 @@ const TABS: { key: keyof BinData; title: string }[] = [
 
 /** سطلِ رسانه: ویدیوهای فروشگاه (آپلودی، تدوین‌شده، ساخته‌شده)، صدای کتابخانه و عکس‌ها. بکشید روی تایم‌لاین یا «+». */
 export default function Bin({
-  bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound,
+  bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound, uploadSlot, folders = [], onFolderOp,
 }: {
   bin: BinData | null;
   loading: boolean;
@@ -36,13 +37,24 @@ export default function Bin({
   storeId?: string;
   /** «رفتن به تبِ صدا» در حالتِ خالیِ صدا */
   onGoSound?: () => void;
+  /** نوارِ پیشرفتِ آپلود (زیرِ دکمهٔ آپلود) */
+  uploadSlot?: ReactNode;
+  /** پوشه‌های کاربر (در پروژه ذخیره می‌شوند) و ویرایششان با یک گامِ برگشت */
+  folders?: BinFolder[];
+  onFolderOp?: (label: string, fn: (p: Project) => Project) => void;
 }) {
   const [tab, setTab] = useState<keyof BinData>("videos");
   const [audioFilter, setAudioFilter] = useState<AudioFilter>("all");
   const file = useRef<HTMLInputElement>(null);
   const kinds = useAudioKinds(storeId, tab === "audio" && !!storeId, bin?.audio.length ?? 0);
+  const [q, setQ] = useState("");
+  const [folderId, setFolderId] = useState<string | null>(null);
+  const [naming, setNaming] = useState<string | null>(null);
+  const folder = folders.find((f) => f.id === folderId) ?? null;
   const all = bin?.[tab] ?? [];
-  const items = tab === "audio" && audioFilter !== "all" ? all.filter((it) => kinds?.[it.ref] === audioFilter) : all;
+  const byKind = tab === "audio" && audioFilter !== "all" ? all.filter((it) => kinds?.[it.ref] === audioFilter) : all;
+  const items = tab === "stickers" ? byKind : filterBin(byKind, q, folder);
+  const filtering = tab !== "stickers" && (!!q.trim() || !!folder);
   const sticker = tab === "stickers";
   return (
     <div className="vw-bin" data-testid="bin" dir="rtl">
@@ -58,6 +70,32 @@ export default function Bin({
           <div className="mb-2">
             <input ref={file} type="file" accept="video/*" hidden data-testid="bin-upload" onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); if (file.current) file.current.value = ""; }} />
             <button type="button" className="ws-btn w-full justify-center" onClick={() => file.current?.click()}>+ آپلودِ ویدیوی تازه</button>
+            {uploadSlot}
+          </div>
+        )}
+        {tab !== "stickers" && onFolderOp && (
+          <div className="bn-tools" data-testid="bin-tools">
+            <input className="u-input bn-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو در رسانه‌ها…" aria-label="جستجو در رسانه‌ها" data-testid="bin-search" />
+            <div className="bn-folders" role="group" aria-label="پوشه‌ها">
+              <button type="button" className={`ws-chip ${folderId === null ? "is-on" : ""}`} aria-pressed={folderId === null} onClick={() => setFolderId(null)} data-testid="bin-folder-all">همه</button>
+              {folders.map((f) => (
+                <button key={f.id} type="button" className={`ws-chip ${folderId === f.id ? "is-on" : ""}`} aria-pressed={folderId === f.id} onClick={() => setFolderId(f.id)} data-testid="bin-folder">{f.name} ({f.refs.filter((r) => all.some((a) => a.ref === r)).length})</button>
+              ))}
+              {naming === null ? (
+                <button type="button" className="ws-chip" onClick={() => setNaming("")} data-testid="bin-new-folder" title="پوشهٔ تازه برای دسته‌بندیِ رسانه‌ها">+ پوشه</button>
+              ) : (
+                <input className="u-input bn-name" autoFocus value={naming} maxLength={40} placeholder="نامِ پوشه + Enter" aria-label="نامِ پوشهٔ تازه" data-testid="bin-folder-name"
+                  onChange={(e) => setNaming(e.target.value)} onBlur={() => setNaming(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setNaming(null);
+                    if (e.key === "Enter" && naming.trim()) {
+                      onFolderOp("پوشهٔ تازه", (p) => addFolder(p, naming).project);
+                      setNaming(null);
+                    }
+                  }} />
+              )}
+              {folder && <button type="button" className="ws-chip" onClick={() => { if (window.confirm(`پوشهٔ «${folder.name}» پاک شود؟ (رسانه‌ها پاک نمی‌شوند)`)) { onFolderOp("حذفِ پوشه", (p) => deleteFolder(p, folder.id)); setFolderId(null); } }} data-testid="bin-folder-delete" aria-label={`حذفِ پوشهٔ ${folder.name}`}>× حذفِ این پوشه</button>}
+            </div>
           </div>
         )}
         {tab === "audio" && storeId && all.length > 0 && kinds && (
@@ -77,8 +115,9 @@ export default function Bin({
             {onGoSound && <button type="button" className="ws-btn" onClick={onGoSound} data-testid="bin-go-sound" title="تبِ «صدا» را در پنلِ کناری باز می‌کند">🎵 رفتن به تبِ صدا</button>}
           </div>
         )}
-        {!loading && tab === "audio" && all.length > 0 && items.length === 0 && <p className="ws-hint">در این دسته چیزی نیست.</p>}
-        {!loading && tab !== "audio" && items.length === 0 && (
+        {!loading && tab === "audio" && all.length > 0 && byKind.length === 0 && <p className="ws-hint">در این دسته چیزی نیست.</p>}
+        {!loading && filtering && byKind.length > 0 && items.length === 0 && <p className="ws-hint" data-testid="bin-no-match">چیزی با این جستجو یا در این پوشه پیدا نشد.</p>}
+        {!loading && tab !== "audio" && !filtering && items.length === 0 && (
           <p className="ws-hint">
             {tab === "videos" ? "هنوز ویدیویی نیست؛ بالا آپلود کنید." : sticker ? "استیکری در دسترس نیست." : "عکسی نیست."}
           </p>
@@ -96,6 +135,14 @@ export default function Bin({
             >
               {sticker ? <img src={it.url} alt="" width={22} height={22} style={{ objectFit: "contain" }} /> : <span aria-hidden>{it.kind === "video" ? "🎞" : it.kind === "audio" ? "🔊" : "🖼"}</span>}
               <span className="t">{it.title}</span>
+              {onFolderOp && folders.length > 0 && tab !== "stickers" && (
+                <select className="u-input bn-sel" value={folders.find((f) => f.refs.includes(it.ref))?.id ?? ""} aria-label={`پوشهٔ «${it.title}»`} data-testid="bin-item-folder"
+                  onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+                  onChange={(e) => onFolderOp("جابه‌جاییِ رسانه به پوشه", (p) => assignToFolder(p, it.ref, e.target.value || null))}>
+                  <option value="">—</option>
+                  {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              )}
               <small dir="ltr">{it.kind === "image" ? "" : timecode(it.duration).slice(0, 5)}</small>
               <button type="button" className="ws-btn" onClick={() => onAdd(it)} aria-label="افزودن به تایم‌لاین" data-add={it.ref}>+</button>
             </div>

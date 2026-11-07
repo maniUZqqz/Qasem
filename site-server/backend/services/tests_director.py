@@ -1165,3 +1165,71 @@ class RealRenderTests(TestCase):
         self.assertGreater(res["samples"], 0)
         keys = res["reframe"].get("kx") or []
         self.assertLessEqual(len(keys), 24)
+
+
+# ------------------------------------------------------------------ round 5: the live walkthrough found an unexportable variant
+class EndCardOverlapTests(SimpleTestCase):
+    """Variant «a» of a real run ended with `cut_to_beats` AFTER `end_card`: the re-cut picture grew into the end card
+    («در ترک «تصویر ۱» دو قطعه هم‌زمان‌اند») and the export button stayed disabled."""
+
+    def with_card(self):
+        p = with_clip("video:1", start=0, end=12)
+        p, _ = run_tool(p, "add_clip", {"ref": "video:2", "id": "b", "start": 0, "end": 8})
+        p, r = run_tool(p, "end_card", {"text": "همین حالا", "duration": 2.5})
+        self.assertTrue(r["ok"], r)
+        return p
+
+    def no_overlap(self, p):
+        for t in p["tracks"]:
+            if t["kind"] != "video":
+                continue
+            cs = sorted([c for c in t["clips"] if c.get("type") == "media"], key=lambda c: float(c["at"]))
+            for a, b in zip(cs, cs[1:]):
+                self.assertGreaterEqual(float(b["at"]), ops.clip_end(a) - 0.001, f"{a.get('label')} ends {ops.clip_end(a)} but {b.get('label')} starts {b['at']}")
+
+    def test_cut_to_beats_after_an_end_card_keeps_the_card_after_the_picture(self):
+        p = self.with_card()
+        before = {c["id"]: c for c in ops.main_track(p)["clips"]}
+        card = next(c for c in before.values() if c.get("label") == "کارتِ پایانی")
+        picture_end = float(card["at"])
+        p, r = run_tool(p, "cut_to_beats", {"music": "audio:1", "every": 2})
+        self.assertTrue(r["ok"], r)
+        self.no_overlap(p)
+        card_after = next(c for c in ops.main_track(p)["clips"] if c.get("label") == "کارتِ پایانی")
+        pieces = [c for c in ops.main_track(p)["clips"] if c.get("label") != "کارتِ پایانی"]
+        self.assertLessEqual(max(ops.clip_end(c) for c in pieces), float(card_after["at"]) + 0.001)
+        self.assertAlmostEqual(max(ops.clip_end(c) for c in pieces), picture_end, delta=0.6, msg="the picture keeps (about) its length")
+        check_valid(self, p)
+
+    def test_the_whole_variant_recipe_order_that_failed_live_is_now_exportable(self):
+        p = self.with_card()
+        for tool, params in (("close_gaps", {"track": "main"}), ("cut_to_beats", {"music": "audio:1", "every": 2}), ("fit_length", {"seconds": 14}),
+                             ("close_gaps", {"track": "main"}), ("cut_to_beats", {"music": "audio:1", "every": 2})):
+            p, r = run_tool(p, tool, params)
+            self.no_overlap(p)
+        check_valid(self, p)
+
+    def test_heal_overlaps_pushes_a_later_clip_and_puts_the_card_last(self):
+        p = self.with_card()
+        main = ops.main_track(p)
+        card = next(c for c in main["clips"] if c.get("label") == "کارتِ پایانی")
+        late = {**next(c for c in main["clips"] if c.get("label") != "کارتِ پایانی"), "id": "late", "at": float(card["at"]) + 0.5, "start": 0, "end": 2}
+        main["clips"].append(late)
+        self.assertEqual(ops.heal_overlaps(p), 1)
+        self.no_overlap(p)
+        card_now = next(c for c in main["clips"] if c.get("label") == "کارتِ پایانی")
+        self.assertGreaterEqual(float(card_now["at"]), ops.clip_end(late) - 0.001)
+
+    def test_heal_overlaps_leaves_a_clean_project_untouched(self):
+        p = self.with_card()
+        before = json.dumps(p, sort_keys=True)
+        self.assertEqual(ops.heal_overlaps(p), 0)
+        self.assertEqual(json.dumps(p, sort_keys=True), before)
+
+    def test_apply_steps_heals_and_says_so(self):
+        p = self.with_card()
+        main = ops.main_track(p)
+        main["clips"].append({**next(c for c in main["clips"] if c.get("label") != "کارتِ پایانی"), "id": "dup", "at": 0.0})
+        new, results = apply_steps(p, [{"tool": "close_gaps", "params": {"track": "overlay"}}], fake_ctx(), platform="reels")
+        self.no_overlap(new)
+        self.assertTrue(any("همپوشانی" in n for n in results[-1].get("notes", [])), results[-1])

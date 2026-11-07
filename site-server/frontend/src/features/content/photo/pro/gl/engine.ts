@@ -116,6 +116,8 @@ export function airLight(img: ImageData): [number, number, number] {
 export type MaskEntry = { canvas: HTMLCanvasElement; ver: number };
 export type RenderCtx = {
   masks: Map<string, MaskEntry>;
+  /** بومِ لایه‌های نقاشی؛ ندادن ⇒ همان `engine.paintSrc` */
+  paints?: Map<string, MaskEntry>;
   /** فقط این لایه‌ها (برای تلفیق/خروجی گرفتن)؛ undefined = همه */
   only?: Set<string>;
   /** لایه‌ی پایه را به‌جای خودش از اصلِ بدونِ تنظیم بگیر (نمایشِ «قبل») */
@@ -174,6 +176,9 @@ export class ProEngine {
   }
   private retouches = new Map<string, Retouch>();
   private maskTex = new Map<string, { tex: Tex; ver: number }>();
+  /** بومِ لایه‌های نقاشی (PaintStore.map)؛ Stage یک‌بار می‌گذارد */
+  paintSrc: Map<string, MaskEntry> | null = null;
+  private paintTexMap = new Map<string, { tex: Tex; ver: number }>();
   private lutTex: Tex | null = null;
   private lutKey = "";
   private smallBase = new Map<number, ImageData>();
@@ -350,7 +355,23 @@ export class ProEngine {
 
   private srcKey(l: Layer): string {
     if (l.type !== "image") return "";
+    if (l.src.kind === "paint") return `p:${l.src.id}`;
     return l.src.kind === "logo" ? "logo" : `a${l.src.asset}`;
+  }
+
+  /** بافتِ یک لایهٔ نقاشی (از بومِ RGBA؛ با تغییرِ ver دوباره بارگذاری می‌شود) */
+  private paintTex(id: string, src?: Map<string, MaskEntry>): Tex | null {
+    const e = (src ?? this.paintSrc)?.get(id);
+    if (!e) return null;
+    let t = this.paintTexMap.get(id);
+    if (!t) {
+      t = { tex: this.g.upload(e.canvas, { premult: true }), ver: e.ver };
+      this.paintTexMap.set(id, t);
+    } else if (t.ver !== e.ver) {
+      this.g.reupload(t.tex, e.canvas, true);
+      t.ver = e.ver;
+    }
+    return t.tex;
   }
 
   // ───────────────────────── رسمِ دوبعدیِ لایه‌ها ⇒ بافت
@@ -464,6 +485,13 @@ export class ProEngine {
   /** پاکسازیِ منابعِ لایه‌های حذف‌شده */
   gc(layers: Layer[]): void {
     const ids = new Set(layers.map((l) => l.id));
+    const paintIds = new Set(layers.flatMap((l) => (l.type === "image" && l.src.kind === "paint" ? [l.src.id] : [])));
+    for (const [k, t] of this.paintTexMap) {
+      if (!paintIds.has(k)) {
+        this.g.destroy(t.tex);
+        this.paintTexMap.delete(k);
+      }
+    }
     for (const [k, r] of this.rasters) {
       if (!ids.has(k.slice(2))) {
         this.g.destroy(r.tex);
@@ -1074,7 +1102,15 @@ export class ProEngine {
           let full = false;
           let flipX = false;
           let flipY = false;
-          if (l.type === "image") {
+          if (l.type === "image" && l.src.kind === "paint") {
+            // لایهٔ نقاشی: بافتِ هم‌اندازهٔ بوم که کلِ سند را می‌پوشاند (مثلِ ماسک؛ جابه‌جایی/چرخش ندارد)
+            const pt = this.paintTex(l.src.id, rc.paints);
+            if (!pt) continue;
+            tex = pt;
+            bw = 1;
+            bh = H / W;
+            full = true;
+          } else if (l.type === "image") {
             const i = this.images.get(this.srcKey(l));
             if (!i) continue;
             tex = i.tex;

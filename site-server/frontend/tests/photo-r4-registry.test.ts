@@ -14,8 +14,8 @@ const ok = (c: unknown, msg: string) => {
 };
 
 const TOOLS = Object.keys(TOOL_META).map((id, i) => ({ id, key: String.fromCharCode(65 + (i % 26)), title: `ابزار ${id}`, hint: `راهنمای ${id}` }));
-const ALL_ON: HostState = { hasActive: true, activeType: "group", activeIsBase: false, activeLocked: false, activeHasMask: true, hasSelection: true, canUndo: true, canRedo: true, layerCount: 3, storeFrameOn: false, nodeOn: true };
-const NONE: HostState = { ...ALL_ON, hasActive: false, activeType: null, activeHasMask: false, hasSelection: false, canUndo: false, canRedo: false, nodeOn: false };
+const ALL_ON: HostState = { hasActive: true, activeType: "group", activeIsBase: false, activeLocked: false, activeHasMask: true, hasSelection: true, canUndo: true, canRedo: true, layerCount: 3, activeIsPaint: true, storeFrameOn: false, nodeOn: true };
+const NONE: HostState = { ...ALL_ON, hasActive: false, activeType: null, activeIsPaint: false, activeHasMask: false, hasSelection: false, canUndo: false, canRedo: false, nodeOn: false };
 
 /** Host ِ جعلی: هر تابع صدا زده شود شمرده می‌شود */
 function spyHost(s: HostState) {
@@ -33,6 +33,13 @@ ok(searchCommands(cmds, "blur")[0]?.cmd.id.startsWith("fx."), "جستجوی blur
 ok(searchCommands(cmds, "بوکه").some((x) => x.cmd.id === "fx.lens_blur"), "بوکه ⇒ محوِ لنز");
 ok(searchCommands(cmds, "ریسایز").some((x) => x.cmd.id === "fx.image_size"), "ریسایز ⇒ اندازهٔ تصویر");
 ok(searchCommands(cmds, "pixelate")[0]?.cmd.id === "fx.mosaic", "pixelate ⇒ موزاییک");
+ok(searchCommands(cmds, "سطل رنگ")[0]?.cmd.id === "tool.bucket", "سطل رنگ ⇒ ابزارِ سطل");
+ok(searchCommands(cmds, "paint bucket")[0]?.cmd.id === "tool.bucket", "paint bucket");
+ok(searchCommands(cmds, "eraser")[0]?.cmd.id === "tool.eraser", "eraser ⇒ پاک‌کن");
+ok(searchCommands(cmds, "اسنپ شات")[0]?.cmd.id === "edit.snapshot", "اسنپ‌شات ⇒ عکسِ لحظه‌ای");
+ok(searchCommands(cmds, "لایه خالی").some((x) => x.cmd.id === "layer.newPaint"), "لایه خالی ⇒ لایهٔ نقاشی");
+ok(searchCommands(cmds, "قطره چکان").some((x) => x.cmd.id === "tool.picker"), "قطره‌چکان ⇒ ابزارِ رنگ");
+ok(searchCommands(cmds, "color picker")[0]?.cmd.id === "tool.picker", "color picker");
 ok(cmds.length > 80, `دست‌کم ۸۰ دستور (الان ${cmds.length})`);
 const ids = new Set<string>();
 for (const c of cmds) {
@@ -59,7 +66,7 @@ ok(searchCommands(cmds, "خاموش کردن هوش مصنوعی")[0]?.cmd.id ==
 ok(searchCommands(cmds, "brand")[0]?.cmd.id === "file.settingsBrand", "brand");
 ok(searchCommands(cmds, "batch")[0]?.cmd.id === "file.batch", "batch");
 // منوی بدون دستورِ غیرفعالِ بی‌دلیل
-for (const c of cmds.filter((x) => x.key)) ok(/^(Ctrl\+|Shift\+|Alt\+)*([A-Za-z0-9\\?+-]|Delete)$/.test(c.key!), `قالبِ کلید ${c.id}: ${c.key}`);
+for (const c of cmds.filter((x) => x.key)) ok(/^(Ctrl\+|Shift\+|Alt\+)*([A-Za-z0-9\\?+-]|Delete|Backspace)$/.test(c.key!), `قالبِ کلید ${c.id}: ${c.key}`);
 
 // جستجو
 const first = (q: string) => searchCommands(cmds, q)[0]?.cmd.id;

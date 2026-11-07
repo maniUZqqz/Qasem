@@ -1,0 +1,156 @@
+/* صفِ پردازش — رنگ و اندازه فقط از توکن‌های پنل (index.css) می‌آید، پس در تم تیره و روشن هر دو درست است.
+
+   چیدمانِ فهرست از روی «عرضِ خودِ کارت» عوض می‌شود (container query)، نه عرضِ صفحه: سایدبار دسکتاپ ۲۵۶ پیکسل
+   می‌خورد، و در ۱۰۲۴ پیکسل جای جدولِ هفت‌ستونه نیست حتی اگر صفحه «بزرگ» حساب شود.
+     • زیر ۵۶۰: کارتِ تک‌ستونه (عنوان، وضعیت، بعد ۲×۲ اطلاعات، بعد دکمه‌ها)
+     • ۵۶۰ تا ۸۸۰: همان کارت با چهار اطلاعاتِ کنارِ هم
+     • از ۸۸۰: جدولِ هفت‌ستونه
+   هیچ‌کدام اسکرولِ افقیِ صفحه ندارند. */
+
+/* ---------------------------------------------------------------- سرورها */
+.nmq-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
+.nmq-node {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  max-width: 100%; padding: 7px 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface-2);
+  font-size: .82rem; color: var(--text-2);
+}
+.nmq-node-name { font-weight: 700; color: var(--text); }
+.nmq-node-state { font-weight: 600; font-size: .76rem; }
+.nmq-node-state.online { color: var(--ok); }
+.nmq-node-state.offline { color: var(--bad); }
+.nmq-node-state.disabled { color: var(--text-3); }
+.nmq-node-meta { color: var(--text-3); font-size: .76rem; }
+.nmq-dot { width: 9px; height: 9px; border-radius: 999px; flex: none; background: var(--text-3); }
+.nmq-dot.online { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.nmq-dot.offline { background: var(--bad); }
+
+.nmq-steps { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.nmq-steps li { display: flex; gap: 8px; align-items: baseline; }
+.nmq-steps b { color: var(--warn); min-width: 1.4em; }
+
+/* -------------------------------------------------------------- تب‌ها */
+.nmq-count {
+  display: inline-block; min-width: 1.7em; margin-inline-start: 6px; padding: 0 7px;
+  border-radius: 999px; font-size: .72rem; line-height: 1.65; text-align: center;
+  background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.u-tab.active .nmq-count {
+  background: var(--brand-soft); color: var(--brand-strong);
+  border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+}
+.nmq-count.warn {
+  background: var(--warn-soft); color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.nmq-count.bad {
+  background: var(--bad-soft); color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+/* --------------------------------------------------------------- نوار ابزار */
+.nmq-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+}
+/* دو کلاس: `.u-input` عرض ۱۰۰٪ می‌دهد و بیرون از لایه‌هاست */
+.nmq .nmq-kind { flex: 1 1 170px; max-width: 280px; width: auto; min-width: 0; }
+.nmq .nmq-search { flex: 2 1 200px; width: auto; min-width: 0; }
+.nmq-toolbar-end { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-inline-start: auto; }
+.nmq-updated { font-size: .75rem; color: var(--text-3); white-space: nowrap; }
+.nmq-spin { animation: nmq-rot .8s linear infinite; }
+@keyframes nmq-rot { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------------ فهرست */
+.nmq-wrap { container: nmq / inline-size; }
+.nmq-head { display: none; }
+.nmq-list { transition: opacity .15s; }
+.nmq-list[data-stale="1"] { opacity: .5; pointer-events: none; }
+.nmq-item { border-bottom: 1px solid var(--line); }
+.nmq-item:last-child { border-bottom: none; }
+
+.nmq-row {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px;
+  align-items: start; padding: 14px 16px;
+}
+.nmq-c-title, .nmq-c-status, .nmq-c-act { grid-column: 1 / -1; }
+.nmq-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: .85rem; color: var(--text-2); }
+.nmq-cell[data-label]::before { content: attr(data-label); font-size: .7rem; font-weight: 600; color: var(--text-3); }
+.nmq-c-act { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nmq-c-act:empty { display: none; }
+.nmq-main { overflow-wrap: anywhere; }
+.nmq-small { font-size: .74rem; color: var(--text-3); }
+
+.nmq-title {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 0;
+  text-align: start; background: none; border: none; cursor: pointer;
+  font-family: inherit; color: var(--text-3);
+}
+.nmq-title:hover .nmq-title-main { color: var(--brand-strong); }
+.nmq-title:focus-visible { outline: none; border-radius: 8px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent); }
+.nmq-title > svg { margin-top: 7px; flex: none; }
+.nmq-title-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nmq-title-main { color: var(--text); font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; transition: color .12s; }
+.nmq-sub { color: var(--text-3); font-size: .74rem; }
+.nmq-item.cancelled .nmq-title-main { color: var(--text-3); font-weight: 600; }
+
+.nmq-c-status { align-items: flex-start; gap: 6px; }
+/* برچسب‌های دیگرِ پنل تک‌خط‌اند؛ اینجا جملهٔ کاملِ فارسی است و باید بشکند */
+.nmq-c-status .u-badge { white-space: normal; text-align: start; line-height: 1.6; padding: 4px 11px; border-radius: 12px; max-width: 100%; }
+.nmq-item.cancelled .u-badge { opacity: .75; }
+.nmq-bar { width: 100%; max-width: 240px; }
+.nmq-indeterminate { width: 35% !important; animation: nmq-slide 1.3s ease-in-out infinite; }
+@keyframes nmq-slide { from { margin-inline-start: -35%; } to { margin-inline-start: 100%; } }
+
+@container nmq (min-width: 560px) {
+  .nmq-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@container nmq (min-width: 880px) {
+  .nmq-head, .nmq-row {
+    grid-template-columns: minmax(0, 2.3fr) minmax(0, 2.5fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(116px, auto);
+    gap: 12px; align-items: center;
+  }
+  .nmq-head {
+    display: grid; padding: 10px 16px; font-size: .74rem; font-weight: 600;
+    color: var(--text-3); border-bottom: 1px solid var(--line);
+  }
+  .nmq-c-title, .nmq-c-status, .nmq-c-act { grid-column: auto; }
+  .nmq-cell[data-label]::before { display: none; }
+  .nmq-c-act { justify-content: flex-end; }
+}
+
+/* ----------------------------------------------------------------- جزئیات */
+.nmq-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 2px 16px 16px; }
+.nmq-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: .8rem; color: var(--text-2); }
+.nmq-err {
+  margin: 0; max-height: 180px; overflow: auto; padding: 10px 12px; border-radius: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .76rem; line-height: 1.7;
+  direction: ltr; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bad-soft); color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 28%, transparent);
+}
+.nmq-copy {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2);
+  font: inherit; font-size: .74rem; cursor: pointer;
+}
+.nmq-copy:hover { border-color: var(--line-strong); color: var(--text); }
+.nmq-note {
+  margin: 0; padding: 8px 12px; border-radius: 10px; font-size: .8rem; line-height: 1.9; color: var(--text-2);
+  background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent);
+}
+.nmq-msg { margin: 0; font-size: .82rem; line-height: 1.9; color: var(--text-2); overflow-wrap: anywhere; }
+.nmq-msg b { color: var(--text-3); font-weight: 600; }
+.nmq-kv { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: .8rem; }
+.nmq-kv > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.nmq-kv dt { color: var(--text-3); font-weight: 600; }
+.nmq-kv dt::after { content: ":"; }
+.nmq-kv dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.nmq-mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.nmq-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 16px; border-top: 1px solid var(--line); font-size: .8rem; color: var(--text-3);
+}

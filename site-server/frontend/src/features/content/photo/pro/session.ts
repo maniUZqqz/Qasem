@@ -3,7 +3,8 @@ import { newCanvas } from "./gl/raster";
 
 export type ToolId =
   | "move" | "hand" | "crop" | "straighten" | "persp" | "text" | "brush" | "gradient" | "clone" | "heal" | "spot"
-  | "marquee" | "ellipse" | "lasso" | "subject" | "wb" | "redeye" | "pen" | "liquify" | "genfill";
+  | "marquee" | "ellipse" | "lasso" | "subject" | "wb" | "redeye" | "pen" | "liquify" | "genfill"
+  | "paint" | "pencil" | "eraser" | "bucket" | "history" | "picker";
 
 export type ToolOpts = {
   /** شعاعِ قلم، کسری از پهنای بوم */
@@ -26,11 +27,20 @@ export type ToolOpts = {
   liqSize: number;
   liqStrength: number;
   liqRate: number;
+  /** نقاشی (نوبت ۵): رنگِ پیش‌زمینه، نوعِ قلم‌مو، سطلِ رنگ */
+  color: string;
+  brushKind: "soft" | "hard" | "spray";
+  bucketTol: number;
+  bucketAll: boolean;
+  bucketContig: boolean;
+  /** شناسهٔ عکسِ لحظه‌ایِ منبعِ «قلمِ تاریخچه» ("" = اولِ کار) */
+  histSrc: string;
 };
 
 export const defaultToolOpts = (): ToolOpts => ({
   size: 0.04, hardness: 0.5, flow: 1, erase: false, gradKind: "linear", feather: 0, spotR: 0.02, heal: false, grid: "off",
   eyeR: 0.012, eyeAmount: 1, eyeDarken: 0.6, liq: "push", liqSize: 0.08, liqStrength: 0.7, liqRate: 0.5,
+  color: "#e11d48", brushKind: "soft", bucketTol: 24, bucketAll: true, bucketContig: true, histSrc: "",
 });
 
 export type ZoomCmd = { id: number; kind: "fit" | "100" | "in" | "out" } | null;

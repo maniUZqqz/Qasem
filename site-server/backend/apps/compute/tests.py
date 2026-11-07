@@ -220,7 +220,9 @@ class ComputeProtocolTests(TestCase):
         before = set(glob.glob(tempfile.gettempdir() + "/nm-submit-*"))
         r = staff.post("/api/v1/compute/submit/", {"kind": "echo", "payload": "{}", "dedupe": "0",
                                                    "image": io.BytesIO(b"x")}, format="multipart")
-        self.assertEqual(r.status_code, 503, "گره‌ای آنلاین نیست")
+        # صفِ ماندگار: گره‌ای آنلاین نیست ولی کارِ آزمایشی رد نمی‌شود؛ در صف می‌ماند تا اولین گره وصل شود
+        self.assertEqual(r.status_code, 201, "کارِ آزمایشی باید در صف بماند")
+        self.assertEqual(r.data["state"], "QUEUED")
         self.assertEqual(set(glob.glob(tempfile.gettempdir() + "/nm-submit-*")) - before, set())
 
     def test_anonymous_cannot_read_outputs(self):

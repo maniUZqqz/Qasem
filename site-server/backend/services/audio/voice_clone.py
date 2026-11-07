@@ -354,13 +354,33 @@ def offline_message(voice=None) -> str:
             "صدای دیگری به‌جای این صدا خوانده نمی‌شود.")
 
 
-def pick_node(voice=None) -> str:
-    """The node to use: the one that already holds this voice if it is on, else any node with the voice kit."""
+def _offline_error(voice=None):
+    """NodeOffline; اگر چنین سروری ثبت شده (فقط خاموش است) نشانهٔ «منتظرِ سرور» هم دارد: کارِ Celeryِ کاربر ناموفق نمی‌شود،
+    در صف می‌ماند (apps.compute.park)."""
+    err = NodeOffline(offline_message(voice))
+    try:
+        from apps.compute import services as compute
+        if compute.known_nodes("voice"):
+            err.node_waiting = "voice"
+    except Exception:  # noqa: BLE001
+        pass
+    return err
+
+
+def pick_node(voice=None, allow_offline: bool = False) -> str:
+    """The node to use: the one that already holds this voice if it is on, else any node with the voice kit.
+    allow_offline (صفِ ماندگار): nobody is on - take the node that holds the voice (or any registered voice node);
+    the job waits in the queue for it."""
     from apps.compute import services as compute
 
     nodes = compute.online_nodes("voice")
     if not nodes:
-        raise NodeOffline(offline_message(voice))
+        if allow_offline:
+            known = [n for n in compute.known_nodes("voice") if ((n.desired or {}).get("audio") or {}).get("clone") is not False]
+            if known:
+                names = [n.name for n in known]
+                return voice.node_name if voice is not None and voice.node_name in names else names[0]
+        raise _offline_error(voice)
     names = [n.name for n in nodes if ((n.desired or {}).get("audio") or {}).get("clone") is not False]
     if not names:
         raise VoiceCloneError("کلونِ صدا خاموش است (سرورهای پردازش › مدل‌های صدا) — برای ساختن یا خواندن با صدای "
@@ -464,7 +484,7 @@ def start_build(voice):
                               f"برای بهترین نتیجه {RECOMMENDED_CLIPS} جمله یا بیشتر بخوانید.")
     if voice.engine == "moss-fa":
         return _start_moss_build(voice, clips)
-    node = pick_node(voice)
+    node = pick_node(voice, allow_offline=True)
     old_node, old_id = voice.node_name, voice.node_voice_id
     rows, files = _clip_rows(voice, clips)
     payload = {
@@ -475,7 +495,7 @@ def start_build(voice):
         "nm_voice": voice.pk, "nm_signature": signature(voice),
     }
     job = compute.enqueue("voice.clone", payload, files, store=voice.store, origin="voice_clone", priority=50,
-                          timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False)
+                          timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False, require_online=False)
     if old_id and old_node and old_node != node:
         forget_on_node(voice, old_node, old_id)
     voice.status = voice.Status.BUILDING
@@ -535,7 +555,7 @@ def _start_moss_build(voice, clips):
     from . import node_audio
 
     try:
-        node = node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone")
+        node = node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone", allow_offline=True)
     except node_audio.NodeAudioError as exc:
         raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
     ref, chosen = build_moss_reference(voice, clips)
@@ -547,7 +567,7 @@ def _start_moss_build(voice, clips):
         "clips": [{"index": c.index, "text": c.text, "seconds": c.seconds, "in_reference": c.index in used} for c in clips],
     }
     job = compute.enqueue("voice.clone", payload, {"moss_ref.wav": str(ref)}, store=voice.store, origin="voice_clone",
-                          priority=50, timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False)
+                          priority=50, timeout_s=BUILD_TIMEOUT_S, node=node, dedupe=False, require_online=False)
     voice.status = voice.Status.BUILDING
     voice.build_job = job.uid
     voice.error = ""
@@ -664,12 +684,14 @@ def restore_bundle(voice, limit: int = 3) -> tuple[dict, dict]:
             "consent": _consent_payload(voice), "clips": rows}, files
 
 
-def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", restore: bool = False):
+def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", restore: bool = False,
+                durable: bool = False):
+    """durable=True (صفِ ماندگار): سرورِ پردازش خاموش بود ⇒ کار در صف می‌ماند (برای صفحه‌هایی که خودشان وضعیت را دنبال می‌کنند)."""
     from apps.compute import services as compute
 
     if voice.engine == "moss-fa":
-        return _enqueue_moss_tts(voice, text, seed=seed, origin=origin)
-    node = pick_node(voice)
+        return _enqueue_moss_tts(voice, text, seed=seed, origin=origin, durable=durable)
+    node = pick_node(voice, allow_offline=durable)
     payload = {"text": text, "voice": voice.node_voice_id or kit_name(voice), "engine": voice.engine or ENGINE,
                "clone": True, "strict": True, "out": "speech.wav", "rev": voice.revision, "nm_voice": voice.pk}
     if seed is not None:
@@ -678,15 +700,15 @@ def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", res
     if restore or node != voice.node_name:
         payload["restore"], files = restore_bundle(voice)
     return compute.enqueue("voice.tts", payload, files, store=voice.store, origin=origin, priority=60,
-                           timeout_s=TTS_TIMEOUT_S, node=node)
+                           timeout_s=TTS_TIMEOUT_S, node=node, require_online=not durable)
 
 
-def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone"):
+def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone", durable=False):
     """MOSS speaks in the voice of the reference that travels with every job: any node with the model will do."""
     from . import node_audio
 
     try:      # the «کلونِ صدا» switch and the node first: no reference is built for a job that cannot run
-        node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone")
+        node_audio.pick_node("moss", prefer=voice.node_name, purpose="clone", allow_offline=durable)
     except node_audio.NodeAudioError as exc:
         raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
     ref = moss_reference_path(voice)
@@ -701,7 +723,7 @@ def _enqueue_moss_tts(voice, text, *, seed=None, origin="voice_clone"):
         payload["seed"] = int(seed)
     try:
         return node_audio.enqueue("moss", "voice.tts", payload, {"moss_ref.wav": str(ref)}, store=voice.store, purpose="clone",
-                                  origin=origin, timeout_s=TTS_TIMEOUT_S, prefer=voice.node_name)
+                                  origin=origin, timeout_s=TTS_TIMEOUT_S, prefer=voice.node_name, durable=durable)
     except node_audio.NodeAudioError as exc:
         raise (NodeOffline if exc.code == "offline" else VoiceCloneError)(str(exc)) from exc
 
@@ -749,7 +771,7 @@ def synthesize_job(voice, text: str, *, seed=None, origin: str = "narration", wa
             logger.info("voice clone %s: node %s lost the voice, restoring it from the clips", voice.pk, job.node_id)
             job = compute.wait(enqueue_tts(voice, text, seed=seed, origin=origin, restore=True), wait_s)
     except compute.ComputeUnavailable as exc:
-        raise NodeOffline(offline_message(voice)) from exc
+        raise _offline_error(voice) from exc
     except compute.ComputeError as exc:
         raise VoiceCloneError(friendly(str(exc))) from exc
     note_node_copy(voice, job)

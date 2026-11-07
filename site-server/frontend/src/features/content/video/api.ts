@@ -156,7 +156,10 @@ export const videoApi = {
   /** زیرنویسِ خودکار — job؛ نتیجه {clips: TextClip[], text, engine, count} */
   captions: (store: string, body: { ref: string; start: number; end: number; at: number; speed?: number }) =>
     api.post<{ job_id: number }>(`${base(store)}/captions/`, body).then((r) => r.data),
-  renders: (store: string, id: number) => api.get<{ jobs: RenderJobRow[]; exports: ExportRow[] }>(`${base(store)}/projects/${id}/renders/`).then((r) => r.data),
+  /** ترجمهٔ زیرنویس — job؛ نتیجه {lang, items: [{id, text}]} */
+  translateCaptions: (store: string, body: { lang: string; clips: { id: string; text: string }[] }) =>
+    api.post<{ job_id: number }>(`${base(store)}/captions/translate/`, body).then((r) => r.data),
+  renders: (store: string, id: number) => api.get<{ jobs: RenderJobRow[]; exports: ExportRow[]; replaced?: Record<string, { ref: string; seconds: number; has_audio: boolean; title?: string }> }>(`${base(store)}/projects/${id}/renders/`).then((r) => r.data),
   cancelJob: (jobId: number) => api.post(`/jobs/${jobId}/cancel/`),
   // ───────────── ابزارهای ویژه (pro 2)
   luts: (store: string) => api.get<{ luts: LutRow[] }>(`${base(store)}/luts/`).then((r) => r.data.luts),

@@ -178,6 +178,75 @@ def nvenc_args(spec: ExportSpec) -> list[str]:
 # --------------------------------------------------------------------- runner
 
 
+class RenderMemoryError(Exception):
+    """ffmpeg was killed by the system for lack of memory (exit -9 / 137). Carries a Persian sentence for the person."""
+
+
+OOM_MESSAGE = "سرور برای این رندر حافظهٔ کافی نداشت (قابِ بزرگ و قطعه‌های زیاد). خودکار با اندازهٔ کوچک‌تر دوباره امتحان می‌شود؛ اگر باز نشد قاب یا خروجی را کوچک‌تر (مثلاً ۷۲۰) انتخاب کنید."
+
+#: ffmpeg keeps frames of EVERY branch of the graph in flight: memory ≈ clips × picture size × threads. With many clips (a Director edit is 15–30 cuts) or a big
+#: picture the decoders and the filter graph therefore run single-threaded, which keeps the peak flat (measured: ~2.4 GB → under 1 GB at 1080×1920, 18 inputs).
+LEAN_INPUTS = 5
+LEAN_PIXELS = 1280 * 720
+
+#: ffmpeg decodes EVERY clip's frames as fast as it can and parks them in the graph until the overlay chain reaches them (no back-pressure in ffmpeg 8): a
+#: 40-second edit of 16 cuts at 1080×1920 therefore holds ~2.4 GB at once (the 4 GB server's kernel killed it). So a heavy timeline is rendered in TIME SLICES
+#: (each slice only decodes its own clips), the slices are joined without re-encoding, and the sound is built once for the whole timeline and muxed in.
+CHUNK_BUDGET = 640 * 1024 * 1024
+MIN_SLICE = 1.5
+
+
+def _frame_bytes(clip, W: int, H: int) -> float:
+    sw, sh = (clip.src_w or W), (clip.src_h or H)
+    heavy = bool(clip.rot or abs(clip.scale - 1) > 1e-6 or clip.chroma or clip.mask or clip.crop or clip.fade_in or clip.fade_out or clip.opacity < 1 or clip.kf or clip.blend != "normal")
+    return (W * H * 1.5 * (2.2 if heavy else 1.0)) + sw * sh * 1.5
+
+
+def plan_slices(timeline: Timeline, budget: int | None = None) -> list[tuple[float, float]] | None:
+    """Time slices [(t0, t1)…] so that the clips of each slice need at most `budget` bytes of frames in flight; None = render in one go.
+    Cuts fall on clip boundaries on the frame grid, never where a transition joins two neighbours."""
+    budget = budget or CHUNK_BUDGET
+    W, H, fps = timeline.width, timeline.height, timeline.fps or 30
+    clips = [c for t in timeline.tracks if t.kind == "video" and not t.hidden for c in t.clips if c.kind in ("video", "image")]
+    if len(clips) < 3:
+        return None
+    length = max((c.ends_at for t in timeline.tracks for c in t.clips), default=0.0)
+    if length < 2 * MIN_SLICE:
+        return None
+    grid = lambda x: round(x * fps) / fps
+    no_cut = {grid(c.at) for c in clips if c.transition}
+    edges = sorted({0.0, grid(length), *(grid(c.at) for c in clips), *(grid(c.ends_at) for c in clips)} - no_cut)
+    edges = [e for e in edges if 0.0 <= e <= grid(length)]
+    if edges[0] != 0.0:
+        edges.insert(0, 0.0)
+    if edges[-1] != grid(length):
+        edges.append(grid(length))
+
+    def cost(a: float, b: float) -> float:
+        return sum(max(0.0, min(c.ends_at, b) - max(c.at, a)) * fps * _frame_bytes(c, W, H) for c in clips)
+    if cost(0.0, length) <= budget:
+        return None
+    out: list[tuple[float, float]] = []
+    start, acc = edges[0], 0.0
+    for a, b in zip(edges, edges[1:]):
+        c = cost(a, b)
+        if acc and acc + c > budget and a - start >= MIN_SLICE:
+            out.append((start, a))
+            start, acc = a, 0.0
+        acc += c
+    out.append((start, edges[-1]))
+    if len(out) > 1 and out[-1][1] - out[-1][0] < MIN_SLICE:             # a short tail joins the slice before it
+        out[-2] = (out[-2][0], out[-1][1])
+        out.pop()
+    return out if len(out) > 1 else None
+
+
+def lean_flags(n_inputs: int, width: int, height: int) -> tuple[list[str], list[str]]:
+    """(global flags, per-input flags) that cap ffmpeg's memory. Empty for a small, simple edit (full speed)."""
+    heavy = n_inputs >= LEAN_INPUTS or (n_inputs >= 3 and width * height > LEAN_PIXELS)
+    return (["-filter_complex_threads", "1"], ["-threads", "1"]) if heavy else ([], [])
+
+
 def run_ffmpeg(cmd: list[str], *, total: float = 0.0, progress=None, cancel=None, timeout: float | None = None) -> None:
     """Run ffmpeg with `-progress`, report 0..1 through `progress(fraction)`, stop when `cancel()` is true."""
     from services.video.ffmpeg import FFMPEG_TIMEOUT_SECONDS, VideoProcessingError, stderr_summary
@@ -221,6 +290,8 @@ def run_ffmpeg(cmd: list[str], *, total: float = 0.0, progress=None, cancel=None
                 last = state["t"]
                 progress(min(0.99, state["t"] / total))
         reader.join(timeout=2)
+        if proc.returncode in (-9, 137):                       # SIGKILL: the kernel's out-of-memory killer
+            raise RenderMemoryError(OOM_MESSAGE)
         if proc.returncode != 0:
             err.seek(0)
             detail = stderr_summary(err.read().decode("utf-8", errors="replace")) or f"exit code {proc.returncode}"
@@ -242,8 +313,84 @@ def _graph_arg(graph: str, tmp_files: list[Path]) -> list[str]:
     return ["-/filter_complex", handle.name] if ffmpeg_version() >= (7, 0) else ["-filter_complex_script", handle.name]
 
 
+def _write_graph(graph: str, texts: dict, tmp_files: list[Path]) -> list[str]:
+    from services.video.ffmpeg import filter_path
+
+    for token, text in texts.items():
+        handle = tempfile.NamedTemporaryFile("w", suffix=".ass", delete=False, encoding="utf-8")
+        handle.write(text)
+        handle.close()
+        tmp_files.append(Path(handle.name))
+        graph = graph.replace(token, filter_path(handle.name)[1:-1])
+    return _graph_arg(graph, tmp_files)
+
+
+def _render_in_slices(work: Timeline, out: Path, spec, quality: str, export_given: bool, slices: list[tuple[float, float]], *, progress, cancel, spans) -> Path:
+    """Picture slice by slice (video only), joined by stream copy; sound once; then muxed. Same pixels as the one-go render, a fraction of the memory."""
+    import shutil
+    import uuid
+
+    from services.video.ffmpeg import AUDIO_DELIVERY, FFMPEG, VideoProcessingError
+
+    from . import compose
+    from . import timeline as tlmod
+
+    folder = out.parent / f".slices_{uuid.uuid4().hex[:8]}"
+    folder.mkdir(parents=True, exist_ok=True)
+    total = max(0.1, slices[-1][1])
+    done = 0.0
+    tmp_files: list[Path] = []
+    try:
+        parts: list[Path] = []
+        for i, (t0, t1) in enumerate(slices):
+            if cancel is not None and cancel():
+                raise RenderCancelled()
+            part = tlmod.window(work, t0, t1)
+            built = compose.build_graph(part, spans=spans, need_base=False, audio=False)
+            glob, per_input = lean_flags(len(built.inputs), work.width, work.height)
+            cmd = [FFMPEG, "-y", *glob]
+            for source, args in zip(built.inputs, built.input_args):
+                cmd += [*args, *per_input, "-i", str(source)]
+            cmd += [*_write_graph(built.graph, built.texts, tmp_files), "-map", "[vout]", "-an"]
+            cmd += encode_args(spec, draft=(quality == "draft" and not export_given))
+            f = folder / f"s{i:03d}.mp4"
+            cmd += ["-frames:v", str(max(1, round((t1 - t0) * (work.fps or 30)))), "-threads", "2", str(f)]      # exact frame count: no drift against the sound
+            lo, span = done, (t1 - t0)
+            run_ffmpeg(cmd, total=built.length, progress=(lambda x, lo=lo, span=span: progress((lo + x * span) / total * 0.9)) if progress else None, cancel=cancel)
+            done += span
+            parts.append(f)
+        listing = folder / "list.txt"
+        listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
+        video_all = folder / "video.mp4"
+        run_ffmpeg([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(video_all)], cancel=cancel)
+        sound = compose.build_graph(work, spans=spans, need_base=False, video=False)
+        if sound.has_audio:
+            cmd = [FFMPEG, "-y"]
+            for source, args in zip(sound.inputs, sound.input_args):
+                cmd += [*args, "-vn", "-i", str(source)]
+            audio_args = list(AUDIO_DELIVERY)
+            if spec is not None:
+                audio_args = ["-c:a", "aac", "-b:a", f"{spec.audio_kbps}k", "-ar", "48000"]
+            cmd += [*_write_graph(sound.graph, sound.texts, tmp_files), "-map", "[aout]", *audio_args, str(folder / "audio.m4a")]
+            run_ffmpeg(cmd, total=sound.length, progress=(lambda x: progress(0.9 + x * 0.08)) if progress else None, cancel=cancel)
+            run_ffmpeg([FFMPEG, "-y", "-i", str(video_all), "-i", str(folder / "audio.m4a"), "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-shortest",
+                        "-movflags", "+faststart", str(out)], cancel=cancel)
+        else:
+            run_ffmpeg([FFMPEG, "-y", "-i", str(video_all), "-c", "copy", "-movflags", "+faststart", str(out)], cancel=cancel)
+    finally:
+        for path in tmp_files:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        shutil.rmtree(folder, ignore_errors=True)
+    if not out.exists() or out.stat().st_size == 0:
+        raise VideoProcessingError("تایم‌لاین رندر نشد")
+    return out
+
+
 def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict | None = None, progress=None, cancel=None,
-           spans=None) -> Path:
+           spans=None, notes: list | None = None, slice_budget: int | None = None, _lowmem: int = 0) -> Path:
     """Encode the arrangement. `quality="draft"` is the old fast preview of the whole project; with `export` (the
     project's export block) the encode follows the preset."""
     from services.video.ffmpeg import AUDIO_DELIVERY, FFMPEG, VideoProcessingError, filter_path
@@ -257,12 +404,15 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
     if spec is not None:
         w, h = size_for(timeline, spec.short_side if quality != "draft" or export else None)
         work = dataclasses.replace(timeline, width=w, height=h, fps=spec.fps or timeline.fps)
-    built = compose.build_graph(work, spans=spans)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     tmp_files: list[Path] = []
     try:
+        slices = plan_slices(work, (slice_budget or CHUNK_BUDGET) >> _lowmem) if slice_budget != 0 else None
+        if slices:
+            return _render_in_slices(work, out, spec, quality, bool(export), slices, progress=progress, cancel=cancel, spans=spans)
+        built = compose.build_graph(work, spans=spans)
         graph = built.graph
         for token, text in built.texts.items():
             handle = tempfile.NamedTemporaryFile("w", suffix=".ass", delete=False, encoding="utf-8")
@@ -270,9 +420,10 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
             handle.close()
             tmp_files.append(Path(handle.name))
             graph = graph.replace(token, filter_path(handle.name)[1:-1])    # unquoted: the filter already quotes
-        command = [FFMPEG, "-y"]
+        glob, per_input = lean_flags(len(built.inputs), work.width, work.height)
+        command = [FFMPEG, "-y", *glob]
         for source, args in zip(built.inputs, built.input_args):
-            command += [*args, "-i", str(source)]
+            command += [*args, *per_input, "-i", str(source)]
         command += [*_graph_arg(graph, tmp_files), "-map", "[vout]"]
         if built.has_audio:
             audio = list(AUDIO_DELIVERY)
@@ -286,6 +437,26 @@ def render(timeline: Timeline, out_path, *, quality: str = "final", export: dict
             command += encode_args(spec, draft=(quality == "draft" and not export))
         command += ["-threads", "2", str(out)]
         run_ffmpeg(command, total=built.length, progress=progress, cancel=cancel)
+    except RenderMemoryError:
+        # one automatic second try at a smaller picture (and 24 fps); the person is told what changed
+        for path in tmp_files:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        tmp_files.clear()
+        out.unlink(missing_ok=True)
+        if _lowmem >= 2:
+            raise VideoProcessingError(OOM_MESSAGE)
+        short = min(work.width, work.height)
+        target = 720 if short > 720 else 540 if short > 540 else 400
+        if notes is not None:
+            notes.append(f"برای کمبودِ حافظهٔ سرور خروجی با اندازهٔ کوچک‌تر ({str(target).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))}) ساخته شد.")
+        redo = {**(export or {}), "height": target, "fps": min(int((export or {}).get("fps") or work.fps or 30), 24)}
+        if not export:
+            redo["quality"] = "small"                        # a quick draft stays cheap
+        return render(timeline, out_path, quality=quality, export=redo, progress=progress, cancel=cancel,
+                      spans=spans, notes=notes, _lowmem=_lowmem + 1)
     finally:
         for path in tmp_files:
             try:

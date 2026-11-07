@@ -298,6 +298,8 @@ export type ProjectSummary = { id: number; asset: number; title: string; rev: nu
 export type Project = ProjectSummary & {
   data: Record<string, unknown>;
   masks: Record<string, string>;
+  /** لایه‌های نقاشی: شناسه ⇒ نشانیِ PNG (نوبت ۵) */
+  paints?: Record<string, string>;
   /** نقشهٔ مایع‌سازیِ پروژه (liquify.bin)؛ نبود/null = ندارد */
   liquify?: { rev: number; gw: number; gh: number; url: string } | null;
 };
@@ -403,6 +405,12 @@ export const proApi = {
   putMask: (store: string, pid: number, mid: string, blob: Blob) =>
     api
       .put<{ id: string; url: string; w: number; h: number }>(`${base(store)}/projects/${pid}/masks/${mid}/`, blob, {
+        headers: { "Content-Type": "image/png" },
+      })
+      .then((r) => r.data),
+  putPaint: (store: string, pid: number, paintId: string, blob: Blob) =>
+    api
+      .put<{ id: string; url: string; w: number; h: number }>(`${base(store)}/projects/${pid}/paints/${paintId}/`, blob, {
         headers: { "Content-Type": "image/png" },
       })
       .then((r) => r.data),

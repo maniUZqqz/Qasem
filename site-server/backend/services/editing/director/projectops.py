@@ -387,6 +387,36 @@ def remove_range(project: dict, a: float, b: float, ripple: bool = True, only_tr
     return n
 
 
+END_CARD = "کارتِ پایانی"
+
+
+def heal_overlaps(project: dict) -> int:
+    """Last line of defence: no two clips of one video track may occupy the same moment (the renderer refuses such a project with
+    «دو قطعه هم‌زمان‌اند»). A later clip is pushed to where the earlier one ends; the end card always goes after everything else.
+    Returns how many clips were moved (0 = the project was already fine and is untouched)."""
+    moved = 0
+    for t in project["tracks"]:
+        if t.get("kind") != "video":
+            continue
+        clips = [c for c in t["clips"] if c.get("type") == "media"]
+        cards = [c for c in clips if c.get("label") == END_CARD]
+        rest = sorted([c for c in clips if c not in cards], key=lambda c: float(c["at"]))
+        cursor = 0.0
+        for c in rest:
+            if float(c["at"]) < cursor - 0.001:
+                c["at"] = round(cursor, 3)
+                moved += 1
+            cursor = max(cursor, clip_end(c))
+        for c in sorted(cards, key=lambda c: float(c["at"])):
+            if float(c["at"]) < cursor - 0.001:
+                c["at"] = round(cursor, 3)
+                moved += 1
+            cursor = max(cursor, clip_end(c))
+        if moved:
+            sort_track(t)
+    return moved
+
+
 def close_gaps(track: dict, start_at: float = 0.0) -> None:
     """Butt every clip of the track against the previous one (keeping order)."""
     sort_track(track)

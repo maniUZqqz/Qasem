@@ -19,6 +19,7 @@ urlpatterns = [
     path(P + "projects/", views.ProjectListView.as_view(), name="photoedit-projects"),
     path(P + "projects/<int:pk>/", views.ProjectView.as_view(), name="photoedit-project"),
     path(P + "projects/<int:pk>/masks/<str:mid>/", views.MaskView.as_view(), name="photoedit-mask"),
+    path(P + "projects/<int:pk>/paints/<str:mid>/", views.PaintView.as_view(), name="photoedit-paint"),
     path(P + "exact/", views.ExactView.as_view(), name="photoedit-exact"),
     path(P + "exact/<uuid:uid>/", views.ExactStatusView.as_view(), name="photoedit-exact-status"),
     path(P + "subject/", views.SubjectView.as_view(), name="photoedit-subject"),

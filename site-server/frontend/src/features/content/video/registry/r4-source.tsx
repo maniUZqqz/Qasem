@@ -52,6 +52,49 @@ export default function SourcePanel({ api, props }: PanelProps) {
     return () => v.removeEventListener("timeupdate", tick);
   }, [ref, urls[ref]]);
 
+  // پخشِ J / K / L (عقب / ایست / جلو؛ هر بار L یا J سریع‌تر تا ۴ برابر). عقب‌رفتن را مرورگر ندارد ⇒ با قدم‌هایِ کوچک شبیه‌سازی می‌شود.
+  const rev = useRef<number | null>(null);
+  const [shuttle, setShuttle] = useState(0);
+  const stopRev = () => {
+    if (rev.current !== null) window.clearInterval(rev.current);
+    rev.current = null;
+  };
+  useEffect(() => stopRev, []);
+  useEffect(() => {
+    stopRev();
+    setShuttle(0);
+  }, [ref]);
+  const jkl = (key: "j" | "k" | "l") => {
+    const v = el.current;
+    if (!v) return;
+    stopRev();
+    if (key === "k") {
+      v.pause();
+      setPlaying(false);
+      setShuttle(0);
+      return;
+    }
+    const speeds = [1, 2, 4];
+    const cur = Math.abs(shuttle);
+    const dir = key === "l" ? 1 : -1;
+    const next = Math.sign(shuttle) === dir ? speeds[Math.min(2, speeds.indexOf(cur) + 1)] : 1;
+    setShuttle(dir * next);
+    if (dir > 0) {
+      v.playbackRate = next;
+      if (v.currentTime >= dur - 0.05) v.currentTime = inP ?? 0;
+      void v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    } else {
+      v.pause();
+      setPlaying(false);
+      rev.current = window.setInterval(() => {
+        const nt = Math.max(0, v.currentTime - 0.04 * next);
+        v.currentTime = nt;
+        setT(nt);
+        if (nt <= 0) { stopRev(); setShuttle(0); }
+      }, 40);
+    }
+  };
+
   const seekTo = (x: number) => {
     const v = el.current;
     const c = Math.max(0, Math.min(dur, x));
@@ -123,9 +166,10 @@ export default function SourcePanel({ api, props }: PanelProps) {
   const onKey = (e: React.KeyboardEvent) => {
     const k = e.key.toLowerCase();
     if (e.target instanceof HTMLSelectElement || (e.target instanceof HTMLInputElement && e.target.type !== "range")) return;
-    if (k === " ") { e.preventDefault(); toggle(); }
-    else if (k === "i" || e.code === "KeyI") { e.preventDefault(); mark("in"); }
-    else if (k === "o" || e.code === "KeyO") { e.preventDefault(); mark("out"); }
+    if (e.code === "KeyJ" || e.code === "KeyK" || e.code === "KeyL") { e.preventDefault(); jkl(e.code === "KeyJ" ? "j" : e.code === "KeyK" ? "k" : "l"); }
+    else if (k === " ") { e.preventDefault(); stopRev(); setShuttle(0); toggle(); }
+    else if (e.code === "KeyI") { e.preventDefault(); mark("in"); }
+    else if (e.code === "KeyO") { e.preventDefault(); mark("out"); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); seekTo(t - (e.shiftKey ? 1 : 1 / fps)); }
     else if (e.key === "ArrowRight") { e.preventDefault(); seekTo(t + (e.shiftKey ? 1 : 1 / fps)); }
     else if (e.altKey && e.code === "KeyX") { e.preventDefault(); setIn(null); setOut(null); }
@@ -160,6 +204,10 @@ export default function SourcePanel({ api, props }: PanelProps) {
         <button type="button" className="ws-btn" onClick={() => seekTo(t - 1 / fps)} aria-label="یک فریم عقب" title="یک فریم عقب (←)">◀︎</button>
         <button type="button" className="ws-btn" onClick={toggle} aria-label={playing ? "ایست" : "پخش"} title="پخش / ایست (Space)" data-testid="src-play">{playing ? "❚❚" : "▶"}</button>
         <button type="button" className="ws-btn" onClick={() => seekTo(t + 1 / fps)} aria-label="یک فریم جلو" title="یک فریم جلو (→)">▶︎</button>
+        <button type="button" className={`ws-btn ${shuttle < 0 ? "is-on" : ""}`} onClick={() => jkl("j")} aria-label="عقب‌رفتن (J)" title="J = عقب‌رفتن؛ دوباره بزنید تا سریع‌تر شود" data-testid="src-j">J</button>
+        <button type="button" className="ws-btn" onClick={() => jkl("k")} aria-label="ایست (K)" title="K = ایست" data-testid="src-k">K</button>
+        <button type="button" className={`ws-btn ${shuttle > 0 ? "is-on" : ""}`} onClick={() => jkl("l")} aria-label="جلورفتن (L)" title="L = جلورفتن؛ دوباره بزنید تا سریع‌تر شود (تا ۴ برابر)" data-testid="src-l">L</button>
+        {shuttle !== 0 && <span className="src-tc" data-testid="src-rate">{shuttle < 0 ? "◀◀" : "▶▶"} {Math.abs(shuttle)}×</span>}
         <input type="range" min={0} max={dur || 1} step={1 / fps} value={Math.min(t, dur || 1)} onChange={(e) => seekTo(Number(e.target.value))} aria-label="جای پخش در منبع" data-testid="src-seek" style={{ flex: 1 }} />
         <span className="src-tc" data-testid="src-time">{tc(t)}</span>
       </div>

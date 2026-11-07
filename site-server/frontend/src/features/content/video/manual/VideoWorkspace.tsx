@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, errorMessage } from "../../../../api/client";
 import Workspace from "../../../../components/Workspace";
-import { Badge, Spinner } from "../../../../components/ui";
+import { Badge, Spinner, fa } from "../../../../components/ui";
 import { useHistory } from "../../../../hooks/useHistory";
 import { useJobRunner } from "../../../../hooks/useJobRunner";
 import type { Job } from "../../../../types";
@@ -33,6 +33,12 @@ import {
   newMediaClip, nudgeEdge, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
 } from "./model";
 import { cuesOf, makeRoom, parseSrt, spanOf, splitAtSourceCuts, toSrt } from "./r4ops";
+import { foldersOf, rippleDeleteSync, syncTracks } from "./r5ops";
+import { addAdjustment, adjustmentSpan } from "./r5fx";
+import { applyReplace, pollJob, replaceSpec } from "./r5replace";
+import { autoColor, eyedropper, frameStats, patchToParams, samplePixel } from "./colorTools";
+import { grabFrame } from "./frameGrab";
+import PointOverlay from "../registry/r5-pick";
 import { detectScenes } from "./reframeApi";
 import Scopes from "./Scopes";
 import QuickStart from "./QuickStart";
@@ -41,6 +47,7 @@ import TimelineView, { Tool } from "./TimelineView";
 import TrimBar from "./TrimBar";
 import { ALL_FEATURES, ALL_PANELS, comboOf, isKeyCapture, latinKey, pushRecent, typingTarget, useKeymap } from "../registry";
 import type { FeatureDef, WorkspaceApi } from "../registry";
+import { UploadProgress, useVideoUpload } from "../useVideoUpload";
 import CommandPalette from "../registry/CommandPalette";
 import MenuBar from "../registry/MenuBar";
 import PanelHost from "../registry/PanelHost";
@@ -125,6 +132,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [renderStarting, setRenderStarting] = useState(false);
   const [help, setHelp] = useState(false);
   const [loopOn, setLoopOn] = useState(false);
+  const [picker, setPicker] = useState<null | "wb">(null);
   const loopRef = useRef(false);
   loopRef.current = loopOn;
   const [menubar, setMenubar] = useState<boolean>(() => {
@@ -169,6 +177,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     }
   }, [storeId]);
   const uploadRunner = useJobRunner(loadBin);
+  const upl = useVideoUpload(storeId);
   const proxyRunner = useJobRunner(async () => {
     setProxyBusy(null);
     await loadBin();
@@ -393,7 +402,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   function removeSelected(ripple: boolean) {
     if (!selection.length) return;
     const ids = selection;
-    apply(ripple ? "حذفِ بی‌فاصله" : "حذف", (pr) => deleteClips(pr, ids, ripple));
+    apply(ripple ? "حذفِ بی‌فاصله" : "حذف", (pr) => (ripple && syncTracks(pr) ? rippleDeleteSync(pr, ids) : deleteClips(pr, ids, ripple)));
     setSelection([]);
   }
 
@@ -505,15 +514,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
 
   async function uploadVideo(file: File) {
-    const body = new FormData();
-    body.append("video", file);
-    body.append("title", file.name);
+    const res = await upl.start(file);
+    if (!res) return;
     uploadRunner.begin();
-    try {
-      const { data } = await api.post(`/stores/${storeId}/videos/`, body);
-      if (data.job_id) uploadRunner.track(data.job_id);
-    } catch (err) {
-      uploadRunner.fail(errorMessage(err));
+    const jobId = (res as { job_id?: number | null }).job_id;
+    if (jobId) uploadRunner.track(jobId);
+    else {
+      uploadRunner.fail("ویدیو آپلود شد ولی بررسی‌اش شروع نشد؛ صفحه را تازه کنید.");
+      await loadBin();
     }
   }
 
@@ -547,6 +555,54 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       setNotice(errorMessage(err));
     } finally {
       setRenderStarting(false);
+    }
+  }
+
+  /** یک رندرِ نهایی با تنظیماتِ خروجیِ داده‌شده (برای صفِ چندخروجی)؛ خطا را به صورتِ نتیجه برمی‌گرداند نه استثنا */
+  async function renderOne(override: Record<string, unknown>): Promise<{ ok: true } | { ok: false; full?: boolean; message: string }> {
+    try {
+      const id = await saveNow();
+      if (!id) return { ok: false, message: "ذخیرهٔ پروژه نشد؛ رندر شروع نشد." };
+      await videoApi.render(storeId, id, "final", { data: JSON.parse(saveRef.current.key), export: override });
+      return { ok: true };
+    } catch (err) {
+      const code = (err as { response?: { data?: { error?: { code?: string } } } }).response?.data?.error?.code;
+      return { ok: false, full: code === "queue_full", message: errorMessage(err) };
+    }
+  }
+
+  // «رندر و جایگزینی»: قطعه‌های انتخاب‌شده روی سرور پخته می‌شوند و فایلِ حاصل جایشان می‌نشیند
+  const latestView = useRef(project);
+  latestView.current = project;
+  const replacing = useRef(false);
+  async function renderReplaceSelected() {
+    if (replacing.current) { setNotice("یک «رندر و جایگزینی» در حال انجام است؛ کمی صبر کنید."); return; }
+    const spec = replaceSpec(project, selection);
+    if (!spec.ok) { setNotice(spec.error); return; }
+    replacing.current = true;
+    try {
+      setNotice("در حال فرستادنِ قطعه‌ها برای پختن روی سرور…");
+      const id = await saveNow();
+      if (!id) { setNotice("ذخیرهٔ پروژه نشد؛ کار شروع نشد."); return; }
+      const { job_id } = await videoApi.render(storeId, id, "final", { data: { ...spec.data, sequences: root.sequences }, export: { replace: true } });
+      for (let i = 0; i < 600; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const got = await videoApi.renders(storeId, id) as { jobs: { id: number; state: string; error: string; label: string; percent: number; active: boolean }[]; replaced?: Record<string, { ref: string; seconds: number; has_audio: boolean }> };
+        const st = pollJob(got.jobs, got.replaced ?? {}, job_id);
+        if (st.phase === "wait") { setNotice(`در حال پختن روی سرور… ${st.percent ? `${fa(st.percent)}٪` : ""} ${st.label}`.trim()); continue; }
+        if (st.phase === "failed") { setNotice(st.message); return; }
+        await loadBin();
+        const next = applyReplace(latestView.current, spec, st.rendered);
+        if (!next) { setNotice("در این فاصله قطعه‌ها عوض شدند؛ جایگزین نشد. فایلِ پخته‌شده در رسانه‌ها هست و می‌توانید دستی بگذارید."); return; }
+        apply("رندر و جایگزینی", () => next);
+        setNotice("قطعه‌ها پخته و جایگزین شدند (برگشت: Ctrl+Z؛ فایلِ پخته‌شده در رسانه‌ها می‌ماند).");
+        return;
+      }
+      setNotice("پختن بیش از حد طول کشید؛ بعداً از تبِ «خروجی» نتیجه را ببینید.");
+    } catch (err) {
+      setNotice(errorMessage(err));
+    } finally {
+      replacing.current = false;
     }
   }
 
@@ -899,7 +955,9 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     setTab("clip");
   }
 
-  const pickOverlay = pickRegion ? (
+  const pickOverlay = picker === "wb" ? (
+    <PointOverlay hint="روی بخشی از تصویر که باید سفید یا خاکستری باشد کلیک کنید (Esc = انصراف)" onCancel={() => setPicker(null)} onPick={(fx, fy) => finishWbPick(fx, fy)} />
+  ) : pickRegion ? (
     <RegionOverlay rect={region} onRect={setRegion} />
   ) : editingMask && selected && isMedia(selected.clip) && selected.clip.mask?.shape === "bezier" ? (
     <BezierOverlay
@@ -999,6 +1057,44 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     if (final) apply("برشِ قاب", (pr) => updateClip(pr, id, patch));
     else live((pr) => updateClip(pr, id, patch));
   };
+
+  // ───────────── رنگِ خودکار و قطره‌چکانِ تعادلِ سفید
+  function addAdjustmentLayer() {
+    const span = adjustmentSpan(project, time);
+    const made = addAdjustment(project, time, span);
+    apply("لایهٔ تنظیم", () => made.project);
+    setSelection([made.id]);
+    setTab("color");
+    setNotice("لایهٔ تنظیم ساخته شد؛ هر رنگ یا افکتی که این‌جا بدهید روی همهٔ ترک‌های زیرِ آن اثر می‌کند.");
+  }
+  async function autoColorSelected() {
+    const c = selected && selected.clip.type === "media" && selected.clip.kind !== "audio" && selected.clip.ref !== "shape" ? selected.clip : null;
+    const item = c ? media[c.ref] : null;
+    if (!c || !item) { setNotice("اول یک ویدیو یا عکس را روی تایم‌لاین انتخاب کنید."); return; }
+    setNotice("در حالِ خواندنِ یک فریم برای رنگِ خودکار…");
+    try {
+      const img = await grabFrame(item, srcTimeAt(c, c.at + clipLength(c) / 2));
+      const patch = autoColor(frameStats(img));
+      apply("رنگِ خودکار", (pr) => updateClip(pr, c.id, { color: patchToParams(c.color, patch) }));
+      setNotice(`رنگِ خودکار اعمال شد (نوردهی ${patch.exposure}، کنتراست ${patch.contrast}، دما ${patch.temperature}، تینت ${patch.tint}، اشباع ${patch.saturation}). ریزتنظیم: تبِ «رنگ»؛ برگشت: Ctrl+Z.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : errorMessage(err));
+    }
+  }
+  function startWbPick() {
+    if (!(selected && selected.clip.type === "media" && selected.clip.kind !== "audio")) { setNotice("اول یک ویدیو یا عکس را روی تایم‌لاین انتخاب کنید."); return; }
+    setPlaying(false);
+    setPicker("wb");
+  }
+  function finishWbPick(fx: number, fy: number) {
+    setPicker(null);
+    const c = selected && selected.clip.type === "media" ? selected.clip : null;
+    const frame = monitor.current?.getFrame();
+    if (!c || !frame) { setNotice("فریمِ مانیتور خوانده نشد؛ یک بار پخش/توقف کنید و دوباره امتحان کنید."); return; }
+    const fix = eyedropper(samplePixel(frame, fx, fy), { temperature: c.color?.temperature, tint: c.color?.tint });
+    apply("قطره‌چکانِ تعادلِ سفید", (pr) => updateClip(pr, c.id, { color: patchToParams(c.color, { temperature: fix.temperature, tint: fix.tint }) }));
+    setNotice(`تعادلِ سفید تنظیم شد (دما ${fix.temperature}، تینت ${fix.tint}). اگر هنوز رنگی بود روی نقطهٔ دیگری بزنید.`);
+  }
 
   // ───────────── تشخیصِ برش‌ها (Scene edit detection)
   async function detectScenesOnSelection(sensitivity: "low" | "normal" | "high") {
@@ -1166,6 +1262,11 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       importSrt: importSrtFile,
       duplicateProject: () => void duplicateCurrentProject(),
       detectScenes: (sens) => void detectScenesOnSelection(sens),
+      autoColor: () => void autoColorSelected(),
+      pickWhiteBalance: startWbPick,
+      addAdjustment: addAdjustmentLayer,
+      renderOne,
+      renderReplace: () => void renderReplaceSelected(),
       renderAs: (what) => {
         const io = project.inout && project.inout.out > project.inout.in + 0.05 ? { range: "inout" } : {};
         const t = Math.round(time * 100) / 100;
@@ -1247,7 +1348,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       )}
       {menubar && <MenuBar features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onSearch={() => setSearchOpen(true)} />}
       <div className="vw-grid" dir="ltr">
-        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} onGoSound={() => setTab("audio")} />
+        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} uploadSlot={<UploadProgress up={upl as never} compact />} folders={foldersOf(root)} onFolderOp={applyRoot} onGoSound={() => setTab("audio")} />
         <Monitor
           ref={monitor}
           project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}

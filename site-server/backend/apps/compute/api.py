@@ -17,6 +17,7 @@ from rest_framework import authentication, exceptions, permissions
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.response import Response
 
+from . import queue as QV
 from . import services as SV
 from .models import ComputeJob, ComputeNode, ComputeNodeLog, ComputeSettings, new_token
 
@@ -61,6 +62,8 @@ def job_json(j: ComputeJob, with_payload=False) -> dict:
          "node": j.node.name if j.node else None, "origin": j.origin, "attempts": j.attempts,
          "created": j.created_at, "claimed": j.claimed_at, "finished": j.finished_at, "final": j.final,
          "dedupe": bool(j.dedupe_of_id), "timeout_s": j.timeout_s,
+         "queued_at": j.queued_at, "waited_s": j.waited_s, "run_s": j.run_s, "lost_count": j.lost_count,
+         "max_attempts": j.max_attempts, "scheduled_for": j.not_before, "window": j.window, "category": j.category,
          "outputs": [{**o, "url": SV.output_url(j, o["name"])} for o in j.outputs()],
          "meta": (j.result or {}).get("meta") or {},
          # پیشرفتِ زندهٔ کارهای طولانی (دانلودِ مدل: done/total بایت، سرعت، مرحله) که عامل با progress می‌فرستد
@@ -281,8 +284,8 @@ def submit(request):
             files[os.path.basename(f.name)] = dest
             payload.setdefault("files", {})[key] = os.path.basename(f.name)
         try:
-            job = SV.enqueue(kind, payload, files, origin="panel", dedupe=bool(request.data.get("dedupe", "1") == "1"),
-                             node=(request.data.get("node") or "").strip(), timeout_s=timeout_s)
+            job = SV.enqueue_durable(kind, payload, files, origin="panel", dedupe=bool(request.data.get("dedupe", "1") == "1"),
+                                     node=(request.data.get("node") or "").strip(), timeout_s=timeout_s)
         except SV.ComputeUnavailable as exc:
             return Response({"error": str(exc)}, status=503)
     finally:
@@ -388,6 +391,41 @@ def enroll(request):
     return Response({"name": node.name, "token": node.token, "created": created}, status=201 if created else 200)
 
 
+def _queue_settings_json(cfg) -> dict:
+    return {"max_wait_hours": cfg.max_wait_hours, "download_mode": cfg.download_mode,
+            "download_window": cfg.download_window, "retention_days": cfg.retention_days}
+
+
+def _apply_queue_settings(cfg, data) -> None:
+    """سقفِ انتظارِ کارها، زمانِ دانلودها و نگه‌داریِ آمار (همه اختیاری)."""
+    if "max_wait_hours" in data:
+        try:
+            hours = int(data.get("max_wait_hours") or 0)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError({"max_wait_hours": "عدد (ساعت) بنویسید؛ ۰ یعنی بی‌پایان"})
+        if not 0 <= hours <= 24 * 365:
+            raise exceptions.ValidationError({"max_wait_hours": "بین ۰ تا ۸۷۶۰ ساعت"})
+        cfg.max_wait_hours = hours
+    if "download_mode" in data:
+        mode = str(data.get("download_mode") or "now")
+        if mode not in ("now", "window"):
+            raise exceptions.ValidationError({"download_mode": "«الان» یا «در بازهٔ شبانه»"})
+        cfg.download_mode = mode
+    if "download_window" in data:
+        window = str(data.get("download_window") or "").strip()
+        if not SV.parse_window(window):
+            raise exceptions.ValidationError({"download_window": "بازه را مثل ۰۲:۰۰-۰۷:۰۰ بنویسید (ساعتِ شروع و پایان فرق داشته باشد)"})
+        cfg.download_window = window
+    if "retention_days" in data:
+        try:
+            days = int(data.get("retention_days") or 0)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError({"retention_days": "عدد (روز) بنویسید"})
+        if not 1 <= days <= 365:
+            raise exceptions.ValidationError({"retention_days": "بین ۱ تا ۳۶۵ روز"})
+        cfg.retention_days = days
+
+
 @api_view(["GET", "POST"])
 @permission_classes([permissions.IsAdminUser])
 def compute_settings(request):
@@ -401,9 +439,10 @@ def compute_settings(request):
             if name and not ComputeNode.objects.filter(name=name).exists():
                 raise exceptions.ValidationError({"image_video_node": "سروری با این نام نیست"})
             cfg.image_video_node = name
+        _apply_queue_settings(cfg, request.data)
         cfg.save()
     from .updates import latest
-    return Response({"image_video_node": cfg.image_video_node, "updated_at": cfg.updated_at,
+    return Response({"image_video_node": cfg.image_video_node, "updated_at": cfg.updated_at, **_queue_settings_json(cfg),
                      "enroll_key": cfg.enroll_key, "site": request.build_absolute_uri("/").rstrip("/"),
                      "nodes": list(ComputeNode.objects.filter(enabled=True).values_list("name", flat=True)),
                      "package": latest()})
@@ -434,3 +473,79 @@ def node_desired(request, pk):
         node.auto_switch = bool(data.get("auto_switch"))
     node.save(update_fields=["desired", "auto_switch"])
     return Response(node_json(node))
+
+
+# ───────────────────────────── صفِ پردازش (پنل، فقط کارکنان)
+
+def _int(value, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_dt(value):
+    from django.utils.dateparse import parse_date, parse_datetime
+    if not value:
+        return None
+    dt = parse_datetime(str(value))
+    if dt is None:
+        d = parse_date(str(value))
+        if d is not None:
+            from datetime import datetime, time as _t
+            dt = datetime.combine(d, _t.min)
+    if dt is not None and timezone.is_naive(dt):
+        dt = timezone.make_aware(dt)
+    return dt
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAdminUser])
+def queue_list(request):
+    qp = request.query_params
+    state = qp.get("state") or "all"
+    return Response(QV.listing(
+        state=state, kind=(qp.get("kind") or "").strip(), q=(qp.get("q") or "").strip()[:80],
+        limit=_int(qp.get("limit"), 100, 1, 500), offset=_int(qp.get("offset"), 0, 0, 100000),
+        category=(qp.get("category") or "").strip(), since=_parse_dt(qp.get("since")), until=_parse_dt(qp.get("until"))))
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAdminUser])
+def queue_summary(request):
+    return Response(QV.summary())
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
+def queue_cancel(request, uid):
+    job = get_object_or_404(ComputeJob, uid=uid)
+    SV.cancel(job)
+    job.refresh_from_db()
+    return Response(QV.one(job))
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
+def queue_retry(request, uid):
+    job = get_object_or_404(ComputeJob, uid=uid)
+    try:
+        job = QV.retry(job)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=400)
+    return Response(QV.one(job))
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
+def queue_cancel_waiting(request):
+    """همهٔ کارهای «در صف» (اختیاری: فقط یک نوع) را لغو می‌کند."""
+    kind = str((request.data or {}).get("kind") or "").strip() if isinstance(request.data, dict) else ""
+    qs = ComputeJob.objects.filter(state=ComputeJob.State.QUEUED)
+    if kind:
+        qs = qs.filter(kind__startswith=kind)
+    n = 0
+    for job in qs:
+        SV.cancel(job)
+        n += 1
+    return Response({"cancelled": n})

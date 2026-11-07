@@ -145,6 +145,8 @@ def reap(queryset=None) -> int:
         dead = list(
             qs.filter(state__in=ACTIVE_STATES)
             .exclude(state__in=HUMAN_STATES)
+            # منتظرِ روشن شدنِ سرورِ پردازش (apps.compute.park): صف است، نه کارِ مرده
+            .exclude(Q(state=Job.State.QUEUED) & Q(context__has_key="node_wait"))
             .filter(stale_filter())
         )
     except Exception as exc:  # noqa: BLE001 — e.g. table missing during migrate

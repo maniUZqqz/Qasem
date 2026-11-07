@@ -345,11 +345,23 @@ def normalize_layers(layers, *, store=None, base: str = "one") -> list[dict]:
                     raise LayerError("شمارهٔ عکسِ کتابخانه نامعتبر است.")
                 asset_ids.add(aid)
                 o["src"] = {"kind": "asset", "asset": aid}
+            elif s.get("kind") == "paint":
+                pid = str(s.get("id") or "")
+                if not MASK_ID_RE.match(pid):
+                    raise LayerError("شناسهٔ لایهٔ نقاشی نامعتبر است.")
+                try:
+                    rev = max(0, min(10**9, int(s.get("rev") or 0)))
+                except (TypeError, ValueError):
+                    rev = 0
+                o["src"] = {"kind": "paint", "id": pid, "rev": rev}
             else:
                 o["src"] = {"kind": "logo"}
             o["w"] = _r(_num(src.get("w"), 0.001, 4, 0.25))
             o["flip_h"] = _bool(src.get("flip_h"))
             o["flip_v"] = _bool(src.get("flip_v"))
+            if o["src"]["kind"] == "paint":
+                # لایهٔ نقاشی همیشه کلِ بوم را می‌پوشاند (مثلِ ماسک): جابه‌جایی/چرخش/قرینه/جلوه ندارد
+                o.update({"cx": 0.5, "cy": 0.5, "rot": 0, "w": 1.0, "flip_h": False, "flip_v": False, "fx": None})
         elif t == "text":
             _norm_text(src, o)
         elif t == "shape":
@@ -397,6 +409,15 @@ def mask_ids(layers) -> set[str]:
     return out
 
 
+def paint_ids(layers) -> set[str]:
+    """شناسهٔ لایه‌های نقاشی (src.kind == "paint") که فهرست به آن‌ها اشاره دارد."""
+    out = set()
+    for l in layers or []:
+        if isinstance(l, dict) and l.get("type") == "image" and isinstance(l.get("src"), dict) and l["src"].get("kind") == "paint" and l["src"].get("id"):
+            out.add(str(l["src"]["id"]))
+    return out
+
+
 def preset_layers(layers) -> list[dict]:
     """لایه‌های قابلِ استفاده در پیش‌تنظیم: بدونِ لایهٔ عکس، روتوش و قرمزیِ چشم، بدونِ ماسکِ رنگ‌آمیزی (مختصاتشان به یک عکس بسته است).
 
@@ -406,6 +427,8 @@ def preset_layers(layers) -> list[dict]:
     clean = []
     for l in layers if isinstance(layers, list) else []:
         if not isinstance(l, dict) or l.get("type") in ("base", "retouch", "redeye"):
+            continue
+        if l.get("type") == "image" and isinstance(l.get("src"), dict) and l["src"].get("kind") == "paint":
             continue
         l = dict(l)
         m = l.get("mask")
@@ -506,6 +529,18 @@ def place(src: Image.Image, pivot, kx, ky, cx, cy, rot, flip_h, flip_v, W, H):
 
 def _load_image_layer(layer, ctx, state):
     src = layer["src"]
+    if src["kind"] == "paint":
+        pkey = ("paint", src["id"])
+        pcache = state["images"]
+        if pkey not in pcache:
+            ppath = ctx["paint_path"](state["project"], src["id"]) if ctx.get("paint_path") else None
+            if not ppath or not Path(ppath).is_file():
+                ctx["notes"].append("لایهٔ نقاشی پیدا نشد و نادیده گرفته شد")
+                pcache[pkey] = None
+            else:
+                with Image.open(ppath) as pim:
+                    pcache[pkey] = pim.convert("RGBA")
+        return pcache[pkey]
     key = ("asset", src["asset"]) if src["kind"] == "asset" else ("logo", 0)
     cache = state["images"]
     if key not in cache:
@@ -526,6 +561,10 @@ def _render_image(layer, ctx, state, W, H):
     img = _load_image_layer(layer, ctx, state)
     if img is None:
         return None
+    if layer["src"]["kind"] == "paint":
+        if img.size != (W, H):
+            img = img.resize((W, H), Image.Resampling.LANCZOS if W * H < img.width * img.height else Image.Resampling.BICUBIC)
+        return _tile_to_np(img), 0, 0
     sw, sh = img.size
     wpx = layer["w"] * W
     hpx = wpx * sh / sw

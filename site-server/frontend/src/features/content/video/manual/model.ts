@@ -103,7 +103,22 @@ export type MediaClip = {
   /** ماتِ حذفِ پس‌زمینه (ویدیوی خاکستریِ ساخته‌شده روی سرورِ پردازش) */
   matte?: { key: string };
   follow?: Follow;
+  /** «لایهٔ تنظیم»: قطعه‌ای بی‌تصویر که رنگ و افکتش روی همهٔ ترک‌های زیرش اعمال می‌شود (ref = "adjust") */
+  adjust?: boolean;
+  /** «کلیدِ روشنایی»: تاریک‌ها یا روشن‌ها شفاف شوند */
+  luma?: Luma;
+  /** «اصلاحِ لنز»: k1 < 0 اعوجاجِ بشکه‌ای را صاف می‌کند، k1 > 0 بالشتکی را */
+  lens?: Lens;
+  /** «نقطهٔ لنگر»: مرکزِ چرخش و بزرگ‌نمایی؛ کسری از جعبهٔ قطعه، از مرکز (۰ و ۰ = مرکز) */
+  anchor?: Anchor;
+  /** «Track matte»: این قطعه فقط از پشتِ قطعهٔ هم‌زمانِ ترکِ تصویرِ بالاتر دیده می‌شود (آن قطعه خودش نمایش داده نمی‌شود) */
+  track_matte?: TrackMatte;
 };
+
+export type Luma = { on: boolean; mode: "dark" | "bright"; tolerance: number; softness: number };
+export type Lens = { k1: number; k2: number };
+export type Anchor = { x: number; y: number };
+export type TrackMatte = { mode: "luma" | "alpha"; invert: boolean };
 
 export type TextAnimIn = "none" | "fade" | "slide_up" | "slide_down" | "slide_left" | "slide_right" | "pop" | "zoom" | "typewriter" | "blur";
 export type TextWord = { w: string; s: number; e: number };
@@ -150,6 +165,8 @@ export type Track = {
   caption?: boolean;
   /** «هدف» (◎): ویرایش‌های درج و رویه‌گذاری از مانیتورِ منبع روی این ترک می‌نشینند */
   target?: boolean;
+  /** قفلِ همگامی: با «حذفِ بی‌فاصله» روی ترکی دیگر، این ترک هم به اندازهٔ جای خالی جلو می‌آید */
+  sync?: boolean;
   clips: AnyClip[];
 };
 

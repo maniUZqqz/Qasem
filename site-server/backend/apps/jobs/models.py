@@ -172,6 +172,14 @@ class Job(TimeStampedModel):
         self.save(update_fields=["state", "result", "current_step_label", "updated_at"])
 
     def mark_failed(self, error):
+        # صفِ ماندگار (apps.compute.park): خطایی که می‌گوید «سرورِ پردازش خاموش است» کار را ناموفق نمی‌کند؛
+        # کارِ کاربر در صف می‌ماند و با روشن شدنِ سرور دوباره اجرا می‌شود. هر شکستی در این قلاب ⇒ مثلِ قدیم «ناموفق».
+        try:
+            from apps.compute import park
+            if park.maybe_park(self, error):
+                return
+        except Exception:  # noqa: BLE001
+            pass
         self.state = self.State.FAILED
         self.error = str(error)[:4000]
         self.save(update_fields=["state", "error", "updated_at"])

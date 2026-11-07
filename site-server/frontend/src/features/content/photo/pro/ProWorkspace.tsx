@@ -34,7 +34,7 @@ import {
   makeShape, makeText, nid, proStateFromOperations, serializeProject, withBase,
 } from "./types";
 import type { GenFillResult } from "../api";
-import { makeGroup } from "./types";
+import { isPaintLayer, makeGroup, makePaintLayer } from "./types";
 import {
   canonical, cloneSubtree, clipTarget, descendantIds, effectivelyLocked, moveSibling as treeMoveSibling, moveTo, parentIdOf, removeWithDescendants,
   siblingsOf, ungroupLayers, wrapInGroup,
@@ -43,6 +43,8 @@ import CommandPalette, { pushRecent } from "./menu/CommandPalette";
 import EffectDialog, { type FxResult } from "./menu/EffectDialog";
 import { AmountDialog, ColorRangeDialog, SavedSelDialog } from "./menu/SelDialogs";
 import * as selOps from "./selectionOps";
+import { PaintStore, fillAll, fillMask, floodMask, normColor, sampleHex, selectionMask } from "./paint";
+import { settingsApi } from "../designer/brandApi";
 import { effectCommands } from "./menu/effects";
 import MenuBar from "./menu/MenuBar";
 import { buildCommands, pageCommands, type Command, type Host } from "./menu/registry";
@@ -68,6 +70,12 @@ const TOOLS: ToolDef[] = [
   { id: "text", key: "T", title: "متن", hint: "روی عکس کلیک کنید و متن بنویسید (فارسی و انگلیسی)", icon: "M5 6V4h14v2M12 4v16m-3 0h6", sep: true },
   { id: "brush", key: "B", title: "قلمِ ماسک", hint: "روی ماسکِ لایهٔ فعال نقاشی کنید (سفید = دیده شود؛ X = پاک‌کن)", icon: "M4 20c3 0 5-1 5-4l9-9a2.1 2.1 0 0 0-3-3l-9 9c-3 0-4 2-4 5 0 1 1 2 2 2Z" },
   { id: "gradient", key: "G", title: "شیبِ موضعی (خطی/شعاعی)", hint: "بکشید تا یک لایهٔ تنظیم با ماسکِ شیب ساخته شود", icon: "M4 4h16v16H4V4Zm0 12L20 8" },
+  { id: "paint", key: "N", title: "قلمِ نقاشی", hint: "با رنگِ پیش‌زمینه روی «لایهٔ نقاشی» بکشید (اگر لایه‌ای نباشد خودش ساخته می‌شود)؛ Alt+کلیک = برداشتنِ رنگ؛ [ و ] = اندازه", icon: "M9.5 14.5 4 20l1 1 5.5-5.5M14 4l6 6-8 8-6-6 8-8Z", sep: true },
+  { id: "pencil", key: "D", title: "مداد", hint: "خطِ تیز و بی‌نرمی (پیکسلی) با رنگِ پیش‌زمینه روی لایهٔ نقاشی", icon: "M4 20l1-4L16 5l3 3L8 19l-4 1Zm9-13 3 3" },
+  { id: "eraser", key: "Z", title: "پاک‌کن", hint: "روی لایهٔ نقاشی: پیکسل‌ها را پاک می‌کند؛ روی لایهٔ عادی: با ماسکِ لایه پنهان می‌کند (برگشت‌پذیر)", icon: "M8 20h12M5 15l8-8 6 6-6 6H8l-3-4Zm6-6 6 6" },
+  { id: "bucket", key: "U", title: "سطلِ رنگ", hint: "روی یک ناحیه کلیک کنید تا با رنگِ پیش‌زمینه پر شود (به «شباهت» و «ناحیهٔ پیوسته» نگاه کنید)", icon: "M6 11l6-6 6 6-6 6-6-6Zm12 3c1.5 2 2 3 2 4a2 2 0 0 1-4 0c0-1 .5-2 2-4Z" },
+  { id: "history", key: "O", title: "قلمِ تاریخچه", hint: "به‌جای نقاشی با رنگ، ظاهرِ یک «عکسِ لحظه‌ای» (یا اولِ کار) را روی لایهٔ نقاشی برمی‌گرداند؛ منبع را در زبانهٔ «تاریخچه» انتخاب کنید", icon: "M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4l3 2" },
+  { id: "picker", key: "", title: "قطره‌چکانِ رنگ", hint: "روی عکس کلیک کنید تا رنگِ همان نقطه رنگِ پیش‌زمینه شود (در قلم و مداد: Alt+کلیک)", icon: "M5 19l1-4 8-8 3 3-8 8-4 1Zm9-12 2-2a2 2 0 0 1 3 3l-2 2" },
   { id: "clone", key: "S", title: "مهرِ کپی (Clone Stamp)", hint: "Alt + کلیک = منبع؛ بعد روی جای دیگر نقاشی کنید", icon: "M9 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 9l6 6", sep: true },
   { id: "heal", key: "J", title: "قلمِ ترمیم (Healing)", hint: "مثلِ مهرِ کپی ولی رنگ و روشنیِ اطراف را هم می‌گیرد", icon: "M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm0 3.5v7m-3.5-3.5h7" },
   { id: "spot", key: "K", title: "ترمیمِ لکه (کیت)", hint: "روی لکه کلیک کنید (سرورِ پردازش یا ساختِ سریع)؛ کلیک روی دایره = برداشتن", icon: "M12 3l2.5 5 5.5.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.5-.8L12 3Z" },
@@ -159,6 +167,7 @@ export default function ProWorkspace(props: Props) {
   const H: Hist = hist;
 
   const masks = useMemo(() => new MaskStore(), []);
+  const paints = useMemo(() => new PaintStore(), []);
   const selection = useMemo(() => new Selection(), []);
   const [selVer, setSelVer] = useState(0);
   /** قلم (Pen): مسیرِ در حالِ ساخت؛ مایع‌سازی: نقشهٔ جابه‌جاییِ پروژه (فضای عکس) */
@@ -230,6 +239,23 @@ export default function ProWorkspace(props: Props) {
     }
   };
   const [palOpen, setPalOpen] = useState(false);
+  // عکس‌های لحظه‌ای (snapshots) و رنگ‌های اخیر/برند (نوبت ۵)
+  type Snap = { id: string; name: string; state: ProState; thumb: string };
+  const [snaps, setSnaps] = useState<Snap[]>([]);
+  const [snapName, setSnapName] = useState("");
+  const startState = useRef<ProState | null>(null);
+  const histCanvas = useRef<HTMLCanvasElement | null>(null);
+  const histTmpVer = useRef(0);
+  const [histReady, setHistReady] = useState("");
+  const [recent, setRecent] = useState<string[]>(() => {
+    try {
+      const v = JSON.parse(window.localStorage.getItem("nm.photo.colors") || "[]");
+      return Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, 10) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [brandColors, setBrandColors] = useState<string[]>([]);
   const [fxOpen, setFxOpen] = useState<string | null>(null);
   const [amountOp, setAmountOp] = useState<"grow" | "shrink" | "smooth" | "border" | null>(null);
   const [crOpen, setCrOpen] = useState(false);
@@ -274,6 +300,16 @@ export default function ProWorkspace(props: Props) {
           holdSave.current = legacy;
           const ids = data.layers.flatMap((l) => (l.mask && l.mask.type === "paint" ? [l.mask.id] : []));
           await Promise.all(ids.map((id) => (proj!.masks[id] ? masks.loadUrl(id, proj!.masks[id]) : Promise.resolve(false))));
+          // لایه‌های نقاشی: PNG ِ هر کدام؛ نبودنش ⇒ بومِ شفافِ تازه. شمارندهٔ ضربه‌ها از صفر شروع می‌شود تا برگشت با نسخه‌های این نشست هم‌خوان بماند.
+          const fsz = { w: Math.max(2, Math.round(asset.width > 2048 ? 2048 : asset.width)), h: Math.max(2, Math.round(asset.height > 2048 ? 2048 : asset.height)) };
+          if (paints.w <= 1) paints.setSize(fsz.w, fsz.h);
+          const pids = data.layers.flatMap((l) => (isPaintLayer(l) ? [l.src.id] : []));
+          await Promise.all(pids.map(async (id) => {
+            const url = proj!.paints?.[id];
+            const ok = url ? await paints.loadUrl(id, url) : false;
+            if (!ok) paints.create(id);
+          }));
+          if (pids.length) data.layers = data.layers.map((l) => (isPaintLayer(l) ? ({ ...l, src: { ...l.src, rev: 0 } } as Layer) : l));
           // نقشهٔ مایع‌سازی (liquify.bin): اگر پروژه نشانش را دارد ولی فایل نیامد/خراب بود، نشان را بردار تا حالت و نقشه یکی بمانند
           liquify.onServer = !!proj.liquify;
           if (data.liquify) {
@@ -332,6 +368,18 @@ export default function ProWorkspace(props: Props) {
           masks.dirty.delete(id);
         }
       }
+      for (const id of [...paints.dirty]) {
+        const used = layers.some((l) => isPaintLayer(l) && l.src.id === id);
+        if (!used) {
+          paints.dirty.delete(id);
+          continue;
+        }
+        const b = await paints.toBlob(id);
+        if (b) {
+          await proApi.putPaint(storeId, pr.id, id, b);
+          paints.dirty.delete(id);
+        }
+      }
       // نقشهٔ مایع‌سازی: با ماسک‌ها هم‌زمان ذخیره می‌شود (حالت نشان دارد ⇒ بنویس؛ نشان ندارد و روی سرور فایل هست ⇒ بردار)
       if (stateRef.current.liquify) {
         if (liquify.dirty || !liquify.onServer) {
@@ -364,7 +412,7 @@ export default function ProWorkspace(props: Props) {
     } finally {
       saving.current = false;
     }
-  }, [masks, storeId, liquify]);
+  }, [masks, paints, storeId, liquify]);
 
   useEffect(() => {
     if (!projectReady || !projRef.current) return;
@@ -387,8 +435,22 @@ export default function ProWorkspace(props: Props) {
         }
       }
     }
+    for (const l of state.layers) {
+      if (isPaintLayer(l) && paints.has(l.src.id)) {
+        const want = l.src.rev ?? 0;
+        if ((paints.revs.get(l.src.id) ?? 0) !== want && paints.restore(l.src.id, want)) changed = true;
+      }
+    }
     if (changed) stage?.redraw();
-  }, [state.layers, masks, stage]);
+  }, [state.layers, masks, paints, stage]);
+
+  // اولِ کار (برای قلمِ تاریخچه) و رنگ‌های برند
+  useEffect(() => {
+    if (projectReady && !startState.current) startState.current = JSON.parse(JSON.stringify(stateRef.current)) as ProState;
+  }, [projectReady]);
+  useEffect(() => {
+    settingsApi.get(storeId).then((s) => setBrandColors(s.brand.colors ?? [])).catch(() => undefined);
+  }, [storeId]);
 
   // برگشت/جلو ⇒ نقشهٔ مایع‌سازی را به نسخهٔ همان گام برگردان (state.liquify.rev؛ نبودنش = نقشهٔ صفر)
   useEffect(() => {
@@ -579,6 +641,23 @@ export default function ProWorkspace(props: Props) {
       smartWindow: () => stageRef.current?.smartWindow(stateRef.current) ?? null,
       /** انتخابِ فعلی (فضای بومِ نهایی) به‌صورتِ data URL — برای آزمون */
       selectionInfo: () => ({ active: selection.active, w: selection.w, h: selection.h, url: selection.canvas ? selection.canvas.toDataURL("image/png") : null }),
+      /** لایه‌های نقاشی (آزمون): شناسه‌ها، نسخه‌ها، پیکسلِ یک نقطه و درصدِ پوشش */
+      paintInfo: () => ({ ids: [...paints.map.keys()], revs: Object.fromEntries(paints.revs), dirty: [...paints.dirty], w: paints.w, h: paints.h }),
+      paintPixel: (id: string, nx: number, ny: number) => {
+        const e = paints.get(id);
+        if (!e) return null;
+        const x = Math.min(e.canvas.width - 1, Math.max(0, Math.round(nx * (e.canvas.width - 1))));
+        const y = Math.min(e.canvas.height - 1, Math.max(0, Math.round(ny * (e.canvas.height - 1))));
+        return Array.from(e.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(x, y, 1, 1).data);
+      },
+      paintCoverage: (id: string) => {
+        const e = paints.get(id);
+        if (!e) return -1;
+        const d = e.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, e.canvas.width, e.canvas.height).data;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+        return n / (e.canvas.width * e.canvas.height);
+      },
       /** قلم و مایع‌سازی (آزمون) */
       penInfo: () => ({ pts: pen.pts, closed: pen.closed, done: pen.done }),
       liqInfo: () => {
@@ -700,6 +779,11 @@ export default function ProWorkspace(props: Props) {
           const nm = nid();
           masks.copy(copy.mask.id, nm);
           copy.mask = { ...copy.mask, id: nm, rev: 0 };
+        }
+        if (isPaintLayer(copy)) {
+          const np = nid();
+          paints.copy(copy.src.id, np);
+          (copy as Layer & { src: unknown }).src = { kind: "paint", id: np, rev: 0 };
         }
       }
       // جای رونوشت: درست بالای خودِ لایه (برای گروه: بالای سرگروه)
@@ -1011,6 +1095,194 @@ export default function ProWorkspace(props: Props) {
     return true;
   };
 
+  // ───────────────────────── لایهٔ نقاشی، سطلِ رنگ، قطره‌چکان، عکس‌های لحظه‌ای (نوبت ۵)
+  const paintSize = () => {
+    const sp = stage?.frame() ?? frameSpec;
+    return { w: Math.max(2, Math.min(2048, Math.round(paints.w > 1 ? paints.w : sp.Wf))), h: Math.max(2, Math.min(2048, Math.round(paints.h > 1 ? paints.h : sp.Hf))) };
+  };
+  const newPaintLayer = (): { layerId: string; paintId: string } => {
+    if (paints.w <= 1) {
+      const z = paintSize();
+      paints.setSize(z.w, z.h);
+    }
+    const pid = nid();
+    paints.create(pid);
+    const l = makePaintLayer(pid, "نقاشی");
+    addLayer(l, "لایهٔ نقاشی");
+    return { layerId: l.id, paintId: pid };
+  };
+  const ensurePaint = (): { layerId: string; paintId: string } | null => {
+    const st = stateRef.current;
+    const act = st.layers.find((l) => l.id === activeIdRef.current) ?? null;
+    if (isPaintLayer(act) && !effectivelyLocked(st.layers, act)) return { layerId: act.id, paintId: act.src.id };
+    const r = newPaintLayer();
+    setStatus("یک لایهٔ نقاشیِ تازه ساخته شد؛ همهٔ نقاشی‌ها روی آن می‌نشیند");
+    return r;
+  };
+  const commitPaint = (layerId: string, paintId: string, label: string) => {
+    paints.touch(paintId);
+    const rev = (paints.revs.get(paintId) ?? 0) + 1;
+    paints.snapshot(paintId, rev);
+    hist.apply(label, (s) => ({
+      ...s,
+      layers: s.layers.map((x) => (x.id === layerId && x.type === "image" && x.src.kind === "paint" ? ({ ...x, src: { ...x.src, rev } } as Layer) : x)),
+    }));
+    stage?.redraw();
+  };
+  const pushRecent = (c: string) => {
+    setRecent((r) => {
+      const next = [c, ...r.filter((x) => x !== c)].slice(0, 10);
+      try {
+        window.localStorage.setItem("nm.photo.colors", JSON.stringify(next));
+      } catch {
+        /* حافظهٔ مرورگر بسته است */
+      }
+      return next;
+    });
+  };
+  const setColor = (c: string) => {
+    const n = normColor(c, opts.color);
+    setOpts({ color: n });
+    pushRecent(n);
+  };
+  /** تصویرِ ترکیبِ فعلی در اندازهٔ w×h (برای سطلِ رنگ و قطره‌چکان) */
+  const compositeAt = async (w: number, h: number): Promise<ImageData> => {
+    const { cv } = await gfCanvas();
+    const t = document.createElement("canvas");
+    t.width = w;
+    t.height = h;
+    const x = t.getContext("2d", { willReadFrequently: true })!;
+    x.drawImage(cv, 0, 0, w, h);
+    return x.getImageData(0, 0, w, h);
+  };
+  const onPickColor = async (nx: number, ny: number) => {
+    try {
+      const { cv, w, h } = await gfCanvas();
+      const d = cv.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+      const c = sampleHex(d, w, h, nx, ny, 1);
+      setColor(c);
+      setStatus(`رنگ برداشته شد: ${c}`);
+    } catch (e) {
+      setNotice({ tone: "bad", text: e instanceof Error ? e.message : "رنگ برداشته نشد." });
+    }
+  };
+  const onBucket = async (nx: number, ny: number) => {
+    const pl = ensurePaint();
+    if (!pl) return;
+    const ent = paints.get(pl.paintId);
+    if (!ent) return;
+    const w = ent.canvas.width;
+    const h = ent.canvas.height;
+    setBusyOp("پر کردن…");
+    try {
+      const ref = opts.bucketAll ? await compositeAt(w, h) : ent.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h);
+      const r = floodMask(ref, nx * (w - 1), ny * (h - 1), opts.bucketTol, opts.bucketContig);
+      if (!r.count) return setNotice({ tone: "info", text: "چیزی برای پر کردن پیدا نشد؛ «شباهت» را بیشتر کنید." });
+      if (selection.active && selection.canvas) {
+        const sm = selectionMask(selection.canvas, w, h);
+        for (let i = 0; i < r.mask.length; i++) if (!sm[i]) r.mask[i] = 0;
+      }
+      fillMask(ent.canvas, r.mask, opts.color, opts.flow, 1);
+      commitPaint(pl.layerId, pl.paintId, "سطلِ رنگ");
+    } catch (e) {
+      setNotice({ tone: "bad", text: e instanceof Error ? e.message : "پر نشد." });
+    } finally {
+      setBusyOp("");
+    }
+  };
+  const fillPaintLayer = () => {
+    const act = stateRef.current.layers.find((l) => l.id === activeIdRef.current) ?? null;
+    if (!isPaintLayer(act)) return setNotice({ tone: "info", text: "اول یک لایهٔ نقاشی را انتخاب کنید (منوی لایه ‹ لایهٔ نقاشیِ تازه)." });
+    const ent = paints.get(act.src.id);
+    if (!ent) return;
+    if (selection.active && selection.canvas) fillMask(ent.canvas, selectionMask(selection.canvas, ent.canvas.width, ent.canvas.height), opts.color, opts.flow, 0);
+    else fillAll(ent.canvas, opts.color, opts.flow);
+    commitPaint(act.id, act.src.id, "پرکردنِ لایه با رنگ");
+  };
+  const clearPaintLayer = () => {
+    const act = stateRef.current.layers.find((l) => l.id === activeIdRef.current) ?? null;
+    if (!isPaintLayer(act)) return setNotice({ tone: "info", text: "اول یک لایهٔ نقاشی را انتخاب کنید." });
+    const ent = paints.get(act.src.id);
+    if (!ent) return;
+    const x = ent.canvas.getContext("2d", { willReadFrequently: true })!;
+    if (selection.active && selection.canvas) {
+      const sm = selectionMask(selection.canvas, ent.canvas.width, ent.canvas.height);
+      const d = x.getImageData(0, 0, ent.canvas.width, ent.canvas.height);
+      for (let i = 0; i < sm.length; i++) if (sm[i]) d.data[i * 4 + 3] = 0;
+      x.putImageData(d, 0, 0);
+    } else x.clearRect(0, 0, ent.canvas.width, ent.canvas.height);
+    commitPaint(act.id, act.src.id, "پاک‌کردنِ لایهٔ نقاشی");
+  };
+
+  /** ترکیبِ یک حالت (ProState) روی قابِ فعلی ⇒ بومِ ۲بعدی؛ برای عکسِ لحظه‌ای و منبعِ قلمِ تاریخچه */
+  const renderStateCanvas = async (st: ProState): Promise<HTMLCanvasElement | null> => {
+    const api = stageRef.current;
+    if (!api) return null;
+    // لایه‌های نقاشیِ آن حالت با پیکسل‌های همان نسخه (rev) رندر می‌شوند، نه پیکسل‌های امروز؛ وگرنه «برگشت به ظاهرِ پیشین» نقاشیِ تازه را هم برمی‌گرداند
+    const pm = new Map<string, { canvas: HTMLCanvasElement; ver: number }>();
+    for (const [id, e] of paints.map) pm.set(id, e);
+    for (const l of st.layers) {
+      if (l.type !== "image" || l.src.kind !== "paint") continue;
+      const at = paints.canvasAt(l.src.id, l.src.rev);
+      if (at) pm.set(l.src.id, { canvas: at, ver: -(++histTmpVer.current) });
+    }
+    api.engine.render(st, { masks: masks.map, paints: pm });
+    const full = api.readFull();
+    api.redraw();
+    if (!full) return null;
+    const cv = document.createElement("canvas");
+    cv.width = full.w;
+    cv.height = full.h;
+    cv.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(full.data), full.w, full.h), 0, 0);
+    return cv;
+  };
+  const takeSnapshot = async (name?: string) => {
+    const st = JSON.parse(JSON.stringify(stateRef.current)) as ProState;
+    let thumb = "";
+    try {
+      const cv = await renderStateCanvas(st);
+      if (cv) {
+        const k = 96 / Math.max(cv.width, cv.height);
+        const o = document.createElement("canvas");
+        o.width = Math.max(1, Math.round(cv.width * k));
+        o.height = Math.max(1, Math.round(cv.height * k));
+        o.getContext("2d")!.drawImage(cv, 0, 0, o.width, o.height);
+        thumb = o.toDataURL("image/jpeg", 0.7);
+      }
+    } catch {
+      /* بندانگشتی اختیاری است */
+    }
+    const n = (name ?? snapName).trim() || `عکسِ لحظه‌ای ${fa(snaps.length + 1)}`;
+    setSnaps((s) => [...s, { id: nid(), name: n.slice(0, 40), state: st, thumb }].slice(-12));
+    setSnapName("");
+    setStatus(`«${n}» گرفته شد؛ از زبانهٔ تاریخچه به آن برمی‌گردید`);
+  };
+  const restoreSnapshot = (id: string) => {
+    const s = snaps.find((x) => x.id === id);
+    if (!s) return;
+    hist.apply(`بازگشت به «${s.name}»`, () => JSON.parse(JSON.stringify(s.state)) as ProState);
+  };
+  // منبعِ قلمِ تاریخچه: عکسِ لحظه‌ای انتخاب‌شده (یا اولِ کار) ⇒ بومِ ترکیب
+  useEffect(() => {
+    if (tool !== "history") return;
+    const st = opts.histSrc ? snaps.find((x) => x.id === opts.histSrc)?.state : startState.current;
+    if (!st || !stage) return;
+    const key = `${opts.histSrc || "start"}:${stage.frame()?.key ?? ""}`;
+    if (histReady === key && histCanvas.current) return;
+    let live = true;
+    void renderStateCanvas(JSON.parse(JSON.stringify(st)) as ProState).then((cv) => {
+      if (live && cv) {
+        histCanvas.current = cv;
+        setHistReady(key);
+        setStatus("منبعِ قلمِ تاریخچه آماده است");
+      }
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, opts.histSrc, snaps, stage, projectReady]);
+
   // ───────────────────────── پرکردنِ هوشمند: ترکیبِ فعلی + انتخاب ⇒ سرور ⇒ لایهٔ تصویریِ تازه
   const gfCanvas = async (): Promise<{ cv: HTMLCanvasElement; w: number; h: number }> => {
     stage?.redraw();
@@ -1199,6 +1471,11 @@ export default function ProWorkspace(props: Props) {
       if (e.key === "[") return e.shiftKey ? setOpts({ hardness: Math.max(0, optsRef.current.hardness - 0.1) }) : setOpts({ size: Math.max(0.002, optsRef.current.size * 0.85) });
       if (e.key === "]") return e.shiftKey ? setOpts({ hardness: Math.min(1, optsRef.current.hardness + 0.1) }) : setOpts({ size: Math.min(0.25, optsRef.current.size * 1.18) });
       if (k === "x") return setOpts({ erase: !optsRef.current.erase });
+      if (e.altKey && e.key === "Backspace") {
+        e.preventDefault();
+        hostRef.current?.fillPaint();
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (act && act.type !== "base" && !effectivelyLocked(stateRef.current.layers, act)) { e.preventDefault(); actionsRef.current.remove(act.id); }
         return;
@@ -1330,6 +1607,64 @@ export default function ProWorkspace(props: Props) {
           <span className="ws-muted">Alt + کلیک = منبع</span>
         </>
       )}
+      {(tool === "paint" || tool === "pencil" || tool === "bucket" || tool === "picker") && (
+        <>
+          <label className="pro-opt" title="رنگِ پیش‌زمینه">
+            <span>رنگ</span>
+            <input type="color" value={opts.color} onChange={(e) => setColor(e.target.value)} aria-label="رنگِ پیش‌زمینه" data-testid="paint-color" />
+          </label>
+          <span className="pro-swatches" data-testid="swatches" role="group" aria-label="نمونه‌رنگ‌ها">
+            {[...brandColors, ...recent, "#000000", "#ffffff", "#e11d48", "#f59e0b", "#facc15", "#16a34a", "#0ea5e9", "#2563eb", "#7c3aed", "#db2777"]
+              .filter((c, i, a) => a.indexOf(c) === i)
+              .slice(0, 18)
+              .map((c) => (
+                <button key={c} type="button" className={`pro-sw ${c.toLowerCase() === opts.color.toLowerCase() ? "is-on" : ""}`} style={{ background: c }} title={brandColors.includes(c) ? `رنگِ برند ${c}` : c} aria-label={`رنگ ${c}`} onClick={() => setColor(c)} data-swatch={c} />
+              ))}
+          </span>
+        </>
+      )}
+      {(tool === "paint" || tool === "pencil" || tool === "eraser" || tool === "history") && (
+        <>
+          {sizeSlider}
+          {tool === "paint" && (
+            <>
+              {([["soft", "نرم"], ["hard", "سخت"], ["spray", "اسپری"]] as [ToolOpts["brushKind"], string][]).map(([k, tl]) => (
+                <button key={k} type="button" className={chip(opts.brushKind === k)} onClick={() => setOpts({ brushKind: k })} aria-pressed={opts.brushKind === k} data-brush-kind={k}>{tl}</button>
+              ))}
+            </>
+          )}
+          {tool === "history" && (
+            <label className="pro-opt">
+              <span>منبع</span>
+              <select value={opts.histSrc} onChange={(e) => setOpts({ histSrc: e.target.value })} aria-label="منبعِ قلمِ تاریخچه" data-testid="hist-src">
+                <option value="">اولِ کار</option>
+                {snaps.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
+          )}
+          <span className="ws-muted" data-testid="paint-hint">
+            {selection.active ? "فقط داخلِ ناحیهٔ انتخاب‌شده نقاشی می‌شود · " : ""}
+            {tool === "eraser" ? "روی لایهٔ نقاشی پاک می‌کند، روی لایهٔ عادی با ماسک پنهان می‌کند" : tool === "history" ? "ظاهرِ منبع را روی لایهٔ نقاشی برمی‌گرداند" : "روی لایهٔ نقاشی می‌کشد"}
+          </span>
+        </>
+      )}
+      {tool === "bucket" && (
+        <>
+          <label className="pro-opt">
+            <span>شباهت</span>
+            <input type="range" min={0} max={100} step={1} value={opts.bucketTol} onChange={(e) => setOpts({ bucketTol: Number(e.target.value) })} aria-label="شباهتِ رنگ" data-testid="bucket-tol" />
+            <b dir="ltr">{fa(opts.bucketTol)}%</b>
+          </label>
+          <label className="pro-opt">
+            <span>پیدایی</span>
+            <input type="range" min={0.05} max={1} step={0.05} value={opts.flow} onChange={(e) => setOpts({ flow: Number(e.target.value) })} aria-label="پیداییِ رنگ" data-testid="bucket-flow" />
+            <b dir="ltr">{fa(Math.round(opts.flow * 100))}</b>
+          </label>
+          <button type="button" className={chip(opts.bucketContig)} onClick={() => setOpts({ bucketContig: !opts.bucketContig })} aria-pressed={opts.bucketContig} data-testid="bucket-contig">ناحیهٔ پیوسته</button>
+          <button type="button" className={chip(opts.bucketAll)} onClick={() => setOpts({ bucketAll: !opts.bucketAll })} aria-pressed={opts.bucketAll} data-testid="bucket-all" title="روشن: رنگ‌ها از ترکیبِ همهٔ لایه‌ها سنجیده می‌شود؛ خاموش: فقط از خودِ لایهٔ نقاشی">همهٔ لایه‌ها</button>
+        </>
+      )}
+      {tool === "picker" && <span className="ws-muted">روی عکس کلیک کنید تا رنگِ آن نقطه رنگِ پیش‌زمینه شود</span>}
       {tool === "gradient" && (
         <>
           <button type="button" className={chip(opts.gradKind === "linear")} onClick={() => setOpts({ gradKind: "linear" })} data-testid="grad-linear">خطی</button>
@@ -1624,6 +1959,28 @@ export default function ProWorkspace(props: Props) {
         <Button size="sm" variant="secondary" disabled={!hist.canUndo} onClick={hist.undo}>برگشت (Ctrl+Z)</Button>
         <Button size="sm" variant="secondary" disabled={!hist.canRedo} onClick={hist.redo}>جلو (Ctrl+Shift+Z)</Button>
       </div>
+      <div className="ws-card" data-testid="snapshots">
+        <div className="ws-card-title">عکس‌های لحظه‌ای</div>
+        <p className="ws-hint">حالتِ فعلیِ کار را نگه دارید و هر وقت خواستید به آن برگردید؛ قلمِ تاریخچه هم از آن‌ها رنگ می‌گیرد. با بستنِ صفحه پاک می‌شوند.</p>
+        <div className="flex gap-1">
+          <input className="u-input" value={snapName} maxLength={40} placeholder="نام (اختیاری)" onChange={(e) => setSnapName(e.target.value)} aria-label="نامِ عکسِ لحظه‌ای" data-testid="snap-name" onKeyDown={(e) => e.key === "Enter" && void takeSnapshot()} />
+          <button type="button" className="ws-btn primary" onClick={() => void takeSnapshot()} data-testid="snap-take">عکس بگیر</button>
+        </div>
+        <ul className="pw-snaps">
+          {snaps.map((s) => (
+            <li key={s.id} data-snap={s.id}>
+              {s.thumb ? <img src={s.thumb} alt="" /> : <span className="pw-snap-ph" />}
+              <b>{s.name}</b>
+              <span className="pw-snap-btns">
+                <button type="button" className="ws-btn" onClick={() => restoreSnapshot(s.id)} data-testid={`snap-restore-${s.id}`}>بازگشت</button>
+                <button type="button" className="ws-btn" onClick={() => { setOpts({ histSrc: s.id }); setTool("history"); }} title="این عکس منبعِ قلمِ تاریخچه شود">منبعِ قلم</button>
+                <button type="button" className="ws-btn" aria-label="حذف" onClick={() => setSnaps((x) => x.filter((y) => y.id !== s.id))}>🗑</button>
+              </span>
+            </li>
+          ))}
+          {!snaps.length && <li className="ws-muted">هنوز عکسی نگرفته‌اید.</li>}
+        </ul>
+      </div>
       <ol className="ws-history">
         {hist.entries.map((e, i) => (
           <li key={i}>
@@ -1832,6 +2189,7 @@ export default function ProWorkspace(props: Props) {
       canUndo: hist.canUndo,
       canRedo: hist.canRedo,
       layerCount: state.layers.length,
+      activeIsPaint: isPaintLayer(activeLayer),
       storeFrameOn,
       nodeOn,
     },
@@ -1905,6 +2263,14 @@ export default function ProWorkspace(props: Props) {
     removeMask: () => actId && actions.removeMask(actId),
     maskFromSelection: () => actId && actions.maskFromSelection(actId),
     paintMask: () => actId && actions.paintMask(actId),
+    newPaint: () => {
+      newPaintLayer();
+      setTool("paint");
+      setTab("layers");
+    },
+    fillPaint: () => fillPaintLayer(),
+    clearPaint: () => clearPaintLayer(),
+    snapshotNew: () => void takeSnapshot(),
     selOp: (op) => setAmountOp(op),
     selReselect: () => {
       if (!lastSel.current) return setNotice({ tone: "info", text: "انتخابی برای بازگرداندن نیست (اول یک انتخاب بکشید و برش دارید)." });
@@ -2055,6 +2421,7 @@ export default function ProWorkspace(props: Props) {
           <Stage
             src={src} origW={asset.width} origH={asset.height} hasAlpha={!!asset.has_alpha} state={state} hist={H} tool={tool} opts={opts} setOpts={setOpts}
             activeId={activeId} setActiveId={setActiveId} masks={masks} selection={selection} assets={allAssets} storeLogo={props.storeLogo ?? null}
+            paints={paints} ensurePaint={ensurePaint} onBucket={(x, y) => void onBucket(x, y)} onPickColor={(x, y) => void onPickColor(x, y)} historySource={() => histCanvas.current}
             compare={compare} exact={exactImg} zoomCmd={zoomCmd} aspect={aspectRatio}
             onZoom={setZoomPct} onStatus={setStatus} onReady={(api) => { setStage(api); (window as unknown as { __photoPro?: StageApi }).__photoPro = api; }} onHistogram={setHdata}
             onSelectionChange={bumpSel} pen={pen} onPenChange={bumpPen} liquify={liquify} onMaskEdited={() => undefined} onWb={onWb} onSubject={() => void pickSubject()}
@@ -2136,7 +2503,7 @@ export default function ProWorkspace(props: Props) {
           />
         )}
         {palOpen && <CommandPalette cmds={menuCmds} host={host} run={runCmd} onClose={() => setPalOpen(false)} />}
-        {help && <Shortcuts tools={TOOLS.map((t) => ({ key: t.key, title: t.title }))} onClose={() => setHelp(false)} />}
+        {help && <Shortcuts tools={TOOLS.filter((t) => t.key).map((t) => ({ key: t.key, title: t.title }))} onClose={() => setHelp(false)} />}
 
         <div className={`pw-panel ${panelOpen ? "" : "is-closed"}`} dir="rtl" data-testid="right-panel">
           <Histogram data={hdata} />

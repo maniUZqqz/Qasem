@@ -153,7 +153,8 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
   const [picked, setPicked] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto" });
-  const [useAi, setUseAi] = useState(true);
+  // خاموش تا وقتی تنظیمِ فروشگاه برسد: اگر پیش‌فرضِ مالک «خاموش» باشد و کسی پیش از رسیدنِ کاتالوگ «ساخت» را بزند، اعتبار خرج نشود
+  const [useAi, setUseAi] = useState(false);
   /** تیکِ هوش مصنوعی تا وقتی کاربر دست نزده از «پیش‌فرضِ فروشگاه» می‌آید */
   const aiTouched = useRef(false);
   const [opened, setOpened] = useState<Record<number, number>>({});
@@ -392,7 +393,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
               </label>
             </div>
             <div className="dr-row">
-              <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => { aiTouched.current = true; setUseAi(e.target.checked); }} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>
+              <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => { aiTouched.current = true; setUseAi(e.target.checked); }} disabled={!cat?.settings} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>
               <label className="dr-check"><input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} data-testid="dr-preview" /> پیش‌نمایشِ کم‌حجم بساز و نقد کن (فقط وقتی هوش مصنوعی جواب بدهد)</label>
             </div>
             {cat?.settings && <p className="dr-hint" data-testid="dr-ai-cost">{cat.settings.cost_note}</p>}

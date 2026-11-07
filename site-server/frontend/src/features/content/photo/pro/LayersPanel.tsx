@@ -185,6 +185,7 @@ export default function LayersPanel(props: LayersPanelProps) {
   const thumbOf = (l: Layer): ReactNode => {
     if (l.type === "image") {
       const src = l.src;
+      if (src.kind === "paint") return <span aria-hidden="true" data-paint-icon="1">🖌</span>;
       const url = src.kind === "asset" ? assets.find((a) => a.id === src.asset)?.thumb : storeLogo;
       if (url) return <img src={url} alt="" />;
     }

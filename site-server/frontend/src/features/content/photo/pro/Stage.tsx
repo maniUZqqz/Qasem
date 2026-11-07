@@ -9,12 +9,14 @@ import { ProEngine, WORK_MAX } from "./gl/engine";
 import { maskLine } from "./gl/raster";
 import type { LiquifyStore } from "./liquify";
 import type { Hist } from "./panelTypes";
+import { StrokeSession, selectionAlpha, type StrokeMode } from "./paint";
+import type { PaintStore } from "./paint";
 import { PEN_MAX, PenPath, penSvgD } from "./pen";
 import { estimateEye } from "./redeye";
 import { MaskStore, Selection, ToolId, ToolOpts, ZoomCmd } from "./session";
 import { canonical, descendantIds, effectivelyHidden, effectivelyLocked } from "./tree";
 import {
-  AdjustLayer, Layer, ProState, Pt2, Quad, RetouchLayer, Stroke, makeAdjust, makeRedeye, makeRetouch, makeText,
+  AdjustLayer, Layer, ProState, Pt2, Quad, RetouchLayer, Stroke, isPaintLayer, makeAdjust, makeRedeye, makeRetouch, makeText,
 } from "./types";
 
 export type StageApi = {
@@ -47,6 +49,14 @@ type Props = {
   activeId: string | null;
   setActiveId: (id: string | null) => void;
   masks: MaskStore;
+  /** لایه‌های نقاشی (نوبت ۵) */
+  paints: PaintStore;
+  /** لایهٔ نقاشیِ فعال را برمی‌گرداند یا تازه می‌سازد */
+  ensurePaint: () => { layerId: string; paintId: string } | null;
+  onBucket: (nx: number, ny: number) => void;
+  onPickColor: (nx: number, ny: number) => void;
+  /** بومِ منبعِ قلمِ تاریخچه (هم‌اندازهٔ بوم) یا null */
+  historySource: () => HTMLCanvasElement | null;
   selection: Selection;
   assets: Asset[];
   storeLogo: string | null;
@@ -85,6 +95,7 @@ type Drag =
   | { k: "scale"; id: string; handle: string; d0: number; layer: Layer }
   | { k: "rotate"; id: string; a0: number; rot0: number }
   | { k: "paint"; id: string; last: [number, number]; white: boolean }
+  | { k: "pt"; layerId: string; paintId: string; ss: StrokeSession; last: [number, number]; label: string }
   | { k: "grad"; id: string; p0: Pt2; kind: "linear" | "radial" }
   | { k: "gh"; id: string; which: "p0" | "p1" | "c" | "r" }
   | { k: "stroke"; id: string }
@@ -96,6 +107,9 @@ type Drag =
 
 const SNAP_PX = 7;
 const SEL_TOOLS = new Set<ToolId>(["marquee", "ellipse", "lasso", "subject", "genfill", "pen"]);
+/** ابزارهایی که دایرهٔ اندازهٔ قلم زیرِ اشاره‌گر دارند */
+const CURSOR_TOOLS = new Set<ToolId>(["brush", "clone", "heal", "liquify", "genfill", "redeye", "paint", "pencil", "eraser", "history"]);
+const CROSS_TOOLS = ["brush", "clone", "heal", "spot", "gradient", "marquee", "ellipse", "lasso", "wb", "subject", "text", "pen", "redeye", "liquify", "genfill", "paint", "pencil", "eraser", "bucket", "history", "picker"];
 
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -218,6 +232,7 @@ export default function Stage(p: Props) {
     const eng0 = eng;
     setGlErr(null);
     engineRef.current = eng0;
+    eng0.paintSrc = propsRef.current.paints.map;
     eng0.onNeedRender = () => {
       dirty.current.render = true;
       setTick((t) => t + 1);
@@ -318,7 +333,7 @@ export default function Stage(p: Props) {
     const eng = engineRef.current;
     if (!eng) return;
     for (const l of p.state.layers) {
-      if (l.type !== "image") continue;
+      if (l.type !== "image" || l.src.kind === "paint") continue;
       const key = l.src.kind === "logo" ? "logo" : `a${l.src.asset}`;
       const url = l.src.kind === "logo" ? p.storeLogo : (() => {
         const a = p.assets.find((x) => x.id === (l.src as { asset: number }).asset);
@@ -384,6 +399,8 @@ export default function Stage(p: Props) {
     if (!eng || !ready) return;
     eng.setFrame(spec);
     p.masks.setSize(eng.Wc, eng.Hc);
+    p.paints.setSize(eng.Wc, eng.Hc);
+    eng.paintSrc = p.paints.map;
     p.selection.setSize(eng.Wc, eng.Hc);
     if (lastSpecKey.current !== null && lastSpecKey.current !== spec.key && p.selection.active) {
       p.selection.clear();
@@ -544,6 +561,7 @@ export default function Stage(p: Props) {
       if (effectivelyHidden(all, l)) continue; // لایهٔ پنهان، یا لایه‌ای داخلِ گروهِ پنهان
       if (l.type === "base") continue;
       if (l.type !== "image" && l.type !== "text" && l.type !== "shape") continue;
+      if (isPaintLayer(l)) continue;
       if (l.type === "text" && l.tile) continue;
       const sz = e.layerSize(l);
       if (!sz) continue;
@@ -873,6 +891,57 @@ export default function Stage(p: Props) {
         id = null;
         return;
       }
+      case "paint":
+      case "pencil":
+      case "eraser":
+      case "history": {
+        if (e.altKey && (tool === "paint" || tool === "pencil")) {
+          if (inDoc) p.onPickColor(pt[0], pt[1]);
+          return;
+        }
+        if (!inDoc) return;
+        const act0 = layerById(p.activeId ?? "");
+        if (tool === "eraser" && !isPaintLayer(act0)) {
+          // پاک‌کن روی لایهٔ عادی = سیاه‌کردنِ ماسکِ لایه (غیرمخرب)؛ روی لایهٔ نقاشی = پاک‌کردنِ پیکسل‌ها
+          const id0 = p.activeId;
+          if (!id0 || !act0) return p.onStatus("اول لایه‌ای را انتخاب کنید؛ پاک‌کن روی لایه‌های عادی بخشی را با ماسکِ لایه پنهان می‌کند.");
+          if (effLocked(act0)) return p.onStatus("این لایه قفل است.");
+          const mid = ensureMask(id0);
+          if (!mid) return;
+          const a0: [number, number] = [pt[0], pt[1]];
+          stampTo(mid, a0, a0, false);
+          beginDrag(e, { k: "paint", id: id0, last: a0, white: false });
+          return;
+        }
+        if (act0 && isPaintLayer(act0) && (effLocked(act0) || !act0.visible)) return p.onStatus(effLocked(act0) ? "این لایهٔ نقاشی قفل است." : "لایهٔ نقاشی پنهان است؛ اول نمایشش دهید.");
+        let hsrc: HTMLCanvasElement | null = null;
+        if (tool === "history") {
+          hsrc = p.historySource();
+          if (!hsrc) return p.onStatus("منبعِ قلمِ تاریخچه آماده نیست؛ در زبانهٔ «تاریخچه» یک عکسِ لحظه‌ای را به‌عنوانِ منبع انتخاب کنید.");
+        }
+        const pl = p.ensurePaint();
+        if (!pl) return;
+        const ent = p.paints.get(pl.paintId);
+        if (!ent) return;
+        const mode: StrokeMode = tool === "paint" ? "paint" : tool === "pencil" ? "pencil" : tool === "eraser" ? "erase" : "history";
+        const cw = ent.canvas.width;
+        const ch = ent.canvas.height;
+        const clip = p.selection.active && p.selection.canvas ? selectionAlpha(p.selection.canvas, cw, ch) : null;
+        const ss = new StrokeSession(ent.canvas, mode, { color: p.opts.color, size: p.opts.size, hardness: p.opts.hardness, opacity: p.opts.flow, kind: p.opts.brushKind }, hsrc, clip);
+        ss.line(pt[0] * cw, pt[1] * ch, pt[0] * cw, pt[1] * ch);
+        p.paints.touch(pl.paintId);
+        dirty.current.render = true;
+        schedule();
+        const label = mode === "paint" ? "نقاشی" : mode === "pencil" ? "مداد" : mode === "erase" ? "پاک‌کردنِ نقاشی" : "قلمِ تاریخچه";
+        beginDrag(e, { k: "pt", layerId: pl.layerId, paintId: pl.paintId, ss, last: [pt[0], pt[1]], label });
+        return;
+      }
+      case "bucket":
+        if (inDoc) p.onBucket(pt[0], pt[1]);
+        return;
+      case "picker":
+        if (inDoc) p.onPickColor(pt[0], pt[1]);
+        return;
       case "gradient": {
         if (!inDoc) return;
         const act = layerById(p.activeId ?? "");
@@ -1062,7 +1131,7 @@ export default function Stage(p: Props) {
   const onPointerMove = (e: React.PointerEvent) => {
     const [sx, sy] = local(e);
     const g = geoRef.current!;
-    if (p.tool === "brush" || p.tool === "clone" || p.tool === "heal" || p.tool === "liquify" || p.tool === "genfill" || p.tool === "redeye" || (p.tool === "pen" && p.pen.active)) setCursor([sx, sy]);
+    if (CURSOR_TOOLS.has(p.tool) || (p.tool === "pen" && p.pen.active)) setCursor([sx, sy]);
     else if (cursor) setCursor(null);
     const d = drag.current;
     if (!d) return;
@@ -1192,6 +1261,19 @@ export default function Stage(p: Props) {
         const cur: [number, number] = [pt[0], pt[1]];
         stampTo(l.mask.id, d.last, cur, d.white);
         d.last = cur;
+        break;
+      }
+      case "pt": {
+        const ent = p.paints.get(d.paintId);
+        if (!ent) break;
+        const cw = ent.canvas.width;
+        const ch = ent.canvas.height;
+        const cur: [number, number] = [pt[0], pt[1]];
+        d.ss.line(d.last[0] * cw, d.last[1] * ch, cur[0] * cw, cur[1] * ch);
+        d.last = cur;
+        p.paints.touch(d.paintId);
+        dirty.current.render = true;
+        schedule();
         break;
       }
       case "grad": {
@@ -1354,6 +1436,15 @@ export default function Stage(p: Props) {
         }
         break;
       }
+      case "pt": {
+        const rev = (p.paints.revs.get(d.paintId) ?? 0) + 1;
+        p.paints.snapshot(d.paintId, rev);
+        p.hist.apply(d.label, (s) => ({
+          ...s,
+          layers: s.layers.map((x) => (x.id === d.layerId && x.type === "image" && x.src.kind === "paint" ? ({ ...x, src: { ...x.src, rev } } as Layer) : x)),
+        }));
+        break;
+      }
       case "grad":
         p.hist.end("شیب");
         break;
@@ -1419,7 +1510,7 @@ export default function Stage(p: Props) {
   const gm = act?.mask && (act.mask.type === "linear" || act.mask.type === "radial") && (p.tool === "move" || p.tool === "gradient") ? act.mask : null;
 
   const cursorDia = ((p.tool === "liquify" ? p.opts.liqSize : p.tool === "redeye" ? p.opts.eyeR * 1.2 : p.opts.size) * Wo) * geo.s * 2;
-  const cursorStyle = p.tool === "hand" ? "grab" : ["brush", "clone", "heal", "spot", "gradient", "marquee", "ellipse", "lasso", "wb", "subject", "text", "pen", "redeye", "liquify", "genfill"].includes(p.tool) ? "crosshair" : undefined;
+  const cursorStyle = p.tool === "hand" ? "grab" : CROSS_TOOLS.includes(p.tool) ? "crosshair" : undefined;
   // قلم (Pen): خمِ در حالِ ساخت (+ ریسمانِ کشسان تا نشانگر)، نقطه‌ها و دستگیره‌ها
   const penOn = p.tool === "pen" && p.pen.active;
   const penCursor: Pt2 | null = penOn && !p.pen.finished && cursor ? docPt(cursor[0], cursor[1]) : null;
@@ -1507,7 +1598,7 @@ export default function Stage(p: Props) {
             {(["tl", "tr", "br", "bl"] as (keyof Quad)[]).map((k) => { const c = sc(q[k]); return <circle key={k} className="pv-handle pv-quad" cx={c[0]} cy={c[1]} r={9} data-corner={k} data-nodrag="0" onPointerDown={(e) => beginQuad(e as unknown as React.PointerEvent, k)} style={{ pointerEvents: "all" }} />; })}
           </g>
         )}
-        {cursor && (p.tool === "brush" || p.tool === "clone" || p.tool === "heal" || p.tool === "liquify" || p.tool === "genfill" || p.tool === "redeye") && <circle className="pv-cursor" cx={cursor[0]} cy={cursor[1]} r={Math.max(2, cursorDia / 2)} />}
+        {cursor && CURSOR_TOOLS.has(p.tool) && <circle className="pv-cursor" cx={cursor[0]} cy={cursor[1]} r={Math.max(2, cursorDia / 2)} />}
         {penOn && (
           <g data-testid="pen-overlay" data-pen-points={p.pen.pts.length} data-pen-closed={p.pen.closed ? "1" : "0"}>
             {p.pen.closed && <path d={penD} fill="rgba(34,211,238,0.14)" stroke="none" />}

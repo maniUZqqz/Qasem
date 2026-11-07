@@ -494,6 +494,16 @@ def server_ctx(store) -> dict:
         p = abs_path(pr.dir_rel) / f"mask-{mid}.png"
         return p if p.is_file() else None
 
+    def paint_path(project_id, pid):
+        try:
+            pr = PhotoProject.objects.filter(pk=int(project_id), store=store).select_related("asset").first()
+        except (TypeError, ValueError):
+            return None
+        if pr is None or not layers_mod.MASK_ID_RE.match(str(pid)):
+            return None
+        p = abs_path(pr.dir_rel) / f"paint-{pid}.png"
+        return p if p.is_file() else None
+
     def liquify_path(project_id):
         try:
             pr = PhotoProject.objects.filter(pk=int(project_id), store=store).first()
@@ -505,7 +515,7 @@ def server_ctx(store) -> dict:
         return p if p.is_file() else None
 
     return {"notes": [], "store_name": store.name, "logo_path": logo_path, "mask_path": mask_path,
-            "liquify_path": liquify_path, "scale": 1.0}
+            "paint_path": paint_path, "liquify_path": liquify_path, "scale": 1.0}
 
 
 def run_server_stage(edit: PhotoEdit) -> PhotoEdit:
@@ -837,6 +847,12 @@ def mask_file(project: PhotoProject, mid: str) -> Path:
     return project_dir(project) / f"mask-{mid}.png"
 
 
+def paint_file(project: PhotoProject, pid: str) -> Path:
+    if not layers_mod.MASK_ID_RE.match(str(pid or "")):
+        raise PhotoError("شناسهٔ لایهٔ نقاشی نامعتبر است.")
+    return project_dir(project) / f"paint-{pid}.png"
+
+
 def liquify_file(project: PhotoProject) -> Path:
     return project_dir(project) / "liquify.bin"
 
@@ -935,8 +951,13 @@ def project_dict(p: PhotoProject, *, full: bool = True, migrate: bool = True) ->
         if d.is_dir():
             for f in sorted(d.glob("mask-*.png")):
                 masks[f.stem[5:]] = f"{media_url(p.dir_rel + '/' + f.name)}?v={int(f.stat().st_mtime)}"
+        paints = {}
+        if d.is_dir():
+            for f in sorted(d.glob("paint-*.png")):
+                paints[f.stem[6:]] = f"{media_url(p.dir_rel + '/' + f.name)}?v={int(f.stat().st_mtime)}"
         out["data"] = p.data or {}
         out["masks"] = masks
+        out["paints"] = paints
         out["liquify"] = liquify_info(p)          # {rev, gw, gh, url} یا None
     return out
 
@@ -995,6 +1016,11 @@ def gc_masks(project: PhotoProject, *, min_age_s: int = MASK_GC_AGE_S) -> int:
         if f.stem[5:] not in used and now - f.stat().st_mtime >= min_age_s:
             f.unlink(missing_ok=True)
             n += 1
+    used_paint = layers_mod.paint_ids((project.data or {}).get("layers"))
+    for f in d.glob("paint-*.png"):
+        if f.stem[6:] not in used_paint and now - f.stat().st_mtime >= min_age_s:
+            f.unlink(missing_ok=True)
+            n += 1
     return n
 
 
@@ -1022,6 +1048,26 @@ def save_mask(project: PhotoProject, mid: str, raw: bytes) -> tuple[Path, int, i
     g.thumbnail((MASK_MAX_SIDE, MASK_MAX_SIDE), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     g.save(buf, "PNG", optimize=True)
+    ops.save_bytes(path, buf.getvalue())
+    return path, g.width, g.height
+
+
+def save_paint(project: PhotoProject, pid: str, raw: bytes) -> tuple[Path, int, int]:
+    """PNG ِ RGBA ِ لایهٔ نقاشی ⇐ حداکثر ۲۰۴۸ پیکسل ⇐ paint-<id>.png (آلفا حفظ می‌شود)."""
+    path = paint_file(project, pid)
+    if not raw:
+        raise PhotoError("فایلِ لایهٔ نقاشی خالی است.")
+    if len(raw) > 40 * 1024 * 1024:
+        raise PhotoError("فایلِ لایهٔ نقاشی خیلی بزرگ است.")
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            im.load()
+            g = im.convert("RGBA")
+    except Exception as exc:  # noqa: BLE001
+        raise PhotoError("لایهٔ نقاشی عکسِ معتبری نیست.") from exc
+    g.thumbnail((MASK_MAX_SIDE, MASK_MAX_SIDE), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    g.save(buf, "PNG", compress_level=4)
     ops.save_bytes(path, buf.getvalue())
     return path, g.width, g.height
 

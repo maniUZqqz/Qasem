@@ -209,6 +209,16 @@ class Clip:
     matte_s0: float = 0.0
     #: A nested sequence: this clip's picture and sound are that timeline's (its time = the nested timeline's time).
     nested: object = None
+    #: «لایهٔ تنظیم»: no picture of its own — its colour/effects apply to everything BELOW it on the other video tracks, for its duration.
+    adjust: bool = False
+    #: «کلیدِ روشنایی»: {on, mode: dark|bright, tolerance, softness} → `lumakey`.   «اصلاحِ لنز»: {k1, k2} → `lenscorrection`.
+    luma: dict = field(default_factory=dict)
+    #: «نقطهٔ لنگر»: {x, y} = the pivot of rotation and scale, as a fraction of the clip's box measured from its centre (0, 0 = the centre).
+    anchor: dict = field(default_factory=dict)
+    #: «Track matte»: this clip is seen only through the clip that overlaps it on the NEXT video track up (that clip is not shown itself).
+    #: {mode: luma|alpha, invert}. luma = brightness of the upper clip is the opacity of this one; alpha = its transparency is.
+    track_matte: dict = field(default_factory=dict)
+    lens: dict = field(default_factory=dict)
 
     @property
     def source_length(self) -> float:
@@ -672,6 +682,32 @@ def _clean_extras(rc: dict) -> dict:
         "denoise": _bool(au.get("denoise")), "normalize": _bool(au.get("normalize")), "denoise_ai": _bool(au.get("denoise_ai")),
     }.items() if v not in (0.0, "flat", False)}
     out["audio"].update(_clean_audio_pro(au))
+    out.update(_clean_fx_r5(rc))
+    return out
+
+
+def _clean_fx_r5(rc: dict) -> dict:
+    """Adjustment layer flag, luma key and lens correction of a clip (clamped; neutral = not present)."""
+    out: dict = {}
+    if rc.get("adjust") is True:
+        out["adjust"] = True
+    lk = rc.get("luma")
+    if isinstance(lk, dict) and lk.get("on"):
+        out["luma"] = {"on": True, "mode": "bright" if lk.get("mode") == "bright" else "dark", "tolerance": round(_num(lk.get("tolerance"), 0.0, 1.0, 0.1), 3),
+                       "softness": round(_num(lk.get("softness"), 0.0, 1.0, 0.05), 3)}
+    tm = rc.get("track_matte")
+    if isinstance(tm, dict) and tm.get("on", True) is not False:
+        out["track_matte"] = {"mode": "alpha" if tm.get("mode") == "alpha" else "luma", "invert": tm.get("invert") is True}
+    an = rc.get("anchor")
+    if isinstance(an, dict):
+        ax, ay = _num(an.get("x"), -1.0, 1.0, 0.0), _num(an.get("y"), -1.0, 1.0, 0.0)
+        if abs(ax) > 0.002 or abs(ay) > 0.002:
+            out["anchor"] = {"x": round(ax, 4), "y": round(ay, 4)}
+    ln = rc.get("lens")
+    if isinstance(ln, dict):
+        k1, k2 = _num(ln.get("k1"), -1.0, 1.0, 0.0), _num(ln.get("k2"), -1.0, 1.0, 0.0)
+        if abs(k1) > 0.005 or abs(k2) > 0.005:
+            out["lens"] = {"k1": round(k1, 3), "k2": round(k2, 3)}
     return out
 
 
@@ -717,7 +753,9 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
                "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
                "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
     e = data.get("export") if isinstance(data.get("export"), dict) else {}
-    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb", "format", "range", "frame_t")}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb", "format", "range", "frame_t", "replace")}
+    if "replace" in export:                       # «رندر و جایگزینی»: only the in–out range is rendered and kept as a new media file
+        export["replace"] = export["replace"] is True
     if export.get("where") not in (None, "auto", "server"):
         export.pop("where")
     # one-shot output kinds (GIF, one still, sound only, only the in–out range): anything else means the normal video
@@ -790,7 +828,9 @@ def from_project(data: dict, resolve, *, _depth: int = 0, _chain: tuple = ()) ->
             ref = str(rc.get("ref") or "")
             shape_in = rc.get("shape") if isinstance(rc.get("shape"), dict) else None
             nested_tl = None
-            if shape_in is not None and kind == "video":
+            if rc.get("adjust") is True and kind == "video":
+                info = {"path": "", "kind": "image", "has_audio": False, "duration": 0.0}          # a layer with no picture of its own
+            elif shape_in is not None and kind == "video":
                 # a shape is a drawn PNG used as a still: it carries every picture property (keyframes, masks, fades …)
                 spec = shapes.clean(shape_in)
                 box_w = max(8, int(_num(rc.get("width"), 0.02, 1, 1.0) * width))
@@ -848,6 +888,8 @@ def from_project(data: dict, resolve, *, _depth: int = 0, _chain: tuple = ()) ->
             if isinstance(tr, dict) and tr.get("kind") in transitions_all():
                 transition = {"kind": tr["kind"], "duration": _num(tr.get("duration"), 0.1, 2.0, 0.5)}
             extras = _clean_extras(rc)
+            if rc.get("adjust") is True and kind == "video":
+                transition = None                                  # a layer without a picture has nothing to dissolve
             if src_kind == "image":
                 extras["ramp"], extras["reverse"] = [], False
             lut_file = ""

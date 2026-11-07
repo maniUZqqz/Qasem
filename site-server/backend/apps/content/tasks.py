@@ -247,6 +247,9 @@ EDIT_DENOISE = {"ENHANCED": 0.45, "PRODUCT_SHOT": 0.7, "POSTER": 0.75}
 def generate_image_task(self, job_id, product_id, kind, style="", instructions="", source_image_id=None):
     """Image Studio (Phase 9): QwQ creative direction → FLUX via ComfyUI."""
     job = Job.objects.get(id=job_id)
+    from apps.compute import park as node_park
+    if node_park.gate_comfy(job):       # صفِ ماندگار: سرورِ پردازش خاموش ⇒ کار در صف می‌ماند، ناموفق نمی‌شود
+        return {"waiting": "node"}
     try:
         product = (
             Product.objects.select_related("store")
@@ -889,6 +892,9 @@ def _anchor_for_segment(scene, previous_frame_path, product_image_path, segment,
 def generate_video_task(self, job_id, script_id):
     """Segment-by-segment Wan 2.2 generation with last-frame continuity (Phase 12)."""
     job = Job.objects.get(id=job_id)
+    from apps.compute import park as node_park
+    if node_park.gate_comfy(job):       # صفِ ماندگار: سرورِ پردازش خاموش ⇒ کار در صف می‌ماند، ناموفق نمی‌شود
+        return {"waiting": "node"}
     script = None
     # Holds the product photo open for the whole render. On local storage that
     # is the file itself; on S3 it is one download reused by every segment,

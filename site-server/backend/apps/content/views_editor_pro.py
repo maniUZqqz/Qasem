@@ -30,7 +30,7 @@ from services.editing import timeline as tl
 
 from . import editor_project
 from .models import VideoProject
-from .tasks_editing import captions_task, preview_range_task
+from .tasks_editing import captions_task, preview_range_task, translate_captions_task
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,29 @@ class ProjectPreviewView(APIView):
         return Response({"job_id": job.id, "t0": t0, "t1": t1}, status=status.HTTP_202_ACCEPTED)
 
 
+class CaptionsTranslateView(APIView):
+    """«ترجمهٔ زیرنویس»: [{id, text}] + زبان → job؛ نتیجه {lang, items: [{id, text}]}."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        from services.editing import translate
+
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        lang = str(request.data.get("lang") or "")
+        if lang not in translate.LANGS:
+            return _err("bad_lang", "زبانِ مقصد درست نیست.")
+        try:
+            items = translate.clean_items(request.data.get("clips"))
+        except ValueError as exc:
+            return _err("bad_clips", str(exc))
+        job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "translate", "lang": lang, "count": len(items)})
+        failed = dispatch_job(job, translate_captions_task, job.id, lang, items)
+        if failed is not None:
+            return failed
+        return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)
+
+
 class CaptionsStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -216,4 +239,4 @@ class ProjectRendersView(APIView):
                 "where": (job.context or {}).get("where", ""),
                 "created_at": job.created_at, "active": job.state not in (Job.State.COMPLETED, Job.State.FAILED, Job.State.CANCELLED),
             })
-        return Response({"jobs": rows, "exports": (project.render_info or {}).get("exports", [])})
+        return Response({"jobs": rows, "exports": (project.render_info or {}).get("exports", []), "replaced": (project.render_info or {}).get("replaced", {})})

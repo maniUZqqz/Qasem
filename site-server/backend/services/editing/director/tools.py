@@ -363,7 +363,8 @@ def _cut_to_beats(st: State, p: dict):
     pool = [c for c in pool if not str(c.get("ref", "")).startswith(("shape", "seq:"))]
     if not pool:
         raise StepError("نمایی برای چیدن روی ضرب پیدا نشد.")
-    end_t = ops.end_of(track)                                # the picture keeps its length; only WHERE it is cut changes
+    pool_end = max(ops.clip_end(c) for c in pool)             # the picture keeps its length; only WHERE it is cut changes (the end card is not picture)
+    end_t = pool_end
     cuts = [0.0] + [b for i, b in enumerate(beats) if ((i + 1) % int(p["every"]) == 0) and 0.4 < b < end_t - 0.4]
     cuts = sorted({round(c, 3) for c in cuts})
     if cuts[-1] < end_t - 0.5:
@@ -400,6 +401,12 @@ def _cut_to_beats(st: State, p: dict):
         made.append(piece)
     if not made:
         raise StepError("ضرب‌ها برای چیدنِ نماها کافی نبود.")
+    new_end = max(ops.clip_end(m) for m in made)
+    shift = round(new_end - pool_end, 3)
+    if abs(shift) > 0.001:                                    # whatever followed the picture (the end card) follows its new end
+        for c in keep_others:
+            if float(c["at"]) >= pool_end - 0.05:
+                c["at"] = round(max(0.0, float(c["at"]) + shift), 3)
     track["clips"] = keep_others + made
     ops.sort_track(track)
     return f"{fa(len(made))} نما روی ضرب‌های موسیقی چیده شد."

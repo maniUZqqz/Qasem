@@ -30,6 +30,7 @@ from .views_sound import (
 )
 from .views_editor_pro import (
     CaptionsStatusView,
+    CaptionsTranslateView,
     CaptionsView,
     EditorAnalysisView,
     EditorCatalogueView,
@@ -61,6 +62,7 @@ from .views_director import (
     ProjectVersionRestoreView,
     ProjectVersionsView,
 )
+from .views_upload import UploadChunkView, UploadFinishView, UploadStartView
 from .views_timeline import (
     EditorBinView,
     EditorProxyView,
@@ -166,6 +168,7 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/<int:pk>/renders/", ProjectRendersView.as_view(), name="editor-project-renders"),
     path("stores/<int:store_id>/editor/captions/status/", CaptionsStatusView.as_view(), name="editor-captions-status"),
     path("stores/<int:store_id>/editor/captions/", CaptionsView.as_view(), name="editor-captions"),
+    path("stores/<int:store_id>/editor/captions/translate/", CaptionsTranslateView.as_view(), name="editor-captions-translate"),
     path("stores/<int:store_id>/editor/luts/", EditorLutsView.as_view(), name="editor-luts"),
     path("stores/<int:store_id>/editor/luts/<str:key>/", EditorLutDetailView.as_view(), name="editor-lut"),
     path("stores/<int:store_id>/editor/luts/<str:key>/file/", EditorLutFileView.as_view(), name="editor-lut-file"),
@@ -190,6 +193,9 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/<int:pk>/versions/<str:name>/", ProjectVersionRestoreView.as_view(), name="editor-project-version-restore"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
+    path("stores/<int:store_id>/videos/uploads/", UploadStartView.as_view(), name="video-upload-start"),
+    path("stores/<int:store_id>/videos/uploads/<str:uid>/", UploadChunkView.as_view(), name="video-upload-chunk"),
+    path("stores/<int:store_id>/videos/uploads/<str:uid>/finish/", UploadFinishView.as_view(), name="video-upload-finish"),
     path(
         "stores/<int:store_id>/videos/",
         UploadedVideoListView.as_view(), name="uploaded-videos",

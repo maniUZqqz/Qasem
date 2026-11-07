@@ -164,10 +164,13 @@ def _gb(key):
     return ENGINES[key]["gb"]
 
 
-def pick_node(key: str, prefer: str = "", rows=None, purpose=None, allow_pending: bool = False) -> str:
+def pick_node(key: str, prefer: str = "", rows=None, purpose=None, allow_pending: bool = False,
+              allow_offline: bool = False) -> str:
     """A node that is online, has this engine installed and switched on (for this purpose). Raises NodeAudioError
     saying what to do. allow_pending: a node still downloading the models is good enough (the job waits in the queue
-    until the model is there - compute.claim keeps it back)."""
+    until the model is there - compute.claim keeps it back). allow_offline (صفِ ماندگار): no node is on right now but a
+    registered node has the engine installed and switched on - return "" (= any such node) and let the job wait in the
+    queue until one connects."""
     rows = rows if rows is not None else node_rows()
     eng = ENGINES[key]
     purpose = _purpose_for(key, purpose)
@@ -186,6 +189,8 @@ def pick_node(key: str, prefer: str = "", rows=None, purpose=None, allow_pending
             f"مدل‌های {eng['label']} روی سرورِ پردازش ({pending[0]['name']}) در حالِ دانلود است "
             f"({downloading(pending[0], key):.0f}٪) و بعد از پایانِ دانلود آماده می‌شود.", "downloading")
     if not online:
+        if allow_offline and any((r["audio"] or {}).get(key) and r["settings"][purpose] for r in rows):
+            return ""
         seen = "، ".join(f"«{r['name']}»" for r in rows[:2]) or "هیچ سروری ثبت نشده"
         raise NodeAudioError(
             f"{eng['label']} ({eng['what']}) فقط روی سرورِ پردازش (کامپیوترِ گرافیکی) اجرا می‌شود و الان هیچ سرورِ "
@@ -214,13 +219,15 @@ def friendly(error: str) -> str:
 
 def enqueue(key: str, kind: str, payload: dict, files: dict | None = None, *, store=None, origin: str = "audio",
             timeout_s: int = 1200, prefer: str = "", dedupe: bool = True, priority: int = 60, purpose=None,
-            allow_pending: bool = False):
+            allow_pending: bool = False, durable: bool = False):
+    """durable=True (صفِ ماندگار): اگر هیچ سرورِ پردازشی روشن نیست کار در صف می‌ماند و با روشن شدنِ یکی اجرا می‌شود،
+    به‌جای خطای «سرور روشن نیست». برای فراخوان‌هایی که خودشان وضعیتِ کار را دنبال می‌کنند (استودیوی صدا)."""
     from apps.compute import services as compute
 
-    node = pick_node(key, prefer, purpose=purpose, allow_pending=allow_pending)
+    node = pick_node(key, prefer, purpose=purpose, allow_pending=allow_pending, allow_offline=durable)
     try:
         return compute.enqueue(kind, payload, files or {}, store=store, origin=origin, priority=priority,
-                               timeout_s=timeout_s, node=node, dedupe=dedupe)
+                               timeout_s=timeout_s, node=node, dedupe=dedupe, require_online=not durable)
     except compute.ComputeUnavailable as exc:
         raise NodeAudioError(str(exc), "offline") from exc
 

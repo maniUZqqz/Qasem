@@ -61,6 +61,8 @@ import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
 import GrowthRoutes from "./features/growth";
 import ComputePage from "./features/tools/compute";
+import ComputeQueuePage from "./features/tools/compute/queue";
+import ComputeReportPage from "./features/tools/compute/report";
 import MobilePage from "./features/mobile/MobilePage";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
@@ -93,6 +95,8 @@ export default function App() {
               <Route path="/tools/studio/*" element={<PageGate k="studio_builder"><StudioRoutes /></PageGate>} />
               <Route path="/tools/3d/*" element={<PageGate k="video3d"><Up3dRoutes /></PageGate>} />
               <Route path="/tools/compute" element={<PageGate k="compute"><ComputePage /></PageGate>} />
+              <Route path="/tools/compute/queue" element={<PageGate k="compute_queue"><ComputeQueuePage /></PageGate>} />
+              <Route path="/tools/compute/report" element={<PageGate k="compute_report"><ComputeReportPage /></PageGate>} />
               <Route path="/tools/mobile" element={<PageGate k="mobile"><MobilePage /></PageGate>} />
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<PageGate k="crm"><CrmPage /></PageGate>} />

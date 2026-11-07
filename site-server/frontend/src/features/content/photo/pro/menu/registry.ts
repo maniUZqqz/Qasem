@@ -35,6 +35,8 @@ export type HostState = {
   canUndo: boolean;
   canRedo: boolean;
   layerCount: number;
+  /** لایهٔ فعال یک لایهٔ نقاشی است */
+  activeIsPaint: boolean;
   storeFrameOn: boolean;
   nodeOn: boolean;
 };
@@ -88,6 +90,11 @@ export interface Host {
   selFeather(): void;
   pickSubject(): void;
   adjustFromSelection(): void;
+  // نقاشی و عکس‌های لحظه‌ای (نوبت ۵)
+  newPaint(): void;
+  fillPaint(): void;
+  clearPaint(): void;
+  snapshotNew(): void;
   /** گسترش / انقباض / هموارسازی / حاشیهٔ انتخاب (با پنجرهٔ مقدار) */
   selOp(op: "grow" | "shrink" | "smooth" | "border"): void;
   selReselect(): void;
@@ -159,6 +166,12 @@ export const TOOL_META: Record<string, { en: string; syn: string[] }> = {
   redeye: { en: "Red Eye", syn: ["قرمزی چشم", "چشم قرمز", "red-eye"] },
   pen: { en: "Pen", syn: ["پن", "مسیر", "بزیه", "منحنی", "path", "bezier", "vector"] },
   liquify: { en: "Liquify", syn: ["مایع", "لاغری", "تغییر شکل", "warp", "reshape", "push", "bloat", "pucker"] },
+  paint: { en: "Brush", syn: ["قلم", "نقاشی", "رنگ", "براش", "قلمو", "برس", "paint", "brush", "draw", "airbrush", "spray"] },
+  pencil: { en: "Pencil", syn: ["مداد", "پیکسلی", "pencil", "pixel", "draw"] },
+  eraser: { en: "Eraser", syn: ["پاک کن", "پاک‌کن", "پاک کردن", "eraser", "erase", "rubber"] },
+  bucket: { en: "Paint Bucket", syn: ["سطل", "سطل رنگ", "پر کردن", "رنگ کردن ناحیه", "bucket", "paint bucket", "fill", "flood fill"] },
+  history: { en: "History Brush", syn: ["تاریخچه", "بازگرداندن", "برگرداندن موضعی", "history brush", "restore", "revert area"] },
+  picker: { en: "Eyedropper", syn: ["قطره چکان", "برداشتن رنگ", "رنگ", "eyedropper", "color picker", "sample color", "pipette"] },
   genfill: { en: "Generative Fill", syn: ["هوش مصنوعی", "حذف شیء", "پر کردن", "inpaint", "remove object", "content aware", "ai fill"] },
 };
 
@@ -183,6 +196,9 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   add({ id: "edit.undo", menu: "edit", group: "تاریخچه", title: "برگرداندن", en: "Undo", syn: ["بازگشت", "undo", "عقب"], key: "Ctrl+Z", tip: "آخرین کار را برمی‌گرداند", run: (h) => h.undo(), enabled: (h) => (h.s.canUndo ? null : "کاری برای برگرداندن نیست") });
   add({ id: "edit.redo", menu: "edit", group: "تاریخچه", title: "از نو", en: "Redo", syn: ["جلو", "redo", "تکرار"], key: "Ctrl+Shift+Z", tip: "کارِ برگردانده‌شده را دوباره اعمال می‌کند", run: (h) => h.redo(), enabled: (h) => (h.s.canRedo ? null : "کاری برای تکرار نیست") });
   add({ id: "edit.history", menu: "edit", group: "تاریخچه", title: "فهرستِ تاریخچه", en: "History panel", syn: ["تاریخچه", "history", "گام ها"], tip: "همهٔ کارها را ببینید و به هر مرحله بپرید", run: (h) => h.tab("history") });
+  add({ id: "edit.fillFg", menu: "edit", group: "نقاشی", title: "پرکردنِ لایه (یا انتخاب) با رنگِ پیش‌زمینه", en: "Fill with foreground color", syn: ["پر کردن", "رنگ کردن لایه", "fill layer", "fill selection", "foreground"], key: "Alt+Backspace", tip: "لایهٔ نقاشیِ فعال (یا فقط ناحیهٔ انتخاب‌شده) را با رنگِ پیش‌زمینه پر می‌کند", run: (h) => h.fillPaint(), enabled: (h) => (h.s.activeIsPaint ? null : "اول یک لایهٔ نقاشی را انتخاب کنید") });
+  add({ id: "edit.clearPaint", menu: "edit", group: "نقاشی", title: "پاک‌کردنِ محتوای لایهٔ نقاشی (یا انتخاب)", en: "Clear paint layer", syn: ["خالی کردن لایه", "پاک کردن نقاشی", "clear layer", "erase all"], tip: "همهٔ نقاشیِ این لایه (یا فقط ناحیهٔ انتخاب‌شده) را پاک می‌کند؛ برگشت‌پذیر", run: (h) => h.clearPaint(), enabled: (h) => (h.s.activeIsPaint ? null : "اول یک لایهٔ نقاشی را انتخاب کنید") });
+  add({ id: "edit.snapshot", menu: "edit", group: "تاریخچه", title: "عکسِ لحظه‌ایِ تازه", en: "New snapshot", syn: ["اسنپ شات", "نگه داشتن حالت", "ذخیره حالت", "snapshot", "save state", "checkpoint"], tip: "حالتِ فعلیِ کار را نگه می‌دارد تا بعداً به آن برگردید یا قلمِ تاریخچه از آن رنگ بگیرد", run: (h) => h.snapshotNew() });
   add({ id: "edit.duplicate", menu: "edit", group: "لایه", title: "رونوشتِ لایه", en: "Duplicate layer", syn: ["کپی", "کپی لایه", "duplicate", "copy"], key: "Ctrl+J", tip: "یک نسخهٔ دقیق از لایهٔ فعال می‌سازد", run: (h) => h.duplicate(), enabled: needEditable });
   add({ id: "edit.delete", menu: "edit", group: "لایه", title: "حذفِ لایه", en: "Delete layer", syn: ["پاک", "delete", "remove"], key: "Delete", tip: "لایهٔ فعال را برمی‌دارد (برگشت‌پذیر)", run: (h) => h.remove(), enabled: needEditable });
   add({ id: "edit.transform", menu: "edit", group: "تبدیل", title: "تبدیلِ آزاد (جابه‌جایی، اندازه، چرخش)", en: "Free Transform", syn: ["ترنسفورم", "تغییر اندازه", "چرخاندن", "scale", "rotate", "resize", "move"], key: "Ctrl+T", tip: "لایه را با دستگیره‌ها بزرگ، کوچک یا بچرخانید", run: (h) => h.tool("move") });
@@ -210,6 +226,7 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   add({ id: "layer.rect", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ شکل: مستطیل", en: "Rectangle shape", syn: ["مربع", "کادر", "rectangle", "box", "rounded"], tip: "مستطیل با گوشهٔ گرد، رنگ و دورخط", run: (h) => h.addShape("rect") });
   add({ id: "layer.ellipse", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ شکل: بیضی", en: "Ellipse shape", syn: ["دایره", "بیضی", "circle", "ellipse", "oval"], tip: "دایره یا بیضی", run: (h) => h.addShape("ellipse") });
   add({ id: "layer.line", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ شکل: خط", en: "Line shape", syn: ["خط", "line", "divider"], tip: "یک خطِ ساده", run: (h) => h.addShape("line") });
+  add({ id: "layer.newPaint", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ نقاشی", en: "Paint layer (new)", syn: ["لایه خالی", "لایه جدید", "نقاشی", "رستر", "new layer", "blank layer", "raster layer", "pixel layer"], tip: "یک لایهٔ شفافِ تازه که با قلم، مداد، پاک‌کن و سطلِ رنگ رویش نقاشی می‌کنید (روی سرور هم همین‌طور ساخته می‌شود)", run: (h) => h.newPaint() });
   add({ id: "layer.adjust", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ تنظیم", en: "Adjustment layer", syn: ["تنظیم", "adjustment", "غیرمخرب"], tip: "تنظیمِ نور و رنگِ جدا که می‌شود ماسکش کرد", run: (h) => h.addAdjust() });
   add({ id: "layer.retouch", menu: "layer", group: "لایهٔ تازه", title: "لایهٔ روتوش (کلون و ترمیم)", en: "Retouch layer", syn: ["روتوش", "کلون", "retouch", "clone layer"], tip: "کلون و ترمیم روی لایهٔ جدا؛ برگشت‌پذیر", run: (h) => h.addRetouch() });
   add({ id: "layer.group", menu: "layer", group: "گروه", title: "گروهِ تازه از این لایه", en: "Group layers", syn: ["پوشه", "گروه", "group", "folder"], key: "Ctrl+G", tip: "لایه را در یک پوشه می‌گذارد", run: (h) => h.group(), enabled: needEditable });
@@ -275,6 +292,7 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
     if (["clone", "heal", "spot", "redeye"].includes(id)) return { menu: "image", group: "ابزارهای ترمیم" };
     if (id === "liquify") return { menu: "filter", group: "ابزارهای ویژه" };
     if (id === "genfill") return { menu: "select", group: "استفاده از انتخاب" };
+    if (["paint", "pencil", "eraser", "bucket", "history", "picker"].includes(id)) return { menu: "layer", group: "ابزارهای نقاشی" };
     if (["text", "brush", "gradient", "pen"].includes(id)) return { menu: "layer", group: "ابزارهای ساخت" };
     return { menu: "view", group: "ابزارها" };
   };

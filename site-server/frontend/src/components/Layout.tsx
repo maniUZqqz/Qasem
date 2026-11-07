@@ -7,6 +7,7 @@ import { useFlags } from "../features/panel/FlagsContext";
 import { DASHBOARD, PAGES, SECTIONS, pageHref, type PanelPage } from "../features/panel/registry";
 import Icon from "./Icon";
 import NotificationsBell from "./NotificationsBell";
+import QueueBadge from "./QueueBadge";
 import ThemeToggle from "./ThemeToggle";
 import UsageWidget from "./UsageWidget";
 import { Spinner } from "./ui";
@@ -366,6 +367,7 @@ export default function Layout() {
             </button>
           </span>
           <div className="mr-auto flex items-center gap-1.5">
+            {user.is_staff && <QueueBadge />}
             <ThemeToggle />
             <NotificationsBell />
           </div>

@@ -565,6 +565,16 @@ export default function ComputePage() {
       <PageHeader
         title="سرورهای پردازش"
         subtitle="کامپیوترهای گرافیکی (بی‌IP ثابت) که خودشان به این سایت وصل می‌شوند و تولیدِ تصویر، ویدیو، صدا و متنِ سنگین را انجام می‌دهند."
+        actions={
+          <>
+            <Link to="/tools/compute/queue" className="u-btn u-btn-secondary u-btn-sm no-underline">
+              صفِ پردازش
+            </Link>
+            <Link to="/tools/compute/report" className="u-btn u-btn-secondary u-btn-sm no-underline">
+              گزارشِ سرورها
+            </Link>
+          </>
+        }
       />
       <ErrorBox message={error} />
 
@@ -576,10 +586,13 @@ export default function ComputePage() {
             </div>
             <div className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>سرورِ آنلاین</div>
           </Card>
-          <Card>
-            <div className="u-num text-2xl font-extrabold" style={{ color: "var(--text)" }}>{fa(summary.queued)}</div>
-            <div className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>در صف</div>
-          </Card>
+          <Link to="/tools/compute/queue" className="block no-underline" aria-label="در صف؛ رفتن به صفِ پردازش">
+            <Card hover className="h-full">
+              <div className="u-num text-2xl font-extrabold" style={{ color: "var(--text)" }}>{fa(summary.queued)}</div>
+              <div className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>در صف</div>
+              <div className="mt-0.5 text-xs" style={{ color: "var(--brand-strong)" }}>دیدنِ صف</div>
+            </Card>
+          </Link>
           <Card>
             <div className="u-num text-2xl font-extrabold" style={{ color: "var(--text)" }}>{fa(summary.running)}</div>
             <div className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>در حال پردازش</div>
@@ -602,8 +615,24 @@ export default function ComputePage() {
 
       {summary && summary.online === 0 && (
         <Alert tone="warn" title="هیچ سرورِ پردازشی آنلاین نیست">
-          تا وقتی سروری وصل نشود، تولیدِ تصویر و ویدیو انجام نمی‌شود. روی کامپیوترِ گرافیکی پوشهٔ processing را
-          بگذارید، START.bat را اجرا کنید و کلیدِ ثبتِ پایین را بدهید؛ اگر قبلاً ثبت شده، فقط START.bat را دوباره اجرا کنید.
+          جای نگرانی نیست: تولیدِ تصویر و ویدیو و بقیهٔ کارها در صف می‌مانند و همین که یک سرور وصل شد، خودکار انجام
+          می‌شوند (کاری فقط به‌خاطرِ خاموش بودنِ سرور ناموفق نمی‌شود). برای وصل کردنِ سرور:
+          <ol className="mt-2 grid gap-1" style={{ listStyle: "none", padding: 0 }}>
+            <li>۱. کامپیوترِ گرافیکی را روشن کنید.</li>
+            <li>۲. اگر اولین بار است، پوشهٔ processing را روی آن بگذارید.</li>
+            <li>
+              ۳. START.bat را اجرا کنید؛ بار اول کلیدِ ثبتِ پایین را هم بدهید. اگر قبلاً ثبت شده، فقط START.bat را دوباره
+              اجرا کنید.
+            </li>
+          </ol>
+          {summary.queued > 0 && (
+            <div className="mt-2">
+              الان {fa(summary.queued)} کار منتظر است؛{" "}
+              <Link to="/tools/compute/queue" className="underline" style={{ color: "var(--brand-strong)" }}>
+                دیدنِ صف
+              </Link>
+            </div>
+          )}
         </Alert>
       )}
 

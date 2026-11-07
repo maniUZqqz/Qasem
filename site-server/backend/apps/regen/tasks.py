@@ -13,8 +13,21 @@ from .models import RegenSession, RegenVersion
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 8
-#: بیش از این، نسخه منتظرِ گره نمی‌ماند (گره خاموش) — همان لحظه هم در پنل دیده می‌شود و قابلِ لغو است
+#: بیش از این، نسخه‌ای که **روی گره در حال اجراست** رها می‌شود (کارِ گیرکرده). نسخه‌ای که فقط در صفِ
+#: سرورِ پردازش منتظر است (گره خاموش) هرگز به‌خاطرِ انتظار لغو نمی‌شود (صفِ ماندگار)؛ در پنل دیده می‌شود و قابلِ لغو است.
 MAX_POLLS = 6 * 3600 // POLL_SECONDS
+#: نسخه‌ای که منتظرِ روشن شدنِ گره است کم‌تر پرس‌وجو می‌کند
+WAITING_POLL_SECONDS = 30
+
+
+def _queued_on_site(version) -> bool:
+    """کارِ ComputeJob ِ این نسخه هنوز در صف است (کسی آن را نگرفته) ⇒ منتظرِ گره است."""
+    try:
+        from apps.compute.models import ComputeJob
+        return bool(version.compute_job) and ComputeJob.objects.filter(
+            uid=version.compute_job, state=ComputeJob.State.QUEUED).exists()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _eager() -> bool:
@@ -51,6 +64,10 @@ def poll_version_task(version_id: int, n: int = 0) -> None:
         return
     version.refresh_from_db()
     if version.state != RegenVersion.State.GENERATING or _eager():
+        return
+    if _queued_on_site(version):
+        # منتظرِ روشن شدنِ سرورِ پردازش: لغو نمی‌شود؛ شمارنده هم جلو نمی‌رود تا بعد از وصل شدنِ گره، مهلتِ اجرا کامل باشد
+        poll_version_task.apply_async((version_id, 0), countdown=WAITING_POLL_SECONDS)
         return
     if n >= MAX_POLLS:
         services.cancel(version)

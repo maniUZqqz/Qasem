@@ -17,6 +17,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 SCHEME = "agent://"
+#: وسطِ کار گره قطع شد و کار به صف برگشت؛ اگر این‌قدر ثانیه هیچ گرهٔ توانایی نیامد، نخِ Celery را آزاد کن
+PARK_AFTER_S = 120
 
 
 def is_agent_url(url: str) -> bool:
@@ -75,10 +77,19 @@ class RemoteTransport:
         from services.comfyui.client import ComfyUIUnavailable
 
         who = f"سرورِ پردازشِ «{self.node}»" if self.node else "هیچ سرورِ پردازشی با ComfyUI"
-        return ComfyUIUnavailable(
+        err = ComfyUIUnavailable(
             f"{who} آنلاین نیست — روی سیستمِ گرافیکی START.bat ِ بستهٔ UpMarket-Processing را اجرا کنید "
             "(صفحهٔ «سرورهای پردازش» در پنل وضعیت را نشان می‌دهد). بدون سرورِ پردازش تولید تصویر و ویدیو ممکن نیست."
         )
+        try:
+            # صفِ ماندگار: اگر چنین سروری ثبت شده (فقط خاموش است)، این خطا یعنی «منتظر بمان»، نه «ناموفق»
+            from apps.compute import services as compute
+            known = compute.known_nodes("comfyui")
+            if known and (not self.node or any(n.name == self.node for n in known)):
+                err.node_waiting = "comfyui"
+        except Exception:  # noqa: BLE001
+            pass
+        return err
 
     # ─── IO
     def upload_image(self, image_path) -> str:
@@ -139,7 +150,12 @@ class RemoteTransport:
             except (ComputeJob.DoesNotExist, ValueError, ValidationError):
                 raise ComfyUIError(f"کارِ {prompt_id} در صفِ سرورهای پردازش نیست.")
         try:
-            job = compute.wait(job, timeout_s=int(timeout or self.client.timeout), poll=self.client.poll_interval)
+            # patient: ماندن در صف کار را لغو نمی‌کند؛ اگر سرور قطع شد و دو دقیقه برنگشت، نخِ Celery آزاد می‌شود و
+            # Job ِ کاربر «در صف» می‌ماند (NodeWaiting ⇒ ComfyUIUnavailable با نشانهٔ node_waiting)
+            job = compute.wait(job, timeout_s=int(timeout or self.client.timeout), poll=self.client.poll_interval,
+                               patient=True, park_after_s=PARK_AFTER_S)
+        except compute.NodeWaiting as exc:
+            raise self.unavailable_error() from exc
         except compute.ComputeTimeout as exc:
             raise ComfyUITimeout(str(exc)) from exc
         except compute.ComputeFailed as exc:

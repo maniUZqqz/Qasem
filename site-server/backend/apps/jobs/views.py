@@ -68,3 +68,25 @@ class JobCancelView(APIView):
         outcome = cancellation.cancel(job, actor=request.user)
         job.refresh_from_db()
         return Response({**JobSerializer(job).data, "cancellation": outcome})
+
+
+class JobRetryView(APIView):
+    """POST /api/v1/jobs/{id}/retry/ — «پردازشِ دوباره» برای کارِ ناموفق یا لغوشده (apps.jobs.retry).
+
+    همان تسک با همان ورودی‌ها روی همان ردیف دوباره فرستاده می‌شود؛ اعتبار را خودِ تسک مثلِ بارِ اول رزرو می‌کند.
+    """
+
+    def post(self, request, pk):
+        from . import retry
+
+        job = Job.objects.filter(store__in=access.stores_for(request.user), pk=pk).first()
+        if job is None:
+            return Response(
+                {"error": {"code": "not_found", "message": "این Job وجود ندارد."}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            job = retry.retry(job, actor=request.user)
+        except retry.RetryError as exc:
+            return Response({"error": {"code": "retry_refused", "message": exc.message}}, status=exc.status)
+        return Response({**JobSerializer(job).data, "notice": "کار دوباره در صف گذاشته شد."})

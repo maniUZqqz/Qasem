@@ -142,6 +142,8 @@ export interface Job {
   cancel_requested?: boolean;
   /** How many times the job has already been retried. */
   retry_count?: number;
+  /** «پردازشِ دوباره» برای کارِ ناموفق/لغوشده (apps.jobs.retry) */
+  can_retry?: boolean;
   error: string;
   context: Record<string, unknown>;
   result: Record<string, unknown>;

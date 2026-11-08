@@ -85,6 +85,7 @@ export default function ProductionQueuePage() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +114,22 @@ export default function ProductionQueuePage() {
     setBusyId(jobId);
     try {
       await api.post(`/jobs/${jobId}/cancel/`);
+      await load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** «پردازشِ دوباره»: همان کار با همان ورودی‌ها از اول (اعتبار را خودِ کار مثلِ بارِ اول حساب می‌کند) */
+  const retry = async (jobId: number) => {
+    setBusyId(jobId);
+    setNotice(null);
+    try {
+      const { data } = await api.post<Job & { notice?: string }>(`/jobs/${jobId}/retry/`);
+      setNotice(data.notice || "کار دوباره در صف گذاشته شد.");
+      setError(null);
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -189,6 +206,19 @@ export default function ProductionQueuePage() {
             </Button>
           </div>
         )}
+        {(job.state === "FAILED" || job.state === "CANCELLED") && job.can_retry && (
+          <div className="mt-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void retry(job.id)}
+              disabled={busyId === job.id}
+            >
+              {busyId === job.id ? <Spinner size={13} /> : <Icon name="refresh" size={14} />}
+              پردازشِ دوباره
+            </Button>
+          </div>
+        )}
         {job.cancel_requested && (
           <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
             لغو درخواست شد — تا پایان مرحله‌ی جاری صبر می‌کند، بعد فایل نیمه‌کاره را پاک
@@ -218,6 +248,7 @@ export default function ProductionQueuePage() {
       </div>
 
       <ErrorBox message={error} />
+      {notice && <Alert tone="ok">{notice}</Alert>}
 
       <StatRow>
         <StatTile label="در جریان" value={fa(active.length)} />

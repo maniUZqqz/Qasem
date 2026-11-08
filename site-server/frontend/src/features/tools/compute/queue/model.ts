@@ -11,6 +11,8 @@ export type Tone = "neutral" | "brand" | "ok" | "warn" | "bad" | "info";
 export type Group = "waiting" | "running" | "done" | "failed" | "cancelled";
 export type Tab = Group | "all";
 
+export type RetryMode = "" | "requeue" | "consumer" | "owner";
+
 export type WaitReason =
   | "no_node"
   | "busy"
@@ -55,6 +57,14 @@ export type QueueJob = {
   store: string | null;
   can_cancel: boolean;
   can_retry: boolean;
+  /** «پردازشِ دوباره» چه می‌کند: همین کار دوباره در صف / ردیفِ صفحه هم برمی‌گردد / کارِ اصلیِ فروشگاه از اول */
+  retry_mode?: RetryMode;
+  /** جملهٔ فارسی: «پردازشِ دوباره» چه می‌کند، یا چرا نمی‌شود */
+  retry_hint?: string;
+  /** کارِ فروشگاه که این کار را ساخت (apps.jobs) */
+  job_ref?: number | null;
+  /** فقط در پاسخِ «پردازشِ دوباره» */
+  notice?: string;
   scheduled_for: string | null;
   window: string;
   category: string;
@@ -301,6 +311,78 @@ export function cancelNotice(job: Pick<QueueJob, "group">): string {
 }
 
 export const RETRY_NOTICE = "کار دوباره در صف گذاشته شد.";
+
+/** متنِ دکمه — مالک «پردازشِ دوباره» گفت */
+export const RETRY_LABEL = "پردازشِ دوباره";
+
+/** پیامِ بعد از «پردازشِ دوباره»: جملهٔ خودِ سرور (مثلاً «کارِ اصلی … دوباره فرستاده شد») یا پیامِ پیش‌فرض */
+export function retryNotice(updated: Pick<QueueJob, "notice"> | null | undefined): string {
+  return (updated?.notice || "").trim() || RETRY_NOTICE;
+}
+
+/**
+ * «پردازشِ دوبارهٔ همه» فقط در تب‌های «ناموفق» و «لغوشده»، و فقط برای همان چیزی که دیده می‌شود: API پیشوندِ نوع را می‌شناسد،
+ * پس با جستجو یا فیلترِ «دانلودها» خاموش است (مثلِ «لغوِ همهٔ منتظرها»).
+ */
+export function bulkRetryPlan(tab: Tab, kindKey: string, q: string): { allowed: boolean; state: string; kind: string; hint: string } {
+  const state = tab === "failed" ? "FAILED" : tab === "cancelled" ? "CANCELLED" : "";
+  if (!state) return { allowed: false, state: "", kind: "", hint: "" };
+  const opt = kindOption(kindKey);
+  if (q.trim() || opt.category) {
+    return { allowed: false, state, kind: "", hint: "برای پردازشِ دوبارهٔ گروهی، جستجو و فیلترِ دانلودها را بردارید." };
+  }
+  return { allowed: true, state, kind: opt.kind ?? "", hint: "" };
+}
+
+export function bulkRetryConfirm(count: number, tab: Tab, kindKey: string): string {
+  const opt = kindOption(kindKey);
+  const scope = opt.kind ? ` از نوعِ «${opt.label}»` : "";
+  const what = tab === "cancelled" ? "لغوشده" : "ناموفق";
+  return `همهٔ کارهای ${what}${scope} (${toFa(count)} کار) دوباره پردازش شوند؟ کارهایی که از صفحهٔ یک فروشگاه آمده‌اند از اول دوباره فرستاده می‌شوند.`;
+}
+
+export type BulkRetryResult = { retried: number; skipped: number; errors: string[] };
+
+export function bulkRetryNotice(r: BulkRetryResult): string {
+  const parts = [r.retried > 0 ? `${toFa(r.retried)} کار دوباره فرستاده شد.` : "هیچ کاری دوباره فرستاده نشد."];
+  if (r.skipped > 0) parts.push(`${toFa(r.skipped)} کار از این‌جا دوباره اجرا نمی‌شود (از صفحهٔ خودش دوباره بزنید).`);
+  if (r.errors?.length) parts.push(r.errors[0]);
+  return parts.join(" ");
+}
+
+// ───────────────────────────────────────────────────────────── کارهای فروشگاه‌ها (apps.jobs) که ناموفق/لغو شدند
+
+export type StoreJob = {
+  id: number;
+  type: string;
+  type_label: string;
+  state: "FAILED" | "CANCELLED" | string;
+  state_label: string;
+  store: string | null;
+  store_id: number;
+  error: string;
+  retry_count: number;
+  can_retry: boolean;
+  created: string;
+  updated: string;
+};
+
+export type StoreJobsListing = { total: number; jobs: StoreJob[]; counts: { FAILED: number; CANCELLED: number } };
+
+export function storeJobsTitle(l: Pick<StoreJobsListing, "counts">): string {
+  const f = l.counts?.FAILED ?? 0;
+  const c = l.counts?.CANCELLED ?? 0;
+  if (!f && !c) return "هیچ کارِ ناموفق یا لغوشده‌ای در فروشگاه‌ها نیست (۷ روزِ اخیر).";
+  const bits = [f ? `${toFa(f)} ناموفق` : "", c ? `${toFa(c)} لغوشده` : ""].filter(Boolean);
+  return `کارهای فروشگاه‌ها در ۷ روزِ اخیر: ${bits.join(" و ")}`;
+}
+
+/** آخرین خطِ خطا، کوتاه — برای زیرِ عنوانِ ردیف */
+export function shortError(text: string | null | undefined, max = 160): string {
+  const lines = String(text ?? "").trim().split(/\n+/);
+  const last = lines[lines.length - 1] ?? "";
+  return last.length > max ? `${last.slice(0, max - 1)}…` : last;
+}
 
 export function emptyText(tab: Tab, filtered: boolean): string {
   if (filtered) return "کاری با این فیلتر پیدا نشد.";

@@ -8,12 +8,17 @@ import {
   KIND_OPTIONS,
   MAX_SIZE,
   PAGE_SIZE,
-  RETRY_NOTICE,
+  RETRY_LABEL,
   TABS,
   absoluteTime,
   buildQuery,
   bulkCancelConfirm,
   bulkCancelPlan,
+  bulkRetryConfirm,
+  bulkRetryNotice,
+  bulkRetryPlan,
+  retryNotice,
+  type BulkRetryResult,
   cancelConfirm,
   cancelNotice,
   capabilityTotals,
@@ -33,6 +38,7 @@ import {
   type QueueNode,
   type Tab,
 } from "./model";
+import StoreJobsPanel from "./StoreJobs";
 import "./queue.css";
 
 /**
@@ -176,7 +182,7 @@ export default function ComputeQueuePage() {
       const { data: updated } = await api.post<QueueJob>(`/compute/queue/${job.uid}/${what}/`);
       // ردیف همین حالا تازه می‌شود؛ بازخوانیِ بعدی جای درستش (تب) را هم روشن می‌کند
       setData((d) => (d ? { ...d, jobs: d.jobs.map((j) => (j.uid === job.uid ? updated : j)) } : d));
-      flash(what === "cancel" ? cancelNotice(job) : RETRY_NOTICE);
+      flash(what === "cancel" ? cancelNotice(job) : retryNotice(updated));
       runRef.current?.();
     } catch (err) {
       setActionError(errorMessage(err));
@@ -198,6 +204,26 @@ export default function ComputeQueuePage() {
     try {
       const { data: res } = await api.post<{ cancelled: number }>("/compute/queue/cancel-waiting/", plan.kind ? { kind: plan.kind } : {});
       flash(`${fa(res.cancelled)} کار لغو شد.`);
+      runRef.current?.();
+    } catch (err) {
+      setActionError(errorMessage(err));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const retryPlan = bulkRetryPlan(tab, kindKey, q);
+  const retryAll = async () => {
+    const count = data?.total ?? 0;
+    if (!retryPlan.allowed || count <= 0 || !window.confirm(bulkRetryConfirm(count, tab, kindKey))) return;
+    setBulkBusy(true);
+    setActionError(null);
+    try {
+      const { data: res } = await api.post<BulkRetryResult>(
+        "/compute/queue/retry-failed/",
+        retryPlan.kind ? { state: retryPlan.state, kind: retryPlan.kind } : { state: retryPlan.state },
+      );
+      flash(bulkRetryNotice(res));
       runRef.current?.();
     } catch (err) {
       setActionError(errorMessage(err));
@@ -258,6 +284,8 @@ export default function ComputeQueuePage() {
         </Alert>
       )}
 
+      {(tab === "failed" || tab === "cancelled" || tab === "all") && <StoreJobsPanel onChanged={() => runRef.current?.()} />}
+
       {!data && !error && (
         <div className="py-10 text-center">
           <Spinner />
@@ -317,6 +345,19 @@ export default function ComputeQueuePage() {
                 >
                   {bulkBusy ? <Spinner size={14} /> : <Icon name="x" size={14} />}
                   لغوِ همهٔ منتظرها
+                </Button>
+              )}
+              {(tab === "failed" || tab === "cancelled") && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={bulkBusy || !retryPlan.allowed || total <= 0}
+                  title={retryPlan.allowed ? "همهٔ کارهای همین فهرست را که دوباره‌شدنی‌اند دوباره پردازش می‌کند" : retryPlan.hint}
+                  onClick={() => void retryAll()}
+                  data-testid="queue-retry-all"
+                >
+                  {bulkBusy ? <Spinner size={14} /> : <Icon name="refresh" size={14} />}
+                  {tab === "failed" ? "پردازشِ دوبارهٔ همهٔ ناموفق‌ها" : "پردازشِ دوبارهٔ همهٔ لغوشده‌ها"}
                 </Button>
               )}
               <span className="nmq-updated" title="فهرست هر ۵ ثانیه خودکار تازه می‌شود">
@@ -526,9 +567,15 @@ function JobItem({
             </Button>
           )}
           {job.can_retry && (
-            <Button variant="secondary" size="sm" disabled={Boolean(busy)} onClick={() => onAct("retry")}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={Boolean(busy)}
+              onClick={() => onAct("retry")}
+              title={job.retry_hint || undefined}
+            >
               {busy === "retry" ? <Spinner size={13} /> : <Icon name="refresh" size={13} />}
-              تلاش دوباره
+              {RETRY_LABEL}
             </Button>
           )}
           {cancelling && <span className="nmq-small">در حال لغو…</span>}
@@ -563,6 +610,13 @@ function JobDetails({ job }: { job: QueueJob }) {
             {job.error}
           </pre>
         </div>
+      )}
+
+      {job.retry_hint && (job.group === "failed" || job.group === "cancelled") && (
+        <p className="nmq-note">
+          <b>{job.can_retry ? `${RETRY_LABEL}: ` : "پردازشِ دوباره از این‌جا نمی‌شود: "}</b>
+          {job.retry_hint}
+        </p>
       )}
 
       {job.message && job.message !== job.status_text && (

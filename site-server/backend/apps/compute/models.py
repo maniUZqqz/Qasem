@@ -153,6 +153,9 @@ class ComputeJob(TimeStampedModel):
     window = models.CharField("بازهٔ مجازِ شروع", max_length=11, blank=True)
     #: دسته برای فهرست/گزارش: «download» برای دانلودها
     category = models.CharField("دسته", max_length=20, blank=True, db_index=True)
+    #: کارِ فروشگاه (apps.jobs Job) که این کار را ساخت — خودکار از تسکِ Celery ِ در حالِ اجرا (apps.jobs.retry.current_job_id)؛
+    #: «پردازشِ دوباره» در صفِ پردازش با آن به کارِ اصلی می‌رسد. خالی = از صفحه/پنل، نه از یک تسک.
+    job_ref = models.PositiveBigIntegerField("کارِ فروشگاه", null=True, blank=True, db_index=True)
 
     class Meta:
         verbose_name = "کار پردازشی"

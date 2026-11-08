@@ -33,6 +33,12 @@ class JobsConfig(AppConfig):
         (beter.md v2 #1/#2). The DB is touched on the first request, never
         during app initialisation.
         """
+        # «پردازشِ دوباره»: هر تسکی که برای یک Job اجرا می‌شود نام و ورودی‌هایش را ثبت می‌کند (apps.jobs.retry).
+        # فقط وصل کردنِ سیگنال است و به پایگاه‌داده دست نمی‌زند؛ برای آزمون‌ها هم لازم است.
+        from . import retry
+
+        retry.connect_signals()
+
         if len(sys.argv) > 1 and sys.argv[1] in _NON_SERVER_COMMANDS:
             return
 

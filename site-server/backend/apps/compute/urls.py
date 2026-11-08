@@ -1,7 +1,7 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, transfer, views_matting, views_ollama, views_report, views_update, views_voice
+from . import api, transfer, views_matting, views_models, views_ollama, views_report, views_retry, views_update, views_voice
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -42,6 +42,11 @@ urlpatterns = [
     path("queue/", api.queue_list),
     path("queue/summary/", api.queue_summary),
     path("queue/cancel-waiting/", api.queue_cancel_waiting),
+    path("queue/retry-failed/", views_retry.queue_retry_failed),     # «پردازشِ دوبارهٔ همه» (ناموفق/لغوشده) ِ همان فیلتر
+    path("store-jobs/", views_retry.store_jobs),                       # کارهای فروشگاه‌ها که ناموفق/لغو شدند
+    path("store-jobs/retry-all/", views_retry.store_jobs_retry_all),
+    path("store-jobs/<int:pk>/retry/", views_retry.store_job_retry),
+    path("models/", views_models.models_listing),                      # همهٔ بسته‌های دانلودیِ گره‌ها (حذفِ پس‌زمینه، صدا، ویدیو…)
     path("queue/<uuid:uid>/cancel/", api.queue_cancel),
     path("queue/<uuid:uid>/retry/", api.queue_retry),
     # گزارشِ سرورهای پردازش (کارکنان): یک JSON برای کلِ صفحه، لاگ‌ها با فیلتر، خروجیِ CSV

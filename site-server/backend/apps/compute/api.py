@@ -568,10 +568,10 @@ def queue_cancel(request, uid):
 def queue_retry(request, uid):
     job = get_object_or_404(ComputeJob, uid=uid)
     try:
-        job = QV.retry(job)
+        job, notice = QV.retry_ex(job)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)
-    return Response(QV.one(job))
+    return Response({**QV.one(job), "notice": notice})
 
 
 @api_view(["POST"])

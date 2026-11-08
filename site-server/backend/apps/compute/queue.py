@@ -44,6 +44,10 @@ KIND_LABEL_PREFIX = {
 
 #: کارهایی که تلاشِ دوبارهٔ آن‌ها از پنل بی‌خطر است (خروجی‌شان را فقط همین صف می‌بیند)
 RETRYABLE_PREFIXES = ("node.", "ollama.pull", "echo")
+RETRYABLE_ORIGINS = ("panel", "ai_models", "voice_models", "downloads")
+#: نتیجهٔ کارِ این مبداها را صفحهٔ خودشان با شناسهٔ کار دنبال می‌کنند (نه یک تسکِ منتظر)؛ پس همین کار دوباره در صف می‌رود
+#: و ردیفِ همان صفحه (صدا، نسخهٔ عکس، تکهٔ ویدیو) از «ناموفق» به «منتظرِ سرورِ پردازش» برمی‌گردد.
+CONSUMER_ORIGINS = ("audio_studio", "photoedit", "regen")
 
 
 def kind_label(kind: str) -> str:
@@ -193,13 +197,69 @@ def can_cancel(j: ComputeJob) -> bool:
     return not j.final and not (j.state in (S.CLAIMED, S.RUNNING) and j.cancel_requested)
 
 
-def can_retry(j: ComputeJob) -> bool:
+def owners_of(jobs) -> dict:
+    """{job_ref: Job} برای کارهای ناموفق/لغوشده‌ای که از تسکِ یک کارِ فروشگاه آمده‌اند (یک پرس‌وجو برای کلِ فهرست)."""
+    refs = {j.job_ref for j in jobs if getattr(j, "job_ref", None) and j.state in (S.FAILED, S.CANCELLED)}
+    if not refs:
+        return {}
+    from apps.jobs.models import Job
+
+    return {o.pk: o for o in Job.objects.filter(pk__in=refs).only("id", "state", "type", "context", "store_id")}
+
+
+def retry_mode(j: ComputeJob, owners: dict | None = None) -> str:
+    """«پردازشِ دوباره» برای این ردیف چه می‌کند:
+    requeue  — همین کار دوباره در صف (کارهایی که خروجی‌شان را فقط همین صف می‌بیند: دانلود، آزمون، کارِ خودِ سرور)
+    consumer — همین کار دوباره در صف + ردیفِ صفحه‌ای که دنبالش می‌کند به «منتظر» برمی‌گردد (صدا، ویرایشِ عکس، تکهٔ ویدیو)
+    owner    — کارِ فروشگاهی که این کار را ساخت (کپشن، تحلیل، تصویر، ویدیو…) از اول دوباره فرستاده می‌شود؛ خودِ این ردیف
+               در تاریخچه می‌ماند و کارِ تازه‌ای در صف می‌آید
+    ""       — نمی‌شود (کسی منتظرِ نتیجه نیست؛ از همان صفحه‌ای که ساختید دوباره بزنید)"""
     if j.state not in (S.FAILED, S.CANCELLED) or j.kind == PARK_KIND:
-        return False
-    return j.kind.startswith(RETRYABLE_PREFIXES) or j.origin in ("panel", "ai_models", "voice_models", "downloads")
+        return ""
+    if j.kind.startswith(RETRYABLE_PREFIXES) or j.origin in RETRYABLE_ORIGINS:
+        return "requeue"
+    ref = getattr(j, "job_ref", None)
+    if ref:
+        if owners is None:
+            owners = owners_of([j])
+        owner = owners.get(ref)
+        if owner is None:
+            return ""
+        from apps.jobs import retry as JR
+
+        return "owner" if JR.can_retry(owner) else ""
+    if j.origin in CONSUMER_ORIGINS:
+        return "consumer"
+    return ""
 
 
-def job_row(j: ComputeJob, now, nodes: list, positions: dict) -> dict:
+def can_retry(j: ComputeJob, owners: dict | None = None) -> bool:
+    return bool(retry_mode(j, owners))
+
+
+def _owner_label(owner) -> str:
+    try:
+        return owner.get_type_display()
+    except Exception:  # noqa: BLE001
+        return "کارِ فروشگاه"
+
+
+def retry_hint(j: ComputeJob, mode: str, owners: dict | None = None) -> str:
+    if mode == "owner":
+        owner = (owners if owners is not None else owners_of([j])).get(j.job_ref)
+        return f"کارِ اصلی («{_owner_label(owner)}») از اول دوباره فرستاده می‌شود." if owner else ""
+    if mode == "consumer":
+        return "همین کار دوباره در صف می‌رود و صفحهٔ خودش هم به «در صف» برمی‌گردد."
+    if mode == "requeue":
+        return "همین کار دوباره در صف می‌رود."
+    if j.state in (S.FAILED, S.CANCELLED) and j.kind != PARK_KIND:
+        if getattr(j, "job_ref", None):
+            return "کارِ اصلی همین حالا دوباره در جریان است یا پاک شده."
+        return "کسی منتظرِ نتیجهٔ این کار نیست؛ از همان صفحه‌ای که ساختید دوباره بزنید."
+    return ""
+
+
+def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | None = None) -> dict:
     pos = positions.get(j.pk, 0)
     reason, text = ("", "")
     waiting_s = None
@@ -207,6 +267,7 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict) -> dict:
         reason, text = _wait_reason(j, now, nodes, pos)
         waiting_s = int((now - (j.queued_at or j.created_at)).total_seconds())
     p = j.payload or {}
+    mode = retry_mode(j, owners)
     return {
         "uid": str(j.uid), "kind": j.kind, "kind_label": kind_label(j.kind), "title": title_of(j),
         "state": j.state, "state_label": j.get_state_display(), "group": GROUP_OF.get(j.state, "waiting"),
@@ -219,7 +280,9 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict) -> dict:
         "attempts": j.attempts, "max_attempts": j.max_attempts, "lost_count": j.lost_count,
         "progress": round(j.progress, 3), "message": j.message, "error": (j.error or "")[-600:],
         "origin": j.origin, "store": j.store.name if j.store_id and getattr(j, "store", None) else None,
-        "can_cancel": can_cancel(j), "can_retry": can_retry(j),
+        "can_cancel": can_cancel(j), "can_retry": bool(mode), "retry_mode": mode,
+        "retry_hint": retry_hint(j, mode, owners),
+        "job_ref": getattr(j, "job_ref", None),
         "scheduled_for": j.not_before, "window": j.window, "category": j.category,
         "capability": capability_of(j), "parked": j.kind == PARK_KIND,
         "model": p.get("model") or p.get("tag") or "",
@@ -268,11 +331,12 @@ def listing(state: str = "all", kind: str = "", q: str = "", limit: int = 100, o
         total = len(waiting) + len(running) + done_qs.count()
         head = waiting + running
         rows = (head + list(done_qs[:max(0, offset + limit - len(head))]))[offset:offset + limit]
+    owners = owners_of(rows)
     return {
         "counts": counts(), "total": total, "offset": offset, "limit": limit,
         "nodes": [{"id": n.pk, "name": n.name, "online": n.online, "enabled": n.enabled, "last_seen": n.last_seen,
                    "agent": (n.capabilities or {}).get("agent")} for n in nodes],
-        "jobs": [job_row(j, now, nodes, positions) for j in rows],
+        "jobs": [job_row(j, now, nodes, positions, owners) for j in rows],
     }
 
 
@@ -306,14 +370,127 @@ def summary() -> dict:
     }
 
 
-def retry(job: ComputeJob) -> ComputeJob:
-    """همان کارِ ناموفق/لغوشده دوباره به صف برمی‌گردد (ورودی‌هایش هنوز هست)؛ فقط برای کارهایی که can_retry دارند."""
-    if not can_retry(job):
-        raise ValueError("این کار از این‌جا دوباره اجرا نمی‌شود؛ از همان صفحه‌ای که ساختید دوباره بزنید.")
+RETRY_NOTICE = "کار دوباره در صف گذاشته شد."
+
+
+def _requeue(job: ComputeJob) -> None:
     now = timezone.now()
     ComputeJob.objects.filter(pk=job.pk).update(
         state=S.QUEUED, attempts=0, lost_count=0, error="", progress=0.0, node=None, claimed_at=None, finished_at=None,
         cancel_requested=False, queued_at=now, waited_s=None, run_s=None, result={},
         message=SV.NO_NODE_QUEUED_TEXT if not SV.online_nodes(capability_of(job)) else "")
+
+
+def _reset_consumers(job: ComputeJob) -> int:
+    """ردیفِ صفحه‌ای که این کار را با شناسه‌اش دنبال می‌کند، از «ناموفق» به «منتظرِ سرورِ پردازش» برمی‌گردد تا خواندنِ بعدیِ
+    همان صفحه نتیجهٔ تازه را بگیرد (هر صفحه فقط وقتی در حالتِ انتظار است کار را دنبال می‌کند)."""
+    import logging
+
+    now = timezone.now()
+    uid = job.uid
+    n = 0
+    try:
+        if job.origin == "audio_studio":
+            from apps.ai.models import AudioAsset
+
+            n = AudioAsset.objects.filter(job_uid=uid, status=AudioAsset.Status.FAILED).update(
+                status=AudioAsset.Status.PENDING, error="", updated_at=now)
+        elif job.origin == "photoedit":
+            from apps.photoedit.models import PhotoEdit
+
+            n = PhotoEdit.objects.filter(compute_job=str(uid), state__in=["FAILED", "CANCELLED"]).update(
+                state=PhotoEdit.State.NODE, error="", message="دوباره در صفِ سرورِ پردازش", progress=0.05, updated_at=now)
+        elif job.origin == "regen":
+            from apps.regen.models import RegenVersion
+
+            n = RegenVersion.objects.filter(compute_job=str(uid), state__in=["FAILED", "CANCELLED"]).update(
+                state=RegenVersion.State.GENERATING, error="", message="دوباره در صفِ سرورِ پردازش", progress=0.05,
+                updated_at=now)
+    except Exception as exc:  # noqa: BLE001 — کار در صف هست؛ فقط صفحه دیرتر می‌فهمد
+        logging.getLogger(__name__).warning("queue retry: could not reset the page row of %s: %s", uid, exc)
+    return n
+
+
+def retry_ex(job: ComputeJob) -> tuple[ComputeJob, str]:
+    """«پردازشِ دوباره» برای یک ردیفِ صف ⇒ (ردیف، پیامِ فارسی). ValueError با پیامِ فارسی اگر نشود."""
+    mode = retry_mode(job)
+    if not mode:
+        raise ValueError(retry_hint(job, "") or "این کار از این‌جا دوباره اجرا نمی‌شود؛ از همان صفحه‌ای که ساختید دوباره بزنید.")
+    if mode == "owner":
+        from apps.jobs import retry as JR
+        from apps.jobs.models import Job
+
+        owner = Job.objects.filter(pk=job.job_ref).first()
+        if owner is None:
+            raise ValueError("کارِ اصلی پاک شده؛ از همان صفحه‌ای که ساختید دوباره بزنید.")
+        try:
+            JR.retry(owner)
+        except JR.RetryError as exc:
+            raise ValueError(exc.message) from exc
+        job.refresh_from_db()
+        return job, f"کارِ اصلی («{_owner_label(owner)}») دوباره فرستاده شد؛ کارِ تازه‌اش به‌زودی در صف دیده می‌شود."
+    _requeue(job)
+    if mode == "consumer":
+        _reset_consumers(job)
     job.refresh_from_db()
-    return job
+    return job, RETRY_NOTICE
+
+
+def retry(job: ComputeJob) -> ComputeJob:
+    """همان کارِ ناموفق/لغوشده دوباره به صف برمی‌گردد (یا کارِ اصلی‌اش دوباره فرستاده می‌شود)؛ retry_mode را ببینید."""
+    return retry_ex(job)[0]
+
+
+def retry_many(state: str = "FAILED", kind: str = "", limit: int = 200) -> dict:
+    """«پردازشِ دوبارهٔ همه» برای ردیف‌های ناموفق (یا لغوشده) ِ همان فیلترِ نوع. هر کارِ اصلی فقط یک بار فرستاده می‌شود."""
+    state = state if state in (S.FAILED, S.CANCELLED) else S.FAILED
+    qs = ComputeJob.objects.filter(state=state).exclude(kind=PARK_KIND)
+    if kind:
+        qs = qs.filter(kind__startswith=kind)
+    rows = list(qs.order_by("-finished_at", "-created_at")[:limit])
+    owners = owners_of(rows)
+    out = {"retried": 0, "skipped": 0, "errors": []}
+    seen_owner: set = set()
+    for j in rows:
+        mode = retry_mode(j, owners)
+        if not mode or (mode == "owner" and j.job_ref in seen_owner):
+            out["skipped"] += 1
+            continue
+        if mode == "owner":
+            seen_owner.add(j.job_ref)
+        try:
+            retry_ex(j)
+            out["retried"] += 1
+        except ValueError as exc:
+            out["skipped"] += 1
+            msg = str(exc)
+            if msg not in out["errors"] and len(out["errors"]) < 5:
+                out["errors"].append(msg)
+    return out
+
+
+# ───────────────────────────── کارهای فروشگاه (apps.jobs) که ناموفق/لغو شده‌اند — بخشی از همین صفحه
+
+def store_job_row(job) -> dict:
+    from apps.jobs import retry as JR
+
+    store = getattr(job, "store", None)
+    return {
+        "id": job.pk, "type": job.type, "type_label": job.get_type_display(), "state": job.state,
+        "state_label": job.get_state_display(), "store": store.name if store else None, "store_id": job.store_id,
+        "error": (job.error or "")[-600:], "retry_count": job.retry_count, "can_retry": JR.can_retry(job),
+        "created": job.created_at, "updated": job.updated_at,
+    }
+
+
+def store_jobs(state: str = "bad", days: int = 7, limit: int = 50) -> dict:
+    from datetime import timedelta as _td
+
+    from apps.jobs.models import Job
+
+    states = {"failed": ["FAILED"], "cancelled": ["CANCELLED"]}.get(state, ["FAILED", "CANCELLED"])
+    since = timezone.now() - _td(days=max(1, min(int(days or 7), 90)))
+    qs = Job.objects.filter(state__in=states, updated_at__gte=since).select_related("store").order_by("-updated_at")
+    total = qs.count()
+    return {"total": total, "jobs": [store_job_row(j) for j in qs[:max(1, min(int(limit or 50), 200))]],
+            "counts": {s: Job.objects.filter(state=s, updated_at__gte=since).count() for s in ("FAILED", "CANCELLED")}}

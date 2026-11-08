@@ -169,12 +169,12 @@ rm -rf .next/standalone/public && cp -r public .next/standalone/public
 [ -d assets ] && { rm -rf .next/standalone/assets && cp -r assets .next/standalone/assets; }
 
 step "systemd"
-for u in nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker; do
+for u in nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker; do
   cp "$ROOT/deploy/nm/$u.service" /etc/systemd/system/$u.service
 done
 systemctl daemon-reload
-systemctl enable nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker >/dev/null 2>&1
-systemctl restart nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker
+systemctl enable nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker >/dev/null 2>&1
+systemctl restart nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker
 
 step "nginx :$PORT"
 cp "$ROOT/deploy/nm/nginx-port_8040.conf" /www/server/panel/vhost/nginx/port_8040.conf
@@ -183,7 +183,7 @@ ufw allow $PORT/tcp >/dev/null 2>&1 || true
 
 step "وضعیت"
 sleep 3
-for u in nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker; do
+for u in nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker; do
   printf '  %-22s %s\n' "$u" "$(systemctl is-active $u)"
 done
 curl -s -o /dev/null -w "  /healthz  → %{http_code}\n" http://127.0.0.1:$PORT/healthz

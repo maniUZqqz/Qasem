@@ -1,0 +1,15 @@
+[Unit]
+Description=NMarketing celery worker for node-bound work (ai, gpu queues - tasks that wait on the processing server)
+After=network.target redis-server.service
+
+[Service]
+User=root
+WorkingDirectory=/var/www/NM/upmarket/backend
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/var/www/NM/upmarket/venv/bin/celery -A config worker -n node@%%h -Q ai,gpu --pool=threads --concurrency=8 --prefetch-multiplier=1 -O fair --loglevel=INFO --logfile=/var/www/NM/upmarket/logs/celery-node.log
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

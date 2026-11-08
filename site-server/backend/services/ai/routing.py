@@ -78,6 +78,26 @@ def run_timeout():
     return int(_conf('AI_NODE_RUN_TIMEOUT', 420))
 
 
+def solo_claim_timeout():
+    """لوکال تنها مسیر است (متیس مجاز نیست یا خراب است) ⇒ کار در صفِ گره منتظرِ نوبتش می‌ماند، نه این‌که پس از ۴۵ ثانیه لغو و
+    پارک شود و دوباره بیاید (۱۴۰۵/۰۸/۱۷: گره یک جا دارد و هر کار ۱ تا ۷ دقیقه ⇒ کارهای بعدی همیشه بیش از ۴۵ ثانیه منتظر بودند).
+    سقفِ کلیِ compute.wait (۲×مهلت+۶۰) همچنان سرِ جایش است."""
+    return int(_conf('AI_NODE_CLAIM_TIMEOUT_SOLO', 900))
+
+
+def run_timeout_for(model):
+    """مدلی که در کارتِ گره جا نمی‌شود (بخشی روی CPU) مهلتِ اجرای بیشتری می‌گیرد — qwq:32b روی ۱۲ گیگ گاهی بیش از ۷ دقیقه."""
+    base = run_timeout()
+    try:
+        from .model_catalog import info
+        size = int((info(model or '') or {}).get('size_mb') or 0)
+    except Exception:  # noqa: BLE001
+        size = 0
+    if size > int(_conf('AI_NODE_VRAM_MB', 11000)):
+        return max(base, int(_conf('AI_NODE_RUN_TIMEOUT_BIG', 1500)))
+    return base
+
+
 def coder_model():
     """مدلِ لوکالِ کار‌های «کد» (سایت‌ساز): انتخابِ مالک در تنظیم، وگرنه MODEL_CODER."""
     return priority.local_model(CODE)
@@ -365,7 +385,7 @@ class _Router:
         return False, '؛ '.join('%s: %s' % (priority.PROVIDER_LABEL[p], reasons.get(p, '—')) for p in order)
 
     # ---- اجرا
-    def _call_local(self, local_call, cfg):
+    def _call_local(self, local_call, cfg, has_alt=True):
         state = node_state(self.kind)
         if not state['ready']:
             raise NodeFailed(state['reason'] or 'سرورِ پردازش آماده نیست.')
@@ -386,7 +406,10 @@ class _Router:
         for index, model in enumerate(usable):
             self.model_note = ('%s نصب نیست؛ %s جواب داد' % (wanted, model)) if model != wanted else ''
             self._local_model_used = model        # اگر شکست خورد، مدارِ «همین مدل» باز شود نه مدلِ انتخابی
-            prov = node_provider(state['node'], self.kind, model=model)
+            prov = node_provider(state['node'], self.kind, model=model,
+                                 claim_s=None if has_alt else solo_claim_timeout(),
+                                 # کد (سایت‌ساز) مهلتِ خودش را دارد؛ مدلِ بزرگ فقط برای متن/پژوهش/بینایی وقتِ بیشتر می‌گیرد
+                                 run_s=None if self.kind == CODE else run_timeout_for(model))
             try:
                 return local_call(prov, model), model
             except Exception as exc:  # noqa: BLE001
@@ -433,7 +456,7 @@ class _Router:
             model = self._model_of(p, cfg)
             try:
                 if p == LOCAL:
-                    result, model = self._call_local(local_call, cfg)
+                    result, model = self._call_local(local_call, cfg, has_alt)
                 else:
                     result, model = metis_call(has_alt)
             except Exception as exc:  # noqa: BLE001 — هر شکستی ⇒ مسیرِ دیگر؛ علتش ثبت می‌شود

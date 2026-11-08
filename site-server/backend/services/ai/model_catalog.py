@@ -61,7 +61,9 @@ CATALOG: dict[str, dict] = {
 
 #: هر نوعِ کار: ترتیبِ مدل‌های مناسب (اولی پیش‌فرض، بقیه جایگزین وقتی نصب نیستند)
 CHAINS: dict[str, list[str]] = {
-    TEXT: ["gemma3:12b", "qwen3:14b", "qwq:32b", "qwen3-vl:30b", "qwen3:8b"],
+    # qwen3:8b before qwq:32b (1405/08/17): a model that fits wholly on the 12 GB card answers a caption in under a minute;
+    # the 32B thinking model runs half on the CPU (2-7 min per caption; 8 jobs ran past the time limit on the owner's node)
+    TEXT: ["gemma3:12b", "qwen3:14b", "qwen3:8b", "qwq:32b", "qwen3-vl:30b"],
     RESEARCH: ["qwq:32b", "qwen3:14b", "gemma3:12b", "qwen3-vl:30b"],
     # qwq:32b is not here on purpose: a whole site from a 32B thinking model on a 12 GB card runs past the site builder's
     # time limit — then Metis (or the clear error) is the better answer

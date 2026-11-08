@@ -121,7 +121,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.7"
+VERSION = "2.8"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -447,13 +447,40 @@ def ensure_editor(key, tick=None, background=False):
     return True
 
 
+def decode_log(raw):
+    """A service log as text. Before 2.8 PowerShell 5.1's Tee-Object wrote it as UTF-16, which read as UTF-8 came out as
+    "F u l l y Q u a l i f i e d ..." on the site; PowerShell's NativeCommandError frame lines are dropped too."""
+    utf16 = raw[:2] in (b"\xff\xfe", b"\xfe\xff")
+    if not utf16 and len(raw) > 16 and raw.count(b"\x00") > len(raw) // 4:
+        utf16 = True
+    if utf16:
+        enc = "utf-16-be" if raw[:2] == b"\xfe\xff" else "utf-16-le"
+        body = raw[2:] if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw
+        # a seek may land mid-character: for mostly-ASCII UTF-16LE the zero bytes sit at odd offsets
+        if enc == "utf-16-le" and body[0::2].count(b"\x00") > body[1::2].count(b"\x00"):
+            body = body[1:]
+        if len(body) % 2:
+            body = body[:-1]
+        text = body.decode(enc, "replace")
+    else:
+        text = raw.decode("utf-8", "replace")
+    keep = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s == "+" or s.startswith(("+ CategoryInfo", "+ FullyQualifiedErrorId", "At line:", "+ ~", "+ &")):
+            continue
+        keep.append(ln.replace("\x00", ""))
+    return "\n".join(keep)
+
+
 def tail_lines(path, n=15):
     try:
         with open(path, "rb") as fh:
             fh.seek(0, 2)
             size = fh.tell()
             fh.seek(max(0, size - 16000))
-            text = fh.read().decode("utf-8", "replace")
+            raw = fh.read()
+        text = decode_log(raw)
         lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
         return lines[-n:]
     except OSError:
@@ -887,6 +914,41 @@ class ServiceManager:
             first, rest = parts[0], (parts[1] if len(parts) > 1 else "")
         return "& '%s' %s" % (first.replace("'", "''"), rest.strip())
 
+    @staticmethod
+    def _program_of(cmd):
+        if cmd.startswith('"'):
+            return cmd[1:].split('"', 1)[0]
+        return cmd.split(" ", 1)[0]
+
+    def _start_windows(self, key, cmd, logf, env):
+        """2.8: cmd.exe straight into a UTF-8 log, no PowerShell. PowerShell 5.1 turned every stderr line into a
+        NativeCommandError, wrote the log as UTF-16 (unreadable on the site) and ran a .bat from the agent's folder -
+        ComfyUI's run_nvidia_gpu.bat calls .\\python_embeded\\python.exe relative to its own folder, so it stopped at once
+        ("comfyui exited right after start (code 1)", 2026-11-08). A .bat/.cmd now runs in its own folder, the way a double-click
+        runs it; anything else (python.exe audio\\x.py, ollama serve) keeps the code folder. The previous log is kept as *.prev.log."""
+        prog = self._program_of(cmd)
+        cwd = HERE
+        if prog.lower().endswith((".bat", ".cmd")) and os.path.isabs(prog) and os.path.isfile(prog):
+            cwd = os.path.dirname(prog)
+        env = dict(env)
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        try:
+            if os.path.isfile(logf):
+                os.replace(logf, logf[:-4] + ".prev.log")
+        except OSError:
+            pass
+        fh = open(logf, "wb")
+        try:
+            fh.write(("===== %s  start %s: %s  (folder: %s) =====\r\n" % (
+                time.strftime("%Y-%m-%d %H:%M:%S"), key, cmd, cwd)).encode("utf-8"))
+            fh.flush()
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            return subprocess.Popen('cmd.exe /d /s /c "%s"' % cmd, cwd=cwd, env=env, stdout=fh, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, creationflags=flags)
+        finally:
+            fh.close()            # the child has its own handle
+
     def start(self, key, wait=True, tick=None, background=False):
         """background=True: the panel's desired state started it (nobody is waiting): an editor that still has to be built /
         downloaded waits for the download window instead of blocking the main loop; jobs (tick given) never wait."""
@@ -922,9 +984,7 @@ class ServiceManager:
         log("starting %s: %s  (output: logs\\%s)" % (key, cmd, os.path.basename(logf)))
         try:
             if sys.platform.startswith("win"):
-                ps = "%s 2>&1 | Tee-Object -FilePath '%s'" % (self._ps_command(cmd), logf.replace("'", "''"))
-                self.procs[key] = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                                                   cwd=HERE, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                self.procs[key] = self._start_windows(key, cmd, logf, env)
             else:
                 self.procs[key] = subprocess.Popen("%s >> '%s' 2>&1" % (cmd, logf), cwd=HERE, shell=True, env=env,
                                                    start_new_session=True)
@@ -942,7 +1002,7 @@ class ServiceManager:
             p = self.procs.get(key)
             if p and p.poll() is not None and self.cfg.get(key, {}).get("url"):
                 error("%s exited right after start (code %s). Last lines of logs\\%s:\n%s" % (
-                    key, p.returncode, os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
+                    key, p.returncode, os.path.basename(logf), "\n".join(tail_lines(logf, 40)) or "(empty)"))
                 return False
             if time.time() > next_note:
                 next_note = time.time() + 30
@@ -952,7 +1012,7 @@ class ServiceManager:
                     tick("starting %s ..." % key)
             time.sleep(2)
         warn("%s did not come up within %ss. Last lines of logs\\%s:\n%s" % (
-            key, int(self.cfg.get(key, {}).get("ready_timeout") or 60), os.path.basename(logf), "\n".join(tail_lines(logf)) or "(empty)"))
+            key, int(self.cfg.get(key, {}).get("ready_timeout") or 60), os.path.basename(logf), "\n".join(tail_lines(logf, 40)) or "(empty)"))
         return False
 
     def stop(self, key):

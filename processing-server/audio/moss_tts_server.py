@@ -13,6 +13,7 @@ into ~12 s utterances, each utterance starts with "، " (the model swallows a co
 generation is capped at 1200 tokens (~90 s) per utterance.
 Not exercised on real hardware by the site's tests (they use --fake); first real run: watch logs\\service-moss.log.
 """
+import contextlib
 import os
 import random
 import sys
@@ -52,6 +53,8 @@ class MossTTS(Worker):
         cuda = torch.cuda.is_available()
         device = "cuda" if cuda else "cpu"
         dtype = torch.bfloat16 if cuda and torch.cuda.get_device_capability()[0] >= 8 else (torch.float16 if cuda else torch.float32)
+        named = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
+        dtype = named.get(os.environ.get("NM_MOSS_DTYPE", "").strip().lower(), dtype)
         total_mb = torch.cuda.get_device_properties(0).total_memory // 2 ** 20 if cuda else 0
         # the codec is 7 GB in float32; on a 12 GB card it shares the GPU with the 4.7 GB talker -> half precision
         codec_dtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}.get(
@@ -72,6 +75,13 @@ class MossTTS(Worker):
                 wav = wav.mean(dim=0, keepdim=True)
             return wav
 
+        # 1405/08/17: on the owner's RTX 3060 (bf16 weights, bf16 codec) every voice failed with «expected mat1 and mat2 to have
+        # the same dtype, but got: float != BFloat16» - the reference audio and some of the inferencer's own tensors are float32.
+        # Autocast casts the inputs of every matmul/conv to the weights' half precision.
+        amp_dtype = dtype if cuda and dtype != torch.float32 else None
+        amp = (lambda: torch.autocast(device_type="cuda", dtype=amp_dtype)) if amp_dtype else contextlib.nullcontext
+        self.amp = amp
+
         cache = {}
         original_encode = MossTTSRealtimeInference._encode_reference_audio
 
@@ -81,7 +91,8 @@ class MossTTS(Worker):
             if key not in cache:
                 if len(cache) > 32:
                     cache.clear()
-                cache[key] = original_encode(_self, path, device)
+                with amp():
+                    cache[key] = original_encode(_self, path, device)
             return cache[key]
 
         MossTTSRealtimeInference._load_audio = load_audio
@@ -117,7 +128,7 @@ class MossTTS(Worker):
         pieces = self._pieces(text)
         gap = torch.zeros(int(float(body.get("gap", 0.3)) * SR))
         parts = []
-        with torch.inference_mode():
+        with torch.inference_mode(), self.amp():
             for piece in pieces:
                 result = self.inferencer.generate(text=[piece], reference_audio_path=[ref], **params)
                 tokens = torch.tensor(result[0]).to(self.device_name)

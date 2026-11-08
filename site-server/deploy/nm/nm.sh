@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # مدیریتِ سریعِ NMarketing:  nm.sh status | restart | stop | start | logs [web|celery|beat|website|3d] | update
-U="nm-web nm-celery nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker"
+U="nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker"
 case "${1:-status}" in
   status)  for u in $U; do printf '%-22s %s\n' "$u" "$(systemctl is-active $u)"; done;
            curl -s -o /dev/null -w "healthz %{http_code}\n" http://127.0.0.1:8040/healthz ;;

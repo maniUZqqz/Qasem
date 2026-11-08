@@ -65,7 +65,7 @@ class CatalogTests(SimpleTestCase):
             chain = model_catalog.chain_for(kind, "mine:1b")
             self.assertEqual(chain[0], "mine:1b")
             self.assertEqual(len(chain), len(set(chain)))
-        self.assertEqual(model_catalog.chain_for(priority.TEXT, GEMMA)[:3], [GEMMA, QWEN14, QWQ])
+        self.assertEqual(model_catalog.chain_for(priority.TEXT, GEMMA)[:4], [GEMMA, QWEN14, "qwen3:8b", QWQ])
         self.assertEqual(model_catalog.chain_for(priority.RESEARCH, QWQ)[:2], [QWQ, QWEN14])
         self.assertEqual(model_catalog.chain_for(priority.CODE, CODER)[0], CODER)
         # بینایی فقط مدلِ بینا (قابِ متنیِ qwq به عکس نگاه نمی‌کند)
@@ -184,7 +184,7 @@ class ChainTests(Base):
         self.assertIs(st["has_model"], True)
         self.assertIs(st["wanted_installed"], False)
         self.assertTrue(st["ready"])
-        self.assertEqual(st["chain"][:3], [GEMMA, QWEN14, QWQ])
+        self.assertEqual(st["chain"][:4], [GEMMA, QWEN14, "qwen3:8b", QWQ])
         self.node(models=(QWEN14, QWQ), name="gpu-2")    # a second node does not change the order of preference
         self.assertEqual(routing.node_state("text")["model"], QWEN14)
 
@@ -833,3 +833,28 @@ class TaskMappingTests(TestCase):
             text2.return_value.generate_json.return_value = (dict(base_tests.VALID_MARKET), "{}")
             analyze_market_task.apply(args=(job2.id, product.id, ""))
         self.assertEqual(text2.call_args.kwargs["kind"], priority.RESEARCH)
+
+
+class NodeTimeoutsTests(SimpleTestCase):
+    """۱۴۰۵/۰۸/۱۷: گرهٔ مالک (یک جا) هر کارِ متن را ۱–۷ دقیقه نگه می‌داشت ⇒ کارهای بعدی پس از ۴۵ ثانیه لغو و پارک می‌شدند."""
+
+    def test_the_light_model_stands_in_before_the_32b_one(self):
+        chain = model_catalog.chain_for(priority.TEXT, GEMMA)
+        self.assertLess(chain.index("qwen3:8b"), chain.index(QWQ))
+
+    def test_a_model_bigger_than_the_card_gets_more_run_time(self):
+        self.assertEqual(routing.run_timeout_for("qwen3:8b"), routing.run_timeout())
+        self.assertEqual(routing.run_timeout_for(GEMMA), routing.run_timeout())
+        self.assertGreaterEqual(routing.run_timeout_for(QWQ), 1500)
+        self.assertEqual(routing.run_timeout_for("unknown:1b"), routing.run_timeout())
+
+    def test_local_as_the_only_path_waits_its_turn(self):
+        self.assertGreater(routing.solo_claim_timeout(), routing.claim_timeout())
+        with override_settings(AI_NODE_CLAIM_TIMEOUT_SOLO=120):
+            self.assertEqual(routing.solo_claim_timeout(), 120)
+
+    def test_call_local_passes_the_longer_waits(self):
+        src = inspect.getsource(routing._Router._call_local)
+        self.assertIn("solo_claim_timeout()", src)
+        self.assertIn("run_timeout_for(model)", src)
+        self.assertIn("self._call_local(local_call, cfg, has_alt)", inspect.getsource(routing._Router._route))

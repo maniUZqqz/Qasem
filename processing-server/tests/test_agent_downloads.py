@@ -263,7 +263,7 @@ class ConsoleTitleTests(unittest.TestCase):
                              text=True, timeout=60, env=env)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(out.stdout.strip(), "NMarketing processing node v%s" % agent.VERSION)
-        self.assertEqual(agent.VERSION, "2.7")
+        self.assertEqual(agent.VERSION, "2.8")
 
 
 # ───────────────────────────────────────────── the background model download
@@ -945,7 +945,7 @@ class NumbersTests(Base):
             caps = agent.Capabilities("TEST-NODE", 1).probe()
             self.assertEqual((caps["disk_free_gb"], caps["disk_total_gb"], caps["gpu_util_pct"], caps["gpu_temp_c"]),
                              (123.4, 500.0, 41, 63))
-            self.assertEqual(caps["agent"], "2.7")
+            self.assertEqual(caps["agent"], "2.8")
         with mock.patch.object(agent, "listening", lambda *a, **k: False), mock.patch.object(agent, "gpu_names", lambda: []), \
                 mock.patch.object(agent, "gpu_stats", lambda: (None, None)), \
                 mock.patch.object(agent, "disk_numbers", lambda: (None, None)), \

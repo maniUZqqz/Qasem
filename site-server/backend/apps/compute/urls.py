@@ -1,7 +1,8 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import api, transfer, views_matting, views_models, views_ollama, views_report, views_retry, views_update, views_voice
+from . import (api, transfer, views_matting, views_models, views_ollama, views_remote, views_report, views_retry,
+               views_update, views_voice)
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -17,6 +18,8 @@ urlpatterns = [
     path("jobs/<uuid:uid>/outputs/<str:name>", api.output_file),
     path("log/", api.node_log),
     path("enroll/", api.enroll),
+    path("remote/enroll/", views_remote.remote_enroll),            # Setup-Remote.bat: کلیدِ تونل ⇒ پورت + کلیدِ مدیر
+    path("remote/check/", views_remote.remote_check),              # «سایت از تونل به من می‌رسد؟»
     path("ollama/pullable/", views_ollama.pullable),                # فهرستِ مجازِ دانلودِ مدل (گره پیش از ollama.pull می‌پرسد)
     # به‌روزرسانیِ کدِ گره از خودِ سایت (توکنِ گره یا کارمند) — updates.py
     path("update/", views_update.manifest),
@@ -59,4 +62,6 @@ urlpatterns = [
     path("nodes/<int:pk>/audio/tests/", views_voice.node_audio_tests),
     path("nodes/<int:pk>/models/download/", views_voice.node_models_download),
     path("nodes/<int:pk>/update/", views_update.node_update),
+    path("nodes/<int:pk>/remote/", views_remote.node_remote),      # کنترل از راهِ دور: وضعیتِ تونل + آخرین دستور
+    path("nodes/<int:pk>/control/", views_remote.node_control),    # دستورهای ثابت: status/stop/start/restart/update/build/logs
 ]

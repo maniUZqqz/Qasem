@@ -17,3 +17,16 @@ def maintenance():
     except Exception as exc:  # noqa: BLE001 — آمار نباید requeue را بخواباند
         out["report_error"] = str(exc)[:200]
     return out
+
+
+@shared_task(name="apps.compute.tasks.remote_control")
+def remote_control(node_pk, action, by=""):
+    """«کنترل از راهِ دور»: یک دستورِ ثابت روی سرورِ پردازش از راهِ تونلش (remote.py)؛ نتیجه در پنل و لاگِ همان سرور."""
+    from . import remote
+    from .models import ComputeNode
+
+    node = ComputeNode.objects.filter(pk=node_pk).first()
+    if node is None:
+        return {"error": "node gone"}
+    row = remote.control(node, action, by)
+    return {"action": action, "exit_code": row.get("exit_code")}

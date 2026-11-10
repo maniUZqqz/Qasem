@@ -121,7 +121,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.8"
+VERSION = "2.9"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -445,6 +445,25 @@ def ensure_editor(key, tick=None, background=False):
             except Exception as e:  # noqa: BLE001 - optional model
                 warn("photo upscaler model not fetched (%s); the editor works without it" % e)
     return True
+
+
+def note_home():
+    """2.9: keep C:\\ProgramData\\NMarketing\\remote\\home.txt pointing at THIS code folder, so the site's remote commands
+    (nm-control.cmd -> nm_control.py, set up by Setup-Remote.bat) act on the copy that really runs. Nothing without that setup."""
+    if not sys.platform.startswith("win"):
+        return
+    path = os.path.join(os.environ.get("ProgramData") or r"C:\ProgramData", "NMarketing", "remote", "home.txt")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read().strip() == HERE:
+                return
+    except OSError:
+        return                                    # remote access is not set up on this computer
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(HERE)
+    except OSError:
+        pass
 
 
 def decode_log(raw):
@@ -4077,6 +4096,7 @@ def main():
                     else:
                         comfy_state = "up"
                     if not announced:
+                        note_home()
                         SITE_LOG.add("INFO", "agent v%s started on %s (%s); services: %s; GPU: %s" % (
                             VERSION, socket.gethostname(), platform.platform(), ", ".join(on) or "none", c.get("gpu", "-")))
                         announced = True

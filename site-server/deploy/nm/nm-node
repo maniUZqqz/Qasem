@@ -1,0 +1,50 @@
+#!/bin/bash
+# nm-node - work on the processing servers as if they were VPSs, through the reverse tunnel each one keeps open to
+# this server (Setup-Remote.bat on the node; deploy/nm/remote-access-setup.sh here). 1405/08/19.
+#
+#   nm-node                          the nodes and whether their tunnel is up
+#   nm-node NAME                     an interactive PowerShell on the node
+#   nm-node NAME run 'COMMAND'       one PowerShell command
+#   nm-node NAME status|stop|start|restart|update|build|logs [N]     the panel's fixed commands (nm_control.py)
+#   nm-node NAME put LOCAL REMOTE    copy a file to the node    (REMOTE like C:/Users/QQz/x.txt)
+#   nm-node NAME get REMOTE LOCAL    copy a file from the node
+DIR=${NM_REMOTE_DIR:-/var/www/NM/upmarket/data/remote}
+KEY=/root/.ssh/nm_node_admin
+KH=/root/.ssh/nm_nodes_known_hosts
+
+field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$DIR/$1.json" "$2"; }
+up() { timeout 4 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1; head -c 40 <&3" 2>/dev/null | grep -q '^SSH-'; }
+usage() { sed -n '4,11p' "$0" | sed 's/^# \{0,1\}//'; }
+
+if [ $# -eq 0 ]; then
+  found=0
+  for f in "$DIR"/*.json; do
+    [ -e "$f" ] || continue
+    n=$(basename "$f" .json)
+    [[ "$n" == *-last ]] && continue
+    found=1
+    p=$(field "$n" listen_port)
+    if up "$p"; then s="tunnel UP"; else s="tunnel down"; fi
+    printf '%-24s port %-6s %-12s user %s\n' "$n" "$p" "$s" "$(field "$n" user)"
+  done
+  [ $found = 1 ] || echo "no node has remote access yet (run Setup-Remote.bat on the node once)"
+  exit 0
+fi
+case "$1" in -h|--help|help) usage; exit 0 ;; esac
+
+N="$1"; shift
+[ -f "$DIR/$N.json" ] || { echo "unknown node '$N' - see: nm-node"; exit 2; }
+P=$(field "$N" listen_port)
+U=$(field "$N" user)
+OPTS=(-i "$KEY" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$KH" -o ServerAliveInterval=30)
+CTL="& 'C:\\ProgramData\\NMarketing\\remote\\nm-control.cmd'"
+up "$P" || { echo "the tunnel of $N is down (the computer is off, or its internet)"; exit 3; }
+
+case "${1:-}" in
+  "") exec ssh "${OPTS[@]}" -p "$P" -l "$U" -t 127.0.0.1 ;;
+  run) shift; exec ssh "${OPTS[@]}" -p "$P" -l "$U" 127.0.0.1 "$*" ;;
+  status|stop|start|restart|update|build|logs) exec ssh "${OPTS[@]}" -p "$P" -l "$U" 127.0.0.1 "$CTL $*" ;;
+  put) [ $# -eq 3 ] || { usage; exit 2; }; exec scp "${OPTS[@]}" -P "$P" "$2" "$U@127.0.0.1:$3" ;;
+  get) [ $# -eq 3 ] || { usage; exit 2; }; exec scp "${OPTS[@]}" -P "$P" "$U@127.0.0.1:$2" "$3" ;;
+  *) usage; exit 2 ;;
+esac

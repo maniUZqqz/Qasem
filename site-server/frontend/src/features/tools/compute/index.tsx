@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../../api/client";
 import { NodeAudioSection } from "../../audio/NodeAudioCard";
 import DownloadScheduleCard from "./DownloadSchedule";
 import NodeModelsCard from "./NodeModelsCard";
+import NodeRemote from "./NodeRemote";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
   Alert,
@@ -463,6 +464,7 @@ export default function ComputePage() {
   const [openLog, setOpenLog] = useState<number | null>(null);
   /** شناسهٔ سروری که کشوی «سرویس‌ها»یش باز است (فقط یکی؛ مستقل از لاگ) */
   const [openServices, setOpenServices] = useState<number | null>(null);
+  const [openRemote, setOpenRemote] = useState<number | null>(null);
   /** یک نسخه از تنظیمات برای هر دو کارت (ثبتِ سرورِ تازه + مسیرِ پردازش)؛ هر ۳۰ ثانیه تازه می‌شود */
   const [settings, setSettings] = useState<RouteSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -673,6 +675,8 @@ export default function ComputePage() {
               const toggleLog = () => setOpenLog(logOpen ? null : n.id);
               const servicesOpen = openServices === n.id;
               const toggleServices = () => setOpenServices(servicesOpen ? null : n.id);
+              const remoteOpen = openRemote === n.id;
+              const toggleRemote = () => setOpenRemote(remoteOpen ? null : n.id);
               return (
                 <Fragment key={n.id}>
                   <tr>
@@ -781,6 +785,14 @@ export default function ComputePage() {
                         <Button size="sm" variant={servicesOpen ? "secondary" : "ghost"} onClick={toggleServices}>
                           سرویس‌ها
                         </Button>
+                        <Button
+                          size="sm"
+                          variant={remoteOpen ? "secondary" : "ghost"}
+                          onClick={toggleRemote}
+                          title="بستن، باز کردن و به‌روزرسانیِ برنامهٔ همین کامپیوتر از همین‌جا"
+                        >
+                          کنترل از راهِ دور
+                        </Button>
                         <Button size="sm" variant={logOpen ? "secondary" : "ghost"} onClick={toggleLog}>
                           لاگ
                         </Button>
@@ -819,6 +831,13 @@ export default function ComputePage() {
                     <tr>
                       <td colSpan={6} style={{ background: "var(--surface-2)" }}>
                         <NodeLogs node={n} onClose={() => setOpenLog(null)} onCleared={() => void load()} />
+                      </td>
+                    </tr>
+                  )}
+                  {remoteOpen && (
+                    <tr>
+                      <td colSpan={6} style={{ background: "var(--surface-2)" }}>
+                        <NodeRemote nodeId={n.id} nodeName={n.name} onClose={() => setOpenRemote(null)} />
                       </td>
                     </tr>
                   )}

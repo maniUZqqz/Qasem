@@ -176,9 +176,6 @@ systemctl daemon-reload
 systemctl enable nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker >/dev/null 2>&1
 systemctl restart nm-web nm-celery nm-celery-node nm-celery-beat nm-website nm-up3d-orchestrator nm-up3d-worker
 
-step "دسترسیِ راه‌دور به سرورهای پردازش (nmtunnel، nm-node)"
-bash "$ROOT/deploy/nm/remote-access-setup.sh" || echo "  (remote access setup skipped - see above)"
-
 step "nginx :$PORT"
 cp "$ROOT/deploy/nm/nginx-port_8040.conf" /www/server/panel/vhost/nginx/port_8040.conf
 /www/server/nginx/sbin/nginx -t 2>&1 | tail -1 && /www/server/nginx/sbin/nginx -s reload

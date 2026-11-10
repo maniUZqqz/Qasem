@@ -624,7 +624,7 @@ class FallbackTests(unittest.TestCase):
 
 class SiteAndNodeAgree(unittest.TestCase):
     def test_the_agent_version_was_raised_for_this_work(self):
-        self.assertEqual(agent.VERSION, "2.9")
+        self.assertEqual(agent.VERSION, "2.10")
 
     def test_the_diagnostic_names_the_engine(self):
         self.assertIn("video matting (RVM)", rd(os.path.join(PROC, "agent.py"), "r"))

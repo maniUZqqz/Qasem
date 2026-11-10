@@ -5,7 +5,7 @@ import { api, errorMessage } from "../../../api/client";
 import { NodeAudioSection } from "../../audio/NodeAudioCard";
 import DownloadScheduleCard from "./DownloadSchedule";
 import NodeModelsCard from "./NodeModelsCard";
-import NodeRemote from "./NodeRemote";
+import NodeCommands from "./NodeCommands";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
   Alert,
@@ -789,9 +789,9 @@ export default function ComputePage() {
                           size="sm"
                           variant={remoteOpen ? "secondary" : "ghost"}
                           onClick={toggleRemote}
-                          title="بستن، باز کردن و به‌روزرسانیِ برنامهٔ همین کامپیوتر از همین‌جا"
+                          title="به‌روزرسانی و راه‌اندازیِ دوبارهٔ برنامهٔ NMarketing روی همین کامپیوتر، ساختِ ویرایشگرها، وضعیت و لاگ"
                         >
-                          کنترل از راهِ دور
+                          دستورها
                         </Button>
                         <Button size="sm" variant={logOpen ? "secondary" : "ghost"} onClick={toggleLog}>
                           لاگ
@@ -837,7 +837,7 @@ export default function ComputePage() {
                   {remoteOpen && (
                     <tr>
                       <td colSpan={6} style={{ background: "var(--surface-2)" }}>
-                        <NodeRemote nodeId={n.id} nodeName={n.name} onClose={() => setOpenRemote(null)} />
+                        <NodeCommands nodeId={n.id} nodeName={n.name} onClose={() => setOpenRemote(null)} />
                       </td>
                     </tr>
                   )}

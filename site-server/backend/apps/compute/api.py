@@ -134,6 +134,13 @@ def _control(node) -> dict:
             pass
     out = {"desired": desired, "auto_switch": node.auto_switch}
     try:
+        from . import commands as node_commands
+        cmd = node_commands.pending_for(node)
+        if cmd:
+            out["command"] = cmd          # «دستورها» ِ پنل (عاملِ ۲٫۱۰ به بعد؛ عاملِ قدیمی کلیدِ ناشناخته را نادیده می‌گیرد)
+    except Exception:  # noqa: BLE001 — دستورها نباید heartbeat را بیندازند
+        pass
+    try:
         # اولویتِ لوکال/متیس (apps.ai.AiPriority): مدلِ لوکالِ هر نوعِ کار را به گره می‌گوییم تا «ویرایشِ هوشمندِ عکس» (کیتِ عکس)
         # همان مدلِ بینایی را اول امتحان کند. عاملِ قدیمی این کلید را نمی‌شناسد و نادیده می‌گیرد.
         from services.ai import priority

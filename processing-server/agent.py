@@ -121,7 +121,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.9"
+VERSION = "2.10"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -445,25 +445,6 @@ def ensure_editor(key, tick=None, background=False):
             except Exception as e:  # noqa: BLE001 - optional model
                 warn("photo upscaler model not fetched (%s); the editor works without it" % e)
     return True
-
-
-def note_home():
-    """2.9: keep C:\\ProgramData\\NMarketing\\remote\\home.txt pointing at THIS code folder, so the site's remote commands
-    (nm-control.cmd -> nm_control.py, set up by Setup-Remote.bat) act on the copy that really runs. Nothing without that setup."""
-    if not sys.platform.startswith("win"):
-        return
-    path = os.path.join(os.environ.get("ProgramData") or r"C:\ProgramData", "NMarketing", "remote", "home.txt")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            if fh.read().strip() == HERE:
-                return
-    except OSError:
-        return                                    # remote access is not set up on this computer
-    try:
-        with open(path, "w", encoding="utf-8", newline="") as fh:
-            fh.write(HERE)
-    except OSError:
-        pass
 
 
 def decode_log(raw):
@@ -1473,7 +1454,7 @@ class Capabilities:
         self.last_hash = ""
 
     def probe(self):
-        caps = {"agent": VERSION, "hostname": socket.gethostname(), "platform": platform.platform(), "slots": self.slots,
+        caps = {"agent": VERSION, "commands": list(COMMANDS), "hostname": socket.gethostname(), "platform": platform.platform(), "slots": self.slots,
                 "data_dir": DATA}
         try:                       # which package of the code this folder has (Update.bat writes it); none = a zip copy
             ver = json.load(open(os.path.join(HERE, ".nm-version.json"), encoding="utf-8"))
@@ -3481,6 +3462,114 @@ def h_voice_asr(job):
     return {"primary": name, "engine": "voice"}
 
 
+# ───────────────────────────────────────────── the panel's commands (agent 2.10)
+#: Processing servers > «دستورها» in the panel: they come with the heartbeat / claim answer, are acknowledged at once
+#: and answered when done. update / restart end this process; START.bat starts it again (on the new code).
+#: (Full access to the computer itself is a separate tool, PC Remote - not part of NMarketing.)
+COMMANDS = ("status", "update", "restart", "build", "logs")
+CMD = {"seen": set(), "restart": None}
+
+
+def _last_command_path():
+    return os.path.join(DATA, "last-command.txt")
+
+
+def command_report(site, cid, state, ok=None, output=""):
+    try:
+        site.post("/api/v1/compute/commands/%s/" % cid, {"state": state, "ok": ok, "output": str(output or "")[-30000:]},
+                  timeout=30)
+    except Exception as e:  # noqa: BLE001 - the site may be briefly unreachable; the panel then says «no answer»
+        warn("panel command %s: could not report to the site: %s" % (cid, e))
+
+
+def cmd_status():
+    lines = ["agent v%s on %s (%s)" % (VERSION, socket.gethostname(), platform.platform()),
+             "code folder: %s" % HERE, "data folder: %s" % DATA,
+             "services: " + ", ".join("%s %s" % (k, "up" if listening(service_url(k), 0.5) else "-") for k in SERVICES),
+             "panel wants: %s (auto-switch %s)" % (json.dumps(STATE.get("desired") or {}),
+                                                   "on" if STATE.get("auto_switch") else "off")]
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu",
+                              "--format=csv,noheader"], capture_output=True, text=True, timeout=20).stdout.strip()
+        lines.append("gpu: %s" % (out.replace("\n", " | ") or "-"))
+    except Exception:  # noqa: BLE001
+        lines.append("gpu: nvidia-smi not available")
+    try:
+        lines.append("disk free (data drive): %.1f GB" % (shutil.disk_usage(DATA).free / 1e9))
+    except OSError:
+        pass
+    return True, "\n".join(lines)
+
+
+def cmd_logs(n=60):
+    out = []
+    names = ["agent.log"] + sorted(f for f in (os.listdir(LOGS) if os.path.isdir(LOGS) else [])
+                                   if f.startswith("service-") and f.endswith(".log") and not f.endswith(".prev.log"))
+    for name in names:
+        lines = tail_lines(os.path.join(LOGS, name), n if name == "agent.log" else 25)
+        if lines:
+            out.append("===== %s =====" % name)
+            out.extend(lines)
+    return True, "\n".join(out) or "(no logs yet)"
+
+
+def cmd_build():
+    if not sys.platform.startswith("win"):
+        return False, "Build-Editors.bat runs on Windows only"
+    p = subprocess.run(["cmd.exe", "/d", "/c", os.path.join(HERE, "Build-Editors.bat")], cwd=HERE, stdin=subprocess.DEVNULL,
+                       capture_output=True, timeout=3600)
+    out = (p.stdout + p.stderr).decode("utf-8", "replace").strip()
+    return p.returncode == 0, out[-20000:] or "(no output)"
+
+
+def run_update_now():
+    """The panel's «update»: what Update.bat does (update.py --auto, in place); the agent restarts right after."""
+    try:
+        p = subprocess.run([sys.executable, os.path.join(HERE, "update.py"), "--auto"], cwd=HERE, stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=1800)
+    except Exception as e:  # noqa: BLE001
+        return False, "update.py: %s" % e
+    out = (p.stdout + p.stderr).decode("utf-8", "replace").strip()
+    return p.returncode == 0, out[-12000:] or "(no output)"
+
+
+def run_command(site, cmd):
+    """One panel command (from the heartbeat / claim answer): acknowledged at once, never run twice."""
+    if not isinstance(cmd, dict):
+        return
+    cid, action = str(cmd.get("id") or ""), str(cmd.get("action") or "")
+    if not cid or cid in CMD["seen"]:
+        return
+    CMD["seen"].add(cid)
+    try:
+        with open(_last_command_path(), encoding="utf-8") as fh:
+            if fh.read().strip() == cid:          # done just before a restart
+                command_report(site, cid, "done", True, "(done before the agent restarted)")
+                return
+    except OSError:
+        pass
+    try:
+        with open(_last_command_path(), "w", encoding="utf-8") as fh:
+            fh.write(cid)
+    except OSError:
+        pass
+    log("panel command: %s" % action)
+    command_report(site, cid, "running")
+    if action in ("update", "restart"):
+        CMD["restart"] = {"id": cid, "action": action}       # the main loop does it: it has to end this process
+        return
+    fn = {"status": cmd_status, "logs": cmd_logs, "build": cmd_build}.get(action)
+
+    def work():
+        try:
+            ok, out = fn() if fn else (False, "unknown command '%s'" % action)
+        except Exception as e:  # noqa: BLE001
+            ok, out = False, "%s: %s" % (type(e).__name__, e)
+        command_report(site, cid, "done", ok, out)
+
+    threading.Thread(target=work, daemon=True, name="command-%s" % action).start()
+
+
 def h_ollama(job):
     import base64
 
@@ -4019,6 +4108,7 @@ def main():
         if not isinstance(r, dict):
             return
         absorb_control(r)           # download window, the site's clock and version (agent 2.6)
+        run_command(site, r.get("command"))   # the panel's commands (agent 2.10)
         if "auto_switch" in r:
             STATE["auto_switch"] = bool(r["auto_switch"])
         if isinstance(r.get("ai"), dict):
@@ -4052,6 +4142,19 @@ def main():
             try:
                 MANAGER.stop_audio()
                 _updater().request_restart("code updated while running")
+            except Exception as e:  # noqa: BLE001
+                warn("restart preparation: %s" % e)
+            return RESTART_CODE
+        if CMD["restart"] is not None:            # the panel's «update» / «restart» (agent 2.10)
+            req, CMD["restart"] = CMD["restart"], None
+            ok, out = run_update_now() if req["action"] == "update" else (True, "")
+            note = "restarting the agent now%s" % (("; %d running job(s) go back to the queue" % len(running)) if running else "")
+            command_report(site, req["id"], "done", ok, (out + "\n" if out else "") + note)
+            SITE_LOG.add("INFO", "agent v%s on %s restarts on the panel's command (%s)" % (VERSION, socket.gethostname(), req["action"]))
+            SITE_LOG.flush(force=True)
+            try:
+                MANAGER.stop_audio()
+                _updater().request_restart("panel command: %s" % req["action"])
             except Exception as e:  # noqa: BLE001
                 warn("restart preparation: %s" % e)
             return RESTART_CODE
@@ -4096,7 +4199,6 @@ def main():
                     else:
                         comfy_state = "up"
                     if not announced:
-                        note_home()
                         SITE_LOG.add("INFO", "agent v%s started on %s (%s); services: %s; GPU: %s" % (
                             VERSION, socket.gethostname(), platform.platform(), ", ".join(on) or "none", c.get("gpu", "-")))
                         announced = True

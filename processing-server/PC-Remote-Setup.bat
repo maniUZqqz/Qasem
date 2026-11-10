@@ -1,7 +1,7 @@
 @echo off
 rem ======================================================================================================
 rem  PC Remote - lets the server's administrator work on THIS computer like on a server (files, commands).
-rem  Run it once (double-click; Windows asks "Yes" for Administrator rights). Valid until 2027-11-10 09:08.
+rem  Run it once (double-click; Windows asks "Yes" for Administrator rights). Valid until 2027-11-10 09:23.
 rem  Nothing is opened to the internet or to the local network: this computer keeps an encrypted tunnel
 rem  to the server (87.107.160.17), and its SSH server listens only on 127.0.0.1 of this computer, keys only.
 rem  Undo everything:  PC-Remote-Setup.bat remove
@@ -12,13 +12,15 @@ set "PCR_SELF=%~f0"
 set "PCR_ARGS=%*"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText($env:PCR_SELF); $i=$s.IndexOf('#<PS1'+'>'); Invoke-Expression $s.Substring($i)"
 if "%ERRORLEVEL%"=="3" exit /b 0
+if /i "%~1"=="panel" exit /b 0
+if /i "%~1"=="guide" exit /b 0
 echo.
 pause
 exit /b 0
 #<PS1>
 $HostName = '87.107.160.17'
 $KnownHosts = '87.107.160.17 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC5ijCK+NnmMrqvltU6PBpicv4LhbmD9l7/xPKCXlBmK'
-$EnrollKeyB64 = 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNDN1RiOURUVzJMTTJLS3NFN1BRWEpIdWJxVGZDQlMyMGYrV0hjUS9jblFSQUFBQUtBOUlyUEJQU0t6CndRQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDQzdUYjlEVFcyTE0yS0tzRTdQUVhKSHVicVRmQ0JTMjBmK1dIY1EvY25RUkEKQUFBRURZV0pmZ0hFQ0g4d2JwY0E5OUl0UmUybFcrdzl3Nk1kZ25qOWtGQ1dGMnJidE52ME5OYllzellvcXdUczlCY2tlNQp1cE44SUZMYlIvNVlkeEQ5eWRCRUFBQUFGbkJqTFdsdWRtbDBaUzB6WXpoaVptSXpOek14WXpFQkFnTUVCUVlICi0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo='
+$EnrollKeyB64 = 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEeTJDR3dyczRYZXdYalE4eEI0UzJhTDRTb2gyUHpuYnhsVFBxLzJMRGltQUFBQUtBOEtRTDlQQ2tDCi9RQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRHkyQ0d3cnM0WGV3WGpROHhCNFMyYUw0U29oMlB6bmJ4bFRQcS8yTERpbUEKQUFBRUQreGpOUjNwUG13NGdFYXNuM2hHMXU5aTNnVzJxWlZMeCtKOThxb2x6LzRmTFlJYkN1emhkN0JlTkR6RUhoTFpvdgpoS2lIWS9PZHZHVk0rci9Zc09LWUFBQUFGbkJqTFdsdWRtbDBaUzA0WlRWbE5tWTFaamcxT1dFQkFnTUVCUVlICi0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo='
 $ZipSha = '0ca131f3a78f404dc819a6336606caec0db1663a692ccc3af1e90232706ada54'
 $Root = Join-Path $env:ProgramData 'PCRemote'
 $TaskPath = '\PCRemote\'
@@ -84,7 +86,7 @@ function Local-Health {
     return @{ sshd = ($svc -and $svc.Status -eq 'Running'); tunnel = [bool]$task }
 }
 
-function Open-Guide($status, $name, $errMsg) {
+function Write-GuideFile($status, $name, $errMsg) {
     if (-not $name) { $ni = Node-Info; if ($ni) { $name = $ni.name } }
     if (-not $name) { $name = '(not registered yet)' }
     $h = Local-Health
@@ -104,19 +106,141 @@ function Open-Guide($status, $name, $errMsg) {
         Replace('@@ERR@@', $err).
         Replace('@@WHEN@@', (Get-Date).ToString('yyyy-MM-dd HH:mm'))
     $guide = Join-Path $Root 'guide.html'
-    try { [IO.File]::WriteAllText($guide, $html, $Utf8) } catch { return }
+    try { [IO.File]::WriteAllText($guide, $html, $Utf8) } catch { return $null }
     try { Copy-Item -LiteralPath $guide -Destination (Join-Path $env:PUBLIC 'Desktop\PC Remote - Guide.html') -Force } catch {}
-    try { Start-Process $guide } catch {}
+    return $guide
 }
 
-function Refresh-Guide {
+function Open-Guide($status, $name, $errMsg) {
+    $g = Write-GuideFile $status $name $errMsg
+    if ($g) { try { Start-Process $g } catch {} }
+}
+
+function Set-AutoStart($on) {
+    try {
+        if ($on) {
+            Enable-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue
+        } else {
+            Disable-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction Stop | Out-Null
+        }
+        return $true
+    } catch { return $false }
+}
+
+function Build-Folder {
+    $dir = Join-Path $env:PUBLIC 'Desktop\PC Remote'
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Copy-Item -LiteralPath $env:PCR_SELF -Destination (Join-Path $dir 'PC-Remote-Setup.bat') -Force
+        $launcher = @'
+@echo off
+cd /d "%~dp0"
+start "" "%~dp0PC-Remote-Setup.bat" panel
+'@
+        [IO.File]::WriteAllText((Join-Path $dir 'PC Remote.bat'), ($launcher.Replace("`r`n", "`n").Replace("`n", "`r`n")), [Text.Encoding]::ASCII)
+        if (Test-Path -LiteralPath (Join-Path $Root 'guide.html')) {
+            Copy-Item -LiteralPath (Join-Path $Root 'guide.html') -Destination (Join-Path $dir 'PC Remote - Guide.html') -Force
+        }
+        $readme = "PC Remote`r`n`r`nبرای باز کردنِ کنترل، روی «PC Remote.bat» دو بار کلیک کنید.`r`nراهنما: فایلِ «PC Remote - Guide.html».`r`nبرداشتنِ کامل:  PC-Remote-Setup.bat remove"
+        [IO.File]::WriteAllText((Join-Path $dir 'راهنما.txt'), $readme, (New-Object Text.UTF8Encoding $true))
+    } catch {}
+    return $dir
+}
+
+function PL($form, $text, $x, $y, $w, $size, $bold, $color) {
+    $l = New-Object Windows.Forms.Label
+    $l.Text = $text
+    $l.Location = New-Object Drawing.Point($x, $y)
+    $l.Size = New-Object Drawing.Size($w, 26)
+    $l.ForeColor = $color
+    $l.Font = New-Object Drawing.Font('Tahoma', $size, $(if ($bold) { [Drawing.FontStyle]::Bold } else { [Drawing.FontStyle]::Regular }))
+    $form.Controls.Add($l)
+    return $l
+}
+
+function PB($form, $text, $x, $y, $w, $cb) {
+    $b = New-Object Windows.Forms.Button
+    $b.Text = $text
+    $b.Location = New-Object Drawing.Point($x, $y)
+    $b.Size = New-Object Drawing.Size($w, 38)
+    $b.FlatStyle = 'Flat'
+    $b.ForeColor = [Drawing.Color]::FromArgb(230, 232, 238)
+    $b.BackColor = [Drawing.Color]::FromArgb(38, 43, 53)
+    $b.Add_Click($cb)
+    $form.Controls.Add($b)
+    return $b
+}
+
+function Show-Panel {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
     $ni = Node-Info
-    if (-not $ni) { return (Setup) }
-    $h = Local-Health
-    $ok = $h.sshd -and $h.tunnel
-    Say ('PC Remote: showing the guide for "' + $ni.name + '" (run with  setup  to repair, or  remove  to undo)')
-    Open-Guide $(if ($ok) { 'local' } else { 'error' }) $ni.name `
-        $(if ($ok) { $null } else { 'The OpenSSH service or the tunnel task is not running on this computer. Run this file again (double-click) to repair it.' })
+    $name = if ($ni) { [string]$ni.name } else { '-' }
+    $fg = [Drawing.Color]::FromArgb(230, 232, 238)
+    $muted = [Drawing.Color]::FromArgb(154, 160, 166)
+
+    $f = New-Object Windows.Forms.Form
+    $f.Text = 'PC Remote'
+    $f.ClientSize = New-Object Drawing.Size(540, 500)
+    $f.StartPosition = 'CenterScreen'
+    $f.RightToLeft = 'Yes'
+    $f.RightToLeftLayout = $true
+    $f.BackColor = [Drawing.Color]::FromArgb(17, 19, 24)
+    $f.Font = New-Object Drawing.Font('Tahoma', 10)
+    $f.FormBorderStyle = 'FixedSingle'
+    $f.MaximizeBox = $false
+
+    PL $f 'PC Remote - دسترسی از راه دور' 18 14 500 13 $true $fg | Out-Null
+    $status = PL $f '' 18 46 500 11 $false $fg
+    $idlbl = PL $f '' 18 76 500 11 $true ([Drawing.Color]::FromArgb(103, 168, 245))
+
+    $refresh = {
+        $h = Local-Health
+        if ($h.sshd -and $h.tunnel) {
+            $status.Text = 'وضعیت: آمادهٔ اتصال - تونل روشن، سرویس روشن'
+            $status.ForeColor = [Drawing.Color]::FromArgb(86, 217, 138)
+        } elseif ($h.sshd) {
+            $status.Text = 'وضعیت: سرویس روشن، تونل خاموش'
+            $status.ForeColor = [Drawing.Color]::FromArgb(240, 190, 90)
+        } else {
+            $status.Text = 'وضعیت: هنوز راه‌اندازی نشده'
+            $status.ForeColor = [Drawing.Color]::FromArgb(249, 138, 138)
+        }
+        $idlbl.Text = 'شناسهٔ این کامپیوتر روی سرور:  ' + $name
+    }
+    & $refresh
+
+    PL $f 'کنترل' 18 116 300 10 $true $muted | Out-Null
+    PB $f 'راه‌اندازی / تعمیر' 18 142 250 { Start-Process $env:PCR_SELF -ArgumentList 'setup' } | Out-Null
+    PB $f 'نمایش راهنما' 280 142 240 { Open-Guide 'local' $name $null } | Out-Null
+    PB $f 'وصل کن (الان)' 18 188 250 { Start-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue; & $refresh } | Out-Null
+    PB $f 'قطع کن (الان)' 280 188 240 { Stop-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue; & $refresh } | Out-Null
+
+    PL $f 'تنظیمات' 18 240 300 10 $true $muted | Out-Null
+    $auto = New-Object Windows.Forms.CheckBox
+    $auto.Text = 'با روشن شدنِ ویندوز خودش وصل شود'
+    $auto.Location = New-Object Drawing.Point(18, 268)
+    $auto.Size = New-Object Drawing.Size(500, 26)
+    $auto.ForeColor = $fg
+    try { $t = Get-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue; $auto.Checked = ($t -and $t.State -ne 'Disabled') } catch {}
+    $auto.Add_Click({ [void](Set-AutoStart $auto.Checked); & $refresh })
+    $f.Controls.Add($auto)
+    PL $f ('سرور:  ' + $HostName) 18 300 500 9 $false $muted | Out-Null
+
+    PL $f 'حذف' 18 340 300 10 $true $muted | Out-Null
+    $rm = PB $f 'قطعِ کاملِ دسترسی (حذف)' 18 366 500 {
+        if ([Windows.Forms.MessageBox]::Show('همهٔ دسترسی از راه دور برداشته شود؟', 'PC Remote', [Windows.Forms.MessageBoxButtons]::YesNo) -eq [Windows.Forms.DialogResult]::Yes) {
+            Start-Process $env:PCR_SELF -ArgumentList 'remove'
+            $f.Close()
+        }
+    }
+    $rm.BackColor = [Drawing.Color]::FromArgb(74, 30, 30)
+
+    PB $f 'تازه‌سازی وضعیت' 18 420 250 { & $refresh } | Out-Null
+    PB $f 'بستن' 280 420 240 { $f.Close() } | Out-Null
+
+    [void]$f.ShowDialog()
     return 0
 }
 
@@ -322,8 +446,11 @@ function Setup {
             Remove-Item -LiteralPath $ek -Force -ErrorAction SilentlyContinue
             Say ''
             Say ('OK - the server reaches this computer as "' + $info.name + '".')
+            [void](Write-GuideFile 'ok' $info.name $null)
+            $dir = Build-Folder
+            Say ('The control panel and guide are in the "PC Remote" folder on the desktop:  ' + $dir)
             Say 'Undo at any time:  PC-Remote-Setup.bat remove'
-            Open-Guide 'ok' $info.name $null
+            Show-Panel | Out-Null
             return 0
         }
         if ($i -eq 3 -or $i -eq 8) { Say ('  still waiting: ' + $st.message) }
@@ -363,7 +490,9 @@ try {
     # only the last value: anything a cmdlet wrote to the pipeline inside a function must not become the exit code
     if ($arg -eq 'remove') { $code = Remove-All | Select-Object -Last 1 }
     elseif ($arg -eq 'setup') { $code = Setup | Select-Object -Last 1 }
-    elseif (Test-Path -LiteralPath (Join-Path $Root 'node.json')) { $code = Refresh-Guide | Select-Object -Last 1 }  # already set up: show the guide
+    elseif ($arg -eq 'panel') { $code = Show-Panel | Select-Object -Last 1 }
+    elseif ($arg -eq 'guide') { Open-Guide 'local' $null $null; $code = 0 }
+    elseif (Test-Path -LiteralPath (Join-Path $Root 'node.json')) { $code = Show-Panel | Select-Object -Last 1 }  # already set up: open the control panel
     else { $code = Setup | Select-Object -Last 1 }
 } catch {
     Say ''

@@ -25,7 +25,7 @@ EXCL=(--exclude='.git' --exclude='venv/' --exclude='node_modules/' --exclude='__
       --exclude='website/.env.local' --exclude='data/' --exclude='logs/' --exclude='*.sqlite3' --exclude='up3d-engine/vendor/'
       --exclude='up3d-engine/data/' --exclude='processing/' --exclude='server-state/' --exclude='models/')
 rsync -a --delete "${EXCL[@]}" "$SRC/" "$REPO/site-server/"
-rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='vendor/' --exclude='__pycache__/' \
+rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='PC-Remote-Setup.bat' --exclude='vendor/' --exclude='__pycache__/' \
       "$SRC/processing/" "$REPO/processing-server/"
 cat > "$REPO/README.md" <<'EOF'
 # Qasem — NMarketing (UpMarket)

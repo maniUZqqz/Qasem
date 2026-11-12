@@ -112,8 +112,6 @@ INSTALLED_APPS += ["apps.regen"]
 INSTALLED_APPS += ["apps.photoedit"]
 # فیلم‌برداری و عکاسیِ هدایت‌شده (پنل › محتوا، و «عکس‌برداری با دوربین» در تعریفِ محصول)
 INSTALLED_APPS += ["apps.shoot"]
-# چندزاویه: چند زاویهٔ مجازی از یک دوربین + حرکتِ دوربینِ ۲٫۵بعدی (پنل › محتوا؛ کارِ سنگین روی سرورِ پردازش)
-INSTALLED_APPS += ["apps.multiangle"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -865,12 +863,6 @@ CELERY_BEAT_SCHEDULE["compute-maintenance"] = {
     "task": "apps.compute.tasks.maintenance",
     "schedule": 60.0,
     "options": {"expires": 50},
-}
-# چندزاویه: سرورِ پردازشِ روشن را خودکار آماده می‌کند (نصبِ محیط و مدل‌ها) و آزمونِ خودکارش را می‌زند
-CELERY_BEAT_SCHEDULE["multiangle-autocheck"] = {
-    "task": "apps.multiangle.tasks.autocheck",
-    "schedule": 120.0,
-    "options": {"expires": 100},
 }
 
 

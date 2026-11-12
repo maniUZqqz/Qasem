@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import ModeSwitch, { useEditorMode } from "../../components/ModeSwitch";
@@ -72,17 +72,6 @@ export default function VideoEditorPage() {
   const [manualStart, setManualStart] = useState<string | null>(null);
   /** پروژه‌ای که «کارگردان» ساخته و باید در فضای دستی باز شود */
   const [manualProject, setManualProject] = useState<number | null>(null);
-  // ?project=<شناسه> (از صفحهٔ «چندزاویه» و مانندش): همان پروژه در فضای «دستی» باز می‌شود
-  const [searchParams, setSearchParams] = useSearchParams();
-  useEffect(() => {
-    const wanted = Number(searchParams.get("project"));
-    if (wanted > 0) {
-      setManualProject(wanted);
-      setMode("manual");
-      setSearchParams({}, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const up = useVideoUpload<Video>(id!);
 

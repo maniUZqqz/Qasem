@@ -36,7 +36,6 @@ KIND_LABELS = {
     "comfy.graph": "تولیدِ تصویر یا ویدیو (ComfyUI)", "comfy.profile": "تولیدِ تصویر یا ویدیو (پروفایل)",
     "ollama.chat": "گفتگوی هوشمند", "ollama.generate": "نوشتنِ متنِ هوشمند", "ollama.vision": "تحلیلِ تصویرِ هوشمند",
     "photo.matting": "جداسازیِ پس‌زمینهٔ عکس", "ollama.pull": "دانلودِ مدلِ هوش مصنوعی", "node.models": "دانلودِ مدل‌های صدا و ویدیو",
-    "multiangle.virtual": "چندزاویه: زاویه‌های مجازی", "multiangle.move": "چندزاویه: حرکتِ دوربینِ ۲٫۵بعدی", "multiangle.selftest": "چندزاویه: آزمونِ خودکار",
     "node.update": "به‌روزرسانیِ نرم‌افزارِ سرورِ پردازش", "node.bench": "آزمونِ مدلِ صدا", "echo": "آزمونِ اتصال",
     PARK_KIND: "کارِ منتظرِ سرورِ پردازش",
 }
@@ -164,8 +163,6 @@ def _wait_reason(j: ComputeJob, now, nodes: list, pos: int) -> tuple[str, str]:
             if any(matting.node_models(n).get(model, {}).get("state") == "installed" for n in pool):
                 return "model", "در صف — منتظرِ آماده شدنِ محیطِ اجرای جداسازی روی سرورِ پردازش"
             return "model", "در صف — منتظرِ دانلودِ مدلِ «%s» روی سرورِ پردازش" % label
-        if j.kind.startswith("multiangle."):
-            return "model", "در صف — منتظرِ نصبِ خودکارِ محیط و مدل‌های چندزاویه روی سرورِ پردازش"
         return "model", "در صف — منتظرِ آماده شدنِ مدل روی سرورِ پردازش"
     if pos <= 1:
         return "busy", "در صف — نوبتِ بعدی"

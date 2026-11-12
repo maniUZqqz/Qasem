@@ -99,14 +99,6 @@ size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a j
 Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
 (BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
 onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
-Agent add-on (no version bump) - «چندزاویه» (multiangle_jobs.py + multiangle_engine.py + multiangle_core.py): one camera -> several virtual cameras with a natural
-camera operator (wide / medium / close / two-shot / over-the-shoulder, synced clips + an auto-switched multicam edit), and 2.5D camera moves
-(dolly / truck / crane / orbit) from one picture or clip with Depth-Anything-V2-Small. Kinds multiangle.virtual / multiangle.move /
-multiangle.selftest. The heartbeat reports caps.multiangle, caps.multiangle_runtime {ok, providers, gpu}, caps.multiangle_models and
-caps.multiangle_ready; the site holds a job in its queue until the node can run it. Nothing is installed by hand: downloads/multiangle.json
-(numpy + OpenCV + onnxruntime-directml in <data>\venvs\multiangle, three small ONNX models) is part of the default download set, and the
-module itself asks for whatever is missing right away and every 15 minutes (NM_MULTIANGLE_AUTOINSTALL=0 / window changes that, NM_MULTIANGLE=0
-switches the feature off). Needs no change anywhere else in this file: the module adds its handlers and its heartbeat keys by itself.
 """
 import glob
 import hashlib
@@ -129,7 +121,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.11"
+VERSION = "2.10"
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -3969,13 +3961,6 @@ def h_photo_matting(job):
 
 
 HANDLERS["photo.matting"] = h_photo_matting
-
-try:  # multi-angle video (multiangle_jobs.py): handlers, heartbeat keys and the automatic install - an optional module never stops the agent
-    import multiangle_jobs
-
-    multiangle_jobs.register(sys.modules[__name__], HANDLERS)
-except Exception as _e:  # noqa: BLE001
-    print("multiangle module not loaded: %s" % _e)
 
 
 def run_job(site, data):

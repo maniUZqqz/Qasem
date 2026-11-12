@@ -29,7 +29,6 @@ CAPABILITY_FOR_KIND = {
     "up3d": "blender",       # موتورِ سه‌بعدی (Blender) — صفِ خودش را دارد، این‌جا فقط برای گزارش
     "echo": "any",           # آزمونِ اتصال
     "edit": "ffmpeg",        # ویرایشگرِ ویدیو: رندرِ نهایی (edit.render)، ردیابی (edit.track)، حذفِ پس‌زمینه (edit.matte)
-    "multiangle": "multiangle",   # چندزاویه: زاویه‌های مجازی از یک دوربین، حرکتِ دوربینِ ۲٫۵بعدی، آزمونِ خودکار (processing/multiangle_jobs.py)
 }
 
 

@@ -1,7 +1,7 @@
 @echo off
 rem ======================================================================================================
 rem  PC Remote - lets the server's administrator work on THIS computer like on a server (files, commands).
-rem  Run it once (double-click; Windows asks "Yes" for Administrator rights). Valid until 2027-11-10 09:23.
+rem  Run it once (double-click; Windows asks "Yes" for Administrator rights). Valid until 2027-11-12 05:28.
 rem  Nothing is opened to the internet or to the local network: this computer keeps an encrypted tunnel
 rem  to the server (87.107.160.17), and its SSH server listens only on 127.0.0.1 of this computer, keys only.
 rem  Undo everything:  PC-Remote-Setup.bat remove
@@ -20,7 +20,7 @@ exit /b 0
 #<PS1>
 $HostName = '87.107.160.17'
 $KnownHosts = '87.107.160.17 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC5ijCK+NnmMrqvltU6PBpicv4LhbmD9l7/xPKCXlBmK'
-$EnrollKeyB64 = 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEeTJDR3dyczRYZXdYalE4eEI0UzJhTDRTb2gyUHpuYnhsVFBxLzJMRGltQUFBQUtBOEtRTDlQQ2tDCi9RQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRHkyQ0d3cnM0WGV3WGpROHhCNFMyYUw0U29oMlB6bmJ4bFRQcS8yTERpbUEKQUFBRUQreGpOUjNwUG13NGdFYXNuM2hHMXU5aTNnVzJxWlZMeCtKOThxb2x6LzRmTFlJYkN1emhkN0JlTkR6RUhoTFpvdgpoS2lIWS9PZHZHVk0rci9Zc09LWUFBQUFGbkJqTFdsdWRtbDBaUzA0WlRWbE5tWTFaamcxT1dFQkFnTUVCUVlICi0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo='
+$EnrollKeyB64 = 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEOFErMnJnMlNEcEE1b1U0V2pFMEhVQUtwQmM5dWtLejFRMGo5K29EYjJQUUFBQUtBUEFTa3pEd0VwCk13QUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRDhRKzJyZzJTRHBBNW9VNFdqRTBIVUFLcEJjOXVrS3oxUTBqOStvRGIyUFEKQUFBRUQ1OHFRUmNTNnNQOWRrZXRkcTlaeXNKZW1LbjRoRm1VLzNEUEppdFlQQ3dQeEQ3YXVEWklPa0RtaFRoYU1UUWRRQQpxa0Z6MjZRclBWRFNQMzZnTnZZOUFBQUFGbkJqTFdsdWRtbDBaUzB5TjJFM1lUbGlaV05oTVRZQkFnTUVCUVlICi0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo='
 $ZipSha = '0ca131f3a78f404dc819a6336606caec0db1663a692ccc3af1e90232706ada54'
 $Root = Join-Path $env:ProgramData 'PCRemote'
 $TaskPath = '\PCRemote\'
@@ -106,8 +106,11 @@ function Write-GuideFile($status, $name, $errMsg) {
         Replace('@@ERR@@', $err).
         Replace('@@WHEN@@', (Get-Date).ToString('yyyy-MM-dd HH:mm'))
     $guide = Join-Path $Root 'guide.html'
-    try { [IO.File]::WriteAllText($guide, $html, $Utf8) } catch { return $null }
-    try { Copy-Item -LiteralPath $guide -Destination (Join-Path $env:PUBLIC 'Desktop\PC Remote - Guide.html') -Force } catch {}
+    try { [IO.File]::WriteAllText($guide, $html, $Utf8) } catch { $guide = $null }
+    # C:\ProgramData\PCRemote is locked to admins, so the user's browser can't open guide.html there (2026-11-11 «باز نمیشد»).
+    # The copy on the Public Desktop is readable by everyone — return THAT so Open-Guide shows a page the browser can open.
+    $public = Join-Path $env:PUBLIC 'Desktop\PC Remote - Guide.html'
+    try { [IO.File]::WriteAllText($public, $html, $Utf8); return $public } catch {}
     return $guide
 }
 
@@ -260,12 +263,16 @@ function Find-Tool($name) {
 }
 
 function Lock-Down($path) {
-    # only Administrators + SYSTEM (ssh refuses keys that others can read)
+    # Owner = Administrators, access = Administrators + SYSTEM only, no inheritance.
+    # The owner matters: the tunnel runs as SYSTEM and Windows-OpenSSH refuses a private key whose OWNER is a normal
+    # user (even an admin). Setting the owner to the Administrators group (S-1-5-32-544), which OpenSSH accepts, is the
+    # fix for «UNPROTECTED PRIVATE KEY FILE / are too open» (2026-11-11: the tunnel_key was owned by the setup user).
     if (Test-Path -LiteralPath $path -PathType Container) {
         $null = & icacls.exe $path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'
     } else {
         $null = & icacls.exe $path /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F'
     }
+    $null = & icacls.exe $path /setowner '*S-1-5-32-544'          # Administrators own it ⇒ ssh (as SYSTEM) accepts the key
 }
 
 function Run-Native($exe, $argLine, $stdinFile) {
@@ -457,7 +464,11 @@ function Setup {
     }
     Say ('[!] The tunnel did not come up. Its log: ' + (Join-Path $Root 'tunnel.log'))
     if (Test-Path -LiteralPath (Join-Path $Root 'tunnel.log')) { Get-Content -LiteralPath (Join-Path $Root 'tunnel.log') -Tail 8 | ForEach-Object { Say ('    ' + $_) } }
-    Open-Guide 'error' $info.name ('The tunnel did not come up within a minute. Check this computer''s internet and run the file again. Log: ' + (Join-Path $Root 'tunnel.log'))
+    # the setup itself worked; only the tunnel check timed out. Still give the owner the folder + the control panel (with a «connect now» button).
+    [void](Write-GuideFile 'error' $info.name ('The tunnel did not come up yet. Check this computer''s internet, then use «connect now» / run this file again. Log: ' + (Join-Path $Root 'tunnel.log')))
+    $dir = Build-Folder
+    Say ('The control panel and guide are in the "PC Remote" folder on the desktop:  ' + $dir)
+    Show-Panel | Out-Null
     return 2
 }
 

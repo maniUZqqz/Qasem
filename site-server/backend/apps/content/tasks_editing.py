@@ -1068,7 +1068,7 @@ def _wait_node(job: Job, cjob, lo: int, hi: int, label: str, timeout_s: int):
 
     def tick(j):
         if _cancelled(job.id):
-            compute.cancel(j)
+            compute.cancel(j, "کارِ ویرایشگر لغو شد.")
         job.mark_progress(int(lo + (hi - lo) * max(0.0, min(1.0, j.progress))), f"{label} — {int(j.progress * 100)}٪")
 
     return compute.wait(cjob, timeout_s, on_tick=tick, poll=1.5)

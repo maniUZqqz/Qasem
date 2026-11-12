@@ -290,7 +290,7 @@ def jobs(request):
 def job_detail(request, uid):
     job = get_object_or_404(ComputeJob, uid=uid)
     if request.method == "DELETE":
-        SV.cancel(job)
+        SV.cancel(job, "کاربر از پنل لغو کرد (%s)." % (getattr(request.user, "username", "") or "?"))
     return Response(job_json(job, with_payload=True))
 
 
@@ -565,7 +565,7 @@ def queue_summary(request):
 @permission_classes([permissions.IsAdminUser])
 def queue_cancel(request, uid):
     job = get_object_or_404(ComputeJob, uid=uid)
-    SV.cancel(job)
+    SV.cancel(job, "کاربر از «صفِ پردازش» لغو کرد (%s)." % (getattr(request.user, "username", "") or "?"))
     job.refresh_from_db()
     return Response(QV.one(job))
 
@@ -591,6 +591,6 @@ def queue_cancel_waiting(request):
         qs = qs.filter(kind__startswith=kind)
     n = 0
     for job in qs:
-        SV.cancel(job)
+        SV.cancel(job, "کاربر همهٔ کارهای منتظر را لغو کرد (%s)." % (getattr(request.user, "username", "") or "?"))
         n += 1
     return Response({"cancelled": n})

@@ -77,7 +77,8 @@ class CatalogTests(SimpleTestCase):
         self.assertEqual(model_catalog.request_profile(QWEN14), {"think": False, "num_ctx_max": 8192})
         self.assertEqual(model_catalog.request_profile("qwen3:8b"), {"think": False})
         self.assertEqual(model_catalog.request_profile(GEMMA), {"num_ctx_max": 8192})     # no think switch, only a window cap
-        for tag in (QWQ, CODER, VL, "gemma3:4b", "qwen3:30b-a3b-instruct-2507-q4_K_M", "", None):
+        self.assertEqual(model_catalog.request_profile(VL), {"think": False})      # vision answers without thinking (08/21)
+        for tag in (QWQ, CODER, "gemma3:4b", "qwen3:30b-a3b-instruct-2507-q4_K_M", "", None):
             self.assertEqual(model_catalog.request_profile(tag), {}, tag)
 
     def test_extra_models_from_the_environment(self):
@@ -386,10 +387,13 @@ class OllamaProfileTests(TestCase):
         self.assertEqual(self.run_remote("qwen3:8b")[0]["options"]["num_ctx"], 16384)
 
     def test_other_models_get_no_think_switch(self):
-        for model in (GEMMA, QWQ, CODER, VL):
+        for model in (GEMMA, QWQ, CODER):
             sent = self.run_remote(model)
             self.assertNotIn("think", sent[0], model)
             self.assertEqual(sent[0]["options"]["num_ctx"], 8192 if model == GEMMA else 16384, model)
+        sent = self.run_remote(VL)                      # 08/21: the vision model answers without thinking (it was slow)
+        self.assertIs(sent[0]["think"], False)
+        self.assertEqual(sent[0]["options"]["num_ctx"], 16384)
 
     def test_an_explicit_context_size_of_the_caller_is_kept(self):
         sent = self.run_remote(QWEN14, options={"num_ctx": 12000})

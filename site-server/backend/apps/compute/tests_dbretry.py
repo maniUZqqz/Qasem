@@ -217,7 +217,7 @@ class JobStatusAndWakeTests(TransactionTestCase):
 
     def test_waking_many_parked_jobs_is_staggered(self):
         from . import park
-        node = ComputeNode.objects.create(name="gpu-1", capabilities={"comfyui": True}, last_seen=timezone.now())
+        node = ComputeNode.objects.create(name="gpu-1", capabilities={"comfyui": True, "slots": 50}, last_seen=timezone.now())
         for i in range(20):
             row = self.Job.objects.create(store=self.store, type=self.Job.Type.IMAGE_GENERATION, state="QUEUED")
             ComputeJob.objects.create(kind=park.PARK_KIND, state="QUEUED", queued_at=timezone.now(), timeout_s=0, request_hash="",
@@ -276,7 +276,7 @@ class BusyNodeAndTextWakeTests(TransactionTestCase):
         from . import park
         user = get_user_model().objects.create_user("owner2", "o2@x.io", "pw")
         store = Store.objects.create(owner=user, name="shop2")
-        ComputeNode.objects.create(name="gpu-1", capabilities={"ollama": True, "comfyui": True}, last_seen=timezone.now())
+        ComputeNode.objects.create(name="gpu-1", capabilities={"ollama": True, "comfyui": True, "slots": 50}, last_seen=timezone.now())
         for cap, n in (("ollama", 7), ("comfyui", 4)):
             for _ in range(n):
                 row = Job.objects.create(store=store, type=Job.Type.IMAGE_GENERATION, state="QUEUED")

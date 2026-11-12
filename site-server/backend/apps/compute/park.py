@@ -24,7 +24,7 @@ from django.utils import timezone
 
 from . import services as SV
 from .dbretry import call_with_retry
-from .models import ComputeJob
+from .models import ComputeJob, capability_for
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,8 @@ WAKE_BATCH = int(getattr(settings, "NM_COMPUTE_WAKE_BATCH", 8))
 #: متنِ هوشمند (ollama) روی یک گره پشتِ‌سرهم اجرا می‌شود و هر تسک فقط ۴۵ ثانیه منتظرِ برداشته‌شدنِ کارش می‌ماند؛ پس از آن‌ها
 #: در هر دقیقه کمتر بیدار می‌کنیم تا ردیفِ آخر بیهوده منقضی و دوباره پارک نشود
 WAKE_BATCH_BY_CAP = {"ollama": 3}
+#: ۱۴۰۵/۰۸/۲۱: کاری که سرورش روشن بود ولی چند بار پشتِ سرِ هم در مهلت انجام نشد دیگر بی‌پایان پارک و بیدار نمی‌شود
+MAX_BUSY_ROUNDS = int(getattr(settings, "NM_COMPUTE_MAX_BUSY_ROUNDS", 4))
 
 
 def _flag_of(error) -> str:
@@ -80,6 +82,17 @@ def maybe_park(job, error) -> bool:
             return False
         if cap != "any" and not SV.known_nodes(cap):
             return False                   # هیچ سروری با این توانایی اصلاً ثبت نیست؛ منتظرِ هیچ نمی‌مانیم
+        # سرور روشن است ولی کار را در مهلت نکرد/برنداشت = یک «دورِ شلوغ». بی‌سقف، کار تا ابد پارک ⇐ بیدار ⇐ لغو می‌شد.
+        nw = dict((job.context or {}).get("node_wait") or {})
+        epoch = job.created_at.isoformat() if getattr(job, "created_at", None) else ""   # «پردازشِ دوباره» created_at را نو می‌کند
+        rounds = int(nw.get("busy_rounds") or 0) if nw.get("rounds_for") == epoch else 0
+        if cap != "any" and SV.online_nodes(cap):
+            rounds += 1
+            if rounds > MAX_BUSY_ROUNDS:
+                job._park_note = ("سرورِ پردازش روشن بود ولی %d بار پشتِ سرِ هم این کار را در مهلت انجام نداد؛ برای این‌که "
+                                  "بی‌پایان تکرار نشود متوقف شد. «پردازشِ دوباره» را بزنید. — " % (rounds - 1))
+                logger.info("park: job %s gave up after %d busy rounds", job.pk, rounds - 1)
+                return False
         if ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED).count() >= MAX_PARKED:
             return False
         payload = {
@@ -110,7 +123,7 @@ def maybe_park(job, error) -> bool:
                     request_hash="", timeout_s=0)
             ctx = dict(job.context or {})
             ctx["node_wait"] = {"since": ctx.get("node_wait", {}).get("since") or now.isoformat(), "cap": cap,
-                                "park": str(ph.uid)}
+                                "park": str(ph.uid), "busy_rounds": rounds, "rounds_for": epoch}
             job.state = Job.State.QUEUED
             job.current_step_label = SV.NO_NODE_QUEUED_TEXT
             job.error = ""
@@ -172,6 +185,7 @@ def wake_parked() -> int:
     from apps.jobs import machine
     n = 0
     woken: dict = {}
+    free: dict = {}
     now = timezone.now()
     for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED).order_by("created_at"):
         payload = ph.payload or {}
@@ -190,6 +204,8 @@ def wake_parked() -> int:
             break                          # بقیه در دقیقهٔ بعد؛ همان ترتیبِ نوبت
         if woken.get(cap, 0) >= WAKE_BATCH_BY_CAP.get(cap, WAKE_BATCH):
             continue                       # سهمِ این توانایی در این دقیقه پر شد؛ توانایی‌های دیگر ادامه می‌دهند
+        if cap != "any" and woken.get(cap, 0) >= _free_slots(cap, free):
+            continue                       # جای خالی نیست: بیدار شده‌ها فقط در صف می‌ماندند، از مهلت می‌گذشتند و لغو می‌شدند
         if not _dispatch(ph, payload):
             continue
         woken[cap] = woken.get(cap, 0) + 1
@@ -206,6 +222,28 @@ def wake_parked() -> int:
         logger.info("park: woke job %s after %ss", row.pk, waited)
     n += _release_stuck(now)
     return n
+
+
+def _free_slots(cap: str, cache: dict) -> int:
+    """جای خالیِ سرورهای روشنِ این توانایی = مجموعِ slots منهای کارهای در صف/در حالِ اجرای همین توانایی (جز کارهای منتظر).
+    ۱۴۰۵/۰۸/۲۱: شبِ ۰۸/۲۰ هر دقیقه چند کار با هم روی گرهٔ تک‌جا بیدار می‌شد؛ بقیه در صف از مهلت می‌گذشتند، لغو و دوباره
+    پارک می‌شدند (۵۰ بار، هر بار با «لغو شد»). حالا فقط به‌اندازهٔ جای خالی بیدار می‌شود."""
+    if cap in cache:
+        return cache[cap]
+    slots = 0
+    for node in SV.online_nodes(cap):
+        try:
+            slots += max(1, int((node.capabilities or {}).get("slots") or 1))
+        except (TypeError, ValueError):
+            slots += 1
+    active = 0
+    for kind in (ComputeJob.objects.filter(state__in=[ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED,
+                                                      ComputeJob.State.RUNNING])
+                 .exclude(kind=PARK_KIND).values_list("kind", flat=True)):
+        if capability_for(kind) == cap:
+            active += 1
+    cache[cap] = max(0, slots - active)
+    return cache[cap]
 
 
 def _release_stuck(now) -> int:

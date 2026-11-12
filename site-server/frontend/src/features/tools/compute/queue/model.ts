@@ -71,6 +71,17 @@ export type QueueJob = {
   capability: string;
   parked: boolean;
   model: string;
+  /** همان ۸ حرفی که لاگِ سرورِ پردازش می‌نویسد */
+  short_id?: string;
+  outputs?: QueueOutput[];
+  input?: { model?: string; text?: string; system?: string };
+};
+
+export type QueueOutput = {
+  name: string;
+  media: "image" | "video" | "audio" | "text" | "file";
+  size?: number | null;
+  url: string;
 };
 
 export type QueueNode = {

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../../../api/client";
 import Icon from "../../../../components/Icon";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Spinner, fa } from "../../../../components/ui";
+import JobOutputs from "./JobOutputs";
 import {
   KIND_OPTIONS,
   MAX_SIZE,
@@ -329,7 +330,7 @@ export default function ComputeQueuePage() {
             <Input
               type="search"
               aria-label="جستجو در کارها"
-              placeholder="جستجو (نامِ کار، پیام، سرور…)"
+              placeholder="جستجو (شناسهٔ کار، نامِ کار، پیام، سرور…)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="nmq-search"
@@ -521,7 +522,12 @@ function JobItem({
             <Icon name={open ? "up" : "down"} size={14} />
             <span className="nmq-title-text">
               <span className="nmq-title-main">{job.title}</span>
-              {sub && <span className="nmq-sub">{sub}</span>}
+              <span className="nmq-sub">
+                <span dir="ltr" className="nmq-mono nmq-id" title={`شناسهٔ کار: ${job.uid}`}>
+                  #{job.short_id ?? shortUid(job.uid)}
+                </span>
+                {sub ? ` · ${sub}` : ""}
+              </span>
             </span>
           </button>
         </div>
@@ -611,6 +617,24 @@ function JobDetails({ job }: { job: QueueJob }) {
           </pre>
         </div>
       )}
+
+      {job.input && (job.input.text || job.input.system) ? (
+        <div>
+          <div className="nmq-detail-head">
+            <b>ورودی{job.input.model ? ` — ${job.input.model}` : ""}</b>
+            <CopyButton text={job.input.text || job.input.system || ""} />
+          </div>
+          <pre className="nmq-io" dir="auto">
+            {job.input.text || job.input.system}
+          </pre>
+        </div>
+      ) : null}
+
+      {job.outputs && job.outputs.length > 0 ? (
+        <JobOutputs outputs={job.outputs} />
+      ) : job.group === "done" ? (
+        <p className="nmq-note">این کار خروجیِ فایلی نداشت (نتیجه‌اش مستقیم به همان صفحه‌ای رفت که آن را فرستاد).</p>
+      ) : null}
 
       {job.retry_hint && (job.group === "failed" || job.group === "cancelled") && (
         <p className="nmq-note">

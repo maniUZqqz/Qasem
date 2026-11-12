@@ -996,7 +996,7 @@ def cancel(version: RegenVersion) -> RegenVersion:
         return version
     job = ComputeJob.objects.filter(uid=version.compute_job).first() if version.compute_job else None
     if job is not None:
-        compute.cancel(job)
+        compute.cancel(job, "بازسازیِ تکه لغو شد.")
     _set(version, state=RegenVersion.State.CANCELLED, message="لغو شد")
     _release(version, "cancelled")
     return version

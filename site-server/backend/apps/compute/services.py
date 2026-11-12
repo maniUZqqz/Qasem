@@ -330,17 +330,17 @@ def wait(job: ComputeJob, timeout_s: int | None = None, poll: float = 2.0, on_ti
                 else:
                     idle_since = idle_since or now
                     if now - idle_since >= park_after_s:
-                        cancel(job)
+                        cancel(job, "هیچ سرورِ پردازشیِ روشنی این کار را نمی‌گیرد؛ کارِ اصلی در صفِ انتظار ماند.")
                         raise NodeWaiting(NO_NODE_QUEUED_TEXT, capability)
         if run_deadline and now > run_deadline:
             node = job.node
             if patient and node is not None and not node.online:
                 run_deadline = None             # گره رفته؛ منتظرِ برگشتِ کار به صف (requeue_stale) می‌مانیم
             else:
-                cancel(job)  # در حال اجرا ⇐ با progress ِ بعدی می‌فهمد
+                cancel(job, f"مهلتِ اجرا تمام شد: سرورِ پردازش در {budget} ثانیه کار را تمام نکرد.")  # با progress ِ بعدی می‌فهمد
                 raise ComputeTimeout(f"سرورِ پردازش در {budget} ثانیه کار را تمام نکرد.")
         if overall_deadline and now > overall_deadline:
-            cancel(job)  # هنوز در صف ⇐ همین حالا لغو (گره بیهوده نگیرد)
+            cancel(job, f"مهلتِ کلی تمام شد: کار در {int(budget * 2 + 60)} ثانیه برداشته یا تمام نشد.")  # گره بیهوده نگیرد
             raise ComputeTimeout(f"سرورِ پردازش در {budget} ثانیه کار را تمام نکرد.")
         if on_tick:
             on_tick(job)
@@ -594,15 +594,20 @@ def _learn_timing(node: ComputeNode, job: ComputeJob, now) -> None:
     call_with_retry(node.save, update_fields=["stats"])
 
 
-def cancel(job: ComputeJob) -> None:
+def cancel(job: ComputeJob, reason: str = "") -> None:
     """لغو در هر لحظه: در صف ⇒ همین حالا؛ روی گرهٔ زنده ⇒ گره با progress ِ بعدی می‌فهمد؛ روی گرهٔ خاموش ⇒ همین حالا
-    (کسی نیست که تأیید کند) و گره وقتی برگشت از progress می‌فهمد و کار را ول می‌کند."""
+    (کسی نیست که تأیید کند) و گره وقتی برگشت از progress می‌فهمد و کار را ول می‌کند.
+    `reason` (۱۴۰۵/۰۸/۲۱): چرا — در پیام و متنِ خطای کار می‌ماند تا پنل به‌جای «لغو شد» ِ خالی علتش را بگوید
+    (شبِ ۰۸/۲۰ پنجاه کار فقط با «لغو شد» ماندند و معلوم نبود سایت از مهلت لغوشان کرده)."""
     if job.final:
         return
+    why = (reason or "").strip() or "لغو شد"
+    if not (job.error or "").strip():
+        job.error = why
     if job.state == ComputeJob.State.QUEUED:
         job.state = ComputeJob.State.CANCELLED
         job.finished_at = timezone.now()
-        job.message = "لغو شد"
+        job.message = why[:300]
         _save(job)
         _after_cancel(job)
         return
@@ -611,12 +616,13 @@ def cancel(job: ComputeJob) -> None:
         job.cancel_requested = True
         job.state = ComputeJob.State.CANCELLED
         job.finished_at = timezone.now()
-        job.message = "لغو شد"
+        job.message = why[:300]
         _save(job)
         _after_cancel(job)
     else:
         job.cancel_requested = True
-        _save(job, ["cancel_requested"])
+        job.message = why[:300]
+        _save(job, ["cancel_requested", "message", "error"])
 
 
 def _after_cancel(job: ComputeJob) -> None:

@@ -255,14 +255,15 @@ def _watch(state):
         from apps.compute import services as compute
         if not job.claimed_at:
             if time.monotonic() > state['claim_deadline']:
-                compute.cancel(job)
-                raise NodeFailed('سرورِ پردازش کار را در %d ثانیه برنداشت (احتمالاً سرگرمِ کارِ دیگری است).' % state['claim_s'])
+                why = 'سرورِ پردازش کار را در %d ثانیه برنداشت (احتمالاً سرگرمِ کارِ دیگری است).' % state['claim_s']
+                compute.cancel(job, why)
+                raise NodeFailed(why)
             return
         node = getattr(job, 'node', None)
         if node is not None:
             node.refresh_from_db(fields=['last_seen'])
             if not node.online:
-                compute.cancel(job)
+                compute.cancel(job, 'سرورِ پردازش وسطِ کار قطع شد.')
                 raise NodeFailed('سرورِ پردازش وسطِ کار قطع شد.')
     return tick
 

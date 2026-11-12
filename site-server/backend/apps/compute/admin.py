@@ -93,7 +93,7 @@ class ComputeJobAdmin(admin.ModelAdmin):
         n = 0
         for job in queryset:
             if not job.final:
-                services.cancel(job)
+                services.cancel(job, "از ادمینِ جنگو لغو شد (%s)." % (getattr(request.user, "username", "") or "?"))
                 n += 1
         self.message_user(request, f"{n} کار لغو شد.", messages.SUCCESS)
 

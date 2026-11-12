@@ -190,7 +190,8 @@ class Job(TimeStampedModel):
         except Exception:  # noqa: BLE001
             pass
         self.state = self.State.FAILED
-        self.error = str(error)[:4000]
+        # apps.compute.park می‌گوید چرا دیگر پارک نکرد (چند دورِ «سرور روشن ولی در مهلت نکرد»)
+        self.error = (getattr(self, "_park_note", "") + str(error))[:4000]
         self.save(update_fields=["state", "error", "updated_at"])
 
     def mark_cancelled(self, reason: str = "توسط کاربر لغو شد."):

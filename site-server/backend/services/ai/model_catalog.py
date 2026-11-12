@@ -127,6 +127,9 @@ def chain_for(kind: str, wanted: str = "") -> list[str]:
 
 _HYBRID_QWEN3 = re.compile(r"^qwen3:(\d+(?:\.\d+)?b)$", re.I)
 _BIG_GEMMA3 = re.compile(r"^gemma3:(12b|27b)$", re.I)
+#: ۱۴۰۵/۰۸/۲۱: شبِ ۰۸/۲۰ از ۶۳ جوابِ تمام‌شده ۳۵ تا جوابشان را فقط در «thinking» داشتند (Qwen3-VL با فکر) و هر تحلیلِ عکس تا ۲۷
+#: دقیقه طول کشید ⇒ مهلت‌ها می‌گذشت. با `think: false` بی‌فکر جواب می‌دهد؛ اگر سرور قبول نکند، OllamaProvider بی آن تکرار می‌کند.
+_QWEN3_VL = re.compile(r"^qwen3-vl:", re.I)
 
 
 def supports_think_switch(model: str) -> bool:
@@ -145,6 +148,8 @@ def request_profile(model: str) -> dict:
         if size >= 14:
             # ۹٫۳ GB وزن + ۱۶۰ KB حافظهٔ متن به‌ازای هر توکن: بیش از ۸ هزار توکن روی کارتِ ۱۲ گیگابایتی جا نمی‌شود
             prof["num_ctx_max"] = 8192
+    if _QWEN3_VL.match(low):
+        prof["think"] = False
     if _BIG_GEMMA3.match(low):
         prof["num_ctx_max"] = 8192            # Gemma 3 has no think switch; only the window is capped (see the module docstring)
     return prof

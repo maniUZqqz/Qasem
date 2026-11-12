@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import timedelta
+from urllib.parse import quote
 
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -177,7 +179,8 @@ def status_text(j: ComputeJob, reason_text: str) -> str:
     if j.state == S.COMPLETED:
         return "تمام شد"
     if j.state == S.CANCELLED:
-        return "لغو شد"
+        why = (j.message or "").strip()
+        return "لغو شد" if why in ("", "لغو شد") else ("لغو شد — " + why)[:220]
     return "ناموفق" + (f" — {(j.error or '').strip().splitlines()[-1][:140]}" if (j.error or "").strip() else "")
 
 
@@ -259,6 +262,48 @@ def retry_hint(j: ComputeJob, mode: str, owners: dict | None = None) -> str:
     return ""
 
 
+_MEDIA = {"image": (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"), "video": (".mp4", ".webm", ".mov", ".mkv", ".avi"),
+          "audio": (".wav", ".mp3", ".ogg", ".m4a", ".flac", ".opus"),
+          "text": (".json", ".txt", ".srt", ".vtt", ".md", ".csv", ".log", ".html")}
+
+
+def _media_of(name: str, given: str = "") -> str:
+    if given in _MEDIA:
+        return given
+    low = (name or "").lower()
+    for media, exts in _MEDIA.items():
+        if low.endswith(exts):
+            return media
+    return "file"
+
+
+def job_outputs(j: ComputeJob) -> list:
+    """خروجی‌های یک کار برای «جزئیات» (نشانی با همان ورودِ پنل؛ nginx پوشهٔ کارها را سرو نمی‌کند)."""
+    out = []
+    for o in j.outputs()[:20]:
+        if not isinstance(o, dict):
+            continue
+        name = str(o.get("name") or "").strip() or str(o.get("path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if not name:
+            continue
+        out.append({"name": name, "media": _media_of(name, str(o.get("media") or "")), "size": o.get("size"),
+                    "url": "/api/v1/compute/jobs/%s/outputs/%s" % (j.uid, quote(name))})
+    return out
+
+
+def job_input(j: ComputeJob) -> dict:
+    """ورودیِ خوانا: مدل و متنِ درخواست (Ollama: prompt یا آخرین پیامِ کاربر)."""
+    p = j.payload or {}
+    text = p.get("prompt") or ""
+    if not text and isinstance(p.get("messages"), list):
+        users = [m.get("content") for m in p["messages"] if isinstance(m, dict) and m.get("role") == "user"]
+        text = users[-1] if users else ""
+    if isinstance(text, list):
+        text = " ".join(str(x) for x in text)
+    return {"model": str(p.get("model") or p.get("tag") or ""), "text": str(text or "")[:1500],
+            "system": str(p.get("system") or "")[:400]}
+
+
 def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | None = None) -> dict:
     pos = positions.get(j.pk, 0)
     reason, text = ("", "")
@@ -286,6 +331,7 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | Non
         "scheduled_for": j.not_before, "window": j.window, "category": j.category,
         "capability": capability_of(j), "parked": j.kind == PARK_KIND,
         "model": p.get("model") or p.get("tag") or "",
+        "short_id": str(j.uid)[:8], "outputs": job_outputs(j), "input": job_input(j),
     }
 
 
@@ -309,8 +355,17 @@ def listing(state: str = "all", kind: str = "", q: str = "", limit: int = 100, o
     if category:
         base = base.filter(category=category)
     if q:
-        base = base.filter(Q(kind__icontains=q) | Q(message__icontains=q) | Q(error__icontains=q) | Q(origin__icontains=q)
-                           | Q(node__name__icontains=q))
+        cond = (Q(kind__icontains=q) | Q(message__icontains=q) | Q(error__icontains=q) | Q(origin__icontains=q)
+                | Q(node__name__icontains=q))
+        hexq = q.lstrip("#").replace("-", "").lower()
+        if re.fullmatch(r"[0-9a-f]{4,32}", hexq):
+            # شناسهٔ کار (همان ۸ حرفی که لاگِ سرورِ پردازش می‌نویسد، مثلِ 9db615a8)
+            from django.db.models import CharField, Value
+            from django.db.models.functions import Cast, Replace
+            ids = (ComputeJob.objects.annotate(_u=Replace(Cast("uid", CharField()), Value("-"), Value("")))
+                   .filter(_u__startswith=hexq).values("pk"))
+            cond = cond | Q(pk__in=ids)
+        base = base.filter(cond)
     if since:
         base = base.filter(created_at__gte=since)
     if until:

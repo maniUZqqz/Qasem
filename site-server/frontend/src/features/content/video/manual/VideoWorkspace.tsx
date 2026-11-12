@@ -84,6 +84,8 @@ const TOOLS: { key: Tool; label: string; title: string }[] = [
 export default function VideoWorkspace({ storeId, tools, startRef, onStartConsumed, startProject, onProjectOpened, onGoDirector }: Props) {
   const hist = useHistory<Project>(emptyProject());
   const root = hist.state;
+  // ۱۴۰۵/۰۸/۲۲: «committed» فقط هنگامِ ثبتِ گام عوض می‌شود، نه در هر پیکسلِ کشیدن؛ کارهای سنگینِ کلِ پروژه از همین مشتق می‌شوند.
+  const committed = hist.entries[hist.index].state;
   /** توالی‌هایی که باز کرده‌ایم (از ریشه به عمق)؛ خالی = خودِ پروژه. هر ویرایش روی «نما»ی توالیِ بازِ فعلی می‌نشیند */
   const [path, setPath] = useState<string[]>([]);
   const project = useMemo(() => viewOf(root, path), [root, path]);
@@ -130,6 +132,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [exact, setExact] = useState<{ t0: number; t1: number } | null>(null);
   const [scopesOpen, setScopesOpen] = useState(false);
   const [scopeVer, setScopeVer] = useState(0);
+  const scopeTick = useRef(0);   // اسکوپ‌ها ~۱۵ بار در ثانیه تازه شوند، نه ۶۰ (خواندنِ فریم از GPU گران است)
   const [beatsBusy, setBeatsBusy] = useState(false);
   const [renderStarting, setRenderStarting] = useState(false);
   const [help, setHelp] = useState(false);
@@ -192,7 +195,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }, [bin]);
 
   // رسانهٔ گم‌شده (Offline): فقط وقتی فهرستِ رسانه‌ها بارگیری شده معنا دارد
-  const offline = useMemo(() => (bin ? offlineClips(root, new Set(Object.keys(media))) : []), [bin, root, media]);
+  const offline = useMemo(() => (bin ? offlineClips(committed, new Set(Object.keys(media))) : []), [bin, committed, media]);
   const offlineIds = useMemo(() => new Set(offline.map((o) => o.id)), [offline]);
 
   // ───────────── آغاز: بسته + کاتالوگ + پروژه‌ها
@@ -247,7 +250,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }, [ready, startRef, bin]);
 
   // ───────────── ذخیرهٔ خودکار
-  const dataKey = useMemo(() => JSON.stringify(toApi(root)), [root]);
+  const dataKey = useMemo(() => JSON.stringify(toApi(committed)), [committed]);   // ذخیرهٔ خودکار فقط گام‌های ثبت‌شده را می‌بیند، نه پیش‌نمایشِ زنده
   const hasClips = root.tracks.some((t) => t.clips.length > 0);
   const saveRef = useRef<{ key: string; title: string }>({ key: "", title: "" });
   saveRef.current = { key: dataKey, title };
@@ -679,10 +682,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const usedLuts = useMemo(() => {
     const keys = new Set<string>();
     const visit = (tracks: Project["tracks"]) => tracks.forEach((t) => t.clips.forEach((c) => { if (isMedia(c) && c.lut) keys.add(c.lut.key); }));
-    visit(root.tracks);
-    Object.values(root.sequences ?? {}).forEach((q) => visit(q.tracks));
+    visit(committed.tracks);
+    Object.values(committed.sequences ?? {}).forEach((q) => visit(q.tracks));
     return [...keys];
-  }, [root]);
+  }, [committed]);
   const lutLoading = useRef(new Set<string>());
   useEffect(() => {
     for (const key of usedLuts) {
@@ -1400,7 +1403,13 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           onRate={(r) => { void engine.resume(); setRate(r); setPlaying(true); }}
           onGizmo={onGizmo}
           onReframe={onReframe} cropMode={cropMode} onCropMode={setCropMode} storeId={storeId} safeZones={cat?.safe_zones}
-          onFrame={() => { if (scopesOpen) setScopeVer((v) => v + 1); }}
+          onFrame={() => {
+            if (!scopesOpen) return;
+            const t = performance.now();
+            if (t - scopeTick.current < 66) return;
+            scopeTick.current = t;
+            setScopeVer((v) => v + 1);
+          }}
           selectedProxyHint={proxyNeeded ? <span className="vw-proxy-note">این قطعه سنگین است؛ در «رسانه‌ها» پیش‌نمایشِ سبک بسازید</span> : null}
           badge={<Badge tone={exact ? "ok" : "neutral"}>{exact ? "پیش‌نمایشِ دقیق (سرور)" : "پیش‌نمایشِ فوری (تقریبی)"}</Badge>}
           extraTransport={

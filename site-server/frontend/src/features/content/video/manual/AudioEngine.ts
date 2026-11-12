@@ -1,5 +1,5 @@
 import { duckGainAt } from "./keyframes";
-import { AnyClip, ClipAudio, MediaClip, Project, Track, clipEnd, clipLength, propAt } from "./model";
+import { AnyClip, ClipAudio, DEFAULT_DUCKING, MediaClip, Project, Track, clipEnd, clipLength, propAt } from "./model";
 
 /**
  * میکسِ صدای پیش‌نمایش با WebAudio — آینهٔ backend/services/editing/audiofx.py:
@@ -461,7 +461,7 @@ export class AudioEngine {
     }
 
     // کم‌شدنِ موسیقی زیرِ گفتار
-    const duck = project.ducking;
+    const duck = project.ducking ?? DEFAULT_DUCKING;   // ۱۴۰۵/۰۸/۲۲: پیش‌فرض روشن ⇒ موسیقی زیرِ گفتار کم شود و صدا قاطی نشود
     const dg = duck?.on && duckSpans.length > 0 ? duckGainAt(duckSpans, duck.amount_db, duck.attack_ms / 1000, duck.release_ms / 1000, time) : 1;
     this.lastDuck = this.setGain(this.duck.gain, this.lastDuck, dg, now);
 

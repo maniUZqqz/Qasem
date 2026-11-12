@@ -229,7 +229,7 @@ export type Project = {
   default_transition?: { kind: string; duration: number };
 };
 
-export const DEFAULT_DUCKING: Ducking = { on: false, amount_db: 12, threshold: 0.04, attack_ms: 40, release_ms: 500 };
+export const DEFAULT_DUCKING: Ducking = { on: true, amount_db: 12, threshold: 0.04, attack_ms: 40, release_ms: 500 };
 export const DEFAULT_MASTER: Master = { gain_db: 0, limiter: true };
 export const SOCIAL_LOUDNESS: Loudness = { on: true, target: -14, tp: -1 };
 

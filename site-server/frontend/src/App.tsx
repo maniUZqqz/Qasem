@@ -25,6 +25,7 @@ import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
 import PhotoEditorPage from "./features/content/photo/PhotoEditorPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
+import MultiAnglePage from "./features/content/multiangle/MultiAnglePage";
 import GuidedShootPage from "./features/shoot/GuidedShootPage";
 import ChatPage from "./features/customers/ChatPage";
 import OrdersPage from "./features/customers/OrdersPage";
@@ -145,6 +146,8 @@ export default function App() {
               <Route path="/stores/:id/api" element={<PageGate k="api_keys"><ApiKeysPage /></PageGate>} />
               <Route path="/stores/:id/editor" element={<PageGate k="editor"><VideoEditorPage /></PageGate>} />
               <Route path="/stores/:id/photo-editor" element={<PageGate k="photo_editor"><PhotoEditorPage /></PageGate>} />
+              {/* چندزاویه: از یک فیلمِ تک‌دوربین چند زاویه + برشِ خودکار، و حرکتِ دوربینِ ۲٫۵بعدی از یک نما */}
+              <Route path="/stores/:id/multiangle" element={<PageGate k="multiangle"><MultiAnglePage /></PageGate>} />
               {/* فیلم‌برداریِ هدایت‌شده: تحلیل ⇐ برنامهٔ زاویه‌ها ⇐ عکاسی/فیلم‌برداری با راهنما ⇐ تدوین ⇐ پوستر و ویدیو */}
               <Route path="/stores/:id/shoot" element={<PageGate k="guided_shoot"><GuidedShootPage /></PageGate>} />
               {/* بازسازیِ یک تکه از وسطِ ویدیو — بی‌درز، با نسخه‌ها و مقایسهٔ قبل/بعد */}

@@ -374,7 +374,7 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
-                       "edit": "ffmpeg"}
+                       "edit": "ffmpeg", "multiangle": "multiangle"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
@@ -413,9 +413,19 @@ def matting_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     return ((caps.get("matting_models") or {}).get(model) or {}).get("state") != "installed"
 
 
+def multiangle_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """A multiangle.* job this node must not take yet: its Python environment or one of the models the kind needs is not installed (yet).
+    The node installs them by itself (processing/multiangle_jobs.py) and reports caps.multiangle_ready {virtual, move, selftest}; the job
+    waits in the queue meanwhile instead of failing."""
+    if not job.kind.startswith("multiangle."):
+        return False
+    ready = (node.capabilities or {}).get("multiangle_ready") or {}
+    return not ready.get(job.kind.split(".", 1)[1])
+
+
 def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
-    """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models)."""
-    return audio_blocked(node, job) or matting_blocked(node, job)
+    """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models, multiangle)."""
+    return audio_blocked(node, job) or matting_blocked(node, job) or multiangle_blocked(node, job)
 
 
 def claim(node: ComputeNode) -> ComputeJob | None:

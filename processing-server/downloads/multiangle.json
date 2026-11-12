@@ -1,0 +1,71 @@
+{
+ "group": "multiangle",
+ "title": "Multi-angle video from one camera (چندزاویه): face / person detectors, Depth-Anything-V2-Small and a small Python environment (numpy, OpenCV, onnxruntime-directml) - all run on the GPU node, installed automatically",
+ "license_note": "Every file is permissively licensed and used only on this node, on the owner's own footage: YuNet face detector (OpenCV Zoo / libfacedetection.train, MIT), YOLOS-tiny person detector (hustvl/yolos-tiny, Apache-2.0; ONNX export by Xenova), Depth-Anything-V2-Small (depth-anything, Apache-2.0; ONNX export by onnx-community). NOT used on purpose: Depth-Anything-V2 Base / Large (CC-BY-NC-4.0) and Ultralytics YOLO (AGPL-3.0). Python packages: numpy (BSD-3), opencv-python-headless (Apache-2.0), onnxruntime-directml (MIT). Files come from Hugging Face pinned to the commit the sha256 was taken from (the downloader tries hf-mirror.com when huggingface.co is unreachable; YuNet also from the OpenCV Zoo on GitHub). To serve them from the site instead, put the three files in data/up3d/downloads/ and add {SITE}/3d/files/downloads/<name> as the first url. Sizes and sha256 are verified either way. All packages are small (about 0.4 GB together) and NOT optional: the node's start-up download, Update.bat and the agent's own automatic install (multiangle_jobs.py) fetch them without anybody asking.",
+ "generated": "2026-11-12",
+ "packages": {
+  "multiangle-runtime": "Python environment for multi-angle video: numpy + OpenCV + onnxruntime-directml (runs the models on any DirectX 12 GPU, the RTX 3060 included, without a CUDA install; CPU when the GPU is busy)",
+  "multiangle-detect": "YuNet face detector (0.2 MB) + YOLOS-tiny person detector (25 MB): who is in the picture and where",
+  "multiangle-depth": "Depth-Anything-V2-Small (ONNX, 95 MB): depth for 2.5D camera moves"
+ },
+ "items": [
+  {
+   "id": "multiangle:yunet",
+   "package": "multiangle-detect",
+   "kind": "file",
+   "title": "YuNet face detector 2023mar (MIT)",
+   "urls": [
+    "{HF}/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+   ],
+   "dest": "{MODELS}\\multiangle\\face_detection_yunet_2023mar.onnx",
+   "size": 232589,
+   "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+  },
+  {
+   "id": "multiangle:yolos-tiny",
+   "package": "multiangle-detect",
+   "kind": "file",
+   "title": "YOLOS-tiny person detector, ONNX fp32 (Apache-2.0)",
+   "urls": [
+    "{HF}/Xenova/yolos-tiny/resolve/e2f9c7673f0fa61849efe2b56a0d7774779ebb9d/onnx/model.onnx"
+   ],
+   "dest": "{MODELS}\\multiangle\\yolos-tiny.onnx",
+   "size": 26227993,
+   "sha256": "0dbdd37573fb6b6ed836aa980ab729c81b659deec900799f37b6a09a57762e88"
+  },
+  {
+   "id": "multiangle:depth-anything-v2-small",
+   "package": "multiangle-depth",
+   "kind": "file",
+   "title": "Depth-Anything-V2-Small, ONNX fp32 (Apache-2.0)",
+   "urls": [
+    "{HF}/onnx-community/depth-anything-v2-small/resolve/4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx"
+   ],
+   "dest": "{MODELS}\\multiangle\\depth-anything-v2-small.onnx",
+   "size": 99060839,
+   "sha256": "afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c"
+  },
+  {
+   "id": "venv-multiangle",
+   "package": "multiangle-runtime",
+   "kind": "pip",
+   "python": "{VENV:multiangle}",
+   "python_version": "3.10-3.12",
+   "title": "Python packages for multi-angle video (numpy, opencv-python-headless, onnxruntime-directml)",
+   "packages": [
+    "numpy>=1.26,<2.3",
+    "opencv-python-headless==4.11.0.86",
+    "onnxruntime-directml==1.24.4"
+   ],
+   "index_urls": [
+    "https://mirrors.aliyun.com/pypi/simple",
+    "https://mirror-pypi.runflare.com/simple",
+    "https://pypi.org/simple"
+   ],
+   "estimate_mb": 120,
+   "install_mb": 330,
+   "sources_note": "The same sources the photo-matting runtime uses (checked from Iran: aliyun serves the cp310-cp312 win_amd64 wheels). DirectML works on every DX12 GPU without a CUDA install; the engine falls back to the CPU by itself and says so in the result."
+  }
+ ]
+}

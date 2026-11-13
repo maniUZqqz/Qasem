@@ -110,6 +110,8 @@ def node_takes(node: ComputeNode, kind: str) -> bool:
         return True
     if kind == "photo.matting":
         return node.has("photo_matting")
+    if kind.startswith("up3d."):          # only agents that advertise the kind (and, until Blender is installed, bootstrap keeps it waiting)
+        return kind in ((node.capabilities or {}).get("kinds") or [])
     for prefix, capability in SV.CAPABILITY_PREFIXES.items():
         if kind.startswith(prefix):
             return node.has(capability)

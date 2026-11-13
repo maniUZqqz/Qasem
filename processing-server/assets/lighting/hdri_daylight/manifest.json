@@ -1,0 +1,57 @@
+{
+  "id": "hdri_daylight",
+  "version": 1,
+  "name": {
+    "fa": "محیطِ HDRI: آسمانِ روز",
+    "en": "HDRI daylight sky"
+  },
+  "description": {
+    "fa": "آسمانِ نیمه‌ابری و خورشیدِ نیمروز (Poly Haven، CC0)؛ روشن و واقع‌گرایانه",
+    "en": "A partly cloudy midday sky (Poly Haven, CC0): bright and realistic."
+  },
+  "min_engine": "1.3.0",
+  "order": 16,
+  "tags": [
+    "product",
+    "hdri",
+    "outdoor"
+  ],
+  "rig": [],
+  "world": {
+    "hdri": "kloofendal_48d_partly_cloudy_puresky",
+    "hdri_strength": 1.0,
+    "hdri_rotation": 20.0
+  },
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    },
+    "hdri_strength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 4.0,
+      "label": "روشنایی محیط (HDRI)"
+    },
+    "hdri_rotation": {
+      "type": "number",
+      "default": 20.0,
+      "min": -180.0,
+      "max": 180.0,
+      "label": "چرخش محیط (درجه)"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own) + HDRI: Greg Zaal and Jarod Guest, Poly Haven, CC0",
+  "ai": false
+}

@@ -1,0 +1,57 @@
+{
+  "id": "hdri_sunset",
+  "version": 1,
+  "name": {
+    "fa": "محیطِ HDRI: غروبِ ونیز",
+    "en": "HDRI sunset"
+  },
+  "description": {
+    "fa": "آسمانِ غروب با نورِ گرمِ جهت‌دار (Poly Haven، CC0)؛ برای صحنه‌های فضای باز",
+    "en": "A sunset sky with warm directional light (Poly Haven, CC0), for open-air scenes."
+  },
+  "min_engine": "1.3.0",
+  "order": 15,
+  "tags": [
+    "product",
+    "hdri",
+    "outdoor"
+  ],
+  "rig": [],
+  "world": {
+    "hdri": "venice_sunset",
+    "hdri_strength": 1.2,
+    "hdri_rotation": 160.0
+  },
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    },
+    "hdri_strength": {
+      "type": "number",
+      "default": 1.2,
+      "min": 0.0,
+      "max": 4.0,
+      "label": "روشنایی محیط (HDRI)"
+    },
+    "hdri_rotation": {
+      "type": "number",
+      "default": 160.0,
+      "min": -180.0,
+      "max": 180.0,
+      "label": "چرخش محیط (درجه)"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own) + HDRI: Greg Zaal, Poly Haven, CC0",
+  "ai": false
+}

@@ -46,6 +46,14 @@ export const MOVES_FA: Record<string, string> = {
   rack_focus: "تغییرِ فوکوس",
   slide_left: "سُرخوردن به چپ",
   slide_right: "سُرخوردن به راست",
+  turntable: "چرخ‌میز (محصول می‌چرخد)",
+  orbit_full: "چرخشِ کاملِ دوربین",
+  arc_left: "کمانِ چپ",
+  arc_right: "کمانِ راست",
+  reveal_pull: "آشکارسازی (عقب‌کشیدن)",
+  hero_orbit: "چرخشِ قهرمانی",
+  dolly_zoom: "دالی‌زوم (ورتیگو)",
+  drift: "رانشِ آرام",
 };
 
 export const CAT_FA: Record<string, string> = { base: "پایه", gesture: "ژست", interaction: "تعامل با محصول", face: "سر و چهره (لایه)" };

@@ -1,0 +1,116 @@
+{
+  "id": "stage",
+  "version": 1,
+  "name": {
+    "fa": "استیجِ محصول (چرخ‌میز)",
+    "en": "Product stage"
+  },
+  "description": {
+    "fa": "پس‌زمینهٔ منحنیِ بی‌درز با کفِ براق، چرخ‌میزِ گرد یا پایهٔ مربع؛ مخصوصِ محصول، گوشی و لوگو",
+    "en": "A seamless curved backdrop with a glossy floor and a round turntable or square plinth, made for products, phones and logos."
+  },
+  "builder": "stage",
+  "min_engine": "1.3.0",
+  "order": 5,
+  "default_lighting": "studio_softbox",
+  "tags": [
+    "product",
+    "stage"
+  ],
+  "marks": {
+    "center": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "facing": 0
+    }
+  },
+  "surfaces": {
+    "platform": {
+      "pos": [
+        0.0,
+        -0.25,
+        0.06
+      ],
+      "yaw": 0
+    },
+    "platform_left": {
+      "pos": [
+        -0.1,
+        -0.25,
+        0.06
+      ],
+      "yaw": 0
+    },
+    "platform_right": {
+      "pos": [
+        0.1,
+        -0.25,
+        0.06
+      ],
+      "yaw": 0
+    }
+  },
+  "furniture": {
+    "platform": {
+      "center": [
+        0.0,
+        -0.25
+      ],
+      "radius": 0.24,
+      "height": 0.06
+    }
+  },
+  "params": {
+    "backdrop_color": {
+      "type": "color",
+      "default": "#d6d2cc",
+      "label": "رنگِ پس‌زمینه"
+    },
+    "floor_gloss": {
+      "type": "number",
+      "default": 0.45,
+      "min": 0.0,
+      "max": 1.0,
+      "label": "براقیِ کف"
+    },
+    "platform": {
+      "type": "enum",
+      "values": [
+        "turntable",
+        "plinth"
+      ],
+      "default": "turntable",
+      "label": "پایه"
+    },
+    "platform_color": {
+      "type": "color",
+      "default": "#d9d5cf",
+      "label": "رنگِ پایه"
+    },
+    "rim_color": {
+      "type": "color",
+      "default": "#c9ccd2",
+      "label": "رنگِ لبهٔ پایه"
+    },
+    "glow": {
+      "type": "bool",
+      "default": false,
+      "label": "نئون و حلقهٔ نورانی"
+    },
+    "accent_color": {
+      "type": "color",
+      "default": "#19e3ff",
+      "label": "رنگِ نئونِ اول"
+    },
+    "accent_color_2": {
+      "type": "color",
+      "default": "#ff2d95",
+      "label": "رنگِ نئونِ دوم"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)",
+  "ai": false
+}

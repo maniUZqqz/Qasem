@@ -189,16 +189,21 @@ class Registry:
             lines.append(row(a, ' [gender=%s]' % a.get('gender', '?')))
         lines.append('## environments (surfaces = where products can stand)')
         for a in self.list('environment'):
+            if not a.get('ai', True):         # استیج‌های محصول (موتورِ ۱٫۳) را قالب‌های تبلیغاتی می‌چینند، نه کارگردانِ مجری‌دار
+                continue
             lines.append(row(a, ' [marks=%s; surfaces=%s]' % (','.join(a['marks']), ','.join(a['surfaces']))))
         lines.append('## products (builder shapes)')
         for a in self.list('product'):
-            lines.append(row(a))
+            if a.get('ai', True):         # متنِ سه‌بعدی/لوگو/گوشیِ نمایشِ اپ را قالب‌ها می‌چینند، نه کارگردانِ AI
+                lines.append(row(a))
         lines.append('## lighting')
         for a in self.list('lighting'):
-            lines.append(row(a))
+            if a.get('ai', True):
+                lines.append(row(a))
         lines.append('## shots (camera framings)')
         for a in self.list('shot'):
-            lines.append(row(a, ' [subject=%s]' % a.get('subject', 'actor')))
+            if a.get('ai', True):
+                lines.append(row(a, ' [subject=%s]' % a.get('subject', 'actor')))
         lines.append('## motions (duration seconds min/default/max; requires -> effect)')
         for a in self.list('motion'):
             d = a['duration']

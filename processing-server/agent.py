@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.16"
+VERSION = "2.17"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -3382,7 +3382,7 @@ def h_node_models(job):
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
 CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
-              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py", "model_auto.py")
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py", "model_auto.py", "up3d_jobs.py")
 
 
 def code_stamp():
@@ -4294,6 +4294,13 @@ try:  # multi-angle video (multiangle_jobs.py): handlers, heartbeat keys and the
     multiangle_jobs.register(sys.modules[__name__], HANDLERS)
 except Exception as _e:  # noqa: BLE001
     print("multiangle module not loaded: %s" % _e)
+
+
+# agent 2.12: the 3D video engine (Blender 4.5, Cycles on the GPU) is the compute job up3d.render (up3d_jobs.py)
+try:
+    __import__("up3d_jobs").install(sys.modules[__name__])
+except Exception as _e:  # noqa: BLE001
+    print("note: module up3d_jobs is not available (%s)" % _e, flush=True)
 
 
 def finish_result(job, ok, err="", meta=None, say=None):

@@ -175,9 +175,21 @@ export default function WorkersPage() {
                     <td className="text-xs">{Array.isArray(n.gpu) ? n.gpu.join(", ") : n.gpu}</td>
                     <td className="text-xs">
                       {n.blender ? <Badge tone="ok">هست</Badge> : <Badge tone="warn">نیست — بارِ اول دانلود می‌شود</Badge>}
+                      {n.via_queue && n.install?.state && (
+                        <div style={{ color: n.install.state === "failed" ? "var(--bad)" : "var(--text-3)" }}>
+                          نصبِ خودکار: {n.install.state === "ready" ? "آماده" : n.install.state === "failed" ? "ناموفق" : "در حالِ انجام"}
+                          {n.install.text ? ` — ${n.install.text}` : ""}
+                        </div>
+                      )}
                     </td>
                     <td className="text-xs">
-                      {n.worker3d_running ? <Badge tone="ok">در حالِ اجرا</Badge> : <Badge>خاموش</Badge>}{" "}
+                      {n.via_queue ? (
+                        <Badge tone="ok">از راهِ صفِ پردازش</Badge>
+                      ) : n.worker3d_running ? (
+                        <Badge tone="ok">در حالِ اجرا</Badge>
+                      ) : (
+                        <Badge>خاموش</Badge>
+                      )}{" "}
                       <span style={{ color: "var(--text-3)" }}>
                         {n.desired === true ? "· پنل: روشن" : n.desired === false ? "· پنل: خاموش" : n.auto_switch ? "· خودکار" : "· پیش‌فرضِ گره"}
                       </span>

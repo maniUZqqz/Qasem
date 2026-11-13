@@ -4,6 +4,7 @@ import { Button, Field, Select } from "../../../../components/ui";
 import { fa, label } from "../api";
 import { DraftInput, DraftNumber } from "../editor/fields";
 import { MOVES_FA, byId } from "../editor/model";
+import LookPanel from "../editor/LookPanel";
 import ParamInputs from "../editor/ParamInputs";
 import type { Actor, Catalog, Ease, Item, KeyFrame, LightRef, LightType, ProductRef, PropRef, SceneDoc, Transform, UploadResult, Vec3 } from "../types";
 import { EASES, round3 } from "./anim";
@@ -306,6 +307,9 @@ function EnvPanel({ ed }: { ed: Ed }) {
         </Select>
         <ParamInputs spec={light?.params} values={doc.lighting.params || {}} onChange={(k, v) => change((d) => void (d.lighting.params = { ...(d.lighting.params || {}), [k]: typeof v === "string" && !Number.isNaN(Number(v)) && v !== "" ? Number(v) : v }))} />
         <p className="u3e-hint">نورهای اضافه (نقطه‌ای، نورافکن، سطحی، خورشید) را از کتابخانه ⇐ «نور» به صحنه بکشید.</p>
+      </Sec>
+      <Sec title="نگاه و لنز">
+        <LookPanel doc={doc} change={change} />
       </Sec>
       <Sec title="خروجی">
         <div className="u3e-row">

@@ -32,6 +32,39 @@ TRACK_PREFIX = {'actions': 'a', 'speech': 'd', 'expressions': 'e', 'gaze': 'g', 
 EXPRESSIONS = ('neutral', 'smile', 'big_smile', 'surprised', 'thinking', 'confident', 'warm', 'wink')
 OVERLAY_TYPES = ('title', 'subtitle', 'cta', 'price', 'badge', 'logo')
 
+# ── موتور ۱٫۳: نگاهِ تصویر (AgX)، لنز، تاری حرکت و حرکتِ دوربینِ طبیعی (بلوکِ اختیاریِ doc['render'])
+RENDER_LOOKS = ('agx', 'agx_soft', 'agx_contrast', 'agx_punchy', 'agx_golden', 'agx_bw')
+CAMERA_EASES = ('smooth', 'linear', 'ease_in', 'ease_out', 'expo', 'sine')
+#: حرکت‌های دوربینِ تازه (موتورِ ۱٫۳ به بالا)
+NEW_MOVES = ('turntable', 'orbit_full', 'arc_left', 'arc_right', 'reveal_pull', 'hero_orbit', 'dolly_zoom', 'drift')
+ENGINE_V13 = (1, 3, 0)
+
+
+def norm_render(r):
+    """بلوکِ «نگاه و لنز»: فقط کلیدهای شناخته، در بازهٔ امن. None/خالی یعنی «همان پروفایل»."""
+    if not isinstance(r, dict):
+        return {}
+    out = {}
+    if r.get('look') in RENDER_LOOKS:
+        out['look'] = r['look']
+    if r.get('ease') in CAMERA_EASES:
+        out['ease'] = r['ease']
+    for k, lo, hi, nd in (('exposure', -3.0, 3.0, 2), ('fstop', 0.7, 22.0, 2), ('shutter', 0.05, 1.0, 2),
+                          ('handheld', 0.0, 1.0, 2), ('bloom', 0.0, 1.5, 2), ('vignette', 0.0, 0.6, 2),
+                          ('fade_in', 0.0, 3.0, 2), ('fade_out', 0.0, 3.0, 2), ('dof_strength', 0.0, 3.0, 2)):
+        if r.get(k) in (None, ''):
+            continue
+        v = _num(r.get(k), None)
+        if v is None:
+            continue
+        out[k] = round(min(hi, max(lo, v)), nd)
+    for k in ('dof', 'motion_blur'):
+        if r.get(k) is None or r.get(k) == '':
+            continue
+        out[k] = r[k].strip().lower() in ('1', 'true', 'yes', 'on') if isinstance(r[k], str) else bool(r[k])
+    return out
+
+
 # سرعتِ تقریبیِ گفتارِ فارسیِ TTS (نویسه در ثانیه) — برای وارسی پیش از ساختِ صدا
 FA_CHARS_PER_SEC = 13.0
 
@@ -131,6 +164,18 @@ def has_editor_features(doc):
     return any(s.get('camera') for s in doc.get('shots') or [])
 
 
+def has_v13_features(doc):
+    """سند از قابلیت‌های موتورِ ۱٫۳ استفاده می‌کند؟ (بلوکِ «نگاه و لنز»، حرکتِ تازهٔ دوربین، دستِ لرزان/آسانیِ شات)
+    دارایی‌های تازه (گوشی، متنِ سه‌بعدی، نورپردازیِ HDRI…) را validate.required_engine از روی manifest ها می‌فهمد."""
+    doc = doc or {}
+    if doc.get('render'):
+        return True
+    for s in doc.get('shots') or []:
+        if s.get('move') in NEW_MOVES or (s.get('params') or {}).get('handheld') or (s.get('params') or {}).get('ease'):
+            return True
+    return False
+
+
 def estimate_speech_seconds(text):
     clean = re.sub(r'\s+', ' ', text or '').strip()
     pauses = len(re.findall(r'[.!?؟،,;:]', clean)) * 0.25
@@ -225,6 +270,10 @@ def normalize(doc):
             x['lens'] = round(min(300.0, max(8.0, _num(x.get('lens'), 35.0))), 2)
             x['fstop'] = round(min(32.0, max(0.7, _num(x.get('fstop'), 4.0))), 2)
             x['keys'] = norm_keys(x.get('keys'), ('pos', 'target', 'lens'))
+    if doc.get('render') is not None:
+        doc['render'] = norm_render(doc.get('render'))
+        if not doc['render']:
+            doc.pop('render')
     for track in TRACKS:
         items = doc.get(track) or []
         used = set()

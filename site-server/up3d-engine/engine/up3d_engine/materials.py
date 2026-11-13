@@ -297,6 +297,55 @@ def image(path, rough=0.35, name='image', coat=0.0, alpha=False):
     return _cached(('image', path, rough, name, coat, alpha), make)
 
 
+# ── engine 1.3: ready PBR finishes (metal / plastic / glass / emissive) with sane physical values -------------------------------------
+FINISHES = ('gold', 'rose_gold', 'copper', 'chrome', 'brushed_steel', 'brushed_aluminium', 'titanium', 'black_gloss', 'white_gloss',
+            'matte', 'soft_touch', 'glass', 'frosted_glass', 'carbon', 'neon')
+FINISH_COLORS = {'gold': '#d9a73a', 'rose_gold': '#e3a58f', 'copper': '#c8693a', 'chrome': '#f4f4f6', 'brushed_steel': '#c9ced4',
+                 'brushed_aluminium': '#d8dadc', 'titanium': '#8e8b87', 'black_gloss': '#0b0b0d', 'white_gloss': '#f6f4f0'}
+
+
+def carbon(name='carbon'):
+    def make():
+        m, nt, p = _new(name)
+        tc = _node(nt, 'ShaderNodeTexCoord', (-1000, 0))
+        chk = _node(nt, 'ShaderNodeTexChecker', (-750, 0), Scale=60.0)
+        nt.links.new(tc.outputs['Object'], chk.inputs['Vector'])
+        ramp = _node(nt, 'ShaderNodeValToRGB', (-520, 0))
+        ramp.color_ramp.elements[0].color = (0.004, 0.004, 0.005, 1)
+        ramp.color_ramp.elements[1].color = (0.03, 0.03, 0.034, 1)
+        nt.links.new(chk.outputs['Fac'], ramp.inputs['Fac'])
+        nt.links.new(ramp.outputs['Color'], p.inputs['Base Color'])
+        p.inputs['Roughness'].default_value = 0.28
+        p.inputs['Coat Weight'].default_value = 1.0
+        p.inputs['Coat Roughness'].default_value = 0.03
+        return m
+    return _cached(('carbon', name), make)
+
+
+def finish(name, color=None, glow=6.0, rough=None):
+    """A named finish. color overrides the default tint of the metals and tints plastics / neon; glow is the neon emission strength."""
+    c = color or FINISH_COLORS.get(name) or '#d9d9dc'
+    if name in ('gold', 'rose_gold', 'copper', 'chrome'):
+        return metal(c, 0.12 if rough is None else rough, 'finish:' + name)
+    if name in ('brushed_steel', 'brushed_aluminium', 'titanium'):
+        return metal(c, 0.3 if rough is None else rough, 'finish:' + name, brushed=True)
+    if name == 'black_gloss':
+        return plastic(color or '#0b0b0d', 0.06 if rough is None else rough, 'finish:black', coat=1.0)
+    if name == 'white_gloss':
+        return plastic(color or '#f6f4f0', 0.08 if rough is None else rough, 'finish:white', coat=1.0)
+    if name == 'soft_touch':
+        return plastic(c, 0.62 if rough is None else rough, 'finish:soft:' + c, coat=0.0)
+    if name == 'glass':
+        return glass(c, 0.02, 1.5, 'finish:glass:' + c, tint=0.35)
+    if name == 'frosted_glass':
+        return glass(c, 0.3, 1.5, 'finish:frost:' + c, tint=0.5)
+    if name == 'carbon':
+        return carbon()
+    if name == 'neon':
+        return emission(c, float(glow), 'finish:neon:' + c)
+    return plastic(c, 0.45 if rough is None else rough, 'finish:matte:' + c, coat=0.0)       # 'matte' and anything unknown
+
+
 def by_spec(spec, default=None):
     """{'type': 'wood', 'color': '#..', 'texture': 'WoodFloor041'} ⇐ ماده. بافتِ واقعی اگر هست برنده است."""
     if not spec:

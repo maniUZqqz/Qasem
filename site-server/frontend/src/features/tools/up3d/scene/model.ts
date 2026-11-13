@@ -420,6 +420,25 @@ export function cameraAt(doc: SceneDoc, cat: Catalog, t: number): CamPose | null
     e += rad(6 - 9 * amt * u);
     off[2] = 0.08 - 0.14 * amt * u;
   } else if (move === "slide_left" || move === "slide_right") off[0] = (move === "slide_right" ? 1 : -1) * (-0.12 + 0.24 * amt * u);
+  else if (move === "turntable") d = dist * (1.025 - 0.05 * u);                              // محصول می‌چرخد؛ پیش‌نمایش فقط نزدیک‌شدنِ ملایم را نشان می‌دهد
+  else if (move === "orbit_full") a += rad(360 * (Number(fr.turn_deg) || 360) / 360 * u);
+  else if (move === "arc_left" || move === "arc_right") {
+    a += (move === "arc_left" ? -1 : 1) * rad(30 * amt * (2 * u - 1));
+    d = dist * (1.06 - 0.12 * u);
+  } else if (move === "reveal_pull") {
+    d = dist * (0.42 + 0.58 * u);
+    a += rad(-26 * amt * (1 - u));
+    e += rad(-9 * amt * (1 - u));
+  } else if (move === "hero_orbit") {
+    d = dist * (1.12 - 0.2 * u);
+    a += rad(-20 * amt + 40 * amt * u);
+    e += rad(2 * amt * Math.sin(Math.PI * u));
+  } else if (move === "dolly_zoom") d = dist * (1.38 - 0.7 * u * amt);
+  else if (move === "drift") {
+    a += rad(5 * amt * (u - 0.5));
+    d = dist * (1 - 0.035 * amt * u);
+    off[0] = 0.05 * amt * (u - 0.5);
+  }
   const dir: Vec3 = [Math.sin(a + facing) * Math.cos(e), -Math.cos(a + facing) * Math.cos(e), Math.sin(e)];
   const drop = (0.5 - (Number(fr.anchor_pos) || 0.33)) * H;
   const look: Vec3 = [p[0], p[1], p[2] - drop];

@@ -1,0 +1,45 @@
+{
+  "id": "stage_hero",
+  "version": 1,
+  "name": {
+    "fa": "قهرمانِ استیج",
+    "en": "Stage hero"
+  },
+  "description": {
+    "fa": "محصول روی پایه، تله‌لنزِ نرم با عمقِ میدانِ کم؛ نمای اصلیِ تبلیغ",
+    "en": "The product on its platform, soft telephoto with shallow depth of field: the main ad shot."
+  },
+  "framing": {
+    "height": 0.34,
+    "anchor": "product",
+    "anchor_pos": 0.5,
+    "lens": 80,
+    "fstop": 4.0,
+    "elevation": 4
+  },
+  "subject": "product",
+  "moves": [
+    "static",
+    "push_in",
+    "pull_out",
+    "orbit_left",
+    "orbit_right",
+    "arc_left",
+    "arc_right",
+    "hero_orbit",
+    "reveal_pull",
+    "dolly_zoom",
+    "drift",
+    "handheld",
+    "crane_up",
+    "crane_down",
+    "rack_focus",
+    "turntable",
+    "orbit_full"
+  ],
+  "min_engine": "1.3.0",
+  "order": 20,
+  "defaults": {},
+  "license": "UpMarket 3D (procedural, own)",
+  "ai": false
+}

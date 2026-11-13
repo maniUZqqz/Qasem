@@ -25,7 +25,15 @@
     "orbit_right",
     "crane_down",
     "handheld",
-    "rack_focus"
+    "rack_focus",
+    "arc_left",
+    "arc_right",
+    "hero_orbit",
+    "reveal_pull",
+    "dolly_zoom",
+    "drift",
+    "orbit_full",
+    "turntable"
   ],
   "order": 6,
   "default_for": "product",

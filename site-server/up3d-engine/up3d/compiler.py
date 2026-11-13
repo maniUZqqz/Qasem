@@ -136,6 +136,7 @@ def compile_scene(doc, reg, profile_id=None, audio=None, label_images=None, prof
         'environment': _asset_block(env, env_params, ('marks', 'surfaces')),
         'lighting': _asset_block(light, light_params) if light else None,
         'actors': [], 'products': [], 'actions': [], 'face': {}, 'gaze': {}, 'speech': [], 'shots': [],
+        'render': dict(doc.get('render') or {}),      # موتورِ ۱٫۳: نگاه (AgX)، لنز، تاری حرکت، دستِ لرزان، آسانی
     }
 
     for a in doc['actors']:

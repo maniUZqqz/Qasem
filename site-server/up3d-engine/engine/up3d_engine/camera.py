@@ -10,7 +10,77 @@ from . import keys as K
 from .util import ease_inout, empty, link, log
 
 MOVES = ('static', 'push_in', 'pull_out', 'orbit_left', 'orbit_right', 'crane_up', 'crane_down', 'handheld',
-         'rack_focus', 'slide_left', 'slide_right')
+         'rack_focus', 'slide_left', 'slide_right',
+         # engine 1.3
+         'turntable', 'orbit_full', 'arc_left', 'arc_right', 'reveal_pull', 'hero_orbit', 'dolly_zoom', 'drift')
+
+
+def eased(u, name='smooth'):
+    """Natural camera easing (u in 0..1 -> 0..1). smooth = smootherstep (C2: starts and stops without a jolt)."""
+    u = max(0.0, min(1.0, u))
+    if name == 'linear':
+        return u
+    if name == 'ease_in':
+        return u * u * u
+    if name == 'ease_out':
+        return 1.0 - (1.0 - u) ** 3
+    if name == 'sine':
+        return 0.5 - 0.5 * math.cos(math.pi * u)
+    if name == 'expo':          # filmic: long soft start, fast middle, soft stop
+        if u <= 0.0:
+            return 0.0
+        if u >= 1.0:
+            return 1.0
+        return 0.5 * 2.0 ** (20.0 * u - 10.0) if u < 0.5 else 1.0 - 0.5 * 2.0 ** (-20.0 * u + 10.0)
+    return anim.smootherstep(u)
+
+
+def handheld_offsets(t, seed, amount, dist):
+    """Natural handheld: slow body sway + drift + a tiny fast tremor. Position in metres; the aim shift scales with the distance
+    (0.3 degrees is 3 mm at 0.6 m but 16 mm at 3 m, exactly like a real camera)."""
+    a = max(0.0, amount)
+    if a <= 0:
+        return Vector((0, 0, 0)), Vector((0, 0, 0))
+    n = anim.noise1
+    pos = Vector((n(t * 0.55, seed) * 0.0045 + n(t * 1.7, seed + 2) * 0.0015 + n(t * 6.3, seed + 9) * 0.0003,
+                  n(t * 0.45, seed + 1) * 0.0035 + n(t * 1.3, seed + 3) * 0.0012,
+                  n(t * 0.62, seed + 4) * 0.0045 + n(t * 1.9, seed + 5) * 0.0015 + n(t * 7.1, seed + 8) * 0.0003)) * a
+    ang = 0.0052 * a
+    aim = Vector((n(t * 0.8, seed + 6) * ang * dist + n(t * 2.6, seed + 11) * ang * 0.35 * dist, 0.0,
+                  n(t * 0.7, seed + 7) * ang * dist + n(t * 2.9, seed + 12) * ang * 0.35 * dist))
+    return pos, aim
+
+
+def spin_products(ctx):
+    """engine 1.3 'turntable' move: the PRODUCT turns on its platform while the lights stay where they are, so the reflections slide over the
+    surface exactly like on a real turntable. Runs BEFORE bake: it writes rotation keys into the product (the same mechanism as the editor's
+    free placement); the camera then only follows the baked anchor. turn_deg (default 360) and turn_dir (left/right) come from the shot params,
+    spin_ease = smooth (soft start and stop) | linear (constant speed)."""
+    n = 0
+    cur = {}                                          # product id -> its current spin angle (a later spin continues from here: no pop)
+    for shot in sorted(ctx.c.get('shots') or [], key=lambda s: s.get('f0', 0)):
+        if shot.get('free') or shot.get('move') != 'turntable':
+            continue
+        subj = shot.get('subject') or {}
+        prod = ctx.products.get(subj.get('id')) if subj.get('type') == 'product' else None
+        if prod is None:
+            continue
+        fr = dict(shot.get('framing') or {})
+        fr.update(shot.get('params') or {})
+        turn = float(fr.get('turn_deg', 360.0)) * (1.0 if fr.get('turn_dir', 'left') == 'left' else -1.0)
+        ease = 'linear' if fr.get('spin_ease') == 'linear' else 'smooth'
+        rx, ry, rz = prod.base['rot']
+        a0 = cur.get(prod.id, rz)
+        f0, f1 = float(shot['f0']), float(shot['f1'])
+        keep = [k for k in prod.keys if not k.get('_spin') or not (f0 <= k['f'] <= f1)]
+        keep.append({'f': f0, 'rot': [rx, ry, a0], 'ease': ease, '_spin': True})
+        keep.append({'f': f1, 'rot': [rx, ry, a0 + turn], 'ease': ease, '_spin': True})
+        cur[prod.id] = a0 + turn
+        prod.keys = sorted(keep, key=lambda k: k['f'])
+        n += 1
+    if n:
+        log('turntable spins', n)
+    return n
 
 
 def _sensor(w, h):
@@ -68,6 +138,9 @@ def build(ctx, series):
             continue
         fr = dict(shot['framing'])
         fr.update(shot.get('params') or {})
+        rnd = ctx.c.get('render') or {}                      # engine 1.3: look & lens block of the scene
+        ease_name = fr.get('ease') or rnd.get('ease') or 'smooth'
+        hh_base = float(fr.get('handheld') if fr.get('handheld') is not None else (rnd.get('handheld') or 0.0))
         f0, f1 = shot['f0'], shot['f1']
         subj = shot['subject']
         anchor = fr.get('anchor', 'eyes' if subj['type'] == 'actor' else 'product')
@@ -95,8 +168,9 @@ def build(ctx, series):
         cam_data.sensor_height = sensor
         cam_data.clip_start = 0.02
         cam_data.clip_end = 60
-        cam_data.dof.use_dof = ctx.quality.get('dof', True)
-        cam_data.dof.aperture_fstop = fr.get('fstop', 2.8)
+        cam_data.dof.use_dof = bool(ctx.quality.get('dof', True)) and rnd.get('dof') is not False
+        fstop = float(rnd.get('fstop') or fr.get('fstop', 2.8))
+        cam_data.dof.aperture_fstop = max(0.7, fstop / max(0.2, float(rnd.get('dof_strength') or 1.0)))
         cam_data.dof.aperture_blades = 7
         cam = bpy.data.objects.new('cam.' + shot['id'], cam_data)
         link(cam, coll)
@@ -111,8 +185,9 @@ def build(ctx, series):
         n = max(1, len(frames) - 1)
         seed = ctx.seed(shot['id'])
         rack = fr.get('rack_from')
+        lens_keys = []
         for i, f in enumerate(frames):
-            u = anim.smootherstep(i / n)      # آسانیِ C2: شروع و ایستِ دوربین بی‌تکان
+            u = eased(i / n, ease_name)      # آسانیِ C2: شروع و ایستِ دوربین بی‌تکان
             d = dist
             a, e = az, el
             off = Vector((0, 0, 0))
@@ -133,16 +208,43 @@ def build(ctx, series):
             elif move in ('slide_left', 'slide_right'):
                 sgn = 1 if move == 'slide_right' else -1
                 off.x = sgn * (-0.12 + 0.24 * amt * u)
+            elif move == 'turntable':
+                # the PRODUCT turns on its platform (spin_products); the camera only breathes in a little, like a studio rig
+                d = dist * (1.025 - 0.05 * u)
+            elif move == 'orbit_full':
+                # the camera travels a full circle around the subject; the angular speed is eased at both ends
+                a = az + math.radians(float(fr.get('turn_deg', 360.0)) * u * (1 if fr.get('turn_dir', 'left') == 'left' else -1))
+            elif move in ('arc_left', 'arc_right'):
+                sgn = -1 if move == 'arc_left' else 1
+                a = az + sgn * math.radians(float(fr.get('arc_deg', 30.0)) * amt * (2 * u - 1))
+                d = dist * (1.06 - 0.12 * u)
+            elif move == 'reveal_pull':
+                # starts close and low (strong depth of field), pulls back and rises to the hero frame
+                d = dist * (0.42 + 0.58 * u)
+                a = az + math.radians(-26.0 * amt * (1 - u))
+                e = el + math.radians(-9.0 * amt * (1 - u))
+            elif move == 'hero_orbit':
+                d = dist * (1.12 - 0.2 * u)
+                a = az + math.radians(-20.0 * amt + 40.0 * amt * u)
+                e = el + math.radians(2.0 * amt * math.sin(math.pi * u))
+            elif move == 'dolly_zoom':
+                # vertigo: the camera dollies while the lens counter-zooms; the subject keeps its size, the background breathes
+                d = dist * (1.38 - 0.7 * u * amt)
+                lens_keys.append(lens * d / dist)
+            elif move == 'drift':
+                a = az + math.radians(5.0 * amt * (u - 0.5))
+                d = dist * (1.0 - 0.035 * amt * u)
+                off.x = 0.05 * amt * (u - 0.5)
+                off.z = 0.015 * amt * math.sin(math.pi * u)
             dirv = Vector((math.sin(a + facing) * math.cos(e), -math.cos(a + facing) * math.cos(e), math.sin(e)))
             base = smooth[i] if follow else p0
             look = smooth[i] - Vector((0, 0, center_drop))
             pos = base - Vector((0, 0, center_drop)) + dirv * d + off
-            if move == 'handheld':
-                t = f / ctx.fps
-                k = 0.006 * amt
-                pos += Vector((anim.noise1(t * 1.3, seed) * k, anim.noise1(t * 1.1, seed + 2) * k * 0.6,
-                               anim.noise1(t * 1.7, seed + 4) * k))
-                look += Vector((anim.noise1(t * 1.6, seed + 6) * k * 0.7, 0, anim.noise1(t * 1.4, seed + 8) * k * 0.7))
+            hh = hh_base + (amt if move == 'handheld' else 0.0)
+            if hh > 0:
+                dp, da = handheld_offsets(f / ctx.fps, seed, hh, max(0.3, d))
+                pos += dp
+                look += da
             fpt = series(subj['type'], subj['id'], fr.get('focus', anchor), f)
             if move == 'rack_focus' and rack:
                 other = series(rack.split(':')[0], rack.split(':')[1], 'product' if rack.startswith('product') else 'eyes', f)
@@ -154,6 +256,8 @@ def build(ctx, series):
         anim.bulk_keys(cam, 'location', frames, locs)
         anim.bulk_keys(aim, 'location', frames, aims)
         anim.bulk_keys(focus, 'location', frames, focs)
+        if lens_keys and len(lens_keys) == len(frames):
+            anim.bulk_keys(cam_data, 'lens', frames, lens_keys)
         m = sc.timeline_markers.new('shot.' + shot['id'], frame=f0)
         m.camera = cam
         cams.append(cam)

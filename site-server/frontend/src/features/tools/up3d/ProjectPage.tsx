@@ -9,6 +9,8 @@ import Inspector from "./editor/Inspector";
 import { type Sel, OVT, TRACKS, byId, docDuration, newItem, selFromPath, sortTrack } from "./editor/model";
 import QualityPanel, { hasQuality } from "./editor/QualityPanel";
 import { ActorsEditor, AudioSettings, EnvironmentLighting, ProductsEditor, SceneBasics } from "./editor/SceneSettings";
+import { Details } from "./editor/fields";
+import LookPanel from "./editor/LookPanel";
 import { ExportActions, PreviewPanel, ProjectJobs } from "./editor/SidePanels";
 import Summary from "./editor/Summary";
 import Timeline from "./editor/Timeline";
@@ -431,6 +433,9 @@ export default function ProjectPage() {
                       محیط و نور
                     </b>
                     <EnvironmentLighting cat={cat} doc={doc} change={change} />
+                    <Details summary="نگاه و لنز (رنگِ AgX، عمقِ میدان، تاریِ حرکت، دستِ لرزان)">
+                      <LookPanel doc={doc} change={change} />
+                    </Details>
                   </div>
                 </div>
                 <div className="space-y-4">

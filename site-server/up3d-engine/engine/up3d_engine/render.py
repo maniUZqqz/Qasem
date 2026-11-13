@@ -7,6 +7,7 @@ import glob
 import json
 import os
 import time
+import traceback
 
 import bpy
 
@@ -14,19 +15,28 @@ from .util import info, log, progress
 
 
 def detect_gpu(prefer=None):
+    """The best Cycles GPU backend: OptiX first, then CUDA (then HIP / oneAPI / Metal). UP3D_GPU_BACKEND (OPTIX / CUDA / CPU) forces one
+    (the worker sets it when it has to fall back); only GPUs are enabled, never the CPU (it would only slow the GPU down)."""
+    forced = (os.environ.get('UP3D_GPU_BACKEND') or '').upper()
+    if forced == 'CPU':
+        return None
     try:
         prefs = bpy.context.preferences.addons['cycles'].preferences
     except KeyError:
         return None
-    order = [prefer] if prefer else []
+    order = [forced or prefer] if (forced or prefer) else []
     order += ['OPTIX', 'CUDA', 'HIP', 'ONEAPI', 'METAL']
+    tried = set()
     for kind in order:
-        if not kind:
+        if not kind or kind in tried:
             continue
+        tried.add(kind)
         try:
             prefs.compute_device_type = kind
+            if hasattr(prefs, 'refresh_devices'):
+                prefs.refresh_devices()
             prefs.get_devices()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RuntimeError):
             continue
         devs = [d for d in prefs.devices if d.type == kind]
         if devs:
@@ -34,6 +44,64 @@ def detect_gpu(prefer=None):
                 d.use = d.type == kind
             return {'type': kind, 'devices': [d.name for d in devs]}
     return None
+
+
+#: scene "look" key -> the AgX looks to try, best first ("AgX - " + name is how Blender 4.x names them; the enum is dynamic, so assign and see)
+LOOK_WORDS = {'agx': ('Medium High Contrast',), 'agx_soft': ('Low Contrast', 'Medium Low Contrast'), 'agx_contrast': ('High Contrast',),
+              'agx_punchy': ('Punchy',), 'agx_golden': ('Medium High Contrast',), 'agx_bw': ('Greyscale',)}
+#: looks that add a colour grade in the compositor (Blender 4.5 has no "Golden" look any more): warm highlights, a touch of lift
+GRADES = {'agx_golden': 'warm'}
+
+
+def _try_look(vs, word):
+    for name in ('AgX - ' + word, word):
+        try:
+            vs.look = name
+            return name
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def apply_look(sc, look_key, prof_look, exposure):
+    """AgX colour management with a named look. Returns the settings that really got applied (they go into the engine report)."""
+    vs = sc.view_settings
+    for vt in ('AgX', 'Filmic', 'Standard'):
+        try:
+            vs.view_transform = vt
+            break
+        except TypeError:
+            continue
+    words = list(LOOK_WORDS.get(look_key) or ())
+    if prof_look:
+        words.append(str(prof_look).replace('AgX - ', ''))
+    words.append('Medium High Contrast')
+    for w in words:
+        if _try_look(vs, w):
+            break
+    vs.exposure = float(exposure or 0.0)
+    return {'view': vs.view_transform, 'look': vs.look, 'exposure': vs.exposure, 'grade': GRADES.get(look_key)}
+
+
+def configure_denoise(cy, device, prof):
+    """OptiX denoiser on an OptiX GPU, OpenImageDenoise otherwise (also on the GPU); albedo + normal guide passes, accurate prefilter."""
+    cy.use_denoising = bool(prof.get('denoise', True))
+    if not cy.use_denoising:
+        return 'off'
+    want = 'OPTIX' if device.get('type') == 'OPTIX' else 'OPENIMAGEDENOISE'
+    for name in (want, 'OPENIMAGEDENOISE'):
+        try:
+            cy.denoiser = name
+            break
+        except TypeError:
+            continue
+    for attr, val in (('denoising_input_passes', 'RGB_ALBEDO_NORMAL'), ('denoising_prefilter', 'ACCURATE'),
+                      ('denoising_use_gpu', device.get('type') != 'CPU')):
+        try:
+            setattr(cy, attr, val)
+        except (TypeError, AttributeError):
+            pass
+    return cy.denoiser
 
 
 def setup(ctx, threads=0):
@@ -47,12 +115,16 @@ def setup(ctx, threads=0):
     sc.frame_start, sc.frame_end = ctx.f_start, ctx.f_end
     sc.frame_step = int(prof.get('frame_step', 1))
     sc.render.film_transparent = False
-    sc.view_settings.view_transform = prof.get('view_transform', 'AgX')
-    try:
-        sc.view_settings.look = prof.get('look', 'AgX - Medium High Contrast')
-    except TypeError:
-        pass
-    sc.view_settings.exposure = prof.get('exposure', 0.0)
+    rnd = ctx.c.get('render') or {}               # engine 1.3: look & lens block of the scene document
+    prof = dict(prof)
+    for k in ('motion_blur', 'shutter', 'vignette'):
+        if rnd.get(k) is not None:
+            prof[k] = rnd[k]
+    if rnd.get('bloom') is not None:
+        prof['bloom'] = rnd['bloom']
+        prof['glare'] = rnd['bloom'] > 0
+    ctx.report['look'] = apply_look(sc, rnd.get('look'), prof.get('look'), (prof.get('exposure') or 0.0) + (rnd.get('exposure') or 0.0))
+    prof['grade'] = ctx.report['look'].get('grade')
     if threads:
         sc.render.threads_mode = 'FIXED'
         sc.render.threads = threads
@@ -78,6 +150,8 @@ def setup(ctx, threads=0):
         sc.render.engine = 'CYCLES'
         cy = sc.cycles
         gpu = None if prof.get('device') == 'CPU' else detect_gpu(prof.get('gpu_backend'))
+        if not gpu and prof.get('device') != 'CPU' and os.environ.get('UP3D_REQUIRE_GPU') == '1':
+            raise RuntimeError('این رندر روی GPU باید اجرا شود ولی Cycles هیچ دستگاهِ OptiX/CUDA نمی‌بیند (درایور NVIDIA را بررسی کنید)')
         if gpu:
             cy.device = 'GPU'
             device = gpu
@@ -86,14 +160,12 @@ def setup(ctx, threads=0):
         cy.samples = int(prof.get('samples', 64))
         cy.use_adaptive_sampling = True
         cy.adaptive_threshold = prof.get('adaptive_threshold', 0.02)
-        cy.use_denoising = prof.get('denoise', True)
-        if cy.use_denoising:
+        ctx.report['denoiser'] = configure_denoise(cy, device, prof)
+        for attr, val in (('use_auto_tile', True), ('tile_size', 2048)):
             try:
-                cy.denoiser = 'OPTIX' if device.get('type') == 'OPTIX' else 'OPENIMAGEDENOISE'
-            except TypeError:
+                setattr(cy, attr, val)
+            except (TypeError, AttributeError):
                 pass
-            if hasattr(cy, 'denoising_use_gpu'):
-                cy.denoising_use_gpu = device.get('type') != 'CPU'
         b = prof.get('bounces', {})
         cy.max_bounces = b.get('total', 8)
         cy.diffuse_bounces = b.get('diffuse', 3)
@@ -134,13 +206,35 @@ def _compositor(sc, prof):
         g = nt.nodes.new('CompositorNodeGlare')
         g.glare_type = 'FOG_GLOW'
         g.quality = 'MEDIUM'
+        bl = prof.get('bloom')
+        thr = 1.0 if bl is None else 1.0 - 0.3 * min(1.0, float(bl))
+        strength = 0.08 if bl is None else min(1.0, 0.04 + float(bl) * 0.2)      # Blender 4.5: «Strength» is the share of glow added
         try:
-            g.mix = -0.92
-            g.threshold = 1.0
+            g.mix = -0.92 if bl is None else max(-0.97, -0.9 + float(bl) * 0.3)      # Blender 4.4 and older
+            g.threshold = thr
         except AttributeError:
             pass
+        for name, val in (('Threshold', thr), ('Strength', strength), ('Size', 0.5), ('Smoothness', 0.1)):
+            try:
+                g.inputs[name].default_value = val
+            except (KeyError, TypeError):
+                pass
         nt.links.new(cur, g.inputs['Image'])
         cur = g.outputs['Image']
+    if prof.get('grade') == 'warm':
+        cb = nt.nodes.new('CompositorNodeColorBalance')
+        try:
+            cb.correction_method = 'LIFT_GAMMA_GAIN'
+            cb.gain = (1.1, 1.0, 0.82)
+            cb.gamma = (1.03, 1.0, 0.93)
+            cb.lift = (1.0, 0.99, 0.97)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        try:
+            nt.links.new(cur, cb.inputs['Image'])
+            cur = cb.outputs['Image']
+        except (KeyError, TypeError):
+            nt.nodes.remove(cb)
     if prof.get('lens', True):
         ld = nt.nodes.new('CompositorNodeLensdist')
         try:
@@ -172,6 +266,48 @@ def _compositor(sc, prof):
     nt.links.new(cur, out.inputs['Image'])
 
 
+def _fallback_device(ctx, err):
+    """A GPU backend failed (OptiX kernel / driver trouble): OptiX -> CUDA with the OpenImageDenoise denoiser -> CPU (only when allowed).
+    Returns True when the render can be retried."""
+    sc = bpy.context.scene
+    dev = ctx.report.get('device') or {}
+    ctx.report.setdefault('fallbacks', []).append({'from': dev.get('type'), 'error': str(err)[:300]})
+    if sc.render.engine != 'CYCLES' or dev.get('type') in (None, 'CPU'):
+        return False
+    if dev.get('type') == 'OPTIX':
+        nxt = detect_gpu('CUDA') if os.environ.get('UP3D_GPU_BACKEND', '').upper() != 'OPTIX' else None
+        if nxt and nxt['type'] == 'CUDA':
+            sc.cycles.device = 'GPU'
+            ctx.report['device'] = nxt
+            ctx.report['denoiser'] = configure_denoise(sc.cycles, nxt, ctx.profile)
+            info(device=nxt, fallback='OPTIX->CUDA')
+            return True
+    if os.environ.get('UP3D_REQUIRE_GPU') == '1':
+        return False
+    sc.cycles.device = 'CPU'
+    ctx.report['device'] = {'type': 'CPU', 'note': 'GPU failed: %s' % str(err)[:120]}
+    ctx.report['denoiser'] = configure_denoise(sc.cycles, {'type': 'CPU'}, ctx.profile)
+    info(device=ctx.report['device'], fallback='GPU->CPU')
+    return True
+
+
+def render_one(ctx, path):
+    """One frame, with the GPU fallback chain (a failed frame is retried on the next backend, never silently dropped)."""
+    last = None
+    for _ in range(3):
+        try:
+            bpy.ops.render.render(write_still=True)
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return
+            last = 'no output file was written'
+        except RuntimeError as e:
+            last = e
+            traceback.print_exc()
+        if not _fallback_device(ctx, last):
+            break
+    raise RuntimeError('رندرِ فریم شکست خورد: %s' % last)
+
+
 def render_frames(ctx, frames_dir, frames=None):
     sc = bpy.context.scene
     os.makedirs(frames_dir, exist_ok=True)
@@ -188,7 +324,7 @@ def render_frames(ctx, frames_dir, frames=None):
         sc.frame_set(f)
         sc.render.filepath = path
         t = time.time()
-        bpy.ops.render.render(write_still=True)
+        render_one(ctx, path)
         times.append(time.time() - t)
         progress(i + 1, total)
         if i % 5 == 0:
@@ -205,7 +341,7 @@ def still(ctx, path, frame):
     sc.frame_set(frame)
     sc.render.filepath = path
     sc.render.use_overwrite = True
-    bpy.ops.render.render(write_still=True)
+    render_one(ctx, path)
 
 
 def encode(frames_dir, out_path, fps, step=1, crf_quality='HIGH'):

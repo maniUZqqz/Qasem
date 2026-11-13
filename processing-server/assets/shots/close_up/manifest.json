@@ -27,7 +27,11 @@
     "crane_up",
     "handheld",
     "slide_left",
-    "slide_right"
+    "slide_right",
+    "arc_left",
+    "arc_right",
+    "drift",
+    "dolly_zoom"
   ],
   "order": 4,
   "license": "UpMarket 3D (procedural, own)"

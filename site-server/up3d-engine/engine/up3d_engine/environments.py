@@ -282,6 +282,47 @@ def home(ctx, e, coll):
     return {'floor_z': 0.0, 'window': (wx, 0.2, 1.65)}
 
 
+@env('stage')
+def stage(ctx, e, coll):
+    """Product stage (engine 1.3): a seamless cyclorama with a glossy (reflective) floor, a round turntable or a square plinth, and
+    optional neon accents (a glowing ring on the floor + two vertical tubes behind). The product stands on top of the platform."""
+    p = e['params']
+    gloss = max(0.0, min(1.0, float(p.get('floor_gloss', 0.55))))
+    floor = M.plastic(p.get('backdrop_color', '#e6e3de'), 1.0 - 0.82 * gloss, 'stage_floor', coat=0.7 * gloss)
+    cyclorama('cyc', coll, floor, wall_y=2.4, radius=1.6, width=18.0, height=7.0, front=-9.0)
+    fp = (e.get('furniture') or {}).get('platform') or {'center': [0.0, -0.25], 'radius': 0.24, 'height': 0.06}
+    c, pr, ph = fp['center'], float(p.get('platform_radius', fp['radius'])), fp['height']
+    top = M.plastic(p.get('platform_color', '#f1eeea'), 0.16, 'stage_platform', coat=0.9)
+    side = M.metal(p.get('rim_color', '#c9ccd2'), 0.2, 'stage_rim')
+    if p.get('platform', 'turntable') == 'plinth':
+        box('plinth', (c[0], c[1], ph / 2), (pr * 2.1, pr * 2.1, ph), coll, top, 0.004)
+    else:
+        cylinder('turntable', (c[0], c[1], 0.0), pr, ph, coll, top, 96, bevel=0.004)
+        cylinder('turntable_rim', (c[0], c[1], ph - 0.012), pr + 0.002, 0.012, coll, side, 96, bevel=0.002)
+    acc, acc2 = p.get('accent_color'), p.get('accent_color_2') or p.get('accent_color')
+    if p.get('glow', False) and acc:
+        cylinder('glow_ring', (c[0], c[1], 0.001), pr + 0.05, 0.004, coll, M.emission(acc, 18.0, 'stage_glow_ring'), 96)
+        for x, col, nm in ((-1.45, acc, 'a'), (1.45, acc2, 'b')):
+            cylinder('neon_' + nm, (x, 1.7, 0.0), 0.028, 2.6, coll, M.emission(col, 16.0, 'neon_tube_' + nm), 20)
+    return {'floor_z': 0.0}
+
+
+@env('open_air')
+def open_air(ctx, e, coll):
+    """Open air (engine 1.3): an endless ground under the real sky of the lighting (golden hour / HDRI) and a stone platform for the product."""
+    p = e['params']
+    ground = M.plastic(p.get('ground_color', '#a8946f'), 0.86, 'open_ground')
+    cylinder('ground', (0.0, 0.0, -0.05), 80.0, 0.05, coll, ground, 96)
+    fp = (e.get('furniture') or {}).get('platform') or {'center': [0.0, -0.25], 'radius': 0.24, 'height': 0.06}
+    c, pr, ph = fp['center'], float(fp['radius']), fp['height']
+    stone = M.plastic(p.get('platform_color', '#cfc9bd'), 0.5, 'open_stone', coat=0.15)
+    if p.get('platform', 'plinth') == 'plinth':
+        box('plinth', (c[0], c[1], ph / 2), (pr * 2.1, pr * 2.1, ph), coll, stone, 0.004)
+    else:
+        cylinder('turntable', (c[0], c[1], 0.0), pr, ph, coll, stone, 96, bevel=0.004)
+    return {'floor_z': 0.0}
+
+
 @env('blend_file')
 def blend_file(ctx, e, coll):
     path = os.path.join(e['folder'], (e.get('params') or {}).get('file') or e.get('file', 'scene.blend'))

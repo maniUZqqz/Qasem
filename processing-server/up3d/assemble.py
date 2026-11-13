@@ -61,7 +61,7 @@ def voice_track(speech, duration, out_path, rate=48000):
 
 
 def assemble(video_in, out_path, duration, fps, voice_wav=None, music=None, music_volume=0.14,
-             overlays=(), interpolate=None, crf=18, poster=True):
+             overlays=(), interpolate=None, crf=18, poster=True, fade_in=0.0, fade_out=0.0):
     """interpolate: None | 'dup' | 'blend' (برای پیش‌نمایشی که با fps کمتر رندر شده)."""
     cmd = [_ff(), '-v', 'error', '-y', '-i', video_in]
     idx = 1
@@ -93,7 +93,12 @@ def assemble(video_in, out_path, duration, fps, voice_wav=None, music=None, musi
             i, st, fd, max(st, en - fd), fd, n))
         chain.append("%s[o%d]overlay=0:0:enable='between(t,%.3f,%.3f)'[v%d]" % (cur, n, st, en, n + 1))
         cur = '[v%d]' % (n + 1)
-    chain.append('%sformat=yuv420p[vout]' % cur)
+    fades = ''
+    if fade_in and fade_in > 0:             # engine 1.3: soft fade in from black (reveal)
+        fades += ',fade=t=in:st=0:d=%.3f' % min(fade_in, duration / 2)
+    if fade_out and fade_out > 0:
+        fades += ',fade=t=out:st=%.3f:d=%.3f' % (max(0.0, duration - fade_out), min(fade_out, duration / 2))
+    chain.append('%sformat=yuv420p%s[vout]' % (cur, fades))
     amap = None
     if a_voice is not None and a_music is not None:
         chain.append('[%d:a]aformat=channel_layouts=stereo,asplit=2[vo1][vo2]' % a_voice)

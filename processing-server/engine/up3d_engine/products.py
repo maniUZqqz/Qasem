@@ -12,7 +12,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 from . import keys as K
 from . import materials as M
-from .util import empty, link, log
+from .util import empty, iter_fcurves, link, log
 
 BUILDERS = {}
 
@@ -255,6 +255,288 @@ def from_file(entry, coll, root):
             o.matrix_parent_inverse = root.matrix_world.inverted()
 
 
+# ── engine 1.3: phone / app showcase ---------------------------------------------------------------------------------------------------
+def _rrect(w, h, r, seg=10):
+    """Counter-clockwise rounded-rectangle outline around the origin, as (x, z) pairs."""
+    r = max(1e-4, min(r, w / 2 - 1e-4, h / 2 - 1e-4))
+    pts = []
+    for cx, cz, a0 in ((w / 2 - r, h / 2 - r, 0), (-(w / 2 - r), h / 2 - r, 90), (-(w / 2 - r), -(h / 2 - r), 180),
+                       (w / 2 - r, -(h / 2 - r), 270)):
+        for i in range(seg + 1):
+            a = math.radians(a0 + 90.0 * i / seg)
+            pts.append((cx + r * math.cos(a), cz + r * math.sin(a)))
+    return pts
+
+
+def _slab(name, pts, y0, y1, zc, coll, parent, mat, bevel=0.0006, segs=3, xc=0.0):
+    """Extruded 2D outline (x, z) between y0 and y1, centred at (xc, zc): phone body, camera plate ..."""
+    bm = bmesh.new()
+    vs = [bm.verts.new((x + xc, y0, z + zc)) for x, z in pts]
+    face = bm.faces.new(vs)
+    ret = bmesh.ops.extrude_face_region(bm, geom=[face])
+    bmesh.ops.translate(bm, vec=(0, y1 - y0, 0), verts=[e for e in ret['geom'] if isinstance(e, bmesh.types.BMVert)])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    if bevel > 0:
+        bmesh.ops.bevel(bm, geom=list(bm.edges), offset=bevel, segments=segs, profile=0.5, affect='EDGES')
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = abs(p.normal.y) < 0.9           # caps stay flat, rims and bevels are smooth
+    return _obj(name, me, coll, parent, [mat])
+
+
+def _face(name, pts, y, zc, facing, coll, parent, mat, uv=True):
+    """A flat n-gon at height y (facing -1 looks towards -Y, +1 towards +Y) with 0..1 UVs over its bounding box."""
+    bm = bmesh.new()
+    vs = [bm.verts.new((x, y, z + zc)) for x, z in pts]
+    f = bm.faces.new(vs)
+    if (f.normal.y > 0) != (facing > 0):
+        f.normal_flip()
+    if uv:
+        layer = bm.loops.layers.uv.new('UVMap')
+        xs, zs = [p[0] for p in pts], [p[1] for p in pts]
+        x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+        for loop in f.loops:
+            loop[layer].uv = ((loop.vert.co.x - x0) / (x1 - x0), (loop.vert.co.z - zc - z0) / (z1 - z0))
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = False
+    return _obj(name, me, coll, parent, [mat])
+
+
+def _cyl_y(name, r, y0, y1, x, z, coll, parent, mat, verts=40):
+    """Cylinder whose axis is Y (lens rings on the back of the phone)."""
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=verts, radius1=r, radius2=r, depth=abs(y1 - y0))
+    bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(math.pi / 2, 3, 'X'))
+    for v in bm.verts:
+        v.co += Vector((x, (y0 + y1) / 2, z))
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    return _obj(name, me, coll, parent, [mat])
+
+
+def _screen_material(img_path, brightness, aspect, name, base='#0a0d12'):
+    """Display: black glass with a clear coat (reflections) and the app image as emission, cover-fitted to the screen aspect."""
+    m, nt, p = M._new(name)
+    p.inputs['Base Color'].default_value = M.hex_to_linear(base)
+    p.inputs['Roughness'].default_value = 0.06
+    p.inputs['Coat Weight'].default_value = 1.0
+    p.inputs['Coat Roughness'].default_value = 0.02
+    if img_path and os.path.isfile(img_path):
+        tc = M._node(nt, 'ShaderNodeTexCoord', (-1000, 0))
+        mp = M._node(nt, 'ShaderNodeMapping', (-800, 0))
+        tx = M._node(nt, 'ShaderNodeTexImage', (-560, 0))
+        tx.image = bpy.data.images.load(img_path, check_existing=True)
+        tx.extension = 'CLIP'
+        ia = tx.image.size[0] / float(max(1, tx.image.size[1]))
+        su, sv = min(1.0, aspect / ia), min(1.0, ia / aspect)
+        mp.inputs['Scale'].default_value = (su, sv, 1.0)
+        mp.inputs['Location'].default_value = ((1 - su) / 2, (1 - sv) / 2, 0.0)
+        nt.links.new(tc.outputs['UV'], mp.inputs['Vector'])
+        nt.links.new(mp.outputs['Vector'], tx.inputs['Vector'])
+        nt.links.new(tx.outputs['Color'], p.inputs['Emission Color'])
+        p.inputs['Emission Strength'].default_value = brightness
+    return m
+
+
+@builder('phone')
+def phone(entry, coll, root):
+    """A modern phone: rounded titanium frame, glass back with a camera bump, display showing the app image. Front = -Y."""
+    p = entry['params']
+    w, d, h = entry['dimensions']
+    r = w * 0.155
+    eid = entry['id']
+    frame = M.finish(p.get('frame_finish', 'titanium'), (p.get('frame_color') or None) if p.get('use_frame_color') else None)
+    back = M.plastic(p.get('back_color', '#2a2d33'), 0.16, 'phone_back:' + eid, coat=0.9)
+    glass = M.glass('#05070a', 0.03, 1.5, 'phone_glass', tint=1.0)
+    _slab('%s.body' % eid, _rrect(w, h, r), -d / 2, d / 2, h / 2, coll, root, frame, 0.0007)
+    _face('%s.bezel' % eid, _rrect(w - 0.0012, h - 0.0012, r - 0.0006), -d / 2 - 0.00018, h / 2, -1, coll, root,
+          M.plastic('#050608', 0.05, 'phone_bezel', coat=1.0), uv=False)
+    bz = 0.0021
+    sw, sh = w - 2 * bz, h - 2 * bz
+    spts = _rrect(sw, sh, r - bz * 0.7)
+    fps = float(entry.get('_fps') or 24)
+    f0, f1 = float(entry.get('_f0') or 1), float(entry.get('_f1') or 1)
+    imgs = [p.get(k) for k in ('screen_image', 'screen_image_2', 'screen_image_3', 'screen_image_4') if p.get(k)]
+    imgs = [i for i in imgs if os.path.isfile(str(i))]
+    planes = []
+    for k, img in enumerate(imgs or [None]):
+        mat = _screen_material(img, float(p.get('screen_brightness', 1.35)), sw / sh, 'screen:%s:%d' % (eid, k),
+                               p.get('screen_off_color', '#0a0d12'))
+        planes.append(_face('%s.screen%d' % (eid, k), spts, -d / 2 - 0.0003 - k * 0.00002, h / 2, -1, coll, root, mat))
+    if len(planes) > 1:           # several app screens: a hard cut every `screen_interval` seconds (constant keys, looping)
+        step = max(8, int(round(float(p.get('screen_interval', 2.6)) * fps)))
+        for k, pl in enumerate(planes):
+            for j in range(int((f1 - f0) // step) + 2):
+                pl.hide_render = (j % len(planes)) != k
+                pl.keyframe_insert('hide_render', frame=int(f0 + j * step))
+            for fc in iter_fcurves(pl.animation_data.action):
+                for kp in fc.keyframe_points:
+                    kp.interpolation = 'CONSTANT'
+    if p.get('island', True):
+        _face('%s.island' % eid, _rrect(w * 0.25, h * 0.0125, h * 0.0062), -d / 2 - 0.00042, h - bz - h * 0.016, -1, coll, root,
+              M.plastic('#020203', 0.05, 'phone_island', coat=1.0), uv=False)
+    _face('%s.back' % eid, _rrect(w - 0.0012, h - 0.0012, r - 0.0006), d / 2 + 0.00018, h / 2, 1, coll, root, back, uv=False)
+    if p.get('camera_bump', True):
+        cx, cz = w / 2 - 0.0215, h - 0.0215
+        _slab('%s.bump' % eid, _rrect(0.0285, 0.0285, 0.0075), d / 2, d / 2 + 0.0011, cz, coll, root, back, 0.0004, xc=cx)
+        for i, (dx, dz) in enumerate(((-0.0058, 0.0058), (-0.0058, -0.0058), (0.0058, 0.0))):
+            _cyl_y('%s.ring%d' % (eid, i), 0.0047, d / 2 + 0.0009, d / 2 + 0.0017, cx + dx, cz + dz, coll, root, frame, 40)
+            _cyl_y('%s.lens%d' % (eid, i), 0.0037, d / 2 + 0.0016, d / 2 + 0.0019, cx + dx, cz + dz, coll, root, glass, 36)
+    for i, (x, z0, hh) in enumerate(((-w / 2, h * 0.64, 0.0145), (-w / 2, h * 0.5, 0.0085), (w / 2, h * 0.56, 0.0215))):
+        b = _rounded_box('%s.btn%d' % (eid, i), 0.0009, 0.0026, hh, 0.0004, coll, root, frame, z0=z0, segments=2)
+        b.location.x = x + (0.0002 if x > 0 else -0.0002)
+
+
+# ── engine 1.3: 3D text and logo (Persian shaping happens on the site, here only the outlines are extruded) ------------------------------
+def _outline_mesh(name, outline, depth, bevel, coll, parent, mat):
+    """Outline polygons (x, z in metres, holes included) -> an extruded, bevelled mesh standing in the XZ plane (front = -Y)."""
+    cu = bpy.data.curves.new(name + '.crv', 'CURVE')
+    cu.dimensions = '2D'
+    cu.fill_mode = 'BOTH'
+    cu.extrude = depth / 2.0
+    for pl in outline['polys']:
+        pts = pl['pts']
+        sp = cu.splines.new('POLY')
+        sp.points.add(len(pts) - 1)
+        for i, (x, z) in enumerate(pts):
+            sp.points[i].co = (x, z, 0.0, 1.0)
+        sp.use_cyclic_u = True
+    tmp = bpy.data.objects.new(name + '.tmp', cu)
+    bpy.context.scene.collection.objects.link(tmp)
+    bpy.context.view_layer.update()
+    me = bpy.data.meshes.new_from_object(tmp.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    bpy.data.objects.remove(tmp, do_unlink=True)
+    bpy.data.curves.remove(cu)
+    o = _obj(name, me, coll, parent, [mat])
+    o.rotation_euler = (math.pi / 2, 0, 0)
+    for p in me.polygons:
+        p.use_smooth = True
+    if bevel > 0:
+        b = o.modifiers.new('bevel', 'BEVEL')
+        b.width = bevel
+        b.segments = 3
+        b.limit_method = 'ANGLE'
+        b.angle_limit = math.radians(38)
+    try:
+        o.modifiers.new('wn', 'WEIGHTED_NORMAL')
+    except (TypeError, RuntimeError):
+        pass
+    return o
+
+
+def _flat_image(name, w, h, y, img, coll, parent, mat=None):
+    """An alpha-cut picture plane facing -Y (the coloured logo on the front of a logo, or the fallback for a text without outlines)."""
+    mat = mat or M.image(img, rough=0.35, name='face:' + os.path.basename(img), coat=0.15, alpha=True)
+    return _face(name, [(w / 2, 0.0), (w / 2, h), (-w / 2, h), (-w / 2, 0.0)], y, 0.0, -1, coll, parent, mat)
+
+
+def _outline_product(entry, coll, root, default_finish):
+    p = entry['params']
+    o = entry.get('outline')
+    depth = float(p.get('depth_m', 0.05))
+    face = p.get('face_image')
+    fin = M.finish(p.get('finish') or default_finish, (p.get('color') or None) if p.get('use_color') else None, float(p.get('glow', 6.0)))
+    if o:
+        _outline_mesh('%s.shape' % entry['id'], o, depth, float(p.get('bevel_m', 0.004)), coll, root, fin)
+        if face and os.path.isfile(str(face)) and p.get('face', 'image') == 'image':
+            _flat_image('%s.face' % entry['id'], o['w'], o['h'], -depth / 2 - 0.0004, face, coll, root)
+    elif face and os.path.isfile(str(face)):
+        w, d, h = entry['dimensions']
+        _flat_image('%s.flat' % entry['id'], w, h, 0.0, face, coll, root,
+                    M.emission((p.get('color') if p.get('use_color') else None) or '#ffffff', float(p.get('glow', 2.0)), 'flat:' + entry['id'])
+                    if p.get('finish') == 'neon' else None)
+    else:
+        log('3D text/logo without outline or picture: nothing to build for', entry['id'])
+
+
+@builder('text3d')
+def text3d(entry, coll, root):
+    _outline_product(entry, coll, root, 'gold')
+
+
+@builder('logo3d')
+def logo3d(entry, coll, root):
+    _outline_product(entry, coll, root, 'white_gloss')
+
+
+@builder('primitive')
+def primitive(entry, coll, root):
+    """A single PBR showcase object (engine 1.3): sphere / bevelled cube / cylinder / torus / capsule with a named finish. Origin = middle of the
+    bottom, so it stands on the platform like every other product."""
+    p = entry['params']
+    s = max(0.02, float(p.get('size_m', 0.12)))
+    shape = p.get('shape', 'sphere')
+    rough = p.get('roughness')
+    rough = None if rough is None or float(rough) < 0 else float(rough)
+    mat = M.finish(p.get('finish', 'gold'), (p.get('color') or None) if p.get('use_color') else None, float(p.get('glow', 6.0)), rough)
+    bm = bmesh.new()
+    if shape == 'cube' or shape == 'rounded_cube':
+        bmesh.ops.create_cube(bm, size=s * 0.86)
+        for v in bm.verts:
+            v.co.z += s * 0.43
+    elif shape == 'cylinder':
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=64, radius1=s * 0.38, radius2=s * 0.38, depth=s)
+        for v in bm.verts:
+            v.co.z += s / 2
+    elif shape == 'torus':
+        R, r = s * 0.34, s * 0.13
+        rings = []
+        for i in range(64):
+            a = 2 * math.pi * i / 64
+            ring = []
+            for j in range(24):
+                b = 2 * math.pi * j / 24
+                x = (R + r * math.cos(b)) * math.cos(a)
+                y = (R + r * math.cos(b)) * math.sin(a)
+                ring.append(bm.verts.new((x, y, r * math.sin(b) + r)))
+            rings.append(ring)
+        for i in range(64):
+            for j in range(24):
+                bm.faces.new((rings[i][j], rings[(i + 1) % 64][j], rings[(i + 1) % 64][(j + 1) % 24], rings[i][(j + 1) % 24]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    elif shape == 'capsule':
+        R, L = s * 0.24, s * 0.52
+        bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=R)
+        for v in bm.verts:
+            v.co.z += (L / 2 + R) if v.co.z >= 0 else (R - L / 2)
+            v.co.z += 0.0
+    else:
+        bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=32, radius=s / 2)
+        for v in bm.verts:
+            v.co.z += s / 2
+    me = bpy.data.meshes.new('%s.shape' % entry['id'])
+    bm.to_mesh(me)
+    bm.free()
+    for pl in me.polygons:
+        pl.use_smooth = True
+    o = _obj('%s.shape' % entry['id'], me, coll, root, [mat])
+    if shape in ('cube', 'rounded_cube'):
+        b = o.modifiers.new('bevel', 'BEVEL')
+        b.width = s * 0.07
+        b.segments = 5
+        b.limit_method = 'NONE'
+        for pl in me.polygons:
+            pl.use_smooth = True
+    elif shape == 'cylinder':
+        b = o.modifiers.new('bevel', 'BEVEL')
+        b.width = s * 0.02
+        b.segments = 3
+        b.limit_method = 'ANGLE'
+    try:
+        o.modifiers.new('wn', 'WEIGHTED_NORMAL')
+    except (TypeError, RuntimeError):
+        pass
+    return o
+
+
 class Product:
     def __init__(self, ctx, entry):
         self.ctx = ctx
@@ -276,7 +558,7 @@ class Product:
         self.base = {'pos': list(sp['pos']), 'rot': list(sp.get('rot') or (0.0, 0.0, sp.get('yaw', 0.0))),
                      'scale': list(entry.get('scale') or (1.0, 1.0, 1.0))}
         fn = BUILDERS.get(entry.get('builder'), box_package)
-        fn(entry, coll, self.root)
+        fn(dict(entry, _fps=ctx.fps, _f0=ctx.f_start, _f1=ctx.f_end), coll, self.root)
         bpy.context.view_layer.update()
         self.rest_world = self.root.matrix_world.copy()
         self.place_world = self.rest_world.copy()     # جای فعلی روی سطح (بعد از «گذاشتن» عوض می‌شود)
@@ -314,7 +596,7 @@ def build_prop(ctx, entry):
     root.rotation_mode = 'XYZ'
     root.rotation_euler = [math.radians(a) for a in (tr.get('rot') or (0, 0, 0))]
     root.scale = tr.get('scale') or (1, 1, 1)
-    entry = dict(entry)
+    entry = dict(entry, _fps=ctx.fps, _f0=ctx.f_start, _f1=ctx.f_end)
     entry.setdefault('params', {})
     fn = BUILDERS.get(entry.get('builder'), box_package)
     fn(entry, coll, root)

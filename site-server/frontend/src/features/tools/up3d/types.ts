@@ -40,6 +40,10 @@ export type Asset = {
   default?: boolean;
   order?: number;
   license?: string;
+  /** false = شکلِ ویژه (متنِ سه‌بعدی، لوگو، گوشی …) که قالب‌های تبلیغاتی می‌چینند، نه کارگردانِ AI و نه فهرستِ «شکلِ محصول» */
+  ai?: boolean;
+  /** کمینه نسخهٔ موتور (مثلاً 1.3.0)؛ کارِ دارای این دارایی فقط به کارگرِ تازه می‌رسد */
+  min_engine?: string;
   params?: Record<string, ParamSpec>;
   /** شناسهٔ بستهٔ دارایی (data/asset-packs/<pack>) — دارایی‌های خودِ موتور null */
   pack?: string | null;
@@ -107,6 +111,10 @@ export type Waiting = {
   gpu_online?: string[];
   /** سرورهای پردازشِ دارای GPU و آمادگیِ رندرِ سه‌بعدی‌شان */
   gpu_nodes?: GpuNode[];
+  /** نام‌های سرورِ پردازشی که کارِ سه‌بعدی را از راهِ صفِ پردازش می‌گیرد (عامل ۲٫۱۲ به بالا) */
+  node_queue?: string[];
+  /** کار به موتورِ ۱٫۳ نیاز دارد (نگاهِ AgX، استیج، گوشی، متنِ سه‌بعدی …) */
+  v13?: boolean;
 };
 
 /** سرورِ پردازشِ دارای GPU (apps.compute) از نگاهِ بخشِ سه‌بعدی — services.gpu_nodes() */
@@ -132,6 +140,27 @@ export type GpuNode = {
   worker_capable?: boolean;
   /** دادهٔ کاراکترهای MPFB روی آن گره هست؟ */
   worker_mpfb?: boolean | null;
+  /** رندرِ سه‌بعدی روی آن گره کارِ صفِ پردازش (up3d.render) است، نه سرویسِ جدا */
+  via_queue?: boolean;
+  /** نصبِ خودکارِ Blender روی گره (از گزارشِ bootstrap): state = ready | installing | failed | waiting | null */
+  install?: { state: string | null; text: string };
+};
+
+/** نگاه و لنزِ صحنه (موتورِ ۱٫۳) — همان کلیدهای scene.norm_render */
+export type RenderLook = {
+  look?: string;
+  ease?: string;
+  exposure?: number;
+  fstop?: number;
+  dof?: boolean;
+  dof_strength?: number;
+  motion_blur?: boolean;
+  shutter?: number;
+  handheld?: number;
+  bloom?: number;
+  vignette?: number;
+  fade_in?: number;
+  fade_out?: number;
 };
 
 // ───────────────────────── بسته‌های دارایی
@@ -294,6 +323,8 @@ export type SceneDoc = {
   shots: Item[];
   overlays: Item[];
   audio: { music?: string | null; music_volume?: number; subtitles?: boolean; voice_volume?: number };
+  /** موتورِ ۱٫۳: نگاهِ تصویر (AgX)، لنز، تاری حرکت، دستِ لرزان، محو */
+  render?: RenderLook;
   /** ویرایشگرِ آزاد */
   props?: PropRef[];
   lights?: LightRef[];
@@ -450,7 +481,16 @@ export type Estimate = {
   cpu_worker?: string | null;
 };
 
-export type Template = { id: string; fa: string; en: string };
+/** قالبِ آماده. group: presenter (با مجری) | ad (تبلیغاتیِ بی‌مجری، موتورِ ۱٫۳)؛ asset: شکلِ ثابتِ محصولِ قالب؛ inputs: ورودی‌های ویژهٔ قالب */
+export type Template = {
+  id: string;
+  fa: string;
+  en: string;
+  group?: "presenter" | "ad";
+  hint?: string;
+  asset?: string;
+  inputs?: ("screens" | "logo" | "brand_colors")[];
+};
 
 export type UploadResult = { id: string; path: string; url: string; kind: string; name: string; size: number };
 

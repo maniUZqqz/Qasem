@@ -12,7 +12,7 @@ import os
 import shutil
 import time
 
-from . import assemble, blender, compiler, labels, lipsync, overlays, paths, qc, tts
+from . import assemble, blender, compiler, labels, lipsync, overlays, paths, qc, text3d, tts
 from . import scene as S
 from .assets import registry
 from .validate import repair, validate
@@ -72,6 +72,7 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
                 shutil.copyfile(src, dst)
                 prm[key] = os.path.relpath(dst, job_dir).replace('\\', '/')
     # صدا + لب
+    ship_screens((doc.get('products') or []) + (doc.get('props') or []), inputs, job_dir)   # engine 1.3: phone screens travel with the job
     audio = {}
     ff = paths.ffmpeg_binary() or 'ffmpeg'
     for sp in doc['speech']:
@@ -102,6 +103,7 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
     comp = compiler.compile_scene(doc, reg, profile_id, audio=audio, label_images=label_images,
                                   profile_overrides=profile_overrides)
     ship_pack_assets(comp, job_dir, log)
+    text3d.attach(comp, job_dir, log)          # 3D text/logo: shaped Persian outlines for the engine
     if profile_overrides:
         log('تنظیمِ دستیِ کیفیت: ' + '، '.join('%s=%s' % kv for kv in profile_overrides.items()))
     _write(os.path.join(job_dir, 'compiled.json'), comp)
@@ -110,6 +112,21 @@ def prepare(doc, job_dir, profile_id, tts_settings=None, log=print, reg=None, pr
     return {'compiled': os.path.join(job_dir, 'compiled.json'), 'frames': comp['frame_end'], 'fps': comp['fps'],
             'frame_step': comp['profile'].get('frame_step', 1), 'resolution': comp['resolution'],
             'duration': comp['duration'], 'doc': doc}
+
+
+SCREEN_KEYS = ('screen_image', 'screen_image_2', 'screen_image_3', 'screen_image_4')
+
+
+def ship_screens(items, inputs, job_dir):
+    """Phone-screen image params (absolute server paths) -> copied into inputs/ and made relative (any worker sees them)."""
+    for x in items:
+        prm = x.get('params') or {}
+        for key in SCREEN_KEYS:
+            src = prm.get(key)
+            if src and os.path.isabs(str(src)) and os.path.isfile(src):
+                dst = os.path.join(inputs, '%s-%s%s' % (key, x['id'], os.path.splitext(src)[1] or '.png'))
+                shutil.copyfile(src, dst)
+                prm[key] = os.path.relpath(dst, job_dir).replace(chr(92), '/')
 
 
 def ship_pack_assets(comp, job_dir, log=print):
@@ -204,9 +221,11 @@ def finish(job_dir, log=print, reg=None):
         music = ma.path(ma.get('file')) if ma else (mus if os.path.isfile(mus) else None)
     step = int(c['profile'].get('frame_step', 1))
     final = os.path.join(job_dir, 'final.mp4')
+    rnd = doc.get('render') or {}
     res = assemble.assemble(os.path.join(job_dir, 'render.mp4'), final, c['duration'], c['fps'], voice, music,
                             (doc.get('audio') or {}).get('music_volume', 0.14), ovs,
-                            interpolate=('dup' if step > 1 else None))
+                            interpolate=('dup' if step > 1 else None),
+                            fade_in=rnd.get('fade_in') or 0.0, fade_out=rnd.get('fade_out') or 0.0)
     checks += qc.check_video(final, c['duration'], (w, h), expect_audio=bool(voice or music))
     summary = qc.summarize(checks)
     _write(os.path.join(job_dir, 'qc.json'), summary)

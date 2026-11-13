@@ -1,0 +1,16 @@
+{
+  "feature": "blender-3d-presenters",
+  "title_fa": "دادهٔ مجری‌های انسانیِ ویدیوی سه‌بعدی (MPFB / MakeHuman)",
+  "order": 61,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "requires": ["blender-3d"],
+  "kinds": [],
+  "note": "The MPFB add-on and its skins / clothes / hair (CC0 assets of the MakeHuman community, add-on GPL-3.0) for scenes that have a presenter. The product-only ad templates (turntable, app showcase, 3D logo ...) do not need it, so it installs after Blender and never blocks a render. Mirror: data/up3d/downloads/up3d-blender-user.zip, unpacked to <data>/vendor/blender-user.",
+  "items": [
+    {"id": "mpfb", "type": "archive", "title": "MPFB character data (about 430 MB)", "dest": "vendor",
+     "check_file": "vendor/blender-user/extensions/user_default/mpfb/__init__.py", "size": 431548774,
+     "sha256": "157cab32ec586f45de025dc1000c48c59ae43e87a900172a1d39ce31ab495dd9", "big": true,
+     "sources": [{"site": "up3d-blender-user.zip"}]}
+  ]
+}

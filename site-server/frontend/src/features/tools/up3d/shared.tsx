@@ -205,7 +205,9 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
   const gpuOnly = w.needs_gpu && !w.allow_cpu;
   const canCpu = !ready && gpuOnly && w.online.length > 0;
   // سرورِ پردازشِ GPU آنلاین است ولی کارگرِ سه‌بعدی‌اش نه ⇐ همین‌جا روشنش کن
-  const idleGpuNodes = (w.gpu_nodes || []).filter((n) => n.online && !n.worker_online);
+  const idleGpuNodes = (w.gpu_nodes || []).filter((n) => n.online && !n.worker_online && !n.via_queue);
+  // عامل ۲٫۱۲ به بالا: کارِ سه‌بعدی در «صفِ پردازش» می‌ماند و با روشن‌بودنِ سرور خودکار اجرا می‌شود (بی‌هیچ کلیک)
+  const queueNodes = (w.gpu_nodes || []).filter((n) => n.via_queue);
   const enable = async (id: number, name: string) => {
     setBusyNode(id);
     try {
@@ -219,14 +221,31 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
   };
   return (
     <Alert
-      tone={ready ? "info" : "warn"}
+      tone={ready || queueNodes.length > 0 ? "info" : "warn"}
       title={
         ready
           ? `کارگرِ «${w.eligible.join("، ")}» آماده است؛ کارِ #${fa(job.id)} تا چند ثانیهٔ دیگر شروع می‌شود`
-          : `کارِ #${fa(job.id)} منتظرِ کارگر است و هیچ کارگرِ مناسبی آنلاین نیست`
+          : queueNodes.length > 0
+            ? `کارِ #${fa(job.id)} در صفِ سرورِ پردازشِ GPU است و خودکار اجرا می‌شود`
+            : `کارِ #${fa(job.id)} منتظرِ کارگر است و هیچ کارگرِ مناسبی آنلاین نیست`
       }
     >
-      {!ready && (
+      {queueNodes.map((n) => (
+        <div key={n.id} className="mb-1">
+          سرورِ پردازشِ <b>{n.name}</b> ({Array.isArray(n.gpu) ? n.gpu.join("، ") : n.gpu}):{" "}
+          {!n.online
+            ? "آفلاین است؛ همین که روشن شود کار را از صف برمی‌دارد."
+            : n.install?.state === "failed"
+              ? `نصبِ خودکارِ Blender گیر کرده — ${n.install.text}`
+              : n.install?.state && n.install.state !== "ready"
+                ? `Blender در حالِ نصبِ خودکار است${n.install.text ? ` (${n.install.text})` : ""}؛ بعد از آن کار شروع می‌شود.`
+                : "آنلاین است؛ کار به نوبتِ کارتِ گرافیک (یکی‌یکی با کارهای دیگرِ سنگین) اجرا می‌شود."}
+        </div>
+      ))}
+      {w.v13 && queueNodes.length === 0 && (
+        <div className="mb-1">این کار از قابلیت‌های موتورِ ۱٫۳ استفاده می‌کند؛ فقط به کارگرِ به‌روز می‌رسد.</div>
+      )}
+      {!ready && queueNodes.length === 0 && (
         <div>
           {gpuOnly ? `کیفیتِ «${job.profile}» کارگرِ GPU می‌خواهد. ` : ""}
           {w.online.length

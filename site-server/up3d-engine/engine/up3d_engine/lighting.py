@@ -15,6 +15,12 @@ def _hdri_path(name, folder=None):
         for cand in (os.path.join(folder, name), os.path.join(folder, name + '.exr'), os.path.join(folder, name + '.hdr')):
             if os.path.isfile(cand):
                 return cand
+    extra = [d for d in (os.environ.get('UP3D_HDRI', ''), os.path.join(root, 'assets', 'hdri')) if d]
+    for d in extra:                               # engine 1.3: the Poly Haven (CC0) set in assets/hdri, or the node's own folder
+        for ext in ('', '.hdr', '.exr'):
+            cand = os.path.join(d, name + ext)
+            if os.path.isfile(cand):
+                return cand
     for cand in (os.path.join(root, 'assets', 'hdri', name), os.path.join(root, 'assets', 'hdri', name + '.exr'),
                  os.path.join(root, 'assets', 'hdri', name + '.hdr')):
         if os.path.isfile(cand):
@@ -24,6 +30,30 @@ def _hdri_path(name, folder=None):
     return p if os.path.isfile(p) else None
 
 
+def _sky(nt, bg, sk):
+    """Physically based sky (Nishita) with a sun at a given elevation: the golden-hour preset uses it, no HDRI file needed."""
+    node = nt.nodes.new('ShaderNodeTexSky')
+    try:
+        types = [i.identifier for i in node.bl_rna.properties['sky_type'].enum_items]
+        for t in ('MULTIPLE_SCATTERING', 'SINGLE_SCATTERING', 'NISHITA'):
+            if t in types:
+                node.sky_type = t
+                break
+    except (KeyError, AttributeError):
+        pass
+    for attr, val in (('sun_elevation', math.radians(sk.get('sun_elevation', 6.0))),
+                      ('sun_rotation', math.radians(sk.get('sun_rotation', 140.0))),
+                      ('air_density', sk.get('air', 1.1)), ('dust_density', sk.get('dust', 1.6)),
+                      ('ozone_density', sk.get('ozone', 1.0)), ('sun_size', math.radians(sk.get('sun_size', 0.6))),
+                      ('sun_intensity', sk.get('sun_intensity', 1.0)), ('altitude', sk.get('altitude', 0.0)),
+                      ('sun_disc', True)):
+        try:
+            setattr(node, attr, val)
+        except (TypeError, AttributeError):
+            pass
+    nt.links.new(node.outputs['Color'], bg.inputs['Color'])
+
+
 def world(spec):
     sc = bpy.context.scene
     w = bpy.data.worlds.new('world')
@@ -31,8 +61,10 @@ def world(spec):
     w.use_nodes = True
     nt = w.node_tree
     bg = nt.nodes['Background']
-    path = _hdri_path(spec.get('hdri', 'interior'), spec.get('_folder'))
-    if path:
+    path = _hdri_path(spec.get('hdri', 'interior'), spec.get('_folder')) if not spec.get('sky') else None
+    if spec.get('sky'):
+        _sky(nt, bg, spec['sky'])
+    elif path:
         tc = nt.nodes.new('ShaderNodeTexCoord')
         mp = nt.nodes.new('ShaderNodeMapping')
         mp.inputs['Rotation'].default_value = (0, 0, math.radians(spec.get('hdri_rotation', 0)))
@@ -64,7 +96,10 @@ def build(ctx):
     rig = lt.get('rig', [])
     params = lt.get('params', {})
     coll = ctx.coll('lighting')
-    world({**lt.get('world', {}), **{k: v for k, v in params.items() if k.startswith('hdri')}, '_folder': lt.get('folder')})
+    wspec = {**lt.get('world', {}), **{k: v for k, v in params.items() if k.startswith('hdri')}, '_folder': lt.get('folder')}
+    if wspec.get('sky'):                              # engine 1.3 golden hour: the panel's sun sliders drive the physical sky
+        wspec['sky'] = {**wspec['sky'], **{k: params[k] for k in ('sun_elevation', 'sun_rotation') if params.get(k) is not None}}
+    world(wspec)
     actors = ctx.c['actors']
     if actors:
         mk = actors[0]['mark']
@@ -74,7 +109,8 @@ def build(ctx):
         sp = next(iter(ctx.c['environment']['surfaces'].values()))
         subj = Vector(sp['pos']) - Vector((0, 0, sp['pos'][2]))
         facing = 0.0
-    heights = {'face': 1.5, 'chest': 1.25, 'waist': 1.0, 'product': 0.95, 'backdrop': 1.2, 'floor': 0.0}
+    heights = {'face': 1.5, 'chest': 1.25, 'waist': 1.0, 'product': 0.95, 'backdrop': 1.2, 'floor': 0.0,
+               'stage': 0.16, 'stage_top': 0.32}      # engine 1.3: product on the turntable stage (platform 0.06 m high)
     k = float(params.get('intensity', 1.0))
     warmth = float(params.get('warmth', 0.0))
     made = []
@@ -93,7 +129,7 @@ def build(ctx):
         data = bpy.data.lights.new('L%d_%s' % (i, L.get('name', kind.lower())), kind)
         data.energy = L.get('power', 100) * k
         kel = L.get('kelvin', 5500) - warmth * 900
-        data.color = kelvin_rgb(kel)
+        data.color = hex_to_linear(L['color'])[:3] if L.get('color') else kelvin_rgb(kel)    # 'color' = neon / gels
         if kind == 'AREA':
             data.shape = L.get('shape', 'RECTANGLE')
             data.size = L.get('size', 1.0)

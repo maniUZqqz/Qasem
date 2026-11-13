@@ -1,0 +1,19 @@
+{
+  "feature": "blender-3d",
+  "title_fa": "رندرِ ویدیوی سه‌بعدی روی کارت گرافیک (Blender 4.5 + Cycles با OptiX)",
+  "order": 60,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "kinds": ["up3d.render"],
+  "note": "Blender 4.5.14 LTS for Windows (GPL-3.0; it is only run, never linked) from the site's own mirror (data/up3d/downloads/blender-windows.zip, the official zip of blender.org), size and sha256 checked, unpacked to <data>/vendor/blender. Then a real check: Blender is started once and Cycles must list an OptiX (RTX) or CUDA device. up3d_jobs.py runs the render as a compute job so the card is shared with the other heavy jobs one at a time. HDRI lighting files (Poly Haven, CC0) travel with the code in assets/hdri.",
+  "items": [
+    {"id": "blender", "type": "archive", "title": "Blender 4.5.14 LTS (win-x64)", "dest": "vendor/blender", "strip": 1,
+     "check_file": "vendor/blender/blender.exe", "size": 398661046,
+     "sha256": "b9533d2397ac1984db4466fb23a7a4649391cca93f6e84209f9bcc60d071c8b9", "big": true,
+     "sources": [{"site": "blender-windows.zip"}]},
+    {"id": "gpu", "type": "cmd", "title": "Cycles sees the graphics card (OptiX, else CUDA)",
+     "check": ["{PY}", "{HERE}/up3d/probe_gpu.py", "{DATA}/vendor/blender/blender.exe"],
+     "install": ["{PY}", "{HERE}/up3d/probe_gpu.py", "{DATA}/vendor/blender/blender.exe"],
+     "check_timeout_s": 300, "timeout_s": 300}
+  ]
+}

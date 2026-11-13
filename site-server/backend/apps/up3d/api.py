@@ -353,10 +353,17 @@ def w_heartbeat(request):
 @worker_api
 def w_claim(request):
     w = _worker(request)
-    if isinstance(request.data, dict) and request.data.get('gpu') is not None:
-        w.capabilities = request.data
-        w.save(update_fields=['capabilities'])
-    return Response({'job': SV.claim(w)})
+    only = None
+    if isinstance(request.data, dict):
+        only = request.data.get('only_job')
+        if request.data.get('gpu') is not None:
+            w.capabilities = {k: v for k, v in request.data.items() if k != 'only_job'}
+            w.save(update_fields=['capabilities'])
+    try:
+        only = int(only) if only else None
+    except (TypeError, ValueError):
+        only = None
+    return Response({'job': SV.claim(w, only=only)})
 
 
 def _wjob(request, pk):

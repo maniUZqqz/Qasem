@@ -5,6 +5,7 @@ import os
 import shutil
 import traceback
 import zipfile
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
@@ -13,7 +14,7 @@ from django.utils import timezone
 from up3d import compiler, director, pipeline, templates
 from up3d import scene as S
 from up3d.assets import registry
-from up3d.validate import repair, validate
+from up3d.validate import needs_v13, repair, validate
 
 from .models import FINAL, AiSettings, Job, Project, SceneVersion, Worker
 
@@ -156,6 +157,8 @@ def gpu_class(job, prof=None):
 
 MIN_WORKER = (1, 1, 0)
 EDITOR_WORKER = (1, 2, 0)     # سندِ ویرایشگرِ آزاد (جای آزاد، کلید، اشیا، نور، دوربینِ آزاد) و preview_glb
+V13_WORKER = (1, 3, 0)        # موتورِ ۱٫۳: نگاهِ AgX/لنز، حرکت‌های تازهٔ دوربین، استیج، گوشیِ نمایش، متنِ سه‌بعدی، نورپردازیِ HDRI/نئون/ساعتِ طلایی
+UP3D_KIND = 'up3d.render'     # نوعِ کارِ صفِ پردازش (agent 2.12): رندرِ سه‌بعدی روی کارتِ گرافیکِ سرورِ پردازش، یکی‌یکی با کارهای سنگینِ دیگر
 
 
 def worker_version(worker):
@@ -184,6 +187,15 @@ def needs_editor(job):
     return S.has_editor_features(doc)
 
 
+def needs_v13_job(job):
+    """کار به موتورِ ۱٫۳ نیاز دارد؟ (کارگرِ ۱٫۲ این قابلیت‌ها را بی‌صدا نادیده می‌گرفت و تصویرِ خراب می‌ساخت)"""
+    doc = (job.params or {}).get('document') or (job.version.document if job.version_id else None) or {}
+    try:
+        return needs_v13(doc, reg())
+    except Exception:       # noqa: BLE001 — سندِ ناقص: همان رفتارِ قدیم
+        return False
+
+
 def capable(worker, job=None):
     """این کارگر می‌تواند کار بگیرد؟ کارگرِ قدیمی (پوشهٔ processing ِ به‌روزنشده) کار نمی‌گیرد — بستهٔ کار و
     پروتکلش عوض شده؛ کارگرِ بی‌دادهٔ MPFB کارِ با مجریِ ساخته‌شده (MPFB) نمی‌گیرد؛
@@ -194,11 +206,21 @@ def capable(worker, job=None):
         return False
     if job is not None and worker_version(worker) < EDITOR_WORKER and needs_editor(job):
         return False
+    if job is not None and worker_version(worker) < V13_WORKER and needs_v13_job(job):
+        return False
     return True
 
 
 def busy(worker):
-    return Job.objects.filter(worker=worker, owner='worker').exclude(state__in=FINAL).exists()
+    """کارگر سرش گرم است؟ یا کارِ سه‌بعدیِ ناتمام دارد، یا (کارگرِ همنامِ یک سرورِ پردازش) سرورش کارِ سنگینِ دیگری می‌کند — GPU یکی است."""
+    if Job.objects.filter(worker=worker, owner='worker').exclude(state__in=FINAL).exists():
+        return True
+    try:
+        from apps.compute.models import ComputeJob
+        from apps.compute import sched
+        return ComputeJob.objects.filter(node__name=worker.name, state__in=[ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING])             .exclude(kind__in=tuple(sched.LIGHT_KINDS) + tuple(sched.DOWNLOAD_KINDS)).exists()
+    except Exception:       # noqa: BLE001 — اپِ سرورهای پردازش نصب نیست
+        return False
 
 
 def gpu_workers(prof=None, idle_only=False):
@@ -269,14 +291,38 @@ def gpu_nodes():
             'worker_blender': (w.capabilities or {}).get('blender_version') if w else None,
             'worker_version': (w.capabilities or {}).get('version') if w else None,
             'worker_capable': bool(w and capable(w)), 'worker_mpfb': (w.capabilities or {}).get('mpfb') if w else None,
+            'via_queue': node_supports(n), 'install': node_install_state(n),
         })
     return out
+
+
+def node_supports(node):
+    """عاملِ این گره نوعِ کارِ up3d.render را بلد است؟ (agent 2.12 به بالا؛ عاملِ قدیمی هرگز آن را نمی‌گیرد)"""
+    kinds = (node.capabilities or {}).get('kinds')
+    return isinstance(kinds, list) and UP3D_KIND in kinds
+
+
+def node_install_state(node):
+    """نصبِ خودکارِ Blender روی گره: {'state': ready|installing|failed|waiting|None, 'text': ...} از گزارشِ bootstrap ِ خودِ گره."""
+    boot = (node.capabilities or {}).get('bootstrap')
+    feats = (boot or {}).get('features') if isinstance(boot, dict) else None
+    f = (feats or {}).get('blender-3d') if isinstance(feats, dict) else None
+    if not isinstance(f, dict):
+        return {'state': None, 'text': ''}
+    text = ''
+    for it in f.get('items') or []:
+        if it.get('state') in ('failed', 'installing', 'waiting'):
+            text = '%s: %s' % (it.get('title') or it.get('id'), it.get('error') or it.get('detail') or it.get('state'))
+            break
+    return {'state': f.get('state'), 'text': str(text)[:300]}
 
 
 def wants_gpu_worker(node):
     """هماهنگ‌کنندهٔ گره: کارِ سه‌بعدیِ منتظر هست و این گره GPU و «رندرِ سه‌بعدی»ِ قابلِ روشن‌کردن دارد ⇐
     کارگرِ سه‌بعدیِ گره روشن شود (worker-3d.bat؛ اگر Blender نیست خودش یک بار دانلود می‌کند)."""
     caps = node.capabilities or {}
+    if node_supports(node):
+        return False        # agent 2.12: the 3D renders are compute-queue jobs there (dispatch_to_nodes); no second GPU consumer
     if not caps.get('gpu') or not (caps.get('startable') or {}).get('worker3d'):
         return False
     waiting = Job.objects.filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING', cancel_requested=False).exists()
@@ -302,9 +348,12 @@ def waiting_info(job):
     """چرا این کار هنوز کارگر ندارد (برای پنل): به GPU نیاز دارد؟ اجازهٔ CPU؟ کدام کارگرها آنلاین/مناسب‌اند."""
     prof = reg().get('render_profile', job.profile) or {}
     online = [w.name for w in Worker.objects.filter(enabled=True) if w.online]
+    nodes = gpu_nodes()
     return {'needs_gpu': job.kind == 'render' and prof.get('recommended') == 'gpu',
             'allow_cpu': bool((job.params or {}).get('allow_cpu')), 'online': online, 'eligible': eligible_workers(job),
-            'gpu_online': [w.name for w in gpu_workers()], 'gpu_nodes': gpu_nodes()}
+            'gpu_online': [w.name for w in gpu_workers()], 'gpu_nodes': nodes,
+            # agent 2.12: the node takes the job through the compute queue (a queue job exists for it, or will within seconds)
+            'node_queue': [n['name'] for n in nodes if n.get('via_queue')], 'v13': needs_v13_job(job)}
 
 
 def game_pack_doc(character_id):
@@ -410,15 +459,18 @@ def engine_mode(job):
     return 'render', []
 
 
-def claim(worker):
-    """یک کار به این کارگر. GPU اول: کارگرِ بی‌GPU کاری را که کارگرِ GPU ِ آنلاین می‌تواند بگیرد برنمی‌دارد،
+def claim(worker, only=None):
+    """یک کار به این کارگر (only = فقط همین شمارهٔ کار؛ عاملِ سرورِ پردازش برای هر کارِ صفِ پردازش یک کار را می‌خواهد). GPU اول: کارگرِ بی‌GPU کاری را که کارگرِ GPU ِ آنلاین می‌تواند بگیرد برنمی‌دارد،
     و از میانِ کارهای مجاز، اول کارهای سبک (کارِ GPU-کلاس با «اجازهٔ CPU» آخر از همه)."""
     r = reg()
     with transaction.atomic():
         # کارگری که کار می‌خواهد بیکار است ⇐ کارِ نیمه‌تمامی که هنوز به نامِ اوست (فرایندش ری‌استارت شده) دوباره به خودش
         # می‌رسد و از فریم‌های ساخته‌شده ادامه می‌دهد — مگر کارگرِ GPU ِ بیکار منتظرش باشد
-        for job in Job.objects.select_for_update().filter(worker=worker, owner='worker', cancel_requested=False).exclude(
-                state__in=FINAL).order_by('created'):
+        mine = Job.objects.select_for_update().filter(worker=worker, owner='worker', cancel_requested=False).exclude(
+            state__in=FINAL).order_by('created')
+        if only:
+            mine = mine.filter(pk=only)
+        for job in mine:
             if release_reason(job, worker) == 'handoff' or not capable(worker, job):
                 job.worker = None
                 job.state = 'SCENE_BUILDING'
@@ -431,8 +483,11 @@ def claim(worker):
             mode, extra = engine_mode(job)
             return {'id': job.pk, 'uid': str(job.uid), 'kind': job.kind, 'profile': job.profile, 'params': job.params,
                     'mode': mode, 'extra': extra}
-        jobs = list(Job.objects.select_for_update().filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING',
-                                                           cancel_requested=False).order_by('created'))
+        waiting = Job.objects.select_for_update().filter(owner='worker', worker__isnull=True, state='SCENE_BUILDING',
+                                                         cancel_requested=False).order_by('created')
+        if only:
+            waiting = waiting.filter(pk=only)
+        jobs = list(waiting)
         if not worker.has_gpu:
             jobs.sort(key=lambda j: (gpu_class(j, r.get('render_profile', j.profile)), j.created))
         for job in jobs:
@@ -603,6 +658,71 @@ def recover_interrupted():
     return n
 
 
+_DISPATCH = {'at': 0.0}
+
+
+def dispatch_to_nodes(min_gap=8.0):
+    """سرورِ پردازشِ دارای GPU (عاملِ ۲٫۱۲ به بالا): هر کارِ سه‌بعدیِ منتظر یک کارِ «up3d.render» در صفِ پردازش می‌گیرد؛
+    صفِ پردازش کارتِ گرافیک را بین همهٔ کارهای سنگین (Ollama، ComfyUI، صدا، رندرِ ویدیو) یکی‌یکی می‌دهد، کارِ منتظر در صفِ ماندگار می‌ماند
+    تا سرور روشن شود، و پس از روشن‌شدن خودش اجرا می‌شود (بی‌هیچ کلیک). کارِ GPU-کلاس همیشه؛ کارِ سبک فقط وقتی که کارتِ سرور بیکار است.
+    هر کارِ سه‌بعدی حداکثر یک کارِ فعالِ صفِ پردازش دارد. خروجی: تعدادِ کارِ تازه‌گذاشته‌شده."""
+    import time
+    if time.time() - _DISPATCH['at'] < min_gap:
+        return 0
+    _DISPATCH['at'] = time.time()
+    try:
+        from apps.compute import services as CS
+        from apps.compute.models import ComputeJob, ComputeNode
+    except Exception:       # noqa: BLE001
+        return 0
+    nodes = [n for n in ComputeNode.objects.filter(enabled=True) if node_supports(n)]
+    if not nodes:
+        return 0
+    names = {n.name for n in nodes}
+    from django.db.models import Q
+    waiting = list(Job.objects.filter(owner='worker', cancel_requested=False).exclude(state__in=FINAL)
+                   .filter(Q(worker__isnull=True, state='SCENE_BUILDING') | Q(worker__name__in=names)).order_by('created')[:50])
+    if not waiting:
+        return 0
+    live = set()
+    for cj in ComputeJob.objects.filter(kind=UP3D_KIND, state__in=[ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED,
+                                                                    ComputeJob.State.RUNNING]):
+        try:
+            live.add(int((cj.payload or {}).get('up3d_job') or 0))
+        except (TypeError, ValueError):
+            pass
+    recent = set()          # a queue job that finished a moment ago and found nothing to claim must not be re-queued in a loop
+    since = timezone.now() - timedelta(seconds=90)
+    for cj in ComputeJob.objects.filter(kind=UP3D_KIND, state=ComputeJob.State.COMPLETED, finished_at__gte=since):
+        try:
+            recent.add(int((cj.payload or {}).get('up3d_job') or 0))
+        except (TypeError, ValueError):
+            pass
+    rows = {w.name: w for w in Worker.objects.filter(name__in=names)}
+    gpus = gpu_workers()
+    idle_gpu = any(not busy(g) for g in gpus)
+    n = 0
+    for j in waiting:
+        if j.pk in live or j.pk in recent:
+            continue
+        if rows and not any(capable(w, j) for w in rows.values()):
+            continue            # the node's worker cannot take it (older engine, or a presenter scene without the MPFB data): not worth a queue job
+        mine = bool(j.worker_id and j.worker.name in names)
+        if not (mine or gpu_class(j) or idle_gpu):
+            continue
+        est = int(j.estimate_seconds or 0)
+        try:
+            cj = CS.enqueue_durable(UP3D_KIND, {'up3d_job': j.pk, 'profile': j.profile, 'kind': j.kind, 'project': j.project_id}, None,
+                                    origin='up3d', priority=150, timeout_s=max(3600, min(24 * 3600, est * 3 + 1800)), dedupe=False,
+                                    max_attempts=6)
+        except Exception as e:      # noqa: BLE001 — صف خطا داد؛ دورِ بعد دوباره
+            j.add_log('در صفِ سرورِ پردازش گذاشته نشد: %s' % str(e)[:200])
+            continue
+        j.add_log('کارِ سه‌بعدی در صفِ سرورِ پردازش گذاشته شد (کارِ %s)؛ با روشن‌بودنِ GPU خودکار اجرا می‌شود' % str(cj.uid)[:8])
+        n += 1
+    return n
+
+
 def orchestrate_once():
     did = 0
     for job in Job.objects.filter(cancel_requested=True, owner='panel').exclude(state__in=FINAL):
@@ -624,6 +744,10 @@ def orchestrate_once():
             job.set_state('FAILED', str(e)[:380])
             did += 1
     requeue_stale()
+    try:
+        dispatch_to_nodes()
+    except Exception:       # noqa: BLE001 — هماهنگ‌کننده نباید بمیرد
+        traceback.print_exc()
     return did
 
 

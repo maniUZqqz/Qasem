@@ -605,3 +605,416 @@ class SceneEditorTests(TestCase):
         import shutil
         shutil.rmtree(d, ignore_errors=True)
         self.assertEqual(SV.preview_status('character', 'nope')['state'], 'unsupported')
+# ───────────────────────── موتورِ ۱٫۳ (بازبینی‌شده روی سرور با Blender واقعی در /root/t3d؛ این‌جا فقط منطقِ بی‌Blender)
+
+import json as _json
+import os as _os
+import tempfile as _tempfile
+import zipfile as _zipfile
+
+NEW_LIGHTING = ('studio_softbox', 'three_point', 'hdri_studio', 'hdri_loft', 'hdri_sunset', 'hdri_daylight', 'golden_hour', 'neon_night')
+NEW_ENVS = ('stage', 'neon_stage', 'open_air')
+NEW_PRODUCTS = ('phone_showcase', 'text_3d', 'logo_3d', 'material_object')
+NEW_SHOTS = ('stage_hero', 'stage_low', 'stage_wide', 'stage_macro', 'phone_front', 'phone_angle', 'logo_front')
+NEW_MOVES = ('turntable', 'orbit_full', 'arc_left', 'arc_right', 'reveal_pull', 'hero_orbit', 'dolly_zoom', 'drift')
+AD_TEMPLATES = ('turntable', 'hero_reveal', 'app_showcase', 'logo_reveal', 'neon_launch', 'golden_hour', 'material_trio')
+CHAGHER = {'product_name': 'چغر', 'brand': 'چغر', 'tagline': 'با چغر چغر تر شو', 'cta': 'همین حالا امتحان کنید',
+           'benefits': ['پیش‌نویسِ برنامهٔ ورزشی و غذایی', 'دستورالعملِ شخصیِ مربی', 'خروجیِ PDF برندشده و قابل‌چاپ'],
+           'brand_color': '#126F85', 'brand_color_2': '#163F75'}
+
+
+class Engine13AssetTests(TestCase):
+    def test_every_new_asset_is_in_the_registry_without_problems(self):
+        r = SV.reg()
+        self.assertEqual(r.problems, [])
+        for kind, ids in (('lighting', NEW_LIGHTING), ('environment', NEW_ENVS), ('product', NEW_PRODUCTS), ('shot', NEW_SHOTS)):
+            for i in ids:
+                a = r.get(kind, i)
+                self.assertIsNotNone(a, '%s/%s' % (kind, i))
+                self.assertEqual(a.get('min_engine'), '1.3.0', '%s/%s must gate old workers' % (kind, i))
+                self.assertTrue(a.label(), i)
+
+    def test_hdri_environments_are_mirrored_cc0_files(self):
+        root = _os.path.join(str(SV.settings.UP3D_ROOT), 'assets', 'hdri')
+        names = {SV.reg().get('lighting', i)['world'].get('hdri') for i in NEW_LIGHTING}
+        for n in {x for x in names if x}:
+            self.assertTrue(_os.path.isfile(_os.path.join(root, n + '.hdr')), 'missing HDRI file for ' + n)
+        sources = open(_os.path.join(root, 'SOURCES.md'), encoding='utf-8').read()
+        self.assertIn('CC0', sources)
+        for n in ('studio_small_09', 'photo_studio_loft_hall', 'venice_sunset', 'kloofendal_48d_partly_cloudy_puresky'):
+            self.assertIn(n, sources)
+
+    def test_all_new_camera_moves_are_offered_by_the_shots_that_use_them(self):
+        r = SV.reg()
+        for sid in ('stage_hero', 'stage_low', 'stage_wide', 'stage_macro', 'product_hero', 'product_macro'):
+            for mv in NEW_MOVES:
+                self.assertIn(mv, r.get('shot', sid)['moves'], '%s lacks %s' % (sid, mv))
+        for sid in ('medium', 'close_up', 'wide'):
+            self.assertIn('arc_left', r.get('shot', sid)['moves'])
+
+    def test_every_ad_template_builds_a_valid_scene_that_needs_the_new_engine(self):
+        from up3d.validate import needs_v13, validate
+        from up3d.templates import TEMPLATES
+        r = SV.reg()
+        for t in AD_TEMPLATES:
+            self.assertEqual(TEMPLATES[t]['group'], 'ad')
+            doc = templates.build(t, dict(CHAGHER), r)
+            rep = validate(doc, r)
+            self.assertTrue(rep.ok, '%s: %s' % (t, [i['message'] for i in rep.errors]))
+            self.assertEqual([i for i in rep.issues if i['code'] == 'W_MOVE'], [], t)
+            self.assertFalse(doc['actors'], t)
+            self.assertTrue(needs_v13(doc, r), t)
+            self.assertGreaterEqual(doc['output']['duration'], 8.0)
+            comp = compiler.compile_scene(doc, r, 'preview')
+            self.assertEqual(comp['render'], doc['render'])
+            self.assertIn(doc['render']['look'], ('agx', 'agx_soft', 'agx_contrast', 'agx_punchy', 'agx_golden', 'agx_bw'))
+
+    def test_presenter_templates_are_untouched_and_still_valid_for_old_workers(self):
+        from up3d.validate import needs_v13
+        r = SV.reg()
+        for t in ('showcase', 'quick', 'testimonial', 'ritual', 'product_only'):
+            doc = templates.build(t, {'product_name': 'x', 'benefits': ['y']}, r)
+            self.assertFalse(needs_v13(doc, r), t)
+            self.assertEqual(templates.TEMPLATES[t]['group'], 'presenter')
+
+    def test_template_listing_carries_group_hint_and_inputs(self):
+        c = APIClient()
+        u = get_user_model().objects.create_user('staff1', password='x', is_staff=True)
+        c.force_authenticate(u)
+        rows = {x['id']: x for x in c.get('/api/v1/up3d/templates/').json()}
+        for t in AD_TEMPLATES:
+            self.assertEqual(rows[t]['group'], 'ad')
+            self.assertTrue(rows[t]['fa'])
+        self.assertIn('screens', rows['app_showcase']['inputs'])
+        self.assertIn('logo', rows['logo_reveal']['inputs'])
+        self.assertEqual(rows['showcase']['group'], 'presenter')
+
+    def test_turntable_template_turns_the_product_and_chagher_text_is_persian(self):
+        r = SV.reg()
+        doc = templates.build('turntable', dict(CHAGHER), r)
+        spin = [s for s in doc['shots'] if s['move'] == 'turntable'][0]
+        self.assertEqual(spin['params']['turn_deg'], 360)
+        self.assertEqual(spin['shot'], 'stage_hero')
+        logo = templates.build('logo_reveal', dict(CHAGHER), r)
+        p = logo['products'][0]
+        self.assertEqual(p['asset'], 'text_3d')
+        self.assertEqual(p['params']['text'], 'چغر')
+        self.assertTrue(p['params']['use_color'])
+        self.assertEqual(p['params']['color'], '#126F85')
+
+    def test_render_block_is_normalised_and_clamped(self):
+        from up3d import scene as S
+        out = S.norm_render({'look': 'agx_golden', 'ease': 'expo', 'exposure': 9, 'fstop': 0.1, 'handheld': 5, 'dof': 'off', 'motion_blur': '1',
+                             'bloom': -1, 'bogus': 1, 'fade_in': 'x'})
+        self.assertEqual(out['look'], 'agx_golden')
+        self.assertEqual(out['ease'], 'expo')
+        self.assertEqual(out['exposure'], 3.0)
+        self.assertEqual(out['fstop'], 0.7)
+        self.assertEqual(out['handheld'], 1.0)
+        self.assertIs(out['dof'], False)
+        self.assertIs(out['motion_blur'], True)
+        self.assertEqual(out['bloom'], 0.0)
+        self.assertNotIn('bogus', out)
+        self.assertNotIn('fade_in', out)
+        self.assertEqual(S.norm_render({'look': 'unknown'}), {})
+        doc = S.normalize({**_valid_doc(), 'render': {'look': 'nope'}})
+        self.assertNotIn('render', doc)
+
+    def test_ai_director_does_not_see_the_special_builders(self):
+        cat = SV.reg().catalog_for_ai()
+        for hidden in ('text_3d', 'logo_3d', 'phone_showcase', 'material_object'):
+            self.assertNotIn('- %s:' % hidden, cat)
+        for hidden in ('stage_hero', 'phone_front', 'neon_night', 'golden_hour', 'stage', 'open_air'):
+            self.assertNotIn('- %s:' % hidden, cat, 'product-stage assets are placed by the ad templates, not by the presenter director')
+        self.assertIn('- soft_beauty:', cat)
+        self.assertIn('- studio_warm:', cat)
+
+    def test_brand_screens_are_made_from_the_brief_only(self):
+        from PIL import Image
+        from up3d import screens
+        with _tempfile.TemporaryDirectory() as d:
+            files = screens.make_screens('چغر', 'با چغر چغر تر شو', ['یک', 'دو', 'سه'], '#126F85', '#163F75', count=3, size=(390, 844), out_dir=d)
+            self.assertEqual(len(files), 3)
+            self.assertEqual(len(set(files)), 3)
+            for f in files:
+                self.assertEqual(Image.open(f).size, (390, 844))
+            self.assertEqual(files, screens.make_screens('چغر', 'با چغر چغر تر شو', ['یک', 'دو', 'سه'], '#126F85', '#163F75', count=3,
+                                                         size=(390, 844), out_dir=d))        # cached: same names
+
+    def test_3d_persian_text_and_pbr_object_dimensions_travel_in_the_compiled_scene(self):
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            self.skipTest('OpenCV is not installed here')
+        from up3d import pipeline
+        from up3d.assets import registry
+        reg = registry()
+        doc = templates.build('logo_reveal', dict(CHAGHER), reg)
+        with _tempfile.TemporaryDirectory() as d:
+            info = pipeline.prepare(doc, d, 'animatic', None, log=lambda m: None, reg=reg)
+            comp = _json.load(open(info['compiled'], encoding='utf-8')) if 'compiled' in info else _json.load(open(_os.path.join(d, 'compiled.json'), encoding='utf-8'))
+            p = comp['products'][0]
+            self.assertEqual(p['builder'], 'text3d')
+            self.assertTrue(p['outline'] and p['outline']['polys'], 'the Persian letters must be traced to polygons')
+            self.assertTrue(any(pl['hole'] for pl in p['outline']['polys']), 'ج / چ / غ / ر have counters (holes)')
+            self.assertAlmostEqual(p['dimensions'][0], 0.46, places=2)
+        trio = templates.build('material_trio', dict(CHAGHER), reg)
+        with _tempfile.TemporaryDirectory() as d:
+            pipeline.prepare(trio, d, 'animatic', None, log=lambda m: None, reg=reg)
+            comp = _json.load(open(_os.path.join(d, 'compiled.json'), encoding='utf-8'))
+            self.assertEqual([p['builder'] for p in comp['products']], ['primitive'] * 3)
+            self.assertEqual(comp['products'][0]['dimensions'], [0.1, 0.1, 0.1])
+
+    def test_phone_screens_travel_with_the_job_as_relative_paths(self):
+        from up3d import pipeline
+        from up3d.assets import registry
+        reg = registry()
+        doc = templates.build('app_showcase', dict(CHAGHER), reg)
+        with _tempfile.TemporaryDirectory() as d:
+            pipeline.prepare(doc, d, 'animatic', None, log=lambda m: None, reg=reg)
+            comp = _json.load(open(_os.path.join(d, 'compiled.json'), encoding='utf-8'))
+            prm = comp['products'][0]['params']
+            for k in ('screen_image', 'screen_image_2', 'screen_image_3'):
+                self.assertTrue(prm[k].startswith('inputs/'), prm[k])
+                self.assertTrue(_os.path.isfile(_os.path.join(d, prm[k])))
+
+    def test_old_workers_never_get_a_1_3_scene(self):
+        project = Project.objects.create(title='v13', brief={})
+        v = SV.new_version(project, templates.build('app_showcase', dict(CHAGHER), SV.reg()), 'test', 'x')
+        j = Job.objects.create(project=project, version=v, kind='render', profile='high', owner='worker', state='SCENE_BUILDING')
+        now = timezone.now()
+        old = Worker.objects.create(name='old-gpu', last_seen=now, capabilities={'gpu': ['OPTIX:RTX'], 'version': '1.2.0', 'mpfb': True})
+        new = Worker.objects.create(name='new-gpu', last_seen=now, capabilities={'gpu': ['OPTIX:RTX'], 'version': '1.3.0', 'mpfb': True})
+        self.assertTrue(SV.needs_v13_job(j))
+        self.assertFalse(SV.capable(old, j))
+        self.assertTrue(SV.capable(new, j))
+        self.assertIsNone(SV.claim(old))
+        self.assertEqual(SV.claim(new)['id'], j.pk)
+
+    def test_up3d_package_and_pack_validation_know_the_new_builders_and_moves(self):
+        from up3d import packs
+        for b in ('stage', 'open_air'):
+            self.assertIn(b, packs.ENV_BUILDERS)
+        for b in ('phone', 'text3d', 'logo3d', 'primitive'):
+            self.assertIn(b, packs.PRODUCT_BUILDERS)
+        for m in NEW_MOVES:
+            self.assertIn(m, packs.CAMERA_MOVES)
+
+
+class NodeRenderQueueTests(TestCase):
+    """agent 2.12: a 3D render is the compute job up3d.render (one heavy GPU job at a time); the 3D section keeps its protocol."""
+
+    def setUp(self):
+        from apps.compute.models import ComputeNode
+        now = timezone.now()
+        self.node = ComputeNode.objects.create(name='DESKTOP-GPU', last_seen=now, capabilities={
+            'gpu': 'RTX 3060', 'kinds': ['echo', 'up3d.render'], 'blender': True, 'startable': {'worker3d': True}})
+        self.worker = Worker.objects.create(name='DESKTOP-GPU', last_seen=now,
+                                            capabilities={'gpu': ['OPTIX:RTX 3060'], 'version': '1.3.0', 'mpfb': False})
+        self.cpu = Worker.objects.create(name='server-cpu', last_seen=now, capabilities={'gpu': None, 'version': '1.3.0', 'mpfb': True})
+
+    def _job(self, profile, **kw):
+        return Job.objects.create(kind='render', profile=profile, owner='worker', state='SCENE_BUILDING', params=kw)
+
+    def _queue_rows(self):
+        from apps.compute.models import ComputeJob
+        return list(ComputeJob.objects.filter(kind='up3d.render').order_by('created_at'))
+
+    def test_waiting_gpu_job_becomes_one_durable_queue_job(self):
+        j = self._job('high')
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1)
+        rows = self._queue_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].payload['up3d_job'], j.pk)
+        self.assertEqual(rows[0].origin, 'up3d')
+        self.assertGreaterEqual(rows[0].timeout_s, 3600)
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 0, 'one live queue job per 3D job')
+        self.assertIn('صفِ سرورِ پردازش', Job.objects.get(pk=j.pk).log)
+
+    def test_job_like_36_waits_while_the_node_is_off_and_runs_by_itself_when_it_returns(self):
+        from apps.compute import services as CS
+        from apps.compute.models import ComputeJob, ComputeNode
+        j = self._job('high')
+        ComputeNode.objects.filter(pk=self.node.pk).update(last_seen=timezone.now() - timedelta(days=20))
+        Worker.objects.filter(pk=self.worker.pk).update(last_seen=timezone.now() - timedelta(days=20))
+        self.node.refresh_from_db()
+        self.assertFalse(self.node.online)
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1, 'a registered node that knows the kind is enough: the job is parked durably')
+        row = self._queue_rows()[0]
+        self.assertEqual(row.state, ComputeJob.State.QUEUED)
+        self.assertEqual(row.attempts, 0)
+        self.assertEqual(row.max_wait_s, 0, 'no waiting limit: it may wait for days')
+        ComputeNode.objects.filter(pk=self.node.pk).update(last_seen=timezone.now())
+        self.node.refresh_from_db()
+        got = CS.claim(self.node)
+        self.assertEqual(got.kind, 'up3d.render')
+        self.assertEqual(got.payload['up3d_job'], j.pk)
+
+    def test_agent_without_the_kind_gets_nothing_and_keeps_the_old_service_path(self):
+        from apps.compute.models import ComputeNode
+        ComputeNode.objects.filter(pk=self.node.pk).update(capabilities={'gpu': 'RTX 3060', 'startable': {'worker3d': True}})
+        self._job('high')
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 0)
+        self.node.refresh_from_db()
+        self.assertTrue(SV.wants_gpu_worker(self.node), 'old agents are still asked to start worker-3d.bat')
+
+    def test_new_agent_is_not_asked_to_start_a_second_gpu_consumer(self):
+        self._job('high')
+        self.assertFalse(SV.wants_gpu_worker(self.node))
+        info = SV.gpu_nodes()[0]
+        self.assertTrue(info['via_queue'])
+
+    def test_light_job_goes_to_the_node_only_when_its_card_is_idle(self):
+        from apps.compute.models import ComputeJob
+        light = self._job('animatic')
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1, 'idle GPU first')
+        ComputeJob.objects.all().delete()
+        heavy_other = ComputeJob.objects.create(kind='ollama.chat', payload={}, state=ComputeJob.State.RUNNING, node=self.node)
+        self.assertTrue(SV.busy(self.worker), 'the node runs another heavy job')
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 0, 'light job: the server CPU worker takes it instead')
+        self.assertEqual(SV.claim(self.cpu)['id'], light.pk)
+        high = self._job('high')
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1, 'a GPU-class job always queues for the node')
+        heavy_other.delete()
+
+    def test_claim_only_the_requested_job(self):
+        a, b = self._job('high'), self._job('high')
+        self.assertEqual(SV.claim(self.worker, only=b.pk)['id'], b.pk)
+        self.assertIsNone(SV.claim(self.worker, only=b.pk + 99))
+        Job.objects.filter(pk=a.pk).update(cancel_requested=True)
+        self.assertIsNone(SV.claim(self.worker, only=a.pk), 'a cancelled job is not given')
+
+    def test_worker_claim_api_accepts_only_job_and_keeps_capabilities_clean(self):
+        j = self._job('high')
+        self._job('high')
+        c = APIClient()
+        body = {'gpu': ['OPTIX:RTX 3060'], 'version': '1.3.0', 'mpfb': False, 'only_job': j.pk}
+        r = c.post('/3d/api/worker/claim/', body, format='json', HTTP_AUTHORIZATION='Worker %s' % self.worker.token)
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['job']['id'], j.pk)
+        self.worker.refresh_from_db()
+        self.assertNotIn('only_job', self.worker.capabilities)
+
+    def test_node_token_gets_a_worker_row_and_heartbeat_marks_gpu(self):
+        from apps.compute.models import ComputeNode
+        other = ComputeNode.objects.create(name='LAB-PC', capabilities={'kinds': ['up3d.render']})
+        c = APIClient()
+        r = c.post('/3d/api/worker/heartbeat/', {'gpu': ['OPTIX:RTX 4070'], 'version': '1.3.0', 'features': ['node']}, format='json',
+                   HTTP_AUTHORIZATION='Worker %s' % other.token)
+        self.assertEqual(r.status_code, 200, r.content)
+        w = Worker.objects.get(name='LAB-PC')
+        self.assertTrue(w.has_gpu and w.online)
+
+    def test_queue_job_waits_for_blender_install_then_runs(self):
+        from apps.compute import services as CS
+        from apps.compute.models import ComputeNode
+        self._job('high')
+        SV.dispatch_to_nodes(min_gap=0)
+        caps = dict(self.node.capabilities)
+        caps['bootstrap'] = {'features': {'blender-3d': {'state': 'installing', 'items': [{'id': 'blender', 'title': 'Blender', 'state': 'installing', 'detail': '40%'}]}},
+                             'blocked_kinds': {'up3d.render': 'blender-3d'}}
+        ComputeNode.objects.filter(pk=self.node.pk).update(capabilities=caps)
+        self.node.refresh_from_db()
+        self.assertIsNone(CS.claim(self.node), 'the install is still running: the job stays queued')
+        st = SV.node_install_state(self.node)
+        self.assertEqual(st['state'], 'installing')
+        self.assertIn('Blender', st['text'])
+        caps['bootstrap'] = {'features': {'blender-3d': {'state': 'ready', 'items': []}}, 'blocked_kinds': {}}
+        ComputeNode.objects.filter(pk=self.node.pk).update(capabilities=caps)
+        self.node.refresh_from_db()
+        self.assertEqual(CS.claim(self.node).kind, 'up3d.render')
+
+    def test_waiting_info_says_the_node_will_take_it(self):
+        j = self._job('high')
+        info = SV.waiting_info(j)
+        self.assertEqual(info['node_queue'], ['DESKTOP-GPU'])
+        self.assertTrue(info['gpu_nodes'][0]['via_queue'])
+
+    def test_compute_queue_knows_the_kind_for_panel_text(self):
+        from apps.compute import queue as Q
+        self.assertTrue(Q.node_takes(self.node, 'up3d.render'))
+        from apps.compute.models import ComputeNode
+        self.assertFalse(Q.node_takes(ComputeNode(name='old', capabilities={'kinds': ['echo']}), 'up3d.render'))
+
+    def test_selftests_are_registered_and_build_a_real_package(self):
+        from apps.compute import selftests as ST
+        ST.load_all(force=True)
+        self.assertIn('up3d_stage', ST.REGISTRY)
+        self.assertIn('up3d_phone', ST.REGISTRY)
+        t = ST.REGISTRY['up3d_stage']
+        self.assertTrue(t.gpu_required)
+        self.assertEqual(t.kind, 'up3d.render')
+        self.assertTrue(ST.REGISTRY['up3d_phone'].deep)
+        ok, why = t.available(self.node)
+        self.assertTrue(ok, why)
+        ok, why = t.available(type('N', (), {'capabilities': {'kinds': ['echo']}})())
+        self.assertFalse(ok)
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            return
+        spec = t.build(type('C', (), {'caps': {}, 'node': self.node})())
+        self.assertEqual(spec.kind, 'up3d.render')
+        self.assertEqual(spec.payload['mode'], 'contact')
+        with _zipfile.ZipFile(__import__('io').BytesIO(spec.files['package.zip'])) as z:
+            names = z.namelist()
+            self.assertIn('compiled.json', names)
+            comp = _json.loads(z.read('compiled.json'))
+        self.assertEqual(comp['profile']['id'], 'standard')
+        self.assertEqual(comp['resolution'][0] % 2, 0)
+        self.assertEqual(comp['lighting']['id'], 'hdri_studio')
+        self.assertTrue(comp['products'][0]['outline']['polys'])
+
+    def test_dispatch_skips_what_the_node_cannot_take_and_does_not_loop(self):
+        from apps.compute.models import ComputeJob
+        project = Project.objects.create(title='presenter', brief={})
+        v = SV.new_version(project, _valid_doc(), 'test', 'x')
+        pj = Job.objects.create(project=project, version=v, kind='render', profile='high', owner='worker', state='SCENE_BUILDING')
+        self.assertTrue(SV.needs_mpfb(pj))
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 0, 'a presenter scene needs the MPFB data this node has not installed (yet)')
+        Worker.objects.filter(pk=self.worker.pk).update(capabilities={'gpu': ['OPTIX:RTX 3060'], 'version': '1.3.0', 'mpfb': True})
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1)
+        ComputeJob.objects.filter(kind='up3d.render').update(state=ComputeJob.State.COMPLETED, finished_at=timezone.now())
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 0, 'it finished a moment ago and found nothing to claim: no loop of empty queue jobs')
+        ComputeJob.objects.filter(kind='up3d.render').update(finished_at=timezone.now() - timedelta(minutes=10))
+        self.assertEqual(SV.dispatch_to_nodes(min_gap=0), 1, 'later it is tried again')
+class RealRenderSmokeTests(TestCase):
+    """A real Blender run (CPU, tiny): one ad template from brief to picture. Skipped where Blender is not installed."""
+
+    def setUp(self):
+        from up3d import paths
+        if not paths.blender_binary():
+            self.skipTest('Blender is not installed here')
+
+    def _still(self, template, frame=60):
+        from PIL import Image, ImageStat
+        from up3d import pipeline
+        from up3d.assets import registry
+        reg = registry()
+        doc = templates.build(template, dict(CHAGHER), reg)
+        with _tempfile.TemporaryDirectory() as d:
+            pipeline.prepare(doc, d, 'preview', None, log=lambda m: None, reg=reg, profile_overrides={'resolution': 240, 'samples': 4})
+            pipeline.render(d, None, None, 5, 2, _os.path.join(d, 'engine.log'), mode='still', extra=['--frame', str(frame)])
+            png = _os.path.join(d, 'still_%04d.png' % frame)
+            self.assertTrue(_os.path.isfile(png), open(_os.path.join(d, 'engine.log'), encoding='utf-8', errors='replace').read()[-1500:])
+            im = Image.open(png).convert('L')
+            st = ImageStat.Stat(im)
+            rep = _json.load(open(_os.path.join(d, 'engine_report.json'), encoding='utf-8'))
+            return im.size, st.mean[0], st.stddev[0], rep
+
+    def test_turntable_template_renders_with_agx_on_the_cpu(self):
+        size, mean, std, rep = self._still('turntable')
+        self.assertEqual(size[0] % 2, 0)
+        self.assertGreater(mean, 25, 'not black')
+        self.assertLess(mean, 240, 'not blown out')
+        self.assertGreater(std, 8, 'not flat')
+        self.assertEqual(rep['device']['type'], 'CPU')
+        self.assertEqual(rep['look']['view'], 'AgX')
+        self.assertIn('AgX - ', rep['look']['look'])
+        self.assertEqual(rep['warnings'] if 'warnings' in rep else [], [])
+
+    def test_persian_3d_logo_and_phone_templates_render(self):
+        for t in ('logo_reveal', 'app_showcase'):
+            size, mean, std, rep = self._still(t, 120)
+            self.assertGreater(std, 8, t)
+            self.assertFalse(rep.get('warnings'), (t, rep.get('warnings')))

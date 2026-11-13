@@ -4,6 +4,7 @@ import { Button, Field, Select } from "../../../../components/ui";
 import { clone, desc, fa, label } from "../api";
 import type { Catalog, Issue, Item, Motion, SceneDoc, Track } from "../types";
 import { DraftInput, DraftNumber, DraftRange, DraftTextArea, Details, Grid2, Hr } from "./fields";
+import { EASES_CAM } from "./LookPanel";
 import { CAT_FA, EXPRS, MOVES_FA, OVT, type Sel, byId, docDuration, sortTrack, speechSeconds, trackName } from "./model";
 
 /**
@@ -235,6 +236,37 @@ export default function Inspector({ ed }: { ed: ItemEditor }) {
             <Field label="لنز (mm)">{lens("lens")}</Field>
             <Field label="دیافراگم f">{lens("fstop")}</Field>
             <Field label="ارتفاعِ قاب (m)">{lens("height")}</Field>
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <Field label="دستِ لرزان (۰–۱)">
+              <DraftNumber
+                value={typeof pr.handheld === "number" ? (pr.handheld as number) : null}
+                step={0.05}
+                min={0}
+                max={1}
+                placeholder="۰"
+                onCommit={(v) => setParam("handheld", v)}
+              />
+            </Field>
+            <Field label="چرخش (درجه)" hint="چرخ‌میز / چرخشِ کامل">
+              <DraftNumber
+                value={typeof pr.turn_deg === "number" ? (pr.turn_deg as number) : null}
+                step={15}
+                min={-720}
+                max={720}
+                placeholder="۳۶۰"
+                onCommit={(v) => setParam("turn_deg", v)}
+              />
+            </Field>
+            <Field label="آسانی">
+              <Select value={String(pr.ease || "")} onChange={(e) => setParam("ease", e.target.value || null)}>
+                {EASES_CAM.map(([v, t]) => (
+                  <option key={v} value={v}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
         </Details>
       </>

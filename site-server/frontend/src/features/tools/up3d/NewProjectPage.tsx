@@ -71,10 +71,18 @@ export default function NewProjectPage() {
   const [template, setTemplate] = useState("showcase");
   const [labelFile, setLabelFile] = useState<FileState>({ text: "روی برچسبِ بدنهٔ محصول می‌نشیند", ok: false, path: null });
   const [modelFile, setModelFile] = useState<FileState>({ text: "GLB/OBJ/FBX — اگر بدهید، به‌جای شکلِ آماده می‌نشیند", ok: false, path: null });
+  const [screenFiles, setScreenFiles] = useState<FileState[]>(() => [0, 1, 2, 3].map(() => ({ text: "اسکرین‌شاتِ اپ (اختیاری)", ok: false, path: null })));
+  const [logoFile, setLogoFile] = useState<FileState>({ text: "PNG/JPG؛ ترجیحاً با زمینهٔ شفاف", ok: false, path: null });
+  const [brandColor, setBrandColor] = useState("#126f85");
+  const [brandColor2, setBrandColor2] = useState("#163f75");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const aiReady = status?.ai_ready ?? true;
+  const chosenTplMeta = templates.find((t) => t.id === template);
+  const isAd = chosenTplMeta?.group === "ad";
+  const tplInputs = chosenTplMeta?.inputs || [];
+  const fixedAsset = isAd && !!chosenTplMeta?.asset;      // شکلِ محصول را خودِ قالب می‌گذارد
 
   useEffect(() => {
     up3d
@@ -96,6 +104,11 @@ export default function NewProjectPage() {
   useEffect(() => {
     if (status && !status.ai_ready) setMode("template");
   }, [status]);
+
+  // قالب‌های تبلیغاتیِ بی‌مجری بی‌AI ساخته می‌شوند (کارگردانِ AI مجری می‌چیند)
+  useEffect(() => {
+    if (isAd) setMode("template");
+  }, [isAd]);
 
   // صدای هم‌جنس با مجری
   useEffect(() => {
@@ -144,6 +157,16 @@ export default function NewProjectPage() {
     };
     if (labelFile.path) brief.label_image = labelFile.path;
     if (modelFile.path) brief.model_path = modelFile.path;
+    if (isAd) {
+      const shots = screenFiles.map((s) => s.path).filter((p): p is string => !!p);
+      if (tplInputs.includes("screens") && shots.length) brief.screens = shots;
+      if (tplInputs.includes("logo") && logoFile.path) brief.logo_image = logoFile.path;
+      if (tplInputs.includes("brand_colors")) {
+        brief.brand_color = brandColor;
+        brief.brand_color_2 = brandColor2;
+      }
+      if (productName.trim() === "" && brand.trim()) brief.product_name = brand.trim();
+    }
     setBusy(true);
     setError(null);
     try {
@@ -261,13 +284,19 @@ export default function NewProjectPage() {
                 <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="مثلاً UpMarket" />
               </Field>
             </div>
-            <div>
-              <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
-                شکلِ محصول
-              </span>
-              <Picker kind="product" list={cat.product.filter((p) => p.id !== "custom_model")} value={product} onChange={setProduct} />
-              {modelFile.path && <Muted className="mt-1 text-xs">مدلِ سه‌بعدیِ خودتان بارگذاری شده و به‌جای شکلِ آماده می‌نشیند.</Muted>}
-            </div>
+            {fixedAsset ? (
+              <Muted className="text-xs">
+                این قالب شکلِ محصول را خودش می‌گذارد ({chosenTplMeta?.hint || chosenTplMeta?.fa}).
+              </Muted>
+            ) : (
+              <div>
+                <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                  شکلِ محصول
+                </span>
+                <Picker kind="product" list={cat.product.filter((p) => p.id !== "custom_model" && p.ai !== false)} value={product} onChange={setProduct} />
+                {modelFile.path && <Muted className="mt-1 text-xs">مدلِ سه‌بعدیِ خودتان بارگذاری شده و به‌جای شکلِ آماده می‌نشیند.</Muted>}
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="شعار (روی برچسب)">
                 <Input value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="رایحهٔ ماندگار" />
@@ -308,18 +337,27 @@ export default function NewProjectPage() {
           </Section>
 
           <Section n={2} title="مجری و صحنه" help="چه کسی و کجا محصول را معرفی می‌کند. صدا خودکار هم‌جنسِ مجری انتخاب می‌شود؛ قاب برای استوری عمودی است.">
-            <div>
-              <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
-                مجری
-              </span>
-              <Picker kind="character" list={cat.character} value={character} onChange={setCharacter} />
-            </div>
-            <div>
-              <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
-                محیط
-              </span>
-              <Picker kind="environment" list={cat.environment} value={environment} onChange={setEnvironment} />
-            </div>
+            {isAd ? (
+              <Muted className="text-xs">
+                قالبِ «{chosenTplMeta?.fa}» مجری ندارد و صحنه (استیج)، نورِ استودیویی و دوربینِ سینمایی را خودش می‌چیند؛ بعد از ساخت در ویرایشگر همه‌چیز قابلِ تغییر است
+                (نور، محیط، نگاهِ تصویر، حرکتِ دوربین).
+              </Muted>
+            ) : (
+              <>
+                <div>
+                  <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                    مجری
+                  </span>
+                  <Picker kind="character" list={cat.character} value={character} onChange={setCharacter} />
+                </div>
+                <div>
+                  <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                    محیط
+                  </span>
+                  <Picker kind="environment" list={cat.environment.filter((e) => e.ai !== false && !e.min_engine)} value={environment} onChange={setEnvironment} />
+                </div>
+              </>
+            )}
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="صدا">
                 <Select value={voice} onChange={(e) => setVoice(e.target.value)}>
@@ -371,16 +409,68 @@ export default function NewProjectPage() {
                   <option value="template">قالبِ آماده (بی‌AI)</option>
                 </Select>
               </Field>
-              <Field label="قالب (و پشتیبانِ AI)" hint="اگر AI نتواند، همین قالب ساخته می‌شود">
+              <Field label="قالب (و پشتیبانِ AI)" hint={chosenTplMeta?.hint || "اگر AI نتواند، همین قالب ساخته می‌شود"}>
                 <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.fa}
-                    </option>
-                  ))}
+                  <optgroup label="قالب‌های تبلیغاتیِ آماده (بی‌مجری، موتورِ ۱٫۳)">
+                    {templates
+                      .filter((t) => t.group === "ad")
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.fa}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="با مجری">
+                    {templates
+                      .filter((t) => t.group !== "ad")
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.fa}
+                        </option>
+                      ))}
+                  </optgroup>
                 </Select>
               </Field>
             </div>
+            {isAd && (tplInputs.includes("screens") || tplInputs.includes("logo") || tplInputs.includes("brand_colors")) && (
+              <div className="space-y-3 rounded-lg p-3" style={{ border: "1px solid var(--border)" }}>
+                <div className="text-sm font-bold" style={{ color: "var(--text)" }}>
+                  ورودی‌های ویژهٔ این قالب
+                </div>
+                {tplInputs.includes("screens") && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {screenFiles.map((s, i) => (
+                      <Field key={i} label={`اسکرین‌شاتِ ${["اول", "دوم", "سوم", "چهارم"][i]}`} hint={s.text}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="u-input"
+                          onChange={(e) => void uploadTo(e.target.files?.[0], (st) => setScreenFiles((arr) => arr.map((x, j) => (j === i ? st : x))))}
+                        />
+                      </Field>
+                    ))}
+                    <Muted className="text-xs sm:col-span-2">
+                      اگر اسکرین‌شات ندهید، سه صفحهٔ نمونه با رنگ، نام، شعار و ویژگی‌هایی که نوشته‌اید ساخته می‌شود (ماکتِ گرافیکی، نه تصویرِ واقعیِ اپ).
+                    </Muted>
+                  </div>
+                )}
+                {tplInputs.includes("logo") && (
+                  <Field label="لوگو (اختیاری)" hint={logoFile.ok ? logoFile.text : "اگر ندهید، نامِ برند به‌صورتِ حروفِ سه‌بعدی ساخته می‌شود"}>
+                    <input type="file" accept="image/*" className="u-input" onChange={(e) => void uploadTo(e.target.files?.[0], setLogoFile)} />
+                  </Field>
+                )}
+                {tplInputs.includes("brand_colors") && (
+                  <div className="flex flex-wrap gap-4">
+                    <Field label="رنگِ اصلیِ برند">
+                      <input type="color" value={brandColor} onChange={(e) => setBrandColor(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
+                    </Field>
+                    <Field label="رنگِ دومِ برند">
+                      <input type="color" value={brandColor2} onChange={(e) => setBrandColor2(e.target.value)} className="u-input" style={{ width: 64, height: 38, padding: 2 }} />
+                    </Field>
+                  </div>
+                )}
+              </div>
+            )}
             <Button type="submit" disabled={busy} className="w-full" style={{ padding: 12 }}>
               {busy ? "در حالِ ساخت…" : "ساختِ برنامهٔ تبلیغ ⇐"}
             </Button>

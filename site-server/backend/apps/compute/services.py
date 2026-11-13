@@ -360,6 +360,7 @@ def _kinds_q(node: ComputeNode) -> Q:
     """کدام نوعِ کار به این گره برسد: سرویسش بالاست، یا با سوئیچِ خودکار عاملش می‌تواند روشنش کند (ComputeNode.has)."""
     q = Q(kind__startswith="echo") | Q(kind__startswith="node.")   # node.* always names its node (node_wanted)
     q |= Q(kind__startswith="selftest.") | Q(kind__startswith="asr.")      # agent 2.11: only nodes that advertise them (kind_unsupported)
+    q |= Q(kind__startswith="up3d.")                                       # agent 2.12: the 3D video engine (up3d_jobs.py), same rule
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
             fam = Q(kind__startswith=prefix)

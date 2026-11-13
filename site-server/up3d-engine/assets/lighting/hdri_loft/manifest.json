@@ -1,0 +1,68 @@
+{
+  "id": "hdri_loft",
+  "version": 1,
+  "name": {
+    "fa": "محیطِ HDRI: لافتِ نورگیر",
+    "en": "HDRI loft"
+  },
+  "description": {
+    "fa": "سالنِ عکاسیِ پرنورِ لافت با پنجره‌های بزرگ (Poly Haven، CC0)؛ حسِ طبیعیِ صبح تا عصر",
+    "en": "A bright photo-studio loft with big windows (Poly Haven, CC0): a natural morning-to-afternoon feel."
+  },
+  "min_engine": "1.3.0",
+  "order": 14,
+  "tags": [
+    "product",
+    "hdri"
+  ],
+  "rig": [
+    {
+      "name": "accent",
+      "azimuth": 130,
+      "elevation": 35,
+      "distance": 1.5,
+      "size": 0.3,
+      "size_y": 0.8,
+      "power": 45,
+      "kelvin": 5000,
+      "target": "stage"
+    }
+  ],
+  "world": {
+    "hdri": "photo_studio_loft_hall",
+    "hdri_strength": 1.15,
+    "hdri_rotation": -40.0
+  },
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    },
+    "hdri_strength": {
+      "type": "number",
+      "default": 1.15,
+      "min": 0.0,
+      "max": 4.0,
+      "label": "روشنایی محیط (HDRI)"
+    },
+    "hdri_rotation": {
+      "type": "number",
+      "default": -40.0,
+      "min": -180.0,
+      "max": 180.0,
+      "label": "چرخش محیط (درجه)"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own) + HDRI: Sergej Majboroda, Poly Haven, CC0",
+  "ai": false
+}

@@ -580,3 +580,28 @@ def _repair_graph(doc, reg, changes):
         doc['actions'].insert(idx, new)
         doc['actions'].sort(key=lambda x: x['start'])
         changes.append('«%s» پیش از «%s» افزوده شد' % (insert.label(), m.label()))
+
+
+# ───────────────────────── موتورِ ۱٫۳
+
+def _ver(v):
+    try:
+        return tuple(int(x) for x in str(v).split('.')[:3])
+    except (TypeError, ValueError):
+        return (0,)
+
+
+def needs_v13(doc, reg):
+    """این سند به کارگرِ موتورِ ۱٫۳ نیاز دارد؟ (بلوکِ نگاه و لنز، حرکتِ تازه، یا دارایی‌ای که manifest اش
+    "min_engine": "1.3.0" دارد: گوشیِ نمایش، متنِ سه‌بعدی، صحنهٔ استودیو، نورپردازیِ HDRI/نئون…). کارگرِ ۱٫۲ این‌ها را نمی‌فهمد."""
+    doc = S.normalize(doc)
+    if S.has_v13_features(doc):
+        return True
+    refs = [('environment', doc['environment'].get('id')), ('lighting', doc['lighting'].get('id'))]
+    refs += [('product', p.get('asset')) for p in (doc.get('products') or []) + (doc.get('props') or [])]
+    refs += [('shot', s.get('shot')) for s in doc.get('shots') or [] if s.get('shot')]
+    for kind, aid in refs:
+        a = reg.get(kind, aid) if aid else None
+        if a is not None and _ver(a.get('min_engine') or '0') >= S.ENGINE_V13:
+            return True
+    return False

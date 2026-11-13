@@ -35,12 +35,14 @@ ALLOWED_EXT = {'.json', '.png', '.jpg', '.jpeg', '.webp', '.tga', '.tif', '.tiff
                '.glb', '.gltf', '.bin', '.fbx', '.obj', '.mtl', '.blend', '.bvh', '.mp4', '.txt', '.md'}
 MODEL_EXT = {'environment': ('.glb', '.gltf', '.fbx', '.obj', '.blend'), 'character': ('.glb', '.gltf', '.fbx', '.blend'),
              'motion': ('.bvh', '.fbx', '.glb', '.gltf'), 'product': ('.glb', '.gltf', '.fbx', '.obj')}
-ENV_BUILDERS = ('studio', 'boutique', 'home', 'model_file', 'blend_file')
-PRODUCT_BUILDERS = ('perfume_bottle', 'cream_jar', 'box_package', 'can_drink', 'file')
+ENV_BUILDERS = ('studio', 'boutique', 'home', 'stage', 'open_air', 'model_file', 'blend_file')
+PRODUCT_BUILDERS = ('perfume_bottle', 'cream_jar', 'box_package', 'can_drink', 'phone', 'text3d', 'logo3d', 'primitive', 'file')
 CLIP_CHANNELS = ('spine', 'neck', 'arms', 'fingers', 'legs', 'root')
 CAMERA_MOVES = ('static', 'push_in', 'pull_out', 'orbit_left', 'orbit_right', 'crane_up', 'crane_down', 'handheld',
-                'rack_focus', 'slide_left', 'slide_right')
-BLENDER_HDRI = ('interior', 'studio', 'city', 'courtyard', 'forest', 'night', 'sunrise', 'sunset')
+                'rack_focus', 'slide_left', 'slide_right',
+                'turntable', 'orbit_full', 'arc_left', 'arc_right', 'reveal_pull', 'hero_orbit', 'dolly_zoom', 'drift')
+BLENDER_HDRI = ('interior', 'studio', 'city', 'courtyard', 'forest', 'night', 'sunrise', 'sunset',
+                'studio_small_09', 'photo_studio_loft_hall', 'venice_sunset', 'kloofendal_48d_partly_cloudy_puresky')
 ID_RE = re.compile(r'^[a-z0-9][a-z0-9_\-]{1,63}$')
 MAX_FILES = 4000
 MAX_UNPACKED = 3 * 1024 ** 3

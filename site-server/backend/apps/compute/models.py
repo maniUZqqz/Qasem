@@ -37,6 +37,7 @@ CAPABILITY_FOR_KIND = {
 #: a few kinds have their OWN capability although their prefix belongs to another family
 EXACT_CAPABILITY_FOR_KIND = {
     "photo.matting": "photo_matting",   # u2netp / isnet / birefnet-lite run in plain Python on the node, not in the .NET photo kit
+    "up3d.render": "any",               # the node advertises the kind itself (agent 2.12); Blender is installed by the node's own bootstrap
 }
 
 

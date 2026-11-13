@@ -93,6 +93,9 @@ def _localize(c, base):
             p['label_image'] = None
         if (p.get('params') or {}).get('model_path'):
             p['params']['model_path'] = rel(p['params']['model_path'])
+        for key in ('screen_image', 'screen_image_2', 'screen_image_3', 'screen_image_4', 'face_image'):    # engine 1.3 pictures
+            if (p.get('params') or {}).get(key):
+                p['params'][key] = rel(p['params'][key])
     return c
 
 
@@ -156,6 +159,7 @@ def build_scene(c, out):
     info(stage='animated', seconds=round(time.time() - t0, 1))
 
     stage('bake')
+    camera.spin_products(ctx)        # engine 1.3: the 'turntable' move turns the product (keys), before the bake reads them
     bake.run(ctx)
     fn = bake.series_fn(ctx)
     ctx.cameras = camera.build(ctx, fn)

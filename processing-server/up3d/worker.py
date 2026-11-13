@@ -54,8 +54,15 @@ def probe_devices():
 
 
 class Worker:
-    def __init__(self, server, token, name=None, profiles=None, nice=15, threads=0, work_dir=None, once=False, log=print):
+    def __init__(self, server, token, name=None, profiles=None, nice=15, threads=0, work_dir=None, once=False, log=print,
+                 only_job=None, hooks=None, require_gpu=False):
+        """only_job / hooks / require_gpu: node-agent mode (processing/up3d_jobs.py). The agent runs ONE 3D job as a compute-queue job
+        (so the GPU is shared with the other heavy jobs, one at a time): only_job = the 3D job to claim, hooks = an object with
+        progress(state, data) and cancelled() (mirrors progress into the compute job and lets the agent cancel), require_gpu = a GPU-class
+        render must not silently fall back to the CPU."""
         self.api = ApiClient(server, token, scheme='Worker')
+        self.only_job, self.hooks, self.require_gpu = only_job, hooks, require_gpu
+        self.last = None
         self.name = name or socket.gethostname()
         self.profiles = profiles
         self.nice = nice
@@ -72,12 +79,27 @@ class Worker:
             ud = paths.blender_user_resources()
             mpfb = os.path.isfile(os.path.join(ud, 'extensions', 'user_default', 'mpfb', '__init__.py'))
             self.caps = {'name': self.name, 'version': __version__, 'os': platform.platform(), 'cpu_count': os.cpu_count(),
-                         'profiles': self.profiles or 'auto', 'mpfb': mpfb, 'features': ['ping', 'release', 'packs', 'clips', 'editor'],
-                         **dev}
+                         'profiles': self.profiles or 'auto', 'mpfb': mpfb,
+                         'features': ['ping', 'release', 'packs', 'clips', 'editor', 'v13'] + (['node'] if self.hooks is not None else []),
+                         'optix': any(str(d).startswith('OPTIX:') for d in (dev.get('gpu') or [])), **dev}
             if not mpfb:
                 self.log('هشدار: دادهٔ کاراکترهای MPFB در %s نیست ⇐ کارهای با مجریِ ساخته‌شده به این کارگر داده نمی‌شود' % ud)
             self.log('کارگر %s · Blender %s · GPU: %s' % (self.name, dev.get('blender_version'), dev.get('gpu') or 'ندارد'))
         return self.caps
+
+    def claim_body(self):
+        body = dict(self.capabilities())
+        if self.only_job:
+            body['only_job'] = int(self.only_job)
+        return body
+
+    def run_one(self):
+        """Node-agent mode: announce, claim (only_job if given) and run exactly one job. Returns the claimed job (or None)."""
+        self.api.post('/api/worker/heartbeat/', self.capabilities())
+        job = self.api.post('/api/worker/claim/', self.claim_body()).get('job')
+        if job:
+            self.run_job(job)
+        return job
 
     def loop(self):
         last_hb = 0
@@ -86,7 +108,7 @@ class Worker:
                 if time.time() - last_hb > 30:
                     self.api.post('/api/worker/heartbeat/', self.capabilities())
                     last_hb = time.time()
-                r = self.api.post('/api/worker/claim/', self.capabilities())
+                r = self.api.post('/api/worker/claim/', self.claim_body())
                 job = r.get('job')
                 if job:
                     self.run_job(job)
@@ -99,6 +121,20 @@ class Worker:
             if self.once:
                 return
             time.sleep(6)
+
+    def _gpu_policy(self, jdir, job):
+        """A GPU-class render on a node that has a GPU must run on it (UP3D_REQUIRE_GPU: no silent CPU fallback, the failure says why);
+        a job the panel allowed on the CPU (allow_cpu) is left alone."""
+        os.environ.pop('UP3D_REQUIRE_GPU', None)
+        if not self.require_gpu or (job.get('params') or {}).get('allow_cpu'):
+            return
+        try:
+            with open(os.path.join(jdir, 'compiled.json'), encoding='utf-8') as fh:
+                prof = (json.load(fh).get('profile') or {})
+        except (OSError, ValueError):
+            return
+        if prof.get('recommended') == 'gpu' and prof.get('device') != 'CPU' and prof.get('engine', 'CYCLES') == 'CYCLES':
+            os.environ['UP3D_REQUIRE_GPU'] = '1'
 
     @staticmethod
     def _digest(path):
@@ -124,6 +160,7 @@ class Worker:
         last = [0.0]
         cancel = [False]
         release = [None]           # handoff (به GPU) / yield (جا برای کارِ کوتاه) ⇐ بی‌finish، فریم‌ها می‌مانند
+        ext_cancel = [False]       # the node agent cancelled its compute job: keep the 3D job and its frames (it is dispatched again)
         cur_state = ['SCENE_BUILDING']
 
         def report(state, **kw):
@@ -137,6 +174,13 @@ class Worker:
                     cancel[0] = True
             except ApiError as e:
                 self.log('گزارشِ پیشرفت نرسید: %s' % e)
+            if self.hooks is not None:
+                try:
+                    self.hooks.progress(state, kw)
+                    if self.hooks.cancelled():
+                        ext_cancel[0] = cancel[0] = True
+                except Exception:       # noqa: BLE001 — the agent's bookkeeping must never stop a render
+                    pass
 
         # تپشِ قلب در طولِ کار: فریمِ سنگینِ CPU ده‌ها دقیقه چیزی گزارش نمی‌کند؛ بی این، پنل کارگر را «آفلاین»
         # می‌دید و بعد از ۱۰ دقیقه کار را دوباره در صف می‌گذاشت در حالی که این‌جا هنوز رندر می‌شد
@@ -176,6 +220,7 @@ class Worker:
                     shutil.rmtree(keep, ignore_errors=True)
             kind = job.get('kind', 'render')
             t0 = time.time()
+            self._gpu_policy(jdir, job)
 
             def ev(k, d):
                 if k == 'stage' and d.get('text') in ('render', 'export', 'encode'):
@@ -205,11 +250,17 @@ class Worker:
             self.api.upload('/api/worker/jobs/%s/upload/' % jid, files)
             self.api.post('/api/worker/jobs/%s/finish/' % jid, {'ok': True, 'seconds': round(time.time() - t0, 1)})
             self.log('کارِ %s تمام شد (%.0f ثانیه)' % (jid, time.time() - t0))
+            self.last = {'ok': True, 'job': jid, 'seconds': round(time.time() - t0, 1), 'files': sorted(files)}
         except Exception as e:
+            if ext_cancel[0] and not release[0]:
+                self.log('کارِ %s: کارِ سرورِ پردازش لغو شد؛ کارِ سه‌بعدی و فریم‌هایش می‌مانند' % jid)
+                self.last = {'ok': False, 'job': jid, 'released': 'cancelled'}
+                return
             if release[0]:
                 why = {'handoff': 'به کارگرِ GPU واگذار شد', 'yield': 'برای کارِ کوتاه‌ترِ در صف موقتاً کنار رفت'}.get(
                     release[0], release[0])
                 self.log('کارِ %s %s؛ فریم‌های ساخته‌شده نگه داشته شد' % (jid, why))
+                self.last = {'ok': False, 'job': jid, 'released': release[0]}
                 return
             traceback.print_exc()
             msg = str(e)[:1500]
@@ -221,7 +272,8 @@ class Worker:
             except ApiError:
                 pass
             self.log('کارِ %s ناموفق: %s' % (jid, msg))
+            self.last = {'ok': False, 'job': jid, 'error': msg}
         finally:
             stop.set()
-            if not os.environ.get('UP3D_KEEP_WORK') and not release[0]:
+            if not os.environ.get('UP3D_KEEP_WORK') and not release[0] and not ext_cancel[0]:
                 shutil.rmtree(os.path.join(jdir, 'frames'), ignore_errors=True)

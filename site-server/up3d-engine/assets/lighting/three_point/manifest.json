@@ -1,0 +1,104 @@
+{
+  "id": "three_point",
+  "version": 1,
+  "name": {
+    "fa": "سه‌نقطه‌ایِ کلاسیک",
+    "en": "Three-point lighting"
+  },
+  "description": {
+    "fa": "کلیدِ قوی، پرکنندهٔ نرم و نورِ پشتِ لبه‌ساز؛ نسبتِ ۴ به ۱ برای حجمِ طبیعی",
+    "en": "Classic key / fill / back light with a 4:1 ratio for natural volume."
+  },
+  "min_engine": "1.3.0",
+  "order": 12,
+  "tags": [
+    "product",
+    "studio"
+  ],
+  "rig": [
+    {
+      "name": "key",
+      "azimuth": -42,
+      "elevation": 34,
+      "distance": 1.45,
+      "size": 0.55,
+      "size_y": 0.7,
+      "power": 104,
+      "kelvin": 5200,
+      "target": "stage"
+    },
+    {
+      "name": "fill",
+      "azimuth": 55,
+      "elevation": 10,
+      "distance": 1.9,
+      "size": 1.2,
+      "size_y": 1.2,
+      "power": 30,
+      "kelvin": 6000,
+      "target": "stage"
+    },
+    {
+      "name": "back",
+      "azimuth": 160,
+      "elevation": 42,
+      "distance": 1.4,
+      "size": 0.35,
+      "size_y": 0.5,
+      "power": 92,
+      "kelvin": 5600,
+      "target": "stage"
+    },
+    {
+      "name": "backdrop",
+      "type": "AREA",
+      "position": [
+        0,
+        1.7,
+        0.6
+      ],
+      "size": 2.6,
+      "size_y": 1.4,
+      "power": 30,
+      "kelvin": 4800,
+      "target": "backdrop"
+    }
+  ],
+  "world": {
+    "hdri": "studio_small_09",
+    "hdri_strength": 0.2,
+    "hdri_rotation": 0.0
+  },
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 3.0,
+      "label": "شدت"
+    },
+    "warmth": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "label": "گرمی"
+    },
+    "hdri_strength": {
+      "type": "number",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 4.0,
+      "label": "روشنایی محیط (HDRI)"
+    },
+    "hdri_rotation": {
+      "type": "number",
+      "default": 0.0,
+      "min": -180.0,
+      "max": 180.0,
+      "label": "چرخش محیط (درجه)"
+    }
+  },
+  "license": "UpMarket 3D (procedural, own)",
+  "ai": false
+}

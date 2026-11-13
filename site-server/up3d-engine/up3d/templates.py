@@ -18,6 +18,13 @@ TEMPLATES = {
 }
 
 
+from .templates_ad import AD_TEMPLATES, build_ad  # noqa: E402 — قالب‌های تبلیغاتیِ موتورِ ۱٫۳ (بی‌مجری)
+
+for _v in TEMPLATES.values():
+    _v.setdefault('group', 'presenter')
+TEMPLATES.update({k: dict(v, group='ad') for k, v in AD_TEMPLATES.items()})
+
+
 def _sentences(text):
     parts = [p.strip() for p in re.split(r'[.!؟?\n]+', text or '') if len(p.strip()) > 3]
     return parts
@@ -80,6 +87,8 @@ class _Beats:
 
 def build(template, brief, reg=None):
     reg = reg or registry()
+    if template in AD_TEMPLATES:
+        return build_ad(template, brief, reg)
     b = _brief_defaults(brief, reg)
     doc = S.new_scene(title=b['product_name'], duration=30, aspect=b['aspect'])
     doc['meta'].update({'source': 'template:' + template, 'brief': brief or {}})

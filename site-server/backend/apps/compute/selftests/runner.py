@@ -227,6 +227,21 @@ def _step_queued(t, r, ctx, job) -> None:
         _final(r, S.FAILED, "عاملِ این سرور (نسخهٔ %s) نوعِ «%s» را نمی‌شناسد؛ «به‌روزرسانی» را بزنید." % (
             (node.capabilities or {}).get("agent") or "؟", job.kind))
         return
+    if SV.motion_blocked(node, job):                       # استودیوی موشن: ابزارِ رندر (Node + بسته + مرورگر) خودکار روی گره نصب می‌شود
+        mo = (node.capabilities or {}).get("motion") or {}
+        if mo.get("state") == "failed":
+            SV.cancel(job, "آزمونِ خودکار: نصبِ ابزارِ موشن شکست خورد.")
+            _final(r, S.FAILED, "نصبِ ابزارِ موشن روی گره شکست خورد: %s (گره خودش دوباره تلاش می‌کند؛ بعد از آن «آزمونِ کامل» را بزنید)" % (
+                str(mo.get("error") or "؟")[:300]))
+            return
+        if age > t.wait_install_s:
+            SV.cancel(job, "آزمونِ خودکار: نصبِ ابزارِ موشن تمام نشد.")
+            _final(r, S.FAILED, "نصبِ ابزارِ موشن تا %d ساعت تمام نشد" % (t.wait_install_s // 3600))
+            return
+        r.state = S.WAITING
+        r.detail = "منتظرِ نصبِ خودکارِ ابزارِ موشن: %s" % (str(mo.get("message") or mo.get("state") or "")[:120])
+        r.save(update_fields=["state", "detail"])
+        return
     if SV.audio_blocked(node, job) or SV.matting_blocked(node, job):
         if age > BLOCK_WAIT_S:
             SV.cancel(job, "آزمونِ خودکار: مدل آماده نشد.")

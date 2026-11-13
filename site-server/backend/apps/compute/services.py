@@ -376,7 +376,8 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
-                       "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram"}
+                       "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram",
+                       "motion": "motion_render"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
@@ -454,11 +455,21 @@ def bootstrap_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     return bool(isinstance(blocked, dict) and job.kind in blocked)
 
 
+def motion_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """A motion.render job this node must not take yet: its Remotion toolchain (portable Node.js, renderer pack, browser) is still being
+    installed (or failed to install) - the node reports caps.motion.state and installs everything by itself (processing/motion_jobs.py).
+    The job waits in the durable queue instead of failing; an older agent never advertises the kind (kind_unsupported)."""
+    if job.kind != "motion.render":
+        return False
+    return ((node.capabilities or {}).get("motion") or {}).get("state") != "ready"
+
+
 def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models, unknown kinds,
     features still being installed)."""
     return (audio_blocked(node, job) or matting_blocked(node, job) or kind_unsupported(node, job)
-            or bootstrap_blocked(node, job) or multiangle_blocked(node, job))
+            or bootstrap_blocked(node, job) or multiangle_blocked(node, job)
+            or motion_blocked(node, job))
 
 
 def claim(node: ComputeNode, lane: str = "") -> ComputeJob | None:

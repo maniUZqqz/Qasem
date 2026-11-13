@@ -31,6 +31,7 @@ CAPABILITY_FOR_KIND = {
     "edit": "ffmpeg",        # ویرایشگرِ ویدیو: رندرِ نهایی (edit.render)، ردیابی (edit.track)، حذفِ پس‌زمینه (edit.matte)
     "multiangle": "multiangle",   # چندزاویه: زاویه‌های مجازی از یک دوربین، حرکتِ دوربینِ ۲٫۵بعدی، آزمونِ خودکار (processing/multiangle_jobs.py)
     "ig": "instagram",       # خواننده‌ی اینستاگرام (آباگرام) روی گره: ig.scrape، ig.health — گره با caps["instagram"] اعلام می‌کند
+    "motion": "motion_render",   # استودیوی موشن: Remotion + مرورگرِ بی‌سر روی کارتِ گرافیک (processing/motion_jobs.py)
 }
 
 

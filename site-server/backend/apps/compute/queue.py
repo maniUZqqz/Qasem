@@ -29,6 +29,7 @@ GROUPS = {
 GROUP_OF = {s: g for g, states in GROUPS.items() for s in states}
 
 KIND_LABELS = {
+    "motion.render": "رندرِ ویدیوی موشن",
     "photo.edit": "ویرایشِ عکس", "photo.analyze": "تحلیلِ عکس", "video.edit": "تدوینِ ویدیو",
     "edit.render": "رندرِ نهاییِ ویدیو", "edit.track": "ردیابی در ویدیو", "edit.matte": "حذفِ پس‌زمینهٔ ویدیو",
     "voice.tts": "ساختِ گفتار", "voice.asr": "تبدیلِ گفتار به متن (زیرنویس)", "voice.clone": "ساختِ صدای کلون‌شده",
@@ -170,6 +171,8 @@ def _wait_reason(j: ComputeJob, now, nodes: list, pos: int) -> tuple[str, str]:
             return "model", "در صف — منتظرِ دانلودِ مدلِ «%s» روی سرورِ پردازش" % label
         if j.kind.startswith("multiangle."):
             return "model", "در صف — منتظرِ نصبِ خودکارِ محیط و مدل‌های چندزاویه روی سرورِ پردازش"
+        if j.kind == "motion.render":
+            return "model", "در صف — ابزارِ موشن روی سرورِ پردازش در حالِ نصبِ خودکار است"
         return "model", "در صف — منتظرِ آماده شدنِ مدل روی سرورِ پردازش"
     if pos <= 1:
         return "busy", "در صف — نوبتِ بعدی"

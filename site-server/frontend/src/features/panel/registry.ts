@@ -110,6 +110,7 @@ export const PAGES: PanelPage[] = [
   { key: "performance", section: "content", label: "چه چیزی جواب داد", icon: "target", to: (id) => `/stores/${id}/campaigns/performance` },
   { key: "production_queue", section: "content", label: "صف تولید", icon: "cpu", to: (id) => `/stores/${id}/queue` },
   { key: "editor", section: "content", label: "ادیتور ویدیو", icon: "film", to: (id) => `/stores/${id}/editor` },
+  { key: "motion", section: "content", label: "استودیوی موشن", icon: "play", to: (id) => `/stores/${id}/motion` },
   { key: "photo_editor", section: "content", label: "ادیتور عکس", icon: "image", to: (id) => `/stores/${id}/photo-editor` },
   { key: "thumbnail_maker", section: "content", label: "تامنیل‌ساز", icon: "image", to: (id) => `/stores/${id}/thumbnails` },
   { key: "multiangle", section: "content", label: "چندزاویه", icon: "camera", to: (id) => `/stores/${id}/multiangle` },

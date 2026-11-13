@@ -56,6 +56,8 @@ SECTIONS = [
         ("performance", "چه چیزی جواب داد", "/stores/:id/campaigns/performance", "", []),
         ("production_queue", "صف تولید", "/stores/:id/queue", "", []),
         ("editor", "ادیتور ویدیو", "/stores/:id/editor", "", []),
+        ("motion", "استودیوی موشن", "/stores/:id/motion",
+         "ویدیوی موشن‌گرافیک از روی کد (Remotion): بیش از ۶۰ سبک، سه حالتِ قالبی/هوش مصنوعی/کد، رندرِ نهایی روی کارتِ گرافیک", []),
         ("photo_editor", "ادیتور عکس", "/stores/:id/photo-editor",
          "عکس‌ها را خودکار برای اینستاگرام، استوری و فروشگاه آماده می‌کند (برش، نور و رنگ، پس‌زمینه، متن، لوگو)", []),
         ("thumbnail_maker", "تامنیل‌ساز", "/stores/:id/thumbnails",

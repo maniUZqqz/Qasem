@@ -1,0 +1,6227 @@
+{
+ "styles": [
+  {
+   "id": "pixel-art",
+   "name_fa": "پیکسل‌آرت",
+   "name_en": "Pixel Art",
+   "inspired": null,
+   "group": "digital",
+   "about": "بلوک‌های پیکسلی، آسمانِ پله‌ای، سایهٔ سخت و حرکتِ ۸ فریم‌بر‌ثانیه مثلِ بازیِ ۱۶ بیتی.",
+   "tags": [
+    "بازی",
+    "رترو",
+    "۱۶بیت"
+   ],
+   "palette": {
+    "bg": "#1a1c2c",
+    "bg2": "#29366f",
+    "ink": "#f4f4f4",
+    "paper": "#f4f4f4",
+    "accent": "#ffcd75",
+    "accent2": "#41a6f6",
+    "accent3": "#ef7d57",
+    "muted": "#94b0c2"
+   },
+   "font": {
+    "latin": "press-start-2p",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.45
+   },
+   "bg": {
+    "kind": "bands",
+    "from": "bg2",
+    "to": "bg",
+    "n": 12
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "scanlines",
+     "gap": 6,
+     "opacity": 0.18
+    },
+    {
+     "kind": "dither",
+     "size": 3,
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "pixel",
+    "shadow": "accent3"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "bg2",
+    "bc": "ink",
+    "sc": "bg",
+    "offset": 8,
+    "clip": "notch",
+    "badgeRound": false
+   },
+   "decor": [
+    {
+     "kind": "pixels",
+     "n": 26,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    },
+    {
+     "kind": "sparkles",
+     "n": 8,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     14,
+     260,
+     0.7
+    ],
+    "stagger": 5,
+    "stepFps": 8,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "blocks",
+    "frames": 14
+   },
+   "fx": {
+    "pixel": 5
+   }
+  },
+  {
+   "id": "ps2-style",
+   "name_fa": "سبکِ پلی‌استیشن ۲",
+   "name_en": "PS2 Style",
+   "inspired": "منوی روشنِ کنسولِ نسلِ ۶",
+   "group": "digital",
+   "about": "برج‌های شفافِ آبی در تاریکی، ذره‌های شناور و نوشتهٔ نرم و درخشان؛ حالوهوای منوی کنسول‌های اوایلِ دههٔ ۲۰۰۰.",
+   "tags": [
+    "کنسول",
+    "نوستالژی"
+   ],
+   "palette": {
+    "bg": "#02030c",
+    "bg2": "#0b1d52",
+    "ink": "#e8f0ff",
+    "paper": "#dbe7ff",
+    "accent": "#5aa9ff",
+    "accent2": "#9ad1ff",
+    "accent3": "#ffffff",
+    "muted": "#6e86b8"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.16,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "towers",
+    "n": 16,
+    "color": "accent",
+    "op": 0.3,
+    "base": "bg",
+    "bg2": "bg2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.22,
+     "at": "50% 60%"
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.06,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    }
+   ],
+   "text": {
+    "fx": "softglow",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "glass",
+    "bc": "accent2",
+    "sc": "accent"
+   },
+   "decor": [
+    {
+     "kind": "particles",
+     "n": 40,
+     "colors": [
+      "accent",
+      "accent2",
+      "paper"
+     ]
+    },
+    {
+     "kind": "dust",
+     "n": 30
+    }
+   ],
+   "motion": {
+    "enter": "blur",
+    "spring": [
+     24,
+     70,
+     1.2
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.06,
+     "pan": [
+      0,
+      -14
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 22
+   },
+   "fx": {}
+  },
+  {
+   "id": "glitch-art",
+   "name_fa": "گلیچ‌آرت",
+   "name_en": "Glitch Art",
+   "inspired": null,
+   "group": "digital",
+   "about": "تصویرِ خراب‌شده: جداشدنِ رنگ‌ها، نوارهای نویز و پرش‌های ناگهانی.",
+   "tags": [
+    "خراب",
+    "فناوری"
+   ],
+   "palette": {
+    "bg": "#050505",
+    "bg2": "#14001f",
+    "ink": "#f5f5f5",
+    "paper": "#f5f5f5",
+    "accent": "#00f0ff",
+    "accent2": "#ff2bd6",
+    "accent3": "#f7ff00",
+    "muted": "#7a7a8c"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.04,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "noise",
+    "base": "bg",
+    "colors": [
+     "accent",
+     "accent2",
+     "paper"
+    ],
+    "bars": 14,
+    "rate": 10,
+    "grain": 0.2
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.25,
+     "roll": true
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.08
+    }
+   ],
+   "text": {
+    "fx": "glitch",
+    "a": "accent",
+    "b": "accent2",
+    "amp": 10
+   },
+   "shape": {
+    "radius": 0,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "bg2",
+    "bc": "accent",
+    "sc": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "mode": "h",
+     "n": 18,
+     "color": "accent",
+     "rate": 10
+    }
+   ],
+   "motion": {
+    "enter": "glitch",
+    "spring": [
+     22,
+     200,
+     0.8
+    ],
+    "stagger": 4,
+    "stepFps": 15,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "glitch",
+    "frames": 14
+   },
+   "fx": {
+    "chroma": 6
+   }
+  },
+  {
+   "id": "cyberpunk",
+   "name_fa": "سایبرپانک",
+   "name_en": "Cyberpunk",
+   "inspired": null,
+   "group": "digital",
+   "about": "شهرِ شبانهٔ نئونی با باران، پنجره‌های روشن و رنگ‌های صورتی و فیروزه‌ای.",
+   "tags": [
+    "نئون",
+    "شهر"
+   ],
+   "palette": {
+    "bg": "#0a0614",
+    "bg2": "#2a0a4a",
+    "ink": "#f2eaff",
+    "paper": "#f2eaff",
+    "accent": "#ff2a8a",
+    "accent2": "#00e5ff",
+    "accent3": "#ffe600",
+    "muted": "#8a6fb5"
+   },
+   "font": {
+    "latin": "orbitron",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.04,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "skyline",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "bld": "bg",
+    "neon": true,
+    "layers": 3,
+    "speed": 10
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.12
+    },
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.15
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    }
+   ],
+   "text": {
+    "fx": "neon",
+    "glow": "accent2",
+    "core": "paper"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "bg",
+    "bc": "accent2",
+    "sc": "accent2",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "rain",
+     "n": 70,
+     "color": "accent2",
+     "angle": 14
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     20,
+     170,
+     0.9
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "glitch",
+    "frames": 14
+   },
+   "fx": {
+    "chroma": 3
+   }
+  },
+  {
+   "id": "synthwave",
+   "name_fa": "سینت‌ویو",
+   "name_en": "Synthwave",
+   "inspired": null,
+   "group": "digital",
+   "about": "خورشیدِ راه‌راه، کفِ شبکه‌ایِ در حالِ حرکت و نوشتهٔ کرومیِ دههٔ ۸۰.",
+   "tags": [
+    "دههٔ۸۰",
+    "نئون"
+   ],
+   "palette": {
+    "bg": "#1a0536",
+    "bg2": "#3d0e6b",
+    "ink": "#ffe9ff",
+    "paper": "#ffe9ff",
+    "accent": "#ff3ea5",
+    "accent2": "#00e5ff",
+    "accent3": "#ff9a3c",
+    "muted": "#b58ae0"
+   },
+   "font": {
+    "latin": "righteous",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.03,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "sunset",
+    "sky": [
+     "bg",
+     "bg2",
+     "accent"
+    ],
+    "sun": [
+     "accent3",
+     "accent"
+    ],
+    "floor": "grid",
+    "line": "accent2",
+    "floorBase": "bg",
+    "horizon": 0.6,
+    "speed": 90
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent2",
+     "opacity": 0.2
+    },
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.08
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    }
+   ],
+   "text": {
+    "fx": "chrome",
+    "edge": "bg"
+   },
+   "shape": {
+    "radius": 14,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "bg",
+    "bc": "accent2",
+    "sc": "accent"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 10,
+     "colors": [
+      "paper",
+      "accent2"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "sweep",
+    "spring": [
+     22,
+     130,
+     1
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05
+    }
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "vaporwave",
+   "name_fa": "ویپورویو",
+   "name_en": "Vaporwave",
+   "inspired": null,
+   "group": "digital",
+   "about": "پاستلیِ صورتی و فیروزه‌ای، کفِ شطرنجی و پنجره‌های سیستم‌عاملِ قدیمی.",
+   "tags": [
+    "پاستلی",
+    "نوستالژی"
+   ],
+   "palette": {
+    "bg": "#f6c9ff",
+    "bg2": "#7fe9e0",
+    "ink": "#2b1460",
+    "paper": "#fff4fe",
+    "accent": "#ff71ce",
+    "accent2": "#01cdfe",
+    "accent3": "#b967ff",
+    "muted": "#8a6bd1"
+   },
+   "font": {
+    "latin": "vt323",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.03,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "sunset",
+    "sky": [
+     "accent3",
+     "accent",
+     "bg"
+    ],
+    "sun": [
+     "accent2",
+     "paper"
+    ],
+    "floor": "checker",
+    "fa": "accent",
+    "fb": "accent2",
+    "horizon": 0.6,
+    "speed": 70
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.08,
+     "blend": "overlay"
+    },
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "paper",
+    "shadow": "accent3",
+    "depth": 7
+   },
+   "shape": {
+    "radius": 0,
+    "border": 4,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent2",
+    "offset": 9,
+    "extra": "titlebar",
+    "bar": "accent3"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 10,
+     "kinds": [
+      "tri",
+      "ring",
+      "cross",
+      "half"
+     ],
+     "colors": [
+      "accent2",
+      "accent3",
+      "accent",
+      "ink"
+     ],
+     "spin": 10
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     14,
+     130,
+     0.9
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.04
+    }
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "retro-terminal",
+   "name_fa": "ترمینالِ رترو",
+   "name_en": "Retro Terminal",
+   "inspired": null,
+   "group": "digital",
+   "about": "متنِ سبزِ فسفری روی صفحهٔ سیاه با خطوطِ اسکن و تایپِ حرف‌به‌حرف.",
+   "tags": [
+    "کد",
+    "ترمینال"
+   ],
+   "palette": {
+    "bg": "#020a04",
+    "bg2": "#04210b",
+    "ink": "#3dff6b",
+    "paper": "#b8ffc9",
+    "accent": "#3dff6b",
+    "accent2": "#ffd34d",
+    "accent3": "#ff5d5d",
+    "muted": "#1f8a3a"
+   },
+   "font": {
+    "latin": "vt323",
+    "fa": "vazirmatn",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 45%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "crt"
+    },
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.18,
+     "roll": true
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "phosphor"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "none",
+    "bc": "accent",
+    "sc": "accent"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent"
+    }
+   ],
+   "motion": {
+    "enter": "type",
+    "spring": [
+     40,
+     260,
+     1
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "cut",
+    "frames": 0
+   },
+   "fx": {}
+  },
+  {
+   "id": "vhs-tape",
+   "name_fa": "نوارِ ویدیوی VHS",
+   "name_en": "VHS Tape",
+   "inspired": null,
+   "group": "digital",
+   "about": "رنگ‌پریدگیِ نوار، خطوطِ ردیابی و پرشِ تصویرِ دهه‌های ۸۰ و ۹۰.",
+   "tags": [
+    "نوستالژی",
+    "ویدیو"
+   ],
+   "palette": {
+    "bg": "#10121f",
+    "bg2": "#231a3d",
+    "ink": "#f5f5f5",
+    "paper": "#f5f5f5",
+    "accent": "#ff3d81",
+    "accent2": "#19e3ff",
+    "accent3": "#ffe14d",
+    "muted": "#7f86a8"
+   },
+   "font": {
+    "latin": "vt323",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "noise",
+    "base": "bg",
+    "colors": [
+     "accent2",
+     "accent",
+     "paper"
+    ],
+    "bars": 10,
+    "rate": 8,
+    "grain": 0.25
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vhs",
+     "opacity": 0.35
+    },
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.12
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "vhs"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 3,
+    "shadow": "none",
+    "fill": "bg2",
+    "bc": "paper"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent2"
+    }
+   ],
+   "motion": {
+    "enter": "glitch",
+    "spring": [
+     22,
+     180,
+     0.9
+    ],
+    "stagger": 4,
+    "stepFps": 15,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "roll",
+    "frames": 12
+   },
+   "fx": {
+    "chroma": 3.5
+   }
+  },
+  {
+   "id": "sci-fi-hud",
+   "name_fa": "رابطِ علمی‌تخیلی (HUD)",
+   "name_en": "Sci-Fi HUD",
+   "inspired": null,
+   "group": "digital",
+   "about": "حلقه‌های رادار، خطوطِ اسکن و قاب‌های فنیِ فیروزه‌ای.",
+   "tags": [
+    "آینده",
+    "فناوری"
+   ],
+   "palette": {
+    "bg": "#020b14",
+    "bg2": "#06243a",
+    "ink": "#d6f6ff",
+    "paper": "#d6f6ff",
+    "accent": "#19d3ff",
+    "accent2": "#ffb020",
+    "accent3": "#ff4d6d",
+    "muted": "#3c7a99"
+   },
+   "font": {
+    "latin": "orbitron",
+    "fa": "kufam",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.08,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "hud",
+    "base": "bg",
+    "bg2": "bg2",
+    "line": "accent",
+    "sweep": "accent2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "scanlines",
+     "gap": 4,
+     "opacity": 0.1
+    },
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.14
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.4
+    }
+   ],
+   "text": {
+    "fx": "softglow",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "none",
+    "bc": "accent",
+    "sc": "accent",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "corners",
+     "color": "accent"
+    },
+    {
+     "kind": "particles",
+     "n": 20,
+     "colors": [
+      "accent"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "scan",
+    "spring": [
+     34,
+     200,
+     1
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "particles",
+   "name_fa": "ذره‌ها",
+   "name_en": "Particles",
+   "inspired": null,
+   "group": "digital",
+   "about": "نقطه‌های شناور که با خطوطِ نازک به هم وصل می‌شوند؛ شبکه و داده.",
+   "tags": [
+    "داده",
+    "فناوری"
+   ],
+   "palette": {
+    "bg": "#060812",
+    "bg2": "#121a3a",
+    "ink": "#f0f4ff",
+    "paper": "#f0f4ff",
+    "accent": "#7cf5ff",
+    "accent2": "#b28bff",
+    "accent3": "#ff8bd1",
+    "muted": "#6f7fb5"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "constellation",
+    "base": "bg",
+    "bg2": "bg2",
+    "n": 70,
+    "link": 230,
+    "dot": "accent",
+    "line": "accent2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.1
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.04,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "softglow",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 20,
+    "border": 1,
+    "shadow": "glow",
+    "fill": "glass",
+    "bc": "accent2",
+    "sc": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "particles",
+     "n": 40,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     26,
+     90,
+     1.1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "aurora",
+   "name_fa": "شفقِ گرادیانی",
+   "name_en": "Aurora Gradient",
+   "inspired": null,
+   "group": "digital",
+   "about": "لکه‌های رنگیِ شناور روی زمینهٔ تیره و نوشتهٔ گرادیانی؛ مدرن و نرم.",
+   "tags": [
+    "مدرن",
+    "گرادیان"
+   ],
+   "palette": {
+    "bg": "#050b1a",
+    "bg2": "#0b2a4a",
+    "ink": "#f2fbff",
+    "paper": "#f2fbff",
+    "accent": "#34e0a1",
+    "accent2": "#6a5cff",
+    "accent3": "#ff6ad5",
+    "muted": "#8fb3c9"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "mesh",
+    "base": "bg",
+    "blobs": [
+     "accent",
+     "accent2",
+     "accent3",
+     "bg2"
+    ],
+    "speed": 0.22,
+    "size": 0.85,
+    "op": 0.7
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.05,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    }
+   ],
+   "text": {
+    "fx": "gradient",
+    "a": "accent",
+    "b": "accent3",
+    "angle": 100
+   },
+   "shape": {
+    "radius": 24,
+    "border": 1,
+    "shadow": "soft",
+    "fill": "glass",
+    "bc": "rgba(255,255,255,0.25)"
+   },
+   "decor": [
+    {
+     "kind": "particles",
+     "n": 30,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     24,
+     90,
+     1.2
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 22
+   },
+   "fx": {}
+  },
+  {
+   "id": "comic-art",
+   "name_fa": "کمیک‌آرت",
+   "name_en": "Comic Art",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "نقطه‌چینِ چاپی، خطِ ضخیمِ سیاه، انفجارهای زرد و حبابِ کلمات.",
+   "tags": [
+    "کمیک",
+    "کارتون"
+   ],
+   "palette": {
+    "bg": "#ffe94d",
+    "bg2": "#ffd21a",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#e63946",
+    "accent2": "#1d6fe0",
+    "accent3": "#ffffff",
+    "muted": "#444444"
+   },
+   "font": {
+    "latin": "bangers",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.03,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "halftone",
+    "base": "bg",
+    "dot": "#ffb300",
+    "size": 30
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "halftone",
+     "color": "ink",
+     "size": 18,
+     "opacity": 0.06
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "outline-hard",
+    "color": "paper",
+    "stroke_c": "ink",
+    "sw": 7,
+    "depth": 9
+   },
+   "shape": {
+    "radius": 0,
+    "border": 7,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 10,
+    "tilt": 1.2
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "n": 30,
+     "color": "paper"
+    },
+    {
+     "kind": "burst",
+     "color": "accent",
+     "stroke": "ink",
+     "spikes": 16,
+     "r": 0.5,
+     "cy": 0.46
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     9,
+     190,
+     0.7
+    ],
+    "stagger": 5,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe-diag",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "pop-art",
+   "name_fa": "پاپ‌آرت",
+   "name_en": "Pop Art",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "رنگ‌های تخت و پرانرژی با نقطه‌های بزرگِ چاپی و حاشیهٔ سیاه.",
+   "tags": [
+    "هنرِ مدرن",
+    "رنگارنگ"
+   ],
+   "palette": {
+    "bg": "#ffffff",
+    "bg2": "#ffe000",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#ff1f6d",
+    "accent2": "#00a6ff",
+    "accent3": "#ffe000",
+    "muted": "#444444"
+   },
+   "font": {
+    "latin": "luckiest-guy",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "halftone",
+    "base": "bg2",
+    "dot": "accent",
+    "size": 40,
+    "maskA": 1,
+    "maskB": 0.85
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "halftone",
+     "color": "accent2",
+     "size": 26,
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "outline-hard",
+    "color": "paper",
+    "stroke_c": "ink",
+    "sw": 8,
+    "depth": 10
+   },
+   "shape": {
+    "radius": 0,
+    "border": 8,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 10,
+    "tilt": 1.5
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 8,
+     "kinds": [
+      "circle",
+      "tri",
+      "cross"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "ink"
+     ],
+     "outline": true,
+     "size": 1.2
+    }
+   ],
+   "motion": {
+    "enter": "slam",
+    "spring": [
+     12,
+     190,
+     0.8
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "blocks",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "flat-vector",
+   "name_fa": "وکتورِ تخت",
+   "name_en": "Flat Vector",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "شکل‌های ساده، رنگ‌های تختِ گرم و لبه‌های گرد؛ خوانا و دوستانه.",
+   "tags": [
+    "ساده",
+    "مدرن"
+   ],
+   "palette": {
+    "bg": "#fdf3e7",
+    "bg2": "#f9dcc4",
+    "ink": "#26304f",
+    "paper": "#ffffff",
+    "accent": "#ff6b6b",
+    "accent2": "#4ecdc4",
+    "accent3": "#ffd166",
+    "muted": "#8d93a8"
+   },
+   "font": {
+    "latin": "nunito",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg",
+    "alt": "bg2"
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 28,
+    "border": 0,
+    "shadow": "none",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "blobs",
+     "n": 5,
+     "colors": [
+      "accent2",
+      "accent3",
+      "accent"
+     ],
+     "op": 0.55,
+     "size": 1
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     13,
+     150,
+     0.9
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "flat-2d",
+   "name_fa": "تختِ دوبعدی با سایهٔ بلند",
+   "name_en": "Flat 2D",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "بلوک‌های رنگی، سایهٔ بلندِ ۴۵ درجه و حرکتِ لغزنده.",
+   "tags": [
+    "تخت",
+    "گرافیک"
+   ],
+   "palette": {
+    "bg": "#1b9aaa",
+    "bg2": "#0f6e7a",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ffc857",
+    "accent2": "#e9724c",
+    "accent3": "#06d6a0",
+    "muted": "#b7e4e9"
+   },
+   "font": {
+    "latin": "inter",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 140,
+    "angle": 35,
+    "move": 30
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "long",
+    "shadow": "bg2",
+    "depth": 28,
+    "color": "paper"
+   },
+   "shape": {
+    "radius": 12,
+    "border": 0,
+    "shadow": "long",
+    "fill": "paper",
+    "sc": "bg2"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 12,
+     "kinds": [
+      "circle",
+      "tri",
+      "half"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     22,
+     170,
+     1
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "push",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "corporate-memphis",
+   "name_fa": "ممفیسِ سازمانی",
+   "name_en": "Corporate Memphis",
+   "inspired": "سبکِ تصویرسازیِ شرکت‌های فناوری",
+   "group": "cartoon",
+   "about": "لکه‌های رنگیِ بزرگ و فرم‌های ارگانیک؛ همان حالوهوای تصویرسازیِ سایت‌های شرکتی.",
+   "tags": [
+    "شرکتی",
+    "ملایم"
+   ],
+   "palette": {
+    "bg": "#f7efe8",
+    "bg2": "#efd9ff",
+    "ink": "#2b2350",
+    "paper": "#ffffff",
+    "accent": "#7c5cff",
+    "accent2": "#ff8fab",
+    "accent3": "#ffd23f",
+    "muted": "#8c84b0"
+   },
+   "font": {
+    "latin": "nunito",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "linear",
+    "from": "bg",
+    "to": "bg2",
+    "angle": 200
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 34,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "blobs",
+     "n": 6,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "op": 0.7,
+     "size": 1.1
+    },
+    {
+     "kind": "shapes",
+     "n": 8,
+     "kinds": [
+      "ring",
+      "cross",
+      "dots",
+      "squiggle"
+     ],
+     "colors": [
+      "ink"
+     ],
+     "size": 0.8,
+     "spin": 6
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     16,
+     130,
+     0.95
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "memphis",
+   "name_fa": "ممفیس (دههٔ ۸۰)",
+   "name_en": "Memphis",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "خط‌های موجی، مثلث و نقطه‌ها روی زمینهٔ روشن؛ گروهِ ممفیسِ ایتالیا.",
+   "tags": [
+    "دههٔ۸۰",
+    "رنگارنگ"
+   ],
+   "palette": {
+    "bg": "#fff7e6",
+    "bg2": "#ffd9f0",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#ff4fa3",
+    "accent2": "#00c2b8",
+    "accent3": "#ffd400",
+    "muted": "#6b6b6b"
+   },
+   "font": {
+    "latin": "archivo-black",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "dots",
+    "base": "bg",
+    "dot": "accent",
+    "size": 44,
+    "r": 5
+   },
+   "bg2": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 34,
+    "angle": -30
+   },
+   "tex": [],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 7
+   },
+   "shape": {
+    "radius": 0,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent2",
+    "offset": 10,
+    "tilt": 1.5
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 20,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3",
+      "ink"
+     ],
+     "outline": true,
+     "spin": 20
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     11,
+     120,
+     0.9
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "spin",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "cartoon-network-inspired",
+   "name_fa": "کارتونیِ تلویزیونی",
+   "name_en": "Cartoon TV Style",
+   "inspired": "کارتونِ تلویزیونیِ مدرن",
+   "group": "cartoon",
+   "about": "خطِ یکنواختِ ضخیم، رنگ‌های اشباع، شکل‌های بامزه و فشرده‌شدن/کشیده‌شدنِ حرکت.",
+   "tags": [
+    "کارتون",
+    "شاد"
+   ],
+   "palette": {
+    "bg": "#19c3b1",
+    "bg2": "#ff5fa2",
+    "ink": "#1a1a1a",
+    "paper": "#ffffff",
+    "accent": "#ffe14d",
+    "accent2": "#ff5fa2",
+    "accent3": "#7a5cff",
+    "muted": "#0b6d63"
+   },
+   "font": {
+    "latin": "luckiest-guy",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "checker",
+    "a": "bg",
+    "b": "#13a898",
+    "size": 110,
+    "move": 20
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "outline-hard",
+    "color": "accent",
+    "stroke_c": "ink",
+    "sw": 7,
+    "depth": 8
+   },
+   "shape": {
+    "radius": 28,
+    "border": 7,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 9,
+    "tilt": 1.8
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 12,
+     "kinds": [
+      "circle",
+      "tri",
+      "cross",
+      "half"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "outline": true,
+     "spin": 24
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     8,
+     170,
+     0.7
+    ],
+    "stagger": 5,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.04
+    }
+   },
+   "trans": {
+    "kind": "spin",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "anime-inspired",
+   "name_fa": "انیمه",
+   "name_en": "Anime",
+   "inspired": "انیمهٔ ژاپنی",
+   "group": "cartoon",
+   "about": "آسمانِ آبی با ابرهای تیز، خطوطِ سرعت، گلبرگ و ضربهٔ زومِ دراماتیک.",
+   "tags": [
+    "ژاپنی",
+    "پرانرژی"
+   ],
+   "palette": {
+    "bg": "#4aa8ff",
+    "bg2": "#bfe6ff",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ff5e8a",
+    "accent2": "#ffd93d",
+    "accent3": "#7c5cff",
+    "muted": "#1c3b6b"
+   },
+   "font": {
+    "latin": "londrina-solid",
+    "fa": "lalezar",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.01,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "clouds",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "cloud": "paper",
+    "shadow": "#a8d4f5",
+    "crisp": true,
+    "n": 8,
+    "band": 0.6,
+    "speed": 1.4
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.25,
+     "at": "70% 20%"
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.15
+    }
+   ],
+   "text": {
+    "fx": "outline-hard",
+    "color": "paper",
+    "stroke_c": "muted",
+    "sw": 7,
+    "depth": 7
+   },
+   "shape": {
+    "radius": 20,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "muted",
+    "sc": "muted",
+    "tilt": -1
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "n": 26,
+     "color": "paper",
+     "rate": 12
+    },
+    {
+     "kind": "petals",
+     "n": 16,
+     "colors": [
+      "#ffc2d9",
+      "paper"
+     ]
+    },
+    {
+     "kind": "sparkles",
+     "n": 10,
+     "glow": true,
+     "colors": [
+      "accent2",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "zoompunch",
+    "spring": [
+     12,
+     200,
+     0.8
+    ],
+    "stagger": 5,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.08
+    }
+   },
+   "trans": {
+    "kind": "whip",
+    "frames": 10
+   },
+   "fx": {}
+  },
+  {
+   "id": "ghibli-inspired",
+   "name_fa": "نقاشیِ افسانه‌ای (الهام از جیبلی)",
+   "name_en": "Ghibli-style",
+   "inspired": "استودیو جیبلی",
+   "group": "cartoon",
+   "about": "تپه‌های سبز و آسمانِ نرم، پرنده و گلبرگ؛ کند، گرم و نقاشی‌وار.",
+   "tags": [
+    "نقاشی",
+    "طبیعت"
+   ],
+   "palette": {
+    "bg": "#9fd8ef",
+    "bg2": "#f6f1d9",
+    "ink": "#1f3a3d",
+    "paper": "#fffbea",
+    "accent": "#e07a5f",
+    "accent2": "#3d8361",
+    "accent3": "#f2cc8f",
+    "muted": "#5f7f7a"
+   },
+   "font": {
+    "latin": "caveat",
+    "fa": "mirza",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "hills",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "colors": [
+     "#a8d5a2",
+     "accent2",
+     "#2f5d46"
+    ],
+    "layers": 4,
+    "parallax": 1.4,
+    "speed": 7,
+    "sun": true,
+    "sunColor": "paper",
+    "amp": 0.06
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.25
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.08
+    },
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.15
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 26,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "birds",
+     "n": 3,
+     "color": "ink"
+    },
+    {
+     "kind": "petals",
+     "n": 12,
+     "colors": [
+      "paper",
+      "#f6d1da"
+     ]
+    },
+    {
+     "kind": "dust",
+     "n": 25
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 11,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.07,
+     "pan": [
+      -26,
+      -6
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 26
+   },
+   "fx": {}
+  },
+  {
+   "id": "disney-inspired",
+   "name_fa": "افسانهٔ شبانه (الهام از دیزنی)",
+   "name_en": "Fairy-tale Classic",
+   "inspired": "دیزنیِ کلاسیک",
+   "group": "cartoon",
+   "about": "آسمانِ پرستاره، قصرِ سیاه‌نما، حروفِ طلایی و ذره‌های جادویی؛ گذارِ دایره‌ایِ کلاسیک.",
+   "tags": [
+    "افسانه",
+    "جادو"
+   ],
+   "palette": {
+    "bg": "#0b1445",
+    "bg2": "#2b3a99",
+    "ink": "#fff4d6",
+    "paper": "#fff4d6",
+    "accent": "#ffd34d",
+    "accent2": "#7fd1ff",
+    "accent3": "#ff8fd0",
+    "muted": "#9fb0ff"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "aref-ruqaa",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.04,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "nightsky",
+    "from": "bg",
+    "to": "bg2",
+    "stars": 110,
+    "castle": true,
+    "moon": true,
+    "bld": "#050a28",
+    "win": "accent"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.15,
+     "at": "50% 70%"
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    }
+   ],
+   "text": {
+    "fx": "gold"
+   },
+   "shape": {
+    "radius": 22,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "bg2",
+    "bc": "accent",
+    "sc": "accent",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 18,
+     "glow": true,
+     "colors": [
+      "accent",
+      "paper",
+      "accent2"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     24,
+     80,
+     1.2
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "iris",
+    "frames": 22
+   },
+   "fx": {}
+  },
+  {
+   "id": "stickman",
+   "name_fa": "آدمِ چوبی",
+   "name_en": "Stickman",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "دفترچهٔ خط‌دار با آدمِ چوبیِ در حالِ راه‌رفتن و خطِ لرزانِ ماژیک؛ توضیحِ ساده.",
+   "tags": [
+    "توضیحی",
+    "ساده"
+   ],
+   "palette": {
+    "bg": "#fbfaf5",
+    "bg2": "#f0eee3",
+    "ink": "#1a1a1a",
+    "paper": "#ffffff",
+    "accent": "#e63946",
+    "accent2": "#1d7fd6",
+    "accent3": "#2a9d4a",
+    "muted": "#8a8a80"
+   },
+   "font": {
+    "latin": "caveat",
+    "fa": "lemonada",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "notebook",
+    "base": "bg",
+    "line": "accent2",
+    "margin": "accent"
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "hand",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 4,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "stickman",
+     "color": "ink",
+     "mode": "walk",
+     "size": 1
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     30,
+     150,
+     1
+    ],
+    "stagger": 9,
+    "stepFps": 10,
+    "wobble": 4,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "chalkboard",
+   "name_fa": "تختهٔ گچی",
+   "name_en": "ChalkBoard",
+   "inspired": null,
+   "group": "craft",
+   "about": "تختهٔ سبزِ کلاس با قابِ چوبی، نوشتهٔ گچیِ ناهموار و پاک‌کردنِ دست‌ساز.",
+   "tags": [
+    "آموزشی",
+    "کلاس"
+   ],
+   "palette": {
+    "bg": "#26382f",
+    "bg2": "#1d2b24",
+    "ink": "#f3f1e6",
+    "paper": "#f3f1e6",
+    "accent": "#ffd966",
+    "accent2": "#8fd3f4",
+    "accent3": "#f4a6c0",
+    "muted": "#9fb3a8"
+   },
+   "font": {
+    "latin": "gloria-hallelujah",
+    "fa": "lemonada",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "chalk",
+    "base": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "chalkdust",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "chalk",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 14,
+    "border": 4,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "dash": true,
+    "filter": "url(#nm-chalk)"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "accent2",
+     "sw": 5
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     30,
+     140,
+     1
+    ],
+    "stagger": 9,
+    "stepFps": 12,
+    "wobble": 5,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "whiteboard",
+   "name_fa": "وایت‌برد",
+   "name_en": "Whiteboard",
+   "inspired": null,
+   "group": "craft",
+   "about": "ماژیکِ آبی و قرمز روی وایت‌بردِ قاب‌دار؛ خطِ لرزان و نوشتنِ تدریجی.",
+   "tags": [
+    "آموزشی",
+    "ارائه"
+   ],
+   "palette": {
+    "bg": "#f4f6f8",
+    "bg2": "#e6eaee",
+    "ink": "#1d3fa6",
+    "paper": "#ffffff",
+    "accent": "#e5383b",
+    "accent2": "#2a9d4a",
+    "accent3": "#111111",
+    "muted": "#7b8794"
+   },
+   "font": {
+    "latin": "caveat",
+    "fa": "lemonada",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "whiteboard",
+    "base": "paper"
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "hand",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 4,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "accent",
+     "sw": 6,
+     "arrow": true
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     30,
+     150,
+     1
+    ],
+    "stagger": 9,
+    "stepFps": 12,
+    "wobble": 4,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "pencil-sketch",
+   "name_fa": "طرحِ مداد",
+   "name_en": "Pencil Sketch",
+   "inspired": null,
+   "group": "craft",
+   "about": "خطِ مدادِ خاکستری، سایه‌زنیِ هاشور و لرزشِ خطِ دست.",
+   "tags": [
+    "طراحی",
+    "ظریف"
+   ],
+   "palette": {
+    "bg": "#f5f2ea",
+    "bg2": "#e9e4d6",
+    "ink": "#3a3a3a",
+    "paper": "#fffdf7",
+    "accent": "#6b6b6b",
+    "accent2": "#9a9a9a",
+    "accent3": "#c9a66b",
+    "muted": "#8c8c8c"
+   },
+   "font": {
+    "latin": "architects-daughter",
+    "fa": "lemonada",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.6
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "crosshatch",
+     "color": "ink",
+     "opacity": 0.06
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.08
+    }
+   ],
+   "text": {
+    "fx": "pencil",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 3,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "ink",
+     "sw": 3,
+     "op": 0.75
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     30,
+     110,
+     1.1
+    ],
+    "stagger": 10,
+    "stepFps": 8,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "paper-collage",
+   "name_fa": "کولاژِ کاغذ",
+   "name_en": "Paper Collage",
+   "inspired": null,
+   "group": "craft",
+   "about": "تکه‌های پاره‌شدهٔ کاغذ، نوارچسب و حروفِ بریده‌شده مثلِ نامهٔ باج‌گیری.",
+   "tags": [
+    "دست‌ساز",
+    "کولاژ"
+   ],
+   "palette": {
+    "bg": "#d9c7a3",
+    "bg2": "#efe6d2",
+    "ink": "#1f1b16",
+    "paper": "#faf5e9",
+    "accent": "#d94f3d",
+    "accent2": "#2f6f73",
+    "accent3": "#f2b84b",
+    "muted": "#7a6a52"
+   },
+   "font": {
+    "latin": "abril-fatface",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.7
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.12
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.25
+    }
+   ],
+   "text": {
+    "fx": "cutout",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 2,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper",
+    "clip": "torn",
+    "extra": "tape",
+    "tilt": 1.5
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 10,
+     "kinds": [
+      "circle",
+      "half",
+      "tri"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 1.3,
+     "spin": 4
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     26,
+     130,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": 8,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "papercraft",
+   "name_fa": "کاغذبُری لایه‌ای",
+   "name_en": "Papercraft",
+   "inspired": null,
+   "group": "craft",
+   "about": "لایه‌های کاغذیِ موج‌دار با سایهٔ نرم؛ مثلِ کاغذبُریِ سه‌لایه.",
+   "tags": [
+    "کاغذ",
+    "پاستلی"
+   ],
+   "palette": {
+    "bg": "#fdf0d5",
+    "bg2": "#c6d8d3",
+    "ink": "#2b2d42",
+    "paper": "#ffffff",
+    "accent": "#f4978e",
+    "accent2": "#84a98c",
+    "accent3": "#f6bd60",
+    "muted": "#8d99ae"
+   },
+   "font": {
+    "latin": "fredoka",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "layers",
+    "base": "bg",
+    "colors": [
+     "accent3",
+     "accent",
+     "accent2",
+     "muted"
+    ],
+    "n": 5
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "emboss",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 22,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 20,
+     "color": "paper"
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     22,
+     90,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      0,
+      -10
+     ]
+    }
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "origami",
+   "name_fa": "اوریگامی",
+   "name_en": "Origami",
+   "inspired": null,
+   "group": "craft",
+   "about": "وجه‌های تیز و تاشده با نورِ دو‌رنگ، بازشدنِ کاغذی.",
+   "tags": [
+    "کاغذ",
+    "هندسی"
+   ],
+   "palette": {
+    "bg": "#f4e9ff",
+    "bg2": "#b7d3ff",
+    "ink": "#23213a",
+    "paper": "#ffffff",
+    "accent": "#7b5cff",
+    "accent2": "#ff7a9c",
+    "accent3": "#38c6a9",
+    "muted": "#8b88a8"
+   },
+   "font": {
+    "latin": "nunito",
+    "fa": "vazirmatn",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "lowpoly",
+    "a": "bg2",
+    "b": "bg",
+    "cell": 210,
+    "jitter": 0.5,
+    "contrast": 0.16,
+    "seed": 7,
+    "edge": "paper",
+    "drift": 0.03
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "fold",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper",
+    "fillGradient": 150
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 10,
+     "kinds": [
+      "tri"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 1.2,
+     "spin": 8
+    }
+   ],
+   "motion": {
+    "enter": "unfold",
+    "spring": [
+     30,
+     140,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flip",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "stop-motion",
+   "name_fa": "استاپ‌موشن",
+   "name_en": "Stop Motion",
+   "inspired": null,
+   "group": "craft",
+   "about": "میزِ چوبی، نمدِ دوخته‌دوزی‌شده و حرکتِ لرزانِ ۶ فریم‌بر‌ثانیه.",
+   "tags": [
+    "دست‌ساز",
+    "نمد"
+   ],
+   "palette": {
+    "bg": "#8a5a2b",
+    "bg2": "#b98547",
+    "ink": "#2a1a0c",
+    "paper": "#f1e6cf",
+    "accent": "#e4572e",
+    "accent2": "#29b6a5",
+    "accent3": "#f3a712",
+    "muted": "#6b4a2a"
+   },
+   "font": {
+    "latin": "special-elite",
+    "fa": "vazirmatn",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "wood",
+    "base": "bg",
+    "plank": 260
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "felt",
+    "color": "paper"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 4,
+    "shadow": "soft",
+    "fill": "accent",
+    "bc": "paper",
+    "dash": true,
+    "filter": "url(#nm-ink)"
+   },
+   "decor": [
+    {
+     "kind": "confetti",
+     "n": 12,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3",
+      "paper"
+     ],
+     "size": 1.2,
+     "speed": 0.3
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     16,
+     140,
+     0.9
+    ],
+    "stagger": 9,
+    "stepFps": 6,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "claymation",
+   "name_fa": "کلی‌میشن (خمیر)",
+   "name_en": "Claymation",
+   "inspired": null,
+   "group": "craft",
+   "about": "خمیرِ بازی با اثرِ انگشت، لبه‌های ناهموار و حرکتِ ۸ فریم‌بر‌ثانیه.",
+   "tags": [
+    "خمیر",
+    "دست‌ساز"
+   ],
+   "palette": {
+    "bg": "#c9a27e",
+    "bg2": "#e7d3b3",
+    "ink": "#3b2412",
+    "paper": "#f3e5c8",
+    "accent": "#d1495b",
+    "accent2": "#00798c",
+    "accent3": "#edae49",
+    "muted": "#7a5c3e"
+   },
+   "font": {
+    "latin": "chelsea-market",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 40%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.35
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "clay",
+    "color": "accent"
+   },
+   "shape": {
+    "radius": 36,
+    "border": 0,
+    "shadow": "inner",
+    "fill": "accent2",
+    "filter": "url(#nm-ink)"
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "clay",
+     "n": 4,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     8,
+     120,
+     0.9
+    ],
+    "stagger": 7,
+    "stepFps": 8,
+    "wobble": 5,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flip",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "watercolor",
+   "name_fa": "آبرنگ",
+   "name_en": "Watercolor",
+   "inspired": null,
+   "group": "craft",
+   "about": "لکه‌های رنگِ آب‌دارِ لبه‌پخش روی کاغذِ زبر.",
+   "tags": [
+    "نقاشی",
+    "نرم"
+   ],
+   "palette": {
+    "bg": "#fbf8f1",
+    "bg2": "#f1ebe0",
+    "ink": "#2c3e50",
+    "paper": "#fffdf8",
+    "accent": "#e07a9a",
+    "accent2": "#5fa8d3",
+    "accent3": "#f2c14e",
+    "muted": "#8a97a8"
+   },
+   "font": {
+    "latin": "caveat",
+    "fa": "mirza",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "wash",
+    "base": "bg",
+    "colors": [
+     "accent",
+     "accent2",
+     "accent3",
+     "#9bc995"
+    ],
+    "n": 8,
+    "op": 0.45
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.35
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 30,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "rgba(255,253,248,0.8)"
+   },
+   "decor": [
+    {
+     "kind": "blobs",
+     "n": 4,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "op": 0.2,
+     "size": 1.3
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 10,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 26
+   },
+   "fx": {}
+  },
+  {
+   "id": "typewriter",
+   "name_fa": "ماشینِ تحریر",
+   "name_en": "Typewriter",
+   "inspired": null,
+   "group": "craft",
+   "about": "حروفِ تایپی روی کاغذِ کاهی؛ نوشتنِ حرف‌به‌حرف (فارسی کلمه‌به‌کلمه).",
+   "tags": [
+    "کلاسیک",
+    "متن"
+   ],
+   "palette": {
+    "bg": "#efe8d8",
+    "bg2": "#e4dbc6",
+    "ink": "#1d1b17",
+    "paper": "#f8f3e6",
+    "accent": "#b3261e",
+    "accent2": "#5a5a52",
+    "accent3": "#8a7f68",
+    "muted": "#8b8472"
+   },
+   "font": {
+    "latin": "special-elite",
+    "fa": "vazirmatn",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.5
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.12
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 2,
+    "border": 2,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "dash": true
+   },
+   "decor": [],
+   "motion": {
+    "enter": "type",
+    "spring": [
+     40,
+     260,
+     1
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "cut",
+    "frames": 0
+   },
+   "fx": {}
+  },
+  {
+   "id": "risograph",
+   "name_fa": "ریزوگراف",
+   "name_en": "Risograph",
+   "inspired": null,
+   "group": "craft",
+   "about": "جوهرِ دو‌رنگِ چاپِ ریزو با جابه‌جاییِ رنگ، دانهٔ کاغذ و نقطه‌های چاپی.",
+   "tags": [
+    "چاپ",
+    "هنری"
+   ],
+   "palette": {
+    "bg": "#f2ece0",
+    "bg2": "#e9e0cf",
+    "ink": "#1b2a6b",
+    "paper": "#fbf7ee",
+    "accent": "#ff4d8d",
+    "accent2": "#ffd400",
+    "accent3": "#00a6a6",
+    "muted": "#8a8576"
+   },
+   "font": {
+    "latin": "archivo-black",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.5
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.18
+    },
+    {
+     "kind": "halftone",
+     "color": "accent",
+     "size": 16,
+     "opacity": 0.12
+    }
+   ],
+   "text": {
+    "fx": "misregister",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 6
+   },
+   "shape": {
+    "radius": 8,
+    "border": 3,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 7,
+    "tilt": 0.6
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 8,
+     "kinds": [
+      "circle",
+      "ring",
+      "half"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     26,
+     110,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": 12,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "newspaper",
+   "name_fa": "روزنامه",
+   "name_en": "Newspaper",
+   "inspired": null,
+   "group": "craft",
+   "about": "کاغذِ روزنامه با ستون‌بندی، چاپِ سیاه و مهرِ خبر.",
+   "tags": [
+    "خبر",
+    "کلاسیک"
+   ],
+   "palette": {
+    "bg": "#e9e2cf",
+    "bg2": "#ddd5bf",
+    "ink": "#151515",
+    "paper": "#f4eedc",
+    "accent": "#b3261e",
+    "accent2": "#3b3b3b",
+    "accent3": "#1f4e79",
+    "muted": "#6a6558"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": -0.01,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "newsprint",
+    "base": "bg",
+    "cols": 3
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "halftone",
+     "color": "ink",
+     "size": 14,
+     "opacity": 0.06
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 3,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "stamp",
+    "spring": [
+     14,
+     180,
+     0.9
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "cgi-motion",
+   "name_fa": "موشنِ CGI",
+   "name_en": "CGI Motion",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "استودیوی روشن، کره‌های براقِ شناور و حروفِ برجسته با دوربینِ در حالِ چرخش.",
+   "tags": [
+    "سه‌بعدی",
+    "براق"
+   ],
+   "palette": {
+    "bg": "#e9edf5",
+    "bg2": "#b8c4dd",
+    "ink": "#14182b",
+    "paper": "#ffffff",
+    "accent": "#4f46e5",
+    "accent2": "#06b6d4",
+    "accent3": "#f43f5e",
+    "muted": "#6b7694"
+   },
+   "font": {
+    "latin": "unbounded",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "studio",
+    "from": "paper",
+    "to": "bg2",
+    "horizon": 0.7
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.18
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "extrude",
+    "shadow": "accent",
+    "depth": 10,
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 28,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "gloss",
+     "n": 5,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     16,
+     110,
+     1
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.1,
+     "pan": [
+      24,
+      0
+     ],
+     "rot": 1.2
+    }
+   },
+   "trans": {
+    "kind": "zoom",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "photoreal-cgi",
+   "name_fa": "نورپردازیِ فیلمی (شبه‌واقعی)",
+   "name_en": "Photoreal-lit",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "نورِ نقطه‌ای، عمقِ میدانِ کم (بوکه)، گردوغبارِ هوا و گریدِ سینمایی. (نورپردازیِ کدنویسی‌شده؛ تصویرِ واقعی نیست.)",
+   "tags": [
+    "سینمایی",
+    "نور"
+   ],
+   "palette": {
+    "bg": "#07080b",
+    "bg2": "#1b1f2b",
+    "ink": "#f3efe6",
+    "paper": "#e6e1d6",
+    "accent": "#e0b36a",
+    "accent2": "#8fb4d9",
+    "accent3": "#c9784a",
+    "muted": "#8a8f9c"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "spotlight",
+    "base": "bg",
+    "light": "paper",
+    "at": "50% 20%",
+    "op": 0.5,
+    "bokehColor": "accent"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.6
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "emboss",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 14,
+    "border": 1,
+    "shadow": "soft",
+    "fill": "bg2",
+    "bc": "muted"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 60
+    },
+    {
+     "kind": "flare",
+     "color": "accent2",
+     "y": 0.5
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     30,
+     70,
+     1.4
+    ],
+    "stagger": 10,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.12,
+     "pan": [
+      0,
+      -20
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 26
+   },
+   "fx": {}
+  },
+  {
+   "id": "low-poly",
+   "name_fa": "لو‌پلی",
+   "name_en": "Low Poly",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "مثلث‌های رنگی با سایه‌روشنِ تخت و جابه‌جاییِ آرامِ رأس‌ها؛ غروبِ هندسی.",
+   "tags": [
+    "هندسی",
+    "سه‌بعدی"
+   ],
+   "palette": {
+    "bg": "#2b1055",
+    "bg2": "#ff7e5f",
+    "ink": "#ffffff",
+    "paper": "#fff5ec",
+    "accent": "#ffd166",
+    "accent2": "#06d6a0",
+    "accent3": "#ef476f",
+    "muted": "#cbb8e8"
+   },
+   "font": {
+    "latin": "inter",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "lowpoly",
+    "a": "bg",
+    "b": "bg2",
+    "cell": 190,
+    "jitter": 0.7,
+    "contrast": 0.22,
+    "seed": 2,
+    "gx": 0.2,
+    "gy": 0.9
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.04
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "bg",
+    "depth": 4
+   },
+   "shape": {
+    "radius": 0,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "bg"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 12,
+     "kinds": [
+      "tri"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "spin": 10
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     20,
+     120,
+     1
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "voxel-art",
+   "name_fa": "ووکسل‌آرت",
+   "name_en": "Voxel Art",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "جهانِ بلوکیِ ایزومتریک مثلِ بازیِ ساخت‌وساز، با افتادنِ بلوک‌ها.",
+   "tags": [
+    "بازی",
+    "بلوک"
+   ],
+   "palette": {
+    "bg": "#8ed1fc",
+    "bg2": "#4aa3df",
+    "ink": "#1b1b2f",
+    "paper": "#ffffff",
+    "accent": "#7bc043",
+    "accent2": "#8d5524",
+    "accent3": "#f6c945",
+    "muted": "#5b6c8a"
+   },
+   "font": {
+    "latin": "silkscreen",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "isocubes",
+    "base": "bg",
+    "top": "accent",
+    "left": "accent2",
+    "right": "#6b3f1a",
+    "size": 70,
+    "bob": true
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "extrude",
+    "shadow": "accent2",
+    "color": "paper",
+    "depth": 10
+   },
+   "shape": {
+    "radius": 0,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent2",
+    "offset": 8,
+    "clip": "notch"
+   },
+   "decor": [
+    {
+     "kind": "cubes",
+     "n": 5,
+     "top": "accent3",
+     "left": "accent2",
+     "right": "#6b3f1a"
+    }
+   ],
+   "motion": {
+    "enter": "build",
+    "spring": [
+     16,
+     200,
+     0.8
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "blocks",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "lego-bricks",
+   "name_fa": "آجرهای لگویی",
+   "name_en": "Lego-like Bricks",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "صفحهٔ پایهٔ دکمه‌دار و آجرهای رنگیِ پلاستیکی که روی هم می‌افتند.",
+   "tags": [
+    "بازی",
+    "آجر"
+   ],
+   "palette": {
+    "bg": "#2a8ae0",
+    "bg2": "#f5c600",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#e3000b",
+    "accent2": "#f5c600",
+    "accent3": "#00a14b",
+    "muted": "#cfe3ff"
+   },
+   "font": {
+    "latin": "chelsea-market",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "studs",
+    "base": "bg",
+    "size": 86
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "brick",
+    "brick": "accent",
+    "color": "paper"
+   },
+   "shape": {
+    "radius": 12,
+    "border": 0,
+    "shadow": "inner",
+    "fill": "accent2",
+    "extra": "studs"
+   },
+   "decor": [],
+   "motion": {
+    "enter": "build",
+    "spring": [
+     11,
+     210,
+     0.8
+    ],
+    "stagger": 7,
+    "stepFps": 12,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "blocks",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "isometric",
+   "name_fa": "ایزومتریک",
+   "name_en": "Isometric",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "شبکهٔ ۳۰ درجه، مکعب‌های شناور و نوشتهٔ برجسته.",
+   "tags": [
+    "هندسی",
+    "فنی"
+   ],
+   "palette": {
+    "bg": "#eaf2fb",
+    "bg2": "#d5e3f5",
+    "ink": "#1f2a44",
+    "paper": "#ffffff",
+    "accent": "#5b8def",
+    "accent2": "#ff8fa3",
+    "accent3": "#ffc857",
+    "muted": "#8fa3c4"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "isogrid",
+    "base": "bg",
+    "line": "muted",
+    "size": 80,
+    "lineOp": 0.4,
+    "drift": 6
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "extrude",
+    "shadow": "accent",
+    "color": "ink",
+    "depth": 9
+   },
+   "shape": {
+    "radius": 14,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper",
+    "extra": "band"
+   },
+   "decor": [
+    {
+     "kind": "cubes",
+     "n": 7,
+     "top": "accent3",
+     "left": "accent2",
+     "right": "accent"
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     24,
+     100,
+     1.1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.06,
+     "rot": 1.5
+    }
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "parallax-2-5d",
+   "name_fa": "پارالاکسِ ۲٫۵ بعدی",
+   "name_en": "2.5D Parallax",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "چند لایهٔ تپه با سرعت‌های متفاوت و دوربینِ سُرخورنده؛ حسِ عمق از دو بُعد.",
+   "tags": [
+    "عمق",
+    "منظره"
+   ],
+   "palette": {
+    "bg": "#7ec8e3",
+    "bg2": "#fdf6e3",
+    "ink": "#12213a",
+    "paper": "#fffdf7",
+    "accent": "#ff7f50",
+    "accent2": "#2f855a",
+    "accent3": "#ffd166",
+    "muted": "#5b7a99"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "hills",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "colors": [
+     "muted",
+     "accent2",
+     "ink"
+    ],
+    "layers": 5,
+    "parallax": 2.4,
+    "speed": 14,
+    "amp": 0.09,
+    "spread": 0.42,
+    "sun": true,
+    "sunColor": "accent3"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "paper",
+    "shadow": "ink",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 20,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "birds",
+     "n": 4,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     24,
+     90,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.08,
+     "pan": [
+      40,
+      0
+     ]
+    }
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "claymation-3d",
+   "name_fa": "خمیرِ سه‌بعدی",
+   "name_en": "3D Claymation",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "شکل‌های پف‌کرده و نرمِ خمیری با نورِ ملایم؛ فشرده‌شدن و کش‌آمدن.",
+   "tags": [
+    "نرم",
+    "پاستلی"
+   ],
+   "palette": {
+    "bg": "#cdeffd",
+    "bg2": "#ffe3f1",
+    "ink": "#3d2c5c",
+    "paper": "#fff8fb",
+    "accent": "#ff8fab",
+    "accent2": "#7bdff2",
+    "accent3": "#ffd670",
+    "muted": "#9b8ebf"
+   },
+   "font": {
+    "latin": "fredoka",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "linear",
+    "from": "bg",
+    "to": "bg2",
+    "angle": 160
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.06,
+     "blend": "overlay"
+    }
+   ],
+   "text": {
+    "fx": "clay",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 44,
+    "border": 0,
+    "shadow": "inner",
+    "fill": "paper",
+    "fillGradient": 160
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "clay",
+     "n": 6,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     9,
+     150,
+     0.8
+    ],
+    "stagger": 7,
+    "stepFps": 12,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "zoom",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "zackd-inspired",
+   "name_fa": "توضیحیِ سریعِ سه‌بعدی",
+   "name_en": "Fast 3D Explainer",
+   "inspired": "ZackD Films",
+   "group": "dimensional",
+   "about": "ریتمِ تند، زومِ ضربه‌ای، کره‌های براق و گذارِ شلاقی؛ حسِ ویدیوهای توضیحیِ سه‌بعدیِ پرسرعت.",
+   "tags": [
+    "توضیحی",
+    "سریع"
+   ],
+   "palette": {
+    "bg": "#0d1b3d",
+    "bg2": "#1e3a8a",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ffd60a",
+    "accent2": "#00d4ff",
+    "accent3": "#ff3d71",
+    "muted": "#8fb0ff"
+   },
+   "font": {
+    "latin": "unbounded",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 35%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    },
+    {
+     "kind": "bloom",
+     "color": "accent2",
+     "opacity": 0.12
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "paper",
+    "shadow": "bg",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 22,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "bg2",
+    "bc": "accent2",
+    "sc": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "gloss",
+     "n": 5,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "zoompunch",
+    "spring": [
+     11,
+     220,
+     0.75
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.12,
+     "sway": 5
+    }
+   },
+   "trans": {
+    "kind": "whip",
+    "frames": 8
+   },
+   "fx": {}
+  },
+  {
+   "id": "chrome-22k",
+   "name_fa": "کرومِ ۲۲ عیار",
+   "name_en": "Chrome 22K",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "حروفِ فلزیِ آینه‌ای با برق‌افتادن، چشمک و فلشِ سفید؛ حالوهوای Y2K.",
+   "tags": [
+    "فلزی",
+    "براق"
+   ],
+   "palette": {
+    "bg": "#07070d",
+    "bg2": "#1a1a2e",
+    "ink": "#f3f6ff",
+    "paper": "#e9eefc",
+    "accent": "#7df9ff",
+    "accent2": "#ff7de9",
+    "accent3": "#fff27d",
+    "muted": "#7a809c"
+   },
+   "font": {
+    "latin": "bowlby-one",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 38%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.12
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "chrome",
+    "edge": "bg"
+   },
+   "shape": {
+    "radius": 30,
+    "border": 2,
+    "shadow": "float",
+    "fill": "bg2",
+    "bc": "muted"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 14,
+     "glow": true,
+     "colors": [
+      "paper",
+      "accent",
+      "accent2"
+     ]
+    },
+    {
+     "kind": "shine",
+     "speed": 0.3
+    },
+    {
+     "kind": "flare",
+     "y": 0.5,
+     "color": "accent"
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     14,
+     140,
+     0.9
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.06
+    }
+   },
+   "trans": {
+    "kind": "flash",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "dan-koe-style",
+   "name_fa": "مقالهٔ مینیمالِ سیاه‌وسفید",
+   "name_en": "Minimal Essay",
+   "inspired": "Dan Koe",
+   "group": "graphic",
+   "about": "سفید و سیاه، تایپِ بزرگ و فاصلهٔ فراوان؛ ظاهرِ یک مقالهٔ تایپوگرافیک. صحنه‌ها یکی در میان وارونه می‌شوند.",
+   "tags": [
+    "مینیمال",
+    "مقاله"
+   ],
+   "palette": {
+    "bg": "#ffffff",
+    "bg2": "#f3f3f1",
+    "ink": "#0a0a0a",
+    "paper": "#ffffff",
+    "accent": "#0a0a0a",
+    "accent2": "#6b6b6b",
+    "accent3": "#e8e8e4",
+    "muted": "#9a9a9a"
+   },
+   "font": {
+    "latin": "dm-serif-display",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": "inter",
+    "body_fa": "vazirmatn",
+    "case": "none",
+    "track": 0,
+    "lh": 1.25
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg"
+   },
+   "bg2": {
+    "kind": "solid",
+    "c": "bg",
+    "pal": {
+     "bg": "ink",
+     "ink": "bg",
+     "paper": "ink",
+     "accent": "bg",
+     "muted": "muted"
+    }
+   },
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.03
+    }
+   ],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 0,
+    "shadow": "none",
+    "fill": "none",
+    "badge": "ink"
+   },
+   "decor": [],
+   "motion": {
+    "enter": "fade",
+    "spring": [
+     40,
+     60,
+     1.3
+    ],
+    "stagger": 12,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "kinetic-typography",
+   "name_fa": "تایپوگرافیِ متحرک",
+   "name_en": "Kinetic Typography",
+   "inspired": null,
+   "group": "graphic",
+   "about": "کلمه‌های غول‌پیکر که با ضربه وارد می‌شوند؛ زرد و سیاه، ریتمِ تند.",
+   "tags": [
+    "متن",
+    "سریع"
+   ],
+   "palette": {
+    "bg": "#111111",
+    "bg2": "#ffdd00",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ffdd00",
+    "accent2": "#ff3b30",
+    "accent3": "#2dd4ff",
+    "muted": "#888888"
+   },
+   "font": {
+    "latin": "anton",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.02,
+    "lh": 1.05
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg"
+   },
+   "bg2": {
+    "kind": "solid",
+    "c": "accent",
+    "pal": {
+     "ink": "bg",
+     "paper": "bg"
+    }
+   },
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 0,
+    "shadow": "none",
+    "fill": "accent"
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "mode": "h",
+     "n": 16,
+     "color": "paper",
+     "rate": 10
+    }
+   ],
+   "motion": {
+    "enter": "slam",
+    "spring": [
+     14,
+     200,
+     0.7
+    ],
+    "stagger": 3,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "zoom",
+    "frames": 8
+   },
+   "fx": {}
+  },
+  {
+   "id": "infographic",
+   "name_fa": "اینفوگرافیک",
+   "name_en": "Infographic",
+   "inspired": null,
+   "group": "graphic",
+   "about": "کارت‌های روشن با نوارِ رنگی، شبکهٔ نمودار و میله‌های در حالِ رشد.",
+   "tags": [
+    "داده",
+    "آمار"
+   ],
+   "palette": {
+    "bg": "#f4f7fb",
+    "bg2": "#e4edf8",
+    "ink": "#1d2d44",
+    "paper": "#ffffff",
+    "accent": "#3e7cb1",
+    "accent2": "#f2a541",
+    "accent3": "#4caf7d",
+    "muted": "#8aa0b8"
+   },
+   "font": {
+    "latin": "nunito",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "grid",
+    "base": "bg",
+    "line": "rgba(62,124,177,0.12)",
+    "size": 60,
+    "w": 2
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 18,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "paper",
+    "extra": "band",
+    "bandColor": "accent"
+   },
+   "decor": [
+    {
+     "kind": "bars",
+     "n": 7,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "op": 0.25
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     18,
+     120,
+     1
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "bauhaus",
+   "name_fa": "باهاوس",
+   "name_en": "Bauhaus",
+   "inspired": null,
+   "group": "graphic",
+   "about": "دایره، مربع و مثلثِ قرمز و زرد و آبی روی زمینهٔ کرم؛ شبکه و حرکتِ مکانیکی بدونِ پرش.",
+   "tags": [
+    "هندسی",
+    "کلاسیک"
+   ],
+   "palette": {
+    "bg": "#efe9dc",
+    "bg2": "#e2d9c6",
+    "ink": "#151515",
+    "paper": "#f7f2e8",
+    "accent": "#e63329",
+    "accent2": "#1b4fb5",
+    "accent3": "#f5c518",
+    "muted": "#6e6a5f"
+   },
+   "font": {
+    "latin": "oswald",
+    "fa": "kufam",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.05,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg",
+    "alt": "bg2"
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 4,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 8,
+    "extra": "band",
+    "bandColor": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "bauhaus"
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     34,
+     200,
+     1
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "neo-brutalism",
+   "name_fa": "نئو‌بروتالیسم",
+   "name_en": "Neo-brutalism",
+   "inspired": null,
+   "group": "graphic",
+   "about": "رنگ‌های جیغ، حاشیهٔ سیاهِ ضخیم، سایهٔ سخت و کارت‌های کمی کج.",
+   "tags": [
+    "وب",
+    "جسور"
+   ],
+   "palette": {
+    "bg": "#ffe66d",
+    "bg2": "#b8f2e6",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#ff6b9d",
+    "accent2": "#4d96ff",
+    "accent3": "#7cff6b",
+    "muted": "#333333"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "grid",
+    "base": "bg",
+    "line": "rgba(0,0,0,0.09)",
+    "size": 60,
+    "w": 2
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "paper",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 14,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 9,
+    "tilt": 1,
+    "badge": "accent"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 8,
+     "kinds": [
+      "cross",
+      "ring",
+      "tri"
+     ],
+     "colors": [
+      "ink"
+     ],
+     "size": 0.7
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     12,
+     180,
+     0.8
+    ],
+    "stagger": 5,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "cover",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "glassmorphism",
+   "name_fa": "شیشه‌ای (گلس‌مورفیسم)",
+   "name_en": "Glassmorphism",
+   "inspired": null,
+   "group": "graphic",
+   "about": "کارت‌های شیشه‌ایِ مات روی لکه‌های رنگیِ شناور.",
+   "tags": [
+    "مدرن",
+    "نرم"
+   ],
+   "palette": {
+    "bg": "#0f1230",
+    "bg2": "#2a1b5e",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#7aa2ff",
+    "accent2": "#ff7ad9",
+    "accent3": "#7affd9",
+    "muted": "#b8bfe6"
+   },
+   "font": {
+    "latin": "inter",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": "inter",
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "mesh",
+    "base": "bg",
+    "blobs": [
+     "accent",
+     "accent2",
+     "accent3",
+     "bg2"
+    ],
+    "speed": 0.3,
+    "size": 0.8
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.05,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 32,
+    "border": 2,
+    "shadow": "soft",
+    "fill": "glass",
+    "bc": "rgba(255,255,255,0.35)"
+   },
+   "decor": [
+    {
+     "kind": "bubbles",
+     "n": 8,
+     "color": "paper"
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     22,
+     100,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "swiss-grid",
+   "name_fa": "سبکِ سوئیسی",
+   "name_en": "Swiss Grid",
+   "inspired": null,
+   "group": "graphic",
+   "about": "شبکهٔ دقیق، نوشتهٔ درشتِ بدونِ زائده و یک رنگِ قرمز؛ سبکِ تایپوگرافیِ بین‌المللی.",
+   "tags": [
+    "مینیمال",
+    "تایپوگرافی"
+   ],
+   "palette": {
+    "bg": "#f4f4f0",
+    "bg2": "#e8e8e3",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#e30613",
+    "accent2": "#111111",
+    "accent3": "#6b6b6b",
+    "muted": "#9a9a95"
+   },
+   "font": {
+    "latin": "inter",
+    "fa": "vazirmatn",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": -0.03,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "grid",
+    "base": "bg",
+    "line": "rgba(0,0,0,0.12)",
+    "size": 120,
+    "w": 2
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 0,
+    "shadow": "none",
+    "fill": "paper",
+    "extra": "band",
+    "bandColor": "accent"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 6,
+     "kinds": [
+      "cross",
+      "circle"
+     ],
+     "colors": [
+      "accent",
+      "ink"
+     ],
+     "size": 0.6,
+     "spin": 0
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     36,
+     220,
+     1
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "push",
+    "frames": 14
+   },
+   "fx": {}
+  },
+  {
+   "id": "retro-70s",
+   "name_fa": "دههٔ ۷۰ میلادی",
+   "name_en": "Retro 70s",
+   "inspired": null,
+   "group": "graphic",
+   "about": "کمان‌های هم‌مرکزِ نارنجی و قهوه‌ای، حروفِ گرد و سایهٔ چندلایه.",
+   "tags": [
+    "رترو",
+    "گرم"
+   ],
+   "palette": {
+    "bg": "#f2d3a0",
+    "bg2": "#e08e45",
+    "ink": "#4a2410",
+    "paper": "#fff1d6",
+    "accent": "#d9534f",
+    "accent2": "#e8a33d",
+    "accent3": "#6a994e",
+    "muted": "#a0643a"
+   },
+   "font": {
+    "latin": "shrikhand",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "arcs",
+    "base": "bg",
+    "colors": [
+     "#d9534f",
+     "#e8a33d",
+     "#f2d3a0",
+     "#6a994e",
+     "#4a2410"
+    ],
+    "n": 9,
+    "cy": 0.85
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.14
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.25
+    }
+   ],
+   "text": {
+    "fx": "retro",
+    "color": "paper",
+    "c2": "accent2",
+    "c3": "accent",
+    "c4": "ink",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 30,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 8
+   },
+   "decor": [],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     14,
+     130,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.04
+    }
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "art-deco",
+   "name_fa": "آرت‌دکو",
+   "name_en": "Art Deco",
+   "inspired": null,
+   "group": "graphic",
+   "about": "بادبزنِ طلایی، قابِ دوخطی و تقارنِ دههٔ ۲۰ میلادی.",
+   "tags": [
+    "طلایی",
+    "لوکس"
+   ],
+   "palette": {
+    "bg": "#0c1a2b",
+    "bg2": "#14304f",
+    "ink": "#f3e3b0",
+    "paper": "#f3e3b0",
+    "accent": "#d4af37",
+    "accent2": "#8fd1c0",
+    "accent3": "#b76e79",
+    "muted": "#8a7a4e"
+   },
+   "font": {
+    "latin": "limelight",
+    "fa": "reem-kufi",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.03,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "fans",
+    "base": "bg",
+    "bg2": "bg2",
+    "line": "accent",
+    "n": 28
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    }
+   ],
+   "text": {
+    "fx": "gold"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 4,
+    "shadow": "none",
+    "fill": "bg",
+    "bc": "accent",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent"
+    },
+    {
+     "kind": "sparkles",
+     "n": 8,
+     "colors": [
+      "accent"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "unfold",
+    "spring": [
+     34,
+     120,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "persian-tile",
+   "name_fa": "کاشیِ ایرانی",
+   "name_en": "Persian Tile",
+   "inspired": null,
+   "group": "graphic",
+   "about": "ستاره‌های هشت‌پرِ گره‌چینیِ فیروزه‌ای و لاجوردی با قابِ طلایی؛ حالوهوای کاشی‌کاریِ ایرانی.",
+   "tags": [
+    "ایرانی",
+    "سنتی"
+   ],
+   "palette": {
+    "bg": "#0f3d5e",
+    "bg2": "#0a2a44",
+    "ink": "#fff4d9",
+    "paper": "#fff4d9",
+    "accent": "#2ec4b6",
+    "accent2": "#1d6fa5",
+    "accent3": "#e0b341",
+    "muted": "#6aa5c8"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "aref-ruqaa",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "girih",
+    "base": "bg",
+    "a": "accent2",
+    "b": "accent",
+    "gold": "accent3",
+    "size": 170,
+    "speed": 6,
+    "veil": 0.85,
+    "veilColor": "bg2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.4
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "gold"
+   },
+   "shape": {
+    "radius": 20,
+    "border": 4,
+    "shadow": "soft",
+    "fill": "bg2",
+    "bc": "accent3",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent3"
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     28,
+     110,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "sport-energy",
+   "name_fa": "ورزشی و پرانرژی",
+   "name_en": "Sport Energy",
+   "inspired": null,
+   "group": "graphic",
+   "about": "خطوطِ مورب، حروفِ فشرده و زردِ فلورسنت؛ پوسترِ تمرین و مسابقه.",
+   "tags": [
+    "ورزش",
+    "انرژی"
+   ],
+   "palette": {
+    "bg": "#0b0b0b",
+    "bg2": "#1a1a1a",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ffe600",
+    "accent2": "#ff3d00",
+    "accent3": "#00e0ff",
+    "muted": "#8a8a8a"
+   },
+   "font": {
+    "latin": "anton",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.01,
+    "lh": 1.1
+   },
+   "bg": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 90,
+    "angle": -60,
+    "move": 40
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.08
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "paper",
+    "shadow": "accent",
+    "depth": 7
+   },
+   "shape": {
+    "radius": 0,
+    "border": 0,
+    "shadow": "hard",
+    "fill": "accent",
+    "sc": "accent2",
+    "offset": 8,
+    "tilt": 2
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "mode": "h",
+     "n": 24,
+     "color": "accent",
+     "rate": 14
+    }
+   ],
+   "motion": {
+    "enter": "sweep",
+    "spring": [
+     13,
+     200,
+     0.8
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.1
+    }
+   },
+   "trans": {
+    "kind": "whip",
+    "frames": 9
+   },
+   "fx": {}
+  },
+  {
+   "id": "cineview",
+   "name_fa": "سینه‌ویو",
+   "name_en": "Cineview",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "نوارهای سینمائی بالا و پایین، رنگ‌بندیِ فیروزه‌ای-نارنجی، لنزفلر و حرکتِ آرامِ دوربین.",
+   "tags": [
+    "سینمایی",
+    "فیلم"
+   ],
+   "palette": {
+    "bg": "#0b1a22",
+    "bg2": "#1d3a46",
+    "ink": "#f2ebe0",
+    "paper": "#f2ebe0",
+    "accent": "#ff8a3d",
+    "accent2": "#2fb4c4",
+    "accent3": "#ffd08a",
+    "muted": "#86a3ad"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.14,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "linear",
+    "from": "bg2",
+    "to": "bg",
+    "angle": 160,
+    "drift": 6
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.12,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    },
+    {
+     "kind": "scratches",
+     "opacity": 0.12
+    }
+   ],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "bg2"
+   },
+   "decor": [
+    {
+     "kind": "letterbox",
+     "ratio": 2.39
+    },
+    {
+     "kind": "flare",
+     "color": "accent2",
+     "y": 0.45
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     34,
+     60,
+     1.5
+    ],
+    "stagger": 12,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.14,
+     "pan": [
+      -30,
+      0
+     ]
+    }
+   },
+   "trans": {
+    "kind": "dip",
+    "frames": 24
+   },
+   "fx": {
+    "grade": "contrast(1.08) saturate(1.1)"
+   }
+  },
+  {
+   "id": "film-noir",
+   "name_fa": "فیلمِ نوآر",
+   "name_en": "Film Noir",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "سیاه‌وسفیدِ پرکنتراست، نوارِ پرده‌های کرکره‌ای، دود و باران.",
+   "tags": [
+    "کلاسیک",
+    "تیره"
+   ],
+   "palette": {
+    "bg": "#0a0a0a",
+    "bg2": "#2a2a2a",
+    "ink": "#f2f2f2",
+    "paper": "#eeeeee",
+    "accent": "#ffffff",
+    "accent2": "#bdbdbd",
+    "accent3": "#8a8a8a",
+    "muted": "#7a7a7a"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "blinds",
+    "base": "bg",
+    "light": "paper",
+    "op": 0.45,
+    "w": 84,
+    "skew": -22,
+    "speed": 5
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.2,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "scratches",
+     "opacity": 0.3
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.7
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.07
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "bg",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 0,
+    "border": 2,
+    "shadow": "none",
+    "fill": "bg2",
+    "bc": "paper"
+   },
+   "decor": [
+    {
+     "kind": "smoke",
+     "n": 6,
+     "color": "paper",
+     "op": 0.12
+    },
+    {
+     "kind": "rain",
+     "n": 40,
+     "color": "paper",
+     "angle": 10
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     36,
+     50,
+     1.6
+    ],
+    "stagger": 14,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.1,
+     "pan": [
+      -20,
+      0
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 28
+   },
+   "fx": {
+    "grade": "grayscale(1) contrast(1.15)"
+   }
+  },
+  {
+   "id": "silhouette",
+   "name_fa": "سیلوئت",
+   "name_en": "Silhouette",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "تپه‌ها و پرنده‌هایِ سیاه در برابرِ آسمانِ غروب.",
+   "tags": [
+    "غروب",
+    "داستانی"
+   ],
+   "palette": {
+    "bg": "#ff9a5c",
+    "bg2": "#ffd9a0",
+    "ink": "#16101f",
+    "paper": "#fff1dc",
+    "accent": "#16101f",
+    "accent2": "#5b2a4e",
+    "accent3": "#ffcf70",
+    "muted": "#7d4a5c"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "hills",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "colors": [
+     "accent2",
+     "ink"
+    ],
+    "layers": 4,
+    "sun": true,
+    "sunColor": "paper",
+    "horizon": 0.56,
+    "speed": 10,
+    "parallax": 1
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.25
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 0,
+    "shadow": "none",
+    "fill": "ink",
+    "badge": "accent3"
+   },
+   "decor": [
+    {
+     "kind": "birds",
+     "n": 5,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "rise",
+    "spring": [
+     30,
+     90,
+     1.2
+    ],
+    "stagger": 10,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.06,
+     "pan": [
+      30,
+      0
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 24
+   },
+   "fx": {}
+  },
+  {
+   "id": "steampunk",
+   "name_fa": "استیم‌پانک",
+   "name_en": "Steampunk",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "مس و برنج، دنده‌های چرخان، پرچ و کاغذِ کهنه.",
+   "tags": [
+    "مکانیکی",
+    "قدیمی"
+   ],
+   "palette": {
+    "bg": "#2b1d12",
+    "bg2": "#4a3320",
+    "ink": "#f3dcae",
+    "paper": "#ead2a0",
+    "accent": "#c88a3c",
+    "accent2": "#8fa89b",
+    "accent3": "#b5443a",
+    "muted": "#9b7b4b"
+   },
+   "font": {
+    "latin": "fredericka-the-great",
+    "fa": "aref-ruqaa",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "parchment",
+    "base": "bg2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "engrave"
+   },
+   "shape": {
+    "radius": 10,
+    "border": 5,
+    "shadow": "inner",
+    "fill": "paper",
+    "bc": "accent",
+    "extra": "rivets"
+   },
+   "decor": [
+    {
+     "kind": "gears",
+     "n": 5,
+     "colors": [
+      "accent",
+      "muted",
+      "accent2"
+     ],
+     "op": 0.55
+    },
+    {
+     "kind": "smoke",
+     "n": 4,
+     "color": "paper",
+     "op": 0.1
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     30,
+     200,
+     1.1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "iris",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "stained-glass",
+   "name_fa": "شیشهٔ رنگی",
+   "name_en": "Stained Glass",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "تکه‌های جواهری با سربِ سیاه و نورِ پشتِ شیشه.",
+   "tags": [
+    "کلیسا",
+    "رنگارنگ"
+   ],
+   "palette": {
+    "bg": "#120a1f",
+    "bg2": "#3a1c5c",
+    "ink": "#fff6e0",
+    "paper": "#fff6e0",
+    "accent": "#e63946",
+    "accent2": "#2a9d8f",
+    "accent3": "#f4a261",
+    "muted": "#6a4c93"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "aref-ruqaa",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "stained",
+    "base": "bg",
+    "colors": [
+     "accent",
+     "accent2",
+     "accent3",
+     "#457b9d",
+     "#8338ec",
+     "#ffbe0b"
+    ],
+    "cell": 240,
+    "lead": "#0b0614",
+    "leadw": 12
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.2
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "paper",
+    "shadow": "#0b0614",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 4,
+    "border": 6,
+    "shadow": "glow",
+    "fill": "bg",
+    "bc": "#0b0614",
+    "sc": "accent3"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 10,
+     "glow": true,
+     "colors": [
+      "paper",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "lightup",
+    "spring": [
+     30,
+     100,
+     1.1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "iris",
+    "frames": 20
+   },
+   "fx": {}
+  },
+  {
+   "id": "graffiti",
+   "name_fa": "گرافیتی",
+   "name_en": "Graffiti",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "دیوارِ آجریِ شبانه، رنگِ اسپری با چکه و استیکرهای چسبیده.",
+   "tags": [
+    "خیابانی",
+    "شهری"
+   ],
+   "palette": {
+    "bg": "#1a1a1f",
+    "bg2": "#2c2c36",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ff2e63",
+    "accent2": "#08d9d6",
+    "accent3": "#f9ed69",
+    "muted": "#7a7a88"
+   },
+   "font": {
+    "latin": "permanent-marker",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "bricks",
+    "brick": "bg2",
+    "mortar": "bg",
+    "w": 160,
+    "h": 66,
+    "dark": 0.5,
+    "jitter": 0.25
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.4
+    }
+   ],
+   "text": {
+    "fx": "spray",
+    "color": "accent3",
+    "stroke_c": "ink",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 4,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent2",
+    "offset": 8
+   },
+   "decor": [
+    {
+     "kind": "splats",
+     "n": 7,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "blur",
+    "spring": [
+     20,
+     140,
+     0.9
+    ],
+    "stagger": 5,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 12
+   },
+   "fx": {}
+  },
+  {
+   "id": "neon-sign",
+   "name_fa": "تابلوی نئون",
+   "name_en": "Neon Sign",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "لوله‌های نئونِ چشمک‌زن روی دیوارِ آجری.",
+   "tags": [
+    "نئون",
+    "شب"
+   ],
+   "palette": {
+    "bg": "#140b1f",
+    "bg2": "#26112e",
+    "ink": "#fff0fa",
+    "paper": "#fff0fa",
+    "accent": "#ff3ea5",
+    "accent2": "#35f0ff",
+    "accent3": "#ffd23f",
+    "muted": "#7c5a8f"
+   },
+   "font": {
+    "latin": "pacifico",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "bricks",
+    "brick": "bg2",
+    "mortar": "bg",
+    "dark": 0.6,
+    "w": 150,
+    "h": 64
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    },
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.12,
+     "at": "50% 45%"
+    }
+   ],
+   "text": {
+    "fx": "neon-tube",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 26,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "none",
+    "bc": "accent2",
+    "sc": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 6,
+     "glow": true,
+     "colors": [
+      "accent2",
+      "accent"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "lightup",
+    "spring": [
+     24,
+     110,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "blueprint",
+   "name_fa": "نقشهٔ فنی (بلوپرینت)",
+   "name_en": "Blueprint",
+   "inspired": null,
+   "group": "lines",
+   "about": "کاغذِ آبیِ نقشه‌کشی با شبکهٔ دقیق، خطِ چین، علامتِ ثبت و اندازه‌گذاری.",
+   "tags": [
+    "فنی",
+    "مهندسی"
+   ],
+   "palette": {
+    "bg": "#0b3d91",
+    "bg2": "#082c6c",
+    "ink": "#eaf3ff",
+    "paper": "#eaf3ff",
+    "accent": "#ffffff",
+    "accent2": "#8fd3ff",
+    "accent3": "#ffd166",
+    "muted": "#6fa0e8"
+   },
+   "font": {
+    "latin": "architects-daughter",
+    "fa": "vazirmatn",
+    "weight": 500,
+    "body_latin": "architects-daughter",
+    "body_fa": "vazirmatn",
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "grid",
+    "base": "bg",
+    "line": "muted",
+    "size": 44,
+    "w": 1.5,
+    "major": 5,
+    "majorLine": "accent2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 0,
+    "border": 2,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "paper",
+    "dash": true,
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "corners",
+     "color": "paper"
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     30,
+     160,
+     1
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "glow-sketch",
+   "name_fa": "طرحِ درخشان",
+   "name_en": "Glow Sketch",
+   "inspired": null,
+   "group": "lines",
+   "about": "خط‌های نئونیِ دست‌کشیده با درخششِ نرم روی صفحهٔ سیاه؛ مثلِ طراحی با نور.",
+   "tags": [
+    "نئون",
+    "طراحی"
+   ],
+   "palette": {
+    "bg": "#04060d",
+    "bg2": "#0b1230",
+    "ink": "#dffaff",
+    "paper": "#dffaff",
+    "accent": "#00e5ff",
+    "accent2": "#ff3df0",
+    "accent3": "#b6ff3c",
+    "muted": "#5c7ab8"
+   },
+   "font": {
+    "latin": "caveat",
+    "fa": "vazirmatn",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 40%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "accent",
+     "opacity": 0.18
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.04,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "neon-outline",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 22,
+    "border": 3,
+    "shadow": "glow",
+    "fill": "none",
+    "bc": "accent2",
+    "sc": "accent2",
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "accent2",
+     "sw": 7,
+     "arrow": true
+    },
+    {
+     "kind": "sparkles",
+     "n": 10,
+     "glow": true,
+     "colors": [
+      "accent",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     28,
+     120,
+     1
+    ],
+    "stagger": 9,
+    "stepFps": null,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 16
+   },
+   "fx": {}
+  },
+  {
+   "id": "line-art",
+   "name_fa": "لاین‌آرت",
+   "name_en": "Line Art",
+   "inspired": null,
+   "group": "lines",
+   "about": "یک خطِ نازکِ سیاه، بدونِ پُرکردن؛ مینیمال و ظریف.",
+   "tags": [
+    "مینیمال",
+    "ظریف"
+   ],
+   "palette": {
+    "bg": "#fbfaf6",
+    "bg2": "#f0eee6",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#e63946",
+    "accent2": "#7a7a7a",
+    "accent3": "#111111",
+    "muted": "#9a9a95"
+   },
+   "font": {
+    "latin": "space-grotesk",
+    "fa": "vazirmatn",
+    "weight": 500,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg",
+    "alt": "bg2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "plain"
+   },
+   "shape": {
+    "radius": 22,
+    "border": 3,
+    "shadow": "none",
+    "fill": "none",
+    "bc": "ink",
+    "badge": "paper"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "ink",
+     "sw": 3,
+     "arrow": true
+    },
+    {
+     "kind": "shapes",
+     "n": 10,
+     "kinds": [
+      "ring",
+      "cross",
+      "half"
+     ],
+     "colors": [
+      "ink"
+     ],
+     "outline": true,
+     "size": 0.8,
+     "spin": 6
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     32,
+     110,
+     1.1
+    ],
+    "stagger": 10,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 18
+   },
+   "fx": {}
+  },
+  {
+   "id": "cel-shading",
+   "name_fa": "سل‌شید (کارتونِ سه‌بعدی)",
+   "name_en": "Cel Shading",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "رنگ‌های تخت با سایهٔ پله‌ای، خطِ دورِ ضخیم و نورِ لبه؛ ظاهرِ کارتونیِ بازی‌های سه‌بعدی.",
+   "tags": [
+    "کارتونی",
+    "بازی"
+   ],
+   "palette": {
+    "bg": "#ffb347",
+    "bg2": "#ff6f61",
+    "ink": "#1b1b3a",
+    "paper": "#fff7e0",
+    "accent": "#00bfa6",
+    "accent2": "#5c6bc0",
+    "accent3": "#ffe066",
+    "muted": "#6b4f3a"
+   },
+   "font": {
+    "latin": "londrina-solid",
+    "fa": "lalezar",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "bands",
+    "from": "bg2",
+    "to": "bg",
+    "n": 6
+   },
+   "bg2": null,
+   "tex": [],
+   "text": {
+    "fx": "cel",
+    "color": "accent3",
+    "stroke_c": "ink"
+   },
+   "shape": {
+    "radius": 16,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 8
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "cel",
+     "n": 5,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     13,
+     160,
+     0.85
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe-diag",
+    "frames": 12
+   },
+   "fx": {
+    "posterize": 6
+   }
+  }
+ ],
+ "groups": {
+  "digital": "دیجیتال و رترو",
+  "cartoon": "کارتونی و تصویرسازی",
+  "craft": "دست‌ساز و کاغذی",
+  "dimensional": "سه‌بعدی و عمق‌دار",
+  "graphic": "گرافیک و تایپوگرافی",
+  "cinematic": "سینمایی و حال‌وهوایی",
+  "lines": "خط و طرح"
+ },
+ "scene_types": [
+  "title",
+  "list",
+  "quote",
+  "stat",
+  "compare",
+  "product",
+  "logo",
+  "app",
+  "cta"
+ ]
+}

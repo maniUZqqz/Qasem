@@ -117,6 +117,9 @@ INSTALLED_APPS += ["apps.multiangle"]
 # تامنیل‌ساز (پنل › محتوا): کاورِ یوتیوب/اینستاگرام/پینترست و پوستر، با ایده‌پردازی و پس‌زمینهٔ هوش مصنوعی
 INSTALLED_APPS += ["apps.thumbs"]
 
+# استودیوی موشن (Remotion): ویدیو از روی کد؛ رندرِ نهایی روی سرورِ پردازش
+INSTALLED_APPS += ["apps.motion"]
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -467,6 +470,7 @@ CELERY_TASK_ROUTES = {
     "apps.ai.tasks.*": {"queue": "ai"},
     "apps.content.tasks.*": {"queue": "ai"},
     "apps.campaigns.tasks.*": {"queue": "ai"},
+    "apps.motion.tasks.*": {"queue": "ai"},     # رندرِ سایت و پیگیریِ رندرِ گره (کارِ طولانیِ منتظر؛ کارگرِ node با ۸ نخ)
 }
 
 # ---------------------------------------------------------------- payments

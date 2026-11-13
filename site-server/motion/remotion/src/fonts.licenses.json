@@ -1,0 +1,409 @@
+{
+ "vazirmatn": {
+  "family": "Vazirmatn",
+  "package": "@fontsource/vazirmatn",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "lalezar": {
+  "family": "Lalezar",
+  "package": "@fontsource/lalezar",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "kufam": {
+  "family": "Kufam",
+  "package": "@fontsource/kufam",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "cairo": {
+  "family": "Cairo",
+  "package": "@fontsource/cairo",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "changa": {
+  "family": "Changa",
+  "package": "@fontsource/changa",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "rakkas": {
+  "family": "Rakkas",
+  "package": "@fontsource/rakkas",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "aref-ruqaa": {
+  "family": "Aref Ruqaa",
+  "package": "@fontsource/aref-ruqaa",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "reem-kufi": {
+  "family": "Reem Kufi",
+  "package": "@fontsource/reem-kufi",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "harmattan": {
+  "family": "Harmattan",
+  "package": "@fontsource/harmattan",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "markazi-text": {
+  "family": "Markazi Text",
+  "package": "@fontsource/markazi-text",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "amiri": {
+  "family": "Amiri",
+  "package": "@fontsource/amiri",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "katibeh": {
+  "family": "Katibeh",
+  "package": "@fontsource/katibeh",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "jomhuria": {
+  "family": "Jomhuria",
+  "package": "@fontsource/jomhuria",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "lemonada": {
+  "family": "Lemonada",
+  "package": "@fontsource/lemonada",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "baloo-bhaijaan-2": {
+  "family": "Baloo Bhaijaan 2",
+  "package": "@fontsource/baloo-bhaijaan-2",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "mirza": {
+  "family": "Mirza",
+  "package": "@fontsource/mirza",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "blaka": {
+  "family": "Blaka",
+  "package": "@fontsource/blaka",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "vibes": {
+  "family": "Vibes",
+  "package": "@fontsource/vibes",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "noto-naskh-arabic": {
+  "family": "Noto Naskh Arabic",
+  "package": "@fontsource/noto-naskh-arabic",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "noto-kufi-arabic": {
+  "family": "Noto Kufi Arabic",
+  "package": "@fontsource/noto-kufi-arabic",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "mada": {
+  "family": "Mada",
+  "package": "@fontsource/mada",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "press-start-2p": {
+  "family": "Press Start 2P",
+  "package": "@fontsource/press-start-2p",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "vt323": {
+  "family": "VT323",
+  "package": "@fontsource/vt323",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "silkscreen": {
+  "family": "Silkscreen",
+  "package": "@fontsource/silkscreen",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "permanent-marker": {
+  "family": "Permanent Marker",
+  "package": "@fontsource/permanent-marker",
+  "version": "5.3.0",
+  "license": "Apache-2.0"
+ },
+ "bangers": {
+  "family": "Bangers",
+  "package": "@fontsource/bangers",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "fredoka": {
+  "family": "Fredoka",
+  "package": "@fontsource/fredoka",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "righteous": {
+  "family": "Righteous",
+  "package": "@fontsource/righteous",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "orbitron": {
+  "family": "Orbitron",
+  "package": "@fontsource/orbitron",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "monoton": {
+  "family": "Monoton",
+  "package": "@fontsource/monoton",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "abril-fatface": {
+  "family": "Abril Fatface",
+  "package": "@fontsource/abril-fatface",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "archivo-black": {
+  "family": "Archivo Black",
+  "package": "@fontsource/archivo-black",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "bebas-neue": {
+  "family": "Bebas Neue",
+  "package": "@fontsource/bebas-neue",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "special-elite": {
+  "family": "Special Elite",
+  "package": "@fontsource/special-elite",
+  "version": "5.3.0",
+  "license": "Apache-2.0"
+ },
+ "caveat": {
+  "family": "Caveat",
+  "package": "@fontsource/caveat",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "patrick-hand": {
+  "family": "Patrick Hand",
+  "package": "@fontsource/patrick-hand",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "rock-salt": {
+  "family": "Rock Salt",
+  "package": "@fontsource/rock-salt",
+  "version": "5.3.0",
+  "license": "Apache-2.0"
+ },
+ "staatliches": {
+  "family": "Staatliches",
+  "package": "@fontsource/staatliches",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "space-grotesk": {
+  "family": "Space Grotesk",
+  "package": "@fontsource/space-grotesk",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "dm-serif-display": {
+  "family": "DM Serif Display",
+  "package": "@fontsource/dm-serif-display",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "playfair-display": {
+  "family": "Playfair Display",
+  "package": "@fontsource/playfair-display",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "cinzel": {
+  "family": "Cinzel",
+  "package": "@fontsource/cinzel",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "major-mono-display": {
+  "family": "Major Mono Display",
+  "package": "@fontsource/major-mono-display",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "syncopate": {
+  "family": "Syncopate",
+  "package": "@fontsource/syncopate",
+  "version": "5.3.0",
+  "license": "Apache-2.0"
+ },
+ "limelight": {
+  "family": "Limelight",
+  "package": "@fontsource/limelight",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "bungee": {
+  "family": "Bungee",
+  "package": "@fontsource/bungee",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "rubik-glitch": {
+  "family": "Rubik Glitch",
+  "package": "@fontsource/rubik-glitch",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "londrina-solid": {
+  "family": "Londrina Solid",
+  "package": "@fontsource/londrina-solid",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "chelsea-market": {
+  "family": "Chelsea Market",
+  "package": "@fontsource/chelsea-market",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "luckiest-guy": {
+  "family": "Luckiest Guy",
+  "package": "@fontsource/luckiest-guy",
+  "version": "5.3.0",
+  "license": "Apache-2.0"
+ },
+ "gloria-hallelujah": {
+  "family": "Gloria Hallelujah",
+  "package": "@fontsource/gloria-hallelujah",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "architects-daughter": {
+  "family": "Architects Daughter",
+  "package": "@fontsource/architects-daughter",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "black-ops-one": {
+  "family": "Black Ops One",
+  "package": "@fontsource/black-ops-one",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "inter": {
+  "family": "Inter",
+  "package": "@fontsource/inter",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "nunito": {
+  "family": "Nunito",
+  "package": "@fontsource/nunito",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "fredericka-the-great": {
+  "family": "Fredericka the Great",
+  "package": "@fontsource/fredericka-the-great",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "shrikhand": {
+  "family": "Shrikhand",
+  "package": "@fontsource/shrikhand",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "pacifico": {
+  "family": "Pacifico",
+  "package": "@fontsource/pacifico",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "lobster": {
+  "family": "Lobster",
+  "package": "@fontsource/lobster",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "comic-neue": {
+  "family": "Comic Neue",
+  "package": "@fontsource/comic-neue",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "oswald": {
+  "family": "Oswald",
+  "package": "@fontsource/oswald",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "anton": {
+  "family": "Anton",
+  "package": "@fontsource/anton",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "bowlby-one": {
+  "family": "Bowlby One",
+  "package": "@fontsource/bowlby-one",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "unbounded": {
+  "family": "Unbounded",
+  "package": "@fontsource/unbounded",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "rubik-mono-one": {
+  "family": "Rubik Mono One",
+  "package": "@fontsource/rubik-mono-one",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "russo-one": {
+  "family": "Russo One",
+  "package": "@fontsource/russo-one",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "audiowide": {
+  "family": "Audiowide",
+  "package": "@fontsource/audiowide",
+  "version": "5.3.0",
+  "license": "OFL-1.1"
+ },
+ "vazirmatn_project": {
+  "family": "Vazirmatn (the project's own copy, weights 400 / 700)",
+  "package": "backend/services/imaging/fonts",
+  "license": "OFL-1.1"
+ }
+}

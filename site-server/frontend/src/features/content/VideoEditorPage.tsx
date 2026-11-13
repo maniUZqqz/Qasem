@@ -75,6 +75,13 @@ export default function VideoEditorPage() {
   // ?project=<شناسه> (از صفحهٔ «چندزاویه» و مانندش): همان پروژه در فضای «دستی» باز می‌شود
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
+    const start = searchParams.get("start");     // ?start=video:<شناسه> (از «استودیوی موشن»): همان کلیپ روی خطِ زمانِ فضای «دستی» باز می‌شود
+    if (start && /^video:\d+$/.test(start)) {
+      setManualStart(start);
+      setMode("manual");
+      setSearchParams({}, { replace: true });
+      return;
+    }
     const wanted = Number(searchParams.get("project"));
     if (wanted > 0) {
       setManualProject(wanted);

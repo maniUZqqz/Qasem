@@ -38,5 +38,5 @@ def check(ctx, job):
 
 
 register(SelfTest(key="edit_render", label="رندرِ نهاییِ ویرایشگرِ ویدیو (NVENC)", group="video", kind="edit.render", build=build, check=check,
-                  available=_available, gpu_required=lambda ctx: _nvenc_expected(ctx), order=55,
+                  available=_available, gpu_required=lambda ctx: _nvenc_expected(ctx), order=55, needs_features=("ffmpeg-nvenc",),
                   requeue={"kinds": ("edit.render", "edit.matte", "edit.track")}, describe="دو ثانیه ویدیو؛ آپلودِ تکه‌ای و بررسیِ اندازه"))

@@ -16,7 +16,8 @@ from django.utils import timezone
 from .. import queue as QV
 from .. import services as SV
 from ..models import ComputeJob, ComputeNode, ComputeSettings, SelfTestResult, SelfTestRun
-from . import REGISTRY, Ctx, Verdict, load_all, tests
+from . import (BOOT_BUSY, BOOT_MIN_AGENT, REGISTRY, YOUNG_AGENT_S, Ctx, Verdict, agent_age_s, agent_at_least, bootstrap_features,
+               load_all, tests)
 from .requeue import requeue_after_pass
 
 logger = logging.getLogger(__name__)
@@ -40,13 +41,49 @@ def latest_run(node) -> SelfTestRun | None:
     return SelfTestRun.objects.filter(node=node).order_by("-created_at").first()
 
 
+def run_outdated(run: SelfTestRun, caps: dict) -> bool:
+    """اجرا برای نسخه‌ای از عامل (یا کدی) ساخته شده که دیگر روی گره نیست؟ (با ریستارتِ هم‌نسخه چیزی عوض نمی‌شود)"""
+    have = str((caps or {}).get("agent") or "")[:20]
+    if run.agent_version and have and run.agent_version != have:
+        return True
+    code = node_code_id(caps or {})
+    return bool(run.code_id and code and run.code_id != code)
+
+
+def update_in_flight(run: SelfTestRun) -> bool:
+    """خودِ این اجرا دستورِ به‌روزرسانی/راه‌اندازیِ دوباره فرستاده و منتظرِ برگشتِ عامل است (آزمونِ update_flow)؟"""
+    return any((r.extra or {}).get("cmd_id") and not r.final for r in run.results.all())
+
+
+def abort_run(run: SelfTestRun, note: str) -> None:
+    """اجرا را متوقف می‌کند: کارهای در راهش لغو، آزمون‌های ناتمامش «اجرا نشد» (با علت)."""
+    for r in run.results.all():
+        if r.final:
+            continue
+        if r.job_uid:
+            job = ComputeJob.objects.filter(uid=r.job_uid).first()
+            if job and not job.final:
+                SV.cancel(job, "آزمونِ خودکار: " + note)
+        _final(r, S.SKIPPED, note)
+    run.state = SelfTestRun.State.ABORTED
+    run.finished_at = timezone.now()
+    run.note = note[:300]
+    run.save()
+
+
 def start_run(node: ComputeNode, trigger: str = "manual", by: str = "", deep: bool = False, only=None) -> SelfTestRun:
-    """یک اجرای تازه؛ اگر برای این گره اجرایی در جریان است همان برمی‌گردد (دو اجرای هم‌زمان نمی‌شود)."""
+    """یک اجرای تازه؛ اگر برای این گره اجرایی در جریان است همان برمی‌گردد (دو اجرای هم‌زمان نمی‌شود) — مگر اینکه آن اجرا برای نسخهٔ
+    قدیمیِ عامل ساخته شده باشد: آن متوقف می‌شود و اجرای تازه برای نسخهٔ فعلی ساخته می‌شود (گزارشِ نسخهٔ قدیمی نباید جلوی گزارشِ
+    درستِ نسخهٔ تازه را بگیرد)."""
     load_all()
+    caps = node.capabilities or {}
     run = active_run(node)
     if run is not None:
-        return run
-    caps = node.capabilities or {}
+        if run_outdated(run, caps) and not update_in_flight(run):
+            abort_run(run, "نسخهٔ عاملِ سرور عوض شد (%s ⇒ %s)؛ آزمونِ تازه برای نسخهٔ تازه ساخته شد." % (
+                run.agent_version or "؟", caps.get("agent") or "؟"))
+        else:
+            return run
     chosen = [t for t in tests(deep or trigger == "deep") if not only or t.key in set(only)]
     if only:                                           # پیش‌نیازها هم می‌آیند
         keys = {t.key for t in chosen}
@@ -181,6 +218,11 @@ def _step_queued(t, r, ctx, job) -> None:
         r.save(update_fields=["state", "detail"])
         return
     if SV.kind_unsupported(node, job) and age > 300:
+        if _update_pending(node) and age <= t.wait_install_s:
+            r.state = S.WAITING
+            r.detail = "عاملِ این سرور هنوز نوعِ «%s» را نمی‌شناسد؛ منتظرِ به‌روزرسانیِ خودکار ..." % job.kind
+            r.save(update_fields=["state", "detail"])
+            return
         SV.cancel(job, "آزمونِ خودکار: عاملِ گره این نوع کار را نمی‌شناسد.")
         _final(r, S.FAILED, "عاملِ این سرور (نسخهٔ %s) نوعِ «%s» را نمی‌شناسد؛ «به‌روزرسانی» را بزنید." % (
             (node.capabilities or {}).get("agent") or "؟", job.kind))
@@ -202,6 +244,74 @@ def _step_queued(t, r, ctx, job) -> None:
         r.state = S.QUEUED
         r.detail = ""
         r.save(update_fields=["state", "detail"])
+
+
+def _update_pending(node) -> bool:
+    """به‌روزرسانیِ خودکارِ عامل در راه است؟ (بسته تازه‌تر از عامل، تنظیمِ خودکار روشن، عامل دستورِ به‌روزرسانی را می‌شناسد)"""
+    try:
+        from .. import autopilot
+
+        return bool(autopilot.update_wanted(node)[0])
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _hold(t, r, detail: str) -> bool:
+    """آزمون هنوز نمی‌تواند شروع شود: «منتظر» با علت (با سقفِ زمان)؛ True برمی‌گرداند."""
+    now = timezone.now()
+    if r.started_at is None:
+        r.started_at = now
+    if (now - r.started_at).total_seconds() > t.wait_install_s:
+        r.extra = {k: v for k, v in (r.extra or {}).items() if k != "gate"}
+        _final(r, S.FAILED, "زمانِ انتظار تمام شد: %s" % detail)
+        return True
+    r.state = S.WAITING
+    r.detail = detail[:1500]
+    r.extra = {**(r.extra or {}), "gate": True}
+    r.save()
+    return True
+
+
+def _install_hold(features, caps) -> str:
+    """چیزی که هنوز مانعِ شروعِ آزمونی است که به این ویژگی‌های نصبِ خودکار تکیه دارد؛ '' یعنی راهی است."""
+    feats = bootstrap_features(caps)
+    age = agent_age_s(caps)
+    if feats is None:
+        if age is not None and age < 6 * 60:
+            return "عاملِ سرور تازه بالا آمده و نصبِ خودکار را هنوز شروع نکرده ..."
+        return ""                                  # عامل هرگز گزارش نداد؛ آزمونِ «نصبِ خودکار» همین را رد می‌کند
+    for name in features:
+        f = feats.get(name) or {}
+        if f.get("applicable", True) and f.get("state") in BOOT_BUSY:
+            return "منتظرِ پایانِ نصبِ «%s» ..." % (f.get("title") or name)
+    if age is not None and age < YOUNG_AGENT_S:
+        return "عاملِ سرور تازه بالا آمده؛ منتظرِ پایانِ بررسیِ نصب‌ها ..."
+    return ""
+
+
+def _gate(t, r, ctx) -> bool:
+    """پیش از ساخته شدنِ آزمون: عاملِ گره آن را می‌شناسد و نصبِ خودکارِ پیش‌نیازهایش تمام است؟ True ⇒ این گام تمام شد (منتظر
+    ماند یا نهایی شد) و آزمون نباید ساخته شود."""
+    caps = ctx.caps
+    if t.min_agent and not agent_at_least(caps, t.min_agent):
+        have = caps.get("agent") or "؟"
+        if _update_pending(ctx.node):
+            return _hold(t, r, "عاملِ این سرور (نسخهٔ %s) این آزمون را نمی‌شناسد (از نسخهٔ %s به بعد)؛ منتظرِ به‌روزرسانیِ خودکار ..." % (
+                have, t.min_agent))
+        _final(r, S.SKIPPED if t.optional else S.FAILED,
+               "عاملِ این سرور (نسخهٔ %s) این آزمون را نمی‌شناسد (نسخهٔ %s به بعد لازم است)؛ «به‌روزرسانی» را بزنید." % (have, t.min_agent))
+        return True
+    if t.needs_features and agent_at_least(caps, BOOT_MIN_AGENT):
+        why = _install_hold(t.needs_features, caps)
+        if why:
+            return _hold(t, r, why)
+    if (r.extra or {}).get("gate"):                # راه باز شد
+        r.extra = {k: v for k, v in r.extra.items() if k != "gate"}
+        r.started_at = None
+        r.state = S.PENDING
+        r.detail = ""
+        r.save()
+    return False
 
 
 def _step_virtual(t, r, ctx) -> None:
@@ -228,7 +338,7 @@ def _step_virtual(t, r, ctx) -> None:
 
 def _step(t, r, ctx) -> None:
     results = ctx.results
-    if r.state == S.PENDING:
+    if r.state == S.PENDING or (r.state == S.WAITING and (r.extra or {}).get("gate")):
         deps = [results[k] for k in t.after if k in results]
         bad = [d for d in deps if d.state in (S.FAILED, S.SKIPPED)]
         if bad:
@@ -237,6 +347,8 @@ def _step(t, r, ctx) -> None:
         if any(not d.final for d in deps):
             return
         if t.final and any(not o.final for k, o in results.items() if k != r.key and not getattr(REGISTRY.get(k), "final", False)):
+            return
+        if ctx.node.online and _gate(t, r, ctx):          # عاملِ قدیمی / نصبِ در جریان: صبر (یا خطای روشن)، نه «ردشده»
             return
         ok, why = t.available(ctx.node)
         if not ok:

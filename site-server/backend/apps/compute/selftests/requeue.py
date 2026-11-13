@@ -16,7 +16,12 @@ NODE_ERROR_RE = re.compile("|".join([
     r"does not know job kind", r"voice_setup", r"downloading:", r"is not installed", r"not installed", r"not on this node",
     r"did not start", r"did not come up", r"exited right after start", r"is not running", r"not running on this node",
     r"out of (gpu )?memory", r"cuda error", r"nvenc", r"openencodesession", r"no capable devices", r"auto-switch is off",
-    r"site unreachable", r"ollama", r"comfyui (did not|is not|rejected)", r"did not become ready", r"could not load its model",
+    r"site unreachable", r"ollama", r"comfyui (did not|is not)", r"did not become ready", r"could not load its model",
+    # a service that IS running but did not answer in time (a read timeout - the load on the node, not a bad job)
+    r"did not answer within", r"is running but did not",
+    # «ComfyUI rejected the graph» is the job's own fault (prompt_no_outputs, a missing node ...) and is never re-run;
+    # only the one rejection that means "the model file is not on this node (yet)" is a node reason
+    r"rejected the graph[\s\S]{0,500}value[_ ]not[_ ]in[_ ]list",
     r"سرورِ پردازش", r"سرور پردازش", r"بی‌خبر", r"قطع شد", r"نصب نیست", r"در حالِ دانلود", r"خاموش", r"مهلتِ", r"مهلت",
 ]), re.I)
 MAX_PER_JOB = 2

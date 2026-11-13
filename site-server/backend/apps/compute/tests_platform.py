@@ -4,6 +4,7 @@
 import json
 import shutil
 import tempfile
+import time
 from datetime import timedelta
 from pathlib import Path
 from unittest import mock
@@ -18,6 +19,7 @@ from . import commands as C
 from . import services as SV
 from .models import ComputeJob, ComputeNode, ComputeSettings, NodeAuto, RequeueRecord, SelfTestResult, SelfTestRun
 from .selftests import REGISTRY, Verdict, docs_loader, load_all, png, runner
+from .selftests import bootstrap as bootstrap_selftest
 from .selftests import requeue as requeue_mod
 
 LATEST = {"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb", "size": 1, "built": "x"}
@@ -330,6 +332,88 @@ class AutopilotTests(_Base):
             autopilot.on_heartbeat(self.node)
         self.assertEqual(sr.call_count, 1)
 
+    def test_the_first_heartbeat_of_an_old_agent_makes_no_run_the_updated_agent_gets_one_clean_run(self):
+        """The owner's night: the node is switched on with agent 2.10, the site updates it by itself, and the run is made for the NEW
+        version - not a report full of «failed» for the old agent that is being replaced a few seconds later."""
+        n = self.old_node()
+        autopilot.on_heartbeat(n)                                   # first heartbeat: still 2.10, update is coming
+        self.assertEqual(SelfTestRun.objects.count(), 0)
+        self.assertEqual(NodeAuto.of(n).last_selftest_key, "")      # not marked as handled
+        self.assertEqual(autopilot.send_update(n)["action"], "update")
+        autopilot.on_heartbeat(n)                                   # still 2.10 while it downloads: still no run
+        self.assertEqual(SelfTestRun.objects.count(), 0)
+        n.capabilities.update(agent="2.11", code={"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb"})
+        n.save()
+        autopilot.on_heartbeat(n)                                   # back as 2.11
+        runs = list(SelfTestRun.objects.filter(node=n))
+        self.assertEqual(len(runs), 1)
+        self.assertEqual((runs[0].agent_version, runs[0].trigger, runs[0].state), ("2.11", "version", "RUNNING"))
+
+    def test_a_run_made_for_the_old_version_is_replaced_when_the_new_version_arrives(self):
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_update": False})
+        n = self.old_node()
+        autopilot.on_heartbeat(n)                                   # the site is not allowed to update it: a run for 2.10 starts
+        old = SelfTestRun.objects.get(node=n)
+        self.assertEqual(old.agent_version, "2.10")
+        old_jobs = list(ComputeJob.objects.filter(origin="selftest"))
+        n.capabilities.update(agent="2.11", code={"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb"})
+        n.save()
+        autopilot.on_heartbeat(n)
+        old.refresh_from_db()
+        self.assertEqual(old.state, "ABORTED")
+        self.assertIn("نسخهٔ عاملِ سرور عوض شد", old.note)
+        self.assertTrue(all(r.final for r in old.results.all()))
+        self.assertTrue(all(ComputeJob.objects.get(pk=j.pk).final for j in old_jobs))
+        new = runner.active_run(n)
+        self.assertNotEqual(new.pk, old.pk)
+        self.assertEqual(new.agent_version, "2.11")
+        self.assertEqual(SelfTestRun.objects.filter(node=n, state="RUNNING").count(), 1)
+
+    def test_the_manual_button_also_replaces_a_run_of_a_version_that_is_gone(self):
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_update": False})
+        n = self.old_node()
+        old = runner.start_run(n, "manual")
+        self.assertEqual(runner.start_run(n, "manual").pk, old.pk)       # same version: the running one is returned
+        n.capabilities.update(agent="2.11", code={"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb"})
+        n.save()
+        new = runner.start_run(n, "manual")
+        self.assertNotEqual(new.pk, old.pk)
+        self.assertEqual(new.agent_version, "2.11")
+
+    def test_a_run_that_sent_the_update_command_itself_is_left_to_finish(self):
+        """update_flow sent «update» and waits for the agent: the agent coming back with a new version must not abort that very run."""
+        n = self.node
+        run = runner.start_run(n, "manual")
+        SelfTestResult.objects.filter(run=run, key="update_flow").update(state="WAITING", extra={"cmd_id": 7, "action": "update"})
+        n.capabilities.update(agent="2.12", code={"version": "2.12", "id": "cccccccccccccccccccc"})
+        n.save()
+        with mock.patch.object(autopilot.U, "latest", return_value={"version": "2.12", "id": "cccccccccccccccccccc", "size": 1, "built": "x"}):
+            autopilot.on_heartbeat(n)
+            self.assertEqual(SelfTestRun.objects.filter(node=n).count(), 1)
+            self.assertEqual(runner.start_run(n, "manual").pk, run.pk)
+            self.assertEqual(NodeAuto.of(n).last_selftest_key, "")      # not handled yet: the next heartbeat after the run makes the new one
+            SelfTestResult.objects.filter(run=run).update(state="PASSED", extra={})
+            runner.finish_run(run)
+            autopilot.on_heartbeat(n)
+        runs = SelfTestRun.objects.filter(node=n).order_by("pk")
+        self.assertEqual(runs.count(), 2)
+        self.assertEqual(runs.last().agent_version, "2.12")
+
+    def test_the_nightly_run_waits_for_a_pending_update_and_keeps_its_day(self):
+        n = self.old_node()
+        today = "2026-11-13"
+        due = lambda node, cfg, now=None: today if node.pk == n.pk else ""        # noqa: E731
+        with mock.patch.object(autopilot, "nightly_due", side_effect=due), mock.patch.object(runner, "start_run") as sr,                 mock.patch.object(runner, "advance_all", return_value={}):
+            autopilot.tick()
+            sr.assert_not_called()
+            self.assertEqual(NodeAuto.of(n).last_nightly, "")
+            n.capabilities.update(agent="2.11", code={"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb"})
+            n.save()
+            autopilot.tick()
+        self.assertEqual(sr.call_count, 1)
+        self.assertEqual(sr.call_args[0][1], "nightly")
+        self.assertEqual(NodeAuto.of(n).last_nightly, today)
+
     def test_the_setting_turns_the_version_trigger_off(self):
         ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_selftest": False})
         with mock.patch.object(runner, "start_run") as sr:
@@ -400,13 +484,16 @@ class SelfTestRunTests(_Base):
             n.save()
 
     def drive(self, run, handler, rounds=8):
-        for _ in range(rounds):
-            runner.advance(run)
-            run.refresh_from_db()
-            if run.state != "RUNNING":
-                break
-            self.run_jobs(run, handler)
-            self.answer_command()
+        # the pretend agent «restarts» at once (answer_command) and the clock never moves in a test: the three minutes a freshly started
+        # agent is given to start its installer are not waited for here (they have tests of their own)
+        with mock.patch.object(runner, "YOUNG_AGENT_S", -1000), mock.patch.object(bootstrap_selftest, "YOUNG_AGENT_S", -1000):
+            for _ in range(rounds):
+                runner.advance(run)
+                run.refresh_from_db()
+                if run.state != "RUNNING":
+                    break
+                self.run_jobs(run, handler)
+                self.answer_command()
         run.refresh_from_db()
         return run
 
@@ -626,6 +713,112 @@ class SelfTestRunTests(_Base):
         self.assertEqual(gpu_row.state, "FAILED")
         self.assertIn("به‌روزرسانی", gpu_row.detail)
 
+    def test_bootstrap_never_passes_before_the_new_agent_has_reported_its_installs(self):
+        """The agent starts its installer about 70 s after it starts: until then «automatic install: pass» would be a lie."""
+        self.node.capabilities.pop("bootstrap")
+        self.node.save()
+        run = runner.start_run(self.node, "manual")
+        runner.advance(run)
+        b = run.results.get(key="bootstrap")
+        self.assertEqual(b.state, "WAITING")
+        self.assertNotIn("چیزی برای نصبِ خودکار ندارد", b.detail)
+        old = dict(b.extra)
+        old["absent_since"] = (timezone.now() - timedelta(minutes=7)).isoformat()      # it never reported in all that time
+        SelfTestResult.objects.filter(pk=b.pk).update(extra=old)
+        runner.advance(run)
+        b.refresh_from_db()
+        self.assertEqual(b.state, "FAILED")
+        self.assertIn("راه نینداخت", b.detail)
+
+    def test_an_empty_install_list_is_a_failure_not_a_pass(self):
+        self.node.capabilities["bootstrap"] = {"summary": {}, "blocked_kinds": {}, "features": {}, "errors": ["x.json: broken"]}
+        self.node.save()
+        run = runner.start_run(self.node, "manual")
+        runner.advance(run)
+        b = run.results.get(key="bootstrap")
+        self.assertEqual(b.state, "FAILED")
+        self.assertIn("requirements.d", b.detail)
+
+    def test_a_freshly_started_agent_with_everything_ready_still_gets_a_moment(self):
+        self.node.capabilities["started_at"] = int(time.time()) - 20
+        self.node.save()
+        run = runner.start_run(self.node, "manual")
+        runner.advance(run)
+        self.assertEqual(run.results.get(key="bootstrap").state, "WAITING")
+        gpu_row = run.results.get(key="gpu")
+        self.assertEqual(gpu_row.state, "WAITING")
+        self.assertIsNone(gpu_row.job_uid)                       # no job was sent into an environment that is not there yet
+        self.node.capabilities["started_at"] = int(time.time()) - 600
+        self.node.save()
+        runner.advance(run)
+        self.assertEqual(run.results.get(key="bootstrap").state, "PASSED")
+        gpu_row.refresh_from_db()
+        self.assertEqual(gpu_row.state, "QUEUED")
+        self.assertTrue(gpu_row.job_uid)
+
+    def test_tests_that_rely_on_an_install_wait_for_it_instead_of_running_or_skipping(self):
+        feats = self.node.capabilities["bootstrap"]["features"]
+        feats["gpu-runtime"]["state"] = "installing"
+        feats["ffmpeg-nvenc"] = {"title": "ffmpeg با NVENC", "state": "installing", "items": []}
+        feats["asr-gpu"] = {"title": "تشخیص گفتار روی کارت", "state": "waiting", "items": []}
+        self.node.save()
+        run = runner.start_run(self.node, "manual")
+        runner.advance(run)
+        runner.advance(run)
+        for key in ("gpu", "ffmpeg_nvenc", "matting", "edit_render"):
+            r = run.results.get(key=key)
+            self.assertEqual(r.state, "WAITING", key)
+            self.assertIsNone(r.job_uid, key)
+            self.assertIn("منتظرِ پایانِ نصب", r.detail, key)
+        for name in feats:
+            feats[name]["state"] = "ready"
+        self.node.save()
+        runner.advance(run)
+        for key in ("gpu", "ffmpeg_nvenc", "matting", "edit_render"):
+            r = run.results.get(key=key)
+            self.assertIn(r.state, ("QUEUED", "RUNNING", "PASSED"), key)
+            self.assertTrue(r.job_uid, key)
+
+    def test_tests_an_agent_predates_wait_while_the_update_is_coming_and_fail_clearly_when_it_is_not(self):
+        self.node.capabilities.update(agent="2.10", code={"version": "2.10", "id": "aaaaaaaaaaaaaaaa"})
+        self.node.capabilities.pop("kinds")
+        self.node.save()
+        self.assertTrue(autopilot.update_wanted(self.node)[0])
+        run = runner.start_run(self.node, "manual")
+        runner.advance(run)
+        for key in ("bootstrap", "net", "gpu", "ffmpeg_nvenc"):
+            r = run.results.get(key=key)
+            self.assertEqual(r.state, "WAITING", key)
+            self.assertIn("منتظرِ به‌روزرسانیِ خودکار", r.detail, key)
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_update": False})      # nobody will update it now
+        runner.advance(run)
+        for key in ("bootstrap", "net", "gpu"):
+            r = run.results.get(key=key)
+            self.assertEqual(r.state, "FAILED", key)
+            self.assertIn("«به‌روزرسانی» را بزنید", r.detail, key)
+
+    def test_a_job_the_agent_does_not_know_waits_while_an_update_is_coming(self):
+        kinds = [k for k in self.node.capabilities["kinds"] if k != "selftest.ffmpeg"]
+        self.node.capabilities.update(kinds=kinds, code={"version": "2.11", "id": "aaaaaaaaaaaaaaaa"})        # a different build: update is due
+        self.node.save()
+        run = runner.start_run(self.node, "manual")
+        for _ in range(2):
+            runner.advance(run)
+        r = run.results.get(key="ffmpeg_nvenc")
+        self.assertTrue(r.job_uid)
+        ComputeJob.objects.filter(uid=r.job_uid).update(queued_at=timezone.now() - timedelta(minutes=10))
+        SelfTestResult.objects.filter(pk=r.pk).update(started_at=timezone.now() - timedelta(minutes=10))
+        runner.advance(run)
+        r.refresh_from_db()
+        self.assertEqual(r.state, "WAITING")
+        self.assertIn("منتظرِ به‌روزرسانیِ خودکار", r.detail)
+        self.assertFalse(ComputeJob.objects.get(uid=r.job_uid).final)
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_update": False})
+        runner.advance(run)
+        r.refresh_from_db()
+        self.assertEqual(r.state, "FAILED")
+        self.assertIn("«به‌روزرسانی» را بزنید", r.detail)
+
     def test_the_run_is_aborted_when_the_node_stays_off(self):
         run = runner.start_run(self.node, "manual")
         ComputeNode.objects.filter(pk=self.node.pk).update(last_seen=timezone.now() - timedelta(hours=2))
@@ -646,7 +839,7 @@ class SelfTestRunTests(_Base):
         rows = {r.key: r for r in run.results.all()}
         self.assertEqual(rows["tts_piper"].state, "PASSED")
         self.assertEqual(rows["asr_vosk"].state, "PASSED")
-        self.assertEqual(run.state, "FINISHED")
+        self.assertEqual(run.state, "FINISHED", {r.key: (r.state, (r.detail or "")[:80]) for r in run.results.all() if not r.final})
 
     def test_deep_run_includes_the_long_tests(self):
         run = runner.start_run(self.node, "deep", deep=True)
@@ -720,6 +913,27 @@ class RequeueTests(_Base):
         self.assertTrue(requeue_mod.node_reason(c))
         self.assertFalse(requeue_mod.node_reason(d))
         self.assertTrue(requeue_mod.node_reason(e))
+
+    def test_a_graph_comfyui_rejected_as_invalid_is_a_real_error_but_a_missing_model_file_is_a_node_reason(self):
+        invalid = self.failed_job("comfy.graph", {"g": 1}, 'RuntimeError: ComfyUI rejected the graph (HTTP 400): {"error": {"type": "prompt_no_outputs", '
+                                  '"message": "Prompt has no outputs"}, "node_errors": {}}')
+        broken = self.failed_job("comfy.graph", {"g": 2}, "RuntimeError: ComfyUI rejected the graph (HTTP 400): {\"error\": {\"type\": "
+                                 "\"prompt_outputs_failed_validation\", \"details\": \"Exception when validating node: '8'\"}}")
+        no_model = self.failed_job("comfy.graph", {"g": 3}, "RuntimeError: ComfyUI rejected the graph (HTTP 400): Value not in list: "
+                                   "ckpt_name: 'flux1-dev.safetensors' not in []")
+        real_shape = self.failed_job("comfy.graph", {"g": 6}, 'RuntimeError: ComfyUI rejected the graph (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", '
+                                     '"message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"4": {"errors": [{"type": '
+                                     '"value_not_in_list", "message": "Value not in list", "details": "ckpt_name: \'x.safetensors\' not in []"}]}}}')
+        down = self.failed_job("comfy.graph", {"g": 4}, "RuntimeError: ComfyUI is not reachable at http://127.0.0.1:8188: refused")
+        slow = self.failed_job("comfy.graph", {"g": 5}, "RuntimeError: ComfyUI is running but did not answer within 120 s (a read timeout)")
+        self.assertFalse(requeue_mod.node_reason(invalid))
+        self.assertFalse(requeue_mod.node_reason(broken))
+        self.assertTrue(requeue_mod.node_reason(no_model))
+        self.assertTrue(requeue_mod.node_reason(down))
+        self.assertTrue(requeue_mod.node_reason(slow))
+        got = {j.pk for j in requeue_mod.candidates(("comfy.graph",))}
+        self.assertTrue(requeue_mod.node_reason(real_shape))               # the real body of «the checkpoint is not on this node»
+        self.assertEqual(got, {no_model.pk, real_shape.pk, down.pk, slow.pk})
 
     def test_a_passed_moss_test_brings_the_failed_voice_overs_back_once_or_twice_only(self):
         voices = [self.failed_job("voice.tts", {"engine": "moss-fa", "text": "t%d" % i, "out": "speech.wav"}, "JobError: MOSS-TTS is not installed")

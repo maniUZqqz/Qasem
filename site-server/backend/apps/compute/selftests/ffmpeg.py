@@ -22,5 +22,5 @@ def check(ctx, job):
 
 
 register(SelfTest(key="ffmpeg_nvenc", label="رمزگذاریِ ویدیو با NVENC (و خواندن با NVDEC)", group="gpu", kind="selftest.ffmpeg",
-                  build=build, check=check, gpu_required=True, order=20, after=(),
+                  build=build, check=check, gpu_required=True, order=20, after=(), min_agent="2.11", needs_features=("ffmpeg-nvenc",),
                   describe="ffmpeg ای که NVENC کار می‌کند؛ اگر نبود، نسخهٔ آن از آینهٔ سایت نصب می‌شود"))

@@ -1,5 +1,5 @@
 """آزمونِ مقاومت در برابرِ قطعِ اینترنت: نتیجه‌های در انتظارِ ارسال (outbox) و وضعیتِ خطِ گره به سایت، و راهروی سبک."""
-from . import SelfTest, Verdict, register
+from . import BOOT_MIN_AGENT, SelfTest, Verdict, register
 
 
 def virtual(ctx):
@@ -18,5 +18,5 @@ def virtual(ctx):
     return Verdict.passed("، ".join(parts) + " · نتیجه‌ها گم نمی‌شوند", extra={"pending": pending})
 
 
-register(SelfTest(key="net", label="مقاومت در برابر قطعِ اینترنت و راهروی سبک", group="system", virtual=virtual, order=9,
+register(SelfTest(key="net", label="مقاومت در برابر قطعِ اینترنت و راهروی سبک", group="system", virtual=virtual, order=9, min_agent=BOOT_MIN_AGENT,
                   describe="نتیجهٔ کارِ تمام‌شده تا رسیدن به سایت روی سرور می‌ماند"))

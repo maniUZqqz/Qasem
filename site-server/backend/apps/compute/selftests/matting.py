@@ -54,5 +54,5 @@ def check(ctx, job):
 
 
 register(SelfTest(key="matting", label="جداسازیِ پس‌زمینهٔ عکس (ONNX روی کارت)", group="image", kind="photo.matting", build=build, check=check,
-                  available=_available, gpu_required=lambda ctx: _runtime_gpu(ctx.node), order=50,
+                  available=_available, gpu_required=lambda ctx: _runtime_gpu(ctx.node), order=50, needs_features=("gpu-runtime",),
                   requeue={"kinds": ("photo.matting", "edit.matte")}, describe="دایرهٔ آبی از زمینهٔ نارنجی جدا می‌شود"))

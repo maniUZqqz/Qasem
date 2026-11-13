@@ -46,4 +46,4 @@ def check(ctx, job):
 
 
 register(SelfTest(key="gpu", label="کارتِ گرافیک و درایور (nvidia-smi، torch.cuda، onnxruntime)", group="gpu", kind="selftest.gpu",
-                  build=build, check=check, order=10, describe="کارت دیده می‌شود و کتابخانه‌ها از آن استفاده می‌کنند"))
+                  build=build, check=check, order=10, min_agent="2.11", needs_features=("gpu-runtime", "ffmpeg-nvenc"), describe="کارت دیده می‌شود و کتابخانه‌ها از آن استفاده می‌کنند"))

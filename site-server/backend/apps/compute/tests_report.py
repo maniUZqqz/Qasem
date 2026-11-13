@@ -373,6 +373,10 @@ EXPLAIN_CASES = [
     ("model 'qwen3:8b' not found, try pulling it first (ollama)", "ollama_model"),
     ("pull model manifest: file does not exist", "not_installed"),
     ("Ollama is not running at http://127.0.0.1:11434", "ollama_down"),
+    ("ComfyUI is running but did not answer within 120 s (a read timeout - it is busy or stuck; this is not a connection failure)", "service_slow"),
+    ("MOSS-TTS Persian speech is running but did not answer within 600 s (a read timeout - it is busy or stuck; this is not a connection failure)", "service_slow"),
+    ("RuntimeError: ollama is running but did not finish in time (ollama is running but sent nothing for 180 s (the answer stalled); waited 180s). "
+     "The model may be too large for this GPU or stuck - see logs\\service-ollama.log", "service_slow"),
     ("OSError: [Errno 28] No space left on device", "disk_full"),
     ("ffmpeg exited with code 1: Invalid data found when processing input", "ffmpeg"),
     ("site unreachable (https://nm.example): <urlopen error [Errno 11001] getaddrinfo failed>", "site_transfer"),

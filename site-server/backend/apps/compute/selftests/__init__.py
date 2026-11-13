@@ -14,6 +14,10 @@
     after      کلیدهای پیش‌نیاز (خروجی‌شان ورودیِ این است)   gpu_required  اگر روی پردازنده اجرا شد = رد
     optional   اختیاری (در نتیجهٔ کلی نمی‌آید)       deep  فقط در «آزمونِ عمیق»          final  تنها وقتی همهٔ آزمون‌های دیگر تمام شدند
     requeue    {"kinds": (...), "match": job ⇒ bool}  پس از قبول، کارهای قبلاً ناموفقِ همین قابلیت دوباره به صف می‌روند
+    min_agent  کمترین نسخهٔ عامل که این آزمون را می‌شناسد (مثلاً "2.11")؛ عاملِ قدیمی‌تر «نمی‌تواند» و تا رسیدنِ به‌روزرسانی
+               صبر می‌شود (نه «رد»)
+    needs_features  نامِ ویژگی‌های requirements.d که این آزمون به آن‌ها تکیه دارد (مثلاً "gpu-runtime")؛ تا پایانِ نصبشان صبر می‌شود
+               (و تا وقتی عاملِ تازه‌بالاآمده هنوز نصبِ خودکار را گزارش نکرده)
 """
 from __future__ import annotations
 
@@ -68,6 +72,47 @@ def _always(node):
     return True, ""
 
 
+# ───────────────────────────── نسخهٔ عامل و نصبِ خودکار (برای صبر به‌جای رد)
+
+BOOT_MIN_AGENT = "2.11"        # از این نسخه به بعد عامل نصبِ خودکار (caps["bootstrap"]) دارد
+YOUNG_AGENT_S = 180            # عاملی که تازه‌تر از این بالا آمده هنوز نصبش را شروع نکرده/تمام نکرده است
+BOOT_ABSENT_S = 6 * 60         # عاملِ جدید این‌قدر بعد از شروع باید نصبِ خودکار را گزارش کرده باشد؛ وگرنه آن را راه نینداخته
+BOOT_BUSY = ("installing", "waiting")
+
+
+def version_tuple(v) -> tuple:
+    out = []
+    for part in str(v or "").strip().lstrip("vV").split(".")[:3]:
+        digits = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out) or (0,)
+
+
+def agent_at_least(caps: dict, minimum: str) -> bool:
+    """عاملِ گره دست‌کم این نسخه است؟ (عاملی که نسخه‌اش را نگفته «قدیمی» حساب می‌شود)"""
+    have = (caps or {}).get("agent")
+    return bool(have) and version_tuple(have) >= version_tuple(minimum)
+
+
+def agent_age_s(caps: dict, now=None) -> float | None:
+    """چند ثانیه از شروعِ این پردازشِ عامل گذشته (ساعتِ گره در برابرِ ساعتِ سایت)؛ None اگر معلوم نیست یا ساعت‌ها نمی‌خوانند."""
+    import time
+
+    started = (caps or {}).get("started_at")
+    try:
+        age = (now if now is not None else time.time()) - float(started)
+    except (TypeError, ValueError):
+        return None
+    return age if -60 <= age <= 24 * 3600 else None
+
+
+def bootstrap_features(caps: dict) -> dict | None:
+    """caps["bootstrap"]["features"]؛ None وقتی عامل هنوز گزارشش را نداده است."""
+    boot = (caps or {}).get("bootstrap")
+    feats = boot.get("features") if isinstance(boot, dict) else None
+    return feats if isinstance(feats, dict) and feats else None
+
+
 @dataclass
 class SelfTest:
     key: str
@@ -87,6 +132,8 @@ class SelfTest:
     order: int = 100
     wait_install_s: int = 4 * 3600                      # تا کی منتظرِ پایانِ نصبِ پیش‌نیازها می‌ماند
     describe: str = ""
+    min_agent: str = ""                                 # «2.11» ⇒ عاملِ قدیمی‌تر: صبر برای به‌روزرسانی یا (اگر نمی‌آید) خطای روشن
+    needs_features: tuple = ()                          # ویژگی‌های requirements.d که پیش از آزمون باید نصب شده باشند
 
 
 REGISTRY: dict[str, SelfTest] = {}

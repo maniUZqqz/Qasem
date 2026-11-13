@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.13"
+VERSION = "2.14"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -160,6 +160,8 @@ gpu = _optional("gpu")
 outbox_mod = _optional("outbox")
 bootstrap_mod = _optional("bootstrap")
 autostart_mod = _optional("autostart")
+instance_lock_mod = _optional("instance_lock")
+INSTANCE_LOCK = None                                               # held for the whole life of the process
 
 DATA = nm_data.data_root(HERE)                                     # models, venvs, node.json ... (survives updates)
 WORK = os.path.join(DATA, "work")
@@ -1900,7 +1902,12 @@ def check(cfg):
 
 def comfy_upload(name, content):
     body, ctype = multipart({"overwrite": "true"}, {"image": (name, content)})
-    r = http("POST", service_url("comfyui") + "/upload/image", body, {"Content-Type": ctype}, timeout=120)
+    try:
+        r = http("POST", service_url("comfyui") + "/upload/image", body, {"Content-Type": ctype}, timeout=120)
+    except urllib.error.HTTPError:
+        raise
+    except (urllib.error.URLError, OSError) as e:
+        raise service_error("ComfyUI", service_url("comfyui"), e, 120, error_cls=RuntimeError)
     return r.get("name", name) if isinstance(r, dict) else name
 
 
@@ -1912,6 +1919,8 @@ def comfy_run(graph, job):
         r = http("POST", base + "/prompt", {"prompt": graph, "client_id": client_id}, timeout=120)
     except urllib.error.HTTPError as e:
         raise RuntimeError("ComfyUI rejected the graph (HTTP %s): %s" % (e.code, e.read()[:600].decode("utf-8", "replace")))
+    except (urllib.error.URLError, OSError) as e:
+        raise service_error("ComfyUI", base, e, 120, error_cls=RuntimeError)
     if not isinstance(r, dict) or "prompt_id" not in r:
         raise RuntimeError("ComfyUI did not accept the graph: %s" % str(r)[:400])
     pid = r["prompt_id"]
@@ -1954,7 +1963,12 @@ def comfy_run(graph, job):
                         continue  # temporary frame previews next to a video
                     q = urllib.parse.urlencode({"filename": item["filename"], "subfolder": item.get("subfolder", ""),
                                                 "type": item.get("type", "output")})
-                    data, _ = http("GET", base + "/view?" + q, timeout=600, raw=True)
+                    try:
+                        data, _ = http("GET", base + "/view?" + q, timeout=600, raw=True)
+                    except urllib.error.HTTPError:
+                        raise
+                    except (urllib.error.URLError, OSError) as e:
+                        raise service_error("ComfyUI", base, e, 600, error_cls=RuntimeError)
                     name = os.path.basename(item["filename"])
                     dest = job.out(name)
                     with open(dest, "wb") as fh:
@@ -2146,6 +2160,37 @@ class VoiceMissing(JobError):
         super().__init__(message, retryable=False)
 
 
+class ServiceTimeout(JobError):
+    """A local service of this node IS running (we connected) but stayed silent past the read timeout: it is busy or stuck. Never
+    reported as «not reachable» (that is only for refused / unreachable / connect timeouts)."""
+
+
+def is_read_timeout(e):
+    """True when we were connected to a local service and it then stayed silent past the timeout. urllib wraps the errors of the
+    connect/send phase in URLError (so a connect timeout is URLError(timeout) = not reachable) and lets the read timeout
+    (socket.timeout, TimeoutError on 3.10+) through unwrapped; an HTTPError (a URLError too) is an answer, not a timeout."""
+    if isinstance(e, urllib.error.URLError):
+        return False
+    return isinstance(e, (socket.timeout, TimeoutError))
+
+
+def service_failure(label, url, e, timeout=None):
+    """The words for a failed request to one of this node's own services: «... is running but did not answer within N s» for a read
+    timeout (the site files it as a slow service, not a dead one), «... is not reachable at <url>» only when we could not connect."""
+    if is_read_timeout(e):
+        return ("%s is running but did not answer within %s (a read timeout - it is busy or stuck; this is not a connection failure)"
+                % (label, ("%d s" % int(timeout)) if timeout else "the time limit"))
+    return "%s is not reachable at %s: %s" % (label, url, e)
+
+
+def service_error(label, url, e, timeout=None, error_cls=None):
+    """The exception to raise for `service_failure` (ServiceTimeout, a JobError, for a read timeout; else error_cls, default JobError)."""
+    msg = service_failure(label, url, e, timeout)
+    if is_read_timeout(e):
+        return ServiceTimeout(msg)
+    return (error_cls or JobError)(msg)
+
+
 VOICE_ROOT = kit_dir("Voice")
 VOICE_GATEWAY_PORT = int(os.environ.get("NM_VOICE_GATEWAY_PORT") or 5620)
 VOICE_SETUP_HINT = (
@@ -2188,7 +2233,7 @@ def kit_request(method, path, data=None, headers=None, timeout=600):
     except urllib.error.HTTPError as e:
         return e.code, e.read(), {k.lower(): v for k, v in (e.headers.items() if e.headers else [])}
     except (urllib.error.URLError, socket.timeout, OSError) as e:
-        raise JobError("voice service is not reachable at %s: %s" % (service_url("voice"), e))
+        raise service_error("voice service", service_url("voice"), e, timeout)
 
 
 def kit_error(status, body):
@@ -2204,6 +2249,8 @@ def voice_engines():
     """(voice service up?, Pocket-TTS ready?, error) as the kit sees it."""
     try:
         status, body, _h = kit_request("GET", "/api/voice/engines", timeout=20)
+    except ServiceTimeout as e:                   # it answered the connection but is busy: it IS running (do not start a second one)
+        return True, False, str(e)
     except JobError as e:
         return False, False, str(e)
     if status != 200:
@@ -2624,7 +2671,7 @@ def audio_run(key, url, body, timeout):
                            "کارتِ گرافیک تمام شد" % (AUDIO_ENGINES[key]["label"], msg or "out of memory"))
         raise JobError("%s: %s" % (AUDIO_ENGINES[key]["label"], msg or "HTTP %s" % e.code), retryable=e.code >= 500)
     except (urllib.error.URLError, OSError) as e:
-        raise JobError("%s is not reachable at %s: %s" % (AUDIO_ENGINES[key]["label"], url, e))
+        raise service_error(AUDIO_ENGINES[key]["label"], url, e, timeout)
     finally:
         AUDIO_BUSY[key] -= 1
         AUDIO_USE[key] = time.time()
@@ -3322,7 +3369,7 @@ def h_node_models(job):
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
 CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
-              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py")
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py")
 
 
 def code_stamp():
@@ -3424,7 +3471,7 @@ def _relay(job, service, method, path, body=None, files=None, headers=None, out_
     except urllib.error.HTTPError as e:
         raise RuntimeError("%s -> HTTP %s %s" % (path, e.code, e.read()[:400].decode("utf-8", "replace")))
     except (urllib.error.URLError, OSError) as e:
-        raise RuntimeError("%s service is not reachable at %s: %s" % (service, service_url(service), e))
+        raise service_error("%s service" % service, service_url(service), e, timeout, error_cls=RuntimeError)
     ctype = (rh.get("Content-Type") or "").lower()
     if "json" in ctype:
         obj = json.loads(payload.decode("utf-8")) if payload else {}
@@ -3540,7 +3587,7 @@ def _photo_smart_edit(job, img, recipe, goal, stem):
         except urllib.error.HTTPError as e:
             raise RuntimeError("%s -> HTTP %s %s" % (path, e.code, e.read()[:400].decode("utf-8", "replace")))
         except (urllib.error.URLError, OSError) as e:
-            raise RuntimeError("photo service is not reachable at %s: %s" % (base, e))
+            raise service_error("photo service", base, e, timeout, error_cls=RuntimeError)
 
     body, ctype = multipart({}, {"file": (os.path.basename(img), job.input_bytes(img))})
     raw, _h = call("POST", "/api/docs?name=" + urllib.parse.quote("nm-" + job.uid[:8]), body,
@@ -3582,6 +3629,17 @@ def h_photo_analyze(job):
     return {"primary": name, "engine": "photo"}
 
 
+def _video_http(base, method, path, body=None, headers=None, timeout=60, raw=False):
+    """One request to the node's video-editor service: a read timeout is «is running but did not answer», only a refused / unreachable
+    connection is «not reachable» (the same words as every other local service)."""
+    try:
+        return http(method, base + path, body, headers, timeout=timeout, raw=raw)
+    except urllib.error.HTTPError:
+        raise
+    except (urllib.error.URLError, OSError) as e:
+        raise service_error("video editor service", base, e, timeout, error_cls=RuntimeError)
+
+
 def h_video_edit(job):
     p = job.payload
     vid = p.get("video") or (p.get("files") or {}).get("video")
@@ -3589,19 +3647,19 @@ def h_video_edit(job):
         raise RuntimeError("input video (video) is required")
     base = service_url("video")
     body, ctype = multipart({}, {"file": (os.path.basename(vid), job.input_bytes(vid))})
-    created = http("POST", base + "/api/videos?" + urllib.parse.urlencode({"name": os.path.basename(vid)}), body,
-                   {"Content-Type": ctype}, timeout=600)
+    created = _video_http(base, "POST", "/api/videos?" + urllib.parse.urlencode({"name": os.path.basename(vid)}), body,
+                          {"Content-Type": ctype}, timeout=600)
     vid_id = created.get("id") if isinstance(created, dict) else None
     if not vid_id:
         raise RuntimeError("video editor did not accept the file: %s" % str(created)[:300])
     job.progress(0.1, "file handed to the video editor")
     if p.get("auto"):
-        auto = http("POST", base + "/api/videos/%s/auto" % vid_id, {}, timeout=600)
+        auto = _video_http(base, "POST", "/api/videos/%s/auto" % vid_id, {}, timeout=600)
         recipe = (auto or {}).get("recipe") if isinstance(auto, dict) else None
     else:
         recipe = p.get("recipe")
-    exp = http("POST", base + "/api/videos/%s/export" % vid_id,
-               json.dumps(recipe or {}, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json"}, timeout=120)
+    exp = _video_http(base, "POST", "/api/videos/%s/export" % vid_id,
+                      json.dumps(recipe or {}, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json"}, timeout=120)
     job_id = ((exp or {}).get("id") or (exp or {}).get("jobId")) if isinstance(exp, dict) else None
     if not job_id:
         raise RuntimeError("export did not start: %s" % str(exp)[:300])
@@ -3613,10 +3671,10 @@ def h_video_edit(job):
             except Exception:  # noqa: BLE001
                 pass
             raise Cancelled()
-        j = http("GET", base + "/api/jobs/%s" % job_id, timeout=30)
+        j = _video_http(base, "GET", "/api/jobs/%s" % job_id, timeout=30)
         state = (j or {}).get("state") if isinstance(j, dict) else None
         if state == "done":
-            data, _rh = http("GET", base + "/api/jobs/%s/file" % job_id, timeout=1800, raw=True)
+            data, _rh = _video_http(base, "GET", "/api/jobs/%s/file" % job_id, timeout=1800, raw=True)
             fname = j.get("fileName") or j.get("file_name") or "output.mp4"
             with open(job.out(fname), "wb") as fh:
                 fh.write(data)
@@ -4399,6 +4457,23 @@ def _confirm_update():
     return True
 
 
+def take_instance_lock():
+    """Only one agent may run on this data folder: the Startup shortcut (agent 2.11) and a double-clicked START.bat must not give two
+    agents with one token (two GPU jobs on a one-slot node, two installers writing the same venvs, two outbox flushers). A second window
+    does not exit (START.bat would restart it every 10 s and update.py would count the exits against a fresh update): it waits as a
+    standby, says so, and takes over when the first agent stops. Never keeps the node down: when the guard itself cannot work (no
+    permission on the data folder ...) the agent runs without it."""
+    global INSTANCE_LOCK
+    if instance_lock_mod is None or os.environ.get("NM_ALLOW_SECOND_AGENT") == "1":
+        return
+    try:
+        INSTANCE_LOCK = instance_lock_mod.InstanceLock(os.path.join(DATA, "agent.lock"))
+        instance_lock_mod.wait_for_turn(INSTANCE_LOCK, say=lambda text: log(text, "WARN"))
+    except Exception as e:  # noqa: BLE001 - a broken guard must not stop the node
+        INSTANCE_LOCK = None
+        warn("the single-instance guard is not available (%s) - going on without it" % e)
+
+
 def main():
     global CONFIG
     if "--version" in sys.argv:                   # START.bat prints this line
@@ -4427,6 +4502,7 @@ def main():
         error("this computer is not enrolled yet. Run START.bat and paste the enrollment key shown in the panel "
               "(Tools > Processing servers > Register a new server); the site URL is read from site.json.")
         return 2
+    take_instance_lock()
     os.makedirs(WORK, exist_ok=True)
     if not os.environ.get("NM_KEEP_WORK"):
         try:

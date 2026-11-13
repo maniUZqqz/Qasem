@@ -97,7 +97,13 @@ def should_withhold(node) -> bool:
 # ───────────────────────────── آزمونِ خودکار
 
 def on_heartbeat(node) -> None:
-    """نسخهٔ تازهٔ عامل (یا کد) دیده شد ⇒ آزمونِ کامل. ارزان: فقط وقتی کلید عوض شده کاری می‌کند."""
+    """نسخهٔ تازهٔ عامل (یا کد) دیده شد ⇒ آزمونِ کامل. ارزان: فقط وقتی کلید عوض شده کاری می‌کند.
+
+    دو قاعدهٔ مهم (سناریوی مالک: گره با نسخهٔ قدیمی روشن می‌شود و چند ثانیه بعد با نسخهٔ تازه برمی‌گردد):
+      * تا وقتی به‌روزرسانیِ خودکار در راه است برای عاملِ قدیمی اجرا ساخته نمی‌شود (کلید «دیده‌شده» هم ثبت نمی‌شود)؛ آزمون برای
+        نسخهٔ تازه ساخته می‌شود، نه گزارشی پر از «رد» برای نسخه‌ای که همین الان کنار می‌رود.
+      * اجرای در جریانِ نسخهٔ پیشین (دستی/شبانه) با آمدنِ نسخهٔ تازه متوقف و جایگزین می‌شود — مگر اینکه خودِ همان اجرا دستورِ
+        به‌روزرسانی را فرستاده باشد و منتظرِ برگشتِ عامل باشد (آن را خودش تمام می‌کند؛ اجرای نسخهٔ تازه پس از آن می‌آید)."""
     caps = node.capabilities or {}
     key = code_key(caps)
     if not caps.get("agent"):
@@ -105,12 +111,20 @@ def on_heartbeat(node) -> None:
     auto = NodeAuto.of(node)
     if auto.last_selftest_key == key:
         return
-    auto.last_selftest_key = key
-    auto.save(update_fields=["last_selftest_key", "updated_at"])
     if ComputeSettings.get().auto_selftest:
         from .selftests import runner
 
-        runner.start_run(node, "version")
+        if update_wanted(node)[0]:
+            return                                       # به‌روزرسانی در راه است؛ برای نسخهٔ تازه آزمون می‌سازیم
+        old = runner.active_run(node)
+        if old is not None and runner.run_outdated(old, caps) and runner.update_in_flight(old):
+            return                                       # آن اجرا خودش تمام می‌شود؛ heartbeatِ بعدی اجرای تازه را می‌سازد
+        auto.last_selftest_key = key
+        auto.save(update_fields=["last_selftest_key", "updated_at"])
+        runner.start_run(node, "version")                # اجرای قدیمیِ همین گره (اگر هست) داخلش متوقف می‌شود
+        return
+    auto.last_selftest_key = key
+    auto.save(update_fields=["last_selftest_key", "updated_at"])
 
 
 def nightly_due(node, cfg, now=None) -> str:
@@ -140,6 +154,8 @@ def tick(now=None) -> dict:
             if send_update(node):
                 out["updates"] += 1
             today = nightly_due(node, cfg, now)
+            if today and update_wanted(node, cfg)[0]:
+                today = ""                                # اول به‌روزرسانی؛ شبانه همان روز بعد از آن اجرا می‌شود (روزش مصرف نمی‌شود)
             if today:
                 auto = NodeAuto.of(node)
                 auto.last_nightly = today

@@ -97,4 +97,5 @@ register(SelfTest(key="asr_vosk", label="تشخیصِ گفتار (Vosk) از ر�
                   requeue={"kinds": ("voice.asr",)}, describe="زیرنویسِ خودکارِ ویدیو از همین مسیر می‌گذرد"))
 register(SelfTest(key="asr_gpu", label="تشخیصِ گفتار روی کارت (faster-whisper + CUDA)", group="audio", kind="asr.transcribe", build=build_gpu,
                   check=check_gpu, available=_gpu_available, gpu_required=True, after=("tts_piper",), order=71,
+                  min_agent="2.11", needs_features=("asr-gpu",),
                   requeue={"kinds": ("asr.transcribe",)}, describe="نصبِ خودکارِ کتابخانه و مدل؛ تا آماده شدن آزمون منتظر می‌ماند"))

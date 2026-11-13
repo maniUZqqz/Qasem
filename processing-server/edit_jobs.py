@@ -65,6 +65,8 @@ def _photo_ready(agent):
     try:
         health = agent.http("GET", agent.service_url("photo") + "/api/health", timeout=20)
     except Exception as e:  # noqa: BLE001
+        if agent.is_read_timeout(e):             # connected, but no answer in 20 s: the service is running (busy)
+            return False, agent.service_failure("the photo service", agent.service_url("photo"), e, 20)
         return False, "the photo service is not reachable (%s)" % e
     ai = ((health or {}).get("background") or {}).get("ai") or {}
     if not ai.get("installed"):

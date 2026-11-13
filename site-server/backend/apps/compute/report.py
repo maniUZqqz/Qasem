@@ -429,6 +429,10 @@ EXPLAIN_RULES = [
     _rule("credit", r"\b402\b|payment required|insufficient (?:credit|balance|funds)|\bcredits?\b|out of credit|اعتبار|quota",
           "اعتبارِ سرویسِ ابریِ هوش مصنوعی (Metis) تمام شده است.",
           "اعتبارِ حسابِ سرویسِ ابری را شارژ کنید، یا کار را روی سرورِ پردازشِ خودتان (لوکال) انجام دهید."),
+    _rule("service_slow", r"is running but did not (?:answer|finish)|did not answer within",
+          "سرویسِ روی سرورِ پردازش روشن است ولی تا مهلتِ تعیین‌شده جواب نداد (سرگرمِ کارِ سنگین یا گیر کرده)؛ قطع نبوده است.",
+          "کمی صبر کنید و کار را دوباره بزنید. اگر تکرار شد، در بخشِ منابعِ همین صفحه ببینید کارتِ گرافیک یا حافظه پر نیست و لاگِ همان سرویس را روی "
+          "آن کامپیوتر نگاه کنید؛ برای ساخت‌های طولانی مهلتِ کار را بیشتر بگیرید."),
     _rule("ollama_down", r"ollama_down|ollama is not running|ollama .{0,40}not reachable|ollama .{0,40}refused|ollama .{0,40}connection",
           "Ollama (موتورِ متنِ هوشمند) روی سرور روشن نیست.",
           "در «سرورهای پردازش» سرویسِ Ollama را روشن کنید یا «سوئیچِ خودکار» را روشن بگذارید تا خودش روشن شود."),

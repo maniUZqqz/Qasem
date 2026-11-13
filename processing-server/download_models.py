@@ -36,6 +36,12 @@ answers); sources that fail are skipped, and a failed item is tried again on the
 and goes on until 30 minutes pass without one new byte (NM_STALL_S=seconds changes that); it always resumes (HTTP Range)
 and checks size + sha256 at the end.
 
+1.4 (model catalog): the manifests may describe a package with `package_info` (Persian title, display group, licence class, VRAM
+fit, features, `needs`, `auto`); `--only <package>` also fetches what the package `needs` (e.g. every FLUX model needs flux-common);
+an item may list `aliases` (other file names of the same model: a ComfyUI that already has "FLUX.1 [dev] FP8.safetensors" counts
+as having flux-dev; for a git item: other folder names under custom_nodes); packages whose licence class is not "open" are
+optional and are never taken by --all; `--catalog` prints the whole catalog as JSON and `--status` reports the free disk.
+
 Python 3.8+ standard library only. Console text is English on purpose (the Windows console garbles Persian).
 Log: logs\\download-models.log in the data folder
 """
@@ -61,7 +67,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-VERSION = "1.3"
+VERSION = "1.4"
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -557,8 +563,12 @@ class Context:
                                 self._comfy_index.setdefault(f.lower(), p)
                         except OSError:
                             pass
-        name = dest.replace("/", "\\").rsplit("\\", 1)[-1].lower()
-        return self._comfy_index.get(name)
+        names = [dest.replace("/", "\\").rsplit("\\", 1)[-1].lower()] + [str(a).lower() for a in item.get("aliases") or []]
+        for name in names:
+            found = self._comfy_index.get(name)
+            if found:
+                return found
+        return None
 
     def comfyui_python(self):
         if self.local.get("comfyui_python") and os.path.isfile(self.local["comfyui_python"]):
@@ -964,9 +974,25 @@ def _github(url):
     return (m.group(1), m.group(2)) if m else (None, None)
 
 
+def git_alias_dir(item, dest):
+    """A custom node the owner installed by hand under another folder name (item "aliases"): that counts as installed."""
+    parent = os.path.dirname(dest)
+    names = {str(a).lower() for a in item.get("aliases") or []}
+    if not names or not os.path.isdir(parent):
+        return None
+    for entry in os.listdir(parent):
+        if entry.lower() in names and os.path.isdir(os.path.join(parent, entry)) and os.listdir(os.path.join(parent, entry)):
+            return os.path.join(parent, entry)
+    return None
+
+
 def do_git(item, ctx, state):
     dest = ctx.expand(item["dest"])
     ref = item["ref"]
+    other = git_alias_dir(item, dest)
+    if other and not os.path.isfile(os.path.join(dest, ".nm-ref")):
+        say("  already installed as %s" % other)
+        return "skipped"
     marker = os.path.join(dest, ".nm-ref")
     if os.path.isfile(marker) and open(marker, encoding="utf-8").read().strip() == ref:
         return "skipped"
@@ -1380,8 +1406,66 @@ def load_manifests(directory=None):
         for i in bad:
             say("WARNING: %s: item %s has an unknown kind - skipped" % (doc["_file"], (i or {}).get("id") if isinstance(i, dict) else i))
         doc["items"] = [i for i in doc["items"] if i not in bad]
+        info = doc.get("package_info") if isinstance(doc.get("package_info"), dict) else {}
+        for i in doc["items"]:
+            row = info.get(i.get("package") or i["id"])
+            klass = str((row or {}).get("license_class") or "open") if isinstance(row, dict) else "open"
+            i["_class"] = klass if klass in LICENSE_CLASSES else "noncommercial"     # an unknown class is the cautious one
+            if i["_class"] != "open":
+                i["optional"] = True                                               # never part of the default set
         groups.append(doc)
     return groups
+
+
+LICENSE_CLASSES = ("open", "restricted", "noncommercial")
+
+
+def package_info(groups):
+    """{package: info} from the manifests' package_info (plus size, kind, display group): what the panel and the node's
+    automatic mode need to know about a package. A package without package_info still gets a row."""
+    out = {}
+    for g in groups:
+        infos = g.get("package_info") if isinstance(g.get("package_info"), dict) else {}
+        titles = g.get("packages") if isinstance(g.get("packages"), dict) else {}
+        for it in g["items"]:
+            pk = it.get("package") or it["id"]
+            row = out.get(pk)
+            if row is None:
+                src = infos.get(pk) if isinstance(infos.get(pk), dict) else {}
+                klass = it.get("_class") or "open"
+                row = out[pk] = {"package": pk, "group": g["group"], "file": g["_file"], "display": src.get("display") or "",
+                                 "title_fa": src.get("title_fa") or "", "note_fa": src.get("note_fa") or "",
+                                 "title_en": titles.get(pk, ""), "license": src.get("license") or "", "license_class": klass,
+                                 "vram": src.get("vram") if isinstance(src.get("vram"), dict) else {},
+                                 "features": list(src.get("features") or []), "needs": list(src.get("needs") or []),
+                                 "auto": bool(src.get("auto")) and klass == "open",
+                                 "priority": int(src.get("priority") or 50), "needs_restart": bool(src.get("needs_restart")),
+                                 "provenance": src.get("provenance") or "", "optional": True, "size": 0, "items": 0,
+                                 "kinds": [], "sources": []}
+            row["items"] += 1
+            row["size"] += int(it.get("size") or 0)
+            row["optional"] = row["optional"] and bool(it.get("optional"))
+            if it["kind"] not in row["kinds"]:
+                row["kinds"].append(it["kind"])
+            src_url = it.get("source") or it.get("url") or ""
+            if src_url and src_url not in row["sources"]:
+                row["sources"].append(src_url)
+    return out
+
+
+def expand_needs(infos, tokens):
+    """The named packages plus, transitively, the packages they `needs` (every FLUX model needs flux-common ...)."""
+    out = list(tokens)
+    seen = set(out)
+    queue = list(out)
+    while queue:
+        cur = queue.pop(0)
+        for dep in (infos.get(cur) or {}).get("needs") or []:
+            if dep not in seen:
+                seen.add(dep)
+                out.append(dep)
+                queue.append(dep)
+    return out
 
 
 def _tokens(values):
@@ -1398,8 +1482,9 @@ def selected(item, group, only, skip, everything=False):
         return tok in keys or item["id"].startswith(tok + ":") or item["id"].startswith(tok + "/")
     if any(hit(t) for t in skip):
         return False
-    if item.get("optional") and not everything:
-        # an optional item comes only when named by its package / id (a group name alone is not enough)
+    if item.get("optional") and (not everything or item.get("_class", "open") != "open"):
+        # an optional item comes only when named by its package / id (a group name alone is not enough); one whose licence
+        # is not open (non-commercial, conditions) comes only when named, never through --all
         named = {item.get("package") or "", item["id"]}
         return any(t in named or item["id"].startswith(t + ":") for t in only)
     return not only or any(hit(t) for t in only)
@@ -1407,6 +1492,8 @@ def selected(item, group, only, skip, everything=False):
 
 def plan(groups, only, skip, everything=False):
     rows = []
+    if only:
+        only = expand_needs(package_info(groups), only)
     for g in groups:
         for it in g["items"]:
             if selected(it, g["group"], only, skip, everything):
@@ -1460,7 +1547,7 @@ def remaining_bytes(item, ctx):
             return max(0, size - have), max(0, size - have), dest
         if kind == "git":
             dest = ctx.expand(item["dest"])
-            done = os.path.isfile(os.path.join(dest, ".nm-ref"))
+            done = os.path.isfile(os.path.join(dest, ".nm-ref")) or bool(git_alias_dir(item, dest))
             return (0, 0, dest) if done else (item.get("size") or 0, (item.get("size") or 0) * 2, dest)
         if kind == "python":
             if find_python(item.get("version")):
@@ -1554,12 +1641,17 @@ def package_status(groups, ctx):
     """Per package: how much is on this computer and how much would still be downloaded - offline and fast
     (sizes and markers only, no hashing). What the agent reports to the panel."""
     out = {}
+    infos = package_info(groups)
     for g in groups:
         titles = g.get("packages") or {}
         for it in g["items"]:
             pk = it.get("package") or it["id"]
+            meta = infos.get(pk) or {}
             row = out.setdefault(pk, {"group": g["group"], "title": titles.get(pk, ""), "optional": False, "items": 0,
-                                      "missing": 0, "bytes_missing": 0, "bytes_total": 0, "have_in_comfyui": 0})
+                                      "missing": 0, "bytes_missing": 0, "bytes_total": 0, "have_in_comfyui": 0,
+                                      "license_class": meta.get("license_class") or "open", "auto": bool(meta.get("auto")),
+                                      "needs": list(meta.get("needs") or []), "priority": int(meta.get("priority") or 50),
+                                      "needs_restart": bool(meta.get("needs_restart"))})
             row["optional"] = row["optional"] or bool(it.get("optional"))
             size = it.get("size") if it["kind"] != "pip" else (it.get("estimate_mb") or 0) * 1024 ** 2
             row["items"] += 1
@@ -1579,17 +1671,50 @@ def package_status(groups, ctx):
     return out
 
 
+def disk_info(ctx):
+    """Free bytes where the models go: the data folder and (when ComfyUI is found) the drive of ComfyUI. Never raises."""
+    out = {"data_free": None, "comfy_free": None}
+    try:
+        out["data_free"] = shutil.disk_usage(_existing_parent(NM_HOME)).free
+    except OSError:
+        pass
+    try:
+        out["comfy_free"] = shutil.disk_usage(_existing_parent(ctx.comfyui())).free
+    except (OSError, Unresolved):
+        pass
+    return out
+
+
+def _licence_tag(meta):
+    return {"open": "open licence", "restricted": "LICENCE CONDITIONS", "noncommercial": "NON-COMMERCIAL"}.get(meta.get("license_class"), "?")
+
+
 def cmd_list(groups, rows, ctx):
+    """What would be downloaded now (the rows), and every optional package with its licence, VRAM fit and state - so the
+    whole catalog is visible; `--only <package> --list` shows the files of one package."""
     total = 0
+    chosen = {id(it) for _g, it in rows}
     for g in groups:
         mine = [it for gg, it in rows if gg is g]
-        if not mine:
+        extra = [it for it in g["items"] if it.get("optional") and id(it) not in chosen]
+        if not mine and not extra:
             continue
         say("")
         say("[%s] %s  (%s)" % (g["group"], g.get("title", ""), g["_file"]))
         if g.get("license_note"):
             say("  licence: %s" % g["license_note"])
+        infos = package_info([g])
+        shown = set()
         for it in mine:
+            pk = it.get("package") or it["id"]
+            meta = infos.get(pk) or {}
+            if pk not in shown and meta.get("title_en"):
+                shown.add(pk)
+                fit = (meta.get("vram") or {}).get("fit")
+                say("  [%s] %s  (%s%s%s%s)" % (pk, meta["title_en"][:96], _licence_tag(meta),
+                                                 ", " + meta["license"] if meta.get("license") else "",
+                                                 ", 12 GB card: %s" % fit if fit else "",
+                                                 ", needs: %s" % ",".join(meta["needs"]) if meta.get("needs") else ""))
             st = status_of(it, ctx)
             size = it.get("size") if it["kind"] != "pip" else (it.get("estimate_mb") or 0) * 1024 ** 2
             if not st.startswith("have") and st != "no ComfyUI":
@@ -1597,12 +1722,22 @@ def cmd_list(groups, rows, ctx):
             say("  %-15s %-11s %10s  %s" % ("already have" if st == "have" else "skip: no ComfyUI" if st == "no ComfyUI"
                                            else st if st != "download" else "will download",
                                            it["kind"], human(size) if size else "-", it["id"]))
-        chosen = {id(it) for _g, it in rows}
-        extra = [it for it in g["items"] if it.get("optional") and id(it) not in chosen]
-        if extra:
-            pk = sorted({it.get("package") or it["id"] for it in extra})
-            sz = sum(it.get("size") or (it.get("estimate_mb") or 0) * 1024 ** 2 for it in extra)
-            say("  optional, not downloaded unless asked (%s): --only %s" % (human(sz), ",".join(pk)))
+        by_pkg = {}
+        for it in extra:
+            by_pkg.setdefault(it.get("package") or it["id"], []).append(it)
+        if by_pkg:
+            say("  optional (not downloaded unless asked: --only <package>):")
+        for pk, items in sorted(by_pkg.items(), key=lambda kv: ((infos.get(kv[0]) or {}).get("priority", 50), kv[0])):
+            meta = infos.get(pk) or {}
+            size = sum(i.get("size") or (i.get("estimate_mb") or 0) * 1024 ** 2 for i in items)
+            states = [status_of(i, ctx) for i in items]
+            state = "installed" if all(x.startswith("have") for x in states) else \
+                    "partial" if any(x == "partial" for x in states) else \
+                    "no ComfyUI" if all(x == "no ComfyUI" for x in states) else "not installed"
+            fit = (meta.get("vram") or {}).get("fit")
+            say("    %-24s %10s  %-13s %-15s %s%s%s" % (
+                pk, human(size), state, _licence_tag(meta), (meta.get("license") or "")[:34],
+                ("  12GB:%s" % fit) if fit else "", ("  needs:%s" % ",".join(meta["needs"])) if meta.get("needs") else ""))
     say("")
     say("Still to download: about %s" % human(total))
 
@@ -1762,6 +1897,7 @@ def main(argv=None):
     ap.add_argument("--yes", "-y", action="store_true", help="do not ask before starting")
     ap.add_argument("--force", action="store_true", help="start even when the disk check says there is not enough space")
     ap.add_argument("--status", action="store_true", help="JSON: installed / missing per package (no network)")
+    ap.add_argument("--catalog", action="store_true", help="JSON: every package with licence, size, VRAM fit, needs, features (no network)")
     ap.add_argument("--status-file", default=None, help="keep a JSON progress file up to date (used by the agent)")
     ap.add_argument("--manifests", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
@@ -1773,7 +1909,11 @@ def main(argv=None):
         except (OSError, ValueError):
             other = None
         print(json.dumps({"version": VERSION, "packages": package_status(groups, ctx),
-                          "running": bool(other and pid_alive(other)), "home": NM_HOME}))
+                          "running": bool(other and pid_alive(other)), "home": NM_HOME, "disk": disk_info(ctx)}))
+        return 0
+    if args.catalog:
+        groups = load_manifests(args.manifests)
+        print(json.dumps({"version": VERSION, "packages": package_info(groups)}, ensure_ascii=False))
         return 0
     if not args.check and not os.environ.get("NM_NO_MIGRATE") and \
             os.path.normcase(os.path.abspath(NM_HOME)) == os.path.normcase(os.path.abspath(nm_data.data_root(HERE))):

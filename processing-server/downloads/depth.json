@@ -1,0 +1,91 @@
+{
+ "group": "depth",
+ "title": "Depth for 3D and parallax: Depth-Anything-V2-Small (Apache-2.0) as safetensors (torch) and ONNX (onnxruntime, DirectML)",
+ "license_note": "Depth-Anything-V2-Small is Apache-2.0 (commercial use allowed). The Base / Large / Giant models are CC BY-NC 4.0 and are deliberately not listed. Files go to the node's own models folder (not ComfyUI): the 3D / parallax code on the node loads them from there; the ONNX file runs through the same onnxruntime the background-removal models use.",
+ "generated": "2026-11-13",
+ "packages": {
+  "depth-anything-v2-small": "Depth-Anything-V2-Small (25 M parameters): torch safetensors + ONNX fp32"
+ },
+ "package_info": {
+  "depth-anything-v2-small": {
+   "display": "depth",
+   "priority": 10,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "Depth Anything V2 Small — نقشهٔ عمق از یک عکس",
+   "note_fa": "برای ویدیوی سه‌بعدی، پارالکس و جداکردنِ پیش‌زمینه از پس‌زمینه. کوچک (حدود ۲۰۰ مگابایت)، Apache-2.0؛ مدل‌های بزرگ‌تر این خانواده غیرتجاری‌اند و عمداً نیامده‌اند.",
+   "vram": {
+    "fit": "full",
+    "gb": 1,
+    "note_fa": "خیلی سبک؛ روی کارت یا حتی پردازنده کار می‌کند."
+   },
+   "features": [
+    "depth_3d"
+   ],
+   "needs": [],
+   "auto": true
+  }
+ },
+ "items": [
+  {
+   "id": "depth-anything-v2-small:hf_weights",
+   "package": "depth-anything-v2-small",
+   "kind": "file",
+   "title": "Depth-Anything-V2-Small weights, transformers format (Apache-2.0)",
+   "urls": [
+    "{HF}/depth-anything/Depth-Anything-V2-Small-hf/resolve/5426e4f0f36572d16453bbda7a8389317b1bef99/model.safetensors"
+   ],
+   "dest": "{MODELS}\\depth-anything-v2-small\\model.safetensors",
+   "size": 99173660,
+   "sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/model.safetensors",
+   "optional": true
+  },
+  {
+   "id": "depth-anything-v2-small:hf_config",
+   "package": "depth-anything-v2-small",
+   "kind": "file",
+   "title": "Depth-Anything-V2-Small config.json",
+   "urls": [
+    "{HF}/depth-anything/Depth-Anything-V2-Small-hf/resolve/5426e4f0f36572d16453bbda7a8389317b1bef99/config.json"
+   ],
+   "dest": "{MODELS}\\depth-anything-v2-small\\config.json",
+   "size": 950,
+   "sha256": "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/config.json",
+   "optional": true
+  },
+  {
+   "id": "depth-anything-v2-small:hf_preprocessor",
+   "package": "depth-anything-v2-small",
+   "kind": "file",
+   "title": "Depth-Anything-V2-Small preprocessor_config.json",
+   "urls": [
+    "{HF}/depth-anything/Depth-Anything-V2-Small-hf/resolve/5426e4f0f36572d16453bbda7a8389317b1bef99/preprocessor_config.json"
+   ],
+   "dest": "{MODELS}\\depth-anything-v2-small\\preprocessor_config.json",
+   "size": 775,
+   "sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/preprocessor_config.json",
+   "optional": true
+  },
+  {
+   "id": "depth-anything-v2-small:onnx_fp32",
+   "package": "depth-anything-v2-small",
+   "kind": "file",
+   "title": "Depth-Anything-V2-Small ONNX fp32 (Apache-2.0)",
+   "urls": [
+    "{HF}/onnx-community/depth-anything-v2-small/resolve/4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx"
+   ],
+   "dest": "{MODELS}\\depth-anything-v2-small\\onnx\\model.onnx",
+   "size": 99060839,
+   "sha256": "afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/onnx-community/depth-anything-v2-small/blob/4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx",
+   "optional": true
+  }
+ ]
+}

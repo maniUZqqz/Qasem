@@ -162,6 +162,12 @@ def _control(node) -> dict:
         out["site_version"] = getattr(dj_settings, "NM_VERSION", "") or ""
     except Exception:  # noqa: BLE001 — این هم نباید heartbeat را بیندازد
         pass
+    try:
+        # «دانلودِ خودکارِ مدل‌ها»: بسته‌هایی که قابلیت‌های روشنِ پنل لازم دارند؛ عاملی که model_auto.py دارد خودش تصمیم می‌گیرد کِی و جا می‌شود یا نه
+        from . import auto_models
+        out["models_auto"] = auto_models.control_block()
+    except Exception:  # noqa: BLE001 — نبودنِ این بلوک هیچ‌چیز را نمی‌خواباند
+        pass
     return out
 
 

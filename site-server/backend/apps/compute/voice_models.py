@@ -160,9 +160,14 @@ def start_download(node: ComputeNode, packages: list[str], when=None) -> Compute
     packages = [str(p).strip() for p in packages if str(p).strip()]
     if not packages:
         raise VoiceModelsError("کدام بسته؟")
+    from . import model_packages
+    packages = model_packages.expand_needs(packages)     # بستهٔ لازم هم (مثلاً رمزگذارهای FLUX) با همین کار می‌آید
     if (node.capabilities or {}).get("agent") and not _agent_ok(node):
         raise VoiceModelsError("عاملِ این سرور قدیمی است (دانلود از پنل از نسخهٔ ۱٫۸): روی آن کامپیوتر git pull و "
                                "START.bat، یا Download-Models.bat.", 409)
+    problem = model_packages.preflight(node, packages)     # عاملِ بی‌خبر از بستهٔ تازه / جا نیست ⇒ همین‌جا و روشن، نه خطای دیرهنگامِ گره
+    if problem:
+        raise VoiceModelsError(problem, 409)
     try:
         sched = schedule.schedule_from_when(when)
     except schedule.ScheduleError as exc:

@@ -1,0 +1,202 @@
+{
+ "group": "control",
+ "title": "Control and consistency for ComfyUI: ControlNet union (SDXL, FLUX), IP-Adapter for SDXL + its custom node",
+ "license_note": "ControlNet-Union SDXL (xinsir, Apache-2.0), IP-Adapter (h94, Apache-2.0) and the CLIP ViT-H image encoder (MIT) may be used commercially. The FLUX ControlNet-Union-Pro 2.0 (Shakker-Labs) follows the FLUX.1 [dev] Non-Commercial License. The IP-Adapter custom node (cubiq/ComfyUI_IPAdapter_plus, GPL-3.0) is only installed on this computer (a git checkout of a pinned commit into ComfyUI's custom_nodes; nothing is redistributed) and needs a ComfyUI restart. PuLID is not listed on purpose: it needs InsightFace weights (research / non-commercial) and a native build of insightface on Windows, which cannot be installed reliably without a person; FLUX Kontext (image group) covers character consistency.",
+ "generated": "2026-11-13",
+ "packages": {
+  "controlnet-union-sdxl": "ControlNet union promax for SDXL (xinsir, Apache-2.0): pose, depth, canny, lines ... in one model",
+  "controlnet-union-flux": "ControlNet union Pro 2.0 for FLUX.1 dev (Shakker-Labs, non-commercial)",
+  "ipadapter-sdxl": "IP-Adapter plus + plus-face for SDXL (ViT-H) and the CLIP ViT-H image encoder",
+  "nodes-ipadapter-plus": "ComfyUI_IPAdapter_plus custom node (pinned commit) - needs a ComfyUI restart"
+ },
+ "package_info": {
+  "controlnet-union-sdxl": {
+   "display": "control",
+   "priority": 10,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "ControlNet یکپارچه برای SDXL (xinsir Promax)",
+   "note_fa": "یک مدل به‌جای ده‌ها ControlNet: ژستِ بدن، عمق، لبه (canny)، خط، اسکریبل و … برای حفظِ چیدمان و ژستِ تصویر. تجاری مجاز.",
+   "vram": {
+    "fit": "full",
+    "gb": 10,
+    "note_fa": "کنارِ SDXL روی کارتِ ۱۲ گیگابایتی جا می‌شود."
+   },
+   "features": [
+    "design_styles",
+    "consistency"
+   ],
+   "needs": [
+    "sdxl-base"
+   ],
+   "auto": true
+  },
+  "controlnet-union-flux": {
+   "display": "control",
+   "priority": 40,
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "license_class": "noncommercial",
+   "title_fa": "ControlNet یکپارچه برای FLUX (Shakker Union Pro 2.0)",
+   "note_fa": "کنترلِ ژست/عمق/لبه روی FLUX dev. مجوزِ غیرتجاری. با FLUX روی ۱۲ گیگابایت کند می‌شود.",
+   "vram": {
+    "fit": "tight",
+    "gb": 14,
+    "note_fa": "همراهِ FLUX بیشترِ کارت را می‌گیرد؛ کند ولی ممکن است."
+   },
+   "features": [
+    "image_edit",
+    "consistency"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": false
+  },
+  "ipadapter-sdxl": {
+   "display": "control",
+   "priority": 20,
+   "license": "Apache-2.0 / MIT",
+   "license_class": "open",
+   "title_fa": "IP-Adapter برای SDXL — تکرارِ سبک و چهره از روی عکسِ مرجع",
+   "note_fa": "با یک عکسِ مرجع، سبک یا چهرهٔ همان را در تصویرِ تازه نگه می‌دارد (ثباتِ شخصیت و سبک). به نودِ IPAdapter plus و راه‌اندازیِ دوبارهٔ ComfyUI نیاز دارد (همراهش نصب می‌شود).",
+   "vram": {
+    "fit": "full",
+    "gb": 10,
+    "note_fa": "کنارِ SDXL جا می‌شود."
+   },
+   "features": [
+    "design_styles",
+    "consistency"
+   ],
+   "needs": [
+    "sdxl-base",
+    "nodes-ipadapter-plus"
+   ],
+   "auto": true
+  },
+  "nodes-ipadapter-plus": {
+   "display": "control",
+   "priority": 21,
+   "license": "GPL-3.0 (local install only)",
+   "license_class": "open",
+   "title_fa": "نودِ ComfyUI — IPAdapter plus",
+   "note_fa": "کدِ نود در پوشهٔ custom_nodes نصب می‌شود (commit ثابت). بعد از نصب ComfyUI را یک بار دوباره راه بیندازید.",
+   "vram": {
+    "fit": "full",
+    "gb": 0,
+    "note_fa": "کدِ کوچک؛ حافظه‌ای نمی‌گیرد."
+   },
+   "features": [
+    "design_styles",
+    "consistency"
+   ],
+   "needs": [],
+   "auto": true,
+   "needs_restart": true
+  }
+ },
+ "items": [
+  {
+   "id": "controlnet-union-sdxl:xinsir_union_promax",
+   "package": "controlnet-union-sdxl",
+   "kind": "file",
+   "title": "xinsir ControlNet union promax for SDXL (Apache-2.0)",
+   "urls": [
+    "{HF}/xinsir/controlnet-union-sdxl-1.0/resolve/801a4a3fa3d4c936f4feea95b98607bc6726f80c/diffusion_pytorch_model_promax.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\controlnet\\controlnet-union-sdxl-1.0-promax.safetensors",
+   "size": 2513342408,
+   "sha256": "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/blob/801a4a3fa3d4c936f4feea95b98607bc6726f80c/diffusion_pytorch_model_promax.safetensors",
+   "aliases": [
+    "xinsir-controlnet-union-sdxl-promax.safetensors",
+    "diffusion_pytorch_model_promax.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "controlnet-union-flux:shakker_union_pro2",
+   "package": "controlnet-union-flux",
+   "kind": "file",
+   "title": "Shakker-Labs ControlNet Union Pro 2.0 for FLUX.1 dev (FLUX.1 [dev] Non-Commercial)",
+   "urls": [
+    "{HF}/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/5d700aaad96c5ddcdf8a38ef9b22a82aac2c38e5/diffusion_pytorch_model.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\controlnet\\FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors",
+   "size": 4281779224,
+   "sha256": "9d03f63f36206bab2f36aed5cfedc8693c2881397534e9d5f9ae9a0a41362517",
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "source": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/blob/5d700aaad96c5ddcdf8a38ef9b22a82aac2c38e5/diffusion_pytorch_model.safetensors",
+   "aliases": [
+    "flux_shakker_labs_union_pro-fp8_e4m3fn.safetensors",
+    "FLUX.1-dev-ControlNet-Union-Pro.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "ipadapter-sdxl:plus_sdxl_vith",
+   "package": "ipadapter-sdxl",
+   "kind": "file",
+   "title": "IP-Adapter plus SDXL ViT-H (Apache-2.0)",
+   "urls": [
+    "{HF}/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\ipadapter\\ip-adapter-plus_sdxl_vit-h.safetensors",
+   "size": 847517512,
+   "sha256": "3f5062b8400c94b7159665b21ba5c62acdcd7682262743d7f2aefedef00e6581",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/h94/IP-Adapter/blob/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors",
+   "optional": true
+  },
+  {
+   "id": "ipadapter-sdxl:plus_face_sdxl_vith",
+   "package": "ipadapter-sdxl",
+   "kind": "file",
+   "title": "IP-Adapter plus FACE SDXL ViT-H (Apache-2.0)",
+   "urls": [
+    "{HF}/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\ipadapter\\ip-adapter-plus-face_sdxl_vit-h.safetensors",
+   "size": 847517512,
+   "sha256": "677ad8860204f7d0bfba12d29e6c31ded9beefdf3e4bbd102518357d31a292c1",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/h94/IP-Adapter/blob/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors",
+   "optional": true
+  },
+  {
+   "id": "ipadapter-sdxl:clip_vision_vith",
+   "package": "ipadapter-sdxl",
+   "kind": "file",
+   "title": "CLIP ViT-H/14 image encoder (MIT; same bytes as h94/IP-Adapter models/image_encoder/model.safetensors)",
+   "urls": [
+    "{HF}/Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged/resolve/b1aee1a783a481f27aca92b2e7f7d9cb13a86bf5/split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\clip_vision\\CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+   "size": 2528373448,
+   "sha256": "6ca9667da1ca9e0b0f75e46bb030f7e011f44f86cbfb8d5a36590fcd7507b030",
+   "license": "MIT",
+   "source": "https://huggingface.co/Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged/blob/b1aee1a783a481f27aca92b2e7f7d9cb13a86bf5/split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+   "aliases": [
+    "CLIP-ViT-H-14-laion2B-s32B-b79K.bin"
+   ],
+   "optional": true
+  },
+  {
+   "id": "nodes-ipadapter-plus:code",
+   "package": "nodes-ipadapter-plus",
+   "kind": "git",
+   "title": "ComfyUI_IPAdapter_plus custom node, pinned commit (GPL-3.0, local install only)",
+   "url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+   "ref": "a0f451a5113cf9becb0847b92884cb10cbdec0ef",
+   "dest": "{COMFYUI}\\custom_nodes\\ComfyUI_IPAdapter_plus",
+   "size": 4000000,
+   "license": "GPL-3.0",
+   "optional": true,
+   "aliases": [
+    "comfyui_ipadapter_plus",
+    "ComfyUI_IPAdapter_plus"
+   ]
+  }
+ ]
+}

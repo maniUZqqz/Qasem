@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.14"
+VERSION = "2.15"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -1455,6 +1455,8 @@ def absorb_control(r):
     if server_time is not None:
         skew = server_time - time.time()
         STATE["clock_skew_s"] = skew if abs(skew) < 3 * 86400 else 0.0     # a PC clock a few hours off still lands in the right window
+    if MODEL_AUTO is not None:
+        MODEL_AUTO.absorb(r)                # the packages the enabled features need (never raises)
     sv = r.get("site_version")
     if isinstance(sv, str) and sv.strip() and sv.strip()[:20] != STATE.get("site_version"):
         STATE["site_version"] = sv.strip()[:20]
@@ -2839,6 +2841,11 @@ def h_voice_music(job):
 
 DOWNLOADER = os.path.join(HERE, "download_models.py")
 
+try:    # model catalog (no version gate): packages the enabled features need download by themselves - optional module
+    import model_auto as MODEL_AUTO
+except Exception:  # noqa: BLE001
+    MODEL_AUTO = None
+
 
 class DownloadManager:
     """Runs download_models.py in the background (one run at a time; more packages queue up) and tells the panel
@@ -3068,6 +3075,12 @@ class DownloadManager:
         waiting = self.waiting_info()
         if waiting and not out["running"]:
             out["waiting"] = waiting
+        if isinstance(st.get("disk"), dict):
+            out["disk_mb"] = {k: int(v // 2 ** 20) for k, v in st["disk"].items() if isinstance(v, (int, float))}
+        if MODEL_AUTO is not None:
+            auto = MODEL_AUTO.report(self)
+            if auto:
+                out["auto"] = auto
         return out
 
 
@@ -3369,7 +3382,7 @@ def h_node_models(job):
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
 CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
-              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py")
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py", "model_auto.py")
 
 
 def code_stamp():
@@ -4623,6 +4636,8 @@ def main():
             try:
                 MANAGER.reap_audio()
                 DOWNLOADS.poll()
+                if MODEL_AUTO is not None:
+                    MODEL_AUTO.tick(DOWNLOADS, night=(STATE.get("downloads") or {}).get("window") or DEFAULT_WINDOW, log=log)
             except Exception as e:  # noqa: BLE001 - housekeeping must not stop the node
                 warn("audio idle check failed: %s" % e)
         try:

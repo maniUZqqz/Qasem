@@ -49,6 +49,7 @@ urlpatterns = [
     path("store-jobs/retry-all/", views_retry.store_jobs_retry_all),
     path("store-jobs/<int:pk>/retry/", views_retry.store_job_retry),
     path("models/", views_models.models_listing),                      # همهٔ بسته‌های دانلودیِ گره‌ها (حذفِ پس‌زمینه، صدا، ویدیو…)
+    path("models/auto/", views_models.models_auto),                    # «دانلودِ خودکار»: قابلیت‌های روشن ⇒ بسته‌هایی که خودکار می‌آیند
     path("queue/<uuid:uid>/cancel/", api.queue_cancel),
     path("queue/<uuid:uid>/retry/", api.queue_retry),
     # گزارشِ سرورهای پردازش (کارکنان): یک JSON برای کلِ صفحه، لاگ‌ها با فیلتر، خروجیِ CSV

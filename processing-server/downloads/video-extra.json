@@ -1,0 +1,192 @@
+{
+ "group": "video-extra",
+ "title": "More video for ComfyUI: Wan 2.2 TI2V-5B (fits 12 GB), LTX-Video 2B distilled fp8, RIFE / FILM frame interpolation",
+ "license_note": "Wan 2.2 TI2V-5B (Wan-AI, repackaged by Comfy-Org) is Apache-2.0. LTX-Video is under the LTXV Open Weights License 0.X: free for any purpose for entities under US$10M annual revenue; larger companies need a paid commercial licence from Lightricks - so it is optional and never automatic. RIFE (MIT) and FILM (Apache-2.0) are repackaged by Comfy-Org for ComfyUI's built-in frame-interpolation nodes. The umT5 text encoder and the Wan 2.1 VAE are shared with the Wan 2.2 A14B package (fetched once).",
+ "generated": "2026-11-13",
+ "packages": {
+  "wan22-ti2v-5b": "Wan 2.2 TI2V-5B fp16 + Wan 2.2 VAE + umT5 fp8 (Apache-2.0) - text/image to video, 12 GB friendly",
+  "ltx-video-distilled": "LTX-Video 2B 0.9.8 distilled fp8 + spatial upscaler (LTXV Open Weights License)",
+  "frame-interp": "RIFE v4.25 / v4.25 lite and FILM fp16 for ComfyUI frame interpolation (MIT / Apache-2.0)"
+ },
+ "package_info": {
+  "wan22-ti2v-5b": {
+   "display": "video",
+   "priority": 20,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "Wan 2.2 TI2V ۵B — ویدیو از متن یا عکس (سبک)",
+   "note_fa": "مدلِ ۵ میلیاردیِ ویدیو با خروجیِ ۷۲۰p و ۲۴ فریم؛ از Wan 2.2 A14B خیلی سبک‌تر است و در کارتِ ۱۲ گیگابایتی راحت اجرا می‌شود. Apache-2.0.",
+   "vram": {
+    "fit": "full",
+    "gb": 10,
+    "note_fa": "برای کارتِ ۱۲ گیگابایتی ساخته شده؛ کمی ازش بیرون نمی‌زند."
+   },
+   "features": [
+    "video_ai"
+   ],
+   "needs": [],
+   "auto": true
+  },
+  "ltx-video-distilled": {
+   "display": "video",
+   "priority": 40,
+   "license": "LTXV Open Weights License 0.X",
+   "license_class": "restricted",
+   "title_fa": "LTX-Video ۲B (distilled، fp8) — ویدیوی بسیار سریع",
+   "note_fa": "چند ثانیه ویدیو در چند ده ثانیه. مجوز: برای هر کاری آزاد است مگر شرکت‌های با درآمدِ سالانهٔ بالای ۱۰ میلیون دلار که قراردادِ جدا می‌خواهند.",
+   "vram": {
+    "fit": "full",
+    "gb": 8,
+    "note_fa": "کاملاً روی کارتِ ۱۲ گیگابایتی اجرا می‌شود."
+   },
+   "features": [
+    "video_ai"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": false
+  },
+  "frame-interp": {
+   "display": "video",
+   "priority": 10,
+   "license": "MIT / Apache-2.0",
+   "license_class": "open",
+   "title_fa": "RIFE و FILM — نرم‌کردنِ حرکتِ ویدیو (فریمِ میانی)",
+   "note_fa": "از ۲۴ به ۴۸ یا ۶۰ فریم؛ برای ویدیوهای هوش مصنوعی و اسلوموشن. ComfyUI نودِ داخلی‌اش را دارد؛ بسیار کوچک (حدود ۱۱۵ مگابایت).",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "خیلی سبک."
+   },
+   "features": [
+    "smooth_motion",
+    "video_ai"
+   ],
+   "needs": [],
+   "auto": true
+  }
+ },
+ "items": [
+  {
+   "id": "wan22-ti2v-5b:ti2v_5b_fp16",
+   "package": "wan22-ti2v-5b",
+   "kind": "file",
+   "title": "Wan 2.2 TI2V-5B diffusion model fp16 (Apache-2.0)",
+   "urls": [
+    "{HF}/Comfy-Org/Wan-2.2/resolve/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\wan2.2_ti2v_5B_fp16.safetensors",
+   "size": 9999658848,
+   "sha256": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Wan-2.2/blob/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+   "optional": true
+  },
+  {
+   "id": "wan22-ti2v-5b:wan22_vae",
+   "package": "wan22-ti2v-5b",
+   "kind": "file",
+   "title": "Wan 2.2 VAE (used by TI2V-5B, Apache-2.0)",
+   "urls": [
+    "{HF}/Comfy-Org/Wan-2.2/resolve/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/vae/wan2.2_vae.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\vae\\wan2.2_vae.safetensors",
+   "size": 1409400960,
+   "sha256": "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Wan-2.2/blob/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/vae/wan2.2_vae.safetensors",
+   "optional": true
+  },
+  {
+   "id": "wan22-ti2v-5b:umt5_xxl_fp8",
+   "package": "wan22-ti2v-5b",
+   "kind": "file",
+   "title": "umT5-XXL text encoder fp8 (shared with wan22-flf, Apache-2.0)",
+   "urls": [
+    "{HF}/Comfy-Org/Wan-2.2/resolve/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\text_encoders\\umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "size": 6735906897,
+   "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Wan-2.2/blob/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "optional": true
+  },
+  {
+   "id": "ltx-video-distilled:ltxv_2b_distilled_fp8",
+   "package": "ltx-video-distilled",
+   "kind": "file",
+   "title": "LTX-Video 2B 0.9.8 distilled fp8 checkpoint (LTXV Open Weights License 0.X)",
+   "urls": [
+    "{HF}/Lightricks/LTX-Video/resolve/8984fa25007f376c1a299016d0957a37a2f797bb/ltxv-2b-0.9.8-distilled-fp8.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\checkpoints\\ltxv-2b-0.9.8-distilled-fp8.safetensors",
+   "size": 4461695684,
+   "sha256": "d6d8fa8ed3a98346787c2503ac80fb5d7cebcf80e356b79a2ba361fbadf97e15",
+   "license": "LTXV Open Weights License 0.X",
+   "source": "https://huggingface.co/Lightricks/LTX-Video/blob/8984fa25007f376c1a299016d0957a37a2f797bb/ltxv-2b-0.9.8-distilled-fp8.safetensors",
+   "optional": true
+  },
+  {
+   "id": "ltx-video-distilled:ltxv_spatial_upscaler",
+   "package": "ltx-video-distilled",
+   "kind": "file",
+   "title": "LTX-Video latent spatial upscaler 0.9.8 (LTXV Open Weights License 0.X)",
+   "urls": [
+    "{HF}/Lightricks/LTX-Video/resolve/8984fa25007f376c1a299016d0957a37a2f797bb/ltxv-spatial-upscaler-0.9.8.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\latent_upscale_models\\ltxv-spatial-upscaler-0.9.8.safetensors",
+   "size": 505024432,
+   "sha256": "5b076031c6f860db9037a54f3bb819f10bfb5532ea26a6d30062292428a0c208",
+   "license": "LTXV Open Weights License 0.X",
+   "source": "https://huggingface.co/Lightricks/LTX-Video/blob/8984fa25007f376c1a299016d0957a37a2f797bb/ltxv-spatial-upscaler-0.9.8.safetensors",
+   "optional": true
+  },
+  {
+   "id": "frame-interp:rife_v425",
+   "package": "frame-interp",
+   "kind": "file",
+   "title": "RIFE v4.25 for ComfyUI (MIT)",
+   "urls": [
+    "{HF}/Comfy-Org/Frame-Interpolation/resolve/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/rife_v4.25.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\frame_interpolation\\rife_v4.25.safetensors",
+   "size": 22674688,
+   "sha256": "1505884b9bdae956795430d2a70f7e2317b2abd8f130f8cfdb35a5759f909481",
+   "license": "MIT",
+   "source": "https://huggingface.co/Comfy-Org/Frame-Interpolation/blob/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/rife_v4.25.safetensors",
+   "optional": true
+  },
+  {
+   "id": "frame-interp:rife_v425_lite",
+   "package": "frame-interp",
+   "kind": "file",
+   "title": "RIFE v4.25 lite for ComfyUI (MIT) - fastest",
+   "urls": [
+    "{HF}/Comfy-Org/Frame-Interpolation/resolve/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/rife_v4.25_lite.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\frame_interpolation\\rife_v4.25_lite.safetensors",
+   "size": 22506384,
+   "sha256": "e5e5fe0286d30708f4c36aa23639a38d3d7cd0c724922c66e6b04130ae12c6e4",
+   "license": "MIT",
+   "source": "https://huggingface.co/Comfy-Org/Frame-Interpolation/blob/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/rife_v4.25_lite.safetensors",
+   "optional": true
+  },
+  {
+   "id": "frame-interp:film_net_fp16",
+   "package": "frame-interp",
+   "kind": "file",
+   "title": "FILM net fp16 for ComfyUI (Apache-2.0) - large motion",
+   "urls": [
+    "{HF}/Comfy-Org/Frame-Interpolation/resolve/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/film_net_fp16.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\frame_interpolation\\film_net_fp16.safetensors",
+   "size": 68882302,
+   "sha256": "f226e51375dc839d4b40e5c3d63da560dd1ea1c962364ec78f5adf2d05db05c0",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Frame-Interpolation/blob/aa7009be4d1471ea0bac91d6fe4d7e4b637cbbfc/frame_interpolation/film_net_fp16.safetensors",
+   "optional": true
+  }
+ ]
+}

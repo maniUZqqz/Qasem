@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../../api/client";
 import { NodeAudioSection } from "../../audio/NodeAudioCard";
 import DownloadScheduleCard from "./DownloadSchedule";
-import NodeModelsCard from "./NodeModelsCard";
+import { ModelsEntryCard } from "./ModelsPage";
 import NodeCommands from "./NodeCommands";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
@@ -674,7 +674,7 @@ export default function ComputePage() {
 
       <EnrollCard settings={settings} error={settingsError} onChange={setSettings} />
       <DownloadScheduleCard />
-      <NodeModelsCard />
+      <ModelsEntryCard />
 
       <Card padded={false}>
         <div className="px-5 pt-5">

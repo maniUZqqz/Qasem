@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -104,6 +105,15 @@ export default function ProvidersPage() {
   return (
     <div className="space-y-4">
       <ErrorBox message={error} />
+
+      <Alert tone="info" title="دانلودِ مدل‌ها">
+        همهٔ مدل‌های سرورِ پردازش — متن و بینایی (Ollama) و تصویر، ویدیو، ترمیم، کنترل و عمق (ComfyUI / Hugging Face) — با دانلودِ خودکار
+        در یک صفحه است:{" "}
+        <Link to="/tools/models" className="underline" style={{ color: "var(--brand-strong)" }} data-testid="providers-models-link">
+          «ابزارها ▸ دانلودِ مدل‌ها»
+        </Link>
+        .
+      </Alert>
 
       <AiPriorityCard />
 

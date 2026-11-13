@@ -1,0 +1,405 @@
+{
+ "group": "image",
+ "title": "Image generation for ComfyUI: FLUX.1 schnell / dev / Fill / Kontext (fp8), SDXL base + RealVisXL, Z-Image Turbo",
+ "license_note": "FLUX.1 schnell (Apache-2.0), SDXL 1.0 (CreativeML OpenRAIL++-M), RealVisXL V5.0 (OpenRAIL++), Z-Image Turbo (Apache-2.0), the VAE and the text encoders (Apache-2.0 / MIT) may be used commercially. FLUX.1 dev, Fill dev and Kontext dev are under the FLUX.1 [dev] Non-Commercial License: the weights are not for commercial use (the images you make with them may be used as the licence allows) - they are optional, never automatic. Files ComfyUI already has (any models subfolder, also under another listed name) are never downloaded again.",
+ "generated": "2026-11-13",
+ "packages": {
+  "flux-common": "FLUX text encoders (T5-XXL fp8, CLIP-L) and the ae VAE - shared by every FLUX model",
+  "flux-schnell": "FLUX.1 schnell fp8 (Apache-2.0) - 4-step images",
+  "flux-dev": "FLUX.1 dev fp8 (non-commercial) - best FLUX quality",
+  "flux-fill": "FLUX.1 Fill dev fp8 (non-commercial) - inpainting / outpainting",
+  "flux-kontext": "FLUX.1 Kontext dev fp8 (non-commercial) - instruction-based image editing",
+  "sdxl-base": "SDXL 1.0 base + fp16-fix VAE (OpenRAIL++)",
+  "sdxl-realvis": "RealVisXL V5.0 fp16 (OpenRAIL++) - photorealistic SDXL",
+  "zimage-turbo": "Z-Image Turbo bf16 + Qwen3-4B text encoder + ae VAE (Apache-2.0)"
+ },
+ "package_info": {
+  "flux-common": {
+   "display": "image",
+   "priority": 10,
+   "license": "Apache-2.0 / MIT",
+   "license_class": "open",
+   "title_fa": "FLUX — رمزگذارهای متن و VAE (مشترکِ همهٔ مدل‌های FLUX)",
+   "note_fa": "T5-XXL (fp8)، CLIP-L و ae؛ بدونِ این‌ها هیچ مدلِ FLUX اجرا نمی‌شود. یک بار گرفته می‌شود و همهٔ مدل‌های FLUX از آن استفاده می‌کنند.",
+   "vram": {
+    "fit": "full",
+    "gb": 6,
+    "note_fa": "T5 در رم می‌ماند و فقط هنگامِ رمزگذاریِ متن به کارت می‌آید."
+   },
+   "features": [
+    "image_studio",
+    "image_edit"
+   ],
+   "needs": [],
+   "auto": false
+  },
+  "flux-schnell": {
+   "display": "image",
+   "priority": 11,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "FLUX.1 schnell (fp8) — تصویرِ سریع در ۴ گام",
+   "note_fa": "استفادهٔ تجاری آزاد (Apache-2.0). در ۴ گام تصویر می‌سازد؛ برای پیش‌نمایش، بندانگشتی، پستِ شبکه‌های اجتماعی و کارهای پرتعداد مناسب است.",
+   "vram": {
+    "fit": "offload",
+    "gb": 12,
+    "note_fa": "کاملاً در حافظهٔ کارت (۱۲ گیگابایت) جا نمی‌شود؛ ComfyUI بخشی را در رم نگه می‌دارد، کمی کندتر ولی کار می‌کند."
+   },
+   "features": [
+    "image_studio",
+    "thumbnails"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": true
+  },
+  "flux-dev": {
+   "display": "image",
+   "priority": 40,
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "license_class": "noncommercial",
+   "title_fa": "FLUX.1 dev (fp8) — بهترین کیفیتِ FLUX",
+   "note_fa": "مجوزِ غیرتجاری: خودِ مدل را نمی‌شود برای کارِ تجاری سرویس داد (خروجی‌ها طبقِ مجوزِ سازنده). اگر «FLUX.1 [dev] FP8» از قبل روی ComfyUI باشد، نصب‌شده حساب می‌شود.",
+   "vram": {
+    "fit": "offload",
+    "gb": 12,
+    "note_fa": "کاملاً در حافظهٔ کارت (۱۲ گیگابایت) جا نمی‌شود؛ ComfyUI بخشی را در رم نگه می‌دارد، کمی کندتر ولی کار می‌کند."
+   },
+   "features": [
+    "image_studio"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": false
+  },
+  "flux-fill": {
+   "display": "image",
+   "priority": 41,
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "license_class": "noncommercial",
+   "title_fa": "FLUX.1 Fill dev (fp8) — پرکردنِ بخشی از تصویر (inpaint / outpaint)",
+   "note_fa": "پاک‌کردن و جایگزینیِ بخشی از عکس و گسترشِ بومِ تصویر. مجوزِ غیرتجاری. فایل بازنشرِ غیررسمیِ fp8 از مدلِ اصلی است؛ در Hugging Face خودِ سازنده نسخهٔ fp8 ندارد.",
+   "vram": {
+    "fit": "offload",
+    "gb": 12,
+    "note_fa": "کاملاً در حافظهٔ کارت (۱۲ گیگابایت) جا نمی‌شود؛ ComfyUI بخشی را در رم نگه می‌دارد، کمی کندتر ولی کار می‌کند."
+   },
+   "features": [
+    "image_edit"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": false,
+   "provenance": "third-party fp8 conversion of black-forest-labs/FLUX.1-Fill-dev"
+  },
+  "flux-kontext": {
+   "display": "image",
+   "priority": 42,
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "license_class": "noncommercial",
+   "title_fa": "FLUX.1 Kontext dev (fp8) — ویرایشِ تصویر با دستور",
+   "note_fa": "با یک جمله عکس را ویرایش می‌کند و چهره/محصول را نگه می‌دارد (ثباتِ شخصیت). مجوزِ غیرتجاری.",
+   "vram": {
+    "fit": "offload",
+    "gb": 12,
+    "note_fa": "کاملاً در حافظهٔ کارت (۱۲ گیگابایت) جا نمی‌شود؛ ComfyUI بخشی را در رم نگه می‌دارد، کمی کندتر ولی کار می‌کند."
+   },
+   "features": [
+    "image_edit",
+    "consistency"
+   ],
+   "needs": [
+    "flux-common"
+   ],
+   "auto": false
+  },
+  "sdxl-base": {
+   "display": "image",
+   "priority": 20,
+   "license": "CreativeML OpenRAIL++-M",
+   "license_class": "open",
+   "title_fa": "SDXL 1.0 پایه + VAEِ fp16",
+   "note_fa": "مدلِ پایهٔ سبک‌های طراحی؛ با ControlNet و IP-Adapter کار می‌کند. استفادهٔ تجاری مجاز (با محدودیتِ استفادهٔ مضر).",
+   "vram": {
+    "fit": "full",
+    "gb": 8,
+    "note_fa": "کاملاً روی کارتِ ۱۲ گیگابایتی اجرا می‌شود."
+   },
+   "features": [
+    "design_styles",
+    "thumbnails"
+   ],
+   "needs": [],
+   "auto": true
+  },
+  "sdxl-realvis": {
+   "display": "image",
+   "priority": 21,
+   "license": "CreativeML OpenRAIL++-M",
+   "license_class": "open",
+   "title_fa": "RealVisXL V5.0 — SDXLِ واقع‌گرا",
+   "note_fa": "عکسِ واقع‌گرا از آدم و محصول؛ مجوزِ OpenRAIL++ (تجاری مجاز).",
+   "vram": {
+    "fit": "full",
+    "gb": 8,
+    "note_fa": "کاملاً روی کارتِ ۱۲ گیگابایتی اجرا می‌شود."
+   },
+   "features": [
+    "design_styles",
+    "thumbnails"
+   ],
+   "needs": [],
+   "auto": true
+  },
+  "zimage-turbo": {
+   "display": "image",
+   "priority": 22,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "Z-Image Turbo — تصویرِ سریع و باکیفیت",
+   "note_fa": "مدلِ ۶ میلیاردیِ Apache-2.0 با ۸ گام؛ جایگزینِ آزادِ FLUX. متنِ انگلیسی و چینی را خوب می‌نویسد.",
+   "vram": {
+    "fit": "offload",
+    "gb": 12,
+    "note_fa": "کاملاً در حافظهٔ کارت (۱۲ گیگابایت) جا نمی‌شود؛ ComfyUI بخشی را در رم نگه می‌دارد، کمی کندتر ولی کار می‌کند."
+   },
+   "features": [
+    "image_studio",
+    "thumbnails"
+   ],
+   "needs": [],
+   "auto": false
+  }
+ },
+ "items": [
+  {
+   "id": "flux-common:t5xxl_fp8",
+   "package": "flux-common",
+   "kind": "file",
+   "title": "T5-XXL text encoder fp8 e4m3fn (Apache-2.0)",
+   "urls": [
+    "{HF}/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/t5xxl_fp8_e4m3fn.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\text_encoders\\t5xxl_fp8_e4m3fn.safetensors",
+   "size": 4893934904,
+   "sha256": "7d330da4816157540d6bb7838bf63a0f02f573fc48ca4d8de34bb0cbfd514f09",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/comfyanonymous/flux_text_encoders/blob/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/t5xxl_fp8_e4m3fn.safetensors",
+   "aliases": [
+    "t5xxl_fp8_e4m3fn.safetensors",
+    "t5xxl_fp8_e4m3fn_scaled.safetensors",
+    "t5xxl_fp16.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "flux-common:clip_l",
+   "package": "flux-common",
+   "kind": "file",
+   "title": "CLIP-L text encoder (MIT)",
+   "urls": [
+    "{HF}/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\text_encoders\\clip_l.safetensors",
+   "size": 246144152,
+   "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+   "license": "MIT",
+   "source": "https://huggingface.co/comfyanonymous/flux_text_encoders/blob/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors",
+   "optional": true
+  },
+  {
+   "id": "flux-common:ae_vae",
+   "package": "flux-common",
+   "kind": "file",
+   "title": "FLUX ae VAE (same bytes as black-forest-labs/FLUX.1-schnell ae.safetensors, Apache-2.0; fetched from an ungated repo)",
+   "urls": [
+    "{HF}/Comfy-Org/Z-Image-Turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\vae\\ae.safetensors",
+   "size": 335304388,
+   "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Z-Image-Turbo/blob/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
+   "aliases": [
+    "ae.sft"
+   ],
+   "optional": true
+  },
+  {
+   "id": "flux-schnell:schnell_fp8",
+   "package": "flux-schnell",
+   "kind": "file",
+   "title": "FLUX.1 schnell diffusion model fp8 e4m3fn (Apache-2.0)",
+   "urls": [
+    "{HF}/Kijai/flux-fp8/resolve/2ef6f85f9f4b94634f995ba0bfa84fd3ab865c1d/flux1-schnell-fp8-e4m3fn.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\flux1-schnell-fp8-e4m3fn.safetensors",
+   "size": 11891329784,
+   "sha256": "bbdfba27fed8ff3be237523fb37b83821a6c4bbaa1db43ef9288767d0e4042fb",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Kijai/flux-fp8/blob/2ef6f85f9f4b94634f995ba0bfa84fd3ab865c1d/flux1-schnell-fp8-e4m3fn.safetensors",
+   "aliases": [
+    "flux1-schnell-fp8.safetensors",
+    "flux1-schnell.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "flux-dev:dev_fp8",
+   "package": "flux-dev",
+   "kind": "file",
+   "title": "FLUX.1 dev diffusion model fp8 e4m3fn (FLUX.1 [dev] Non-Commercial)",
+   "urls": [
+    "{HF}/Kijai/flux-fp8/resolve/2ef6f85f9f4b94634f995ba0bfa84fd3ab865c1d/flux1-dev-fp8-e4m3fn.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\flux1-dev-fp8-e4m3fn.safetensors",
+   "size": 11901525888,
+   "sha256": "47d8dbdc6da6e996ff31567476c0a549afd1a99554b20af2be57f0ccfa93aa36",
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "source": "https://huggingface.co/Kijai/flux-fp8/blob/2ef6f85f9f4b94634f995ba0bfa84fd3ab865c1d/flux1-dev-fp8-e4m3fn.safetensors",
+   "aliases": [
+    "FLUX.1 [dev] FP8.safetensors",
+    "flux1-dev-fp8.safetensors",
+    "flux1-dev.safetensors",
+    "flux1-dev-fp8-e4m3fn.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "flux-fill:fill_dev_fp8",
+   "package": "flux-fill",
+   "kind": "file",
+   "title": "FLUX.1 Fill dev fp8 e4m3fn (FLUX.1 [dev] Non-Commercial)",
+   "urls": [
+    "{HF}/wjndd/flux1-fill-dev-fp8/resolve/cda97224671fcac7cfcb95d922d2e20ca7d05e38/flux1-fill-dev-fp8.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\flux1-fill-dev-fp8.safetensors",
+   "size": 11902539328,
+   "sha256": "0320d505ca42bca99c5bd600b1839ced2b2e980ea985917965d411d98a710729",
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "source": "https://huggingface.co/wjndd/flux1-fill-dev-fp8/blob/cda97224671fcac7cfcb95d922d2e20ca7d05e38/flux1-fill-dev-fp8.safetensors",
+   "aliases": [
+    "flux1-fill-dev.safetensors",
+    "FLUX.1-Fill-dev_fp8.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "flux-kontext:kontext_fp8",
+   "package": "flux-kontext",
+   "kind": "file",
+   "title": "FLUX.1 Kontext dev fp8 scaled (FLUX.1 [dev] Non-Commercial)",
+   "urls": [
+    "{HF}/Comfy-Org/Flux-1-Kontext-Dev/resolve/795e390e4a1200720e40af3780d5d8b96bc13ae3/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\flux1-dev-kontext_fp8_scaled.safetensors",
+   "size": 11904640136,
+   "sha256": "630ba795ec64283b4230ea23cf79406c2c68b7c578229ed139f30043eadb30a2",
+   "license": "FLUX.1 [dev] Non-Commercial",
+   "source": "https://huggingface.co/Comfy-Org/Flux-1-Kontext-Dev/blob/795e390e4a1200720e40af3780d5d8b96bc13ae3/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors",
+   "aliases": [
+    "flux1-kontext-dev.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "sdxl-base:sdxl_base",
+   "package": "sdxl-base",
+   "kind": "file",
+   "title": "SDXL 1.0 base checkpoint (CreativeML OpenRAIL++-M)",
+   "urls": [
+    "{HF}/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\checkpoints\\sd_xl_base_1.0.safetensors",
+   "size": 6938078334,
+   "sha256": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+   "license": "OpenRAIL++-M",
+   "source": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors",
+   "optional": true
+  },
+  {
+   "id": "sdxl-base:sdxl_vae_fp16",
+   "package": "sdxl-base",
+   "kind": "file",
+   "title": "SDXL VAE fp16-fix (MIT) - no NaN in half precision",
+   "urls": [
+    "{HF}/madebyollin/sdxl-vae-fp16-fix/resolve/207b116dae70ace3637169f1ddd2434b91b3a8cd/sdxl_vae.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\vae\\sdxl_vae.safetensors",
+   "size": 334641162,
+   "sha256": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1",
+   "license": "MIT",
+   "source": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/blob/207b116dae70ace3637169f1ddd2434b91b3a8cd/sdxl_vae.safetensors",
+   "aliases": [
+    "sdxl.vae.safetensors"
+   ],
+   "optional": true
+  },
+  {
+   "id": "sdxl-realvis:realvisxl_v5",
+   "package": "sdxl-realvis",
+   "kind": "file",
+   "title": "RealVisXL V5.0 fp16 checkpoint (CreativeML OpenRAIL++-M)",
+   "urls": [
+    "{HF}/SG161222/RealVisXL_V5.0/resolve/ac93e0dda1f6d448cae19bbfab8c5e720a5e48bc/RealVisXL_V5.0_fp16.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\checkpoints\\RealVisXL_V5.0_fp16.safetensors",
+   "size": 6938065488,
+   "sha256": "6a35a7855770ae9820a3c931d4964c3817b6d9e3c6f9c4dabb5b3a94e5643b80",
+   "license": "OpenRAIL++-M",
+   "source": "https://huggingface.co/SG161222/RealVisXL_V5.0/blob/ac93e0dda1f6d448cae19bbfab8c5e720a5e48bc/RealVisXL_V5.0_fp16.safetensors",
+   "optional": true
+  },
+  {
+   "id": "zimage-turbo:zimage_bf16",
+   "package": "zimage-turbo",
+   "kind": "file",
+   "title": "Z-Image Turbo diffusion model bf16 (Apache-2.0)",
+   "urls": [
+    "{HF}/Comfy-Org/Z-Image-Turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/diffusion_models/z_image_turbo_bf16.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\diffusion_models\\z_image_turbo_bf16.safetensors",
+   "size": 12309866400,
+   "sha256": "2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Z-Image-Turbo/blob/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+   "optional": true
+  },
+  {
+   "id": "zimage-turbo:qwen3_4b_fp8",
+   "package": "zimage-turbo",
+   "kind": "file",
+   "title": "Qwen3-4B text encoder fp8 mixed (Apache-2.0)",
+   "urls": [
+    "{HF}/Comfy-Org/Z-Image-Turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\text_encoders\\qwen_3_4b_fp8_mixed.safetensors",
+   "size": 5631994051,
+   "sha256": "72450b19758172c5a7273cf7de729d1c17e7f434a104a00167624cba94f68f15",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Z-Image-Turbo/blob/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+   "optional": true
+  },
+  {
+   "id": "zimage-turbo:ae_vae",
+   "package": "zimage-turbo",
+   "kind": "file",
+   "title": "ae VAE (same file as flux-common:ae_vae - fetched once)",
+   "urls": [
+    "{HF}/Comfy-Org/Z-Image-Turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\vae\\ae.safetensors",
+   "size": 335304388,
+   "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/Comfy-Org/Z-Image-Turbo/blob/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
+   "aliases": [
+    "ae.sft"
+   ],
+   "optional": true
+  }
+ ]
+}

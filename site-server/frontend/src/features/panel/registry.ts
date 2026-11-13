@@ -160,6 +160,7 @@ export const PAGES: PanelPage[] = [
   { key: "compute_queue", section: "tools", label: "صفِ پردازش", icon: "clock", to: "/tools/compute/queue", end: true, staffOnly: true },
   { key: "compute_selftest", section: "tools", label: "آزمونِ خودکارِ سرورِ پردازش", icon: "check", to: "/tools/compute/selftest", end: true, staffOnly: true },
   { key: "compute_report", section: "tools", label: "گزارشِ سرورهای پردازش", icon: "chart", to: "/tools/compute/report", end: true, staffOnly: true },
+  { key: "compute_models", section: "tools", label: "دانلودِ مدل‌ها", icon: "download", to: "/tools/models", end: true, staffOnly: true },
   { key: "mobile", section: "tools", label: "دستگاه‌های موبایل", icon: "link", to: "/tools/mobile", end: true, staffOnly: true },
   { key: "django_admin", section: "tools", label: "ادمینِ جنگو", icon: "settings", to: "/admin/", staffOnly: true, external: true },
 ];

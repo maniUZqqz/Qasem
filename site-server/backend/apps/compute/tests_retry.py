@@ -182,7 +182,7 @@ class ModelPackagesTests(TestCase):
                                   payload={"action": "download", "packages": ["matting-runtime"]})
         data = MP.for_node(n)
         groups = {g["key"]: {p["key"]: p for p in g["packages"]} for g in data["groups"]}
-        self.assertEqual(list(groups), ["matting", "voice", "video"])
+        self.assertEqual(list(groups), ["video", "voice", "matting"])      # ترتیبِ نمایش: تصویر، ویدیو، بزرگ‌کردن، کنترل، عمق، صدا، حذفِ پس‌زمینه
         m = groups["matting"]
         self.assertEqual(m["photo-background"]["state"], "installed")
         self.assertEqual(m["matting-isnet"]["state"], "missing")

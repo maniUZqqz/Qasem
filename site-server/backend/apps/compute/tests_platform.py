@@ -25,6 +25,13 @@ from .selftests import requeue as requeue_mod
 LATEST = {"version": "2.11", "id": "bbbbbbbbbbbbbbbbbbbb", "size": 1, "built": "x"}
 
 
+def models_caps():
+    """What an agent that has the model catalog reports in caps["models"]: every package installed, disk known, nothing failing."""
+    from . import auto_models, model_packages as MP
+    pk = {k: {"installed": True, "total_mb": int(c.get("size_mb") or 0), "in_comfyui": 0} for k, c in MP.catalog().items()}
+    return {"packages": pk, "disk_mb": {"comfyui": 90000, "models": 90000}, "auto": {"states": {p: "installed" for p in auto_models.wanted()}}}
+
+
 def mk_node(name="gpu-p", **caps):
     base = {"agent": "2.11", "kinds": ["echo", "comfy.graph", "comfy.profile", "ollama.generate", "ollama.chat", "voice.tts", "voice.asr",
                                       "photo.matting", "edit.render", "selftest.gpu", "selftest.ffmpeg", "asr.transcribe", "voice.sfx",
@@ -457,7 +464,7 @@ class SelfTestRunTests(_Base):
             "matting_models": {"u2netp": {"state": "installed"}}, "audio": {"moss": True, "sfx": True, "music": True},
             "edit": {"render": True, "nvenc": {"h264": True}}, "comfy_profiles": ["flux-product-fast", "wan22-480p-short"],
             "bootstrap": {"summary": {"ready": 2}, "blocked_kinds": {}, "features": {"gpu-runtime": {"state": "ready", "title": "x", "items": []}}},
-            "outbox": {"pending": 0}, "net": {"offline_s": 0}, "lanes": {"light": 1}})
+            "outbox": {"pending": 0}, "net": {"offline_s": 0}, "lanes": {"light": 1}, "models": models_caps()})
         self.node.save()
 
     def run_jobs(self, run, handler):
@@ -558,6 +565,8 @@ class SelfTestRunTests(_Base):
                 w.setframerate(16000)
                 w.writeframes(b"\0\0" * 40000)
             return {"sfx.wav": b.getvalue()}, {"device": "cuda"}
+        if k == "node.models":
+            return {"models.json": json.dumps({"result": "started", "status": {"running": True}}).encode()}, {}
         raise AssertionError("unexpected kind " + k)
 
     def test_a_good_node_passes_everything_and_the_report_says_so(self):

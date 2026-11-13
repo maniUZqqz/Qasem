@@ -1,0 +1,226 @@
+{
+ "group": "upscale",
+ "title": "Upscalers and face restoration for ComfyUI (Real-ESRGAN x4plus, 4x-UltraSharp, 4x NMKD-Siax, GFPGAN, CodeFormer)",
+ "license_note": "Real-ESRGAN x4plus is BSD-3-Clause and GFPGAN v1.4 is Apache-2.0 (code and weights of TencentARC; the face data they were trained on carries its own terms) - commercial use allowed. 4x-UltraSharp is CC BY-NC-SA 4.0 and CodeFormer is under the S-Lab License 1.0 (non-commercial). The licence of 4x NMKD-Siax could not be verified from its Hugging Face mirror, so it is treated as non-commercial. Non-commercial packages are optional and never automatic. The face models need a ComfyUI face-restore custom node to be used inside ComfyUI (not installed automatically: its pip requirements would touch ComfyUI's torch); the files are placed where such nodes look for them.",
+ "generated": "2026-11-13",
+ "packages": {
+  "esrgan-x4plus": "Real-ESRGAN x4plus (BSD-3-Clause) - 4x upscaler, safetensors",
+  "ultrasharp-4x": "4x-UltraSharp (CC BY-NC-SA 4.0) - sharp 4x upscaler, safetensors",
+  "nmkd-siax-4x": "4x NMKD-Siax 200k - natural 4x upscaler (licence unverified)",
+  "face-restore": "GFPGAN v1.4 + facexlib detection/parsing models - face restoration",
+  "codeformer": "CodeFormer v0.1.0 (S-Lab, non-commercial) - face restoration"
+ },
+ "package_info": {
+  "esrgan-x4plus": {
+   "display": "upscale",
+   "priority": 10,
+   "license": "BSD-3-Clause",
+   "license_class": "open",
+   "title_fa": "Real-ESRGAN x4plus — بزرگ‌کردنِ ۴ برابریِ عکس",
+   "note_fa": "کوچک (۶۴ مگابایت) و سریع؛ بهترین انتخابِ عمومی برای بزرگ‌کردنِ عکسِ محصول و آدم. مجوزِ BSD-3 (تجاری مجاز).",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "خیلی کم‌حجم؛ هم‌زمان با مدل‌های دیگر هم جا می‌شود."
+   },
+   "features": [
+    "photo_enhance",
+    "thumbnails"
+   ],
+   "needs": [],
+   "auto": true
+  },
+  "ultrasharp-4x": {
+   "display": "upscale",
+   "priority": 40,
+   "license": "CC BY-NC-SA 4.0",
+   "license_class": "noncommercial",
+   "title_fa": "4x-UltraSharp — بزرگ‌کردنِ تیز",
+   "note_fa": "لبه‌ها را تیزتر از Real-ESRGAN می‌کند. مجوزِ غیرتجاری (CC BY-NC-SA 4.0).",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "خیلی کم‌حجم."
+   },
+   "features": [
+    "photo_enhance"
+   ],
+   "needs": [],
+   "auto": false
+  },
+  "nmkd-siax-4x": {
+   "display": "upscale",
+   "priority": 41,
+   "license": "unverified",
+   "license_class": "noncommercial",
+   "title_fa": "4x NMKD-Siax — بزرگ‌کردنِ طبیعی",
+   "note_fa": "جزئیاتِ طبیعی و کم‌نویز. مجوزِ این فایل را نتوانستیم تأیید کنیم؛ تا روشن‌شدن غیرتجاری حساب می‌شود.",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "خیلی کم‌حجم."
+   },
+   "features": [
+    "photo_enhance"
+   ],
+   "needs": [],
+   "auto": false
+  },
+  "face-restore": {
+   "display": "upscale",
+   "priority": 20,
+   "license": "Apache-2.0",
+   "license_class": "open",
+   "title_fa": "ترمیمِ چهره — GFPGAN v1.4 (+ تشخیصِ چهره)",
+   "note_fa": "چهرهٔ تارِ عکس را واضح می‌کند. برای استفاده در ComfyUI به یک نودِ ترمیمِ چهره نیاز است (خودکار نصب نمی‌شود)؛ فایل‌ها در پوشه‌ای که این نودها می‌خوانند گذاشته می‌شود.",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "کم‌حجم."
+   },
+   "features": [
+    "face_restore"
+   ],
+   "needs": [],
+   "auto": true
+  },
+  "codeformer": {
+   "display": "upscale",
+   "priority": 42,
+   "license": "S-Lab License 1.0",
+   "license_class": "noncommercial",
+   "title_fa": "ترمیمِ چهره — CodeFormer",
+   "note_fa": "ترمیمِ چهره با کنترلِ وفاداری. مجوزِ غیرتجاری (S-Lab).",
+   "vram": {
+    "fit": "full",
+    "gb": 2,
+    "note_fa": "کم‌حجم."
+   },
+   "features": [
+    "face_restore"
+   ],
+   "needs": [],
+   "auto": false
+  }
+ },
+ "items": [
+  {
+   "id": "esrgan-x4plus:realesrgan_x4plus",
+   "package": "esrgan-x4plus",
+   "kind": "file",
+   "title": "Real-ESRGAN x4plus (BSD-3-Clause)",
+   "urls": [
+    "{HF}/Comfy-Org/Real-ESRGAN/resolve/5fd49b7b278836f48af63ecd314d0f98ab336105/RealESRGAN_x4plus.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\upscale_models\\RealESRGAN_x4plus.safetensors",
+   "size": 66857836,
+   "sha256": "37f9a931c215f040aa6d50f711f2cb115f713c46df1d0d6469a8bd7bfe9a60bb",
+   "license": "BSD-3-Clause",
+   "source": "https://huggingface.co/Comfy-Org/Real-ESRGAN/blob/5fd49b7b278836f48af63ecd314d0f98ab336105/RealESRGAN_x4plus.safetensors",
+   "aliases": [
+    "RealESRGAN_x4plus.pth",
+    "realesrgan_x4plus.pth",
+    "RealESRGAN_x4.pth"
+   ],
+   "optional": true
+  },
+  {
+   "id": "ultrasharp-4x:ultrasharp",
+   "package": "ultrasharp-4x",
+   "kind": "file",
+   "title": "4x-UltraSharp (CC BY-NC-SA 4.0)",
+   "urls": [
+    "{HF}/Kim2091/UltraSharp/resolve/920fe218c211f831b43cb30327f203e2b59f5dab/4x-UltraSharp.safetensors"
+   ],
+   "dest": "{COMFYUI}\\models\\upscale_models\\4x-UltraSharp.safetensors",
+   "size": 66864028,
+   "sha256": "36a340b5509b699d2c06cb445ddc1d3d39199ac734d889ed6d7915f60e05bcbc",
+   "license": "CC BY-NC-SA 4.0",
+   "source": "https://huggingface.co/Kim2091/UltraSharp/blob/920fe218c211f831b43cb30327f203e2b59f5dab/4x-UltraSharp.safetensors",
+   "aliases": [
+    "4x-UltraSharp.pth",
+    "4xUltrasharp_4xUltrasharpV10.pt"
+   ],
+   "optional": true
+  },
+  {
+   "id": "nmkd-siax-4x:siax",
+   "package": "nmkd-siax-4x",
+   "kind": "file",
+   "title": "4x NMKD-Siax 200k (licence unverified)",
+   "urls": [
+    "{HF}/gemasai/4x_NMKD-Siax_200k/resolve/6a21e0d6db5fe699873c9d1a6ae05c7dfe038171/4x_NMKD-Siax_200k.pth"
+   ],
+   "dest": "{COMFYUI}\\models\\upscale_models\\4x_NMKD-Siax_200k.pth",
+   "size": 66957746,
+   "sha256": "560424d9f68625713fc47e9e7289a98aabe1d744e1cd6a9ae5a35e9957fd127e",
+   "license": "unverified",
+   "source": "https://huggingface.co/gemasai/4x_NMKD-Siax_200k/blob/6a21e0d6db5fe699873c9d1a6ae05c7dfe038171/4x_NMKD-Siax_200k.pth",
+   "optional": true
+  },
+  {
+   "id": "face-restore:gfpgan_v14",
+   "package": "face-restore",
+   "kind": "file",
+   "title": "GFPGAN v1.4 (Apache-2.0; mirror of the official file, sha256 matches TencentARC's release)",
+   "urls": [
+    "{HF}/leonelhs/gfpgan/resolve/454bfc5aed6462403cc9c5665f39da39613849b3/GFPGANv1.4.pth"
+   ],
+   "dest": "{COMFYUI}\\models\\facerestore_models\\GFPGANv1.4.pth",
+   "size": 348632874,
+   "sha256": "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad",
+   "license": "Apache-2.0",
+   "source": "https://huggingface.co/leonelhs/gfpgan/blob/454bfc5aed6462403cc9c5665f39da39613849b3/GFPGANv1.4.pth",
+   "optional": true
+  },
+  {
+   "id": "face-restore:facexlib_detection",
+   "package": "face-restore",
+   "kind": "file",
+   "title": "facexlib face detector RetinaFace-ResNet50 (MIT)",
+   "urls": [
+    "{HF}/leonelhs/facexlib/resolve/d3ad6bbf8333a8f4286c9cdd71b12dc7cd66fd8a/detection_Resnet50_Final.pth"
+   ],
+   "dest": "{COMFYUI}\\models\\facedetection\\detection_Resnet50_Final.pth",
+   "size": 109497761,
+   "sha256": "6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d",
+   "license": "MIT",
+   "source": "https://huggingface.co/leonelhs/facexlib/blob/d3ad6bbf8333a8f4286c9cdd71b12dc7cd66fd8a/detection_Resnet50_Final.pth",
+   "optional": true
+  },
+  {
+   "id": "face-restore:facexlib_parsing",
+   "package": "face-restore",
+   "kind": "file",
+   "title": "facexlib face parser ParseNet (MIT)",
+   "urls": [
+    "{HF}/leonelhs/facexlib/resolve/d3ad6bbf8333a8f4286c9cdd71b12dc7cd66fd8a/parsing_parsenet.pth"
+   ],
+   "dest": "{COMFYUI}\\models\\facedetection\\parsing_parsenet.pth",
+   "size": 85331193,
+   "sha256": "3d558d8d0e42c20224f13cf5a29c79eba2d59913419f945545d8cf7b72920de2",
+   "license": "MIT",
+   "source": "https://huggingface.co/leonelhs/facexlib/blob/d3ad6bbf8333a8f4286c9cdd71b12dc7cd66fd8a/parsing_parsenet.pth",
+   "optional": true
+  },
+  {
+   "id": "codeformer:codeformer_v010",
+   "package": "codeformer",
+   "kind": "file",
+   "title": "CodeFormer v0.1.0 (S-Lab License 1.0, non-commercial)",
+   "urls": [
+    "{HF}/leonelhs/gfpgan/resolve/454bfc5aed6462403cc9c5665f39da39613849b3/CodeFormer.pth"
+   ],
+   "dest": "{COMFYUI}\\models\\facerestore_models\\codeformer-v0.1.0.pth",
+   "size": 376637898,
+   "sha256": "1009e537e0c2a07d4cabce6355f53cb66767cd4b4297ec7a4a64ca4b8a5684b7",
+   "license": "S-Lab License 1.0",
+   "source": "https://huggingface.co/leonelhs/gfpgan/blob/454bfc5aed6462403cc9c5665f39da39613849b3/CodeFormer.pth",
+   "aliases": [
+    "codeformer.pth",
+    "CodeFormer.pth"
+   ],
+   "optional": true
+  }
+ ]
+}

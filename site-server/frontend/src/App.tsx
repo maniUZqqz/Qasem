@@ -63,6 +63,7 @@ import StoreLayout from "./features/stores/StoreLayout";
 import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
 import GrowthRoutes from "./features/growth";
+import ModelsPage from "./features/tools/compute/ModelsPage";
 import ComputePage from "./features/tools/compute";
 import ComputeQueuePage from "./features/tools/compute/queue";
 import ComputeReportPage from "./features/tools/compute/report";
@@ -104,6 +105,7 @@ export default function App() {
               <Route path="/tools/compute/queue" element={<PageGate k="compute_queue"><ComputeQueuePage /></PageGate>} />
               <Route path="/tools/compute/selftest" element={<PageGate k="compute_selftest"><ComputeSelfTestPage /></PageGate>} />
               <Route path="/tools/compute/report" element={<PageGate k="compute_report"><ComputeReportPage /></PageGate>} />
+              <Route path="/tools/models" element={<PageGate k="compute_models"><ModelsPage /></PageGate>} />
               <Route path="/tools/mobile" element={<PageGate k="mobile"><MobilePage /></PageGate>} />
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<PageGate k="crm"><CrmPage /></PageGate>} />

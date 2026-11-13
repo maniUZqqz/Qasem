@@ -114,6 +114,8 @@ INSTALLED_APPS += ["apps.photoedit"]
 INSTALLED_APPS += ["apps.shoot"]
 # چندزاویه: چند زاویهٔ مجازی از یک دوربین + حرکتِ دوربینِ ۲٫۵بعدی (پنل › محتوا؛ کارِ سنگین روی سرورِ پردازش)
 INSTALLED_APPS += ["apps.multiangle"]
+# تامنیل‌ساز (پنل › محتوا): کاورِ یوتیوب/اینستاگرام/پینترست و پوستر، با ایده‌پردازی و پس‌زمینهٔ هوش مصنوعی
+INSTALLED_APPS += ["apps.thumbs"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -865,6 +867,12 @@ CELERY_BEAT_SCHEDULE["compute-maintenance"] = {
     "task": "apps.compute.tasks.maintenance",
     "schedule": 60.0,
     "options": {"expires": 50},
+}
+# تامنیل‌ساز: آزمونِ خودکارِ «پس‌زمینهٔ هوش مصنوعی» روی سرورِ پردازش (کار را در صفِ ماندگار می‌گذارد؛ با روشن‌شدنِ گره خودش اجرا و سنجیده می‌شود)
+CELERY_BEAT_SCHEDULE["thumbs-selftest"] = {
+    "task": "apps.thumbs.tasks.selftest_when_online",
+    "schedule": 300.0,
+    "options": {"expires": 250},
 }
 # چندزاویه: سرورِ پردازشِ روشن را خودکار آماده می‌کند (نصبِ محیط و مدل‌ها) و آزمونِ خودکارش را می‌زند
 CELERY_BEAT_SCHEDULE["multiangle-autocheck"] = {

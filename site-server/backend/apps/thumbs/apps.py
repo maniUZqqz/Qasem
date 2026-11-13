@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class ThumbsConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.thumbs"
+    verbose_name = "تامنیل‌ساز"

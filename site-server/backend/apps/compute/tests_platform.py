@@ -567,6 +567,18 @@ class SelfTestRunTests(_Base):
             return {"sfx.wav": b.getvalue()}, {"device": "cuda"}
         if k == "node.models":
             return {"models.json": json.dumps({"result": "started", "status": {"running": True}}).encode()}, {}
+        if k == "comfy.graph":
+            # آزمونِ «thumbs_bg» (تامنیل‌ساز › پس‌زمینهٔ هوش مصنوعی)؛ فقط وقتی اپِ apps.thumbs نصب است ثبت می‌شود: یک گرادیانِ ۵۱۲×۵۱۲
+            import io
+
+            import numpy as np
+            from PIL import Image
+            h = w = int((p.get("x_thumbbg") or {}).get("size", [512])[0])
+            yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+            arr = np.stack([60 + 150 * xx / w, 40 + 120 * yy / h, 160 - 90 * xx / w], axis=2).clip(0, 255).astype(np.uint8)
+            b = io.BytesIO()
+            Image.fromarray(arr).save(b, "PNG")
+            return {"thumbbg_00001_.png": b.getvalue()}, {"primary": "thumbbg_00001_.png", "engine": "comfyui", "device": "cuda"}
         raise AssertionError("unexpected kind " + k)
 
     def test_a_good_node_passes_everything_and_the_report_says_so(self):
@@ -1235,7 +1247,9 @@ class SiteContentSelfTests(_Base):
     def test_registered_and_optional(self):
         self.assertIn("chagher_content", REGISTRY)
         self.assertTrue(REGISTRY["chagher_content"].optional)
-        self.assertNotIn("thumbs_bg", REGISTRY)                    # apps.thumbs is another patch: nothing is registered without it
+        from django.apps import apps as django_apps
+        # «تامنیل‌ساز» وصلهٔ جداست: بدونِ اپِ apps.thumbs چیزی ثبت نمی‌شود، با آن «thumbs_bg» ثبت می‌شود
+        self.assertEqual("thumbs_bg" in REGISTRY, django_apps.is_installed("apps.thumbs"))
 
     def test_multiangle_is_skipped_on_a_node_that_does_not_know_it_and_judged_on_its_checks_otherwise(self):
         self.assertIn("multiangle", REGISTRY)

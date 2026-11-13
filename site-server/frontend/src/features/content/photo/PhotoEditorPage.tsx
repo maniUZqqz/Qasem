@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { errorMessage } from "../../../api/client";
 import ModeSwitch, { useEditorMode } from "../../../components/ModeSwitch";
@@ -66,6 +66,9 @@ function hasWebGL2(): boolean {
 export default function PhotoEditorPage() {
   const { id = "" } = useParams<{ id: string }>();
   const [mode, setMode] = useEditorMode("nm.photo.mode");
+  // پیوندِ مستقیم از «تامنیل‌ساز»: ?asset=<شناسهٔ عکس>&mode=manual ⇒ همان عکس انتخاب و فضای کار باز می‌شود
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepAsset = useRef<string | null>(searchParams.get("asset"));
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +130,17 @@ export default function PhotoEditorPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const want = Number(deepAsset.current);
+    if (!want || !data) return;
+    if (!data.assets.some((a) => a.id === want)) return;
+    deepAsset.current = null;
+    setSelected([want]);
+    if (searchParams.get("mode") === "manual") setMode("manual");
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const openDetail = useCallback(
     async (assetId: number, scroll = true, focusEdit?: number) => {

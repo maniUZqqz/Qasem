@@ -552,7 +552,14 @@ class ToolTests(SimpleTestCase):
         self.assertTrue(r["ok"])
         cap = next(t for t in p["tracks"] if t.get("caption"))
         self.assertTrue(all(c["hl_mode"] == "box" for c in cap["clips"]))
-        self.assertEqual(set(CAPTION_STYLES), {"pop", "box", "karaoke", "clean"})
+        from services.editing import titles
+
+        self.assertEqual(set(CAPTION_STYLES), {"pop", "box", "karaoke", "clean", "neon", "typewriter", "lower"})
+        for key, st in CAPTION_STYLES.items():                      # every look is a style the text engine accepts, not a dead entry
+            clip = titles.clean({**st["style"], "text": "سلام دنیا", "duration": 2.0, "caption": True})
+            self.assertEqual(clip["hl_mode"], st["style"]["hl_mode"], key)
+            if st["style"].get("anim_in"):
+                self.assertEqual(clip["anim_in"], st["style"]["anim_in"], key)
 
 
 # ================================================================== executor

@@ -98,11 +98,12 @@ def analyze(assets: list[dict], ctx: Ctx, *, want_words: bool = False, want_mome
     by_ref: dict[str, dict] = {}
     missing: list[str] = []
     asr_failed = ""
+    asr_waiting = False
     total = max(1, len(assets))
     for i, a in enumerate(assets):
         ref = a["ref"]
         row = {"ref": ref, "kind": a.get("kind"), "title": a.get("title", ""), "duration": float(a.get("duration") or 0), "has_audio": bool(a.get("has_audio")),
-               "width": int(a.get("width") or 0), "height": int(a.get("height") or 0), "spans": [], "words": [], "moments": [], "beats": [], "bpm": None}
+               "width": int(a.get("width") or 0), "height": int(a.get("height") or 0), "spans": [], "words": [], "moments": [], "beats": [], "bpm": None, "box": {}}
         if progress:
             progress(i / total, f"بررسیِ «{(a.get('title') or ref)[:24]}»")
         if a.get("kind") == "video":
@@ -118,6 +119,12 @@ def analyze(assets: list[dict], ctx: Ctx, *, want_words: bool = False, want_mome
                         row["words"] = ctx.words(ref, 0.0, min(row["duration"], 180.0)) or []
                     except Exception as exc:  # noqa: BLE001 — ASR is down/off: remember why, do not retry per clip
                         asr_failed = str(exc)
+                        asr_waiting = bool(getattr(exc, "node_waiting", ""))
+            if row["duration"] > 2.0 and sum(1 for x in assets if x.get("kind") == "video") <= 2:       # one talking video (the polish case); a montage of many clips is not looked at this way
+                try:                                    # a phone screen / a 4:3 clip inside black bars: where the real picture is
+                    row["box"] = ctx.content_box(ref) or {}
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("content box of %s failed: %s", ref, exc)
             if want_moments and row["duration"] > 0.5:
                 path = ctx.path_of(ref)
                 if path:
@@ -137,7 +144,7 @@ def analyze(assets: list[dict], ctx: Ctx, *, want_words: bool = False, want_mome
         missing.append("زیرنویسِ خودکار و پرهیز از بریدنِ وسطِ کلمه به تشخیصِ گفتار نیاز دارد و انجام نشد: " + asr_failed[:160])
     music = next((r["ref"] for r in by_ref.values() if r["kind"] == "audio"), "")
     return {"by_ref": by_ref, "missing": missing, "has_speech": any(sum(e - s for s, e in r["spans"]) >= 2.0 for r in by_ref.values()),
-            "has_words": any(r["words"] for r in by_ref.values()), "music_ref": music}
+            "has_words": any(r["words"] for r in by_ref.values()), "music_ref": music, "asr_waiting": asr_waiting}
 
 
 def pick_segments(an: dict, refs: list[str], target: float, shot: tuple[float, float], pace: str, *, chronological: bool = False) -> list[dict]:

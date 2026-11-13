@@ -48,6 +48,105 @@ def carries(track: Track, clip) -> bool:
     return track.kind == "video" and clip.kind == "video" and clip.has_audio and not clip.freeze
 
 
+#: a copy of a sound is a copy when both play the same moment of the same file within this many seconds of each other
+DUPLICATE_WINDOW = 1.5
+#: how far the original sound of a picture dips while a voice-over speaks over it
+VOICEOVER_DIP_DB = 14.0
+MAX_DIPS = 24
+
+
+def is_speech(track: Track, clip) -> bool:
+    """Whose voice the music must stay under.  Mirrors the browser (`soundOps.speechClips`): the clips of a «گفتار» track, AND the
+    sound of a person on camera — a picture-track clip that carries its own sound, on a track with no role.  (The export used to count
+    only the first, so a talking-head video with a music bed was never ducked in the file although the preview ducked it: the
+    music played at full level on top of the speaker — «صداها روی هم می‌افتد و چیزی نمی‌شود فهمید».)"""
+    if getattr(clip, "kind", "") in ("text", "image"):
+        return False
+    if track.role == "speech":
+        return True
+    return track.kind == "video" and not track.role and carries(track, clip)
+
+
+def _source_second(clip: Clip, t: float) -> float:
+    """The second of the SOURCE file that plays at timeline second `t` (forward clips; speed followed)."""
+    return clip.start + max(0.0, t - clip.at) * (clip.speed or 1.0)
+
+
+def duplicate_carriers(tl, *, soloing: bool = False) -> dict[int, str]:
+    """`id(clip)` → Persian reason, for every sound-carrying clip that only REPEATS another one.
+
+    Two clips that play the same moment of the same file at the same time are one sound heard twice: a picture clip's own sound AND
+    its detached copy on an audio track, a clip stacked on its own duplicate, a voice-over pasted twice.  Mixed, they are a comb filter
+    (offset 0) or an echo (a few hundred ms) — the "everyone talks at once" the owner heard.  The explicit one wins (an audio-track clip
+    over the picture's own sound); between equals the lower track wins.  A different part of the same file at the same time is NOT a
+    duplicate (a cut-away over its own interview is common), and neither are sound effects or music layered on purpose.
+    """
+    carriers: list[tuple[Track, Clip]] = []
+    for track in tl.tracks:
+        if track.kind == "text" or track.muted or (soloing and not track.solo):
+            continue
+        for clip in track.clips:
+            if getattr(clip, "nested", None) is not None or not getattr(clip, "source", ""):
+                continue
+            if not carries(track, clip) or clip.volume <= 0.001 or clip.reverse or clip.ramp or clip.segs:
+                continue
+            carriers.append((track, clip))
+    drop: dict[int, str] = {}
+    for i, (ta, a) in enumerate(carriers):
+        for tb, b2 in carriers[i + 1:]:
+            if id(a) in drop or id(b2) in drop or a.source != b2.source:
+                continue
+            kinds = {ta.kind, tb.kind}
+            if kinds == {"audio"} and not (ta.role == "speech" and tb.role == "speech"):
+                continue                                   # music/effects layered on purpose
+            if ta.kind == "audio" and ta.role in ("music", "ambience", "sfx") or tb.kind == "audio" and tb.role in ("music", "ambience", "sfx"):
+                continue
+            lo, hi = max(a.at, b2.at), min(a.ends_at, b2.ends_at)
+            if hi - lo < 0.2:
+                continue
+            mid = (lo + hi) / 2
+            if abs(_source_second(a, mid) - _source_second(b2, mid)) > DUPLICATE_WINDOW:
+                continue
+            if abs((a.speed or 1.0) - (b2.speed or 1.0)) > 0.02:
+                continue
+            # which one is the copy: the picture clip's own sound loses to an explicit audio clip; otherwise the later track
+            if ta.kind == "video" and tb.kind == "audio":
+                loser, keeper = a, b2
+            elif tb.kind == "video" and ta.kind == "audio":
+                loser, keeper = b2, a
+            else:
+                loser, keeper = b2, a
+            drop[id(loser)] = "صدای یک قطعه همان لحظه از همان فایل دوباره هم پخش می‌شد؛ یکی از دو نسخه برداشته شد تا گفتار دوبار شنیده نشود."
+    return drop
+
+
+def voiceover_dips(tl, *, soloing: bool = False, skip: dict | None = None) -> dict[int, list[tuple[float, float]]]:
+    """While a voice-over (a clip on a «گفتار» audio track) speaks, the sound of the picture under it dips — otherwise the narrator and the
+    person on camera talk at the same time.  `id(clip)` → merged timeline spans.  A picture clip whose OWN voice is the same file as
+    the voice-over is a duplicate handled elsewhere, and a project that turns the dip off (`ducking.voiceover == False`) keeps full level."""
+    if (tl.ducking or {}).get("voiceover") is False:
+        return {}
+    voices: list[tuple[float, float]] = []
+    for track in tl.tracks:
+        if track.kind != "audio" or track.role != "speech" or track.muted or (soloing and not track.solo):
+            continue
+        voices += [(c.at, c.ends_at) for c in track.clips if getattr(c, "kind", "") != "text" and c.volume > 0.05]
+    if not voices:
+        return {}
+    voices = _merge_spans(voices, 0.5)
+    out: dict[int, list[tuple[float, float]]] = {}
+    for track in tl.tracks:
+        if track.kind != "video" or track.muted or (soloing and not track.solo):
+            continue
+        for clip in track.clips:
+            if not carries(track, clip) or (skip and id(clip) in skip):
+                continue
+            hits = [(max(s, clip.at), min(e, clip.ends_at)) for s, e in voices if min(e, clip.ends_at) - max(s, clip.at) > 0.1]
+            if hits:
+                out[id(clip)] = hits[:MAX_DIPS]
+    return out
+
+
 def pan_gains(pan: float) -> tuple[float, float]:
     return (1.0 if pan <= 0 else 1.0 - pan), (1.0 if pan >= 0 else 1.0 + pan)
 
@@ -174,6 +273,9 @@ def clip_audio(b, track: Track, clip: Clip) -> str:
         ch += _pan_filters(pan)
     ms = int(clip.at * 1000)
     ch.append(f"adelay={ms}|{ms}")
+    dips = getattr(b, "voice_dips", {}).get(id(clip))
+    if dips:
+        ch.append(f"volume=eval=frame:volume='{duck_gain_expr(dips, VOICEOVER_DIP_DB, 0.12, 0.35)}'")
     out = b.lab("a")
     b.parts.append(f"[{cur}]" + ",".join(ch) + f"[{out}]")
     return out
@@ -266,18 +368,24 @@ def build_audio(b, final: str = "aout") -> bool:
     soloing = any(t.solo for t in tl.tracks if t.kind != "text")
     buses: dict[str, list[str]] = {"speech": [], "music": [], "other": []}
     speech_clips: list[Clip] = []
+    repeated = duplicate_carriers(tl, soloing=soloing)
+    if repeated:
+        b.notes.append(f"{len(repeated)} قطعه صدایی داشت که عیناً همان گفتارِ قطعهٔ دیگری بود و برداشته شد (تا صدا دوبار پخش نشود).")
+    b.voice_dips = voiceover_dips(tl, soloing=soloing, skip=repeated)
+    if b.voice_dips:
+        b.notes.append("صدای خودِ ویدیو زیرِ گویندگی کم می‌شود تا دو نفر همزمان حرف نزنند.")
     for track in tl.tracks:
         if track.kind == "text" or track.muted or (soloing and not track.solo):
             continue
         labels = []
         for clip in track.clips:
-            if not carries(track, clip):
+            if not carries(track, clip) or id(clip) in repeated:
                 continue
             made = clip_audio(b, track, clip)
             if made is None:
                 continue
             labels.append(made)
-            if track.role == "speech":
+            if is_speech(track, clip):
                 speech_clips.append(clip)
         if not labels:
             continue

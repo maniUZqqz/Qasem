@@ -1139,7 +1139,10 @@ def run_health(job, agent, service=None, sleep=time.sleep):
 
 def caps_for(agent):
     svc = get_service(agent)
-    svc.ensure_thread()
+    # under the test runner the agent's heartbeat must not start the real installer (it built a 222 MB venv in a temp
+    # data folder on every test run and filled the server disk, 11/13); tests that want it set NM_ABAGRAM_IN_TESTS=1
+    if "unittest" not in sys.modules or os.environ.get("NM_ABAGRAM_IN_TESTS") == "1":
+        svc.ensure_thread()
     return {"instagram": True, "abagram": svc.report()}
 
 

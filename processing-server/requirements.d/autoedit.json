@@ -1,0 +1,19 @@
+{
+  "feature": "autoedit",
+  "title_fa": "تدوینِ خودکارِ حرفه‌ای: جداسازیِ پس‌زمینهٔ ویدیو (RVM) روی کارت",
+  "order": 60,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "requires": ["gpu-runtime"],
+  "kinds": [],
+  "note": "The automatic video edit (director recipe 'polish') runs on the existing kinds: asr.transcribe (requirements.d/asr-gpu.json, words for the cuts / retakes / captions), edit.matte (background blur / solid colour / picture with Robust Video Matting) and edit.render (final render with NVENC); the faces that decide the framing and the look are found on the site (YuNet, a few milliseconds per shot). Its only own need is the RVM model (mobilenetv3, ONNX, 14 MB, GPL-3.0: run here only inside the node on the owner's own videos, never redistributed or linked) in <data>/models/video-matting - the python side (numpy, Pillow, OpenCV, onnxruntime-directml) comes from 'gpu-runtime'. Without this file the model was fetched lazily by the first edit.matte job; now it is there before the first video is edited. Mirror order: this site (3d/files/downloads), then the original GitHub release asset (same bytes, sha256 checked either way). `kinds` stays empty on purpose: a missing model never blocks the editor's other jobs, edit.matte falls back to the frame-by-frame path.",
+  "items": [
+    {"id": "rvm", "type": "files", "title": "Robust Video Matting (mobilenetv3 fp32, ONNX, 14 MB)", "dest": "models/video-matting",
+     "files": [
+       {"path": "rvm_mobilenetv3_fp32.onnx", "size": 14975696, "sha256": "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828",
+        "sources": [{"site": "rvm_mobilenetv3_fp32.onnx"},
+                    {"url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx"}]}]},
+    {"id": "runtime", "type": "cmd", "title": "numpy + Pillow + onnxruntime are importable in venvs/matting",
+     "check": ["{VENVPY:matting}", "-c", "import numpy, PIL, onnxruntime"]}
+  ]
+}

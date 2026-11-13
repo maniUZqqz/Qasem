@@ -254,7 +254,7 @@ def status() -> dict:
     try:
         from apps.compute import services as compute
 
-        node = bool(compute.online_nodes("voice"))
+        node = bool(whisper_nodes(compute) or compute.online_nodes("voice"))
     except Exception:  # noqa: BLE001 — compute app unavailable in this process
         node = False
     local = _local_ready()
@@ -264,12 +264,12 @@ def status() -> dict:
 
 
 def _result_words(compute, job) -> list[dict]:
-    path = compute.output_path(job, "asr.json")
-    if not Path(path).is_file():
-        for out in job.outputs():
-            if str(out.get("name", "")).lower().endswith(".json"):
-                path = compute.output_path(job, out["name"])
-                break
+    # the job's OWN list of outputs decides (a whisper job answers `transcript.json`, a voice.asr job `asr.json`); the fixed name is the fallback
+    names = [str(o.get("name", "")) for o in (job.outputs() or [])]
+    pick = next((n for n in ("transcript.json", "asr.json") if n in names), None) or next((n for n in names if n.lower().endswith(".json")), "asr.json")
+    path = compute.output_path(job, pick)
+    if not Path(path).is_file() and pick != "asr.json":
+        path = compute.output_path(job, "asr.json")
     if not Path(path).is_file():
         raise CaptionsUnavailable("سرور پردازش جوابی برنگرداند؛ دوباره تلاش کنید.")
     try:
@@ -279,36 +279,64 @@ def _result_words(compute, job) -> list[dict]:
     return words_from_asr(data)
 
 
+#: faster-whisper on the card (agent 2.11 and later): word times far better than the PersianAiKit's Vosk, Persian included.  Only used when an
+#: online node ADVERTISES the kind, so an older agent (or a site without it) keeps the `voice.asr` path unchanged.
+WHISPER_KIND = "asr.transcribe"
+WHISPER_PAYLOAD = {"audio": "audio.wav", "language": "fa", "model": "small", "word_timestamps": True, "vad": True}
+
+
+def whisper_nodes(compute) -> list:
+    """Online processing servers whose agent advertises `asr.transcribe`."""
+    out = []
+    try:
+        for node in compute.online_nodes("any"):
+            kinds = (getattr(node, "capabilities", None) or {}).get("kinds")
+            if isinstance(kinds, list) and WHISPER_KIND in kinds:
+                out.append(node)
+    except Exception:  # noqa: BLE001 — a probe must never cost the caption its voice.asr path
+        return []
+    return out
+
+
 def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> dict:
     """wav → {"words": [{"w","s","e"}], "text": str, "engine": "node"|"local"}; raises `CaptionsUnavailable`."""
     wav = Path(wav)
     try:
         from apps.compute import services as compute
 
+        whisper = whisper_nodes(compute)
         nodes = compute.online_nodes("voice")
     except Exception:  # noqa: BLE001
-        compute, nodes = None, []
+        compute, nodes, whisper = None, [], []
 
-    if nodes:
-        try:
-            job = compute.enqueue("voice.asr", {"audio": "audio.wav"}, files={"audio.wav": wav}, store=store,
-                                  origin="video-editor-captions", timeout_s=timeout_s)
-            job = compute.wait(job, timeout_s, on_tick=on_tick, patient=True, park_after_s=120)
-        except compute.ComputeUnavailable:
-            nodes = []
-        except getattr(compute, "NodeWaiting", ()):
-            raise waiting_error() from None
-        except compute.ComputeCancelled as exc:
-            raise CaptionsUnavailable("زیرنویسِ خودکار لغو شد.") from exc
-        except compute.ComputeTimeout as exc:
-            raise CaptionsUnavailable("سرور پردازش در زمانِ مقرر زیرنویس را تمام نکرد؛ بازهٔ کوتاه‌تری را امتحان کنید.") from exc
-        except compute.ComputeFailed as exc:
-            raise CaptionsUnavailable(f"سرور پردازش نتوانست گفتار را تشخیص بدهد: {exc}") from exc
-        else:
-            words = _result_words(compute, job)
-            if not words:
-                raise CaptionsUnavailable("در این بخش گفتاری شنیده نشد.")
-            return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "node"}
+    if nodes or whisper:
+        # the Whisper job first (when the card has it), the PersianAiKit's recogniser as the second chance
+        attempts = ([(WHISPER_KIND, dict(WHISPER_PAYLOAD))] if whisper else []) + ([("voice.asr", {"audio": "audio.wav"})] if nodes else [])
+        last: Exception | None = None
+        for kind, payload in attempts:
+            try:
+                job = compute.enqueue(kind, payload, files={"audio.wav": wav}, store=store, origin="video-editor-captions", timeout_s=timeout_s)
+                job = compute.wait(job, timeout_s, on_tick=on_tick, patient=True, park_after_s=120)
+            except compute.ComputeUnavailable:
+                continue
+            except getattr(compute, "NodeWaiting", ()):
+                raise waiting_error() from None
+            except compute.ComputeCancelled as exc:
+                raise CaptionsUnavailable("زیرنویسِ خودکار لغو شد.") from exc
+            except compute.ComputeTimeout as exc:
+                last = CaptionsUnavailable("سرور پردازش در زمانِ مقرر زیرنویس را تمام نکرد؛ بازهٔ کوتاه‌تری را امتحان کنید.")
+                last.__cause__ = exc
+            except compute.ComputeFailed as exc:
+                last = CaptionsUnavailable(f"سرور پردازش نتوانست گفتار را تشخیص بدهد: {exc}")
+                last.__cause__ = exc
+            else:
+                words = _result_words(compute, job)
+                if not words:
+                    raise CaptionsUnavailable("در این بخش گفتاری شنیده نشد.")
+                return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "node", "via": kind}
+        if last is not None:
+            raise last
+        nodes = []
 
     if _local_ready():
         from services.audio import transcribe
@@ -325,3 +353,50 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
     if node_registered("voice"):
         raise waiting_error()
     raise CaptionsUnavailable(OFFLINE_MESSAGE)
+
+
+# ------------------------------------------------------------------ the soft copy (a separate subtitle file next to the export)
+
+
+def soft_cues(project: dict) -> list[dict]:
+    """The caption lines of a project as `[{start, end, text}]` in timeline seconds (the clips of the «زیرنویس» text tracks), for an .srt that
+    travels beside the video: some networks (YouTube, Aparat, Telegram players) take their own subtitle file and let the viewer switch it off."""
+    out: list[dict] = []
+    for track in (project or {}).get("tracks") or []:
+        if track.get("kind") != "text" or not track.get("caption") or track.get("muted"):
+            continue
+        for clip in track.get("clips") or []:
+            text = str(clip.get("text") or "").replace("\r", "").strip()
+            try:
+                at, dur = float(clip.get("at")), float(clip.get("duration"))
+            except (TypeError, ValueError):
+                continue
+            if text and dur > 0.05 and at >= 0:
+                out.append({"start": round(at, 3), "end": round(at + dur, 3), "text": text})
+    out.sort(key=lambda c: (c["start"], c["end"]))
+    return out
+
+
+def write_soft_srt(project: dict, dest) -> Path | None:
+    """Write `dest` (.srt, UTF-8 with BOM) from the project's caption lines; None when it has none."""
+    from services.video import subtitles
+
+    cues = soft_cues(project)
+    if not cues:
+        return None
+    return subtitles.write_srt([subtitles.Cue(i + 1, c["start"], c["end"], c["text"]) for i, c in enumerate(cues)], dest)
+
+
+def burned_in(project_export: dict | None) -> bool:
+    """Do the captions go INTO the picture?  The default is yes; `export.captions == "soft"` keeps the picture clean and the subtitles travel
+    only as the .srt beside the video (YouTube, Aparat and the Telegram players take their own file and let the viewer switch it off)."""
+    return str((project_export or {}).get("captions") or "burn") != "soft"
+
+
+def strip_burned(timeline) -> int:
+    """Take the caption text tracks out of `timeline` (a soft-captions export); returns how many tracks went.  Titles and other text stay."""
+    keep = [t for t in timeline.tracks if not (t.kind == "text" and getattr(t, "caption", False))]
+    gone = len(timeline.tracks) - len(keep)
+    if gone:
+        timeline.tracks = keep
+    return gone

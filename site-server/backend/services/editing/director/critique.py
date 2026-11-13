@@ -38,6 +38,7 @@ def critique(project: dict, an: dict, brief: dict) -> dict:
     main = _main_clips(project)
     texts = [c for t in project["tracks"] if t["kind"] == "text" for c in t["clips"]]
     items: list[dict] = []
+    polish = brief.get("recipe") == "polish"          # a talk made professional is not re-cut, sold or shortened by the product rubric
     zone = safezones.margins(plat["zone"], (project.get("format") or {}).get("preset", "reel"))
 
     # 1 · hook ---------------------------------------------------------------
@@ -53,7 +54,7 @@ def critique(project: dict, an: dict, brief: dict) -> dict:
         items.append(_item("hook", "قلاب در ثانیه‌های اول", True, "info", "ویدیو از ثانیهٔ صفر تصویر و نوشته دارد."))
 
     # 2 · pacing -------------------------------------------------------------
-    if main:
+    if main and not polish:
         lens = [ops.clip_length(c) for c in main]
         avg = sum(lens) / len(lens)
         lo, hi = plat["shot"]
@@ -68,7 +69,7 @@ def critique(project: dict, an: dict, brief: dict) -> dict:
     # 3 · cuts on beats ------------------------------------------------------
     music = next((c for t in project["tracks"] if t["kind"] == "audio" and t.get("role") == "music" for c in t["clips"]), None)
     row = an["by_ref"].get(music["ref"]) if music else None
-    if music and row and len(row.get("beats", [])) >= 8 and len(main) >= 4:
+    if music and row and len(row.get("beats", [])) >= 8 and len(main) >= 4 and not polish:      # a talk's cuts follow its pauses, never the music (that would chop it into 99 shots)
         beats = [ops.source_to_timeline(music, b) for b in row["beats"] if float(music["start"]) <= b <= float(music["end"])]
         cuts = [float(c["at"]) for c in main[1:]]
         near = sum(1 for t in cuts if beats and min(abs(t - b) for b in beats) <= 0.12)
@@ -144,13 +145,14 @@ def critique(project: dict, an: dict, brief: dict) -> dict:
         items.append(_item("brand", "محصول/برند دیده شود", True, "info", "عکسِ محصول در ویدیو هست."))
     tail_start = max(0.0, total - 3.6)
     has_cta = any(float(c["at"]) >= tail_start - 0.2 and len(str(c.get("text", ""))) >= 4 for c in texts if not c.get("caption")) or any(c.get("label") == "کارتِ پایانی" for c in main + [x for t in project["tracks"] for x in t["clips"] if x.get("type") == "media"])
-    items.append(_item("cta", "دعوت به اقدام در پایان", has_cta, "warn", "ویدیو با یک دعوت به اقدام (سفارش، تماس، بازدید) تمام نمی‌شود." if not has_cta else "پایانِ ویدیو دعوت به اقدام دارد.",
+    if not polish:
+      items.append(_item("cta", "دعوت به اقدام در پایان", has_cta, "warn", "ویدیو با یک دعوت به اقدام (سفارش، تماس، بازدید) تمام نمی‌شود." if not has_cta else "پایانِ ویدیو دعوت به اقدام دارد.",
                        [{"tool": "end_card", "params": {"text": brief.get("cta") or "همین حالا سفارش بده", "duration": 2.5}, "why": "کارتِ پایانی اضافه شد"}]))
 
     # 8 · length -------------------------------------------------------------
     if total > plat["max"] + 0.5:
-        items.append(_item("length", "طولِ ویدیو برای پلتفرم", False, "bad", f"{_fa(round(total))} ثانیه است؛ {plat['title']} تا {_fa(plat['max'])} ثانیه را می‌پذیرد.", [{"tool": "fit_length", "params": {"seconds": plat["max"] - 1, "mode": "trim"}, "why": "کوتاه شد تا در حدِ مجاز بماند"}]))
-    elif brief.get("duration") and total > float(brief["duration"]) * 1.3:
+        items.append(_item("length", "طولِ ویدیو برای پلتفرم", False, "warn" if polish else "bad", f"{_fa(round(total))} ثانیه است؛ {plat['title']} تا {_fa(plat['max'])} ثانیه را می‌پذیرد.", None if polish else [{"tool": "fit_length", "params": {"seconds": plat["max"] - 1, "mode": "trim"}, "why": "کوتاه شد تا در حدِ مجاز بماند"}]))
+    elif brief.get("duration") and total > float(brief["duration"]) * 1.3 and (not polish or "مدت" in (brief.get("matched") or [])):      # a talk is shortened only when the owner asked for a length
         items.append(_item("length", "طولِ ویدیو برای پلتفرم", False, "warn", f"خواسته بودید حدود {_fa(brief['duration'])} ثانیه؛ ویدیو {_fa(round(total))} ثانیه شد.", [{"tool": "fit_length", "params": {"seconds": float(brief["duration"]), "mode": "trim"}, "why": "به مدتِ خواسته نزدیک شد"}]))
     else:
         items.append(_item("length", "طولِ ویدیو برای پلتفرم", True, "info", f"{_fa(round(total))} ثانیه — مناسبِ {plat['title']}."))

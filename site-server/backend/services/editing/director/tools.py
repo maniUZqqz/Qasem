@@ -36,6 +36,18 @@ CAPTION_STYLES: dict[str, dict] = {
                                                        "stroke": 12.0, "box": False, "hl_color": "#111111", "hl_mode": "box", "shadow": 8.0}},
     "clean": {"title": "ساده و تمیز", "style": {"font": "vazir", "bold": True, "size": 5.2, "color": "#ffffff", "stroke": 6.0, "stroke_color": "#000000",
                                               "box": False, "shadow": 14.0, "hl_color": "#ffd400", "hl_mode": "color"}},
+    # the word being spoken lights up in a signal colour and swells a little (the «reels» look); one more highlight family for the owner to pick
+    "neon": {"title": "نئونی (کلمهٔ در حالِ گفتن سبز)", "style": {"font": "vazir_black", "bold": False, "size": 6.8, "color": "#ffffff", "stroke_color": "#04210f",
+                                                                "stroke": 12.0, "box": False, "hl_color": "#39ff88", "hl_mode": "scale", "shadow": 12.0,
+                                                                "anim_in": "pop", "anim_dur": 0.14}},
+    # each line types itself in; the spoken word is marked in the editor's accent colour
+    "typewriter": {"title": "ماشین‌تحریر (حرف‌به‌حرف)", "style": {"font": "vazir", "bold": True, "size": 5.8, "color": "#ffffff", "stroke_color": "#000000", "stroke": 8.0,
+                                                                  "box": False, "hl_color": "#ffb703", "hl_mode": "color", "shadow": 10.0,
+                                                                  "anim_in": "typewriter", "anim_dur": 0.3}},
+    # a quiet lower third for interviews and talks: smaller, on a soft dark band, no flashing
+    "lower": {"title": "زیرنویسِ آرام (مصاحبه و سخنرانی)", "style": {"font": "vazir", "bold": False, "size": 4.6, "color": "#ffffff", "stroke": 0.0, "box": True,
+                                                                  "box_color": "#000000", "box_opacity": 0.45, "box_pad": 16.0, "hl_color": "#ffffff", "hl_mode": "color",
+                                                                  "anim_in": "fade", "anim_dur": 0.2}},
 }
 
 
@@ -584,9 +596,71 @@ def _crop(st: State, p: dict):
     return "برش اعمال شد."
 
 
+@tool("crop_content", "بریدنِ نوارهای سیاه", "visual",
+      "Cut away the black bars around the real picture (a phone screen recorded inside a landscape frame, a 4:3 clip in 16:9) so the picture fills the frame; "
+      "a portrait picture is shown whole (no further crop). Does nothing when there are no bars.",
+      (P("clip", "قطعه", "clip", "all"),),
+      lambda p: "نوارهای سیاهِ دورِ تصویر را ببر")
+def _crop_content(st: State, p: dict):
+    from .. import letterbox
+
+    done, kept, notes = 0, 0, []
+    for c in _clips(st, p["clip"], media_only=True):
+        if c.get("kind") != "video" or str(c.get("ref", "")).startswith(("shape", "seq:", "sticker:")):
+            continue
+        box = st.ctx.content_box(c["ref"]) or {}
+        if not box.get("found"):
+            kept += 1
+            continue
+        win = letterbox.window(box)
+        c["reframe"] = {**win, "content": True}                 # a still window over the picture (the renderer's `crop`); `content` tells later steps not to move it
+        c["fit"] = "contain" if box.get("portrait") else "cover"
+        notes.append(box.get("reason", ""))
+        done += 1
+    if not done:
+        return "نوارِ سیاهِ قابل‌توجهی در تصویر نبود؛ قاب دست نخورد."
+    return f"نوارهای سیاهِ {fa(done)} قطعه بریده شد؛ " + (notes[0] if notes else "") + (" تصویرِ عمودی کامل نشان داده می‌شود." if c.get("fit") == "contain" else "")
+
+
+#: at most this many pieces per clip (the project has a clip limit, and a montage is not what this step is for)
+MAX_SHOT_PIECES = 12
+
+
+@tool("split_shots", "جداکردنِ نماها", "structure",
+      "Cut a clip where the picture changes shot (a camera shot, then a screen recording, then the camera again) so light, colour and framing are decided per shot. "
+      "Nothing is removed and no gap is made.",
+      (P("clip", "قطعه", "clip", "main"), P("sensitivity", "حساسیت", "choice", "normal", choices=("low", "normal", "high"))),
+      lambda p: "کلیپ را در جایی که نما عوض می‌شود جدا کن")
+def _split_shots(st: State, p: dict):
+    from .. import scenes
+
+    main_ids = {c["id"] for c in ops.main_track(st.project)["clips"]}
+    targets = [c for c in _clips(st, p["clip"], media_only=True) if c["id"] in main_ids and c.get("kind") == "video" and abs(float(c.get("speed") or 1) - 1.0) < 0.01
+               and not str(c.get("ref", "")).startswith(("shape", "seq:", "sticker:"))]
+    if not targets:
+        raise StepError("ویدیویی برای جداکردنِ نماها روی ترکِ اصلی پیدا نشد.")
+    made, shots = 0, 0
+    for c in sorted(targets, key=lambda x: -float(x["at"])):
+        path = st.ctx.path_of(c["ref"])
+        if not path:
+            continue
+        cuts = scenes.detect_cuts(path, float(c["start"]), float(c["end"]), p["sensitivity"]).get("cuts") or []
+        cuts = cuts[:MAX_SHOT_PIECES - 1]
+        if not cuts:
+            continue
+        ids = [x["id"] for x in ops.linked_ids_clips(st.project, [c["id"]])]
+        for s in sorted(cuts, reverse=True):
+            ops.split_all(st.project, ids, ops.source_to_timeline(c, s))
+        made += len(cuts)
+        shots += 1
+    if not made:
+        return "تغییرِ نمایی پیدا نشد؛ همه یک نما حساب شد."
+    return f"{fa(made + shots)} نما از {fa(shots)} قطعه جدا شد؛ نور و قاب برای هر نما جدا تصمیم گرفته می‌شود."
+
+
 @tool("reframe", "بازتنظیمِ قاب (۹:۱۶ خودکار)", "visual", "Reframe a clip to an aspect, following the subject (faces/motion).",
       (P("clip", "قطعه", "clip", required=True), P("aspect", "نسبت", "text", "9:16", max_len=8), P("follow", "دنبالِ سوژه", "choice", "auto", choices=("auto", "center")),
-       P("zoom", "زوم", "num", 1, 1, 2)),
+       P("zoom", "زوم", "num", 1, 1, 2), P("compose", "ترکیب‌بندی (یک‌سوم، فضای سر)", "bool", False)),
       lambda p: f"قاب را روی {p['aspect']} بازتنظیم کن")
 def _reframe(st: State, p: dict):
     done, engines = 0, set()
@@ -599,8 +673,13 @@ def _reframe(st: State, p: dict):
         asp = reframe_mod.aspect_value(p["aspect"]) if p["aspect"] else st.fmt["width"] / st.fmt["height"]
         if not all(size):
             continue
+        if (c.get("reframe") or {}).get("content"):
+            engines.add("content")                              # the picture is already cut to its content: moving the window would show the bars again
+            done += 1
+            continue
         if path and p["follow"] == "auto":
-            res = reframe_mod.plan(path, float(c["start"]), float(c["end"]), asp, follow="auto", zoom=p["zoom"], speed=float(c.get("speed") or 1), size=size)
+            res = reframe_mod.plan(path, float(c["start"]), float(c["end"]), asp, follow="auto", zoom=p["zoom"], speed=float(c.get("speed") or 1), size=size,
+                                   compose=bool(p.get("compose")))
             c["reframe"] = res["reframe"]
             engines.add(res["engine"])
         else:
@@ -610,7 +689,7 @@ def _reframe(st: State, p: dict):
         done += 1
     if not done:
         raise StepError("قطعه‌ای برای بازتنظیمِ قاب پیدا نشد.")
-    names = {"face": "چهره", "motion": "حرکت", "center": "وسطِ قاب"}
+    names = {"face": "چهره", "motion": "حرکت", "center": "وسطِ قاب", "content": "خودِ تصویر (بدونِ نوارِ سیاه)"}
     return f"قاب {fa(done)} قطعه بازتنظیم شد (سوژه: {'، '.join(names.get(e, e) for e in sorted(engines))})."
 
 
@@ -863,6 +942,221 @@ def _apply_cuts(st: State, plans: list) -> tuple[float, int]:
     return cut_total, touched
 
 
+@tool("smart_cuts", "برشِ هوشمندِ مکث‌ها", "audio",
+      "Cut dead air and tighten short pauses, but keep the pauses a script may intend (after a question, a punchy phrase, a slide change). "
+      "Cuts land between words. Doubtful pauses are asked in the panel and the owner's remembered answers are applied.",
+      (P("clip", "قطعه", "clip", "all"),),
+      lambda p: "مکث‌ها را هوشمند کوتاه کن (مکثِ عمدی بماند)")
+def _smart_cuts(st: State, p: dict):
+    from .. import silence_intel
+
+    targets = [c for c in _clips(st, p["clip"], with_sound=True) if _track_of(st, c).get("role") not in ("music", "sfx") and c.get("kind") != "image"]
+    if p["clip"] in ("all", ""):
+        seen, uniq = set(), []                      # the sound of a linked pair is cut through its partner, once
+        for c in sorted(targets, key=lambda c: (_track_of(st, c)["kind"] != "video", float(c["at"]))):
+            key = c.get("link") or c["id"]
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(c)
+        targets = uniq
+    plans, reviews, asr_note = [], {}, ""
+    store_id = getattr(st.ctx.store, "pk", None)
+    for c in targets:
+        ref = c["ref"]
+        if ref not in reviews:
+            spans = st.ctx.spans(ref) or []
+            if not spans:
+                reviews[ref] = None
+                continue
+            item = st.ctx.describe(ref) or {}
+            dur = float(item.get("duration") or c.get("src") or c.get("end") or 0.0)
+            path = st.ctx.path_of(ref)
+            words = None
+            try:
+                heard = st.ctx.words(ref, 0.0, dur) or []
+                words = heard if heard else None
+            except Exception as exc:  # noqa: BLE001 — speech recognition off/waiting: cut on energy, say so
+                asr_note = str(exc)[:120] or "تشخیصِ گفتار در دسترس نبود"
+            if words is None and not path:
+                words = []
+            activity = silence_intel.activity_cached(path, dur) if path else []
+            reviews[ref] = silence_intel.review(path or ref, dur, store_id=store_id, ref=ref, spans=spans, words=words, activity=activity)
+        rep = reviews[ref]
+        if not rep:
+            continue
+        a0, b0 = float(c["start"]), float(c["end"])
+        gaps = [(max(a0, x), min(b0, y)) for x, y in rep["cuts"] if min(b0, y) - max(a0, x) >= 0.1]
+        if gaps:
+            tracks = {_track_of(st, x)["id"] for x in ops.linked_ids_clips(st.project, [c["id"]])}
+            plans.append((float(c["at"]), c, gaps, tracks))
+    if not any(reviews.values()):
+        raise StepError("گفتاری برای بررسیِ مکث‌ها پیدا نشد (یا تشخیصِ گفتار در دسترس نیست).")
+    open_q = sum(len(r["questions"]) for r in reviews.values() if r)
+    answered = sum(r["answered"] for r in reviews.values() if r)
+    st.project.setdefault("autoedit", {})["silence"] = {ref: {"questions": len(r["questions"]), "answered": r["answered"]} for ref, r in reviews.items() if r}
+    tail = ""
+    if open_q:
+        tail = f" {fa(open_q)} مکثِ مبهم (شاید سناریو خواسته) دست نخورد و از شما پرسیده می‌شود."
+    if answered:
+        tail += f" پاسخِ {fa(answered)} پرسشِ قبلیِ شما اعمال شد."
+    if asr_note:
+        tail += " کلمه‌ها شناخته نشد؛ برش‌ها با انرژیِ صدا انجام شد (با روشن شدنِ سرورِ پردازش می‌توان دوباره ساخت تا روی مرزِ کلمه بنشیند)."
+    if not plans:
+        return "مکثِ قابل‌حذفی نبود؛ چیزی بریده نشد." + tail
+    cut_total, touched = _apply_cuts(st, plans)
+    return f"{fa(round(cut_total, 1))} ثانیه از مکث‌ها کوتاه شد (مکثِ عمدی ماند)." + tail
+
+
+@tool("auto_look", "نور و رنگِ خودکار", "visual",
+      "Fix exposure, contrast, highlights, white balance, noise and sharpness of each clip from measurements (skin-tone safe). Leaves a correct shot alone; the owner's own slider values win.",
+      (P("clip", "قطعه", "clip", "all"),),
+      lambda p: "نور و رنگِ هر نما را خودکار درست کن")
+def _auto_look(st: State, p: dict):
+    from .. import autolook
+
+    done, left_alone, notes = 0, 0, []
+    for c in _clips(st, p["clip"], media_only=True):
+        if c.get("kind") != "video" or str(c.get("ref", "")).startswith(("shape", "seq:", "sticker:")):
+            continue
+        stats = st.ctx.look_stats(c["ref"], float(c["start"]), float(c["end"])) or {}
+        if (c.get("reframe") or {}).get("content") and not stats.get("faces"):
+            left_alone += 1                                     # a recorded phone/app screen: its whites are the interface, not a burnt sky
+            notes.append("ضبطِ صفحهٔ برنامه است؛ نور و رنگ دست نخورد تا سفیدیِ صفحه و نوشته‌ها خراب نشود.")
+            continue
+        res = autolook.plan(stats, has_face=bool(stats.get("faces")), height=int(stats.get("height") or 0))
+        if not res["changed"]:
+            left_alone += 1
+            if res.get("skipped"):
+                notes.append(res["skipped"])
+            continue
+        autolook.merge_into_clip(c, res["color"])
+        done += 1
+        notes.append(autolook.summary_fa(res["report"]))
+    if not done and not left_alone:
+        raise StepError("نما یا ویدیویی برای تنظیمِ نور پیدا نشد.")
+    if not done:
+        return (notes[0] if notes else "نور و رنگ درست است؛ دست نخورد.")
+    why = "؛ ".join(dict.fromkeys(n for n in notes if n))
+    return f"نور و رنگِ {fa(done)} نما درست شد ({why})" + (f"؛ {fa(left_alone)} نما درست بود و دست نخورد." if left_alone else ".")
+
+
+#: seconds of picture per background-removal job (the node's video model takes up to 60 s in one pass; a longer clip is cut into pieces of this size)
+MATTE_CHUNK = 55.0
+BG_MODES = ("keep", "blur", "color", "image")
+
+
+@tool("background", "پس‌زمینه (نگه‌دار / محو / جایگزین)", "visual",
+      "Keep, blur or replace the background behind the speaker/subject. The subject is cut out by the processing server's GPU (video matting); "
+      "a long clip is cut into pieces. 'keep' changes nothing.",
+      (P("mode", "حالت", "choice", "blur", choices=BG_MODES), P("amount", "شدتِ محو", "num", 70, 10, 100),
+       P("color", "رنگِ ساده", "text", "#0f172a", max_len=9), P("ref", "عکسِ پس‌زمینه", "ref", "", doc="pimg:<id> or image:<id>"),
+       P("clip", "قطعه", "clip", "main")),
+      lambda p: {"keep": "پس‌زمینه همان بماند", "blur": "پس‌زمینه را محو کن (سوژه واضح بماند)",
+                 "color": "پس‌زمینه را با رنگِ ساده جایگزین کن", "image": "پس‌زمینه را با عکس جایگزین کن"}.get(p["mode"], "پس‌زمینه"))
+def _background(st: State, p: dict):
+    import copy
+
+    mode = p["mode"]
+    if mode == "keep":
+        return "پس‌زمینه همان ماند."
+    bg_item = None
+    if mode == "image":
+        bg_item = st.ctx.describe(p.get("ref") or "") if p.get("ref") else None
+        if not bg_item or bg_item.get("kind") != "image":
+            raise StepError("برای جایگزینی با عکس، عکسِ پس‌زمینه را از کتابخانه انتخاب کنید.")
+    main_ids = {c["id"] for c in ops.main_track(st.project)["clips"]}
+    targets = [c for c in _clips(st, p["clip"], media_only=True) if c["id"] in main_ids and c.get("kind") == "video"
+               and not str(c.get("ref", "")).startswith(("shape", "seq:", "sticker:")) and not c.get("matte") and abs(float(c.get("speed") or 1) - 1.0) < 0.01]
+    if not targets:
+        raise StepError("ویدیویی برای جداسازیِ پس‌زمینه روی ترکِ اصلی پیدا نشد.")
+    if st.ctx.make_matte is None:
+        raise StepError("جداسازیِ پس‌زمینه در این محیط در دسترس نیست.")
+    # 1 · ask for every matte FIRST (a clip longer than the node's one-pass limit is matted in pieces): if the server is off nothing in the project has changed
+    wanted: list[dict] = []                                             # {cid, ref, lo, hi, matte}: one per piece, timeline seconds
+    for c in sorted(targets, key=lambda x: float(x["at"])):
+        at, end = float(c["at"]), float(c["at"]) + ops.clip_length(c)
+        edges = [at] + [at + k * MATTE_CHUNK for k in range(1, int((end - at) // MATTE_CHUNK) + 1) if end - (at + k * MATTE_CHUNK) > 1.0] + [end]
+        for lo, hi in zip(edges, edges[1:]):
+            s0 = float(c["start"]) + (lo - at)
+            wanted.append({"cid": c["id"], "ref": c["ref"], "lo": lo, "hi": hi, "matte": st.ctx.make_matte(c["ref"], s0, s0 + (hi - lo))})
+    # 2 · cut the clips where the pieces meet (latest first, so the earlier times stay valid) and give every piece its subject + background
+    for cid in dict.fromkeys(w["cid"] for w in wanted):
+        c = ops.find(st.project, cid)[1]
+        ids = [x["id"] for x in ops.linked_ids_clips(st.project, [cid])]
+        for t in sorted((w["lo"] for w in wanted if w["cid"] == cid and w["lo"] > float(c["at"]) + 0.01), reverse=True):
+            ops.split_all(st.project, ids, t)
+    done = 0
+    main_clips = ops.main_track(st.project)["clips"]
+    for w in sorted(wanted, key=lambda w: w["lo"]):
+        c = next((x for x in main_clips if x.get("kind") == "video" and x.get("ref") == w["ref"] and abs(float(x["at"]) - w["lo"]) < 0.06
+                  and abs(ops.clip_length(x) - (w["hi"] - w["lo"])) < 0.15), None)
+        got = w["matte"]
+        if c is None:
+            continue
+        length = ops.clip_length(c)
+        at = float(c["at"])
+        if mode == "blur":
+            block = dict(c.get("color") or {})
+            block["blur"] = float(p["amount"])
+            c["color"] = block
+        elif mode == "color":
+            fill = p["color"] if str(p.get("color", "")).startswith("#") and len(p["color"]) == 7 else "#0f172a"
+            ops.place_free(st.project, "video", {
+                "id": ops.uid(st.project), "type": "media", "ref": "shape", "label": "پس‌زمینهٔ ساده", "kind": "image", "at": round(at, 3), "start": 0, "end": round(length, 3),
+                "src": 0, "opacity": 1, "x": 0, "y": 0, "width": 1, "height": 1, "volume": 1, "speed": 1, "fit": "stretch", "fade_in": 0, "fade_out": 0,
+                "audio_on": False, "has_audio": False, "effects": [], "transition": None, "shape": {"shape": "rect", "fill": fill}})
+        else:
+            bg = ops.media_clip(st.project, bg_item, at, start=0, end=length, label="پس‌زمینهٔ جایگزین")
+            bg.update(fit="cover", audio_on=False, has_audio=False)
+            ops.place_free(st.project, "video", bg)
+        fg = copy.deepcopy(c)
+        fg.update(id=ops.uid(st.project), audio_on=False, has_audio=False, volume=0, transition=None, fade_in=0, fade_out=0,
+                  matte={"key": got["key"]}, label=(str(c.get("label") or "")[:48] + " (سوژه)").strip())
+        fg.pop("link", None)
+        fg["color"] = {k: v for k, v in (fg.get("color") or {}).items() if k != "blur"}
+        ops.place_free(st.project, "video", fg)
+        done += 1
+    if not done:
+        raise StepError("پس‌زمینه‌ای جدا نشد.")
+    st.project.setdefault("autoedit", {})["background"] = {"mode": mode, "pieces": done}
+    how = {"blur": "محو شد", "color": "با رنگِ ساده جایگزین شد", "image": "با عکس جایگزین شد"}[mode]
+    return f"پس‌زمینهٔ {fa(done)} بخش از ویدیو {how}؛ سوژه با پردازشِ گرافیکی جدا و واضح ماند."
+
+
+@tool("pick_music", "موسیقیِ مناسبِ ویدیو", "audio",
+      "Pick background music from the library by the video's mood, tempo and energy (calm under a talking person, driving for a fast sale), then lay it under the whole video.",
+      (P("mood", "حال‌وهوا", "choice", "auto", choices=("auto", "calm", "warm", "happy", "energetic", "inspiring", "dramatic")),
+       P("volume_db", "بلندی", "num", -18, -30, 0, unit="dB"), P("duck", "کم‌شدن زیرِ گفتار", "bool", True)),
+      lambda p: "موسیقیِ هم‌خوان با ویدیو را از کتابخانه انتخاب کن")
+def _pick_music(st: State, p: dict):
+    from .. import music_match
+
+    main = ops.main_track(st.project)["clips"]
+    total = max(3.0, st.length)
+    speech_len = 0.0
+    for c in main:
+        if c.get("has_audio") and c.get("audio_on", True) and c.get("kind") == "video":
+            spans = st.ctx.spans(c["ref"]) or []
+            a0, b0 = float(c["start"]), float(c["end"])
+            speech_len += sum(max(0.0, min(b0, float(e)) - max(a0, float(s))) for s, e in spans)
+    brief = (st.project.get("director") or {}).get("brief") or {}
+    look = ""
+    for c in main:
+        look = (c.get("color") or {}).get("look") or look
+    avg_shot = (sum(ops.clip_length(c) for c in main) / len(main)) if main else None
+    target = music_match.target_for(pace=str(brief.get("pace") or "normal"), look=look, speech_share=min(1.0, speech_len / total), avg_shot=avg_shot,
+                                    recipe=str(brief.get("recipe") or ""), mood="" if p["mood"] == "auto" else p["mood"])
+    ranked = st.ctx.rank_music(target, total) or []
+    info = {"mood": target["mood"], "bpm": list(target["bpm"]), "energy": target["energy"], "why": target["why"], "candidates": ranked[:5]}
+    st.project.setdefault("autoedit", {})["music"] = {**info, "candidates": [{k: r.get(k) for k in ("ref", "title", "score", "why")} for r in ranked[:5]]}
+    if not ranked:
+        raise StepError(f"موسیقیِ هم‌خوان با «{target['title']}» در کتابخانه‌ات پیدا نشد (یا موسیقی‌ای نیست)؛ از «ساخت موسیقی» یکی بساز یا خودت انتخاب کن.")
+    best = ranked[0]
+    msg = _music(st, {"ref": best["ref"], "query": "", "volume_db": p["volume_db"], "duck": p["duck"], "fade_out": 2, "start": 0, "id": ""})
+    return f"«{best.get('title') or best['ref']}» انتخاب شد ({'، '.join(best.get('why') or [])}). " + msg
+
+
 #: Hesitation sounds a speaker makes while thinking (after `_norm_word`): never real words. «هم» and «ای» are NOT here on purpose (they are words).
 FILLERS_HARD = {"ا", "اا", "آ", "آآ", "اه", "آه", "ام", "امم", "اوم", "اووم", "همم", "um", "umm", "uh", "uhh", "hmm", "er", "eh", "ah"}
 #: Discourse fillers that ARE words: only with `include_soft` (the owner's choice).
@@ -924,6 +1218,48 @@ def _fillers(st: State, p: dict):
         return "صدای مکث‌داری (اِم، اوم) پیدا نشد؛ چیزی حذف نشد."
     cut_total, touched = _apply_cuts(st, plans)
     return f"{fa(round(cut_total, 1))} ثانیه صدای مکث‌دار از {fa(touched)} قطعه برداشته شد."
+
+
+@tool("remove_retakes", "حذفِ دوباره‌گویی‌ها", "audio",
+      "Cut an earlier try at a sentence when the speaker stumbles and says it again: the words show the same opening twice, the LAST take stays. "
+      "Conservative: a single repeated word or a repeat further than a few seconds away is emphasis, not a retake.",
+      (P("clip", "قطعه", "clip", "all"),),
+      lambda p: "جمله‌ای که دوباره گفته شده را (نسخهٔ آخر بماند) بردار")
+def _retakes(st: State, p: dict):
+    from .. import retakes as retakes_mod
+
+    targets = [c for c in _clips(st, p["clip"], with_sound=True) if _track_of(st, c).get("role") not in ("music", "sfx") and c.get("kind") != "image"]
+    if p["clip"] in ("all", ""):
+        seen, uniq = set(), []
+        for c in sorted(targets, key=lambda c: (_track_of(st, c)["kind"] != "video", float(c["at"]))):
+            key = c.get("link") or c["id"]
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(c)
+        targets = uniq
+    plans, heard_any, found_all = [], False, []
+    for c in targets:
+        try:
+            words = st.ctx.words(c["ref"], float(c["start"]), float(c["end"]))
+        except Exception as exc:  # noqa: BLE001 - speech recognition off/waiting: say why
+            raise StepError(str(exc) or "تشخیصِ گفتار در دسترس نیست.") from exc
+        if not words:
+            continue
+        heard_any = True
+        found = retakes_mod.find_retakes(words)
+        gaps = [(float(c["start"]) + a, float(c["start"]) + b) for a, b in retakes_mod.cuts_from(found, words)]
+        gaps = [(max(float(c["start"]), a), min(float(c["end"]), b)) for a, b in gaps if b - a >= 0.3]
+        if gaps:
+            found_all += found
+            tracks = {_track_of(st, x)["id"] for x in ops.linked_ids_clips(st.project, [c["id"]])}
+            plans.append((float(c["at"]), c, gaps, tracks))
+    if not heard_any:
+        raise StepError("گفتاری برای بررسی پیدا نشد (یا تشخیصِ گفتار در دسترس نیست).")
+    if not plans:
+        return "جملهٔ دوباره‌گفته‌شده‌ای پیدا نشد؛ چیزی حذف نشد."
+    cut_total, touched = _apply_cuts(st, plans)
+    return f"{fa(round(cut_total, 1))} ثانیه دوباره‌گویی برداشته شد: " + retakes_mod.describe_fa(found_all) + "."
 
 
 def _fit_music_tail(st: State) -> None:

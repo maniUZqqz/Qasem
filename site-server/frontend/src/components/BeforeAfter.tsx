@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { mutedFor } from "../features/content/video/autoedit/logic";
 import { Badge, Button, fa } from "./ui";
 
 /**
@@ -14,6 +15,12 @@ import { Badge, Button, fa } from "./ui";
  *
  * Used for a shop's uploaded video (original vs edited) and for a generated
  * segment (the raw render vs the code-repaired one).
+ *
+ * SOUND: only ONE of the two players is ever audible. Both used to play aloud at once — the
+ * original and the edit of the same speech, a fraction of a second apart after any cut — and the
+ * owner reported «صداها روی هم می‌افتد و چیزی نمی‌شود فهمید» about the *output*. The picture of both
+ * keeps playing in step (that is the comparison); the ear follows the side picked with the
+ * «صدا» switch, "after the edit" by default.
  */
 
 export type Effect = {
@@ -118,6 +125,13 @@ export default function BeforeAfter({
   const right = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
+  const [listen, setListen] = useState<"before" | "after">("after");
+
+  // the ear follows one side only; a <video muted> attribute is unreliable in React, so it is set on the element itself
+  useEffect(() => {
+    if (left.current) left.current.muted = mutedFor(listen, "before");
+    if (right.current) right.current.muted = mutedFor(listen, "after");
+  }, [listen, beforeUrl, afterUrl]);
 
   // One clock for two players. The edited cut is often shorter (silences
   // removed), so the slider is a fraction of each video's own length rather
@@ -191,9 +205,25 @@ export default function BeforeAfter({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs" style={{ color: "var(--text-3)" }}>صدا:</span>
+          <div role="group" aria-label="صدای کدام ویدیو شنیده شود" className="flex overflow-hidden rounded-lg" style={{ border: "1px solid var(--line)" }}>
+            {([["before", "🔈 اصلی"], ["after", "🔊 تدوین‌شده"]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setListen(key)}
+                aria-pressed={listen === key}
+                data-testid={`ba-listen-${key}`}
+                className="px-2 py-1 text-xs"
+                style={{ background: listen === key ? "var(--brand-soft)" : "transparent", color: "var(--text)", fontWeight: listen === key ? 700 : 400 }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Button variant="secondary" onClick={toggle}>
-            {playing ? "⏸ توقف" : "▶ پخش هر دو"}
+            {playing ? "⏸ توقف" : "▶ پخش و مقایسه"}
           </Button>
           <Button variant="ghost" onClick={restart}>
             از اول
@@ -212,6 +242,7 @@ export default function BeforeAfter({
               ref={side.ref}
               src={side.url}
               playsInline
+              muted
               preload="metadata"
               controls={false}
               onClick={toggle}

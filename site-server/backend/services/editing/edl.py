@@ -182,12 +182,16 @@ def build(
     subtitle_file=None,
     face_boxes=None,
     shape: dict | None = None,
+    silence_cuts: list | None = None,
 ) -> EDL:
     """Validated operations → an EDL ready to execute or to show a human.
 
     `silences` is supplied by the analysis layer: `trim_silence` says *that*
     silence should go, and the measurement of *where* it is belongs to the eye,
-    not to the model. `shape` is the source's width/height/fps (also from the
+    not to the model.  `silence_cuts` ([(from, to)] in source seconds) is the
+    decided version of the same thing — `silence_intel` has already told dead
+    air from the speaker's own pauses and applied the owner's answers — and
+    replaces the plain "every silence longer than N seconds" rule. `shape` is the source's width/height/fps (also from the
     analysis layer); the zoom needs it to scale back to the frame.
     """
     source = Path(source)
@@ -207,6 +211,8 @@ def build(
 
         if tool.key == "cut":
             removals.append(Span(float(params["start"]), float(params["end"])))
+        elif tool.key == "trim_silence" and silence_cuts is not None:
+            removals += [Span(float(a), float(b)) for a, b in silence_cuts if float(b) - float(a) >= 0.05]
         elif tool.key == "trim_silence":
             keep_pad = float(params["keep"])
             minimum = float(params["min_silence"])

@@ -14,6 +14,16 @@ export type EditOutcome = {
   before?: Measurements;
   after?: Measurements;
   effects?: Effect[];
+  /** Which pauses were cut / tightened / kept, and the ones still waiting for the owner's answer. */
+  silence?: {
+    counts?: Partial<Record<"keep" | "shorten" | "cut", number>>;
+    removed_seconds?: number;
+    answered?: number;
+    pending?: number;
+    has_words?: boolean;
+    note?: string;
+    questions?: { id: string; start: number; end: number; len: number; reason: string }[];
+  } | null;
   /** Which noise remover ran, and what it measured. */
   denoise?: {
     engine: string;

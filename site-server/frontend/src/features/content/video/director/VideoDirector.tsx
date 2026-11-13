@@ -6,6 +6,8 @@ import { useJobRunner } from "../../../../hooks/useJobRunner";
 import type { Bin, MediaItem } from "../api";
 import { videoApi } from "../api";
 import { DirectorCatalogue, DirectorResult, DirectorVariant, EditorSettings, ParamSpec, PlanStep, ToolSpec, directorApi } from "./api";
+import SilenceReview from "../autoedit/SilenceReview";
+import SizesPanel from "../autoedit/SizesPanel";
 import DraftsList from "./DraftsList";
 import EditorSettingsCard from "./EditorSettings";
 import "./director.css";
@@ -22,7 +24,7 @@ const DURATIONS = [0, 12, 15, 20, 30, 45, 60];
 const GROUP_FA: Record<string, string> = { structure: "ساختار", text: "متن", visual: "تصویر", audio: "صدا" };
 const KIND_ICON: Record<string, string> = { video: "🎞", image: "🖼", audio: "🎵" };
 
-type Choice = { recipe: string; platform: string; duration: number; pace: string; music: "auto" | "none" | string };
+type Choice = { recipe: string; platform: string; duration: number; pace: string; music: "auto" | "none" | string; background: "" | "keep" | "blur" | "color" };
 
 function useCatalogue(storeId: string) {
   const [cat, setCat] = useState<DirectorCatalogue | null>(null);
@@ -151,8 +153,9 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
   const [bin, setBin] = useState<Bin | null>(null);
   const [binTab, setBinTab] = useState<"videos" | "images" | "audio">("videos");
   const [picked, setPicked] = useState<string[]>([]);
+  const [sizesFor, setSizesFor] = useState<number | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto" });
+  const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto", background: "" });
   // خاموش تا وقتی تنظیمِ فروشگاه برسد: اگر پیش‌فرضِ مالک «خاموش» باشد و کسی پیش از رسیدنِ کاتالوگ «ساخت» را بزند، اعتبار خرج نشود
   const [useAi, setUseAi] = useState(false);
   /** تیکِ هوش مصنوعی تا وقتی کاربر دست نزده از «پیش‌فرضِ فروشگاه» می‌آید */
@@ -233,6 +236,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
     if (choice.duration) override.duration = choice.duration;
     if (choice.pace) override.pace = choice.pace;
     if (choice.music === "none") override.music = false;
+    if (choice.background) override.background = choice.background;
     return { use_ai: useAi, preview, music_ref: choice.music !== "auto" && choice.music !== "none" ? choice.music : "", override };
   }
 
@@ -296,6 +300,26 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
     }
   }
   const specOf = (tool: string) => cat?.tools.find((t) => t.tool === tool);
+
+  /** «چند سایز»: پروژه باید واقعی باشد؛ اگر پیش‌نویس است همین‌جا (بدونِ رفتن به ادیتور) پروژه می‌شود */
+  async function showSizes(v: DirectorVariant) {
+    setError(null);
+    let pid = v.project_id ?? (v.draft_id ? opened[v.draft_id] : undefined);
+    if (!pid && v.draft_id) {
+      setOpenBusy(true);
+      try {
+        const r = await directorApi.openDraft(storeId, v.draft_id);
+        pid = r.project_id;
+        setOpened((cur) => ({ ...cur, [v.draft_id!]: r.project_id }));
+        setDraftsKey((k) => k + 1);
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setOpenBusy(false);
+      }
+    }
+    if (pid) setSizesFor(pid);
+  }
 
   return (
     <div className="dr-root" data-testid="director">
@@ -391,6 +415,14 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
                   {(bin?.audio ?? []).map((a) => <option key={a.ref} value={a.ref}>{a.title}</option>)}
                 </select>
               </label>
+              <label className="dr-field"><span>پس‌زمینهٔ پشتِ گوینده</span>
+                <select className="u-input" value={choice.background} onChange={(e) => setChoice({ ...choice, background: e.target.value as Choice["background"] })} data-testid="dr-background"
+                  title="سوژه با پردازشِ گرافیکیِ سرورِ پردازش جدا می‌شود؛ اگر سرور خاموش باشد این مرحله در صف می‌ماند و خودکار انجام می‌شود">
+                  <option value="">همان که هست</option>
+                  <option value="blur">محو (سوژه واضح بماند)</option>
+                  <option value="color">رنگِ ساده</option>
+                </select>
+              </label>
             </div>
             <div className="dr-row">
               <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => { aiTouched.current = true; setUseAi(e.target.checked); }} disabled={!cat?.settings} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>
@@ -478,7 +510,17 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
                 اجرای دوباره با تغییرها
               </Button>
               {!dirty[variant.key] && <span className="dr-hint">مرحله‌ای را خاموش یا ویرایش کنید تا این دکمه روشن شود.</span>}
+              <Button variant="secondary" onClick={() => void showSizes(variant)} disabled={openBusy || !(variant.project_id || variant.draft_id)} data-testid="dr-sizes">
+                چند سایز (ریلز، یوتیوب، …)
+              </Button>
             </div>
+
+            {(plans[variant.key] ?? variant.plan).some((s) => s.tool === "smart_cuts" && s.on !== false) && picked.filter((r) => r.startsWith("video:")).slice(0, 1).map((r) => (
+              <div key={r} className="mt-3" data-testid="dr-silence">
+                <SilenceReview storeId={storeId} refId={r} doneLabel="ثبت پاسخ‌ها و ساختِ دوباره" onDone={() => void rerun(variant)} />
+              </div>
+            ))}
+            {sizesFor && <div className="mt-3"><SizesPanel storeId={storeId} projectId={sizesFor} /></div>}
 
             {variant.problems && variant.problems.length > 0 && <Alert tone="warn" title="این مرحله‌ها خوانده نشد">{variant.problems.join(" · ")}</Alert>}
             <Critique v={variant} />

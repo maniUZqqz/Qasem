@@ -73,7 +73,7 @@ class DirectorApiTests(TestCase):
     def test_catalogue_describes_tools_recipes_safe_zones_and_what_is_available(self):
         c = self.call("get", "/editor/director/catalogue/").json()
         self.assertGreaterEqual(len(c["tools"]), 30)
-        self.assertEqual({r["key"] for r in c["recipes"]}, {"product_showcase", "unboxing", "before_after", "sale", "testimonial", "slideshow"})
+        self.assertEqual({r["key"] for r in c["recipes"]}, {"product_showcase", "unboxing", "before_after", "sale", "testimonial", "slideshow", "polish"})
         self.assertEqual({z["key"] for z in c["safe_zones"]}, {"reels", "story", "tiktok", "shorts", "feed"})
         self.assertIn("ok", c["captions"])
         self.assertIn("node", c["ai"])

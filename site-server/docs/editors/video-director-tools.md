@@ -402,6 +402,73 @@ Drop beat markers for a music clip (or ref) on the timeline.
 |---|---|---|---|---|
 | `music` | موسیقی (قطعه یا منبع) (لازم) | clip |  |  |
 
+## تدوینِ خودکارِ حرفه‌ای (دستورِ «polish»)
+
+ابزارهای تازه‌ای که تدوینِ خودکارِ یک ویدیوی گفتاری می‌سازند؛ شرح و دلیل‌ها: `docs/editors/autoedit-fa.md`.
+
+### `crop_content` — بریدنِ نوارهای سیاه
+
+Cut away the black bars around the real picture (a phone screen recorded inside a landscape frame, a 4:3 clip in 16:9) so the picture fills the frame; a portrait picture is shown whole (no further crop). Does nothing when there are no bars.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `clip` | قطعه | clip | all |  |
+
+### `split_shots` — جداکردنِ نماها
+
+Cut a clip where the picture changes shot (a camera shot, then a screen recording, then the camera again) so light, colour and framing are decided per shot. Nothing is removed and no gap is made.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `clip` | قطعه | clip | main |  |
+| `sensitivity` | حساسیت | choice | normal | low / normal / high |
+
+### `smart_cuts` — برشِ هوشمندِ مکث‌ها
+
+Cut dead air and tighten short pauses, but keep the pauses a script may intend (after a question, a punchy phrase, a slide change). Cuts land between words. Doubtful pauses are asked in the panel and the owner's remembered answers are applied.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `clip` | قطعه | clip | all |  |
+
+### `remove_retakes` — حذفِ دوباره‌گویی‌ها
+
+Cut an earlier try at a sentence when the speaker stumbles and says it again: the words show the same opening twice, the LAST take stays. Conservative: a single repeated word or a repeat further than a few seconds away is emphasis, not a retake.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `clip` | قطعه | clip | all |  |
+
+### `auto_look` — نور و رنگِ خودکار
+
+Fix exposure, contrast, highlights, white balance, noise and sharpness of each clip from measurements (skin-tone safe). Leaves a correct shot alone; the owner's own slider values win.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `clip` | قطعه | clip | all |  |
+
+### `background` — پس‌زمینه (نگه‌دار / محو / جایگزین)
+
+Keep, blur or replace the background behind the speaker/subject. The subject is cut out by the processing server's GPU (video matting); a long clip is cut into pieces. 'keep' changes nothing.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `mode` | حالت | choice | blur | keep / blur / color / image |
+| `amount` | شدتِ محو | num | 70 | 10 … 100 |
+| `color` | رنگِ ساده | text | #0f172a |  |
+| `ref` | عکسِ پس‌زمینه | ref |  |  |
+| `clip` | قطعه | clip | main |  |
+
+### `pick_music` — موسیقیِ مناسبِ ویدیو
+
+Pick background music from the library by the video's mood, tempo and energy (calm under a talking person, driving for a fast sale), then lay it under the whole video.
+
+| پارامتر | معنی | نوع | پیش‌فرض | بازه یا گزینه‌ها |
+|---|---|---|---|---|
+| `mood` | حال‌وهوا | choice | auto | auto / calm / warm / happy / energetic / inspiring / dramatic |
+| `volume_db` | بلندی | num | -18 | -30 … 0 dB |
+| `duck` | کم‌شدن زیرِ گفتار | bool | True |  |
+
 ## قالب‌ها (Recipes)
 
 - **معرفیِ محصول** (`product_showcase`): نماهای پرجذبه، تیتر، موسیقی و دعوت به خرید
@@ -410,6 +477,7 @@ Drop beat markers for a music clip (or ref) on the timeline.
 - **حراج و تخفیف** (`sale`): برچسبِ درشتِ تخفیف، برش‌های تند و کارتِ پایانی
 - **نظرِ مشتری** (`testimonial`): حرفِ مشتری بدون مکث، زیرنویسِ درشت و نامِ گوینده
 - **اسلایدشوی عکس** (`slideshow`): عکس‌ها با حرکتِ آرام، گذارِ نرم و موسیقی
+- **ویدیوی گفتاری — تدوینِ حرفه‌ای** (`polish`): کلِ ویدیو به ترتیبِ خودتان؛ مکثِ بی‌دلیل کوتاه (مکثِ عمدی می‌ماند و مبهم پرسیده می‌شود)، دوباره‌گویی و «اِم و اوم» حذف، نور و رنگ، قابِ دنبالِ چهره، زیرنویس، موسیقیِ هم‌خوان و صدای ‎−۱۴ LUFS
 
 ## نسخه‌ها (Variants)
 

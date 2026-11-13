@@ -153,6 +153,15 @@ class Ctx:
     make_speech: Callable[[str, str], str] | None = None
     #: query → audio ref of a music track the shop has (or None)
     find_music: Callable[[str], str | None] = lambda query: None
+    #: (ref, start, end) → {p5, p50, p95, clip_hi, cast_rb, cast_measurable, faces} of that stretch of a video, or {} when it cannot be measured
+    look_stats: Callable[[str, float, float], dict] = lambda ref, a, b: {}
+    #: (target from `music_match.target_for`, seconds the video needs) → library tracks best-first [{ref, title, score, why, bpm, duration}]
+    rank_music: Callable[[dict, float], list] = lambda target, seconds: []
+    #: (ref, start, end) → {"key", "s0", …}: the subject of that stretch of a video cut out (background removal) by the processing server, kept as a
+    #: matte the clips can point at; raises StepError («در صف …» while the server is only off).  None where it cannot be done (tests, no node)
+    make_matte: Callable[[str, float, float], dict] | None = None
+    #: ref → `letterbox.detect()` of a video: where the real picture is inside black bars (`found`, `box`, `aspect`, `portrait`), {} when it cannot be told
+    content_box: Callable[[str], dict] = lambda ref: {}
     #: the project's frame aspect etc. are read from the project itself; this is only the store (None in tests)
     store: Any = None
     #: Persian sentences about what was skipped or degraded (shown to the owner)

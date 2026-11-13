@@ -244,8 +244,9 @@ def shots(path, work_dir, duration: float) -> list[dict]:
     return out if len(out) >= 2 else []
 
 
-def window_stats(path, start: float, end: float, work_dir, *, tag: str = "window") -> dict | None:
-    """Exposure and neutral-pixel colour of one stretch of a video (3 frames)."""
+def window_stats(path, start: float, end: float, work_dir, *, tag: str = "window", pre_filter: str = "") -> dict | None:
+    """Exposure and neutral-pixel colour of one stretch of a video (3 frames).  `pre_filter` (e.g. `crop=w:h:x:y`) is applied first: the picture
+    inside black bars is what has an exposure."""
     from PIL import Image
 
     from services.video.ffmpeg import FFMPEG, _run
@@ -259,7 +260,7 @@ def window_stats(path, start: float, end: float, work_dir, *, tag: str = "window
         frame = work / f"{tag}_{k}.png"
         try:
             _run([FFMPEG, "-y", "-ss", f"{at:.3f}", "-i", str(path), "-frames:v", "1",
-                  "-vf", "scale=256:-2", str(frame)])
+                  "-vf", (pre_filter + "," if pre_filter else "") + "scale=256:-2", str(frame)])
             images.append(Image.open(frame).copy())
         except Exception as exc:  # noqa: BLE001
             logger.debug("Frame %s@%.2f failed: %s", path, at, exc)

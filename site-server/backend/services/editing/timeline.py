@@ -770,12 +770,18 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
         # «بلندیِ استاندارد برای شبکه‌ها»: EBU R128 loudnorm on the finished mix (social platforms play ≈ −14 LUFS)
         master["loudness"] = {"on": True, "target": round(_num(loud.get("target"), -24, -8, -14.0), 1),
                               "tp": round(_num(loud.get("tp"), -3, 0, -1.0), 1)}
-    d = data.get("ducking") if isinstance(data.get("ducking"), dict) else {}
-    ducking = {"on": _bool(d.get("on")), "amount_db": _num(d.get("amount_db"), 3, 30, 12.0),
+    # No `ducking` block at all = the project never touched the setting: the music goes under the speech, exactly as the browser's preview
+    # plays it (`DEFAULT_DUCKING.on = true`).  An explicit block — on or off — is obeyed.  (The export used to default to OFF, so a file
+    # sounded different from the preview: the music stayed at full level on top of the voice.)
+    given = isinstance(data.get("ducking"), dict)
+    d = data.get("ducking") if given else {}
+    ducking = {"on": _bool(d.get("on")) if given else True, "amount_db": _num(d.get("amount_db"), 3, 30, 12.0),
                "threshold": _num(d.get("threshold"), 0.005, 0.5, 0.04),
                "attack_ms": _num(d.get("attack_ms"), 5, 500, 40.0), "release_ms": _num(d.get("release_ms"), 50, 3000, 500.0)}
+    if given and d.get("voiceover") is False:
+        ducking["voiceover"] = False                  # «زیرِ گویندگی، صدای ویدیو کم نشود»
     e = data.get("export") if isinstance(data.get("export"), dict) else {}
-    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb", "format", "range", "frame_t", "replace")}
+    export = {k: v for k, v in e.items() if k in ("preset", "codec", "fps", "height", "quality", "audio_kbps", "where", "target_mb", "format", "range", "frame_t", "replace", "captions")}
     if "replace" in export:                       # «رندر و جایگزینی»: only the in–out range is rendered and kept as a new media file
         export["replace"] = export["replace"] is True
     if export.get("where") not in (None, "auto", "server"):
@@ -783,6 +789,8 @@ def _clean_master(data: dict) -> tuple[dict, dict, dict, list, dict | None]:
     # one-shot output kinds (GIF, one still, sound only, only the in–out range): anything else means the normal video
     if export.get("format") not in (None, "mp4", "gif", "frame", "audio"):
         export.pop("format")
+    if export.get("captions") not in (None, "burn", "soft"):       # «زیرنویس: داخلِ تصویر / فایلِ جدا»
+        export.pop("captions")
     if export.get("range") not in (None, "all", "inout"):
         export.pop("range")
     if "frame_t" in export:

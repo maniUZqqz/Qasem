@@ -47,7 +47,7 @@ def build_plan(brief: dict, assets: list[dict], an: dict, *, variant: str = "a",
     v = VARIANTS.get(variant, VARIANTS["a"])
     recipe = brief["recipe"]
     fn = {"product_showcase": _showcase, "unboxing": _unboxing, "before_after": _before_after, "sale": _sale,
-          "testimonial": _testimonial, "slideshow": _slideshow}[recipe]
+          "testimonial": _testimonial, "slideshow": _slideshow, "polish": _polish}[recipe]
     pace = brief["pace"] if brief.get("pace_explicit") else v["pace"] if recipe in ("product_showcase", "sale") else brief["pace"]
     ctx = {"brief": brief, "assets": assets, "an": an, "v": v, "pace": pace, "music": music_ref, "plat": PLATFORMS[brief["platform"]]}
     steps = [step("set_format", {"preset": ctx["plat"]["preset"]}, f"قاب برای {ctx['plat']['title']}")]
@@ -251,6 +251,49 @@ def _testimonial(ctx: dict) -> list[dict]:
     steps += _look(ctx)
     steps.append(step("add_title", {"text": b["title"], "text2": b.get("subtitle") or "", "at": 0.3, "duration": 3.0, "template": "lower_box"}, "نام/عنوانِ گوینده"))
     steps += _end_and_mix(ctx)
+    return steps
+
+
+def _polish(ctx: dict) -> list[dict]:
+    """A talking video made professional WITHOUT re-cutting its story: the whole thing stays, in the owner's order.
+
+    Order matters and each step is a thing a good editor does:  1. the whole footage on the timeline;  2. dead air and doubtful pauses
+    (the doubtful ones are asked, never silently cut);  3. hesitation sounds (needs speech recognition);  4. the picture:  light and colour
+    per shot, then a window that follows the face with room above the head;  5. the voice cleaned;  6. captions with the spoken word
+    highlighted, out of the app's buttons;  7. music chosen by the video's mood, ducked under the voice;  8. a standard loudness.
+    """
+    an, b, plat = ctx["an"], ctx["brief"], ctx["plat"]
+    refs = [r for r in _visual_refs(ctx["assets"]) if an["by_ref"][r]["kind"] == "video"][:1] or _visual_refs(ctx["assets"])[:1]
+    steps = []
+    for i, ref in enumerate(refs):
+        row = an["by_ref"][ref]
+        end = round(min(row["duration"] or 600.0, 600.0), 2)
+        steps.append(step("add_clip", {"ref": ref, "track": "main", "at": "end", "start": 0, "end": end, "id": f"n{i + 1}"}, "همهٔ ویدیو به ترتیبِ خودتان" if i == 0 else ""))
+    boxed = any((an["by_ref"].get(ref) or {}).get("box", {}).get("found") for ref in refs)
+    if boxed:                                                   # a phone screen / a clip inside black bars: show the picture itself
+        steps.append(step("crop_content", {"clip": "all"}, "نوارهای سیاهِ دورِ تصویر بریده شد؛ خودِ تصویر قاب را پر می‌کند"))
+    steps.append(step("split_shots", {"clip": "main"}, "جاهایی که نما عوض می‌شود جدا شد تا نور و قاب برای هر نما درست تصمیم گرفته شود"))
+    if an["has_speech"]:
+        steps.append(step("smart_cuts", {"clip": "all"}, "سکوتِ بی‌دلیل کوتاه شد؛ مکثِ عمدی می‌ماند و مکثِ مبهم از شما پرسیده می‌شود"))
+        if an.get("has_words") or an.get("asr_waiting"):        # the words are not here yet (server off): the steps are queued and filled in by themselves
+            steps.append(step("remove_retakes", {"clip": "all"}, "جمله‌ای که گوینده دوباره گفته فقط یک بار می‌ماند (نسخهٔ آخر)"))
+            steps.append(step("remove_fillers", {"clip": "all"}, "صداهای «اِم و اوم» حذف شد"))
+    if b.get("background") in ("blur", "color"):
+        steps.append(step("background", {"mode": b["background"], "clip": "main"}, "سوژه با پردازشِ گرافیکی جدا شد و پس‌زمینه " + ("محو شد" if b["background"] == "blur" else "ساده شد")))
+    steps.append(step("auto_look", {"clip": "all"}, "نور و رنگ هر نما از روی اندازه‌گیری درست شد"))
+    if plat["preset"] != "wide" and not boxed:
+        steps.append(step("reframe", {"clip": "all", "aspect": "9:16" if plat["preset"] == "reel" else "4:5" if plat["preset"] == "feed" else "1:1", "follow": "auto",
+                                      "compose": True}, "قاب دنبالِ چهره، چهره روی خطِ یک‌سوم و با فضای سر"))
+    if an["has_speech"]:
+        steps.append(step("clean_voice", {"clip": "all", "level": "light"}, "نویزِ صدا گرفته شد"))
+        if b.get("captions") is not False:
+            steps.append(step("add_captions", {"clip": "all", "style": "karaoke" if ctx["v"]["captions"] == "karaoke" else "pop"}, "زیرنویس با کلمهٔ هایلایت، بیرون از دکمه‌های شبکه"))
+    if b.get("title"):
+        steps.append(step("add_title", {"text": b["title"], "at": 0.3, "duration": 2.6, "template": ctx["v"]["title_template"]}, "تیتر روی ثانیه‌های اول"))
+    if b.get("music") is not False:
+        steps.append(step("pick_music", {"mood": "auto", "volume_db": -18, "duck": True}, "موسیقی از روی حال‌وهوای ویدیو انتخاب شد و زیرِ گفتار کم می‌شود"))
+    steps.append(step("auto_mix", {}, "بلندیِ گفتار و موسیقی متعادل شد"))
+    steps.append(step("set_loudness", {"on": True, "target": -14, "tp": -1}, "بلندیِ نهایی برای شبکه‌های اجتماعی"))
     return steps
 
 

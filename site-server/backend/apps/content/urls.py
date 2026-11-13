@@ -63,6 +63,7 @@ from .views_director import (
     ProjectVersionRestoreView,
     ProjectVersionsView,
 )
+from .views_autoedit import LookPreviewView, ProjectSizesView, SilenceReviewView, SizesCatalogueView, UploadAutoEditView
 from .views_upload import UploadChunkView, UploadFinishView, UploadStartView
 from .views_timeline import (
     EditorBinView,
@@ -195,6 +196,12 @@ urlpatterns = [
     path("stores/<int:store_id>/editor/projects/<int:pk>/versions/<str:name>/", ProjectVersionRestoreView.as_view(), name="editor-project-version-restore"),
 
     # ---- the editing engine (ideas §8-§10) -------------------------------
+    # ---- the automatic edit: ask about doubtful pauses, every network's size, the polish run for an upload
+    path("stores/<int:store_id>/autoedit/silences/", SilenceReviewView.as_view(), name="autoedit-silences"),
+    path("stores/<int:store_id>/autoedit/sizes/", SizesCatalogueView.as_view(), name="autoedit-sizes"),
+    path("stores/<int:store_id>/autoedit/look-preview/", LookPreviewView.as_view(), name="autoedit-look-preview"),
+    path("stores/<int:store_id>/editor/projects/<int:pk>/sizes/", ProjectSizesView.as_view(), name="autoedit-project-sizes"),
+    path("stores/<int:store_id>/videos/<int:pk>/autoedit/", UploadAutoEditView.as_view(), name="autoedit-upload"),
     path("stores/<int:store_id>/videos/uploads/", UploadStartView.as_view(), name="video-upload-start"),
     path("stores/<int:store_id>/videos/uploads/<str:uid>/", UploadChunkView.as_view(), name="video-upload-chunk"),
     path("stores/<int:store_id>/videos/uploads/<str:uid>/finish/", UploadFinishView.as_view(), name="video-upload-finish"),

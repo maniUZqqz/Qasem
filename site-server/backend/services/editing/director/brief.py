@@ -23,6 +23,7 @@ RECIPES: dict[str, dict] = {
     "sale": {"title": "حراج و تخفیف", "hint": "برچسبِ درشتِ تخفیف، برش‌های تند و کارتِ پایانی"},
     "testimonial": {"title": "نظرِ مشتری", "hint": "حرفِ مشتری بدون مکث، زیرنویسِ درشت و نامِ گوینده"},
     "slideshow": {"title": "اسلایدشوی عکس", "hint": "عکس‌ها با حرکتِ آرام، گذارِ نرم و موسیقی"},
+    "polish": {"title": "ویدیوی گفتاری — تدوینِ حرفه‌ای", "hint": "مکثِ بی‌دلیل کوتاه (مکثِ عمدی می‌ماند)، نور و رنگ، قابِ دنبالِ چهره، زیرنویس، موسیقیِ هم‌خوان و صدای استاندارد"},
 }
 _FA = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
@@ -53,7 +54,7 @@ def parse_prompt(prompt: str, *, assets: list[dict] | None = None) -> dict:
     raw = digits(prompt or "")
     low = raw.lower()
     brief: dict = {"recipe": "", "platform": "", "duration": 0, "pace": "", "title": "", "subtitle": "", "cta": "", "discount": 0,
-                   "captions": None, "music": None, "look": "", "hook": "", "notes": [], "matched": []}
+                   "captions": None, "music": None, "background": "", "look": "", "hook": "", "notes": [], "matched": []}
 
     for key, pattern in _PLAT_WORDS:
         if re.search(pattern, low):
@@ -101,6 +102,14 @@ def parse_prompt(prompt: str, *, assets: list[dict] | None = None) -> dict:
     elif re.search(r"موسیقی|آهنگ|music|beat|ضرب", low):
         brief["music"] = True
 
+    # the background behind the speaker: «پس‌زمینه را محو کن» · «پس‌زمینه ساده/سفید/رنگی» · nothing said = left as it is
+    if re.search(r"(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background).{0,24}(?:محو|بلر|مات|blur)|(?:محو|بلر|blur).{0,16}(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background)", low):
+        brief["background"] = "blur"
+        brief["matched"].append("پس‌زمینه")
+    elif re.search(r"(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background).{0,24}(?:ساده|سفید|تیره|رنگی|عوض|تعویض|جایگزین|plain|solid|replace)", low):
+        brief["background"] = "color"
+        brief["matched"].append("پس‌زمینه")
+
     if re.search(r"سینمایی|cinematic", low):
         brief["look"] = "cinematic"
     elif re.search(r"گرم|warm|golden|طلایی", low):
@@ -137,6 +146,19 @@ def parse_prompt(prompt: str, *, assets: list[dict] | None = None) -> dict:
     return brief
 
 
+def looks_like_talking_video(assets: list[dict], an: dict) -> bool:
+    """One long video with a person talking in it (and no other footage): a talk, a lesson, an interview, a product explained to the camera.
+    The product recipes would cut it into 2-second shots; this one is polished, not re-cut."""
+    videos = [a for a in assets if a.get("kind") == "video"]
+    others = [a for a in assets if a.get("kind") == "image"]
+    if len(videos) != 1 or others:
+        return False
+    row = (an or {}).get("by_ref", {}).get(videos[0]["ref"]) or {}
+    dur = float(row.get("duration") or videos[0].get("duration") or 0)
+    speech = sum(e - s for s, e in row.get("spans", []))
+    return dur >= 20.0 and speech >= 0.45 * dur
+
+
 def finish_brief(brief: dict, assets: list[dict]) -> dict:
     """Fill every missing field with a sensible default (never overwrites what is set)."""
     b = dict(brief)
@@ -148,7 +170,7 @@ def finish_brief(brief: dict, assets: list[dict]) -> dict:
         b["duration"] = plat["target"]
     b["duration"] = max(6, min(plat["max"], int(b["duration"])))
     if b.get("pace") not in ("fast", "normal", "slow"):
-        b["pace"] = {"sale": "fast", "unboxing": "normal", "testimonial": "normal", "slideshow": "slow", "before_after": "normal"}.get(b["recipe"], "normal" if b["platform"] in ("feed", "youtube") else "fast")
+        b["pace"] = {"sale": "fast", "unboxing": "normal", "testimonial": "normal", "slideshow": "slow", "before_after": "normal", "polish": "normal"}.get(b["recipe"], "normal" if b["platform"] in ("feed", "youtube") else "fast")
     first = next((a for a in assets if a.get("kind") in ("video", "image")), None)
     name = _clean_name(first.get("title") if first else "")
     if not b.get("title"):
@@ -160,6 +182,8 @@ def finish_brief(brief: dict, assets: list[dict]) -> dict:
             b["title"] = "قبل و بعد"
         elif b["recipe"] == "testimonial":
             b["title"] = "نظرِ مشتریان"
+        elif b["recipe"] == "polish":
+            b["title"] = ""
         else:
             b["title"] = f"معرفی {name}".strip() if name else "معرفیِ محصول"
     if not b.get("cta"):

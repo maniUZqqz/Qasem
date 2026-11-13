@@ -6,6 +6,13 @@ import { Alert, Badge, Button, Spinner, TextArea, fa } from "../../../components
 import type { ToolInfo } from "../ToolPicker";
 import ToolPicker from "../ToolPicker";
 import type { AiInfo, EditableOp, Plan } from "./api";
+import { fetchSizes, openQuestions, startPolish, type SizeInfo } from "./autoedit/api";
+import LookCompare from "./autoedit/LookCompare";
+import { toggleKey } from "./autoedit/logic";
+import PolishStatus from "./autoedit/PolishStatus";
+import SilenceReview from "./autoedit/SilenceReview";
+import CaptionModePicker, { type CaptionMode } from "./autoedit/CaptionMode";
+import { SizeChips } from "./autoedit/SizesPanel";
 import { OpList } from "./ToolForm";
 import type { Video } from "./types";
 
@@ -43,6 +50,13 @@ export function EditResult({ video, tools, busy, start }: Pick<Common, "video" |
         {outcome.improved === false && <Badge tone="warn">داوریِ دوم: بهتر نشد</Badge>}
         {outcome.rounds ? <Badge tone="neutral">{fa(outcome.rounds)} دور</Badge> : null}
       </div>
+      {(outcome.silence?.questions ?? []).length > 0 && (
+        <div className="mb-3">
+          <Alert tone="info" title={`${fa((outcome.silence?.questions ?? []).length)} مکثِ مبهم دست نخورد`}>
+            شاید سناریو آن‌ها را خواسته باشد؛ در «تدوینِ خودکارِ حرفه‌ای» از شما پرسیده می‌شود و پاسخ‌تان برای همین ویدیو یادآوری می‌شود.
+          </Alert>
+        </div>
+      )}
       {outcome.note && <p className="mb-2 text-sm" style={{ color: outcome.kept === false ? "var(--warn)" : "var(--text-2)" }}>{outcome.note}</p>}
       {kept && (
         <BeforeAfter
@@ -119,14 +133,71 @@ export function VideoAutoBlock(p: Common) {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [ops, setOps] = useState<EditableOp[]>([]);
   const [loading, setLoading] = useState(false);
+  // «این مکث را سناریو خواسته؟» — اگر مکثِ مبهم هست، پیش از تدوین از مالک پرسیده می‌شود
+  const [asking, setAsking] = useState<null | "auto" | "polish">(null);
+  const [polish, setPolish] = useState<"idle" | "busy" | "queued">("idle");
+  const [polishJob, setPolishJob] = useState<number | null>(null);
+  // «برای چند شبکه»: هر شبکه یک خروجیِ جدا (هرکدام پروژهٔ قابل‌ویرایش + رندرِ جدا)
+  const [sizeList, setSizeList] = useState<SizeInfo[] | null>(null);
+  const [multi, setMulti] = useState(false);
+  const [captionMode, setCaptionMode] = useState<CaptionMode>("burn");
+  const [sizePick, setSizePick] = useState<string[]>([]);
+
+  async function toggleMulti(on: boolean) {
+    setMulti(on);
+    if (on && !sizeList) {
+      try {
+        const d = await fetchSizes(p.storeId);
+        setSizeList(d.sizes);
+        setSizePick(d.default);
+      } catch (err) {
+        setMulti(false);
+        p.setError(errorMessage(err));
+      }
+    }
+  }
 
   const remember = (v: boolean) => {
     setReviewFirst(v);
     try { localStorage.setItem("nm.video.review", v ? "1" : "0"); } catch { /* ignore */ }
   };
 
-  async function go() {
+  async function polishRun(skipAsk = false) {
     p.setError(null);
+    // «این مکث را سناریو خواسته؟» — همان پرسشِ پیش از تدوین؛ پاسخ‌ها برای همین ویدیو یادآوری می‌شود
+    if (!skipAsk && p.video.has_audio) {
+      setPolish("busy");
+      const open = await openQuestions(p.storeId, `video:${p.video.id}`);
+      if (open > 0) {
+        setPolish("idle");
+        setAsking("polish");
+        return;
+      }
+    }
+    setAsking(null);
+    setPolish("busy");
+    try {
+      const r = await startPolish(p.storeId, p.video.id, { wait_for_words: true, deliver: true, captions: captionMode, ...(multi && sizePick.length ? { sizes: sizePick } : {}) });
+      setPolishJob(r.job_id);
+      setPolish("queued");
+    } catch (err) {
+      setPolish("idle");
+      p.setError(errorMessage(err));
+    }
+  }
+
+  async function go(skipAsk = false) {
+    p.setError(null);
+    if (!skipAsk && p.video.has_audio) {
+      setLoading(true);
+      const open = await openQuestions(p.storeId, `video:${p.video.id}`);
+      setLoading(false);
+      if (open > 0) {
+        setAsking("auto");
+        return;
+      }
+    }
+    setAsking(null);
     if (!reviewFirst) {
       await p.start(p.video, "AUTO", null);
       return;
@@ -156,8 +227,13 @@ export function VideoAutoBlock(p: Common) {
   return (
     <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--line)" }} data-testid="video-auto">
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void go()} disabled={p.busy || loading || !p.video.facts || p.video.state === "FAILED"} data-testid="video-auto-run">
-          {loading ? <Spinner size={16} /> : "✨ تدوینِ خودکار"}
+        <Button onClick={() => void polishRun()} disabled={p.busy || polish === "busy" || !p.video.has_audio || !p.video.facts} data-testid="video-polish-run"
+          title="مکثِ بی‌دلیل، نور و رنگ، قابِ دنبالِ چهره، زیرنویس، موسیقیِ هم‌خوان و صدای استاندارد؛ ویدیوی نهایی ساخته می‌شود و پروژهٔ قابل‌ویرایشش در «کارگردان» می‌ماند">
+          {polish === "busy" ? <Spinner size={16} /> : "🎬 تدوینِ خودکارِ حرفه‌ای"}
+        </Button>
+        <Button variant="secondary" onClick={() => void go()} disabled={p.busy || loading || !p.video.facts || p.video.state === "FAILED"} data-testid="video-auto-run"
+          title="فقط اصلاحِ سریعِ همین ویدیو: سکوت، نور، رنگ، لرزش و نویز">
+          {loading ? <Spinner size={16} /> : "⚡ تدوینِ سریع"}
         </Button>
         <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
           <input type="checkbox" checked={reviewFirst} onChange={(e) => remember(e.target.checked)} data-testid="video-review-first" />
@@ -167,6 +243,29 @@ export function VideoAutoBlock(p: Common) {
       <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
         می‌سنجد (سکوت، نور، رنگ‌زدگی، لرزش، نویز) ← تصمیم می‌گیرد ← اعمال می‌کند ← دوباره می‌سنجد و داوری می‌کند؛ اگر نتیجه بدتر شود نسخهٔ اصلی نگه داشته می‌شود.
       </p>
+      <div className="mt-3">
+        <LookCompare storeId={p.storeId} refId={`video:${p.video.id}`} />
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+        <input type="checkbox" checked={multi} onChange={(e) => void toggleMulti(e.target.checked)} data-testid="video-polish-multi" />
+        برای چند شبکه (ریلز، پست، یوتیوب، تیک‌تاک، تلگرام، آپارات …) هر کدام یک خروجی بساز
+      </label>
+      <div className="mt-2"><CaptionModePicker value={captionMode} onChange={setCaptionMode} testId="video-polish-caption-mode" /></div>
+      {multi && sizeList && (
+        <div className="mt-2">
+          <SizeChips sizes={sizeList} picked={sizePick} onToggle={(k) => setSizePick((cur) => toggleKey(cur, k))} />
+        </div>
+      )}
+      {polishJob && (
+        <div className="mt-3">
+          <PolishStatus jobId={polishJob} />
+        </div>
+      )}
+      {asking && (
+        <div className="mt-3">
+          <SilenceReview storeId={p.storeId} refId={`video:${p.video.id}`} doneLabel="ثبت پاسخ‌ها و تدوین" onDone={() => void (asking === "polish" ? polishRun(true) : go(true))} onCancel={() => setAsking(null)} />
+        </div>
+      )}
 
       {plan && (
         <div className="mt-3" data-testid="video-review">

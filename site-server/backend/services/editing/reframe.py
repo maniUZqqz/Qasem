@@ -173,8 +173,11 @@ def sample_subject(frames: np.ndarray, *, faces_fn=None) -> list[dict]:
         flat = float(gray.std()) < 4.0                      # a flat frame has no subject: saliency of noise is not a subject
         found = faces_fn(frame)
         if found:
-            cx, cy, _ = max(found, key=lambda f: f[2])
-            out.append({"cx": cx, "cy": cy, "engine": "face"})
+            best = max(found, key=lambda f: f[2])
+            row = {"cx": best[0], "cy": best[1], "engine": "face"}
+            if len(best) >= 5:                              # (cx, cy, area, height, (x, y, w, h)): what composition needs
+                row["h"], row["box"] = best[3], best[4]
+            out.append(row)
         else:
             moved = None
             if prev_gray is not None:
@@ -204,7 +207,7 @@ def _faces_yunet(frame) -> list[tuple[float, float, float]]:
         boxes = faces._yunet(frame)
     except Exception:  # noqa: BLE001 — "could not look" is not "nobody"
         return []
-    return [(b.centre[0], b.centre[1], b.area) for b in (boxes or []) if b.area >= faces.MIN_FACE_FRACTION]
+    return [(b.centre[0], b.centre[1], b.area, b.h, (b.x, b.y, b.w, b.h)) for b in (boxes or []) if b.area >= faces.MIN_FACE_FRACTION]
 
 
 # ------------------------------------------------------------------ the move
@@ -279,10 +282,11 @@ def simplify(times: list[float], values: list[float], tolerance: float = 0.008, 
 
 
 def plan(path, start: float, end: float, aspect, *, follow: str = "auto", zoom: float = 1.0, speed: float = 1.0,
-         size: tuple[int, int] | None = None, faces_fn=None, frames=None) -> dict:
+         size: tuple[int, int] | None = None, faces_fn=None, frames=None, compose: bool = False) -> dict:
     """The auto-reframe: {"reframe", "engine", "samples", "notes"}. `start`/`end` are SOURCE seconds; key times in the
     result are seconds from the clip's start on the TIMELINE (so they are divided by `speed`).
-    `frames` / `size` / `faces_fn` are injectable for tests."""
+    `frames` / `size` / `faces_fn` are injectable for tests.  `compose=True` aims the window at a composition (eyes on the upper third,
+    room in front of a moving subject, the face never cut) instead of the subject's centre — see `framing`."""
     asp = aspect_value(aspect)
     src_w, src_h = size or _probe_size(path)
     w, h = window_size(src_w, src_h, asp, zoom)
@@ -317,10 +321,17 @@ def plan(path, start: float, end: float, aspect, *, follow: str = "auto", zoom: 
 
     times = [(i / fps) / max(0.05, float(speed or 1.0)) for i in range(n)]
     out = dict(base)
+    if compose:
+        from . import framing
+
+        goal_x, goal_y = framing.targets(times, subject, w, h)
+        notes = notes + [framing.describe(subject, w, h)]
+    else:
+        goal_x, goal_y = [s["cx"] for s in subject], [s["cy"] for s in subject]
     for axis, size, name in (("kx", w, "cx"), ("ky", h, "cy")):
         if size >= 0.999:
             continue
-        pts = camera_path(times, [s["cx" if axis == "kx" else "cy"] for s in subject], size / 2)
+        pts = camera_path(times, goal_x if axis == "kx" else goal_y, size / 2)
         keys = simplify(times, pts)
         out[name] = keys[0]["v"] if max(pts) - min(pts) >= 0.004 else round(sum(pts) / len(pts), 4)
         if len(keys) >= 2 and max(pts) - min(pts) >= 0.004:

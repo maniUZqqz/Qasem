@@ -23,6 +23,7 @@ from . import critique as critique_mod
 from . import projectops as ops
 from . import recipes
 from .brief import PLATFORMS, RECIPES, finish_brief, parse_prompt
+from .brief import looks_like_talking_video as brief_looks_talking
 from .runner import apply_steps, describe_step, validate_plan
 from .spec import Ctx
 
@@ -37,6 +38,9 @@ class Options:
     want_words: bool = True
     preview: bool = True
     music_ref: str = ""            # an audio asset the owner picked (else the first audio in `assets`, else the library)
+    #: the run is worth doing only with the words (cuts on word boundaries, captions): if speech recognition is merely OFF, park the whole job
+    #: in the durable queue so it starts by itself when the processing server comes back
+    require_words: bool = False
     #: choices made with the panel's chips (recipe, platform, duration, pace, music, captions): they count as «the owner said so»
     override: dict = field(default_factory=dict)
 
@@ -86,6 +90,9 @@ def _apply_override(brief: dict, override: dict) -> None:
     for key in ("music", "captions"):
         if isinstance(o.get(key), bool):
             brief[key] = o[key]
+    if o.get("background") in ("keep", "blur", "color"):           # «پس‌زمینه»: همان / محو / رنگِ ساده (the chip beats the words)
+        brief["background"] = o["background"]
+        brief["matched"].append("پس‌زمینه")
 
 
 def build_variant(key: str, brief: dict, assets: list[dict], an: dict, ctx: Ctx, *, music_ref: str, rounds: int, extra_call=None, store=None,
@@ -138,9 +145,25 @@ def run(prompt: str, assets: list[dict], ctx: Ctx, *, store=None, options: Optio
     tick(0.05, "بررسیِ فیلم‌ها و صدا…")
     an = analyze_mod.analyze(to_analyse, ctx, want_words=opts.want_words, progress=lambda f, l="": tick(0.05 + 0.25 * f, l))
     degraded += an["missing"]
+    if opts.require_words and an["has_speech"] and not an.get("has_words") and an.get("asr_waiting"):
+        from ..captions import waiting_error
+
+        raise waiting_error()
 
     brief = parse_prompt(request, assets=assets)
+    if not brief["matched"].count("نوعِ ویدیو") and not (opts.override or {}).get("recipe") and brief_looks_talking(assets, an):
+        brief["recipe"] = "polish"                 # one long talking video, no recipe asked for: polish it, do not cut it into product shots
+        brief["notes"].append("ویدیوی گفتاری تشخیص داده شد؛ به‌جای برش‌های کوتاهِ محصول، همان ویدیو حرفه‌ای‌تر می‌شود.")
     _apply_override(brief, opts.override)
+    if brief["recipe"] == "polish" and "پلتفرم" not in brief["matched"]:      # after the chips: a platform the owner chose is never replaced
+        wide = next((a for a in assets if a.get("kind") == "video" and int(a.get("width") or 0) > int(a.get("height") or 0)), None)
+        boxes = [(an["by_ref"].get(a["ref"]) or {}).get("box") or {} for a in assets if a.get("kind") == "video"]
+        phone = next((b for b in boxes if b.get("found") and b.get("portrait")), None)
+        if phone:                                  # a phone screen recorded inside a landscape frame: its natural home is the vertical frame
+            brief["notes"].append("تصویرِ واقعیِ ویدیو عمودی است (ضبطِ صفحهٔ گوشی) و دورش نوارِ سیاه دارد؛ قاب عمودی (۹:۱۶) و بدونِ نوارِ سیاه ساخته شد.")
+        elif wide:                                 # a landscape source stays landscape unless the owner asks for a vertical size
+            brief["platform"] = "youtube"
+            brief["notes"] = [n for n in brief.get("notes", []) if "پلتفرم گفته نشد" not in n] + ["ویدیو افقی است؛ قاب افقی (۱۶:۹) نگه داشته شد. برای ریلز/استوری «چند سایز» را بزنید."]
     ai_info = {"asked": False, "ok": False, "via": "", "model": "", "error": "", "error_code": ""}
     if opts.use_ai:
         tick(0.32, "فهمیدنِ دستورِ شما…")

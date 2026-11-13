@@ -32,7 +32,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import analysis, edl as edl_module, preferences, tools
+from . import analysis, edl as edl_module, preferences, silence_intel, tools
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,18 @@ MIN_CONFIDENCE = 0.5
 MAX_DIRECTED_OPERATIONS = 4
 
 
+def silence_summary(report: dict | None) -> dict | None:
+    """The part of a `silence_intel.review` worth keeping on the row / sending to the panel (no per-gap bulk beyond the open questions)."""
+    if not report:
+        return None
+    return {
+        "counts": report.get("counts"), "removed_seconds": report.get("removed_seconds"), "answered": report.get("answered"),
+        "pending": report.get("pending"), "has_words": report.get("has_words"), "note": report.get("note"),
+        "questions": [{k: q.get(k) for k in ("id", "start", "end", "len", "kind", "suggest", "reason", "before", "after", "action")}
+                      for q in report.get("questions", [])],
+    }
+
+
 @dataclass
 class Plan:
     """What the agent intends, before anything is rendered."""
@@ -80,6 +92,8 @@ class Plan:
     findings: list[dict] = field(default_factory=list)
     mode: str = SUGGEST
     asked_model: bool = False
+    #: `silence_intel.review` of the source when the plan cuts silences: the gaps, the open questions, the answers used.
+    silence: dict | None = None
 
     @property
     def does_nothing(self) -> bool:
@@ -92,6 +106,7 @@ class Plan:
             "facts": self.facts,
             "findings": self.findings,
             "asked_model": self.asked_model,
+            "silence": silence_summary(self.silence),
             **self.edl.as_dict(),
         }
 
@@ -543,8 +558,12 @@ def plan(
     exclude=(),
     previous: list[dict] | None = None,
     ai_info: dict | None = None,
+    silence_ref: str = "",
 ) -> Plan:
-    """Measure, decide, and return the plan — without touching the video."""
+    """Measure, decide, and return the plan — without touching the video.
+
+    `silence_ref` ("video:<id>") names the source for the remembered answers about its pauses: with it, `trim_silence` cuts only what
+    `silence_intel` is sure is dead air (and what the owner said to cut) instead of every silence."""
     source = Path(source)
     work = Path(work_dir)
     facts = analysis.describe(source, work)
@@ -579,17 +598,29 @@ def plan(
     )
     accepted = _dedupe(accepted)
 
+    silence_cuts, silence_report = None, None
+    if facts["has_audio"] and any(o.tool == "trim_silence" for o in accepted):
+        try:
+            silence_report = silence_intel.review(
+                source, facts["duration"], store_id=getattr(store, "pk", None), ref=silence_ref,
+            )
+            silence_cuts = [tuple(c) for c in silence_report["cuts"]]
+        except Exception as exc:  # noqa: BLE001 — a failed refinement falls back to the plain rule
+            logger.info("silence_intel failed, using the plain silence rule: %s", exc)
+            silence_cuts, silence_report = None, None
+
     built = edl_module.build(
         source, accepted,
         duration=facts["duration"],
         has_audio=facts["has_audio"],
-        silences=analysis.silences(source, work) if facts["has_audio"] else [],
+        silences=analysis.silences(source, work) if facts["has_audio"] and silence_cuts is None else [],
         refusals=refusals,
         subtitle_file=subtitle_file,
         face_boxes=facts.get("face_boxes"),
         shape=_shape(facts),
+        silence_cuts=silence_cuts,
     )
-    return Plan(edl=built, facts=facts, findings=findings, mode=mode, asked_model=asked)
+    return Plan(edl=built, facts=facts, findings=findings, mode=mode, asked_model=asked, silence=silence_report)
 
 
 def _dedupe(operations: list[tools.Operation]) -> list[tools.Operation]:
@@ -835,6 +866,7 @@ def run(
     job=None,
     subtitle_file=None,
     max_rounds: int = MAX_ROUNDS,
+    silence_ref: str = "",
 ) -> Outcome:
     """Plan, render, look again. §9's loop, in full.
 
@@ -848,7 +880,7 @@ def run(
 
     current = plan(
         source, work, mode=mode, operations=operations, instruction=instruction,
-        store=store, job=job, subtitle_file=subtitle_file,
+        store=store, job=job, subtitle_file=subtitle_file, silence_ref=silence_ref,
     )
     outcome = Outcome(plan=current, before=current.facts)
 

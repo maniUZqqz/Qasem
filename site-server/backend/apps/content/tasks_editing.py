@@ -18,7 +18,8 @@ from celery import shared_task
 from django.conf import settings
 
 from apps.jobs.models import Job
-from services.editing import agent, analysis, edl, preferences
+from services.editing import agent, analysis, audioqc, edl, preferences
+from services.editing import captions as captions_module
 from services.media import files as media
 from services.video import subtitles
 
@@ -140,6 +141,7 @@ def edit_video_task(self, job_id, upload_id, mode, operations=None, instruction=
                 store=upload.store,
                 job=job,
                 subtitle_file=subtitle_file,
+                silence_ref=f"video:{upload.pk}",
             )
 
         job.mark_progress(2, "در حال تدوین")
@@ -186,6 +188,8 @@ def edit_video_task(self, job_id, upload_id, mode, operations=None, instruction=
             # Which noise remover ran and what it measured, when one did — the
             # before/after SNR rows say THAT it helped; this says with what.
             "denoise": dict(outcome.denoise) or None,
+            # which pauses were cut / tightened / kept, and the ones still waiting for the owner's answer (the panel asks them)
+            "silence": agent.silence_summary(outcome.plan.silence),
         }
         upload.save(update_fields=["edited", "state", "edit_outcome", "updated_at"])
 
@@ -727,6 +731,9 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             # a final render always has settings: what the shop set, completed with defaults and the Director's platform preset
             spec_export = export_module.default_export(dict(timeline.export or {}), export_module.preset_hint(data)) if quality != "draft" else None
             spec = export_module.resolve(spec_export or {}, timeline) if quality != "draft" else None
+            soft_captions = quality != "draft" and not captions_module.burned_in(timeline.export)
+            if soft_captions:
+                captions_module.strip_burned(timeline)          # «فایلِ جدا»: the picture carries no caption text; the .srt written below is the subtitle
             hi = 85 if program_ops else 98
             on_node = False
             # the final render goes to the processing node when one is online (and the shop did not pick «فقط سرورِ سایت»);
@@ -827,10 +834,36 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             "rendered_at": timezone.now().isoformat(),
             "where": where["where"], "node": where["node"], "encoder": where["encoder"], "fallback": where["fallback"],
         }
+        if fmt == "mp4" and not prores and not use_range and ((timeline.master or {}).get("loudness") or {}).get("on"):
+            # the dynamic one-pass loudnorm can miss -14 by a couple of LU: measure the FILE and add the missing gain (picture untouched)
+            loud_master = (timeline.master or {}).get("loudness") or {}
+            settled = audioqc.settle_loudness(dest, target=float(loud_master.get("target", -14.0)), tp=float(loud_master.get("tp", -1.0)))
+            if settled:
+                entry["loudness"] = settled
+                entry["bytes"] = dest.stat().st_size
+        if fmt in ("mp4", "audio") and not prores:
+            # listen to the file we are handing over: the same speech twice, a clipped or out-of-phase mix is reported next to the export
+            qc = audioqc.quick_check(dest)
+            if qc.get("ok"):
+                entry["audio_qc"] = {"clean": qc["clean"], "problems": qc["problems"], "level_db": qc["level_db"], "peak_db": qc["peak_db"],
+                                     "doubled": qc["echo"]["doubled"]}
+        entry["captions"] = "soft" if soft_captions else "burn"
+        if fmt == "mp4" and not use_range and not prores and not replace:
+            # the soft copy of the captions: a separate .srt beside the video (burned-in captions stay in the picture too)
+            try:
+                srt = captions_module.write_soft_srt(data, dest.with_suffix(".srt"))
+            except Exception as exc:  # noqa: BLE001 — a sidecar never fails the export
+                logger.info("soft subtitle file not written: %s", exc)
+                srt = None
+            if srt is not None:
+                entry["srt_rel"] = media.media_rel(srt)
+                entry["srt_url"] = settings.MEDIA_URL.rstrip("/") + "/" + entry["srt_rel"]
         keep = [entry] + [e for e in old if e.get("job_id") != job.id][: KEEP_EXPORTS - 1]
         for gone in [e for e in old if e not in keep]:
             try:
                 (Path(settings.MEDIA_ROOT) / gone.get("rel", "")).unlink(missing_ok=True)
+                if gone.get("srt_rel"):
+                    (Path(settings.MEDIA_ROOT) / gone["srt_rel"]).unlink(missing_ok=True)
             except OSError:
                 pass
         if fmt == "mp4" and not use_range and not prores:

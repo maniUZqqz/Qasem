@@ -49,7 +49,7 @@ def slim_critique(report: dict) -> dict:
 
 #: steps that need the processing server (speech recognition, text-to-speech). When it is only OFF the Director still builds every variant at once and
 #: these steps are filled in later (`director_fill_task`), instead of the whole job failing or the owner getting variants without captions for good.
-NODE_STEPS = ("add_captions", "remove_fillers", "add_voiceover")
+NODE_STEPS = ("add_captions", "remove_fillers", "remove_retakes", "background", "add_voiceover")
 STEP_KEYS = ("id", "tool", "params", "on", "why")
 
 
@@ -63,15 +63,62 @@ def node_pending(variants: list[dict]) -> list[dict]:
     return out
 
 
-def _queue_fill(job: Job, store, payload: dict, result: dict, final: dict) -> None:
+def deliver_draft(store, spec: dict) -> dict:
+    """THE OUTPUT of the automatic edit: the finished draft becomes an ordinary project and is rendered at final quality - on the processing
+    node (NVENC) as soon as it is online, parked in the durable queue until then - so the owner has a video to watch, not only a draft.
+    `spec` = {draft, parent, sizes?}: one render of the project as it is, or (`sizes`) one project + render per network.  A draft the owner
+    already opened (or that expired) is theirs now and is never rendered behind their back.  Never raises: the draft is already saved."""
+    from services.editing import export as export_module
+    from services.editing import social_sizes
+
+    from .tasks_editing import render_project_task
+    from .views_autoedit import dispatch_sizes
+    from .views_editor_pro import snapshot_path
+    from .models import VideoProject
+
+    try:
+        draft = DirectorDraft.objects.filter(pk=spec.get("draft"), store=store, promoted_at__isnull=True).first()
+        if draft is None:
+            return {"skipped": "پیش‌نویس باز شده یا پاک شده؛ خروجیِ خودکار ساخته نشد."}
+        project = drafts_mod.promote(draft)
+        if spec.get("captions") in ("burn", "soft"):
+            data0 = dict(project.data or {})
+            data0["export"] = {**(data0.get("export") or {}), "captions": spec["captions"]}
+            project.data = data0
+            project.save(update_fields=["data", "updated_at"])
+        parent = spec.get("parent")
+        keys = social_sizes.clean_keys(spec.get("sizes"))
+        if keys:
+            made, skipped = dispatch_sizes(store, project, keys, project.data or {}, store_ctx(store, user=None, asr=False), origin="autoedit", parent=parent)
+            return {"project_id": project.pk, "renders": made, "skipped": skipped}
+        data = project.data or {}
+        block = export_module.default_export(data.get("export") or {}, export_module.preset_hint(data))
+        job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={
+            "what": "project", "project_id": project.pk, "quality": "final", "preset": str(block.get("preset") or ""), "origin": "autoedit", "parent_job": parent})
+        project.state = VideoProject.State.RENDERING
+        project.error = ""
+        project.save(update_fields=["state", "error", "updated_at"])
+        failed = dispatch_job(job, render_project_task, job.id, project.pk, "final", snapshot_path(project, f"render_{job.id}.json", data))
+        if failed is not None:
+            project.state = VideoProject.State.FAILED
+            project.error = "رندر شروع نشد."
+            project.save(update_fields=["state", "error", "updated_at"])
+            return {"project_id": project.pk, "renders": [], "skipped": [{"size": "", "title": project.title, "reason": "صفِ پردازش در دسترس نیست."}]}
+        return {"project_id": project.pk, "renders": [{"size": "", "title": project.title, "project_id": project.pk, "job_id": job.id, "notes": []}], "skipped": []}
+    except Exception as exc:  # noqa: BLE001 — the draft is saved; a failed hand-over must not fail the whole run
+        logger.exception("could not hand the automatic edit over to the renderer")
+        return {"skipped": f"رندرِ خودکار شروع نشد ({exc}); پیش‌نویس سر جایش است."}
+
+
+def _queue_fill(job: Job, store, payload: dict, result: dict, final: dict, deliver: dict | None = None) -> None:
     """After a run: queue the node-only steps (and the vision critique) as durable follow-up jobs; they park themselves while the server is off."""
     try:
         pending = node_pending(result["variants"]) if payload.get("asr", True) else []
         if pending:
             count = sum(len(p["steps"]) for p in pending)
             fill = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director_fill", "of": job.id, "count": count})
-            if dispatch_job(fill, director_fill_task, fill.id, {"items": pending}) is None:
-                final["waiting_node"] = {"job_id": fill.id, "steps": count}
+            if dispatch_job(fill, director_fill_task, fill.id, {"items": pending, **({"deliver": deliver} if deliver else {})}) is None:
+                final["waiting_node"] = {"job_id": fill.id, "steps": count, "then_render": bool(deliver)}
                 final.setdefault("degraded", []).append(f"{count} مرحله (زیرنویس، حذفِ «اِم و اوم» یا گویندگی) به سرورِ پردازش نیاز دارد که الان روشن نیست؛ در صفِ پردازش ماند و با روشن شدنش خودکار به پیش‌نویس‌ها اضافه می‌شود.")
         opts = payload.get("options") if isinstance(payload.get("options"), dict) else {}
         primary = next((v for v in result["variants"] if v["key"] == result.get("primary")), None)
@@ -129,6 +176,7 @@ def _options(raw: dict) -> director_loop.Options:
         use_ai=bool(raw.get("use_ai", True)),
         preview=bool(raw.get("preview", True)),
         music_ref=str(raw.get("music_ref") or ""),
+        require_words=bool(raw.get("require_words")),
         override=raw.get("override") if isinstance(raw.get("override"), dict) else {})
 
 
@@ -206,7 +254,17 @@ def director_task(self, job_id, payload):
                          for v in result["variants"]],
         }
         if kind == "run":
-            _queue_fill(job, store, payload, result, final)
+            raw_opts = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+            spec = None
+            if raw_opts.get("deliver"):
+                primary = next((v for v in result["variants"] if v["key"] == result.get("primary")), None)
+                if primary and primary.get("draft_id"):
+                    spec = {"draft": primary["draft_id"], "parent": job.id, "sizes": raw_opts.get("sizes") or [],
+                            "captions": raw_opts.get("captions") if raw_opts.get("captions") in ("burn", "soft") else ""}
+            _queue_fill(job, store, payload, result, final, deliver=spec)
+            if spec and not final.get("waiting_node"):
+                job.mark_progress(99, "ساختِ خروجی")
+                final["delivered"] = deliver_draft(store, spec)
         job.mark_completed(final)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
@@ -252,7 +310,11 @@ def director_fill_task(self, job_id, payload):
                 new["director"] = {**meta, "filled_at": timezone.now().isoformat()}
                 drafts_mod.replace(draft, title=draft.title, data=new, score=draft.score, length=ops.project_length(new))
             job.mark_progress(n, "")
-        job.mark_completed({"filled": done, "still_missing": still})
+        result = {"filled": done, "still_missing": still}
+        if payload.get("deliver"):
+            job.mark_progress(len(payload.get("items") or []), "ساختِ خروجی")
+            result["delivered"] = deliver_draft(store, payload["deliver"])
+        job.mark_completed(result)
         return {"ok": True, "filled": done}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Director fill job %s failed", job_id)

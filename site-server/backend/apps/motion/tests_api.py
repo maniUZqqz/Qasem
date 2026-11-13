@@ -111,6 +111,7 @@ class Catalog(Base):
         self.assertIn("connect-src 'none'", csp)
         self.assertIn("default-src 'none'", csp)
         self.assertEqual(r["X-Frame-Options"], "SAMEORIGIN")
+        self.assertIn('<html lang="fa" dir="ltr">', r.content.decode("utf-8"))   # an RTL document throws the Remotion Player stage off-screen (black preview)
         self.assertEqual(self.client.get("/api/v1/motion/player/fonts/..%2Fx.woff2").status_code, 404)
         self.assertEqual(self.client.get("/api/v1/motion/player/fonts/evil.txt").status_code, 404)
         font = self.client.get("/api/v1/motion/player/fonts/vazirmatn-arabic-700-normal.woff2")

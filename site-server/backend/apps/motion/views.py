@@ -74,7 +74,9 @@ def style_thumb(request, style_id: str):
     return resp
 
 
-PLAYER_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+# The document must be LTR: the Remotion Player lays out its fixed-size stage with an absolutely positioned box, and in an RTL document that box
+# lands off-screen (the preview was a black panel). The Persian text inside the composition sets its own direction, as in the render shell.
+PLAYER_HTML = """<!doctype html><html lang="fa" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>motion player</title><style>html,body,#root{margin:0;height:100%;background:#000;overflow:hidden}</style></head>
 <body><div id="root"></div><script>window.__NM_FONT_BASE="/api/v1/motion/player/fonts/";</script>
 <script src="/api/v1/motion/player/player.js?v=__V__"></script></body></html>"""

@@ -156,6 +156,22 @@ def ai_settings_test(request):
     return Response({'ok': True, 'message': msg, 'models': names or []})
 
 
+def _design(post):
+    """سبکِ طراحی و قطعه‌های سنجاق‌شدهٔ کاربر ⇒ {'style', 'components'} یا None. هر چیزِ ناشناخته دور ریخته می‌شود."""
+    from apps.projects.builder import components, styles
+    style = (post.get('style') or '').strip()
+    style = style if style in styles.STYLES else ''
+    keys = [k for k in post.getlist('components') if k in components.COMPONENTS][:5]
+    return {'style': style, 'components': keys} if (style or keys) else None
+
+
+@studio_api('GET')
+def design_options(request):
+    """سبک‌ها و قطعه‌های قابلِ انتخاب برای «حالتِ AI» (فرمِ ساختِ فرانت و ویرایشِ صفحهٔ کدی)."""
+    from apps.projects.builder import ai_context
+    return Response(ai_context.options_json())
+
+
 # ──────────────────────────────────────────────── خانهٔ AI هر پروژه
 @studio_api('GET', 'POST')
 def ai_home(request, slug):
@@ -174,7 +190,7 @@ def ai_home(request, slug):
                 return bad('توضیحِ فروشگاه لازم است.', 'brief')
             ids = [int(x) for x in post.getlist('pages') if x.isdigit()] or None
             prop = services.generate_frontend(p, brief, include_shell=post.get('shell') == 'on', page_ids=ids,
-                                              include_samples=post.get('samples') == 'on')
+                                              include_samples=post.get('samples') == 'on', design=_design(post))
             return Response({'ok': True, 'proposal': proposal_json(prop)}, status=201)
         if act == 'models':
             desc = (post.get('description') or '').strip()
@@ -211,7 +227,7 @@ def ai_edit_page(request, slug, pk):
     post, instr, err = _instruction(request)
     if err:
         return err
-    prop = services.edit_page(page, instr, section=(post.get('section') or '').strip() or None)
+    prop = services.edit_page(page, instr, section=(post.get('section') or '').strip() or None, design=_design(post))
     return Response({'ok': True, 'proposal': proposal_json(prop)}, status=201)
 
 

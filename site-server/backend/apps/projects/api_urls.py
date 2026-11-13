@@ -84,6 +84,9 @@ urlpatterns = [
     path('projects/<slug:slug>/quick-edit/upload/', vb.quick_upload),         # POST
     path('projects/<slug:slug>/quick-edit/<str:kind>/<int:pk>/', vb.quick_edit),  # GET · POST
     path('projects/<slug:slug>/builder/theme/', vb.theme_detail),             # GET · PUT پوسته و منو
+    path('projects/<slug:slug>/builder/style/apply/', vb.style_apply),        # POST سبکِ طراحی روی پوسته (و چیدمانِ بخش‌ها)
+    path('projects/<slug:slug>/builder/components/<str:key>/preview/', vb.component_preview),  # GET پیش‌نمایشِ یک قطعه
+    path('projects/<slug:slug>/builder/ai-context/', vb.ai_context_preview),  # POST آنچه حالتِ AI می‌بیند
     path('projects/<slug:slug>/builder/media/', vb.media_list),               # GET · POST آپلود
     path('projects/<slug:slug>/builder/media/<int:pk>/', vb.media_detail),    # PUT · DELETE
     path('projects/<slug:slug>/builder/sections/', vb.section_list),          # GET · POST
@@ -107,6 +110,7 @@ urlpatterns = [
     path('ai/route/', ai.ai_route),                                           # GET · POST {mode}
     path('ai/route/pull/', ai.ai_route_pull),                                 # POST دانلودِ مدل روی گره
     path('ai/settings/test/', ai.ai_settings_test),                           # POST
+    path('ai/design-options/', ai.design_options),                            # GET سبک‌ها و قطعه‌های قابلِ انتخاب در حالتِ AI
     path('projects/<slug:slug>/ai/', ai.ai_home),                             # GET · POST {act}
     path('projects/<slug:slug>/ai/page/<int:pk>/', ai.ai_edit_page),          # POST
     path('projects/<slug:slug>/ai/shared/<str:kind>/', ai.ai_edit_shared),    # POST

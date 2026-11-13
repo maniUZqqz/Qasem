@@ -159,6 +159,7 @@ export default function PageEditPage() {
             : "فقط بدنه و CSSِ همین صفحه — هدر، فوتر، صفحه‌های دیگر و بک‌اند دست نمی‌خورند. قبل از اعمال، Diff را می‌بینی."
         }
         withSection={!page.is_imported}
+        withDesign={!page.is_imported && !page.has_design}
         recent={data.recent}
       />
 

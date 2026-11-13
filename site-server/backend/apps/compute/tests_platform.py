@@ -519,6 +519,10 @@ class SelfTestRunTests(_Base):
         if k == "ollama.generate":
             if p.get("images"):
                 return {"ollama.json": json.dumps({"response": "Red"}).encode()}, {"device": "cuda"}
+            if "design:" in str(p.get("prompt") or ""):        # آزمونِ «سایت‌ساز: سبک و قطعه در حالتِ AI» (selftests/site_styles.py): مدل HTMLِ قطعه‌دار می‌دهد
+                html = ('<section class="nb-section nbc nbc-hero-center-glow"><div class="nb-wrap"><h1>با چغر چغر تر شو</h1>'
+                        '<p>دستیار هوش مصنوعیِ مربی‌ها؛ پیش‌نویسِ برنامه را می‌سازد و تصمیمِ نهایی با مربی است.</p></div></section>')
+                return {"ollama.json": json.dumps({"response": html, "eval_count": 60, "eval_duration": 2000000000}).encode()}, {"device": "cuda"}
             return {"ollama.json": json.dumps({"response": "چغر، دستیارِ هوشمندِ مربی‌های ورزشی، برنامهٔ هر ورزشکار را سریع پیش‌نویس می‌کند.", "eval_count": 20, "eval_duration": 1000000000}).encode()}, {"device": "cuda"}
         if k == "comfy.profile":
             import io

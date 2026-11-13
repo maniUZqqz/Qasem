@@ -5,12 +5,15 @@ import { api, studioError } from "../api";
 import type { Block, Catalog, Doc } from "./doc";
 import { contrastRatio, mix, readableOn, specOf } from "./doc";
 import { ColorField, Svg } from "./fields";
+import { ComponentsPanel, press, StylePicker } from "./designKit";
 import type { AssetT, MenuRow, PageRow, SectionT, StarterT, ThemeOptions, ThemeT, VersionT } from "./types";
 
 /* ─────────── کتابخانهٔ بلوک ─────────── */
 export function LibraryPanel({
   catalog,
   target,
+  slug,
+  theme,
   sections,
   onAdd,
   onDragStart,
@@ -20,6 +23,8 @@ export function LibraryPanel({
 }: {
   catalog: Catalog;
   target: string;
+  slug: string;
+  theme: ThemeT;
   sections: SectionT[];
   onAdd: (type: string) => void;
   onDragStart: (type: string, x: number, y: number) => void;
@@ -28,28 +33,32 @@ export function LibraryPanel({
   onDeleteSaved: (s: SectionT) => void;
 }) {
   const [q, setQ] = useState("");
+  const [mode, setMode] = useState<"blocks" | "parts">("blocks");
+  const hasParts = (catalog.components?.items ?? []).some((c) => c.scope.includes(target));
   const items = catalog.blocks.filter(
-    (b) => !b.hidden && (!b.scope.length || b.scope.includes(target)) && (!q.trim() || b.label.includes(q.trim())),
+    (b) => !b.hidden && b.group !== "components" && (!b.scope.length || b.scope.includes(target)) && (!q.trim() || b.label.includes(q.trim())),
   );
-  const press = (e: React.PointerEvent, go: (x: number, y: number) => void) => {
-    if (e.pointerType === "touch" || e.button !== 0) return;
-    const sx = e.clientX;
-    const sy = e.clientY;
-    const move = (ev: PointerEvent) => {
-      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) {
-        cleanup();
-        go(ev.clientX, ev.clientY);
-      }
-    };
-    const cleanup = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", cleanup);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", cleanup);
-  };
+  const modeBar = hasParts ? (
+    <div className="nbe-seg nbe-libmode" role="tablist">
+      <button type="button" className={mode === "blocks" ? "on" : ""} data-libmode="blocks" onClick={() => setMode("blocks")}>
+        بلوک‌ها
+      </button>
+      <button type="button" className={mode === "parts" ? "on" : ""} data-libmode="parts" onClick={() => setMode("parts")}>
+        قطعه‌های آماده ({(catalog.components?.items ?? []).filter((c) => c.scope.includes(target)).length})
+      </button>
+    </div>
+  ) : null;
+  if (mode === "parts" && hasParts) {
+    return (
+      <div className="nbe-pane" data-testid="library">
+        {modeBar}
+        <ComponentsPanel catalog={catalog} target={target} theme={theme} slug={slug} onAdd={onAdd} onDragStart={onDragStart} />
+      </div>
+    );
+  }
   return (
     <div className="nbe-pane" data-testid="library">
+      {modeBar}
       <input className="nbe-input" placeholder="جست‌وجوی بلوک…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی بلوک" />
       {catalog.groups.map((g) => {
         const rows = items.filter((b) => b.group === g.value);
@@ -123,7 +132,25 @@ function previewOf(b: Block): string {
 }
 
 /* ─────────── پوسته ─────────── */
-export function ThemePanel({ theme, options, onChange }: { theme: ThemeT; options: ThemeOptions; onChange: (t: ThemeT) => void }) {
+export function ThemePanel({
+  theme,
+  options,
+  onChange,
+  slug,
+  target,
+  doc,
+  pageId,
+  onStyle,
+}: {
+  theme: ThemeT;
+  options: ThemeOptions;
+  onChange: (t: ThemeT) => void;
+  slug: string;
+  target: string;
+  doc: Doc;
+  pageId?: number;
+  onStyle: (t: ThemeT, d: Doc | null) => void;
+}) {
   const setColor = (key: keyof ThemeT["colors"], v: string) => {
     const colors = { ...theme.colors, [key]: v };
     if (key === "primary") colors.on_primary = readableOn(v);
@@ -143,6 +170,7 @@ export function ThemePanel({ theme, options, onChange }: { theme: ThemeT; option
   const lowContrast = contrastRatio(theme.colors.text, theme.colors.bg) < 4.5;
   return (
     <div className="nbe-pane" data-testid="theme">
+      <StylePicker slug={slug} theme={theme} doc={doc} target={target} pageId={pageId} options={options} onApply={onStyle} />
       <h4 className="nbe-h">رنگ‌های آماده</h4>
       <div className="nbe-presets">
         {options.presets.map((p) => (

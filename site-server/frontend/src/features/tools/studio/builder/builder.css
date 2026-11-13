@@ -193,3 +193,32 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
   .nbe-tabs button{padding:10px 0}
   .nbe-notice{font-size:12px;padding:6px 10px}
 }
+
+/* سبکِ طراحی و قطعه‌های آماده */
+.nbe-style-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.nbe-style{background:var(--e-panel2);border:1.5px solid transparent;border-radius:11px;padding:6px;display:grid;gap:3px;text-align:start;align-content:start}
+.nbe-style:hover{border-color:color-mix(in srgb,var(--brand) 55%,transparent)}
+.nbe-style.pick{border-color:var(--brand)}
+.nbe-style.on b::after{content:" ✓";color:var(--ok,#10b981)}
+.nbe-style b{font-size:12px}
+.nbe-style small{font-size:10px;color:var(--text-3);text-align:start}
+.nbe-style-thumb{display:grid;gap:5px;align-content:center;height:78px;border-radius:8px;padding:8px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(127,127,127,.28)}
+.nbe-style-thumb i{display:block}
+.nbe-style-detail{margin-top:10px;background:var(--e-panel2);border-radius:11px;padding:10px 11px}
+.nbe-attrib{font-size:11px;opacity:.85}
+.nbe-libmode{margin-bottom:10px}
+.nbe-chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.nbe-chips button{background:var(--e-panel2);border:1px solid transparent;border-radius:99px;padding:2px 10px;font-size:11.5px;color:var(--text-2)}
+.nbe-chips button.on{background:var(--brand);color:#fff}
+.nbe-parts{display:grid;gap:7px}
+.nbe-part{background:var(--e-panel2);border:1px solid transparent;border-radius:11px;overflow:hidden}
+.nbe-part.open,.nbe-part:hover{border-color:color-mix(in srgb,var(--brand) 50%,transparent)}
+.nbe-part-main{display:grid;gap:2px;width:100%;background:none;border:0;text-align:start;padding:9px 11px 4px;user-select:none;touch-action:none}
+.nbe-part-main b{font-size:12.5px}
+.nbe-part-main small{font-size:11px;color:var(--text-3);line-height:1.6}
+.nbe-part-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:2px 11px 8px}
+.nbe-part-foot .nbe-link{margin-inline-start:auto}
+.nbe-badge{font-size:10px;font-style:normal;background:var(--e-panel);color:var(--text-3);border-radius:6px;padding:1px 7px}
+.nbe-badge.ok{background:color-mix(in srgb,var(--ok,#10b981) 20%,var(--e-panel));color:var(--ok,#10b981)}
+.nbe-part-prev{border-top:1px solid var(--e-line);padding:8px 10px 10px}
+.nbe-part-frame{width:100%;height:300px;border:0;border-radius:8px;background:#fff;display:block}

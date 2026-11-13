@@ -10,7 +10,19 @@ export type ThemeColors = {
   bg: string;
   surface: string;
 };
-export type ThemeT = { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number };
+export type ThemeT = { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number; style?: string };
+export type StyleT = {
+  key: string;
+  label: string;
+  en: string;
+  mood: string;
+  desc: string;
+  tags: string[];
+  theme: { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number };
+  tokens: Record<string, string>;
+  sections: Record<string, string>;
+  uiux: { style_id?: string; font_pairing?: string; palette?: string };
+};
 export type MenuRow = { id: string; page?: number; url?: string; label: string; children?: MenuRow[] };
 export type AssetT = { id: number; ref: string; kind: string; name: string; alt: string; width: number; height: number; size: number; url: string; thumb: string };
 export type ModelT = {
@@ -29,6 +41,7 @@ export type StarterT = { key: string; title: string; desc: string; icon: string;
 export type PreviewT = { running: boolean; url: string; admin_user: string; admin_password: string };
 export type ThemeOptions = {
   fonts: { value: string; label: string; family: string }[];
+  styles?: StyleT[];
   presets: { key: string; label: string; colors: Partial<ThemeColors> }[];
   buttons: { value: string; label: string }[];
 };

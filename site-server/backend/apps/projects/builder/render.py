@@ -10,7 +10,7 @@ import math
 import re
 from urllib.parse import parse_qs, urlparse
 
-from . import icons
+from . import components as comps, icons, variants
 from .catalog import BLOCKS, CONTAINERS
 from .clean import esc, neutralize, safe_url, walk
 
@@ -130,12 +130,26 @@ class Renderer:
         self.warnings = []
         self.headings = []
         self.uses_form = False
+        self.used_variants = []       # [(نوعِ بلوک، کلیدِ چیدمان)] برای نوشتنِ CSSِ فقط همان‌ها
+        self.used_components = []     # کلیدِ قطعه‌های آماده‌ای که در این سند هستند
+
+    def use_variant(self, btype, key):
+        if (btype, key) not in self.used_variants:
+            self.used_variants.append((btype, key))
+
+    def use_component(self, key):
+        if key not in self.used_components:
+            self.used_components.append(key)
 
     # ── ابزارها ──
     def attrs(self, b, cls):
         """class و (فقط در بوم) ویژگی‌های انتخاب."""
         extra = b['props'].get('cls')
         klass = ('%s b-%s' % (cls, b['id'])).strip()
+        variant = b['props'].get('variant')
+        if variant and variants.has(b['type'], variant):          # «چیدمانِ بخش»: فقط یک کلاس + CSSِ همان چیدمان
+            klass += ' nbv-' + variant
+            self.use_variant(b['type'], variant)
         if extra:
             klass = '%s %s' % (esc(extra), klass)
         out = 'class="%s"' % klass
@@ -306,7 +320,21 @@ class Renderer:
         for media in sorted(k for k in groups if k):
             if groups[media]:
                 out.append('%s{%s}' % (media, ''.join(groups[media])))
+        tail = self.extra_css()
+        if tail:
+            out.append(tail)
         return '\n'.join(out)
+
+    def extra_css(self):
+        """CSSِ چیدمان‌های بخش و قطعه‌های آماده‌ای که واقعاً در سند به‌کار رفته‌اند (بدونِ آن‌ها چیزی اضافه نمی‌شود)."""
+        parts = []
+        order = list(variants.VARIANTS)
+        for btype, key in sorted(self.used_variants, key=lambda x: (order.index(x[0]), list(variants.VARIANTS[x[0]][1]).index(x[1]))):
+            parts.append(variants.css_for(btype, key))
+        css = comps.css_for(self.used_components)
+        if css:
+            parts.append(css)
+        return '\n'.join(p for p in parts if p)
 
     # ── درخت ──
     def children(self, b):
@@ -319,6 +347,8 @@ class Renderer:
 
     def block(self, b):
         self.style_css(b)
+        if comps.key_of(b['type']):
+            return comps.render(self, b)
         fn = getattr(self, 'r_' + b['type'])
         return fn(b)
 

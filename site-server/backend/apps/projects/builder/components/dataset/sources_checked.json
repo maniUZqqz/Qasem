@@ -1,0 +1,123 @@
+{
+ "checked_at": "2026-11-13",
+ "tool": "apps.projects.builder.components.import_sources",
+ "registry": {
+  "url": "https://21st.dev/r/shadcn/button",
+  "http": 403,
+  "reason": "authentication_required",
+  "note": "بی‌کلیدِ API کدِ ریجیستری داده نمی‌شود؛ کدِ قطعه‌های adapted از مخزنِ MIT خودِ نویسنده خوانده شد."
+ },
+ "rows": [
+  {
+   "title": "Hero Video Dialog",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "mit",
+   "tags": "Video Player, Landing Page, Video, Hero",
+   "npm": "lucide-react, framer-motion",
+   "component": "hero_video_thumb",
+   "listing": "https://21st.dev/@dillionverma/components/hero-video-dialog",
+   "http": 200
+  },
+  {
+   "title": "Bento Grid",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "mit",
+   "tags": "Landing Page, Bento",
+   "npm": "@radix-ui/react-icons",
+   "component": "feat_bento_showcase",
+   "listing": "https://21st.dev/@dillionverma/components/bento-grid",
+   "http": 200
+  },
+  {
+   "title": "Tweet Card",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "MIT",
+   "tags": "Card, Tweet, Social, Embed",
+   "npm": "react-tweet",
+   "component": "testi_social_cards",
+   "listing": "https://21st.dev/@dillionverma/components/tweet-card",
+   "http": 200
+  },
+  {
+   "title": "Marquee",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "mit",
+   "tags": "Scroll Area",
+   "npm": "",
+   "component": "testi_marquee",
+   "listing": "https://21st.dev/@dillionverma/components/marquee",
+   "http": 200
+  },
+  {
+   "title": "Magic Card",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "mit",
+   "tags": "Card, Animation, Landing Page",
+   "npm": "framer-motion",
+   "component": "card_spotlight",
+   "listing": "https://21st.dev/@dillionverma/components/magic-card",
+   "http": 200
+  },
+  {
+   "title": "Marquee",
+   "author": "Dillion Verma",
+   "library": "Magic UI",
+   "license": "mit",
+   "tags": "Scroll Area",
+   "npm": "",
+   "component": "logos_marquee",
+   "listing": "https://21st.dev/@dillionverma/components/marquee",
+   "http": 200
+  }
+ ],
+ "files": [
+  {
+   "component": "hero_video_thumb",
+   "path": "apps/www/registry/magicui/hero-video-dialog.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "feat_bento_showcase",
+   "path": "apps/www/registry/magicui/bento-grid.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "testi_social_cards",
+   "path": "apps/www/registry/magicui/tweet-card.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "testi_marquee",
+   "path": "apps/www/registry/magicui/marquee.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "card_neon_gradient",
+   "path": "apps/www/registry/magicui/neon-gradient-card.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "card_spotlight",
+   "path": "apps/www/registry/magicui/magic-card.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  },
+  {
+   "component": "logos_marquee",
+   "path": "apps/www/registry/example/marquee-logos.tsx",
+   "commit": "a4dcb912073c0ff45654c943c16e131360405c11",
+   "http": 200
+  }
+ ],
+ "errors": []
+}

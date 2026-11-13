@@ -41,6 +41,21 @@ export type BlockSpec = {
   fields: FieldSpec[];
   style: string[];
   defaults: Rec;
+  component?: string;
+  category?: string;
+};
+
+export type CompMeta = {
+  key: string;
+  type: string;
+  cat: string;
+  label: string;
+  desc: string;
+  tags: string[];
+  styles: string[];
+  root: string;
+  scope: string[];
+  src: { origin: string; library: string; author: string; license: string; copyright: string; source_url: string; listing_url: string; pattern_ref: string };
 };
 
 export type Catalog = {
@@ -50,6 +65,7 @@ export type Catalog = {
   style_groups: { value: string; label: string }[];
   icons: Record<string, string>;
   icon_names: string[];
+  components?: { categories: { key: string; label: string; icon: string; count: number }[]; items: CompMeta[] };
 };
 
 export type DropTarget = { parent: string | null; index: number; wrap: boolean };

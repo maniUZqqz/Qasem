@@ -577,6 +577,8 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
         <LibraryPanel
           catalog={catalog}
           target={target}
+          slug={slug}
+          theme={theme}
           sections={sections}
           onAdd={addBlock}
           onDragStart={(type, x, y) => {
@@ -602,7 +604,21 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
         />
       )}
       {pane === "outline" && <OutlinePanel doc={doc} catalog={catalog} selected={selected} onSelect={(id) => { setSelected(id); ctlRef.current?.select(id, true); }} />}
-      {pane === "theme" && <ThemePanel theme={theme} options={boot.theme_options} onChange={setTheme} />}
+      {pane === "theme" && (
+        <ThemePanel
+          theme={theme}
+          options={boot.theme_options}
+          onChange={setTheme}
+          slug={slug}
+          target={target}
+          doc={doc}
+          pageId={pageRef}
+          onStyle={(t, d) => {
+            setTheme(t);
+            if (d && JSON.stringify(d) !== JSON.stringify(docRef.current)) commit(d);
+          }}
+        />
+      )}
       {pane === "menu" && <MenuPanel menu={menu} pages={pages} onChange={setMenu} />}
       {pane === "media" && <MediaPanel slug={slug} media={media} setMedia={setMedia} />}
       {pane === "versions" && <VersionsPanel versions={versions} onRestore={(v) => { if (window.confirm("این نسخه به پیش‌نویس برگردد؟")) void restore(v); }} />}

@@ -5,6 +5,7 @@ import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Spinner, Table, TextArea } from "../../../components/ui";
 import { api, BASE, fa, fmtShort, pUrl, studioError, truncate } from "./api";
 import { Check, Help, Loading, Mono, proposalTone, SectionHead } from "./common";
+import DesignPicker, { DesignValue } from "./DesignPicker";
 import { useProject } from "./shell";
 import type { AiHomeResp, ProposalT } from "./types";
 
@@ -18,6 +19,7 @@ export default function AiHomePage() {
   const [shell, setShell] = useState(true);
   const [samples, setSamples] = useState(true);
   const [pages, setPages] = useState<number[]>([]);
+  const [design, setDesign] = useState<DesignValue>({ style: "", components: [] });
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState<"frontend" | "models" | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export default function AiHomePage() {
     setBusy(act);
     setFormError(null);
     try {
-      const body = act === "frontend" ? { act, brief, shell, samples, pages } : { act, description };
+      const body = act === "frontend" ? { act, brief, shell, samples, pages, style: design.style, components: design.components } : { act, description };
       const { data: d } = await api.post<{ proposal: ProposalT }>(`/studio/projects/${slug}/ai/`, body);
       navigate(pUrl(slug, `ai/proposal/${d.proposal.id}`));
     } catch (err) {
@@ -114,6 +116,7 @@ export default function AiHomePage() {
                   ))}
                 </div>
               </div>
+              <DesignPicker value={design} onChange={setDesign} />
               <Button type="submit" disabled={!ready || busy !== null}>
                 <Icon name="sparkle" size={14} />
                 {busy === "frontend" ? "در حالِ فرستادن…" : "بساز — پیشنهاد بده"}

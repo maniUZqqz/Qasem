@@ -230,7 +230,8 @@ def after_run(gen):
     folder = gen._target('static/fonts')
     os.makedirs(folder, exist_ok=True)
     for key in used:
-        for name, _rng in theme_mod.FONTS[key]['files']:
+        for entry in theme_mod.FONTS[key]['files']:
+            name = entry[0]
             shutil.copyfile(os.path.join(theme_mod.FONT_DIR, name), os.path.join(folder, name))
             gen.written.append('static/fonts/%s' % name)
     models = {}

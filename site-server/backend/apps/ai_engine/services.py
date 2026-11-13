@@ -319,6 +319,39 @@ SYSTEM_PAGE = """تو طراحِ فرانت‌اندِ یک فروشگاهِ ا�
 
 THEME_MARK = '/* ── پوستهٔ هوشِ مصنوعی'
 
+# ── سبکِ طراحی + چند قطعهٔ آماده (حالتِ AI) ──────────────────────────────
+# اصل: «همه‌چیز را به AI نده». فقط سبکِ انتخاب‌شده و حداکثر ۵ قطعهٔ مرتبط می‌رسد (apps/projects/builder/ai_context.py سقفِ اندازه دارد).
+DESIGN_RULES_FA = """سبکِ طراحیِ انتخاب‌شده و چند قطعهٔ آماده در کلیدِ design آمده است (کم و مرتبط؛ نه همهٔ کتابخانه).
+- رنگ‌ها، قلم‌ها و حس‌وحالِ صفحه را از design.style بگیر و با متغیرهای CSS (var(--brand)، var(--ink) …) به‌کار ببر؛ رنگِ ثابت یا قلمِ تازه نیاور.
+- هر قطعه‌ای از design.components را که به محتوا می‌خورد عیناً (با همان کلاس‌های nb-section و nbc-…) در body_html بگذار و فقط متن‌ها، پیوندها و تعدادِ آیتم‌ها را عوض کن؛
+  برای این قطعه‌ها CSS ننویس، خودمان به صفحه اضافه می‌کنیم.
+- قطعه‌ای که به محتوا نمی‌خورد را کنار بگذار؛ لازم نیست همه استفاده شوند. آمار، قیمت و نامِ ساختگی ننویس."""
+DESIGN_SHELL_FA = """سبکِ طراحیِ انتخاب‌شده در design.style آمده است. پالتِ رنگ و قلم‌ها را از آن بگیر (رنگ‌های :root را با همان مقدارها بنویس) و حس‌وحالِ آن سبک را
+در هدر، فوتر و theme_css نشان بده؛ رنگ و قلمِ بیرون از آن پالت نیاور."""
+
+
+def _design_style(design):
+    if not design or not design.get('style'):
+        return ''
+    from apps.projects.builder import styles
+    return design['style'] if design['style'] in styles.STYLES else ''
+
+
+def _design_for(design, brief, kind):
+    """design = {'style': کلید, 'components': [کلیدها]} ⇒ بستهٔ کوچکِ پرامپت یا None."""
+    if not design or not (_design_style(design) or design.get('components')):
+        return None
+    from apps.projects.builder import ai_context
+    return ai_context.build(_design_style(design), brief or '', kind or 'home', design.get('components') or ())
+
+
+def _design_css(design, body_html, css):
+    """CSSِ قطعه‌هایی که AI در بدنه به‌کار برده، به CSSِ صفحه اضافه می‌شود (بی‌آن‌که AI برایشان CSS بنویسد)."""
+    if not design:
+        return css
+    from apps.projects.builder import ai_context
+    return ai_context.attach_css(body_html or '', css)
+
 
 def _rules_for(css, keywords, limit=9000):
     """قاعده‌هایی از CSS که انتخابگرشان یکی از این کلمه‌ها را دارد (برای Context ِ کوچک ولی دقیق)."""
@@ -439,13 +472,13 @@ def _clean_samples(data):
     return {'categories': cats, 'products': prods}
 
 
-def generate_frontend(project, brief, include_shell=True, page_ids=None, include_samples=False):
+def generate_frontend(project, brief, include_shell=True, page_ids=None, include_samples=False, design=None):
     """از توضیحِ متنی ⇒ پوسته/هدر/فوتر + بدنهٔ صفحه‌ها (+ دادهٔ نمونه). هر صفحه یک فراخوانیِ جدا."""
     prop = _new_proposal(project, 'generate_frontend', 'فرانتِ اولیه از توضیح', brief)
-    return _launch(prop, _do_generate_frontend, brief, include_shell, page_ids, include_samples)
+    return _launch(prop, _do_generate_frontend, brief, include_shell, page_ids, include_samples, design)
 
 
-def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samples=False):
+def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samples=False, design=None):
     project = proposal.project
     provider = get_provider()
     ctx = _project_ctx(project)
@@ -453,13 +486,18 @@ def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samp
     url_names = set(ctx['url_names'])
     summaries, order = [], 0
     if include_shell:
-        data = _call(provider, proposal, SYSTEM_SHELL, {
+        style_key = _design_style(design)
+        shell_payload = {
             'task': 'shell', 'brief': brief, 'project': ctx,
             'current_header': sh['header'], 'current_footer': sh['footer'],
             'base_css_root': _base_root(sh['base_css']),
             'base_rules_header_footer_hero': _rules_for(sh['base_css'], ('site-header', 'main-nav', 'cart-link', 'brand',
                                                                          'badge', 'site-footer', 'hero', '.btn')),
-        })
+        }
+        if style_key:
+            from apps.projects.builder import ai_context
+            shell_payload['design'] = {'style': ai_context.style_brief(style_key)}
+        data = _call(provider, proposal, SYSTEM_SHELL + ('\n' + DESIGN_SHELL_FA if style_key else ''), shell_payload)
         summaries.append(data.get('summary', ''))
         for key, target, label in (('header', 'shared_header', 'هدر'), ('footer', 'shared_footer', 'فوتر')):
             new = data.get(key)
@@ -470,8 +508,12 @@ def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samp
                 order += 1
         theme = data.get('theme_css') or data.get('base_css') or ''
         if str(theme).strip():
+            base_now = sh['base_css']
+            if style_key:                       # پالتِ سبک را خودمان می‌نشانیم تا AI نتواند از آن دور شود
+                from apps.projects.builder import ai_context
+                base_now = ai_context.styled_base(base_now, style_key)
             _add_change(proposal, 'shared_css', 'پوستهٔ CSS (روی CSSِ پایه)', sh['base_css'],
-                        _with_theme(sh['base_css'], str(theme), brief), order=order)
+                        _with_theme(base_now, str(theme), brief), order=order)
             order += 1
     if include_samples and any(a.name == 'catalog' for a in project.apps.all()):
         data = _call(provider, proposal, SYSTEM_SAMPLES, {'task': 'samples', 'brief': brief,
@@ -496,12 +538,18 @@ def _do_generate_frontend(proposal, brief, include_shell, page_ids, include_samp
                 'visual_editor_note': 'این صفحه بلوک‌بندی شده است. ساختار و کلاس‌های nb-* و b-* را دقیقاً نگه دار و فقط متن‌ها را عوض کن. css را null بگذار.',
             })
         else:
-            data = _call(provider, proposal, SYSTEM_PAGE, {
+            page_payload = {
                 'task': 'page', 'brief': brief, 'project': ctx,
                 'slug': pg.slug, 'title': pg.title, 'kind': pg.kind,
                 'available_variables': PAGE_VARS.get(pg.kind, PAGE_VARS['static']),
                 'current_body': pg.body_html, 'current_css': pg.css,
-            })
+            }
+            page_design = _design_for(design, brief, pg.kind)
+            if page_design:
+                page_payload['design'] = page_design
+            data = _call(provider, proposal, SYSTEM_PAGE + ('\n' + DESIGN_RULES_FA if page_design else ''), page_payload)
+            if page_design:
+                data['css'] = _design_css(design, data.get('body_html'), data['css'] if data.get('css') is not None else pg.css)
         summaries.append('/%s: %s' % (pg.slug, data.get('summary', '')))
         if data.get('body_html'):
             _add_change(proposal, 'page_body', '%s  (/%s)' % (pg.title, pg.slug), pg.body_html, data['body_html'],
@@ -539,13 +587,13 @@ SYSTEM_EDIT_FILE = """تو ویرایشگرِ قالب‌های یک پروژه�
 هر چه کاربر نخواسته، دست نزن. پاسخ فقط JSON با کلیدهای summary و content."""
 
 
-def edit_page(page, instruction, section=None):
+def edit_page(page, instruction, section=None, design=None):
     title = ('ویرایشِ %s' % page.title) if page.is_imported else ('ویرایشِ «%s» (/%s)' % (page.title, page.slug))
     prop = _new_proposal(page.project, 'edit_page', title, instruction)
-    return _launch(prop, _do_edit_page, page, instruction, section)
+    return _launch(prop, _do_edit_page, page, instruction, section, design)
 
 
-def _do_edit_page(proposal, page, instruction, section):
+def _do_edit_page(proposal, page, instruction, section, design=None):
     project = page.project
     provider = get_provider()
     if page.is_imported:
@@ -570,8 +618,13 @@ def _do_edit_page(proposal, page, instruction, section):
         # صفحه با ویرایشگرِ دیداری ساخته شده: کلاس‌های b-xxxx نشانهٔ بلوک‌اند؛ اگر بمانند صفحه بعد از AI هم با کلیک ویرایش می‌شود
         payload['visual_editor_note'] = ('این صفحه بلوک‌بندی شده است. ساختار و کلاس‌های nb-* و b-* را حفظ کن، '
                                          'و تا می‌توانی فقط متن‌ها را عوض کن یا بخشِ تازه با <section> اضافه کن.')
-    data = _call(provider, proposal, SYSTEM_EDIT_PAGE, payload)
+    page_design = None if hasattr(page, 'design') else _design_for(design, instruction, page.kind)   # صفحهٔ دیداری ساختارش را نگه می‌دارد؛ قطعه نمی‌گیرد
+    if page_design:
+        payload['design'] = page_design
+    data = _call(provider, proposal, SYSTEM_EDIT_PAGE + ('\n' + DESIGN_RULES_FA if page_design else ''), payload)
     url_names = set(ctx['url_names'])
+    if page_design:
+        data['css'] = _design_css(design, data.get('body_html'), data['css'] if data.get('css') is not None else page.css)
     if data.get('body_html'):
         _add_change(proposal, 'page_body', '%s  (/%s)' % (page.title, page.slug), page.body_html, data['body_html'],
                     page=page, url_names=url_names, order=0)

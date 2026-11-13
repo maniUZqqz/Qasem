@@ -290,6 +290,8 @@ class _Cleaner:
                     clean[key] = c
         if props.get('legacy'):
             clean['legacy'] = True
+        if not clean.get('variant'):                # «چیدمانِ بخش» خالی = پیش‌فرض؛ کلیدش در سند نمی‌ماند (سندهای قبلی تغییر نکنند)
+            clean.pop('variant', None)
         out = {'id': bid, 'type': btype, 'props': clean, 'style': clean_style(raw.get('style'), set(spec.get('style', [])))}
         if btype in CONTAINERS or btype == 'columns':
             kids = raw.get('children') if isinstance(raw.get('children'), list) else []

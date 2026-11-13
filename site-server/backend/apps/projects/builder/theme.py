@@ -11,6 +11,7 @@
 import os
 import re
 
+from . import styles as styles_mod
 from .blocks_css import BLOCK_CSS
 from .clean import clean_color
 
@@ -27,8 +28,21 @@ FONTS = {
               'files': [('noto-naskh-arabic-arabic-wght-normal.woff2', AR), ('noto-naskh-arabic-latin-wght-normal.woff2', LA)]},
     'lalezar': {'label': 'لاله‌زار (پرنقش، برای تیتر)', 'family': 'Lalezar', 'weight': '400',
                 'files': [('lalezar-arabic-400-normal.woff2', AR), ('lalezar-latin-400-normal.woff2', LA)]},
+    # ── قلم‌های سبک‌های طراحی (همه OFL از fontsource؛ پ چ ژ گ و رقم‌های فارسی را دارند) ──
+    'cairo': {'label': 'کایرو (امروزی و گرد)', 'family': 'Cairo', 'weight': '200 900',
+              'files': [('cairo-arabic-wght-normal.woff2', AR), ('cairo-latin-wght-normal.woff2', LA)]},
+    'kufi': {'label': 'نوتو کوفی (هندسی و جسور)', 'family': 'Noto Kufi Arabic', 'weight': '100 900',
+             'files': [('noto-kufi-arabic-arabic-wght-normal.woff2', AR), ('noto-kufi-arabic-latin-wght-normal.woff2', LA)]},
+    'plex': {'label': 'آی‌بی‌ام پلکس (رسمی و دقیق)', 'family': 'IBM Plex Sans Arabic', 'weight': '400 700',
+             'files': [('ibm-plex-sans-arabic-arabic-400-normal.woff2', AR, '400'), ('ibm-plex-sans-arabic-arabic-700-normal.woff2', AR, '700'),
+                       ('ibm-plex-sans-arabic-latin-400-normal.woff2', LA, '400'), ('ibm-plex-sans-arabic-latin-700-normal.woff2', LA, '700')]},
+    'amiri': {'label': 'امیری (کتابی و ادبی)', 'family': 'Amiri', 'weight': '400 700',
+              'files': [('amiri-arabic-400-normal.woff2', AR, '400'), ('amiri-arabic-700-normal.woff2', AR, '700'),
+                        ('amiri-latin-400-normal.woff2', LA, '400'), ('amiri-latin-700-normal.woff2', LA, '700')]},
+    'baloo': {'label': 'بالو (گرد و بازیگوش)', 'family': 'Baloo Bhaijaan 2', 'weight': '400 800',
+              'files': [('baloo-bhaijaan-2-arabic-wght-normal.woff2', AR), ('baloo-bhaijaan-2-latin-wght-normal.woff2', LA)]},
 }
-FONT_FILES = {f for v in FONTS.values() for f, _ in v['files']}
+FONT_FILES = {e[0] for v in FONTS.values() for e in v['files']}
 FALLBACK = '"Segoe UI",Tahoma,sans-serif'
 
 # کلیدِ پوسته ⇐ متغیرِ CSSِ پایه (همان متغیرهایی که صفحه‌های قدیمی و AI هم می‌فهمند)
@@ -74,6 +88,10 @@ def clean_theme(data, project=None):
             base[key] = data[key]
     if data.get('button') in BUTTONS:
         base['button'] = data['button']
+    if data.get('style') in styles_mod.STYLES:      # سبکِ طراحی (اختیاری؛ بدونِ آن خروجی همان قبلی است)
+        base['style'] = data['style']
+        if data.get('style_keep'):
+            base['style_keep'] = True
     try:
         base['radius'] = max(0, min(40, int(data.get('radius', base['radius']))))
         base['width'] = max(800, min(1600, int(data.get('width', base['width']))))
@@ -141,9 +159,11 @@ def font_faces(theme, prefix='../fonts/'):
     out = []
     for key in used:
         f = FONTS[key]
-        for name, rng in f['files']:
+        for entry in f['files']:
+            name, rng = entry[0], entry[1]
+            weight = entry[2] if len(entry) > 2 else f['weight']
             out.append('@font-face{font-family:"%s";font-style:normal;font-weight:%s;font-display:swap;src:url("%s%s") format("woff2");unicode-range:%s}'
-                       % (f['family'], f['weight'], prefix, name, rng))
+                       % (f['family'], weight, prefix, name, rng))
     return '\n'.join(out), used
 
 
@@ -155,6 +175,8 @@ def blocks_css(theme, prefix='../fonts/', chrome_css=''):
     tokens = (':root{--nb-font-body:"%s",%s;--nb-font-head:"%s","%s",%s;--nb-btn-radius:%dpx;--nb-width:%dpx}'
               % (body, FALLBACK, head, body, FALLBACK, BUTTONS.get(theme.get('button'), 999), theme.get('width') or 1140))
     parts = [faces, tokens, BLOCK_CSS]
+    if theme.get('style') in styles_mod.STYLES:
+        parts.append(styles_mod.style_css(theme['style'], rebrand=bool(theme.get('style_keep'))))
     if (chrome_css or '').strip():
         parts.append('/* سربرگ و پابرگ */\n' + chrome_css.strip())
     return '\n'.join(parts) + '\n'
@@ -162,5 +184,6 @@ def blocks_css(theme, prefix='../fonts/', chrome_css=''):
 
 def public_json():
     return {'fonts': [{'value': k, 'label': v['label'], 'family': v['family']} for k, v in FONTS.items()],
+            'styles': styles_mod.public_json(),
             'presets': PRESETS, 'buttons': [{'value': 'round', 'label': 'کاملاً گرد'}, {'value': 'soft', 'label': 'کمی گرد'},
                                             {'value': 'square', 'label': 'گوشه‌دار'}]}

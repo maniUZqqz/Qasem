@@ -18,9 +18,9 @@ from apps.code_generation import generator, preview_runner, services
 from apps.projects.api import bad, studio_api
 from apps.projects.helpers import preview_url
 from apps.projects.models import Design, DesignVersion, MediaAsset, Model, Page, Project, SavedSection, SharedPart, SiteTheme
-from . import canvas, media as media_mod, publish as P, starters, theme as theme_mod
+from . import ai_context, canvas, components as comps_mod, media as media_mod, publish as P, starters, styles as styles_mod, theme as theme_mod
 from .catalog import BLOCKS, catalog_json
-from .clean import DocError, canonical, clean_doc, refresh_ids
+from .clean import DocError, canonical, clean_doc, new_block, refresh_ids
 from .icons import PICKABLE
 from .importer import import_html
 from .render import build_ctx, default_fields, render_doc
@@ -442,6 +442,71 @@ def theme_detail(request, slug):
         t.menu = _clean_menu(request.data.get('menu'), p)
     t.save()
     return Response({'ok': True, 'theme': t.draft, 'menu': t.menu})
+
+
+# ─────────────────────────────── سبکِ طراحی و قطعه‌های آماده
+@studio_api('POST')
+def style_apply(request, slug):
+    """«سبک» را روی پوسته (و اگر خواسته شد روی چیدمانِ بخش‌های همین صفحه) می‌نشاند و نتیجه را برمی‌گرداند؛ چیزی ذخیره نمی‌شود
+    (کاربر می‌بیند، خوشش آمد ذخیره/منتشر می‌کند). style خالی = برداشتنِ لایهٔ سبک (رنگ‌ها و قلم‌ها می‌مانند)."""
+    p = _project(slug)
+    g = _guard(p)
+    if g:
+        return g
+    key = str(request.data.get('style') or '')
+    if key and key not in styles_mod.STYLES:
+        return bad('این سبک پیدا نشد.')
+    raw = request.data.get('theme')
+    theme = theme_mod.clean_theme(raw, p) if isinstance(raw, dict) else _theme_json(p)[0]
+    if key:
+        new_theme = theme_mod.clean_theme(styles_mod.apply_to_theme(theme, key, keep_brand=bool(request.data.get('keep_brand'))), p)
+    else:
+        new_theme = {k: v for k, v in theme.items() if k != 'style'}
+    out = {'ok': True, 'style': key, 'theme': new_theme}
+    if request.data.get('apply_layout') and request.data.get('doc') is not None:
+        target = request.data.get('target') or 'page'
+        if target not in TARGETS:
+            raise Http404
+        try:
+            doc = clean_doc(request.data.get('doc'), target)
+        except (DocError, TypeError) as exc:
+            return bad(exc)
+        out['doc'] = styles_mod.apply_to_doc(doc, key) if key else styles_mod.clear_doc(doc)
+    return Response(out)
+
+
+@studio_api('GET')
+def component_preview(request, slug, key):
+    """یک قطعه به‌تنهایی با پوستهٔ همین پروژه (و در صورت خواستن با یک سبکِ دیگر) برای نمایشِ پیش‌نمایش در کتابخانه."""
+    p = _project(slug)
+    g = _guard(p)
+    if g:
+        return g
+    comp = comps_mod.COMPONENTS.get(key)
+    if comp is None:
+        raise Http404
+    theme, menu = _theme_json(p)
+    style = request.query_params.get('style') or ''
+    if style in styles_mod.STYLES:
+        theme = theme_mod.clean_theme(styles_mod.apply_to_theme(theme, style), p)
+    target = comp['root'] if comp['root'] in ('header', 'footer') else 'page'
+    doc = {'v': 1, 'blocks': [new_block(comps_mod.block_type(key))]}
+    data = canvas.render_canvas(p, target, None, doc, theme, _clean_menu(menu, p))
+    return Response({'key': key, 'html': ''.join(x['html'] for x in data['parts']), 'base_css': data['base_css'], 'page_css': data['page_css'],
+                     'title': comp['label'], 'src': comps_mod.provenance.public(comps_mod.provenance.src_of(comp))})
+
+
+@studio_api('POST')
+def ai_context_preview(request, slug):
+    """همان بسته‌ای که در حالتِ AI به مدل می‌رسد (سبک + چند قطعه) را نشان می‌دهد؛ شفافیت برای کاربر و آزمون."""
+    p = _project(slug)
+    g = _guard(p)
+    if g:
+        return g
+    pinned = [k for k in (request.data.get('components') or []) if isinstance(k, str)][:ai_context.MAX_COMPONENTS]
+    payload = ai_context.build(str(request.data.get('style') or ''), str(request.data.get('brief') or '')[:2000],
+                               str(request.data.get('kind') or 'home'), pinned)
+    return Response({'ok': True, 'context': payload})
 
 
 # ─────────────────────────────── رسانه

@@ -4,6 +4,7 @@
 پنلِ React فرمِ تنظیماتِ هر بلوک را از همین تعریف می‌سازد؛ پس افزودنِ بلوکِ تازه یعنی یک
 ردیف این‌جا و یک تابعِ رندر در render.py. همهٔ برچسب‌ها فارسیِ ساده‌اند و واژهٔ فنی ندارند.
 """
+from . import components as _components, variants as _variants
 from .icons import ICONS
 
 
@@ -57,7 +58,7 @@ G_VIS = ['hide_desktop', 'hide_tablet', 'hide_phone']
 G_SECTION = ['color', 'align', 'bg', 'bgimg', 'overlay', 'py', 'px', 'mt', 'mb', 'maxw', 'minh', 'radius'] + G_VIS
 
 # ─────────────────────────────── بلوک‌ها
-GROUPS = _opts(('layout', 'چیدمان'), ('basic', 'پایه'), ('ready', 'بخش‌های آماده'),
+GROUPS = _opts(('layout', 'چیدمان'), ('basic', 'پایه'), ('ready', 'بخش‌های آماده'), ('components', 'قطعه‌های آماده'),
                ('data', 'نمایشِ دادهٔ سایت'), ('chrome', 'سربرگ و پابرگ'))
 
 _ITEM_FEATURE = [F('icon', 'نماد', 'icon'), F('title', 'عنوان'), F('text', 'توضیح', 'textarea')]
@@ -286,6 +287,13 @@ BLOCKS = {
         style=['color', 'size', 'align', 'mt', 'mb'] + G_VIS),
 }
 
+# «چیدمانِ بخش»: بلوک‌های آماده چند چیدمانِ دیگر هم دارند (variants.py). مقدارِ خالی = همان چیدمانِ قبلی؛ در سند ذخیره نمی‌شود.
+for _bt in _variants.VARIANTS:
+    if _bt in BLOCKS:
+        BLOCKS[_bt]['fields'] = list(BLOCKS[_bt]['fields']) + [
+            F('variant', 'چیدمانِ بخش', 'select', options=_variants.options(_bt), help='ظاهرِ همین بخش را عوض می‌کند؛ متن‌ها و تنظیمات همان می‌مانند.')]
+_components.register(BLOCKS, G_SECTION)        # ۴۹ قطعهٔ آماده: بلوک‌هایی با نوعِ c_<کلید>
+
 CONTAINERS = {k for k, v in BLOCKS.items() if v.get('container')}
 ROOT_ONLY = {k for k, v in BLOCKS.items() if v.get('root')}
 # بلوک‌هایی که در سند می‌مانند ولی در فهرستِ افزودن نیستند یا فقط جای خاصی می‌آیند
@@ -307,5 +315,6 @@ def catalog_json():
             'structural': bool(b.get('structural')), 'hidden': bool(b.get('hidden')),
             'advanced': bool(b.get('advanced')), 'scope': b.get('scope') or [],
             'fields': b.get('fields', []), 'style': b.get('style', []), 'defaults': default_props(key),
+            **({'component': b['component'], 'category': b['category']} if b.get('component') else {}),
         })
-    return {'blocks': blocks, 'groups': GROUPS, 'style': STYLE, 'style_groups': STYLE_GROUPS, 'icons': ICONS}
+    return {'blocks': blocks, 'groups': GROUPS, 'style': STYLE, 'style_groups': STYLE_GROUPS, 'icons': ICONS, 'components': _components.public_json()}

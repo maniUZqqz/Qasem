@@ -1,0 +1,147 @@
+{
+ "fonts": {
+  "amiri": {
+   "family": "Amiri",
+   "files": [
+    {
+     "file": "amiri-arabic-400-normal.woff2",
+     "sha256": "9abf8a10b4a2f27b698740522c9beec9ded7728aeef0738ac0d6e175bf6249d7"
+    },
+    {
+     "file": "amiri-arabic-700-normal.woff2",
+     "sha256": "c775d9f8c3a7cf0d0c2bb5246dd699e8c09bf6f8758e1be0b98939331b18bcce"
+    },
+    {
+     "file": "amiri-latin-400-normal.woff2",
+     "sha256": "d600850a2b0f3d862559d0bb040bca877e0f75cf9ee71a893bbd5089a224e3cd"
+    },
+    {
+     "file": "amiri-latin-700-normal.woff2",
+     "sha256": "f53eb332acb23ec7e09e2487909c56cf841d649c970084d6a74d82aa9534f737"
+    }
+   ],
+   "missing": ""
+  },
+  "baloo": {
+   "family": "Baloo Bhaijaan 2",
+   "files": [
+    {
+     "file": "baloo-bhaijaan-2-arabic-wght-normal.woff2",
+     "sha256": "643bd83b53ec8f25db2428e338673ddc85c345b976c449ccdad4d2b394f719e7"
+    },
+    {
+     "file": "baloo-bhaijaan-2-latin-wght-normal.woff2",
+     "sha256": "332a4fc624d786925f03d480df6eb051aca5fb9f2a8f105f8300dcfac201425c"
+    }
+   ],
+   "missing": ""
+  },
+  "cairo": {
+   "family": "Cairo",
+   "files": [
+    {
+     "file": "cairo-arabic-wght-normal.woff2",
+     "sha256": "748022f50c427456ad66031e855349be3448ee1f05a5f1eb59574ebe0c686749"
+    },
+    {
+     "file": "cairo-latin-wght-normal.woff2",
+     "sha256": "82c13cbd1352d76e97c3d335caa912ae68fecdc3949a43cf8d149eb892384c1b"
+    }
+   ],
+   "missing": ""
+  },
+  "estedad": {
+   "family": "Estedad",
+   "files": [
+    {
+     "file": "estedad-arabic-wght-normal.woff2",
+     "sha256": "e0efecd488020d6c82fe6fe11c9473d0b5c474c1adac739c6b6ff677a2d6cce1"
+    },
+    {
+     "file": "estedad-latin-wght-normal.woff2",
+     "sha256": "e593cc01586f3fb22e30ac9c4be8f1071a879ac195ab3a71813d717eee3b2eaf"
+    }
+   ],
+   "missing": ""
+  },
+  "kufi": {
+   "family": "Noto Kufi Arabic",
+   "files": [
+    {
+     "file": "noto-kufi-arabic-arabic-wght-normal.woff2",
+     "sha256": "01290c72f7179c551d8eef0b5e190615b082a5876e3abacca88e341e0e1fafe9"
+    },
+    {
+     "file": "noto-kufi-arabic-latin-wght-normal.woff2",
+     "sha256": "61b046636e1d155cb7b48d924fad2299e0099efaca67a50b4d3cc3b7a07e9b86"
+    }
+   ],
+   "missing": ""
+  },
+  "lalezar": {
+   "family": "Lalezar",
+   "files": [
+    {
+     "file": "lalezar-arabic-400-normal.woff2",
+     "sha256": "661cc9e7a8587ed75167fb58907ee8a016b9c95fedf9a78d0fa94f6250116af7"
+    },
+    {
+     "file": "lalezar-latin-400-normal.woff2",
+     "sha256": "226ae39f5275dcfee3c298317d16bdd20dbc81186b9935151c782ee6e354b6ae"
+    }
+   ],
+   "missing": ""
+  },
+  "naskh": {
+   "family": "Noto Naskh Arabic",
+   "files": [
+    {
+     "file": "noto-naskh-arabic-arabic-wght-normal.woff2",
+     "sha256": "2a10d33e1f7129ab2b6ec76666e82ac5b509fbcfa7b4a3a1289bff42d2d64cd7"
+    },
+    {
+     "file": "noto-naskh-arabic-latin-wght-normal.woff2",
+     "sha256": "2a30d48ddf0a75254b40b236fcfe789aed180526224ccb5089fd0b49999e0ec0"
+    }
+   ],
+   "missing": ""
+  },
+  "plex": {
+   "family": "IBM Plex Sans Arabic",
+   "files": [
+    {
+     "file": "ibm-plex-sans-arabic-arabic-400-normal.woff2",
+     "sha256": "6010e7fd0dce5d527583951750728cbe3c895efbd16aa0f809ab8c824878c9d8"
+    },
+    {
+     "file": "ibm-plex-sans-arabic-arabic-700-normal.woff2",
+     "sha256": "04c730b4292731ccedadd5bd80756124364ae4923895145d9cd7b1f28e443de1"
+    },
+    {
+     "file": "ibm-plex-sans-arabic-latin-400-normal.woff2",
+     "sha256": "9ed8dcb02e6c7246de4c120295fafa39a7bb73085f4951a4524a07dc911069f2"
+    },
+    {
+     "file": "ibm-plex-sans-arabic-latin-700-normal.woff2",
+     "sha256": "ae2d59f91ecf9f7ed279e4a1fc1a9da8170fb0ce5b9152917a8f759033f5777c"
+    }
+   ],
+   "missing": ""
+  },
+  "vazirmatn": {
+   "family": "Vazirmatn",
+   "files": [
+    {
+     "file": "vazirmatn-arabic-wght-normal.woff2",
+     "sha256": "84a382e46c30fb4f73d0e3800c16d0af15888e2731e57fa5f93e2c29a2c6a957"
+    },
+    {
+     "file": "vazirmatn-latin-wght-normal.woff2",
+     "sha256": "d29c041cd4294af893cf3c01dfab6d47202c667ab55d702f68782599918c651d"
+    }
+   ],
+   "missing": ""
+  }
+ },
+ "probe": "پچژگکیء۰۱۲۳۴۵۶۷۸۹"
+}

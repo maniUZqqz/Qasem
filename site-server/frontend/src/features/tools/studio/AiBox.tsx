@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import Icon from "../../../components/Icon";
 import { Button, Chip, ErrorBox, Input, TextArea } from "../../../components/ui";
 import { api, pUrl, studioError, truncate } from "./api";
+import DesignPicker, { DesignValue } from "./DesignPicker";
 import type { ProposalT } from "./types";
 
 /**
@@ -17,6 +18,7 @@ export default function AiBox({
   placeholder,
   note,
   withSection,
+  withDesign,
   recent,
 }: {
   slug: string;
@@ -26,11 +28,14 @@ export default function AiBox({
   placeholder: string;
   note: ReactNode;
   withSection?: boolean;
+  /** انتخابِ سبکِ طراحی و قطعه‌های آماده برای مدل (فقط صفحه‌های کدی؛ صفحهٔ دیداری ساختارش را نگه می‌دارد) */
+  withDesign?: boolean;
   recent?: ProposalT[];
 }) {
   const navigate = useNavigate();
   const [instruction, setInstruction] = useState("");
   const [section, setSection] = useState("");
+  const [design, setDesign] = useState<DesignValue>({ style: "", components: [] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +47,7 @@ export default function AiBox({
       const { data } = await api.post<{ proposal: ProposalT }>(`/studio/projects/${slug}/${endpoint}`, {
         instruction,
         section: withSection ? section : "",
+        ...(withDesign ? { style: design.style, components: design.components } : {}),
       });
       navigate(pUrl(slug, `ai/proposal/${data.proposal.id}`));
     } catch (err) {
@@ -66,6 +72,7 @@ export default function AiBox({
       </h3>
       <ErrorBox message={error} />
       <TextArea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={3} placeholder={placeholder} />
+      {withDesign && <DesignPicker value={design} onChange={setDesign} />}
       <div className="flex flex-wrap items-center gap-3">
         {withSection && (
           <div className="w-72 max-w-full">

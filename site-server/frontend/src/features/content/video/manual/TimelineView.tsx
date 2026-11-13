@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { MediaItem } from "../api";
 import FadeHandles from "./FadeHandles";
 import { KF_TITLE, KfChannel } from "./keyframes";
@@ -10,6 +11,7 @@ import {
   AnyClip, MediaClip, Project, Track, cloneInPlace, clipEnd, clipLength, findClip, framesBetween, moveClips, projectLength, quantize, rateStretch, rollEdit, rippleTrim,
   slideClip, slipClip, snap, snapPoints, srcTimeAt, tidyFrame, timecode, touchingPair, trimEnd, trimStart, withLinked, isMedia,
 } from "./model";
+import { usePlayheadStore } from "./playhead";
 import TrimPreview, { FrameAt } from "./TrimPreview";
 import VolumeLine, { ClipActs } from "./VolumeLine";
 import "./timeline.css";
@@ -87,7 +89,10 @@ function Wave({ peaks, perSecond, clip, px, width, height }: { peaks: number[]; 
       const h = Math.max(1, Math.min(1, m * Math.min(3, clip.volume)) * (height - 4));
       x.fillRect(i, mid - h / 2, 1, h);
     }
-  }, [peaks, perSecond, clip.at, clip.start, clip.end, clip.speed, clip.volume, clip.ramp, clip.reverse, px, width, height]);
+    // ۱۴۰۵/۰۸/۲۳: clip.at عمداً در وابستگی‌ها نیست؛ شکلِ موج فقط به «زمانِ نسبی» وابسته است و با جابه‌جاییِ قطعه عوض نمی‌شود
+    // (قبلاً هر پیکسلِ کشیدنِ یک قطعهٔ صدا کلِ بوم را دوباره می‌کشید).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peaks, perSecond, clip.start, clip.end, clip.speed, clip.volume, clip.ramp, clip.reverse, px, width, height]);
   return <canvas ref={ref} className="tl-wave" style={{ width, height }} />;
 }
 
@@ -107,7 +112,11 @@ function Film({ sprite, clip, px, width, height }: { sprite: { url: string; coun
 // ─────────────────────────────────────────────────────────── یک قطعه
 type ClipProps = {
   clip: AnyClip;
-  track: Track;
+  /** ۱۴۰۵/۰۸/۲۳: فقط آنچه از ترک لازم است (نه خودِ شیءِ ترک که با هر تغییرِ یک قطعه نو می‌شود و memo ِ همهٔ قطعه‌های آن ترک را می‌شکست) */
+  trackId: string;
+  trackKind: Track["kind"];
+  trackMuted: boolean;
+  trackLocked: boolean;
   selected: boolean;
   primary: boolean;
   px: number;
@@ -124,12 +133,13 @@ type ClipProps = {
   volLine: boolean;
   offline?: boolean;
   acts: ClipActs;
-  onDown: (e: React.PointerEvent, c: AnyClip, t: Track, mode: "move" | "l" | "r") => void;
+  onDown: (e: React.PointerEvent, c: AnyClip, trackId: string, mode: "move" | "l" | "r") => void;
 };
 
-const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, px, tool, storeId, item, visible, dragging, linked, trim, fps, volLine, offline, acts, onDown }: ClipProps) {
+const ClipView = memo(function ClipView({ clip: c, trackId, trackKind, trackMuted, trackLocked, selected, primary, px, tool, storeId, item, visible, dragging, linked, trim, fps, volLine, offline, acts, onDown }: ClipProps) {
+  countRender("ClipView");
   const w = Math.max(6, (clipEnd(c) - c.at) * px);
-  const isAudio = c.type === "media" && (c.kind === "audio" || t.kind === "audio");
+  const isAudio = c.type === "media" && (c.kind === "audio" || trackKind === "audio");
   const hasSound = c.type === "media" && (isAudio || (c.has_audio && c.audio_on));
   const wide = w > 28 && visible;
   // شکل‌ها و توالی‌های تودرتو فایلِ تحلیل‌پذیر ندارند
@@ -141,7 +151,7 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
   const inner = ROW - 8;
   // خطِ بلندی و محو فقط روی قطعه‌های رسانه‌ای؛ کشیدنشان فقط وقتی قطعه انتخاب است و ابزار «انتخاب» و ترک قفل نیست
   const media = c.type === "media" ? c : null;
-  const canEdit = selected && tool === "select" && !t.locked;
+  const canEdit = selected && tool === "select" && !trackLocked;
   // انتخاب‌شده ⇒ همیشه؛ وگرنه با کلیدِ «خط بلندی»: روی ترکِ صدا همیشه، روی قطعهٔ تصویر فقط اگر بلندی‌اش دست خورده (تا نوارِ تصویر شلوغ نشود)
   const volEdited = !!media && (media.volume !== 1 || (media.kf?.volume?.length ?? 0) > 0);
   const showVol = !!media && hasSound && (selected || (volLine && (isAudio || volEdited)));
@@ -149,9 +159,9 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
     <div
       className={`tl-clip ${kindClass} ${offline ? "is-offline" : ""} ${selected ? "is-sel" : ""} ${primary ? "is-primary" : ""} ${dragging ? "is-drag" : ""} ${trim ? "is-trim" : ""} tool-${tool}`}
       data-clip={c.id} data-clip-kind={c.type === "text" ? "text" : c.kind} data-trim={trim ?? undefined}
-      style={{ left: c.at * px, width: w, opacity: t.muted ? 0.5 : 1 }}
+      style={{ left: c.at * px, width: w, opacity: trackMuted ? 0.5 : 1 }}
       title={c.type === "text" ? c.text : `${c.label} — ${timecode(c.at, fps)}${offline ? " — رسانه‌اش گم شده (Offline)" : ""}`}
-      onPointerDown={(e) => onDown(e, c, t, "move")}
+      onPointerDown={(e) => onDown(e, c, trackId, "move")}
     >
       {film && c.type === "media" && <Film sprite={film} clip={c} px={px} width={w} height={inner} />}
       {wave && wave.peaks.length > 0 && c.type === "media" && <Wave peaks={wave.peaks} perSecond={wave.per_second} clip={c} px={px} width={w} height={inner} />}
@@ -159,7 +169,7 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
       {media && wide && showVol && (
         <VolumeLine clip={media} w={w} h={inner} px={px} fps={fps} strong={selected} interactive={canEdit && w > 24} acts={acts} />
       )}
-      <i className="grip l" onPointerDown={(e) => onDown(e, c, t, "l")} data-grip="l" />
+      <i className="grip l" onPointerDown={(e) => onDown(e, c, trackId, "l")} data-grip="l" />
       <span className="tl-label">
         {linked && <b className="tl-link" title="صدا و تصویر پیوسته‌اند">⛓</b>}
         {c.type === "media" && c.ref.startsWith("seq:") ? "▣ " : c.type === "media" && c.shape ? "◇ " : ""}
@@ -170,16 +180,43 @@ const ClipView = memo(function ClipView({ clip: c, track: t, selected, primary, 
         {c.type === "media" && c.freeze ? " ❄" : ""}
       </span>
       {c.type === "media" && c.kf && Object.values(c.kf).some((k) => k && k.length) && <b className="tl-kfmark" title="کلیدفریم دارد">◆</b>}
-      <i className="grip r" onPointerDown={(e) => onDown(e, c, t, "r")} data-grip="r" />
+      <i className="grip r" onPointerDown={(e) => onDown(e, c, trackId, "r")} data-grip="r" />
     </div>
   );
+});
+
+// ─────────────────────────────────────────────────────────── خطِ سرِ پخش
+/** خطِ سرِ پخش: فقط وقتی px عوض می‌شود رندر می‌شود؛ با هر تغییرِ زمان مستقیم `left` را می‌نویسد و اگر از قابِ دیدنی بیرون رفت اسکرول می‌کند */
+const Playhead = memo(function Playhead({ px, scroller }: { px: number; scroller: RefObject<HTMLDivElement> }) {
+  const ph = usePlayheadStore();
+  const el = useRef<HTMLElement>(null);
+  const pxRef = useRef(px);
+  pxRef.current = px;
+  const follow = useCallback(() => {
+    const line = el.current;
+    const box = scroller.current;
+    if (!line) return;
+    const x = ph.get() * pxRef.current;
+    if (box) {
+      // اول خواندن، بعد نوشتن (بدونِ layout ِ اجباریِ اضافه)
+      const left = box.scrollLeft;
+      const width = box.clientWidth;
+      if (x > left + width - 30) box.scrollLeft = x - 60;
+      else if (x < left) box.scrollLeft = Math.max(0, x - 60);
+    }
+    line.style.left = x + "px";
+  }, [ph, scroller]);
+  useEffect(() => {
+    follow();
+    return ph.subscribe(follow);
+  }, [ph, follow, px]);
+  return <i ref={el} className="tl-playhead" style={{ left: ph.get() * px }} data-testid="playhead" />;
 });
 
 // ─────────────────────────────────────────────────────────── تایم‌لاین
 type Props = {
   project: Project;
   selection: string[];
-  playhead: number;
   px: number;
   snapOn: boolean;
   tool: Tool;
@@ -205,8 +242,12 @@ type Props = {
   offlineIds?: Set<string>;
 };
 
-export default function TimelineView(props: Props) {
-  const { project, selection, playhead, px, snapOn, tool, storeId, media, onProject, onCommit, onSelect, onSeek, onDropRef, onTrack, onRemoveTrack } = props;
+// ۱۴۰۵/۰۸/۲۳: سرِ پخش دیگر prop نیست (انبارِ playhead.ts)؛ خطِ سرِ پخش و اسکرولِ خودکار بی‌رندرِ ریاکت و مستقیم روی DOM تازه می‌شوند
+// و کلِ تایم‌لاین با هر تیکِ پخش/جست‌وجو دوباره ساخته نمی‌شود. `memo`: فضای کار callback ها را با هویتِ ثابت می‌دهد.
+function TimelineViewBase(props: Props) {
+  countRender("TimelineView");
+  const { project, selection, px, snapOn, tool, storeId, media, onProject, onCommit, onSelect, onSeek, onDropRef, onTrack, onRemoveTrack } = props;
+  const ph = usePlayheadStore();
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -262,15 +303,6 @@ export default function TimelineView(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [px, project.tracks.length]);
 
-  // سرِ پخش از قابِ دیدنی بیرون رفت ⇒ اسکرول
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const x = playhead * px;
-    if (x > el.scrollLeft + el.clientWidth - 30) el.scrollLeft = x - 60;
-    else if (x < el.scrollLeft) el.scrollLeft = Math.max(0, x - 60);
-  }, [playhead, px]);
-
   const timeAt = (clientX: number) => {
     const el = scroller.current!;
     const rect = el.getBoundingClientRect();
@@ -317,7 +349,7 @@ export default function TimelineView(props: Props) {
       if ("moved" in drag && !drag.moved && Math.abs(e.clientX - drag.sx) < 3 && (drag.kind !== "move" || Math.abs(e.clientY - drag.sy) < 4)) return;
       if ("moved" in drag) drag.moved = true;
       // سرِ پخش هنگامِ پخش روی فریم نیست؛ هدفِ چسبیدن همیشه فریم‌دار باشد
-      const pts = snapOn ? snapPoints("orig" in drag ? drag.orig : projRef.current, quantize(playhead, fps), "ids" in drag ? new Set(drag.ids) : "id" in drag ? drag.id : undefined) : [];
+      const pts = snapOn ? snapPoints("orig" in drag ? drag.orig : projRef.current, quantize(ph.get(), fps), "ids" in drag ? new Set(drag.ids) : "id" in drag ? drag.id : undefined) : [];
       if (drag.kind === "move") {
         const len = drag.end0 - drag.at0;
         const raw = Math.max(0, drag.at0 + dtRaw);
@@ -413,7 +445,18 @@ export default function TimelineView(props: Props) {
         onProject({ ...drag.orig, markers: (drag.orig.markers ?? []).map((m) => (m.id === drag.id ? { ...m, t } : m)) }, true);
       }
     };
+    // ۱۴۰۵/۰۸/۲۳: موسِ پرسرعت (تا ۱۰۰۰ رویداد در ثانیه) هر بار کلِ فضای کار را دوباره می‌ساخت؛ حالا حرکت‌ها در هر فریمِ صفحه یک‌بار (آخرین مکان) اعمال می‌شوند
+    // و هنگامِ رها کردن، حرکتِ معلق همان لحظه اعمال می‌شود تا نتیجه با قبل یکی باشد.
+    let pending = 0;
+    const flush = () => {
+      pending = 0;
+      if (lastPtr.current) onMove(lastPtr.current);
+    };
     const onUp = () => {
+      if (pending) {
+        cancelAnimationFrame(pending);
+        flush();
+      }
       if (drag.kind === "band") {
         setDrag(null);
         return;
@@ -431,7 +474,7 @@ export default function TimelineView(props: Props) {
     };
     const onPtr = (e: PointerEvent) => {
       lastPtr.current = ptrOf(e);
-      onMove(lastPtr.current);
+      if (!pending) pending = requestAnimationFrame(flush);
     };
     // Ctrl/Shift/Alt وسطِ کشیدن عوض شد ⇒ بدونِ حرکتِ ماوس هم نتیجه و راهنما تازه شود
     const onKey = (ev: KeyboardEvent) => {
@@ -446,6 +489,7 @@ export default function TimelineView(props: Props) {
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     return () => {
+      cancelAnimationFrame(pending);
       window.removeEventListener("pointermove", onPtr);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
@@ -453,11 +497,13 @@ export default function TimelineView(props: Props) {
       window.removeEventListener("keyup", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag, px, snapOn, playhead, display]);
+  }, [drag, px, snapOn, display]);
 
-  const down = (e: React.PointerEvent, c: AnyClip, tr: Track, mode: "move" | "l" | "r") => {
+  const down = (e: React.PointerEvent, c: AnyClip, trackId: string, mode: "move" | "l" | "r") => {
     e.stopPropagation();
     if (e.button !== 0) return;
+    const tr = project.tracks.find((x) => x.id === trackId);
+    if (!tr) return;
     // روی لبه‌ها Shift/Ctrl/Alt نوعِ برش را تعیین می‌کنند (رول/ریپل/فقط این قطعه)، نه افزودن به انتخاب
     const additive = mode === "move" && (e.shiftKey || e.ctrlKey || e.metaKey);
     if (tool === "razor") {
@@ -507,7 +553,7 @@ export default function TimelineView(props: Props) {
   // تابعِ پایدار برای ClipView (down هر بار نو می‌شود) تا memo ِ قطعه‌ها واقعاً کار کند
   const downRef = useRef(down);
   downRef.current = down;
-  const onDownStable = useCallback((e: React.PointerEvent, c: AnyClip, t: Track, mode: "move" | "l" | "r") => downRef.current(e, c, t, mode), []);
+  const onDownStable = useCallback((e: React.PointerEvent, c: AnyClip, trackId: string, mode: "move" | "l" | "r") => downRef.current(e, c, trackId, mode), []);
 
   const gaps = useMemo(() => {
     const base = project.tracks.find((t) => t.kind === "video");
@@ -585,8 +631,18 @@ export default function TimelineView(props: Props) {
                 return;
               }
               seekFrom(e.clientX);
-              const move = (ev: PointerEvent) => seekFrom(ev.clientX);
-              const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+              // جست‌وجوی کشیدنی: هر فریمِ صفحه یک‌بار (آخرین مکان)؛ رها کردن آخرین مکان را همان لحظه اعمال می‌کند
+              let raf = 0;
+              let lastX = e.clientX;
+              const move = (ev: PointerEvent) => {
+                lastX = ev.clientX;
+                if (!raf) raf = requestAnimationFrame(() => { raf = 0; seekFrom(lastX); });
+              };
+              const up = () => {
+                if (raf) { cancelAnimationFrame(raf); raf = 0; seekFrom(lastX); }
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
               window.addEventListener("pointermove", move);
               window.addEventListener("pointerup", up);
             }}
@@ -640,7 +696,7 @@ export default function TimelineView(props: Props) {
                 {t.id === baseId && gaps.map((g, i) => <i key={i} className="tl-gap" title="فاصلهٔ خالی (سیاه)" style={{ left: g.a * px, width: (g.b - g.a) * px }} />)}
                 {t.clips.map((c) => (
                   <ClipView
-                    key={c.id} clip={c} track={t} selected={selSet.has(c.id)} primary={c.id === primaryId} px={px} tool={tool} storeId={storeId}
+                    key={c.id} clip={c} trackId={t.id} trackKind={t.kind} trackMuted={!!t.muted} trackLocked={!!t.locked} selected={selSet.has(c.id)} primary={c.id === primaryId} px={px} tool={tool} storeId={storeId}
                     item={c.type === "media" ? media[c.ref] : undefined} visible={clipEnd(c) > view.lo && c.at < view.hi}
                     dragging={!!drag && "ids" in drag && drag.ids.includes(c.id)}
                     trim={drag?.kind === "edge" && drag.id === c.id ? drag.side : null}
@@ -677,7 +733,7 @@ export default function TimelineView(props: Props) {
           </div>
           {snapAt !== null && <i className="tl-snap" style={{ left: snapAt * px }} />}
           {markers.map((m) => <i key={m.id} className="tl-marker-line" style={{ left: m.t * px, borderColor: m.color }} />)}
-          <i className="tl-playhead" style={{ left: playhead * px }} data-testid="playhead" />
+          <Playhead px={px} scroller={scroller} />
           {hint && <div className="tl-hint">{hint}</div>}
         </div>
       </div>
@@ -694,3 +750,5 @@ export default function TimelineView(props: Props) {
     </div>
   );
 }
+
+export default memo(TimelineViewBase);

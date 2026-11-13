@@ -1,6 +1,7 @@
-import { ReactNode, useRef, useState } from "react";
+import { memo, ReactNode, useRef, useState } from "react";
 
 import { Spinner, fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { Bin as BinData, MediaItem } from "../api";
 import { Project, timecode } from "./model";
 import { BinFolder, addFolder, assignToFolder, deleteFolder, filterBin } from "./r5ops";
@@ -24,7 +25,7 @@ const TABS: { key: keyof BinData; title: string }[] = [
 ];
 
 /** سطلِ رسانه: ویدیوهای فروشگاه (آپلودی، تدوین‌شده، ساخته‌شده)، صدای کتابخانه و عکس‌ها. بکشید روی تایم‌لاین یا «+». */
-export default function Bin({
+function BinBase({
   bin, loading, onAdd, onUpload, onProxy, proxyBusy, storeId, onGoSound, uploadSlot, folders = [], meta, onFolderOp,
 }: {
   bin: BinData | null;
@@ -45,6 +46,7 @@ export default function Bin({
   meta?: Record<string, { tags: string[]; note: string }>;
   onFolderOp?: (label: string, fn: (p: Project) => Project) => void;
 }) {
+  countRender("Bin");
   const [tab, setTab] = useState<keyof BinData>("videos");
   const [audioFilter, setAudioFilter] = useState<AudioFilter>("all");
   const file = useRef<HTMLInputElement>(null);
@@ -173,3 +175,6 @@ export default function Bin({
     </div>
   );
 }
+
+// ۱۴۰۵/۰۸/۲۳: memo؛ فضای کار callback ها را با هویتِ ثابت می‌دهد، پس سطل با هر تیکِ پخش یا کشیدنِ تایم‌لاین دوباره ساخته نمی‌شود
+export default memo(BinBase);

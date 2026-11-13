@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { AudioEngine } from "./AudioEngine";
 import { Slider, Toggle } from "./controls";
 import { DEFAULT_DUCKING, Ducking, Master, Project, Track, TrackRole } from "./model";
+import { usePlayheadStore } from "./playhead";
 import "./audio.css";
 
 const ROLES: TrackRole[] = ["", "speech", "music", "ambience", "sfx"];
@@ -160,31 +162,50 @@ export default function MixerPanel({
   ];
   const ids = strips.map((t) => t.id).join(",");
 
-  // یک حلقهٔ انیمیشن برای همهٔ میترها (مستقیم روی DOM)
+  // یک حلقهٔ انیمیشن برای همهٔ میترها (مستقیم روی DOM).
+  // ۱۴۰۵/۰۸/۲۳: قبلاً تا وقتی تبِ میکسر باز بود ۶۰ بار در ثانیه (حتی ساکت و بی‌پخش) از آنالایزر می‌خواند. حالا وقتی میترها حدودِ ۱ ثانیه ساکت بودند
+  // (زیرِ ‎−۶۰ dB، همان کفِ نمایش) حلقه می‌خوابد و با اولین تغییرِ سرِ پخش (پخش/جست‌وجو) بیدار می‌شود؛ ظاهرِ میترها عیناً همان است.
+  const ph = usePlayheadStore();
   useEffect(() => {
     if (!engine) {
       for (const el of refs.current.values()) if (el instanceof HTMLElement && el.classList.contains("cover")) el.style.height = "100%";
       return;
     }
     let raf = 0;
+    let quiet = 0;
+    const SILENT = 1e-3;
     const set = (key: string, fn: (el: HTMLElement) => void) => { const el = refs.current.get(key); if (el) fn(el); };
     const tick = () => {
+      countRender("mixerTick");
+      let loud = false;
       for (const id of ids.split(",").filter(Boolean)) {
         const lv = engine.trackLevel(id);
+        if (lv > SILENT) loud = true;
         set(`${id}:cover`, (el) => { el.style.height = `${(1 - levelFrac(lv)) * 100}%`; });
       }
       const m = engine.levels();
+      if (m.l > SILENT || m.r > SILENT || m.peakL > SILENT || m.peakR > SILENT) loud = true;
       set("master:l:cover", (el) => { el.style.height = `${(1 - levelFrac(m.l)) * 100}%`; });
       set("master:r:cover", (el) => { el.style.height = `${(1 - levelFrac(m.r)) * 100}%`; });
       set("master:l:peak", (el) => { el.style.bottom = `${levelFrac(m.peakL) * 100}%`; });
       set("master:r:peak", (el) => { el.style.bottom = `${levelFrac(m.peakR) * 100}%`; });
       if (Math.max(m.peakL, m.peakR) >= 0.99) clipped.current = true;
       set("master:clip", (el) => { el.classList.toggle("is-on", clipped.current); });
-      raf = requestAnimationFrame(tick);
+      quiet = loud ? 0 : quiet + 1;
+      raf = quiet > 60 ? 0 : requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [engine, ids]);
+    const wake = () => {
+      quiet = 0;
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    wake();
+    const off = ph.subscribe(wake);
+    return () => {
+      off();
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+  }, [engine, ids, ph]);
 
   return (
     <div className="mx-root" dir="rtl" data-testid="mixer">
@@ -193,7 +214,7 @@ export default function MixerPanel({
         <div className="mx-strip mx-master" data-strip="master">
           <span className="mx-name">مستر</span>
           <button type="button" className="mx-role" ref={(el) => { if (el) refs.current.set("master:clip", el); }} title="چراغِ برش (clip) — کلیک برای پاک‌کردن"
-            onClick={() => { clipped.current = false; }}>CLIP</button>
+            onClick={(e) => { clipped.current = false; e.currentTarget.classList.remove("is-on"); }}>CLIP</button>
           <div className="mx-body">
             <Fader value={master.gain_db} min={-24} max={12} label="بلندیِ مستر" onLive={(v) => onMasterLive({ gain_db: v })} onEnd={onMasterEnd}
               onReset={() => { onMasterLive({ gain_db: 0 }); onMasterEnd(); }} />

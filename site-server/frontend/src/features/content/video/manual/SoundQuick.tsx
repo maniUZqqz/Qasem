@@ -11,6 +11,7 @@ import {
 import { DirectorResult, DirectorStep, directorApply, soundError } from "./soundApi";
 import VoiceOverDialog from "./VoiceOverDialog";
 import "./sound.css";
+import { usePlayheadStore } from "./playhead";
 
 type Edit = {
   live: (fn: (p: Project) => Project) => void;
@@ -36,7 +37,6 @@ export type SoundWiring = {
 export type SoundQuickProps = {
   storeId: string;
   project: Project;
-  playhead: number;
   selected: { track: Track; clip: AnyClip } | null;
   edit: Edit;
   media: Record<string, MediaItem>;
@@ -83,7 +83,8 @@ function BigSlider({
  * (موسیقیِ پس‌زمینه، حذفِ سکوت‌ها، بلندیِ استاندارد، گویندگی از متن، تنظیمِ خودکارِ میکس، ضرب‌ها). همهٔ کنترل‌های قبلیِ تبِ «صدا» و «میکسر»
  * همان‌جا زیرِ «پیشرفته» مانده‌اند. کارهای سمتِ سرور از راهِ editor/director/apply/ می‌روند و یک گامِ برگشت می‌شوند.
  */
-export default function SoundQuick({ storeId, project, playhead, selected, edit, media, sound, onBeats, beatsBusy }: SoundQuickProps) {
+export default function SoundQuick({ storeId, project, selected, edit, media, sound, onBeats, beatsBusy }: SoundQuickProps) {
+  const phStore = usePlayheadStore();
   const { root, applyRoot, nested, bin, onBinChanged, onNotice } = sound;
   const speech = useMemo(() => speechTracks(project), [project]);
   const music = useMemo(() => musicTracks(project), [project]);
@@ -156,7 +157,7 @@ export default function SoundQuick({ storeId, project, playhead, selected, edit,
     return r;
   };
   const addVoice = async (ref: string, title: string): Promise<ChooseOutcome> => {
-    const r = await run(`گویندگی «${title}»`, [{ tool: "add_voiceover", params: { ref, at: Math.round(playhead * 100) / 100 } }], "voice");
+    const r = await run(`گویندگی «${title}»`, [{ tool: "add_voiceover", params: { ref, at: Math.round(phStore.get() * 100) / 100 } }], "voice");
     if (r.ok && alive.current) setDialog(null);
     return r;
   };
@@ -273,7 +274,7 @@ export default function SoundQuick({ storeId, project, playhead, selected, edit,
         <MusicPicker storeId={storeId} bin={bin} media={media} programSeconds={projectLength(root)} busy={busy === "music"} onChoose={chooseMusic} onBinChanged={onBinChanged} onClose={() => setDialog(null)} />
       )}
       {dialog === "voice" && (
-        <VoiceOverDialog storeId={storeId} playhead={playhead} busy={busy === "voice"} onAdd={addVoice} onBinChanged={onBinChanged} onClose={() => setDialog(null)} />
+        <VoiceOverDialog storeId={storeId} busy={busy === "voice"} onAdd={addVoice} onBinChanged={onBinChanged} onClose={() => setDialog(null)} />
       )}
     </>
   );

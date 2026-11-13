@@ -1,8 +1,9 @@
-import { forwardRef, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { createPortal } from "react-dom";
 
 import { api } from "../../../../api/client";
+import { countRender } from "../../../../hooks/perfCount";
 import Icon from "../../../../components/Icon";
 import type { MediaItem } from "../api";
 import type { AudioEngine } from "./AudioEngine";
@@ -15,6 +16,7 @@ import {
   AnyClip, MediaClip, Project, TextClip, clipEnd, clipLength, findClip, isMedia, projectLength, propAt, speedAt, timecode,
 } from "./model";
 import { flattenForMedia } from "./ops";
+import { usePlayhead } from "./playhead";
 import { AspectKey, detectAspect } from "./reframe";
 import SafeZoneLayer from "./SafeZoneLayer";
 import { SAFE_GENERAL, SAFE_OFF, SafeZone, readSafeZone, safeZonesOf, writeSafeZone, zoneByKey } from "./SafeZones";
@@ -65,12 +67,13 @@ export type MonitorHandle = {
   getFrame: () => ImageData | null;
   getCanvas: () => HTMLCanvasElement | null;
   invalidate: () => void;
+  /** هر بار که مانیتور یک فریم کشید خبر می‌دهد (اسکوپ‌ها، «برشِ قاب»)؛ تابعِ برگشتی اشتراک را برمی‌دارد */
+  subscribeFrame: (fn: () => void) => () => void;
 };
 
 type Props = {
   project: Project;
   media: Record<string, MediaItem>;
-  time: number;
   playing: boolean;
   rate: number;
   selection: string[];
@@ -112,10 +115,14 @@ type Props = {
 const NEAR_BEFORE = 3;
 const NEAR_AFTER = 1.5;
 
-const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
+// ۱۴۰۵/۰۸/۲۳: `time` دیگر prop نیست؛ مانیتور خودش از انبارِ سرِ پخش (playhead.ts) مشترک می‌شود، پس فقط مانیتور (نه کلِ فضای کار) با هر تیک ساخته می‌شود.
+// `memo`: با props ثابت (فضای کار کارهایش را ثابت می‌دهد) وقتی چیزِ مربوط به مانیتور عوض نشده دوباره ساخته نمی‌شود.
+const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
+  countRender("Monitor");
   const {
-    project, media, time, playing, rate, selection, looks, compare, engine, duckSpans, onTime, onEnded, onPlay, onStep, onRate, onSeek, onGizmo,
+    project, media, playing, rate, selection, looks, compare, engine, duckSpans, onTime, onEnded, onPlay, onStep, onRate, onSeek, onGizmo,
   } = props;
+  const time = usePlayhead();
   const stage = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
   const compositor = useRef<Compositor | null>(null);
@@ -133,8 +140,17 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
   const flat = useMemo(() => flattenForMedia(project), [project]);
   const luts = props.luts;
   const matteMeta = props.matteMeta;
-  const latest = useRef({ project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta });
-  latest.current = { project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta };
+  const onFrameProp = props.onFrame;
+  const latest = useRef({ project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta, onFrame: onFrameProp });
+  latest.current = { project, flat, time, playing, rate, looks, compare, engine, duckSpans, luts, matteMeta, onFrame: onFrameProp };
+  /** هر بار که یک فریمِ پخش کشیده شد، مشترک‌ها (مثلاً «برشِ قاب») خبردار می‌شوند ⇒ حلقهٔ rAFِ جداگانه لازم نیست */
+  const frameSubs = useRef(new Set<() => void>());
+  const subscribeFrame = useCallback((fn: () => void) => {
+    frameSubs.current.add(fn);
+    return () => {
+      frameSubs.current.delete(fn);
+    };
+  }, []);
   const matteEls = useRef(new Map<string, { el: HTMLVideoElement; url: string }>());
   const matteNow = useRef(new Map<string, Source>());
   const timeRef = useRef(time);
@@ -306,8 +322,9 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     const L = latest.current;
     comp.render({ project: L.project, time: t, sources, looks: L.looks, compare: L.compare, luts: L.luts, mattes: matteNow.current });
     L.engine?.sync(L.flat, t, isPlaying, L.duckSpans);
-    props.onFrame?.();
-  }, [props, syncMedia]);
+    L.onFrame?.();
+    if (frameSubs.current.size) frameSubs.current.forEach((f) => f());
+  }, [syncMedia]);
 
   const requestRender = useCallback(() => {
     if (latest.current.playing || rafRender.current) return;
@@ -322,7 +339,8 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
     getFrame: () => compositor.current?.getImageData() ?? null,
     getCanvas: () => compositor.current?.canvas ?? null,
     invalidate: () => requestRender(),
-  }), [requestRender]);
+    subscribeFrame,
+  }), [requestRender, subscribeFrame]);
 
   // ───────── وقتی ایستاده‌ایم: با هر تغییرِ زمان/پروژه/آدرس دوباره بکش
   useEffect(() => {
@@ -530,7 +548,7 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
           {props.pickOverlay}
           {crop && cropClip && onReframe && (
             <CropOverlay
-              clip={cropClip} time={time} playing={playing} frameW={fw} frameH={fh} dims={cropDims} el={cropEl} version={frameVersion}
+              clip={cropClip} time={time} playing={playing} frameW={fw} frameH={fh} dims={cropDims} el={cropEl} version={frameVersion} subscribeFrame={subscribeFrame}
               aspect={aspect} frameAspect={ar} onReframe={onReframe} onSeekClip={() => onSeek(cropClip.at)} onClose={() => setCrop(false)}
             />
           )}
@@ -582,7 +600,7 @@ const Monitor = forwardRef<MonitorHandle, Props>(function Monitor(props, ref) {
       {props.footer}
     </div>
   );
-});
+}));
 
 export default Monitor;
 export { clipLength };

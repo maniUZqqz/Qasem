@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import Layout from "./components/Layout";
+import { lazyPage } from "./components/lazyPage";
 import VersionBadge from "./components/VersionBadge";
 import ChangelogPage from "./features/changelog/ChangelogPage";
 import { AuthProvider } from "./features/auth/AuthContext";
@@ -24,7 +25,6 @@ import ContentStudioPage from "./features/content/ContentStudioPage";
 import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
 import MotionStudioPage from "./features/content/motion/MotionStudioPage";
-import PhotoEditorPage from "./features/content/photo/PhotoEditorPage";
 import ThumbnailMakerPage from "./features/content/thumbs/ThumbnailMakerPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import MultiAnglePage from "./features/content/multiangle/MultiAnglePage";
@@ -73,6 +73,9 @@ import ComputeSelfTestPage from "./features/tools/compute/selftest";
 import MobilePage from "./features/mobile/MobilePage";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
+
+// ۱۴۰۵/۰۸/۲۳: ویرایشگرِ عکس (~۱ مگابایتِ کد) فقط وقتی صفحه‌اش باز شد بار می‌شود؛ ورودِ اولِ پنل و ویرایشگرِ ویدیو سبک‌تر می‌شود
+const PhotoEditorPage = lazyPage(() => import("./features/content/photo/PhotoEditorPage"), "در حالِ بارگیریِ ویرایشگرِ عکس…");
 
 /**
  * هر صفحه پشت `PageGate` با کلیدِ خودش از `features/panel/registry.ts` است:

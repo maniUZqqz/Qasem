@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 
+import { usePlayhead } from "./playhead";
+
 import { Alert, Badge, Spinner, fa } from "../../../../components/ui";
 import type { Bin, LutRow, MatteRow, MatteStatus, MediaItem } from "../api";
 import { Chips, Section, Slider } from "./controls";
@@ -27,7 +29,6 @@ export type ProProps = {
   path: string[];
   selection: string[];
   selected: { track: Track; clip: AnyClip } | null;
-  playhead: number;
   media: Record<string, MediaItem>;
   bin: Bin | null;
   edit: Edit;
@@ -139,13 +140,31 @@ function Nest(p: ProProps & { clip: MediaClip | null }) {
 }
 
 // ─────────────────────────────────────────────── مولتی‌کم
+type MulticamInfo = NonNullable<NonNullable<Project["sequences"]>[string]["multicam"]>;
+
+/** زاویهٔ فعلی در سرِ پخش: تنها بخشی از تب که زمان را نشان می‌دهد (۱۴۰۵/۰۸/۲۳: مشترکِ انبارِ سرِ پخش؛ بقیهٔ تب با هر تیک ساخته نمی‌شود) */
+function AnglesNow({ info, clip, onAngle }: { info: MulticamInfo; clip: MediaClip | null; onAngle: (angle: number) => void }) {
+  const playhead = usePlayhead();
+  const tn = clip ? Math.max(0, playhead - clip.at + clip.start) : 0;
+  return (
+    <>
+      <div className="ws-group-title">زاویه در سرِ پخش ({timecode(tn)}) — کلیدِ ۱ تا {fa(Math.min(9, info.angles.length))}</div>
+      <div className="flex flex-wrap gap-1" data-testid="mc-angles">
+        {info.angles.map((a, i) => {
+          const cur = [...info.cuts].reverse().find((c) => c.t <= tn + 0.001)?.angle === i;
+          return <button key={i} type="button" className={`ws-chip ${cur ? "is-on" : ""}`} onClick={() => onAngle(i)} data-angle={i} title={`برش به «${a.label}» در سرِ پخش`}>{fa(i + 1)}· {a.label}</button>;
+        })}
+      </div>
+    </>
+  );
+}
+
 function Multicam(p: ProProps & { clip: MediaClip | null }) {
   const sid = seqIdOf(p.clip);
   const seq = sid ? p.root.sequences?.[sid] : undefined;
   const info = seq?.multicam;
   const vids = p.selection.map((id) => p.project.tracks.flatMap((t) => t.clips).find((c) => c.id === id)).filter((c): c is MediaClip => !!c && isMedia(c) && c.kind === "video" && !seqIdOf(c));
   const refs = [...new Set(vids.map((v) => v.ref))];
-  const tn = p.clip && sid ? Math.max(0, p.playhead - p.clip.at + p.clip.start) : 0;
   return (
     <Section title="مولتی‌کم (چند دوربین)" testId="sec-multicam" badge={info ? <span className="ws-dot" /> : undefined}>
       {!info && (
@@ -176,13 +195,7 @@ function Multicam(p: ProProps & { clip: MediaClip | null }) {
       )}
       {info && (
         <>
-          <div className="ws-group-title">زاویه در سرِ پخش ({timecode(tn)}) — کلیدِ ۱ تا {fa(Math.min(9, info.angles.length))}</div>
-          <div className="flex flex-wrap gap-1" data-testid="mc-angles">
-            {info.angles.map((a, i) => {
-              const cur = [...info.cuts].reverse().find((c) => c.t <= tn + 0.001)?.angle === i;
-              return <button key={i} type="button" className={`ws-chip ${cur ? "is-on" : ""}`} onClick={() => p.onAngle(i)} data-angle={i} title={`برش به «${a.label}» در سرِ پخش`}>{fa(i + 1)}· {a.label}</button>;
-            })}
-          </div>
+          <AnglesNow info={info} clip={p.clip} onAngle={p.onAngle} />
           <div className="ws-group-title">صدا از</div>
           <Chips value={String(info.audio)} options={[{ key: "-1", title: "بی‌صدا" }, ...info.angles.map((a, i) => ({ key: String(i), title: a.label }))]} onPick={(k) => p.onMulticamAudio(Number(k))} />
           <div className="ws-group-title">برش‌ها ({fa(info.cuts.length)}) — طولِ کل {fa(Math.round(multicamLength(info) * 10) / 10)} ثانیه</div>

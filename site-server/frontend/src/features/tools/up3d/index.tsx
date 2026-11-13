@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import "./up3d.css";
+import { lazyPage } from "../../../components/lazyPage";
 import { P } from "./api";
 import AssetsPage from "./AssetsPage";
 import DashboardPage from "./DashboardPage";
@@ -12,11 +13,12 @@ import NewProjectPage from "./NewProjectPage";
 import ProjectPage from "./ProjectPage";
 import Shell from "./Shell";
 import TokenPage from "./TokenPage";
-import ViewerPage from "./ViewerPage";
 import WorkersPage from "./WorkersPage";
 
 // ویرایشگرِ آزاد (three + react-three-fiber) جدا بار می‌شود تا بقیهٔ پنل سنگین نشود
 const SceneEditorPage = lazy(() => import("./scene/SceneEditorPage"));
+// ۱۴۰۵/۰۸/۲۳: نمایشگرِ نتیجه هم three.js می‌خواهد (~۷۰۰ کیلوبایت)؛ جدا بار می‌شود تا ورودِ اولِ پنل (از جمله ویرایشگرِ ویدیو) سبک شود
+const ViewerPage = lazyPage(() => import("./ViewerPage"), "در حالِ بار کردنِ نمایشگرِ سه‌بعدی…");
 
 /**
  * «ویدیوی سه‌بعدی» (UpMarket 3D) داخلِ همین پنل.

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import { Project, clipEnd, clipLength, findClip, framesBetween, nudgeEdge, timecode } from "./model";
 
 /** صفحهٔ لمسی/باریک؟ (انگشت یا عرضِ کمتر از ۷۰۰ پیکسل) */
@@ -37,7 +38,8 @@ type Props = {
  * نوارِ کوتاه‌کردنِ لمسی: فقط وقتی قطعه‌ای انتخاب است و صفحه لمسی/باریک است.
  * دکمه‌های بزرگ برای جابه‌جاییِ لبهٔ شروع، لبهٔ پایان یا جای قطعه به اندازهٔ ۱۰/۱ فریم؛ قطعه‌های پیوندی هم می‌روند.
  */
-export default function TrimBar({ project, selection, fps, onApply, onSeek, onSplit, onRemove }: Props) {
+function TrimBarBase({ project, selection, fps, onApply, onSeek, onSplit, onRemove }: Props) {
+  countRender("TrimBar");
   const touch = useTouchLayout();
   const primary = selection[selection.length - 1] ?? null;
   const f = findClip(project, primary);
@@ -89,3 +91,5 @@ export default function TrimBar({ project, selection, fps, onApply, onSeek, onSp
     </div>
   );
 }
+
+export default memo(TrimBarBase);

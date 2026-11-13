@@ -8,6 +8,7 @@ import SoundDialog from "./SoundDialog";
 import { makeAsset, soundError, uploadAudio } from "./soundApi";
 import type { ChooseOutcome } from "./MusicPicker";
 import "./sound.css";
+import { usePlayhead } from "./playhead";
 
 /** آیا سرور مسیری برای آپلودِ صدای ضبط‌شده به کتابخانهٔ صدا دارد؟ (فعلاً نه: فقط ساختن از متن) — با ساخته‌شدنِ مسیر `true` شود */
 export const AUDIO_UPLOAD_READY = true;
@@ -20,17 +21,16 @@ const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x
  * که صدا را از سرِ پخش روی ترکِ گفتار می‌گذارد. ضبط با میکروفون فقط روی نشانیِ امن (https) کار می‌کند؛ تا آن موقع دکمه خاموش است و دلیلش روی صفحه نوشته شده.
  */
 export default function VoiceOverDialog({
-  storeId, playhead, busy, onAdd, onBinChanged, onClose,
+  storeId, busy, onAdd, onBinChanged, onClose,
 }: {
   storeId: string;
-  /** لحظه‌ای که گویندگی از آن‌جا شروع می‌شود (ثانیه) */
-  playhead: number;
   /** ابزارِ add_voiceover در حالِ اجراست */
   busy: boolean;
   onAdd: (ref: string, title: string) => Promise<ChooseOutcome>;
   onBinChanged: () => void;
   onClose: () => void;
 }) {
+  const playhead = usePlayhead();   // لحظه‌ای که گویندگی از آن‌جا شروع می‌شود (فقط همین پنجره با زمان رندر می‌شود)
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;

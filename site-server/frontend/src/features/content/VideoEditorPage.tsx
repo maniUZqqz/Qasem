@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
+import { lazyPage } from "../../components/lazyPage";
 import ModeSwitch, { useEditorMode } from "../../components/ModeSwitch";
 import SubtitleSwitch from "../../components/SubtitleSwitch";
 import { ToolInfo } from "./ToolPicker";
@@ -20,10 +21,13 @@ import {
 } from "../../components/ui";
 import type { EditableOp } from "./video/api";
 import type { Video } from "./video/types";
-import VideoWorkspace from "./video/manual/VideoWorkspace";
 import { EditResult, VideoAutoBlock, VideoPromptBlock } from "./video/VideoModes";
 import VideoDirector from "./video/director/VideoDirector";
 import { UploadProgress, useVideoUpload } from "./video/useVideoUpload";
+
+// ۱۴۰۵/۰۸/۲۳: فضای کارِ دستی (تایم‌لاین، مانیتور، افکت‌ها، رنگ…) سنگین‌ترین بخشِ پنل است؛ فقط وقتی حالتِ «دستی» باز شد بار می‌شود
+// تا باز شدنِ بقیهٔ صفحه‌های پنل (و حالتِ خودکار/کارگردان) سبک‌تر و سریع‌تر شود.
+const VideoWorkspace = lazyPage(() => import("./video/manual/VideoWorkspace"), "در حالِ بارگیریِ فضای کارِ ویرایش…");
 
 type UploadSubtitles = {
   url: string | null;
@@ -218,7 +222,7 @@ export default function VideoEditorPage() {
     <>
       <PageHeader
         title="تدوین ویدیو"
-        subtitle="ویدیوی خودتان را بدهید — خودکار، با یک دستور (کارگردان)، یا خودتان مثلِ پریمیر تدوینش کنید"
+        subtitle="ویدیوی خودتان را بدهید — خودکار، با یک دستور (کارگردان)، یا خودتان روی تایم‌لاین تدوینش کنید"
         actions={
           <>
             <Link to={`/stores/${id}/photo-editor`}>
@@ -244,7 +248,7 @@ export default function VideoEditorPage() {
         hints={{
           auto: "می‌سنجد، خودش تدوین می‌کند و داوری می‌کند — یک کلیک",
           prompt: "بگویید چطور تدوین شود؛ هوش مصنوعی مرحله‌ها را می‌چیند",
-          manual: "فضای کامل مثلِ پریمیر: تایم‌لاین، ترک‌ها، افکت‌ها",
+          manual: "فضای کامل: تایم‌لاین، ترک‌ها، افکت‌ها",
         }}
       />
 

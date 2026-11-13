@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { MediaItem } from "../api";
 import AutoReframe from "./AutoReframe";
 import { Num } from "./controls";
@@ -54,9 +55,11 @@ type OverlayProps = {
   onReframe: OnReframe;
   onSeekClip: () => void;
   onClose: () => void;
+  /** مانیتور هر بار که یک فریمِ پخش را کشید خبر می‌دهد؛ با آن، در حالِ پخش بومِ برش با همان فریم تازه می‌شود (حلقهٔ rAFِ جداگانه نمی‌خواهد). نیامد ⇒ همان حلقهٔ قدیمی */
+  subscribeFrame?: (fn: () => void) => () => void;
 };
 
-export function CropOverlay({ clip, time, playing, frameW, frameH, dims, el, version, aspect, frameAspect, onReframe, onSeekClip, onClose }: OverlayProps) {
+export function CropOverlay({ clip, time, playing, frameW, frameH, dims, el, version, aspect, frameAspect, onReframe, onSeekClip, onClose, subscribeFrame }: OverlayProps) {
   const layer = useRef<HTMLDivElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const win = useRef<HTMLDivElement>(null);
@@ -78,6 +81,7 @@ export function CropOverlay({ clip, time, playing, frameW, frameH, dims, el, ver
   const paint = useCallback((): boolean => {
     const c = cv.current;
     if (!c || !geo) return false;
+    countRender("cropPaint");
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = Math.max(2, Math.round(frameW * dpr));
     const H = Math.max(2, Math.round(frameH * dpr));
@@ -112,6 +116,8 @@ export function CropOverlay({ clip, time, playing, frameW, frameH, dims, el, ver
   }, [el, paint]);
   useEffect(() => {
     if (!playing) return undefined;
+    // ۱۴۰۵/۰۸/۲۳: مانیتور خودش هر فریم را می‌کشد؛ همان‌جا خبر می‌گیریم (یک حلقهٔ rAF کمتر که هر فریم دوباره روی بوم می‌کشید)
+    if (subscribeFrame) return subscribeFrame(() => { paint(); });
     let raf = 0;
     const loop = () => {
       paint();
@@ -119,7 +125,7 @@ export function CropOverlay({ clip, time, playing, frameW, frameH, dims, el, ver
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [playing, paint]);
+  }, [playing, paint, subscribeFrame]);
 
   const ready = !!geo && inside;
   useEffect(() => {

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { memo, useState, type ComponentProps } from "react";
 
 import { Badge } from "../../../../components/ui";
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { ToolInfo } from "../../ToolPicker";
 import type { Catalogue, Check, MediaItem, ProjectRow } from "../api";
 import type { AudioEngine } from "./AudioEngine";
@@ -14,6 +15,7 @@ import { Num, Section } from "./controls";
 import EffectsTab from "./EffectsTab";
 import ExportPanel from "./ExportPanel";
 import MixerPanel from "./MixerPanel";
+import { usePlayheadStore, useThrottledPlayhead } from "./playhead";
 import ProPanel, { ProProps } from "./ProPanel";
 import VersionsCard from "./VersionsCard";
 import QuickTemplates from "./QuickTemplates";
@@ -37,7 +39,6 @@ export type InspectorProps = {
   project: Project;
   selection: string[];
   selected: { track: Track; clip: AnyClip } | null;
-  playhead: number;
   tools: ToolInfo[];
   media: Record<string, MediaItem>;
   edit: Edit;
@@ -102,7 +103,15 @@ const TABS: { key: InspectorTab; title: string }[] = [
 const SIMPLE_TABS: InspectorTab[] = ["clip", "audio", "text", "captions", "out"];
 const FULL_KEY = "nm.video.inspector.full";
 
-export default function Inspector(p: InspectorProps) {
+// ۱۴۰۵/۰۸/۲۳: سرِ پخش دیگر prop ِ بازرس نیست (انبارِ playhead.ts) تا کلِ بازرس با هر تیکِ پخش/جست‌وجو ساخته نشود؛
+// فقط پنل‌هایی که واقعاً مقدارِ «در سرِ پخش» نشان می‌دهند (کلیدفریم، صدا، متن) از طریقِ این پوشه‌ها مشترکِ زمان‌اند.
+const PANEL_MS = 120;
+const ClipInspectorLive = (props: Omit<ComponentProps<typeof ClipInspector>, "playhead">) => <ClipInspector {...props} playhead={useThrottledPlayhead(PANEL_MS)} />;
+const AudioPanelLive = (props: Omit<ComponentProps<typeof AudioPanel>, "playhead">) => <AudioPanel {...props} playhead={useThrottledPlayhead(PANEL_MS)} />;
+const TextPanelLive = (props: Omit<ComponentProps<typeof TextPanel>, "playhead">) => <TextPanel {...props} playhead={useThrottledPlayhead(PANEL_MS)} />;
+
+function InspectorBase(p: InspectorProps) {
+  countRender("Inspector");
   const { tab, onTab, selected } = p;
   const kind = selected ? (selected.clip.type === "text" ? "text" : selected.track.kind === "audio" ? "audio" : "media") : null;
   const [full, setFull] = useState<boolean>(() => {
@@ -175,8 +184,8 @@ function ClipTab(p: KindProps) {
     );
   }
   return (
-    <ClipInspector
-      clip={selected.clip} track={selected.track} ids={p.selection} playhead={p.playhead} item={p.media[selected.clip.ref]} cat={p.cat} edit={p.edit}
+    <ClipInspectorLive
+      clip={selected.clip} track={selected.track} ids={p.selection} item={p.media[selected.clip.ref]} cat={p.cat} edit={p.edit}
       hasClipboard={p.hasClipboard} onCopyAttrs={p.onCopyAttrs} onPasteAttrs={p.onPasteAttrs} onExtractAudio={p.onExtractAudio}
       onUnlink={p.onUnlink} onFreeze={p.onFreeze} onJLCut={p.onJLCut} linked={p.linked} onEditMask={p.onEditMask} editingMask={p.editingMask}
       storeId={p.storeId} format={p.project.format} onCropMode={p.onCropMode} cropOn={p.cropOn}
@@ -204,7 +213,7 @@ function ColorTab(p: KindProps) {
 function SoundQuickCard(p: InspectorProps) {
   return (
     <SoundQuick
-      storeId={p.storeId} project={p.project} playhead={p.playhead} selected={p.selected} edit={p.edit} media={p.media} sound={p.sound}
+      storeId={p.storeId} project={p.project} selected={p.selected} edit={p.edit} media={p.media} sound={p.sound}
       onBeats={p.onBeats} beatsBusy={p.beatsBusy}
     />
   );
@@ -227,8 +236,8 @@ function AudioTab(p: KindProps) {
     <>
       <SoundQuickCard {...p} />
       <Section title="پیشرفته — صدای قطعهٔ انتخاب‌شده" defaultOpen testId="audio-advanced">
-        <AudioPanel
-          clip={clip} trackKind={selected.track.kind === "audio" ? "audio" : "video"} playhead={p.playhead}
+        <AudioPanelLive
+          clip={clip} trackKind={selected.track.kind === "audio" ? "audio" : "video"}
           onLive={(patch) => edit.live((pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
           onEnd={(label) => edit.end(label)}
           onApply={(label, patch) => edit.apply(label, (pr) => updateClips(pr, patch.kf ? [clip.id] : ids, patch))}
@@ -254,8 +263,8 @@ function TextTab(p: KindProps) {
   const ids = p.selection.filter((id) => p.project.tracks.some((t) => t.clips.some((c) => c.id === id && c.type === "text")));
   const caps = p.project.tracks.flatMap((t) => t.clips).filter((c): c is TextClip => c.type === "text" && !!c.caption);
   return (
-    <TextPanel
-      clip={clip} cat={p.cat.titles} playhead={p.playhead}
+    <TextPanelLive
+      clip={clip} cat={p.cat.titles}
       onLive={(patch) => edit.live((pr) => updateClips(pr, ids.length ? ids : [clip.id], patch))}
       onEnd={(label) => edit.end(label)}
       onApply={(label, patch) => edit.apply(label, (pr) => updateClips(pr, ids.length ? ids : [clip.id], patch))}
@@ -286,6 +295,7 @@ function MixerTab(p: InspectorProps) {
 }
 
 function OutTab(p: InspectorProps) {
+  const getPlayhead = usePlayheadStore().get;
   const { project, edit, title, onTitle, saving, projects, projectId, onOpenProject, onDeleteProject } = p;
   const f = project.format;
   const setFormat = (patch: Partial<Project["format"]>) => edit.apply("قابِ خروجی", (pr) => ({ ...pr, format: { ...pr.format, ...patch } }));
@@ -331,11 +341,13 @@ function OutTab(p: InspectorProps) {
           storeId={p.storeId} projectId={projectId} project={project} check={p.check} cat={p.cat.export} busy={p.renderBusy} where={p.exportWhere ?? p.cat.render_where}
           onExport={(block: ExportBlock) => edit.apply("تنظیماتِ خروجی", (pr) => ({ ...pr, export: block }))}
           onMaster={(patch) => p.sound.applyRoot("بلندیِ صدای خروجی", (pr) => ({ ...pr, master: { ...(pr.master ?? DEFAULT_MASTER), ...patch } }))}
-          onRender={p.onRender} playhead={p.playhead}
+          onRender={p.onRender} getPlayhead={getPlayhead}
         />
       ) : <p className="ws-hint">در حالِ بارگیریِ تنظیماتِ خروجی…</p>}
     </div>
   );
 }
+
+export default memo(InspectorBase);
 
 export { clipLength, timecode };

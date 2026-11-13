@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
 import type { Catalogue } from "../api";
 import { Section, Slider } from "./controls";
 import {
@@ -8,6 +9,7 @@ import {
   compactColor, pchip, rgbToWheel, wheelToRgb,
 } from "./color";
 import type { ColorParams, HslKey, MediaClip, Rgb } from "./model";
+import { usePlayheadStore } from "./playhead";
 import "./color.css";
 
 type Props = {
@@ -34,6 +36,7 @@ const nz = (...v: number[]) => v.some((x) => Math.abs(x) > 1e-6);
 const Dot = () => <span className="ws-dot" aria-hidden />;
 
 export default function ColorPanel({ clip, cat, onLive, onEnd, onApply, onCompare, thumbSource }: Props) {
+  countRender("ColorPanel");
   const looks = useMemo<LookDef[]>(() => cat.looks.map((l) => ({ key: l.key, title: l.title, params: l.params as ColorParams })), [cat.looks]);
   const colorRef = useRef<ColorParams>({});
   colorRef.current = clip.color ?? {};
@@ -159,6 +162,26 @@ function LookGrid({ looks, current, thumbSource, clipId, onPick }: {
   const [tick, setTick] = useState(0);
   const [hasThumb, setHasThumb] = useState(false);
   const refs = useRef<Record<string, HTMLCanvasElement | null>>({});
+  // ۱۴۰۵/۰۸/۲۳: ساختنِ تصویرِ کوچکِ همهٔ حالت‌ها گران است و قبلاً با هر رندرِ فضای کار (۱۴ بار در ثانیه هنگامِ پخش، با هر پیکسلِ کشیدنِ لغزنده) تکرار می‌شد
+  // چون thumbSource هر رندر تابعِ تازه‌ای بود. حالا فقط وقتی دوباره ساخته می‌شود که قطعه/فهرستِ حالت‌ها عوض شود، دکمهٔ «تازه‌سازی» زده شود، یا فریمِ مانیتور
+  // واقعاً عوض شده و سرِ پخش ~۳۰۰ میلی‌ثانیه آرام گرفته باشد (هنگامِ پخش/کشیدنِ سرِ پخش نه).
+  const ph = usePlayheadStore();
+  const [frameTick, setFrameTick] = useState(0);
+  useEffect(() => {
+    let last = ph.get();
+    let timer = 0;
+    const off = ph.subscribe(() => {
+      const t = ph.get();
+      if (t === last) return;
+      last = t;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setFrameTick((v) => v + 1), 300);
+    });
+    return () => {
+      off();
+      window.clearTimeout(timer);
+    };
+  }, [ph]);
 
   useEffect(() => {
     const src = thumbSource?.();
@@ -167,6 +190,7 @@ function LookGrid({ looks, current, thumbSource, clipId, onPick }: {
       return;
     }
     setHasThumb(true);
+    countRender("lookThumbBuild");
     const w = 72;
     const h = Math.max(24, Math.round((72 * src.height) / src.width));
     const tmp = document.createElement("canvas");
@@ -187,7 +211,7 @@ function LookGrid({ looks, current, thumbSource, clipId, onPick }: {
       ctx.putImageData(img, 0, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, clipId, looks, thumbSource]);
+  }, [tick, frameTick, clipId, looks, thumbSource]);
 
   const tile = (key: string, title: string) => (
     <button key={key || "none"} type="button" className={`cp-look ${current === key ? "is-on" : ""}`} aria-pressed={current === key} onClick={() => onPick(key)} data-look={key || "none"} title={title}>

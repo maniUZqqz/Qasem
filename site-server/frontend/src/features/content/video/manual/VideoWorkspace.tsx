@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
 
 import { api, errorMessage } from "../../../../api/client";
 import Workspace from "../../../../components/Workspace";
 import { Badge, Spinner, fa } from "../../../../components/ui";
+import { countRender } from "../../../../hooks/perfCount";
+import { useEvent, useStableFns } from "../../../../hooks/useEvent";
 import { useHistory } from "../../../../hooks/useHistory";
 import { useJobRunner } from "../../../../hooks/useJobRunner";
 import type { Job } from "../../../../types";
@@ -18,18 +20,19 @@ import { KfChannel } from "./keyframes";
 import { frameToSource } from "./geom";
 import { Lut, parseCube } from "./lut";
 import { BezierOverlay, RegionOverlay } from "./PickOverlay";
-import type { FrameRect, SyncRow } from "./ProPanel";
+import type { FrameRect, ProProps, SyncRow } from "./ProPanel";
 import {
   AngleSource, autoRipple, beatFit, beatSnap, beatSplit, beatTimes, createMulticam, jlCut as jlCutOp, nestClips, removeCutAt, seqIdOf, setAngleAt,
   setMulticamAudio, unnestClip, viewOf, writeView,
 } from "./ops";
+import { PlayheadContext, createPlayhead, usePlayhead } from "./playhead";
 import { SHAPES, defaultShape } from "./shapes";
 import { attachTo, bakeFollowers, detach, trackerFromResult } from "./tracking";
 import { fetchBeats, srcToTimeline, useDuckSpans } from "./mediaAnalysis";
 import Monitor, { MonitorHandle } from "./Monitor";
 import {
   AnyClip, AttrClip, AttrGroup, FORMATS, MediaClip, Project, ShapeKind, TextClip, addMarker, addMedia, addText, addTextClips, addTrack, clearMarkers, clipEnd, clipLength, copyAttrs,
-  deleteClips, duplicateClips, emptyProject, extractAudio, findClip, freeSpot, freezeFrameAt, fromApi, isMedia, linkClips, liftRange, moveClips, pasteAttrs, projectLength,
+  Track, deleteClips, duplicateClips, emptyProject, extractAudio, findClip, freeSpot, freezeFrameAt, fromApi, isMedia, linkClips, liftRange, moveClips, pasteAttrs, projectLength,
   newMediaClip, nudgeEdge, overlaps, removeMarker, removeTrack, rippleTrim, splitMany, srcTimeAt, toApi, uid, unlinkClips, updateClip, updateTrack, withLinked,
 } from "./model";
 import { cuesOf, makeRoom, parseSrt, spanOf, splitAtSourceCuts, toSrt } from "./r4ops";
@@ -81,7 +84,49 @@ const TOOLS: { key: Tool; label: string; title: string }[] = [
   { key: "rate", label: "R", title: "تغییرِ سرعت با کشیدنِ لبه (R)" },
 ];
 
+/** ماسکِ آزادِ روی تصویر: زمانِ سرِ پخش را خودش از انبار می‌گیرد (فضای کار با هر تیک دوباره ساخته نمی‌شود) */
+function BezierLive(p: Omit<ComponentProps<typeof BezierOverlay>, "time">) {
+  const time = usePlayhead();
+  return <BezierOverlay {...p} time={time} />;
+}
+
+/** پنجره‌های شناور (تاریخچه، نشانگرها، …) مقدارِ سرِ پخش را هنگامِ رندر نشان می‌دهند (api.time)؛ فقط وقتی پنلی باز است به زمان گوش می‌دهد */
+function LivePanelHost(p: ComponentProps<typeof PanelHost>) {
+  usePlayhead();
+  return <PanelHost {...p} />;
+}
+
+/**
+ * اسکوپ‌ها: خودشان از فریم‌های مانیتور خبر می‌گیرند (≤ ~۱۵ بار در ثانیه، آخرین فریم هم می‌آید).
+ * قبلاً هر خبر یک setState در فضای کار بود و کلِ فضای کار را ۱۵ بار در ثانیه دوباره می‌ساخت.
+ */
+function ScopesLive({ monitor }: { monitor: RefObject<MonitorHandle> }) {
+  const [ver, setVer] = useState(0);
+  useEffect(() => {
+    let last = 0;
+    let timer = 0;
+    const fire = () => {
+      timer = 0;
+      last = performance.now();
+      setVer((v) => v + 1);
+    };
+    const off = monitor.current?.subscribeFrame?.(() => {
+      const wait = 66 - (performance.now() - last);
+      if (wait <= 0) fire();
+      else if (!timer) timer = window.setTimeout(fire, wait);
+    });
+    fire();
+    return () => {
+      off?.();
+      window.clearTimeout(timer);
+    };
+  }, [monitor]);
+  const getFrame = useCallback(() => monitor.current?.getFrame() ?? null, [monitor]);
+  return <Scopes getFrame={getFrame} version={ver} />;
+}
+
 export default function VideoWorkspace({ storeId, tools, startRef, onStartConsumed, startProject, onProjectOpened, onGoDirector }: Props) {
+  countRender("Workspace");
   const hist = useHistory<Project>(emptyProject());
   const root = hist.state;
   // ۱۴۰۵/۰۸/۲۲: «committed» فقط هنگامِ ثبتِ گام عوض می‌شود، نه در هر پیکسلِ کشیدن؛ کارهای سنگینِ کلِ پروژه از همین مشتق می‌شوند.
@@ -113,7 +158,11 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [title, setTitle] = useState("پروژهٔ تازه");
   const [check, setCheck] = useState<Check | null>(null);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [time, setTime] = useState(0);
+  // ۱۴۰۵/۰۸/۲۳: «سرِ پخش» stateِ ریاکت نیست؛ یک انبارِ بیرونی است (playhead.ts). قبلاً هر تیکِ پخش (~۱۴ بار در ثانیه) و هر حرکتِ ماوس هنگامِ
+  // جست‌وجو کلِ فضای کار را دوباره می‌ساخت. حالا فقط مانیتور، خطِ سرِ پخش و پنل‌هایی که مقدارِ «در سرِ پخش» نشان می‌دهند مشترکِ زمان‌اند؛
+  // کارهایی مثل تقسیم و نشانگر زمان را با ph.get() در لحظهٔ رویداد می‌خوانند.
+  const ph = useMemo(() => createPlayhead(0), []);
+  const setTime = ph.set;
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [selection, setSelection] = useState<string[]>([]);
@@ -131,8 +180,6 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const [clipsBoard, setClipsBoard] = useState<{ clip: AnyClip; kind: string }[]>([]);
   const [exact, setExact] = useState<{ t0: number; t1: number } | null>(null);
   const [scopesOpen, setScopesOpen] = useState(false);
-  const [scopeVer, setScopeVer] = useState(0);
-  const scopeTick = useRef(0);   // اسکوپ‌ها ~۱۵ بار در ثانیه تازه شوند، نه ۶۰ (خواندنِ فریم از GPU گران است)
   const [beatsBusy, setBeatsBusy] = useState(false);
   const [renderStarting, setRenderStarting] = useState(false);
   const [help, setHelp] = useState(false);
@@ -338,18 +385,18 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   const seek = useCallback((t: number) => setTime(Math.max(0, Math.min(Math.max(totalRef.current, 0.0001) + 20, t))), []);
   const togglePlay = () => {
     void engine.resume();
-    if (!playing && rate < 0 && time <= 0) setRate(1);
-    if (!playing && time >= totalRef.current - 0.01 && rate > 0) setTime(0);
+    if (!playing && rate < 0 && ph.get() <= 0) setRate(1);
+    if (!playing && ph.get() >= totalRef.current - 0.01 && rate > 0) setTime(0);
     setPlaying((p) => !p);
   };
   const step = (frames: number) => {
     setPlaying(false);
-    seek(time + frames * (1 / (project.format.fps || 30)));
+    seek(ph.get() + frames * (1 / (project.format.fps || 30)));
   };
 
   // ───────────── ویرایش
   const primaryId = selection[selection.length - 1] ?? null;
-  const selected = findClip(project, primaryId);
+  const selected = useMemo(() => findClip(project, primaryId), [project, primaryId]);
   const aspectOf = useCallback((ref: string) => {
     const it = media[ref];
     return it && it.width && it.height ? it.width / it.height : 0;
@@ -359,11 +406,12 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     const v = viewOf(r, path);
     return writeView(r, path, bakeFollowers(autoRipple(base ?? v, fn(v)), aspectOf));
   };
-  const live = (fn: (p: Project) => Project) => hist.live((r) => through(r, fn));
-  const apply = (label: string, fn: (p: Project) => Project) => hist.apply(label, (r) => through(r, fn));
+  // ۱۴۰۵/۰۸/۲۳: هویتِ ثابت (useEvent) تا فرزندانِ memo با هر رندر دوباره ساخته نشوند؛ هنوز همیشه آخرین path/media را می‌بینند
+  const live = useEvent((fn: (p: Project) => Project) => hist.live((r) => through(r, fn)));
+  const apply = useEvent((label: string, fn: (p: Project) => Project) => hist.apply(label, (r) => through(r, fn)));
   /** تغییر در سطحِ ریشه (ردیاب‌ها، تنظیمِ ریپل) */
-  const applyRoot = (label: string, fn: (p: Project) => Project) => hist.apply(label, fn);
-  const edit = { live, end: hist.end, apply };
+  const applyRoot = useEvent((label: string, fn: (p: Project) => Project) => hist.apply(label, fn));
+  const edit = useMemo(() => ({ live, end: hist.end, apply }), [live, hist.end, apply]);
   const rippleOn = root.auto_ripple !== false;
   const linkedSel = !!selected && selected.clip.type === "media" && !!selected.clip.link && project.tracks.flatMap((t) => t.clips).filter((c) => isMedia(c) && c.link === (selected.clip as MediaClip).link).length > 1;
 
@@ -381,7 +429,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     if (!tr) return;
     const first = !hasClips;
     apply(`افزودن «${item.title}»`, (pr) => {
-      let next = addMedia(pr, tr.id, item, at ?? time);
+      let next = addMedia(pr, tr.id, item, at ?? ph.get());
       if (first && item.kind === "video" && item.width && item.height) {
         const ar = item.width / item.height;
         next = { ...next, format: ar > 1.2 ? { ...next.format, width: 1920, height: 1080, preset: "wide" } : ar > 0.9 ? { ...next.format, width: 1080, height: 1080, preset: "square" } : next.format };
@@ -395,12 +443,12 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     const tt = project.tracks.find((tr) => tr.kind === "text" && !tr.locked);
     if (!tt) return;
     const id = uid();
-    apply("متن", (pr) => addText(pr, tt.id, "متنِ تازه", time, 2.5, { id }));
+    apply("متن", (pr) => addText(pr, tt.id, "متنِ تازه", ph.get(), 2.5, { id }));
     setSelection([id]);
     setTab("text");
   }
 
-  function splitHere(at = time) {
+  function splitHere(at = ph.get()) {
     const t = at;
     apply("تقسیم", (pr) => {
       if (selection.length) return splitMany(pr, withLinked(pr, selection), t);
@@ -422,11 +470,11 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
 
   function trimToPlayhead(side: "l" | "r") {
-    const ids = selection.length ? selection : project.tracks.flatMap((t) => t.clips.filter((c) => time > c.at && time < clipEnd(c)).map((c) => c.id));
+    const ids = selection.length ? selection : project.tracks.flatMap((t) => t.clips.filter((c) => ph.get() > c.at && ph.get() < clipEnd(c)).map((c) => c.id));
     if (!ids.length) return;
     apply(side === "l" ? "کوتاه تا سرِ پخش (ریپل)" : "کوتاه تا سرِ پخش (ریپل)", (pr) => {
       let next = pr;
-      for (const id of withLinked(pr, ids)) next = rippleTrim(next, id, side, time);
+      for (const id of withLinked(pr, ids)) next = rippleTrim(next, id, side, ph.get());
       return next;
     });
   }
@@ -446,7 +494,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       for (const { clip, kind } of clipsBoard) {
         const tr = next.tracks.find((t) => t.kind === kind && !t.locked && (!findClip(pr, clip.id) || findClip(pr, clip.id)?.track.id === t.id)) ?? next.tracks.find((t) => t.kind === kind && !t.locked);
         if (!tr) continue;
-        const copy = { ...clip, id: `${clip.id}p${Math.random().toString(36).slice(2, 7)}`, at: time + (clip.at - t0), link: undefined } as AnyClip;
+        const copy = { ...clip, id: `${clip.id}p${Math.random().toString(36).slice(2, 7)}`, at: ph.get() + (clip.at - t0), link: undefined } as AnyClip;
         const spot = freeSpot(tr, copy.at, clipLength(copy));
         if (spot === null) continue;
         copy.at = spot;
@@ -675,8 +723,9 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     if (tab !== "pro") setPickRegion(false);
   }, [tab, storeId]);
   useEffect(() => {
-    if (!selected || selected.clip.type !== "media" || selected.clip.mask?.shape !== "bezier") setEditingMask(false);
-  }, [selected]);
+    // ۱۴۰۵/۰۸/۲۳: فقط وقتی واقعاً در حالِ ویرایشِ ماسک بودیم؛ قبلاً با هر تغییرِ پروژه (هر پیکسلِ کشیدن) یک setStateِ بی‌اثر یک رندرِ اضافهٔ فضای کار می‌ساخت
+    if (editingMask && (!selected || selected.clip.type !== "media" || selected.clip.mask?.shape !== "bezier")) setEditingMask(false);
+  }, [selected, editingMask]);
 
   // LUT هایی که پروژه (و توالی‌هایش) به کار برده؛ متنشان یک بار خوانده می‌شود
   const usedLuts = useMemo(() => {
@@ -758,10 +807,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     const item = media[c.ref];
     const fa = project.format.width / project.format.height;
     const sa = item?.width && item?.height ? item.width / item.height : fa;
-    const [ax, ay] = frameToSource(c, time, region.x, region.y, fa, sa);
-    const [bx, by] = frameToSource(c, time, region.x + region.w, region.y + region.h, fa, sa);
+    const [ax, ay] = frameToSource(c, ph.get(), region.x, region.y, fa, sa);
+    const [bx, by] = frameToSource(c, ph.get(), region.x + region.w, region.y + region.h, fa, sa);
     const reg = { x: Math.max(0, Math.min(ax, bx)), y: Math.max(0, Math.min(ay, by)), w: Math.max(0.02, Math.abs(bx - ax)), h: Math.max(0.02, Math.abs(by - ay)) };
-    const s0 = Math.max(c.start, Math.min(c.end - 0.3, srcTimeAt(c, Math.max(c.at, Math.min(clipEnd(c), time)))));
+    const s0 = Math.max(c.start, Math.min(c.end - 0.3, srcTimeAt(c, Math.max(c.at, Math.min(clipEnd(c), ph.get())))));
     const s1 = Math.min(c.end, s0 + opts.seconds);
     setTrackErr(null);
     setTrackMsg("در حالِ ردیابی…");
@@ -779,7 +828,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
   function attachSelected(trackerId: string, mask: boolean) {
     if (!selected) return;
-    const r = attachTo(project, { clipId: selected.clip.id, mask }, trackerId, time, aspectOf);
+    const r = attachTo(project, { clipId: selected.clip.id, mask }, trackerId, ph.get(), aspectOf);
     if (r.message) setNotice(r.message);
     else apply(mask ? "اتصالِ ماسک به ردیاب" : "اتصال به ردیاب", () => r.project);
   }
@@ -898,7 +947,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   })();
   function cutToAngle(angle: number) {
     if (!multicamSel) return;
-    const tn = srcTimeAt(multicamSel.clip, Math.max(multicamSel.clip.at, Math.min(clipEnd(multicamSel.clip), time)));
+    const tn = srcTimeAt(multicamSel.clip, Math.max(multicamSel.clip.at, Math.min(clipEnd(multicamSel.clip), ph.get())));
     const r = setAngleAt(project, multicamSel.sid, tn, angle);
     if (r.message) setNotice(r.message);
     else apply(`برش به زاویهٔ ${angle + 1}`, () => r.project);
@@ -982,7 +1031,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     const box = overlayBox();
     const id = uid();
     const clip: MediaClip = {
-      id, type: "media", ref: "shape", label: SHAPES.find((x) => x.key === kind)?.title ?? kind, kind: "image", at: time, start: 0, end: 3, src: 0, opacity: 1, ...box, y: Math.max(0, 0.5 - box.height / 2), volume: 1, speed: 1,
+      id, type: "media", ref: "shape", label: SHAPES.find((x) => x.key === kind)?.title ?? kind, kind: "image", at: ph.get(), start: 0, end: 3, src: 0, opacity: 1, ...box, y: Math.max(0, 0.5 - box.height / 2), volume: 1, speed: 1,
       fit: "stretch", fade_in: 0, fade_out: 0, audio_on: false, has_audio: false, effects: [], transition: null, shape: defaultShape(kind),
     };
     apply("شکل", (pr) => placeOnTop(pr, clip));
@@ -992,26 +1041,31 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   function addSticker(item: MediaItem) {
     const box = overlayBox();
     const id = uid();
-    const clip: MediaClip = { ...newMediaClip(item, time), id, end: 4, ...box, y: Math.max(0, 0.5 - box.height / 2), fit: "contain" };
+    const clip: MediaClip = { ...newMediaClip(item, ph.get()), id, end: 4, ...box, y: Math.max(0, 0.5 - box.height / 2), fit: "contain" };
     apply(`استیکر «${item.title}»`, (pr) => placeOnTop(pr, clip));
     setSelection([id]);
     setTab("clip");
   }
 
-  const pickOverlay = picker === "wb" ? (
-    <PointOverlay hint="روی بخشی از تصویر که باید سفید یا خاکستری باشد کلیک کنید (Esc = انصراف)" onCancel={() => setPicker(null)} onPick={(fx, fy) => finishWbPick(fx, fy)} />
+  const onWbPick = useEvent((fx: number, fy: number) => finishWbPick(fx, fy));
+  const maskClip = editingMask && selected && isMedia(selected.clip) && selected.clip.mask?.shape === "bezier" ? selected.clip : null;
+  // ۱۴۰۵/۰۸/۲۳: JSXِ لایهٔ تعاملی با useMemo ثابت می‌ماند تا مانیتور (memo) با هر رندرِ بی‌ربط دوباره ساخته نشود
+  const pickOverlay = useMemo(() => (picker === "wb" ? (
+    <PointOverlay hint="روی بخشی از تصویر که باید سفید یا خاکستری باشد کلیک کنید (Esc = انصراف)" onCancel={() => setPicker(null)} onPick={onWbPick} />
   ) : pickRegion ? (
     <RegionOverlay rect={region} onRect={setRegion} />
-  ) : editingMask && selected && isMedia(selected.clip) && selected.clip.mask?.shape === "bezier" ? (
-    <BezierOverlay
-      project={project} clip={selected.clip} time={time}
-      onLive={(points) => { const c = selected.clip as MediaClip; live((pr) => updateClip(pr, c.id, { mask: { ...c.mask!, points } })); }}
+  ) : maskClip ? (
+    <BezierLive
+      project={project} clip={maskClip}
+      onLive={(points) => live((pr) => updateClip(pr, maskClip.id, { mask: { ...maskClip.mask!, points } }))}
       onEnd={(l) => hist.end(l)}
     />
-  ) : undefined;
+  ) : undefined), [picker, pickRegion, region, maskClip, project, live, hist.end, onWbPick]);
 
   // ───────────── کلیدهای میان‌بر
-  useEffect(() => {
+  // ۱۴۰۵/۰۸/۲۳: قبلاً این effect وابستگی نداشت و با هر رندر گوشی را برمی‌داشت و دوباره می‌گذاشت. حالا یک بار مشترک می‌شود و هر بار آخرین closure را صدا می‌زند.
+  const onKeyRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  onKeyRef.current = (() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
@@ -1043,12 +1097,12 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
         apply(e.altKey ? "کوتاه‌کردنِ فریمیِ شروع" : "جابه‌جاییِ فریمی", (pr) => nudgeEdge(pr, selection, e.altKey ? "l" : "pos", n, project.format.fps || 30));
         return;
       }
-      if (k === "ArrowLeft") { e.preventDefault(); e.shiftKey ? seek(time - 1) : step(-1); return; }
-      if (k === "ArrowRight") { e.preventDefault(); e.shiftKey ? seek(time + 1) : step(1); return; }
+      if (k === "ArrowLeft") { e.preventDefault(); e.shiftKey ? seek(ph.get() - 1) : step(-1); return; }
+      if (k === "ArrowRight") { e.preventDefault(); e.shiftKey ? seek(ph.get() + 1) : step(1); return; }
       if (k === "ArrowUp" || k === "ArrowDown") {
         e.preventDefault();
         const pts = Array.from(new Set([0, ...project.tracks.flatMap((tr) => tr.clips.flatMap((c) => [c.at, clipEnd(c)])), ...(project.markers ?? []).map((m) => m.t)])).sort((a, b) => a - b);
-        const next = k === "ArrowUp" ? [...pts].reverse().find((x) => x < time - 0.02) : pts.find((x) => x > time + 0.02);
+        const next = k === "ArrowUp" ? [...pts].reverse().find((x) => x < ph.get() - 0.02) : pts.find((x) => x > ph.get() + 0.02);
         if (next !== undefined) seek(next);
         return;
       }
@@ -1059,10 +1113,10 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       if (k === "Delete" || k === "Backspace") { e.preventDefault(); removeSelected(e.shiftKey); return; }
       if (lower === "q") { trimToPlayhead("l"); return; }
       if (lower === "w") { trimToPlayhead("r"); return; }
-      if (lower === "i") { apply("ورودی", (pr) => ({ ...pr, inout: { in: time, out: Math.max(pr.inout?.out ?? time + 5, time + 0.1) } })); return; }
-      if (lower === "o") { apply("خروجی", (pr) => ({ ...pr, inout: { in: Math.min(pr.inout?.in ?? 0, time - 0.1 > 0 ? time - 0.1 : 0), out: time } })); return; }
+      if (lower === "i") { apply("ورودی", (pr) => ({ ...pr, inout: { in: ph.get(), out: Math.max(pr.inout?.out ?? ph.get() + 5, ph.get() + 0.1) } })); return; }
+      if (lower === "o") { apply("خروجی", (pr) => ({ ...pr, inout: { in: Math.min(pr.inout?.in ?? 0, ph.get() - 0.1 > 0 ? ph.get() - 0.1 : 0), out: ph.get() } })); return; }
       if (lower === "x" && e.altKey) { apply("پاک‌کردنِ ورودی/خروجی", (pr) => ({ ...pr, inout: null })); return; }
-      if (lower === "m") { apply("نشانگر", (pr) => addMarker(pr, time, "")); return; }
+      if (lower === "m") { apply("نشانگر", (pr) => addMarker(pr, ph.get(), "")); return; }
       if (lower === "t") { newText(); return; }
       if (/^[1-9]$/.test(k) && multicamSel) { e.preventDefault(); cutToAngle(Number(k) - 1); return; }
       const toolKey: Record<string, Tool> = { v: "select", c: "razor", a: "trackfwd", b: "ripple", n: "roll", y: "slip", u: "slide", r: "rate" };
@@ -1071,10 +1125,14 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       if (k === "-") { setPx((v) => Math.max(8, v / 1.25)); return; }
       if (k === "\\") { setPx(Math.max(8, Math.min(200, 700 / Math.max(5, totalRef.current)))); }
     };
+    return onKey;
+  })();
+  useEffect(() => {
+    countRender("keydownSubscribe");
+    const onKey = (e: KeyboardEvent) => onKeyRef.current(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  });
+  }, []);
 
   const hasSubtitleSource = !!selected && selected.clip.type === "media" && selected.clip.kind === "video" && /^(video|edited|script):/.test(selected.clip.ref);
   const proxyNeeded = selected && selected.clip.type === "media" && media[selected.clip.ref]?.proxy === "needed";
@@ -1085,26 +1143,26 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
 
   const exactRange = () => {
     const io = project.inout;
-    const a = io ? io.in : Math.max(0, time - 1);
+    const a = io ? io.in : Math.max(0, ph.get() - 1);
     const b = io ? Math.min(io.out, a + 20) : Math.min(Math.max(totalRef.current, a + 1), a + 7);
     return { t0: a, t1: b };
   };
 
-  const onGizmo = (id: string, patch: Partial<MediaClip> | Partial<TextClip>, final: boolean) => {
+  const onGizmo = useEvent((id: string, patch: Partial<MediaClip> | Partial<TextClip>, final: boolean) => {
     if (final) apply("جابه‌جایی روی تصویر", (pr) => updateClip(pr, id, patch));
     else live((pr) => updateClip(pr, id, patch));
-  };
+  });
   /** «برشِ قاب» (CropOverlay): پنجرهٔ برشِ منبع؛ هنگامِ کشیدن زنده، با رها شدن یک گامِ برگشت. extra = ویژگی‌های هم‌زمان (مثلاً fit) */
-  const onReframe = (id: string, reframe: MediaClip["reframe"], final: boolean, extra?: Partial<MediaClip>) => {
+  const onReframe = useEvent((id: string, reframe: MediaClip["reframe"], final: boolean, extra?: Partial<MediaClip>) => {
     const patch: Partial<MediaClip> = { reframe, ...(extra ?? {}) };
     if (final) apply("برشِ قاب", (pr) => updateClip(pr, id, patch));
     else live((pr) => updateClip(pr, id, patch));
-  };
+  });
 
   // ───────────── رنگِ خودکار و قطره‌چکانِ تعادلِ سفید
   function addAdjustmentLayer() {
-    const span = adjustmentSpan(project, time);
-    const made = addAdjustment(project, time, span);
+    const span = adjustmentSpan(project, ph.get());
+    const made = addAdjustment(project, ph.get(), span);
     apply("لایهٔ تنظیم", () => made.project);
     setSelection([made.id]);
     setTab("color");
@@ -1250,7 +1308,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }
   function gotoEdit(dir: -1 | 1) {
     const pts = Array.from(new Set([0, ...project.tracks.flatMap((tr) => tr.clips.flatMap((c) => [c.at, clipEnd(c)])), ...(project.markers ?? []).map((m) => m.t)])).sort((a, b) => a - b);
-    const next = dir < 0 ? [...pts].reverse().find((x) => x < time - 0.02) : pts.find((x) => x > time + 0.02);
+    const next = dir < 0 ? [...pts].reverse().find((x) => x < ph.get() - 0.02) : pts.find((x) => x > ph.get() + 0.02);
     if (next !== undefined) seek(next);
   }
   function copyAttributes() {
@@ -1266,7 +1324,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     setNotice(`چینشِ «${titles[name]}» آماده شد.`);
   }
   const wsApi: WorkspaceApi = {
-    storeId, project, root, path, selection, selected, time, playing, fps: project.format.fps || 30, projectId, media, bin, tool, flags,
+    storeId, project, root, path, selection, selected, get time() { return ph.get(); }, playing, fps: project.format.fps || 30, projectId, media, bin, tool, flags,
     canUndo: hist.canUndo, canRedo: hist.canRedo, history: { entries: hist.entries, index: hist.index }, hasClips, editorSettings,
     apply, applyRoot, live, end: hist.end, select: setSelection, undo: hist.undo, redo: hist.redo, jumpHistory: hist.jump,
     seek, togglePlay, step, setRate: shuttle, setTool, toggle: toggleFlag,
@@ -1298,7 +1356,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       pasteInsert: () => {
         if (!clipsBoard.length) { setNotice("اول چیزی را کپی کنید (Ctrl+C)."); return; }
         const span = spanOf(clipsBoard);
-        const t0 = time;
+        const t0 = ph.get();
         pasteClips((pr) => makeRoom(pr, t0, span), "چسباندنِ درج");
       },
       exportSrt: exportSrtFile,
@@ -1314,7 +1372,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       collect: () => void collectProject(),
       renderAs: (what) => {
         const io = project.inout && project.inout.out > project.inout.in + 0.05 ? { range: "inout" } : {};
-        const t = Math.round(time * 100) / 100;
+        const t = Math.round(ph.get() * 100) / 100;
         const o: Record<string, unknown> = what === "range" ? { range: "inout" } : what === "gif" ? { format: "gif", ...io } : what === "audio" ? { format: "audio", ...io } : { format: "frame", frame_t: t };
         setTab("out");
         void doRender("final", o);
@@ -1371,7 +1429,113 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
     return () => window.removeEventListener("keydown", onKey, true);
   }, [runFeature]);
 
+  // ───────────── ۱۴۰۵/۰۸/۲۳: propهای فرزندانِ memo (سطل، مانیتور، بازرس، نوارِ برش، تایم‌لاین) با هویتِ ثابت.
+  // قبلاً هر رندرِ فضای کار (هر تیکِ پخش، هر حرکتِ ماوس) برای همه‌شان callback/JSXِ تازه می‌ساخت و memo هیچ‌وقت کار نمی‌کرد.
+  // useEvent/useStableFns = هویتِ ثابت ولی همیشه آخرین closure؛ useMemo فقط برای دادهٔ واقعی.
+  const onGoSound = useCallback(() => setTab("audio"), []);
+  const onBinAdd = useEvent((it: MediaItem) => addFromBin(it));
+  const onBinUpload = useEvent((f: File) => void uploadVideo(f));
+  const onBinProxy = useEvent((it: MediaItem) => void buildProxy(it));
+  const rootBins = (root as Project & { bins?: unknown }).bins;
+  const binFolders = useMemo(() => foldersOf(root), [rootBins]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const uploadSlot = useMemo(() => <UploadProgress up={upl as never} compact />, [upl.state, upl.active, upl.error, upl.retryable, upl.start, upl.retry, upl.cancel, upl.dismiss]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onMonitorEnded = useEvent(() => { if (loopRef.current) { setTime(project.inout?.in ?? 0); setPlaying(true); } else { setPlaying(false); setTime(totalRef.current); } });
+  const onMonitorPlay = useEvent(() => togglePlay());
+  const onMonitorStep = useEvent((frames: number) => step(frames));
+  const onMonitorRate = useEvent((r: number) => { void engine.resume(); setRate(r); setPlaying(true); });
+  const startExact = useEvent(() => { setPlaying(false); setExact(exactRange()); });
+  const closeExact = useCallback(() => setExact(null), []);
+  const toggleScopes = useCallback(() => setScopesOpen((v) => !v), []);
+  const proxyHint = useMemo(() => (proxyNeeded ? <span className="vw-proxy-note">این قطعه سنگین است؛ در «رسانه‌ها» پیش‌نمایشِ سبک بسازید</span> : null), [proxyNeeded]);
+  const exactBadge = useMemo(() => <Badge tone={exact ? "ok" : "neutral"}>{exact ? "پیش‌نمایشِ دقیق (سرور)" : "پیش‌نمایشِ فوری (تقریبی)"}</Badge>, [exact]);
+  const extraTransport = useMemo(() => (
+    <>
+      <button type="button" className="ws-btn" onClick={startExact} data-testid="exact-preview" title="همان رندرِ نهایی برای چند ثانیه با کیفیتِ پایین؛ برای چیزهایی که مرورگر دقیق نشان نمی‌دهد (کلیدِ رنگی، گذارها، ثابت‌کردن، منحنیِ سرعت…)">
+        پیش‌نمایشِ دقیقِ این بازه
+      </button>
+      <button type="button" className={`ws-btn ${scopesOpen ? "is-on" : ""}`} onClick={toggleScopes} data-testid="toggle-scopes" title="موج، برداری و هیستوگرام روی فریمِ زیرِ سرِ پخش">اسکوپ‌ها</button>
+    </>
+  ), [scopesOpen, startExact, toggleScopes]);
+  const exactOverlay = useMemo(() => (exact ? (
+    <div className="vw-exact" data-testid="exact-overlay">
+      <ExactPreview storeId={storeId} projectId={projectId} getData={() => toApi(root)} t0={exact.t0} t1={exact.t1} ensureSaved={saveNow} onClose={closeExact} />
+    </div>
+  ) : undefined), [exact, storeId, projectId, root, saveNow, closeExact]);
+  const scopesFooter = useMemo(() => (scopesOpen ? <div className="vw-scopes" data-testid="scopes"><ScopesLive monitor={monitor} /></div> : undefined), [scopesOpen]);
+
+  const thumbSource = useCallback(() => monitor.current?.getCanvas() ?? null, []);
+  const closePanel = useCallback(() => setPanel(null), []);
+  const insp = useStableFns({
+    onOpenProject: (id: number | null) => void openProject(id),
+    onDeleteProject: () => void deleteProject(),
+    onCompare: (on: boolean) => setCompare(on ? primaryId : null),
+    onCopyAttrs: (groups: AttrGroup[]) => { if (selected?.clip.type === "media") { setClipboard(copyAttrs(selected.clip, groups)); setNotice("ویژگی‌ها کپی شد؛ قطعه‌های دیگر را انتخاب و «چسباندن» بزنید."); } },
+    onPasteAttrs: () => { if (clipboard) apply("چسباندنِ ویژگی‌ها", (pr) => pasteAttrs(pr, selection, clipboard)); },
+    onExtractAudio: () => { if (selected) apply("جدا کردنِ صدا", (pr) => extractAudio(pr, selected.clip.id)); },
+    onUnlink: () => apply("قطعِ پیوند", (pr) => unlinkClips(pr, selection)),
+    onFreeze: () => { if (selected) apply("فریمِ ثابت", (pr) => freezeFrameAt(pr, selected.clip.id, ph.get())); },
+    onJLCut: (kind: "J" | "L") => jlCut(kind),
+    onRender: (q: "draft" | "final", override?: Record<string, unknown>) => doRender(q, override),
+    onSubtitles: (r: string) => void importSubtitles(r),
+    onInsertCaptions: (clips: Partial<TextClip>[]) => insertCaptions(clips),
+    onBeats: () => void addBeatMarkers(),
+    onBinChanged: () => void loadBin(),
+    // تبِ «ابزارها»
+    onAddShape: (kind: ShapeKind) => addShape(kind),
+    onAddMedia: (it: MediaItem) => addFromBin(it),
+    onNest: () => nestSelection(),
+    onOpenSeq: (id: string) => openSeq(id),
+    onCloseSeq: () => closeSeq(),
+    onUnnest: () => { if (selected) { const r = unnestClip(project, selected.clip.id); if (r.message) setNotice(r.message); else { apply("بازکردنِ توالی", () => r.project); setSelection([]); } } },
+    onSync: () => void syncAngles(),
+    onCreateMulticam: (useSync: boolean) => makeMulticam(useSync),
+    onAngle: (angle: number) => cutToAngle(angle),
+    onRemoveCut: (i: number) => { if (multicamSel) apply("حذفِ برشِ مولتی‌کم", (pr) => removeCutAt(pr, multicamSel.sid, i)); },
+    onMulticamAudio: (a: number) => { if (multicamSel) apply("صدای مولتی‌کم", (pr) => setMulticamAudio(pr, multicamSel.sid, a)); },
+    onBeatCut: (mode: "split" | "fit" | "snap", every: number) => beatCut(mode, every),
+    onPickRegion: (on: boolean) => { setPickRegion(on); if (on) setRegion(null); },
+    onTrack: (o: { fps: number; seconds: number }) => void startTrack(o),
+    onAttach: (trackerId: string, mask: boolean) => attachSelected(trackerId, mask),
+    onDetach: (mask: boolean) => { if (selected) apply("جدا کردن از ردیاب", (pr) => detach(pr, selected.clip.id, mask)); },
+    onDeleteTracker: (id: string) => applyRoot("حذفِ ردیاب", (r) => ({ ...r, trackers: (r.trackers ?? []).filter((t) => t.id !== id) })),
+    onImportLut: (f: File) => void importLut(f),
+    onDeleteLut: (k: string) => void deleteLut(k),
+    onMakeMatte: (fps: number) => void makeMatte(fps),
+    onDeleteMatte: (k: string) => { void videoApi.deleteMatte(storeId, k).then(loadMattes).catch((err) => setNotice(errorMessage(err))); },
+  });
+  const nested = path.length > 0;
+  const sound = useMemo(() => ({ root, applyRoot, nested, bin, onBinChanged: insp.onBinChanged, onNotice: setNotice }), [root, applyRoot, nested, bin, insp]);
+  const pro = useMemo<ProProps>(() => ({
+    project, root, path, selection, selected, media, bin, edit,
+    onAddShape: insp.onAddShape, onAddMedia: insp.onAddMedia,
+    onNest: insp.onNest, onOpenSeq: insp.onOpenSeq, onCloseSeq: insp.onCloseSeq, onUnnest: insp.onUnnest,
+    syncBusy, syncRows, syncError: syncErr, onSync: insp.onSync, onCreateMulticam: insp.onCreateMulticam,
+    onAngle: insp.onAngle, onRemoveCut: insp.onRemoveCut, onMulticamAudio: insp.onMulticamAudio,
+    onBeats: insp.onBeats, beatsBusy, onBeatCut: insp.onBeatCut,
+    pickRegion, region, onPickRegion: insp.onPickRegion,
+    trackBusy: trackMsg, trackError: trackErr, onTrack: insp.onTrack,
+    onAttach: insp.onAttach, onDetach: insp.onDetach, onDeleteTracker: insp.onDeleteTracker,
+    luts, lutBusy, onImportLut: insp.onImportLut, onDeleteLut: insp.onDeleteLut,
+    matteStatus, mattes, matteBusy: matteMsg, matteError: matteErr, onMakeMatte: insp.onMakeMatte, onDeleteMatte: insp.onDeleteMatte,
+  }), [project, root, path, selection, selected, media, bin, edit, syncBusy, syncRows, syncErr, beatsBusy, pickRegion, region, trackMsg, trackErr, luts, lutBusy, matteStatus, mattes, matteMsg, matteErr, insp]);
+
+  // تایم‌لاین و نوارِ برش
+  const onTrimSplit = useEvent(() => splitHere());
+  const onTrimRemove = useEvent(() => removeSelected(true));
+  const tlOnProject = useEvent((p: Project, liveDrag: boolean, base?: Project) => (liveDrag ? hist.live((r) => through(r, () => p, base)) : hist.apply("ویرایش", (r) => through(r, () => p, base))));
+  const tlOnSelect = useEvent((ids: string[]) => { setSelection(ids); if (ids.length === 1) { const f = findClip(project, ids[0]); if (f?.clip.type === "text") setTab("text"); else if (tab === "text") setTab("clip"); } });
+  const tlOnDropRef = useEvent((trackId: string, ref: string, at: number) => { const it = media[ref]; if (it) addFromBin(it, trackId, at); });
+  const tlOnTrack = useEvent((id: string, patch: Partial<Track>) => apply("ترک", (pr) => updateTrack(pr, id, patch)));
+  const tlOnRemoveTrack = useEvent((id: string) => apply("حذفِ ترک", (pr) => removeTrack(pr, id)));
+  const tlOnRazor = useEvent((id: string, t: number) => apply("برش با تیغه", (pr) => splitMany(pr, withLinked(pr, [id]), t)));
+  const tlOnTrackForward = useEvent((t: number) => setSelection(project.tracks.flatMap((tr) => (tr.locked ? [] : tr.clips.filter((c) => clipEnd(c) > t).map((c) => c.id)))));
+  const tlOnMarkerClick = useEvent((id: string, alt: boolean) => { const m = (project.markers ?? []).find((x) => x.id === id); if (alt) apply("حذفِ نشانگر", (pr) => removeMarker(pr, id)); else if (m) seek(m.t); });
+  const tlOnInOut = useEvent((a: number, b: number) => apply("بازهٔ ورودی/خروجی", (pr) => ({ ...pr, inout: { in: a, out: b } })));
+  const tlOnKeyPick = useEvent((id: string, _ch: KfChannel, t: number) => { setSelection([id]); const f = findClip(project, id); if (f) seek(f.clip.at + t); setTab("clip"); });
+
   return (
+    <PlayheadContext.Provider value={ph}>
     <Workspace
       testId="video-workspace"
       title="فضای کارِ دستیِ ویدیو"
@@ -1393,78 +1557,42 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
       )}
       {menubar && <MenuBar features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onSearch={() => setSearchOpen(true)} />}
       <div className="vw-grid" dir="ltr">
-        <Bin bin={bin} loading={binLoading} onAdd={(it) => addFromBin(it)} onUpload={(f) => void uploadVideo(f)} onProxy={(it) => void buildProxy(it)} proxyBusy={proxyBusy} storeId={storeId} uploadSlot={<UploadProgress up={upl as never} compact />} meta={root.media_meta} folders={foldersOf(root)} onFolderOp={applyRoot} onGoSound={() => setTab("audio")} />
+        <Bin bin={bin} loading={binLoading} onAdd={onBinAdd} onUpload={onBinUpload} onProxy={onBinProxy} proxyBusy={proxyBusy} storeId={storeId} uploadSlot={uploadSlot} meta={root.media_meta} folders={binFolders} onFolderOp={applyRoot} onGoSound={onGoSound} />
         <Monitor
           ref={monitor}
-          project={project} media={media} time={time} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
+          project={project} media={media} playing={playing} rate={rate} selection={selection} looks={looks} compare={compare} engine={engine} duckSpans={duckSpans}
           luts={lutData} matteMeta={matteMeta} pickOverlay={pickOverlay}
-          onTime={setTime} onEnded={() => { if (loopRef.current) { setTime(project.inout?.in ?? 0); setPlaying(true); } else { setPlaying(false); setTime(totalRef.current); } }}
-          onSeek={seek} onPlay={togglePlay} onStep={step}
-          onRate={(r) => { void engine.resume(); setRate(r); setPlaying(true); }}
+          onTime={setTime} onEnded={onMonitorEnded}
+          onSeek={seek} onPlay={onMonitorPlay} onStep={onMonitorStep}
+          onRate={onMonitorRate}
           onGizmo={onGizmo}
           onReframe={onReframe} cropMode={cropMode} onCropMode={setCropMode} storeId={storeId} safeZones={cat?.safe_zones}
-          onFrame={() => {
-            if (!scopesOpen) return;
-            const t = performance.now();
-            if (t - scopeTick.current < 66) return;
-            scopeTick.current = t;
-            setScopeVer((v) => v + 1);
-          }}
-          selectedProxyHint={proxyNeeded ? <span className="vw-proxy-note">این قطعه سنگین است؛ در «رسانه‌ها» پیش‌نمایشِ سبک بسازید</span> : null}
-          badge={<Badge tone={exact ? "ok" : "neutral"}>{exact ? "پیش‌نمایشِ دقیق (سرور)" : "پیش‌نمایشِ فوری (تقریبی)"}</Badge>}
-          extraTransport={
-            <>
-              <button type="button" className="ws-btn" onClick={() => { setPlaying(false); setExact(exactRange()); }} data-testid="exact-preview" title="همان رندرِ نهایی برای چند ثانیه با کیفیتِ پایین؛ برای چیزهایی که مرورگر دقیق نشان نمی‌دهد (کلیدِ رنگی، گذارها، ثابت‌کردن، منحنیِ سرعت…)">
-                پیش‌نمایشِ دقیقِ این بازه
-              </button>
-              <button type="button" className={`ws-btn ${scopesOpen ? "is-on" : ""}`} onClick={() => setScopesOpen((v) => !v)} data-testid="toggle-scopes" title="موج، برداری و هیستوگرام روی فریمِ زیرِ سرِ پخش">اسکوپ‌ها</button>
-            </>
-          }
-          overlay={exact ? (
-            <div className="vw-exact" data-testid="exact-overlay">
-              <ExactPreview storeId={storeId} projectId={projectId} getData={() => toApi(root)} t0={exact.t0} t1={exact.t1} ensureSaved={saveNow} onClose={() => setExact(null)} />
-            </div>
-          ) : undefined}
-          footer={scopesOpen ? <div className="vw-scopes" data-testid="scopes"><Scopes getFrame={() => monitor.current?.getFrame() ?? null} version={scopeVer} /></div> : undefined}
+          selectedProxyHint={proxyHint}
+          badge={exactBadge}
+          extraTransport={extraTransport}
+          overlay={exactOverlay}
+          footer={scopesFooter}
         />
         <Inspector
-          storeId={storeId} project={project} selection={selection} selected={selected} playhead={time} tools={tools} media={media} edit={edit} cat={cat} looks={looks}
+          storeId={storeId} project={project} selection={selection} selected={selected} tools={tools} media={media} edit={edit} cat={cat} looks={looks}
           tab={tab} onTab={setTab}
           title={title} onTitle={setTitle} check={check} saving={saving} projects={projects} projectId={projectId}
-          onOpenProject={(id) => void openProject(id)} onDeleteProject={() => void deleteProject()}
-          engine={engine} thumbSource={() => monitor.current?.getCanvas() ?? null} onCompare={(on) => setCompare(on ? primaryId : null)}
+          onOpenProject={insp.onOpenProject} onDeleteProject={insp.onDeleteProject}
+          engine={engine} thumbSource={thumbSource} onCompare={insp.onCompare}
           hasClipboard={!!clipboard}
-          onCopyAttrs={(groups: AttrGroup[]) => { if (selected?.clip.type === "media") { setClipboard(copyAttrs(selected.clip, groups)); setNotice("ویژگی‌ها کپی شد؛ قطعه‌های دیگر را انتخاب و «چسباندن» بزنید."); } }}
-          onPasteAttrs={() => clipboard && apply("چسباندنِ ویژگی‌ها", (pr) => pasteAttrs(pr, selection, clipboard))}
-          onExtractAudio={() => selected && apply("جدا کردنِ صدا", (pr) => extractAudio(pr, selected.clip.id))}
-          onUnlink={() => apply("قطعِ پیوند", (pr) => unlinkClips(pr, selection))}
-          onFreeze={() => selected && apply("فریمِ ثابت", (pr) => freezeFrameAt(pr, selected.clip.id, time))}
-          onJLCut={jlCut} linked={linkedSel}
-          onRender={doRender} renderBusy={renderStarting}
-          onSubtitles={(r) => void importSubtitles(r)} hasSubtitleSource={hasSubtitleSource}
-          onInsertCaptions={insertCaptions} onNotice={setNotice} onBeats={() => void addBeatMarkers()} beatsBusy={beatsBusy}
+          onCopyAttrs={insp.onCopyAttrs}
+          onPasteAttrs={insp.onPasteAttrs}
+          onExtractAudio={insp.onExtractAudio}
+          onUnlink={insp.onUnlink}
+          onFreeze={insp.onFreeze}
+          onJLCut={insp.onJLCut} linked={linkedSel}
+          onRender={insp.onRender} renderBusy={renderStarting}
+          onSubtitles={insp.onSubtitles} hasSubtitleSource={hasSubtitleSource}
+          onInsertCaptions={insp.onInsertCaptions} onNotice={setNotice} onBeats={insp.onBeats} beatsBusy={beatsBusy}
           onEditMask={setEditingMask} editingMask={editingMask} exportWhere={where}
-          sound={{ root, applyRoot, nested: path.length > 0, bin, onBinChanged: () => void loadBin(), onNotice: setNotice }}
+          sound={sound}
           onCropMode={setCropMode} cropOn={cropMode}
-          pro={{
-            project, root, path, selection, selected, playhead: time, media, bin, edit,
-            onAddShape: addShape, onAddMedia: (it) => addFromBin(it),
-            onNest: nestSelection, onOpenSeq: openSeq, onCloseSeq: closeSeq,
-            onUnnest: () => { if (selected) { const r = unnestClip(project, selected.clip.id); if (r.message) setNotice(r.message); else { apply("بازکردنِ توالی", () => r.project); setSelection([]); } } },
-            syncBusy, syncRows, syncError: syncErr, onSync: () => void syncAngles(), onCreateMulticam: makeMulticam,
-            onAngle: cutToAngle,
-            onRemoveCut: (i) => multicamSel && apply("حذفِ برشِ مولتی‌کم", (pr) => removeCutAt(pr, multicamSel.sid, i)),
-            onMulticamAudio: (a) => multicamSel && apply("صدای مولتی‌کم", (pr) => setMulticamAudio(pr, multicamSel.sid, a)),
-            onBeats: () => void addBeatMarkers(), beatsBusy, onBeatCut: beatCut,
-            pickRegion, region, onPickRegion: (on) => { setPickRegion(on); if (on) setRegion(null); },
-            trackBusy: trackMsg, trackError: trackErr, onTrack: (o) => void startTrack(o),
-            onAttach: attachSelected,
-            onDetach: (mask) => selected && apply("جدا کردن از ردیاب", (pr) => detach(pr, selected.clip.id, mask)),
-            onDeleteTracker: (id) => applyRoot("حذفِ ردیاب", (r) => ({ ...r, trackers: (r.trackers ?? []).filter((t) => t.id !== id) })),
-            luts, lutBusy, onImportLut: (f) => void importLut(f), onDeleteLut: (k) => void deleteLut(k),
-            matteStatus, mattes, matteBusy: matteMsg, matteError: matteErr, onMakeMatte: (fps) => void makeMatte(fps),
-            onDeleteMatte: (k) => { void videoApi.deleteMatte(storeId, k).then(loadMattes).catch((err) => setNotice(errorMessage(err))); },
-          }}
+          pro={pro}
         />
         <div className="vw-timeline" dir="rtl">
           {ready && !hasClips && (
@@ -1487,7 +1615,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             {tlButton("حذفِ بی‌فاصله", "حذف و بستنِ جا (Shift+Delete)", () => removeSelected(true), { disabled: !selection.length, test: "tl-ripple" })}
             {tlButton("تکرار", "کپی پشتِ قطعه (Ctrl+D؛ Alt+کشیدن هم نسخه می‌سازد)", () => selection.length && apply("تکرار", (pr) => duplicateClips(pr, selection)), { disabled: !selection.length })}
             {tlButton("کوتاه تا سرِ پخش", "ریپلِ لبهٔ چپ تا سرِ پخش (Q) — لبهٔ راست (W)", () => trimToPlayhead("l"), { disabled: !hasClips })}
-            {tlButton("❄ فریمِ ثابت", "فریمِ سرِ پخش را نگه دار", () => selected && apply("فریمِ ثابت", (pr) => freezeFrameAt(pr, selected.clip.id, time)), { disabled: !selected || selected.clip.type !== "media" || selected.clip.kind !== "video" })}
+            {tlButton("❄ فریمِ ثابت", "فریمِ سرِ پخش را نگه دار", () => selected && apply("فریمِ ثابت", (pr) => freezeFrameAt(pr, selected.clip.id, ph.get())), { disabled: !selected || selected.clip.type !== "media" || selected.clip.kind !== "video" })}
             <span className="ws-sep" />
             {tlButton("🧲", "چسبیدن به لبه‌ها، نشانگرها و سرِ پخش", () => setSnapOn((v) => !v), { on: snapOn, test: "tl-snap" })}
             {tlButton("خط بلندی", "خطِ زردِ بلندیِ صدا روی قطعه‌ها: بالا/پایین بکشید تا بلندی عوض شود؛ دو بار زدن روی خط = کلیدفریم، دو بار زدن روی نقطه = حذف. برای قطعهٔ انتخاب‌شده همیشه دیده می‌شود؛ برای بقیه روی ترکِ صدا همیشه و روی تصویر فقط اگر بلندی‌اش تغییر کرده", () => setVolLine((v) => !v), { on: volLine, test: "tl-vol-toggle" })}
@@ -1495,9 +1623,9 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
             {tlButton("+", "بزرگ‌نمایی (+)", () => setPx((v) => Math.min(400, v * 1.25)), { test: "tl-zoom-in" })}
             {tlButton("جا شدن", "کلِ پروژه در قاب (\\)", () => setPx(Math.max(8, Math.min(200, 700 / Math.max(5, totalRef.current)))))}
             <span className="ws-sep" />
-            {tlButton("◆ نشانگر (M)", "نشانگر در سرِ پخش", () => apply("نشانگر", (pr) => addMarker(pr, time, "")), { test: "tl-marker" })}
-            {tlButton("[ I", "ورودیِ بازه (I)", () => apply("ورودی", (pr) => ({ ...pr, inout: { in: time, out: Math.max(pr.inout?.out ?? time + 5, time + 0.1) } })), { test: "tl-in" })}
-            {tlButton("O ]", "خروجیِ بازه (O)", () => apply("خروجی", (pr) => ({ ...pr, inout: { in: Math.min(pr.inout?.in ?? 0, Math.max(0, time - 0.1)), out: time } })), { test: "tl-out" })}
+            {tlButton("◆ نشانگر (M)", "نشانگر در سرِ پخش", () => apply("نشانگر", (pr) => addMarker(pr, ph.get(), "")), { test: "tl-marker" })}
+            {tlButton("[ I", "ورودیِ بازه (I)", () => apply("ورودی", (pr) => ({ ...pr, inout: { in: ph.get(), out: Math.max(pr.inout?.out ?? ph.get() + 5, ph.get() + 0.1) } })), { test: "tl-in" })}
+            {tlButton("O ]", "خروجیِ بازه (O)", () => apply("خروجی", (pr) => ({ ...pr, inout: { in: Math.min(pr.inout?.in ?? 0, Math.max(0, ph.get() - 0.1)), out: ph.get() } })), { test: "tl-out" })}
             {project.inout && tlButton("برداشتنِ بازه", "بازهٔ ورودی–خروجی از همهٔ ترک‌ها برداشته و جا بسته شود", () => apply("برداشتنِ بازه", (pr) => liftRange(pr, pr.inout!.in, pr.inout!.out, true)), { test: "tl-lift" })}
             <span className="ws-sep" />
             {tlButton("+ تصویر", "ترکِ تصویر", () => apply("ترکِ تصویر", (pr) => addTrack(pr, "video")), { test: "tl-add-video" })}
@@ -1510,7 +1638,7 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           </div>
           <TrimBar
             project={project} selection={selection} fps={project.format.fps}
-            onApply={apply} onSeek={seek} onSplit={() => splitHere()} onRemove={() => removeSelected(true)}
+            onApply={apply} onSeek={seek} onSplit={onTrimSplit} onRemove={onTrimRemove}
           />
           {offline.length > 0 && (
             <div className="vw-offline" role="alert" data-testid="offline-banner">
@@ -1520,26 +1648,27 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
           )}
           <TimelineView
             offlineIds={offlineIds}
-            project={project} selection={selection} playhead={time} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps} volLine={volLine}
-            onProject={(p, liveDrag, base) => (liveDrag ? hist.live((r) => through(r, () => p, base)) : hist.apply("ویرایش", (r) => through(r, () => p, base)))}
-            onCommit={(l) => hist.end(l)}
-            onSelect={(ids) => { setSelection(ids); if (ids.length === 1) { const f = findClip(project, ids[0]); if (f?.clip.type === "text") setTab("text"); else if (tab === "text") setTab("clip"); } }}
+            project={project} selection={selection} px={px} snapOn={snapOn} tool={tool} storeId={storeId} media={media} fps={project.format.fps} volLine={volLine}
+            onProject={tlOnProject}
+            onCommit={hist.end}
+            onSelect={tlOnSelect}
             onSeek={seek}
-            onDropRef={(trackId, ref, at) => { const it = media[ref]; if (it) addFromBin(it, trackId, at); }}
-            onTrack={(id, patch) => apply("ترک", (pr) => updateTrack(pr, id, patch))}
-            onRemoveTrack={(id) => apply("حذفِ ترک", (pr) => removeTrack(pr, id))}
-            onRazor={(id, t) => apply("برش با تیغه", (pr) => splitMany(pr, withLinked(pr, [id]), t))}
-            onTrackForward={(t) => setSelection(project.tracks.flatMap((tr) => (tr.locked ? [] : tr.clips.filter((c) => clipEnd(c) > t).map((c) => c.id))))}
-            onMarkerClick={(id, alt) => { const m = (project.markers ?? []).find((x) => x.id === id); if (alt) apply("حذفِ نشانگر", (pr) => removeMarker(pr, id)); else if (m) seek(m.t); }}
-            onInOut={(a, b) => apply("بازهٔ ورودی/خروجی", (pr) => ({ ...pr, inout: { in: a, out: b } }))}
-            onKeyPick={(id, ch: KfChannel, t) => { setSelection([id]); const f = findClip(project, id); if (f) seek(f.clip.at + t); setTab("clip"); void ch; }}
+            onDropRef={tlOnDropRef}
+            onTrack={tlOnTrack}
+            onRemoveTrack={tlOnRemoveTrack}
+            onRazor={tlOnRazor}
+            onTrackForward={tlOnTrackForward}
+            onMarkerClick={tlOnMarkerClick}
+            onInOut={tlOnInOut}
+            onKeyPick={tlOnKeyPick}
           />
         </div>
       </div>
       {help && <ShortcutSheet onClose={() => setHelp(false)} />}
       {searchOpen && <CommandPalette features={ALL_FEATURES} km={km} getApi={getApi} run={runFeature} onClose={() => setSearchOpen(false)} />}
-      <PanelHost panels={ALL_PANELS} active={panel} api={wsApi} onClose={() => setPanel(null)} />
+      {panel ? <LivePanelHost panels={ALL_PANELS} active={panel} api={wsApi} onClose={closePanel} /> : null}
     </Workspace>
+    </PlayheadContext.Provider>
   );
 }
 

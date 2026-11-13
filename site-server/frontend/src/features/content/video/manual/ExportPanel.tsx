@@ -23,7 +23,8 @@ type Props = {
   onMaster?: (patch: Partial<Master>) => void;
   onRender: (quality: "draft" | "final", override?: Record<string, unknown>) => Promise<void>;
   /** جای سرِ پخش (برای «عکسِ یک فریم») */
-  playhead?: number;
+  /** سرِ پخش در لحظهٔ کلیک (برای «فقط این فریم»)؛ prop ِ عددی نیست تا با هر تیکِ پخش این پنل دوباره ساخته نشود */
+  getPlayhead?: () => number;
   busy: boolean;
   /** آیا سرورِ پردازش برای رندرِ نهایی آماده است (از کاتالوگ یا تازه) */
   where?: RenderWhere | null;
@@ -42,7 +43,7 @@ function outSize(w: number, h: number, short: number | null): [number, number] {
 const whereText = (e: { where?: string; node?: string; encoder?: string }) =>
   e.where === "node" ? `سرورِ پردازش${e.node ? ` «${e.node}»` : ""}${e.encoder ? ` · ${e.encoder}` : ""}` : e.where === "server" ? "سرورِ سایت" : "";
 
-export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onMaster, onRender, busy, where, playhead = 0 }: Props) {
+export default function ExportPanel({ storeId, projectId, project, check, cat, onExport, onMaster, onRender, busy, where, getPlayhead }: Props) {
   const block: ExportBlock = project.export ?? {};
   const loudness = project.master?.loudness;
   const loudOn = !!loudness?.on;
@@ -191,7 +192,7 @@ export default function ExportPanel({ storeId, projectId, project, check, cat, o
           </button>
           <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "gif", ...(hasRange ? { range: "inout" } : {}) })} data-testid="xf-gif"
             title="تصویرِ متحرکِ بی‌صدا؛ تا ۲۰ ثانیه، ارتفاعِ ۴۰۰ پیکسل">GIF{hasRange ? " (از بازه)" : ""}</button>
-          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "frame", frame_t: Math.round(playhead * 100) / 100 })} data-testid="xf-frame"
+          <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "frame", frame_t: Math.round((getPlayhead?.() ?? 0) * 100) / 100 })} data-testid="xf-frame"
             title="فریمِ زیرِ سرِ پخش به‌صورتِ عکسِ JPG">عکسِ فریمِ سرِ پخش</button>
           <button type="button" className="ws-btn" disabled={busy || pending !== null || blocked} onClick={() => void go("final", { format: "audio", ...(hasRange ? { range: "inout" } : {}) })} data-testid="xf-audio"
             title="فقط صدای میکس‌شده (M4A)؛ مثلاً برای پادکست یا آهنگ">فقط صدا (M4A){hasRange ? " (از بازه)" : ""}</button>

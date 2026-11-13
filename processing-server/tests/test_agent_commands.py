@@ -46,7 +46,7 @@ class CommandTests(unittest.TestCase):
         self.fail("no answer: %s" % site.calls)
 
     def test_the_version_and_caps(self):
-        self.assertEqual(agent.VERSION, "2.11")
+        self.assertEqual(agent.VERSION, "2.12")
         self.assertEqual(tuple(agent.COMMANDS), ("status", "update", "restart", "build", "logs", "bootstrap"))
 
     def test_status_is_acknowledged_then_answered(self):
@@ -56,7 +56,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(site.calls[0], ("/api/v1/compute/commands/c1/", {"state": "running", "ok": None, "output": ""}))
         path, done = site.calls[-1]
         self.assertTrue(done["ok"])
-        self.assertIn("agent v2.11", done["output"])
+        self.assertIn("agent v2.12", done["output"])
         self.assertIn("services:", done["output"])
 
     def test_the_same_command_runs_once(self):

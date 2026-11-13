@@ -375,7 +375,7 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
-                       "edit": "ffmpeg"}
+                       "edit": "ffmpeg", "multiangle": "multiangle"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
@@ -422,6 +422,16 @@ LEGACY_KINDS = frozenset({
 })
 
 
+def multiangle_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """A multiangle.* job this node must not take yet: its Python environment or one of the models the kind needs is not installed (yet).
+    The node installs them by itself (processing/multiangle_jobs.py) and reports caps.multiangle_ready {virtual, move, selftest}; the job
+    waits in the queue meanwhile instead of failing."""
+    if not job.kind.startswith("multiangle."):
+        return False
+    ready = (node.capabilities or {}).get("multiangle_ready") or {}
+    return not ready.get(job.kind.split(".", 1)[1])
+
+
 def kind_unsupported(node: ComputeNode, job: ComputeJob) -> bool:
     """The node's agent has no handler for this kind (agent 2.11 advertises caps["kinds"]; older agents are offered only the kinds they
     always had). Such a job waits in the durable queue until a node that knows it comes online - it is never failed for this."""
@@ -447,7 +457,7 @@ def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models, unknown kinds,
     features still being installed)."""
     return (audio_blocked(node, job) or matting_blocked(node, job) or kind_unsupported(node, job)
-            or bootstrap_blocked(node, job))
+            or bootstrap_blocked(node, job) or multiangle_blocked(node, job))
 
 
 def claim(node: ComputeNode, lane: str = "") -> ComputeJob | None:

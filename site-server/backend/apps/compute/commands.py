@@ -23,13 +23,14 @@ from django.utils.dateparse import parse_datetime
 from . import services as SV
 from .models import ComputeNode, ComputeNodeLog
 
-ACTIONS = ("status", "update", "restart", "build", "logs")
+ACTIONS = ("status", "update", "restart", "build", "logs", "bootstrap")
 LABEL = {
     "status": "وضعیت",
     "update": "به‌روزرسانی و راه‌اندازیِ دوباره",
     "restart": "راه‌اندازیِ دوباره",
     "build": "ساختِ ویرایشگرها",
     "logs": "لاگ‌ها",
+    "bootstrap": "تلاش دوباره برای نصبِ نیازمندی‌ها",
 }
 #: عاملی که «دستورها» را می‌شناسد (caps["commands"])
 MIN_AGENT = (2, 10)
@@ -126,6 +127,8 @@ def request(node: ComputeNode, action: str, by: str = "") -> dict:
     if not supported(node):
         raise CommandError("عاملِ این سرور (%s) هنوز «دستورها» را نمی‌شناسد؛ با اولین اجرای START.bat خودش به‌روز می‌شود (نسخهٔ %s به بعد)."
                            % ((node.capabilities or {}).get("agent") or "?", ".".join(str(x) for x in MIN_AGENT)))
+    if action == "bootstrap" and "bootstrap" not in ((node.capabilities or {}).get("commands") or []):
+        raise CommandError("عاملِ این سرور نصبِ خودکار را نمی‌شناسد (نسخهٔ ۲٫۱۱ به بعد)؛ «به‌روزرسانی» را بزنید.")
     data = _settle(node, _read(node))
     last = data.get("last") or {}
     if data.get("pending") or last.get("state") in ("sent", "running"):

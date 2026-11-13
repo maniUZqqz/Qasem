@@ -1,0 +1,24 @@
+{
+  "feature": "asr-gpu",
+  "title_fa": "تشخیص گفتار روی کارت گرافیک (faster-whisper + CUDA)",
+  "order": 40,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "kinds": ["asr.transcribe"],
+  "note": "faster-whisper 1.1.0 (MIT) on CTranslate2 4.5.0 (MIT) in its own environment venvs/asr; the CUDA 12 runtime comes from the pip wheels nvidia-cublas-cu12 / nvidia-cudnn-cu12 (NVIDIA proprietary redistributable, from PyPI) - asr_worker.py puts their DLL folders on the path. Model: Systran/faster-whisper-small (MIT), pinned revision, from hf-mirror.com then huggingface.co.",
+  "items": [
+    {"id": "venv", "type": "venv", "name": "asr", "title": "Python environment asr"},
+    {"id": "pip", "type": "pip", "venv": "asr", "title": "faster-whisper, CTranslate2, CUDA 12 runtime wheels",
+     "packages": ["ctranslate2==4.5.0", "faster-whisper==1.1.0", "nvidia-cublas-cu12==12.4.5.8", "nvidia-cudnn-cu12==9.1.0.70"], "timeout_s": 10800,
+     "big": true},
+    {"id": "model", "type": "files", "title": "Whisper small model (484 MB)", "dest": "models/faster-whisper-small", "big": true,
+     "files": [
+       {"path": "config.json", "size": 2370, "sources": [{"hf": "Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/config.json"}]},
+       {"path": "tokenizer.json", "size": 2203239, "sources": [{"hf": "Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/tokenizer.json"}]},
+       {"path": "vocabulary.txt", "size": 459861, "sources": [{"hf": "Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/vocabulary.txt"}]},
+       {"path": "model.bin", "size": 483546902, "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+        "sources": [{"hf": "Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/model.bin"}]}]},
+    {"id": "gpu", "type": "cmd", "title": "CTranslate2 sees the GPU",
+     "check": ["{VENVPY:asr}", "{HERE}/asr_worker.py", "--check"]}
+  ]
+}

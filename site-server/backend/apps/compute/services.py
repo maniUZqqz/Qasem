@@ -359,6 +359,7 @@ def run(kind: str, payload: dict | None = None, files: dict | None = None, **kw)
 def _kinds_q(node: ComputeNode) -> Q:
     """کدام نوعِ کار به این گره برسد: سرویسش بالاست، یا با سوئیچِ خودکار عاملش می‌تواند روشنش کند (ComputeNode.has)."""
     q = Q(kind__startswith="echo") | Q(kind__startswith="node.")   # node.* always names its node (node_wanted)
+    q |= Q(kind__startswith="selftest.") | Q(kind__startswith="asr.")      # agent 2.11: only nodes that advertise them (kind_unsupported)
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
             fam = Q(kind__startswith=prefix)
@@ -413,35 +414,109 @@ def matting_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     return ((caps.get("matting_models") or {}).get(model) or {}).get("state") != "installed"
 
 
+#: job kinds every agent had before 2.11 advertised its list (caps["kinds"]); an agent without the list is offered only these
+LEGACY_KINDS = frozenset({
+    "echo", "comfy.graph", "comfy.profile", "photo.edit", "photo.analyze", "video.edit", "voice.tts", "voice.asr", "voice.clone",
+    "voice.sfx", "voice.music", "node.bench", "node.models", "node.update", "ollama.chat", "ollama.generate", "ollama.pull",
+    "edit.render", "edit.track", "edit.matte", "photo.matting",
+})
+
+
+def kind_unsupported(node: ComputeNode, job: ComputeJob) -> bool:
+    """The node's agent has no handler for this kind (agent 2.11 advertises caps["kinds"]; older agents are offered only the kinds they
+    always had). Such a job waits in the durable queue until a node that knows it comes online - it is never failed for this."""
+    caps = node.capabilities or {}
+    kinds = caps.get("kinds")
+    kind = job.kind or ""
+    if isinstance(kinds, list):
+        if kind in kinds:
+            return False
+        if kind.endswith(".http") and kind.split(".", 1)[0] in (caps.get("http_relays") or []):
+            return False
+        return True
+    return kind not in LEGACY_KINDS and not kind.endswith(".http")
+
+
+def bootstrap_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """The feature this kind needs is still being installed on the node (or its install failed): the job waits (caps["bootstrap"])."""
+    blocked = ((node.capabilities or {}).get("bootstrap") or {}).get("blocked_kinds")
+    return bool(isinstance(blocked, dict) and job.kind in blocked)
+
+
 def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
-    """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models)."""
-    return audio_blocked(node, job) or matting_blocked(node, job)
+    """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models, unknown kinds,
+    features still being installed)."""
+    return (audio_blocked(node, job) or matting_blocked(node, job) or kind_unsupported(node, job)
+            or bootstrap_blocked(node, job))
 
 
-def claim(node: ComputeNode) -> ComputeJob | None:
-    """یک کار به این گره می‌دهد — اتمی، تا دو گره یک کار را نگیرند."""
+def claim(node: ComputeNode, lane: str = "") -> ComputeJob | None:
+    """یک کار به این گره می‌دهد — اتمی، تا دو گره یک کار را نگیرند.
+
+    lane="light" (عامل ۲٫۱۱): راهروی سبکِ گره کنارِ یک کارِ بلند؛ فقط کارهایی که کارتِ گرافیک را اشغال نمی‌کنند (sched.LIGHT_KINDS).
+    ترتیبِ کارها را sched.order می‌دهد (کوتاه پیش از بلند، دانلود آخر)؛ اگر بستهٔ کدِ سایت از عاملِ گره تازه‌تر است و به‌روزرسانیِ
+    خودکار روشن است، کاری داده نمی‌شود تا گره پس از کارِ فعلی خودش را به‌روز کند (autopilot.should_withhold)."""
     requeue_stale()
     now = timezone.now()
+    try:
+        from . import autopilot
+
+        if autopilot.should_withhold(node):
+            return None
+    except Exception as exc:  # noqa: BLE001 — خودکارها نباید گرفتنِ کار را بخوابانند
+        logger.warning("compute: autopilot check failed: %s", exc)
     # کارِ زمان‌بندی‌شده (not_before) و کارِ دارای بازهٔ مجاز (window، وقتِ تهران) فقط در زمانِ خودشان داده می‌شوند؛
     # بازه‌های بسته در خودِ پرس‌وجو کنار می‌روند تا ۵۰ کارِ اولِ بسته جلوی بقیه را نگیرند
     windows = set(ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).exclude(window="")
                   .values_list("window", flat=True).distinct())
     open_windows = [w for w in windows if in_window(w, now)]
-    candidates = (ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, node__isnull=True)
-                  .filter(Q(node_wanted="") | Q(node_wanted=node.name))
-                  .filter(Q(not_before__isnull=True) | Q(not_before__lte=now))
-                  .filter(Q(window="") | Q(window__in=open_windows))
-                  .filter(_kinds_q(node)).order_by("priority", "created_at")[:50])
+    candidates = list(ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, node__isnull=True)
+                      .filter(Q(node_wanted="") | Q(node_wanted=node.name))
+                      .filter(Q(not_before__isnull=True) | Q(not_before__lte=now))
+                      .filter(Q(window="") | Q(window__in=open_windows))
+                      .filter(_kinds_q(node)).order_by("priority", "created_at")[:200])
+    candidates = [j for j in candidates if not job_blocked(node, j)]
+    from . import sched
+    from .models import ComputeSettings, NodeAuto
+
+    if lane == "light":
+        candidates = sched.light_only(candidates)
+    auto = None
+    try:
+        auto = NodeAuto.of(node)
+        busy = ComputeJob.objects.filter(node=node, state__in=[ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING]) \
+            .exclude(kind__in=sched.DOWNLOAD_KINDS).exists()
+        candidates = sched.order(node, candidates, auto, node_busy=busy or lane == "light",
+                                 burst=sched.burst_of(ComputeSettings.get()), now=now)
+    except Exception as exc:  # noqa: BLE001 — ترتیبِ ساده (اولویت، زمان) اگر نوبت‌دهی خطا بدهد
+        logger.warning("compute: fair ordering failed, using plain order: %s", exc)
     for job in candidates:
-        if job_blocked(node, job):
-            continue
         updated = _claim_row(job.pk, node, now)
         if updated == 1:
             _mark_waited(job, now)
             waited = job.waited_s
-            logger.info("compute: %s claimed by %s (waited %ss)", job.uid, node.name, waited)
+            logger.info("compute: %s claimed by %s (waited %ss, lane %s)", job.uid, node.name, waited, lane or "main")
+            try:
+                sched.after_claim(auto, job, node)
+            except Exception:  # noqa: BLE001
+                pass
             return job
     return None
+
+
+def adopt_orphan(job: ComputeJob, node: ComputeNode) -> bool:
+    """کاری که گره وسطش قطع شد و به صف برگشت، اما هنوز کسی آن را نگرفته، وقتی همان گره برگشت و پیشرفت/خروجی/پایانش را فرستاد،
+    دوباره به همان گره سپرده می‌شود (کارِ تمام‌شده به‌خاطرِ چند دقیقه قطعِ اینترنت دوباره انجام نمی‌شود)."""
+    if job.node_id is not None or job.state != ComputeJob.State.QUEUED or not node.name or job.last_node_name != node.name:
+        return False
+    now = timezone.now()
+    n = call_with_retry(ComputeJob.objects.filter(pk=job.pk, state=ComputeJob.State.QUEUED, node__isnull=True,
+                                                  last_node_name=node.name).update,
+                        state=ComputeJob.State.RUNNING, node=node, claimed_at=now, heartbeat_at=now,
+                        message="ادامه از همان سرورِ پردازش (قطعِ کوتاهِ ارتباط)")
+    if n:
+        logger.info("compute: %s re-adopted by %s after a lost connection", job.uid, node.name)
+    return bool(n)
 
 
 def package(job: ComputeJob) -> Path:
@@ -681,6 +756,7 @@ def _requeue_one(pk, now) -> int:
                 fresh.node = None
                 fresh.claimed_at = None
                 fresh.queued_at = now
+                fresh.last_node_name = node.name if node else ""
                 fresh.message = LOST_NODE_TEXT if node_gone else f"سرورِ پردازشِ {who} بی‌خبر ماند؛ دوباره در صف"
             else:
                 fresh.state = ComputeJob.State.FAILED

@@ -58,11 +58,22 @@ _CAPS = {"state": None}
 
 # ───────────────────────────────────────────── ffmpeg discovery
 
-def ffmpeg_exe(agent=None):
-    """ffmpeg on PATH, or the one the video kit brought."""
+def ffmpeg_exe(agent=None, probe="cached"):
+    """The best ffmpeg of this computer (agent 2.11, gpu.py): one with a working NVENC encoder first - the owner's NM_FFMPEG, the one
+    the node installed itself, the video kit's, then PATH. probe="cached" never starts ffmpeg itself (the heartbeat calls this); the
+    caps probe and the render job warm / use the full probe."""
     env = (os.environ.get("NM_FFMPEG") or "").strip().strip('"')
     if env and os.path.isfile(env):
         return env
+    try:
+        import gpu
+
+        data = getattr(agent, "DATA", "") if agent is not None else ""
+        best, _rep = gpu.best_ffmpeg(data, probe=probe)
+        if best:
+            return best
+    except Exception:  # noqa: BLE001 - never worse than the plain lookup below
+        pass
     found = shutil.which("ffmpeg")
     if found:
         return found
@@ -103,7 +114,7 @@ def nvenc_works(ff, codec="h264_nvenc"):
 
 
 def _compute_caps(agent):
-    ff = ffmpeg_exe(agent)
+    ff = ffmpeg_exe(agent, probe=True)
     if not ff:
         return {"v": 1, "render": False, "why": "ffmpeg not found"}
     try:
@@ -306,7 +317,10 @@ def selftest(ff, test, fonts_dir, work):
     return None
 
 
-def build_command(ff, payload, local, work, nvenc):
+VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".mpg", ".mpeg", ".ts")
+
+
+def build_command(ff, payload, local, work, nvenc, hw=None):
     p = payload
     texts = {}
     for i, (token, text) in enumerate(sorted(p.get("texts", {}).items())):
@@ -327,7 +341,8 @@ def build_command(ff, payload, local, work, nvenc):
     flag = "-/filter_complex" if ffmpeg_info(ff)["version"] >= (7, 0) else "-filter_complex_script"
     cmd = [ff, "-y", "-hide_banner", "-nostats", "-loglevel", "error", "-progress", "pipe:1"]
     for inp in p["inputs"]:
-        cmd += list(inp.get("args") or []) + ["-i", local[inp["file"]]]
+        use_hw = list(hw or []) if os.path.splitext(str(local[inp["file"]]))[1].lower() in VIDEO_EXT else []
+        cmd += use_hw + list(inp.get("args") or []) + ["-i", local[inp["file"]]]
     cmd += [flag, gfile, "-map", "[vout]"]
     if p.get("audio"):
         cmd += ["-map", "[aout]"] + list(p.get("audio_args") or [])
@@ -502,7 +517,15 @@ def run(job, agent):
             raise agent.JobError("SELFTEST: " + why, retryable=False)
 
     codec = (p["encode"].get("codec") or "h264")
+    ff = ffmpeg_exe(agent, probe=True) or ff
     want_nvenc = (caps(agent, wait=True).get("nvenc") or {}).get("h265" if codec == "h265" else "h264", False)
+    hw = []
+    try:                                   # NVDEC: decode the sources on the card; the (software) filters still get normal frames
+        import gpu
+
+        hw = gpu.hwaccel_args(gpu.ffmpeg_report(ff))
+    except Exception:  # noqa: BLE001
+        hw = []
     total = float(p.get("length") or 0)
     used_nvenc = bool(want_nvenc)
     say("render|0%", 0.2)
@@ -510,15 +533,20 @@ def run(job, agent):
     def report(frac):
         job.progress(0.2 + 0.7 * frac, "render|%d%%" % int(frac * 100))
 
-    cmd, out = build_command(ff, p, local, work, used_nvenc)
+    cmd, out = build_command(ff, p, local, work, used_nvenc, hw)
     r0 = time.time()
     try:
         run_ffmpeg(cmd, total, report)
     except RuntimeError as e:
-        if used_nvenc and re.search(r"nvenc|NVENC|OpenEncodeSession|No capable devices", str(e)):
+        if hw and re.search(r"cuda|cuvid|hwaccel|hardware", str(e), re.I) and not re.search(r"nvenc|OpenEncodeSession", str(e), re.I):
+            agent.warn("GPU decoding (NVDEC) failed (%s) - decoding on the CPU instead" % str(e)[:200])
+            hw = []
+            cmd, out = build_command(ff, p, local, work, used_nvenc, hw)
+            run_ffmpeg(cmd, total, report)
+        elif used_nvenc and re.search(r"nvenc|NVENC|OpenEncodeSession|No capable devices", str(e)):
             agent.warn("NVENC failed (%s) - encoding on the CPU instead" % str(e)[:200])
             used_nvenc = False
-            cmd, out = build_command(ff, p, local, work, False)
+            cmd, out = build_command(ff, p, local, work, False, hw)
             run_ffmpeg(cmd, total, report)
         else:
             raise
@@ -530,6 +558,9 @@ def run(job, agent):
     shutil.rmtree(work, ignore_errors=True)
     return {
         "engine": "edit.render", "encoder": ("NVENC " if used_nvenc else "") + ("H.265" if codec == "h265" else "H.264"),
+        "decoder": "NVDEC" if hw else "CPU",
+        "device_note": ("NVENC encode" if used_nvenc else "software encode (this ffmpeg / card has no NVENC for %s)" % codec)
+                       + (", NVDEC decode" if hw else ", CPU decode"),
         "ffmpeg": "%d.%d" % info["version"], "bytes": up["bytes"], "sha256": up["sha256"], "render_seconds": render_seconds,
         "seconds_total": round(time.time() - t0, 1),
     }

@@ -156,6 +156,9 @@ class ComputeJob(TimeStampedModel):
     #: کارِ فروشگاه (apps.jobs Job) که این کار را ساخت — خودکار از تسکِ Celery ِ در حالِ اجرا (apps.jobs.retry.current_job_id)؛
     #: «پردازشِ دوباره» در صفِ پردازش با آن به کارِ اصلی می‌رسد. خالی = از صفحه/پنل، نه از یک تسک.
     job_ref = models.PositiveBigIntegerField("کارِ فروشگاه", null=True, blank=True, db_index=True)
+    #: نامِ گرهٔ آخری که کار را داشت و بی‌خبر ماند (کار به صف برگشت). اگر همان گره برگردد و هنوز کسی کار را نگرفته باشد،
+    #: نتیجه‌اش پذیرفته می‌شود: کارِ تمام‌شده به‌خاطرِ چند دقیقه قطعِ اینترنت دوباره انجام نمی‌شود (apps.compute.api._job_of)
+    last_node_name = models.CharField("آخرین گره", max_length=60, blank=True)
 
     class Meta:
         verbose_name = "کار پردازشی"
@@ -216,6 +219,16 @@ class ComputeSettings(models.Model):
     download_window = models.CharField("بازهٔ شبانهٔ دانلود (وقتِ تهران)", max_length=11, default="02:00-07:00")
     #: نگه‌داریِ آمار و سابقه (روز) برای گزارشِ سرورهای پردازش
     retention_days = models.PositiveIntegerField("نگه‌داریِ آمار (روز)", default=30)
+    #: ۱۴۰۵/۰۸/۲۱ — خودکارها: وقتی بستهٔ کدِ سایت از عاملِ گره تازه‌تر است و گره بی‌کار است، سایت خودش «به‌روزرسانی» را می‌فرستد
+    auto_update = models.BooleanField("به‌روزرسانیِ خودکارِ گره‌ها", default=True)
+    #: آزمونِ کامل پس از هر نسخهٔ تازهٔ عامل و هر شب
+    auto_selftest = models.BooleanField("آزمونِ خودکار پس از نسخهٔ تازه", default=True)
+    nightly_selftest = models.BooleanField("آزمونِ شبانه", default=True)
+    nightly_time = models.CharField("ساعتِ آزمونِ شبانه (تهران)", max_length=5, default="03:30")
+    #: پس از قبولیِ یک آزمون، کارهای قبلاً ناموفقِ همان قابلیت (که به‌خاطرِ سرور بوده‌اند) دوباره در صف می‌روند
+    requeue_after_pass = models.BooleanField("بازگرداندنِ کارهای ناموفق پس از قبولی", default=True)
+    #: نوبت‌دهی: پس از چند کارِ کوتاهِ پشتِ هم، نوبتِ کارِ بلند می‌رسد
+    short_burst = models.PositiveSmallIntegerField("حداکثر کارِ کوتاهِ پشتِ هم", default=12)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -230,6 +243,8 @@ class ComputeSettings(models.Model):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
+# «پلتفرمِ گره»: آزمونِ خودکار، حالتِ خودکارِ گره، بازگرداندنِ کارهای ناموفق (apps.compute.models_platform).
+from .models_platform import NodeAuto, RequeueRecord, SelfTestResult, SelfTestRun  # noqa: E402,F401
 # «تست» of the voice models per node (apps.compute.voice_models).
 from .bench_models import AudioBenchmark  # noqa: E402,F401
 # «گزارشِ سرورها»: نوبت‌های اتصال و نمونه‌های منابع (apps.compute.report).

@@ -18,7 +18,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.compute import services as compute
-from apps.compute.models import ComputeJob, ComputeNode
+from apps.compute.models import ComputeJob, ComputeNode, ComputeSettings
 from apps.stores.models import Store
 from services.ai import model_catalog, model_pull, priority, routing, status
 from services.ai.ollama import OllamaError, OllamaProvider, OllamaTimeout
@@ -611,6 +611,8 @@ class FakeNodeTests(PullBase):
     """یک «گره» که پروتکلِ واقعی را می‌زند: heartbeat ⇒ claim ⇒ فهرستِ مجاز ⇒ progress ⇒ finish ⇒ heartbeat."""
 
     def test_the_whole_download_from_click_to_installed(self):
+        # auto_selftest off: the first heartbeat of an agent otherwise starts the acceptance run, whose first job this claim would receive
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"auto_selftest": False})
         node = self.node(online=False, models=(QWQ, VL, CODER))
         uid = self.pull().data["pull"]["uid"]                         # the PC is off: queued
         gpu = self.as_node(node)

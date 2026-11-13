@@ -1,8 +1,8 @@
 """نشانی‌های «سرورهای پردازش» — mounted at /api/v1/compute/ (config/urls.py)."""
 from django.urls import path
 
-from . import (api, transfer, views_matting, views_models, views_ollama, views_commands, views_report, views_retry,
-               views_update, views_voice)
+from . import (api, transfer, views_matting, views_models, views_ollama, views_commands, views_platform, views_report,
+               views_retry, views_update, views_voice)
 
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
@@ -62,4 +62,13 @@ urlpatterns = [
     path("nodes/<int:pk>/models/download/", views_voice.node_models_download),
     path("nodes/<int:pk>/update/", views_update.node_update),
     path("nodes/<int:pk>/commands/", views_commands.node_commands),  # «دستورها»: به‌روزرسانی/راه‌اندازیِ دوباره/ساخت/وضعیت/لاگ
+    # آزمونِ خودکارِ سرورِ پردازش، پیشرفتِ کلیِ صف، نصبِ خودکار و شروعِ خودکار (کارکنان) — views_platform.py
+    path("selftests/", views_platform.overview),
+    path("selftests/run/", views_platform.start),
+    path("selftests/history/", views_platform.history),
+    path("selftests/<int:pk>/", views_platform.run_detail),
+    path("selftests/<int:pk>/rerun/", views_platform.rerun),
+    path("progress/", views_platform.progress),
+    path("nodes/<int:pk>/bootstrap/", views_platform.node_bootstrap_retry),
+    path("nodes/<int:pk>/autostart/", views_platform.node_autostart),
 ]

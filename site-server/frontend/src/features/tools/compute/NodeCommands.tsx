@@ -39,7 +39,7 @@ const CONFIRM: Record<string, string> = {
   build: "ویرایشگرهای عکس/ویدیو/صدا روی آن کامپیوتر ساخته شوند؟ ممکن است چند دقیقه طول بکشد.",
 };
 
-const ORDER = ["update", "restart", "status", "logs", "build"];
+const ORDER = ["update", "restart", "status", "logs", "build", "bootstrap"];
 
 function when(iso?: string): string {
   if (!iso) return "";

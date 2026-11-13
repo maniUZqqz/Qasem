@@ -12,7 +12,7 @@ import logging
 import os
 
 from django.contrib.auth.models import AnonymousUser
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import authentication, exceptions, permissions
@@ -111,7 +111,10 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
                         or ""),
          "desired": n.desired or {}, "auto_switch": n.auto_switch,
          "managed": caps.get("managed") or {},
-         "resources": {k: caps.get(k) for k in ("ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb") if caps.get(k) is not None}}
+         "resources": {k: caps.get(k) for k in ("ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb") if caps.get(k) is not None},
+         "gpu_info": caps.get("gpu_info") or {}, "bootstrap": (caps.get("bootstrap") or {}).get("summary") or {},
+         "autostart": caps.get("autostart") or {}, "outbox": caps.get("outbox") or {}, "net": caps.get("net") or {},
+         "lanes": caps.get("lanes") or {}}
     from .updates import update_state
     d.update(update_state(caps))          # agent_latest / update_waiting / can_remote_update (بستهٔ کدِ روی سایت)
     if with_token:
@@ -132,7 +135,7 @@ def _control(node) -> dict:
                 desired["worker3d"] = True
         except Exception:  # noqa: BLE001 — بخشِ سه‌بعدی نباید سرورهای پردازش را بخواباند
             pass
-    out = {"desired": desired, "auto_switch": node.auto_switch}
+    out = {"desired": desired, "auto_switch": node.auto_switch, "lanes": True}      # lanes: this site understands claim {lane: light}
     try:
         from . import commands as node_commands
         cmd = node_commands.pending_for(node)
@@ -180,6 +183,12 @@ def heartbeat(request):
     if isinstance(request.data, dict) and request.data:
         _store_caps(node, request.data)
     report_stats.record_heartbeat(node)       # نوبتِ اتصال + نمونهٔ منابع؛ هرگز خطا نمی‌دهد
+    try:
+        from . import autopilot
+
+        autopilot.on_heartbeat(node)           # نسخهٔ تازهٔ عامل ⇒ آزمونِ خودکار؛ هرگز خطا نمی‌دهد
+    except Exception:  # noqa: BLE001
+        logger.exception("compute: autopilot.on_heartbeat failed")
     return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **_control(node)})
 
 
@@ -189,7 +198,8 @@ def claim(request):
     if isinstance(request.data, dict) and request.data.get("capabilities"):
         _store_caps(node, request.data["capabilities"])
     report_stats.record_heartbeat(node)
-    job = SV.claim(node)
+    lane = str(request.data.get("lane") or "")[:12] if isinstance(request.data, dict) else ""
+    job = SV.claim(node, lane=lane)
     control = _control(node)
     if not job:
         return Response({"job": None, **control})
@@ -198,18 +208,57 @@ def claim(request):
                              "attempt": job.attempts}, **control})
 
 
-def _job_of(request, uid) -> tuple[ComputeNode, ComputeJob]:
+def _job_of(request, uid, adopt=True) -> tuple[ComputeNode, ComputeJob]:
     node = _node(request)
     job = get_object_or_404(ComputeJob, uid=uid)
     if job.node_id != node.pk:
-        raise exceptions.PermissionDenied("این کار مالِ سرورِ پردازشِ دیگری است.")
+        # کاری که همین گره وسطش قطع شد و هنوز کسی آن را نگرفته، دوباره به همین گره سپرده می‌شود (نتیجه‌اش گم نمی‌شود)
+        if adopt and SV.adopt_orphan(job, node):
+            job.refresh_from_db()
+        else:
+            raise exceptions.PermissionDenied("این کار مالِ سرورِ پردازشِ دیگری است.")
     return node, job
+
+
+def _byte_range(header: str):
+    """`Range: bytes=N-` (agent 2.11 resumes a package that broke on a bad line) -> N, or None if absent / not understood.
+    Only an open-ended single range is served; anything else gets the whole file (a normal 200)."""
+    import re
+
+    m = re.fullmatch(r"\s*bytes=(\d+)-\s*", header or "")
+    if not m:
+        return None
+    return int(m.group(1))
 
 
 @node_api("GET")
 def package(request, uid):
-    node, job = _job_of(request, uid)
-    return FileResponse(open(SV.package(job), "rb"), as_attachment=True, filename="package.zip")
+    node, job = _job_of(request, uid, adopt=False)
+    path = SV.package(job)
+    size = path.stat().st_size
+    start = _byte_range(request.headers.get("Range", ""))
+    if start is None or start == 0:
+        return FileResponse(open(path, "rb"), as_attachment=True, filename="package.zip")
+    if start >= size:
+        resp = HttpResponse(status=416)
+        resp["Content-Range"] = "bytes */%d" % size
+        return resp
+
+    def body():
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    break
+                yield chunk
+
+    resp = StreamingHttpResponse(body(), status=206, content_type="application/zip")
+    resp["Content-Length"] = str(size - start)
+    resp["Content-Range"] = "bytes %d-%d/%d" % (start, size - 1, size)
+    resp["Accept-Ranges"] = "bytes"
+    resp["Content-Disposition"] = 'attachment; filename="package.zip"'
+    return resp
 
 
 @node_api("POST")
@@ -438,7 +487,9 @@ def enroll(request):
 
 def _queue_settings_json(cfg) -> dict:
     return {"max_wait_hours": cfg.max_wait_hours, "download_mode": cfg.download_mode,
-            "download_window": cfg.download_window, "retention_days": cfg.retention_days}
+            "download_window": cfg.download_window, "retention_days": cfg.retention_days,
+            "auto_update": cfg.auto_update, "auto_selftest": cfg.auto_selftest, "nightly_selftest": cfg.nightly_selftest,
+            "nightly_time": cfg.nightly_time, "requeue_after_pass": cfg.requeue_after_pass, "short_burst": cfg.short_burst}
 
 
 def _apply_queue_settings(cfg, data) -> None:
@@ -461,6 +512,22 @@ def _apply_queue_settings(cfg, data) -> None:
         if not SV.parse_window(window):
             raise exceptions.ValidationError({"download_window": "بازه را مثل ۰۲:۰۰-۰۷:۰۰ بنویسید (ساعتِ شروع و پایان فرق داشته باشد)"})
         cfg.download_window = window
+    for flag in ("auto_update", "auto_selftest", "nightly_selftest", "requeue_after_pass"):
+        if flag in data:
+            setattr(cfg, flag, bool(data.get(flag)) and str(data.get(flag)).lower() not in ("0", "false", "no", "off"))
+    if "nightly_time" in data:
+        hhmm = str(data.get("nightly_time") or "").strip()
+        if not SV.next_clock_time(hhmm):
+            raise exceptions.ValidationError({"nightly_time": "ساعت را مثل ۰۳:۳۰ بنویسید"})
+        cfg.nightly_time = hhmm[:5]
+    if "short_burst" in data:
+        try:
+            burst = int(data.get("short_burst") or 0)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError({"short_burst": "عدد بنویسید"})
+        if not 1 <= burst <= 100:
+            raise exceptions.ValidationError({"short_burst": "بین ۱ تا ۱۰۰"})
+        cfg.short_burst = burst
     if "retention_days" in data:
         try:
             days = int(data.get("retention_days") or 0)

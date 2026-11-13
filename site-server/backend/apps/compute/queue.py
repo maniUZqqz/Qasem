@@ -304,6 +304,16 @@ def job_input(j: ComputeJob) -> dict:
             "system": str(p.get("system") or "")[:400]}
 
 
+def device_of(j: ComputeJob) -> dict:
+    """Agent 2.11: the device the job really ran on (cuda / directml / nvenc / cpu + why), the warning when a GPU job fell back
+    to the CPU, and the nvidia-smi samples taken while it ran (utilisation / VRAM / heat)."""
+    meta = (j.result or {}).get("meta") or {}
+    if not meta.get("device") and not meta.get("gpu"):
+        return {}
+    return {"device": meta.get("device") or "", "device_note": meta.get("device_note") or "",
+            "device_warning": meta.get("device_warning") or "", "gpu": meta.get("gpu") or {}}
+
+
 def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | None = None) -> dict:
     pos = positions.get(j.pk, 0)
     reason, text = ("", "")
@@ -332,6 +342,7 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | Non
         "capability": capability_of(j), "parked": j.kind == PARK_KIND,
         "model": p.get("model") or p.get("tag") or "",
         "short_id": str(j.uid)[:8], "outputs": job_outputs(j), "input": job_input(j),
+        **device_of(j),
     }
 
 

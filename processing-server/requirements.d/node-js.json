@@ -1,0 +1,16 @@
+{
+  "feature": "node-js",
+  "title_fa": "Node.js قابل‌حمل (برای رندرِ موشن‌گرافیک و ابزارهای ویدیویی)",
+  "order": 30,
+  "platform": ["win"],
+  "kinds": [],
+  "note": "Portable Node.js 20 LTS (MIT) unpacked to <data>/vendor/node - nothing is installed system-wide. Features that need it (Remotion motion renderer ...) list \"requires\": [\"node-js\"] in their own requirements.d file. Mirror order: this site, nodejs.org, registry.npmmirror.com.",
+  "items": [
+    {"id": "node", "type": "archive", "title": "Node.js 20.18.0 (win-x64)", "dest": "vendor/node", "strip": 1,
+     "check_file": "vendor/node/node.exe", "size": 29602979,
+     "sha256": "f5cea43414cc33024bbe5867f208d1c9c915d6a38e92abeee07ed9e563662297", "big": false,
+     "sources": [{"site": "node-v20.18.0-win-x64.zip"},
+                 {"url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip"},
+                 {"url": "https://registry.npmmirror.com/-/binary/node/v20.18.0/node-v20.18.0-win-x64.zip"}]}
+  ]
+}

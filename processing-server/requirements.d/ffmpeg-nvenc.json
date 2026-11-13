@@ -1,0 +1,12 @@
+{
+  "feature": "ffmpeg-nvenc",
+  "title_fa": "ffmpeg با رمزگذاریِ سخت‌افزاریِ NVENC",
+  "order": 20,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "kinds": [],
+  "note": "If no ffmpeg on this computer can encode with NVENC, the BtbN GPL build the site already mirrors (kit-ffmpeg.zip: ffnvcodec, libass, libx264...) is installed under <data>/tools/PersianAiKit/Video/tools/ffmpeg. gpu.best_ffmpeg() then prefers it. FFmpeg is GPL-3: the build is only run, never linked.",
+  "items": [
+    {"id": "ffmpeg", "type": "ffmpeg-nvenc", "title": "ffmpeg with a working NVENC encoder", "from_site": "kit-ffmpeg.zip"}
+  ]
+}

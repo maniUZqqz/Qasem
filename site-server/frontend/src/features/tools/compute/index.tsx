@@ -574,6 +574,9 @@ export default function ComputePage() {
             <Link to="/tools/compute/queue" className="u-btn u-btn-secondary u-btn-sm no-underline">
               صفِ پردازش
             </Link>
+            <Link to="/tools/compute/selftest" className="u-btn u-btn-secondary u-btn-sm no-underline">
+              آزمونِ خودکار
+            </Link>
             <Link to="/tools/compute/report" className="u-btn u-btn-secondary u-btn-sm no-underline">
               گزارشِ سرورها
             </Link>

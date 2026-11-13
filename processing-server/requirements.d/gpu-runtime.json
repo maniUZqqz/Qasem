@@ -1,0 +1,15 @@
+{
+  "feature": "gpu-runtime",
+  "title_fa": "اجرای گرافیکی: ONNX روی کارت گرافیک (DirectML)، OpenCV، Pillow",
+  "order": 10,
+  "needs_gpu": true,
+  "platform": ["win"],
+  "kinds": [],
+  "note": "The same small environment the photo-matting package uses (venvs/matting) so nothing is installed twice and nothing of the owner's Python is touched. onnxruntime-directml runs the matting / RVM models on any DirectX 12 GPU without CUDA DLLs; edit_rvm.py and photo_matting.py already prefer a Python whose onnxruntime has a GPU provider. License: MIT / BSD / HPND / Apache-2.0.",
+  "items": [
+    {"id": "venv", "type": "venv", "name": "matting", "title": "Python environment (venvs/matting)"},
+    {"id": "pip", "type": "pip", "venv": "matting", "title": "numpy, Pillow, OpenCV, onnxruntime-directml",
+     "packages": ["numpy==1.26.4", "Pillow==10.4.0", "opencv-python-headless==4.10.0.84", "onnxruntime-directml==1.24.4"]},
+    {"id": "ort", "type": "ort-gpu", "venv": "matting", "title": "onnxruntime offers a GPU provider"}
+  ]
+}

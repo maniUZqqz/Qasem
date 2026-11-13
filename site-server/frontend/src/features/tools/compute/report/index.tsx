@@ -53,6 +53,7 @@ import {
   csvPath,
   type CsvSection,
   type DownloadActive,
+  type DevicesInfo,
   type ErrorItem,
   type LogsData,
   type RangeSel,
@@ -663,6 +664,7 @@ function JobsTab({ data, csv }: { data: ReportData; csv: CsvBtn }) {
   const perNode: StatRow[] = data.nodes.map((n) => ({ key: String(n.id), label: n.name, stat: n.jobs }));
   const total = data.jobs.totals;
   return (
+    <div className="space-y-4">
     <Card padded={false}>
       <div className="nmr-toolbar">
         <div className="nmr-seg" role="group" aria-label="دسته‌بندی">
@@ -697,6 +699,96 @@ function JobsTab({ data, csv }: { data: ReportData; csv: CsvBtn }) {
           )}
         </div>
       )}
+    </Card>
+    <DevicesCard devices={data.devices} />
+    </div>
+  );
+}
+
+const DEVICE_NAME: Record<string, string> = {
+  cuda: "کارت گرافیک (CUDA)",
+  directml: "کارت گرافیک (DirectML)",
+  nvenc: "کارت گرافیک (NVENC)",
+  cpu: "پردازنده (CPU)",
+  mixed: "کارت + پردازنده",
+  unknown: "نامشخص",
+};
+
+function DevicesCard({ devices }: { devices?: DevicesInfo }) {
+  if (!devices) return null;
+  const total = devices.counted;
+  const gpu = (devices.by_device.cuda ?? 0) + (devices.by_device.directml ?? 0) + (devices.by_device.nvenc ?? 0);
+  const cpu = (devices.by_device.cpu ?? 0) + (devices.by_device.mixed ?? 0);
+  return (
+    <Card padded={false}>
+      <div className="nmr-sec" style={{ borderTop: "none" }}>
+        <div className="nmr-sec-title">
+          کارت یا پردازنده؟
+          <span>{toFa(total)} کارِ تمام‌شده با گزارشِ دستگاه</span>
+        </div>
+        {total === 0 ? (
+          <p className="nmr-note">
+            هنوز کارِ تمام‌شده‌ای با گزارشِ دستگاه نیست؛ برنامهٔ سرورِ پردازش از نسخهٔ ۲٫۱۱ برای هر کار می‌نویسد روی کارت گرافیک اجرا شد یا پردازنده{devices.without_device ? ` (${toFa(devices.without_device)} کارِ قدیمی‌تر این را ندارند)` : ""}.
+          </p>
+        ) : (
+          <>
+            <div className="nmr-chips">
+              <span className="nmr-chip plain">روی کارت: {toFa(gpu)}</span>
+              <span className="nmr-chip plain">روی پردازنده (یا بخشی از آن): {toFa(cpu)}</span>
+              {Object.entries(devices.by_device)
+                .filter(([k]) => !["cuda", "directml", "nvenc", "cpu", "mixed"].includes(k))
+                .map(([k, n]) => (
+                  <span key={k} className="nmr-chip plain">
+                    {DEVICE_NAME[k] ?? k}: {toFa(n)}
+                  </span>
+                ))}
+            </div>
+            <Table>
+              <thead>
+                <tr>
+                  <th>نوعِ کار</th>
+                  <th className="num">کارت</th>
+                  <th className="num">پردازنده</th>
+                  <th className="num">نامشخص</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.by_kind.map((k) => {
+                  const g = (k.devices.cuda ?? 0) + (k.devices.directml ?? 0) + (k.devices.nvenc ?? 0);
+                  const c = (k.devices.cpu ?? 0) + (k.devices.mixed ?? 0);
+                  return (
+                    <tr key={k.kind}>
+                      <td>
+                        {k.kind_label}
+                        <span className="nmr-small nmr-mono" dir="ltr">
+                          {" "}
+                          {k.kind}
+                        </span>
+                      </td>
+                      <td className="num">{toFa(g)}</td>
+                      <td className="num">{c ? <Badge tone="warn">{toFa(c)}</Badge> : toFa(0)}</td>
+                      <td className="num">{toFa(k.count - g - c)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </>
+        )}
+        {devices.fallbacks.length > 0 && (
+          <Alert tone="warn" title="کارهایی که باید روی کارت می‌بودند و روی پردازنده رفتند">
+            <ul className="nmr-note" style={{ paddingInlineStart: "1.2em", margin: 0, listStyle: "disc" }}>
+              {devices.fallbacks.map((f) => (
+                <li key={f.uid}>
+                  <span className="nmr-mono" dir="ltr">#{f.short}</span> {f.kind_label}
+                  {f.node ? ` — ${f.node}` : ""}: {f.warning}
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+        {devices.truncated && <p className="nmr-note">فقط ۲۰۰۰ کارِ آخرِ بازه شمرده شد.</p>}
+      </div>
     </Card>
   );
 }

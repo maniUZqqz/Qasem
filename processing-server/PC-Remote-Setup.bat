@@ -263,16 +263,23 @@ function Find-Tool($name) {
 }
 
 function Lock-Down($path) {
-    # Owner = Administrators, access = Administrators + SYSTEM only, no inheritance.
-    # The owner matters: the tunnel runs as SYSTEM and Windows-OpenSSH refuses a private key whose OWNER is a normal
-    # user (even an admin). Setting the owner to the Administrators group (S-1-5-32-544), which OpenSSH accepts, is the
-    # fix for «UNPROTECTED PRIVATE KEY FILE / are too open» (2026-11-11: the tunnel_key was owned by the setup user).
+    # Owner = Administrators; the DACL holds ONLY Administrators + SYSTEM (no inheritance, nothing else).
+    # Windows-OpenSSH runs the tunnel as SYSTEM and refuses a private key («UNPROTECTED PRIVATE KEY FILE / are too open»)
+    # if any other account appears in its ACL. ssh-keygen gives the user who runs setup an explicit (M) entry on the new
+    # key, and /grant:r alone keeps that entry - the 11/12 fix set the owner but left it, so the tunnel still failed.
+    # Hence: owner first, then /reset (drops every explicit entry), grant the two, then drop the inherited ones.
+    $null = & icacls.exe $path /setowner '*S-1-5-32-544'
+    $null = & icacls.exe $path /reset
     if (Test-Path -LiteralPath $path -PathType Container) {
-        $null = & icacls.exe $path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'
+        $null = & icacls.exe $path /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'
     } else {
-        $null = & icacls.exe $path /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F'
+        $null = & icacls.exe $path /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F'
     }
-    $null = & icacls.exe $path /setowner '*S-1-5-32-544'          # Administrators own it ⇒ ssh (as SYSTEM) accepts the key
+    $null = & icacls.exe $path /inheritance:r
+    $sddl = (Get-Acl -LiteralPath $path).Sddl
+    $aces = [regex]::Matches($sddl, '\(A;[^)]*;([^;)]+)\)') | ForEach-Object { $_.Groups[1].Value }
+    $bad = @($aces | Where-Object { $_ -ne 'BA' -and $_ -ne 'SY' -and $_ -ne 'S-1-5-32-544' -and $_ -ne 'S-1-5-18' })
+    if ($bad.Count -gt 0) { Say ('[!] permissions of ' + $path + ' still list: ' + ($bad -join ', ')) }
 }
 
 function Run-Native($exe, $argLine, $stdinFile) {

@@ -75,6 +75,27 @@ export type QueueJob = {
   short_id?: string;
   outputs?: QueueOutput[];
   input?: { model?: string; text?: string; system?: string };
+  /** عامل ۲٫۱۱: کار واقعاً روی چه دستگاهی اجرا شد (cuda / directml / nvenc / cpu / mixed) و چرا؛ هشدار اگر باید روی کارت می‌بود و نبود */
+  device?: string;
+  device_note?: string;
+  device_warning?: string;
+  /** نمونه‌های nvidia-smi در حینِ کار */
+  gpu?: GpuSummary;
+};
+
+export type GpuSummary = {
+  samples?: number;
+  name?: string;
+  vram_total_mb?: number | null;
+  util_avg?: number;
+  util_max?: number;
+  vram_min_mb?: number;
+  vram_max_mb?: number;
+  vram_start_mb?: number;
+  temp_max_c?: number;
+  power_max_w?: number;
+  /** [ثانیه از شروع، درصدِ استفاده، حافظهٔ مصرفیِ مگابایت] */
+  series?: [number, number | null, number | null][];
 };
 
 export type QueueOutput = {

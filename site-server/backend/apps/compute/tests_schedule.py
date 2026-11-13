@@ -311,7 +311,9 @@ class VoiceScheduleTests(Base):
 class ControlKeysTests(Base):
     def test_heartbeat_and_claim_carry_the_download_settings_and_site_version(self):
         node = self.voice_node()
-        ComputeSettings.objects.update_or_create(pk=1, defaults={"download_mode": "window", "download_window": "01:30-06:00"})
+        # auto_selftest off: a first heartbeat of an agent otherwise starts the acceptance run, whose first job this claim would receive
+        ComputeSettings.objects.update_or_create(pk=1, defaults={"download_mode": "window", "download_window": "01:30-06:00",
+                                                                 "auto_selftest": False})
         c = self.as_node(node)
         with override_settings(NM_VERSION="2.60"):
             hb = c.post("/api/v1/compute/heartbeat/", {}, format="json")

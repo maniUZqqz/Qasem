@@ -99,6 +99,16 @@ size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a j
 Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
 (BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
 onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
+Agent 2.11 - GPU-first, robust, self-installing (gpu.py, ollama_jobs.py, outbox.py, bootstrap.py + requirements.d/, autostart.py,
+selftest_jobs.py, asr_jobs.py). Every finished job records the device it really used (cuda / directml / nvenc / cpu + why) and
+nvidia-smi samples (meta.device, meta.gpu); a CPU fallback of a GPU job is a visible warning. Ollama answers are streamed
+(stream=true: a long generation never meets a read timeout; connect failures and read timeouts are reported as what they are);
+Ollama is started with flash attention + q8 KV cache + one model; ffmpeg prefers a build with working NVENC (and NVDEC decoding).
+A finished result is never lost to a bad line: it waits in <data>/outbox and is delivered (resumable chunks) when the site answers;
+log lines are spooled to disk. requirements.d/*.json files list what each feature needs (pinned pip packages, ffmpeg with NVENC,
+portable Node.js, models): the agent installs them in the background, idempotently, and reports progress/errors to the panel; jobs of
+a kind that needs a feature wait until it is ready. The agent advertises caps["kinds"] (the site hands it only kinds it knows), puts a
+shortcut in the user's Startup folder (no admin; panel setting «شروعِ خودکار») and takes a second, GPU-neutral "light" job lane.
 """
 import glob
 import hashlib
@@ -121,12 +131,27 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.10"
+VERSION = "2.11"
+START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import nm_data  # noqa: E402
 import nm_fetch  # noqa: E402
+
+# agent 2.11 modules: each one is optional - a broken file never stops the agent (the old behaviour is used instead)
+def _optional(name):
+    try:
+        return __import__(name)
+    except Exception as _e:  # noqa: BLE001
+        print("note: optional module %s is not available (%s)" % (name, _e), flush=True)
+        return None
+
+
+gpu = _optional("gpu")
+outbox_mod = _optional("outbox")
+bootstrap_mod = _optional("bootstrap")
+autostart_mod = _optional("autostart")
 
 DATA = nm_data.data_root(HERE)                                     # models, venvs, node.json ... (survives updates)
 WORK = os.path.join(DATA, "work")
@@ -505,6 +530,13 @@ class SiteLog:
             if len(self.buf) > 300:
                 del self.buf[:-300]
 
+    spool = None                      # outbox.LogSpool (agent 2.11): lines that could not be shipped wait in a file
+    last_note = 0.0
+    failures = 0
+
+    def ship(self, lines):
+        self.site.post("/api/v1/compute/log/", {"lines": lines}, timeout=30)
+
     def flush(self, force=False):
         if self.site is None:
             return
@@ -514,11 +546,21 @@ class SiteLog:
             lines, self.buf = self.buf[:], []
             self.last_flush = time.time()
         try:
-            self.site.post("/api/v1/compute/log/", {"lines": lines}, timeout=30)
+            if self.spool is not None:
+                self.spool.drain(self.ship)            # older lines first
+            self.ship(lines)
+            self.failures = 0
         except Exception as e:  # noqa: BLE001 — never let log shipping break the loop
-            with self.lock:
-                self.buf = lines + self.buf
-            print("%s  [log shipping failed: %s]" % (time.strftime("%H:%M:%S"), e), flush=True)
+            if self.spool is not None:
+                self.spool.add(lines)                  # survives a restart; shipped first when the site answers again
+            else:
+                with self.lock:
+                    self.buf = lines + self.buf
+            self.failures += 1
+            if time.time() - self.last_note >= 300:    # one console note per five minutes, not one per attempt
+                self.last_note = time.time()
+                print("%s  [log shipping failed %d time(s), the lines wait on disk and are sent when the site answers: %s]" % (
+                    time.strftime("%H:%M:%S"), self.failures, str(e)[:120]), flush=True)
 
 
 SITE_LOG = SiteLog()
@@ -711,16 +753,24 @@ class Site:
 
     def download(self, path, dest, timeout=600, attempts=5):
         """Streamed download with a short read timeout and a size check, retried: on a flaky line a body can stop
-        half-way (seen 1405/07/27: 45 KB of 873 KB, then silence) and a single long read would hang the job."""
+        half-way (seen 1405/07/27: 45 KB of 873 KB, then silence) and a single long read would hang the job.
+        Agent 2.11: what already arrived (<dest>.part) is kept and asked for again with `Range: bytes=N-` (a site that answers 200
+        instead of 206 simply sends the whole file again), so a big job package survives a line that drops several times."""
         last = None
+        tmp = dest + ".part"
         for attempt in range(1, attempts + 1):
-            tmp = dest + ".part"
             try:
-                req = urllib.request.Request(self.base + path, headers={"Authorization": "Node " + self.token})
+                have = os.path.getsize(tmp) if os.path.isfile(tmp) else 0
+                headers = {"Authorization": "Node " + self.token}
+                if have:
+                    headers["Range"] = "bytes=%d-" % have
+                req = urllib.request.Request(self.base + path, headers=headers)
                 with urllib.request.urlopen(req, timeout=45) as r:
-                    expected = int(r.headers.get("Content-Length") or 0)
-                    got = 0
-                    with open(tmp, "wb") as fh:
+                    length = int(r.headers.get("Content-Length") or 0)
+                    resumed = bool(have) and getattr(r, "status", 200) == 206
+                    got = have if resumed else 0
+                    expected = (have + length) if (resumed and length) else length
+                    with open(tmp, "ab" if resumed else "wb") as fh:
                         while True:
                             chunk = r.read(256 * 1024)
                             if not chunk:
@@ -731,9 +781,16 @@ class Site:
                     raise OSError("truncated download: %d of %d bytes" % (got, expected))
                 os.replace(tmp, dest)
                 if attempt > 1:
-                    log("download ok on attempt %d (%d bytes)" % (attempt, got))
+                    log("download ok on attempt %d (%d bytes%s)" % (attempt, got, ", resumed" if resumed else ""))
                 return
             except urllib.error.HTTPError as e:
+                if e.code == 416:                      # the kept part does not fit the file any more: start again
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+                    last = e
+                    continue
                 if e.code in (401, 403, 404):
                     raise SiteError("GET %s -> HTTP %s" % (path, e.code)) from e
                 last = e
@@ -975,6 +1032,11 @@ class ServiceManager:
                 return False
         os.makedirs(LOGS, exist_ok=True)
         env = dict(os.environ, NM_DATA=DATA)              # the audio workers / worker-3d.bat find models\ vendor\ there
+        if key == "ollama" and gpu is not None:
+            env = gpu.ollama_env(env)                     # flash attention, q8 KV cache, one model, no parallel: the GPU gets it all
+            log("ollama: started with OLLAMA_FLASH_ATTENTION=%s OLLAMA_KV_CACHE_TYPE=%s OLLAMA_MAX_LOADED_MODELS=%s OLLAMA_NUM_PARALLEL=%s" % (
+                env.get("OLLAMA_FLASH_ATTENTION"), env.get("OLLAMA_KV_CACHE_TYPE"), env.get("OLLAMA_MAX_LOADED_MODELS"),
+                env.get("OLLAMA_NUM_PARALLEL")))
         if key == "photo":
             env.update(photo_ai_env(env))   # «smart edit» of the photo kit -> this node's Ollama vision model
         dn = find_dotnet() if key in KIT_DIRS else None
@@ -1110,15 +1172,43 @@ class ServiceManager:
         if auto_switch:
             if need in ("comfyui", "ollama"):
                 self.stop_audio()                 # a GPU audio engine left loaded would starve ComfyUI / Ollama
-            if need == "comfyui":
-                self.unload_ollama()
-            elif need == "ollama":
-                self.free_comfy()
+            self.hand_over_vram(need, kind)
             if not self.running(need):
                 log("auto-switch: %s job needs %s — starting it" % (kind, need))
                 self.start(need, tick=tick)
         elif not self.running(need):
             raise RuntimeError("%s is not running on this node and auto-switch is off (turn it on in the panel or start the service)" % need)
+        else:
+            # auto-switch off: nothing is started or stopped, but the other engine's MODELS are still let go of (they reload on their
+            # next use) - otherwise Ollama / ComfyUI would be pushed to the weak CPU by the memory the other one still holds
+            self.hand_over_vram(need, kind)
+
+    def hand_over_vram(self, need, kind):
+        """VRAM coordination between Ollama, ComfyUI and the other programs on this PC (InstAI ... <data>/gpu-peers.json): before a
+        ComfyUI job Ollama's models are unloaded (keep_alive 0), before an Ollama job ComfyUI frees its models (POST /free); then
+        nvidia-smi is watched until the memory is really back, so neither engine is pushed to the CPU."""
+        if need not in ("comfyui", "ollama"):
+            return
+        before = vram_mb()[0] if gpu is not None else None
+        if need == "comfyui":
+            self.unload_ollama()
+        elif need == "ollama":
+            self.free_comfy()
+        if gpu is not None:
+            try:
+                gpu.free_peers(DATA, lambda url: http("POST", url, b"", timeout=15, raw=True))   # InstAI & co (gpu-peers.json)
+                freed = gpu.settle_vram(before)
+                if freed:
+                    log("VRAM hand-over: %d MB freed for the %s job" % (freed, kind))
+                used, total = vram_mb()
+                if total and used is not None and used > 0.6 * total:
+                    apps = gpu.compute_apps()
+                    names = ", ".join("%s%s" % (a["name"], " (%d MB)" % a["vram_mb"] if a.get("vram_mb") else "") for a in apps[:6])
+                    warn("VRAM hand-over: %d of %d MB are still in use after the other engine let go%s - this job may spill onto the CPU. "
+                         "Programs that hold the card can be listed in <data>/gpu-peers.json so they let go too" % (
+                             used, total, (" (GPU programs: %s)" % names) if names else ""))
+            except Exception as e:  # noqa: BLE001
+                warn("VRAM hand-over check failed: %s" % e)
 
     # ---- GPU audio engines (moss / sfx / music): on demand, one at a time, stopped when idle
     def prepare_audio(self, key, auto_switch, tick=None, purpose=None):
@@ -1444,6 +1534,101 @@ def sweep_work(max_age_s=24 * 3600, now=None, root=None):
     return removed
 
 
+# ───────────────────────────────────────────── agent 2.11: GPU info, outbox, bootstrap, lanes
+
+#: kinds that need no exclusive GPU: a second job lane runs them while a long render holds the main slot (the site hands this
+#: lane only these kinds - claim {"lane": "light"})
+LIGHT_KINDS = ("echo", "selftest.gpu", "edit.track")
+LIGHT_SLOTS = 1
+OUTBOX = None            # outbox.Outbox: finished results waiting to reach the site
+CONNECT = None           # outbox.Connectivity: the state of the line to the site
+BOOTSTRAP = None         # bootstrap.Bootstrap: what each feature needs, installed in the background
+_GPU_INFO = {"at": 0.0, "val": {}, "busy": False}
+
+
+def gpu_info_cached(max_age=300):
+    """The GPU path of this computer (card, driver, the ffmpeg that would be used, NVENC / NVDEC) - computed in a background
+    thread, never inside the heartbeat; the last answer is reported until a fresh one is ready."""
+    if gpu is None:
+        return {}
+    if not _GPU_INFO["busy"] and time.time() - _GPU_INFO["at"] > max_age:
+        _GPU_INFO["busy"] = True
+
+        def work():
+            try:
+                _GPU_INFO["val"] = gpu.node_gpu_report(DATA)
+                _GPU_INFO["at"] = time.time()
+            except Exception as e:  # noqa: BLE001
+                _GPU_INFO["val"] = {"error": str(e)[:200]}
+                _GPU_INFO["at"] = time.time() - max_age + 60
+            finally:
+                _GPU_INFO["busy"] = False
+
+        threading.Thread(target=work, daemon=True, name="gpu-info").start()
+    return _GPU_INFO["val"]
+
+
+def use_portable_node():
+    """The portable Node.js that bootstrap.py unpacked (requirements.d/node-js.json -> <data>/vendor/node) goes to the front of PATH of this
+    process and of every child it starts (the motion renderer, npm tools ...). Returns the folder or ''. Nothing is installed system-wide."""
+    d = os.path.join(DATA, "vendor", "node")
+    exe = os.path.join(d, "node.exe" if os.name == "nt" else "bin" + os.sep + "node")
+    if not os.path.isfile(exe):
+        return ""
+    folder = os.path.dirname(exe)
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if folder not in parts:
+        os.environ["PATH"] = folder + os.pathsep + os.environ.get("PATH", "")
+    return folder
+
+
+def autostart_status():
+    if autostart_mod is None:
+        return {"supported": False}
+    try:
+        return autostart_mod.status(HERE, DATA)
+    except Exception as e:  # noqa: BLE001
+        return {"supported": False, "error": str(e)[:100]}
+
+
+def apply_autostart(desired):
+    """First run: register the Startup shortcut (no admin). The panel's setting desired["autostart"] = False removes it."""
+    if autostart_mod is None or not isinstance(desired, dict):
+        return
+    want = desired.get("autostart", True) is not False
+    force = desired.get("autostart") is True                  # an explicit «on» from the panel beats the autostart.off marker
+    key = ("on" if want else "off") + ("!" if force else "")
+    if STATE.get("autostart_applied") == key:
+        return
+    STATE["autostart_applied"] = key
+    try:
+        res = autostart_mod.ensure(HERE, DATA, enabled=want, force=force)
+    except Exception as e:  # noqa: BLE001
+        warn("autostart: %s" % e)
+        return
+    STATE["autostart"] = res
+    if res.get("state") in ("registered", "removed"):
+        log("autostart: %s (%s)" % (res["state"], res.get("path") or res.get("detail") or ""))
+    elif res.get("state") == "failed":
+        warn("autostart: %s" % res.get("detail"))
+
+
+def start_bootstrap():
+    """Read requirements.d/*.json and install what is missing in the background (idempotent; progress goes to the panel)."""
+    global BOOTSTRAP
+    if bootstrap_mod is None or BOOTSTRAP is not None:
+        return BOOTSTRAP
+    try:
+        ctx = bootstrap_mod.Ctx(DATA, agent=sys.modules[__name__], site=site_base(), token=(CONFIG or {}).get("token") or "",
+                                download_allowed=lambda: download_allowed())
+        BOOTSTRAP = bootstrap_mod.Bootstrap(ctx, os.path.join(HERE, "requirements.d"))
+        BOOTSTRAP.start()
+        log("bootstrap: %d requirement file(s) found - installing what is missing in the background" % len(BOOTSTRAP.specs))
+    except Exception as e:  # noqa: BLE001 - never keep the node down
+        warn("bootstrap could not start: %s" % e)
+    return BOOTSTRAP
+
+
 class Capabilities:
     def __init__(self, name, slots):
         self.name = name
@@ -1548,6 +1733,27 @@ class Capabilities:
         except Exception as e:  # noqa: BLE001 - never let this keep the heartbeat from going out
             caps["photo_matting"] = False
             warn("photo matting capabilities could not be read: %s" % e)
+        # agent 2.11: what the site needs to route work correctly and to show the GPU / install state
+        caps["started_at"] = int(START_TIME)
+        caps["kinds"] = sorted(HANDLERS)
+        caps["http_relays"] = ["comfy" if k == "comfyui" else k for k in SERVICES]       # <prefix>.http relays (h_relay) this agent can do
+        caps["lanes"] = {"main": self.slots, "light": LIGHT_SLOTS, "light_kinds": list(LIGHT_KINDS)}
+        info = gpu_info_cached()
+        if info:
+            caps["gpu_info"] = info
+        if BOOTSTRAP is not None:
+            try:
+                caps["bootstrap"] = BOOTSTRAP.status()
+            except Exception as e:  # noqa: BLE001
+                caps["bootstrap"] = {"error": str(e)[:200]}
+        caps["autostart"] = {**autostart_status(), **{"state": (STATE.get("autostart") or {}).get("state", "")}}
+        node_dir = use_portable_node()
+        if node_dir:
+            caps["portable_node"] = node_dir          # features that need Node.js (motion renderer ...) can require this flag
+        if OUTBOX is not None:
+            caps["outbox"] = {"pending": OUTBOX.count()}
+        if CONNECT is not None:
+            caps["net"] = {"offline_s": int(time.time() - CONNECT.down_since) if CONNECT.down_since else 0, "last_error": CONNECT.last_error}
         self.cache = caps
         return caps
 
@@ -1823,6 +2029,8 @@ class Cancelled(Exception):
 
 
 class Job:
+    last_progress_warn = 0.0
+
     def __init__(self, site, data):
         self.site = site
         self.uid = data["uid"]
@@ -1859,7 +2067,9 @@ class Job:
             if isinstance(r, dict) and r.get("cancel"):
                 self.cancelled = True
         except SiteError as e:
-            warn("progress report failed: %s" % e)
+            if time.time() - Job.last_progress_warn >= 60:        # a long answer over a dead line must not flood the log
+                Job.last_progress_warn = time.time()
+                warn("progress report failed (the job goes on; this is said once a minute): %s" % e)
         if self.cancelled:
             raise Cancelled()
 
@@ -3103,7 +3313,8 @@ def h_node_models(job):
 
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
-CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json")
+CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py")
 
 
 def code_stamp():
@@ -3466,7 +3677,7 @@ def h_voice_asr(job):
 #: Processing servers > «دستورها» in the panel: they come with the heartbeat / claim answer, are acknowledged at once
 #: and answered when done. update / restart end this process; START.bat starts it again (on the new code).
 #: (Full access to the computer itself is a separate tool, PC Remote - not part of NMarketing.)
-COMMANDS = ("status", "update", "restart", "build", "logs")
+COMMANDS = ("status", "update", "restart", "build", "logs", "bootstrap")
 CMD = {"seen": set(), "restart": None}
 
 
@@ -3522,6 +3733,21 @@ def cmd_build():
     return p.returncode == 0, out[-20000:] or "(no output)"
 
 
+def cmd_bootstrap():
+    """The panel's retry button of the install list: failed / waiting steps get a fresh try now."""
+    if BOOTSTRAP is None:
+        return False, "the install engine (bootstrap.py) is not running on this node"
+    n = BOOTSTRAP.retry()
+    st = BOOTSTRAP.status()
+    lines = ["retry asked for %d step(s)" % n, "features: %s" % json.dumps(st.get("summary") or {})]
+    for name, f in (st.get("features") or {}).items():
+        lines.append("  %-14s %s" % (name, f.get("state")))
+        for it in f.get("items") or []:
+            if it.get("state") in ("failed", "installing"):
+                lines.append("      %s: %s %s" % (it["id"], it["state"], it.get("error") or it.get("detail") or ""))
+    return True, "\n".join(lines)
+
+
 def run_update_now():
     """The panel's «update»: what Update.bat does (update.py --auto, in place); the agent restarts right after."""
     try:
@@ -3558,7 +3784,7 @@ def run_command(site, cmd):
     if action in ("update", "restart"):
         CMD["restart"] = {"id": cid, "action": action}       # the main loop does it: it has to end this process
         return
-    fn = {"status": cmd_status, "logs": cmd_logs, "build": cmd_build}.get(action)
+    fn = {"status": cmd_status, "logs": cmd_logs, "build": cmd_build, "bootstrap": cmd_bootstrap}.get(action)
 
     def work():
         try:
@@ -3963,10 +4189,77 @@ def h_photo_matting(job):
 HANDLERS["photo.matting"] = h_photo_matting
 
 
+def h_ollama_stream(job):
+    """ollama.chat / ollama.generate, streamed (agent 2.11, ollama_jobs.py); NM_OLLAMA_STREAM=0 or a broken module = the old call."""
+    try:
+        import ollama_jobs
+    except Exception as e:  # noqa: BLE001
+        warn("ollama_jobs.py could not be loaded (%s) - using the plain call" % e)
+        return h_ollama(job)
+    return ollama_jobs.run(job, sys.modules[__name__])
+
+
+if os.environ.get("NM_OLLAMA_STREAM", "1") != "0":
+    HANDLERS["ollama.chat"] = HANDLERS["ollama.generate"] = h_ollama_stream
+
+# agent 2.11: optional feature modules register their kinds here (a broken one is skipped with a note, the agent goes on)
+for _mod in ("selftest_jobs", "asr_jobs"):
+    try:
+        __import__(_mod).install(sys.modules[__name__])
+    except Exception as _e:  # noqa: BLE001
+        print("note: module %s is not available (%s)" % (_mod, _e), flush=True)
+
+
+def finish_result(job, ok, err="", meta=None, say=None):
+    """Hand the end of a job to the outbox (agent 2.11): the outputs move to <data>/outbox/<uid>, delivery is tried at once and, if the
+    site cannot be reached, again and again by the flusher thread - a finished result is never lost to a bad line. Without the
+    outbox module the 2.10 path (upload + finish with a few minutes of patience) is used."""
+    meta = meta or {}
+    if OUTBOX is None:
+        if ok:
+            job.upload_outputs()
+        job.finish(ok, err, meta, patience_s=300 if ok else 120)
+        return "done"
+    OUTBOX.stash(job.uid, job.kind, ok, err, meta, job.outputs if ok else None)
+    r = OUTBOX.deliver(job.site, job.uid, say)
+    if r == "retry":
+        warn("the result of job %s (%s) is saved on this computer and will be delivered as soon as the site answers (%d waiting)" % (
+            job.uid[:8], job.kind, OUTBOX.count()))
+    elif r == "done" and CONNECT is not None:
+        CONNECT.ok()
+    return r
+
+
+def device_extras(kind, payload):
+    """Facts only the services know (read after the job): which device ComfyUI / the audio engines really run on."""
+    extra = {}
+    try:
+        if kind.startswith("comfy."):
+            st = http("GET", service_url("comfyui") + "/system_stats", timeout=8)
+            dev = ((st or {}).get("devices") or [{}])[0]
+            typ = str(dev.get("type") or "")
+            if typ:
+                extra["device"] = "cuda" if typ.startswith("cuda") else typ
+                extra["device_note"] = "ComfyUI: %s" % (dev.get("name") or typ)
+        elif gpu is not None:
+            key = audio_engine_for(kind, payload)
+            if key:
+                h = http("GET", service_url(key) + "/health", timeout=8)
+                dev = str((h or {}).get("device") or "")
+                if dev:
+                    extra["device"] = gpu.norm_device(dev) or "unknown"
+                    extra["device_note"] = "%s: %s" % (AUDIO_ENGINES[key]["label"], dev)
+    except Exception:  # noqa: BLE001 - the verdict then comes from the nvidia-smi samples
+        pass
+    return extra
+
+
 def run_job(site, data):
     job = Job(site, data)
     t0 = time.time()
     log("job %s (%s) claimed" % (job.uid[:8], job.kind))
+    sampler = None
+    keep_dir = False
     try:
         job.fetch()
         job.progress(0.01, "started on " + CONFIG["name"])
@@ -3984,19 +4277,40 @@ def run_job(site, data):
                     job.progress(0.02, msg[:120])
 
             MANAGER.prepare_for(job.kind, STATE["auto_switch"], tick, payload=job.payload)
+        if gpu is not None and not job.kind.startswith(("echo", "node.")):
+            try:
+                sampler = gpu.GpuSampler(interval=3.0).start()           # utilisation / VRAM while the job runs
+            except Exception:  # noqa: BLE001
+                sampler = None
         meta = handler(job) or {}
-        names = job.upload_outputs()
+        summary = {}
+        if sampler is not None:
+            summary = sampler.stop()
+            sampler = None
+        if gpu is not None:
+            extra = device_extras(job.kind, job.payload)
+            for k, v in extra.items():
+                meta.setdefault(k, v)
+            meta = gpu.stamp_meta(meta, job.kind, job.payload, summary)
+            if meta.get("device_warning"):
+                warn("job %s (%s): %s" % (job.uid[:8], job.kind, meta["device_warning"]))
+        names = sorted(os.listdir(job.outputs)) if os.path.isdir(job.outputs) else []
         meta.update({"node": CONFIG["name"], "seconds": round(time.time() - t0, 1), "files": names})
-        job.finish(True, meta=meta)
-        log("job %s done (%ss, %d file(s))" % (job.uid[:8], meta["seconds"], len(names)))
-        if not os.environ.get("NM_KEEP_WORK"):
+        state = finish_result(job, True, "", meta)
+        keep_dir = state == "retry" and OUTBOX is None
+        log("job %s done (%ss, %d file(s), %s)%s" % (job.uid[:8], meta["seconds"], len(names), meta.get("device", "?"),
+                                                    "" if state == "done" else " - delivery pending"))
+        if not os.environ.get("NM_KEEP_WORK") and not keep_dir:
             shutil.rmtree(job.dir, ignore_errors=True)
     except Cancelled:
         log("job %s cancelled" % job.uid[:8])
         try:
-            job.finish(False, "cancelled", {"retryable": False})
+            finish_result(job, False, "cancelled", {"retryable": False})
         except SiteError as e:
             error("could not report the cancelled job: %s" % e)
+    except JobLost:
+        warn("job %s: the site had already put it back in the queue (no news from this node for too long); "
+             "this attempt is discarded" % job.uid[:8])
     except Exception as e:  # noqa: BLE001
         err = "%s: %s" % (type(e).__name__, e)
         error("job %s (%s) failed: %s" % (job.uid[:8], job.kind, err))
@@ -4004,14 +4318,25 @@ def run_job(site, data):
         meta = {"node": CONFIG["name"]}
         if getattr(e, "retryable", True) is False:
             meta["retryable"] = False          # e.g. VOICE_MISSING: the site re-sends it with the recordings instead
+        if sampler is not None and gpu is not None:
+            try:
+                meta["gpu"] = sampler.stop()
+                sampler = None
+            except Exception:  # noqa: BLE001
+                pass
         try:
-            job.finish(False, err, meta, patience_s=120)       # if the site was the problem, the first finish already waited
+            finish_result(job, False, err, meta)
         except JobLost:
             warn("job %s: the site had already put it back in the queue (no news from this node for too long); "
                  "this attempt is discarded" % job.uid[:8])
         except SiteError as e2:
             error("could not report the failed job: %s" % e2)
     finally:
+        if sampler is not None:
+            try:
+                sampler.stop()
+            except Exception:  # noqa: BLE001
+                pass
         SITE_LOG.flush(force=True)
 
 
@@ -4093,8 +4418,34 @@ def main():
     site = Site(CONFIG["site"], CONFIG["token"])
     SITE_LOG.site = site
     caps = Capabilities(CONFIG["name"], CONFIG["slots"])
-    global MANAGER
+    global MANAGER, OUTBOX, CONNECT
     MANAGER = ServiceManager()
+    flusher = None
+    if outbox_mod is not None:
+        try:
+            OUTBOX = outbox_mod.Outbox(os.path.join(DATA, "outbox"), sys.modules[__name__])
+            CONNECT = outbox_mod.Connectivity()
+            SITE_LOG.spool = outbox_mod.LogSpool(os.path.join(LOGS, "unsent.jsonl"))
+            flusher = outbox_mod.Flusher(OUTBOX, site, CONNECT, SITE_LOG.spool, SITE_LOG.ship)
+            flusher.start()
+            if OUTBOX.count():
+                log("outbox: %d finished result(s) from an earlier run are waiting to be delivered" % OUTBOX.count())
+        except Exception as e:  # noqa: BLE001 - the 2.10 path (upload + finish with patience) is used instead
+            OUTBOX, CONNECT = None, None
+            warn("the outbox could not start (%s) - results are sent directly" % e)
+
+    def site_ok():
+        """Any answer of the site: if the line was down, say so once and let the outbox deliver at once."""
+        if CONNECT is None:
+            return
+        down = CONNECT.ok()
+        if down is not None and down >= 3:
+            waiting = OUTBOX.count() if OUTBOX is not None else 0
+            log("the site answers again (it was unreachable for %d s)%s" % (
+                down, ("; delivering %d waiting result(s)" % waiting) if waiting else ""))
+            if flusher is not None:
+                flusher.step = 0
+                flusher.wake.set()
     print(banner_text(), flush=True)
     log("processing node '%s' v%s -> %s" % (CONFIG["name"], VERSION, CONFIG["site"]))
     try:
@@ -4103,12 +4454,22 @@ def main():
         warn("start-up checklist failed: %s" % e)
     threading.Thread(target=background_setup, daemon=True).start()
 
+    def late_start():
+        wait_first_control(60)
+        time.sleep(8)                                  # let the first jobs claim before the installer starts spawning processes
+        start_bootstrap()
+
+    threading.Thread(target=late_start, daemon=True, name="bootstrap-start").start()
+
     def take_control(r):
         """desired services / auto-switch come back with every heartbeat and claim."""
         if not isinstance(r, dict):
             return
         absorb_control(r)           # download window, the site's clock and version (agent 2.6)
         run_command(site, r.get("command"))   # the panel's commands (agent 2.10)
+        if r.get("lanes"):
+            STATE["lane_support"] = True          # this site hands the light lane only light kinds (agent 2.11)
+        apply_autostart(r.get("desired") if isinstance(r.get("desired"), dict) else {})
         if "auto_switch" in r:
             STATE["auto_switch"] = bool(r["auto_switch"])
         if isinstance(r.get("ai"), dict):
@@ -4121,6 +4482,7 @@ def main():
 
     booted = False
     running = []
+    last_light = 0.0
     last_hb = 0
     last_full = 0
     backoff = 5
@@ -4172,6 +4534,7 @@ def main():
                 c = caps.probe()
                 full = caps.changed() or now - last_full > 300
                 r = site.post("/api/v1/compute/heartbeat/", c if full else {})
+                site_ok()
                 take_control(r)
                 if not confirmed:
                     confirmed = _confirm_update()     # this version reached the site: an update is good
@@ -4204,9 +4567,12 @@ def main():
                         announced = True
                 last_hb = now
                 SITE_LOG.flush()
-            # background kinds (a model download) do not take a job slot
-            if len([t for t in running if not getattr(t, "nm_background", False)]) < CONFIG["slots"] and not draining:
-                r = site.post("/api/v1/compute/claim/", {})
+            # background kinds (a model download) do not take a job slot; the light lane has its own slot (agent 2.11)
+            main_busy = len([t for t in running if not getattr(t, "nm_background", False) and not getattr(t, "nm_light", False)])
+            light_busy = len([t for t in running if getattr(t, "nm_light", False)])
+            if main_busy < CONFIG["slots"] and not draining:
+                r = site.post("/api/v1/compute/claim/", {"lane": "main"})
+                site_ok()
                 take_control(r)
                 job = r.get("job") if isinstance(r, dict) else None
                 if job:
@@ -4217,11 +4583,31 @@ def main():
                     last_hb = 0
                     backoff = 5
                     continue
+            elif (STATE.get("lane_support") and light_busy < LIGHT_SLOTS and not draining and now - last_light >= 10):
+                last_light = now
+                r = site.post("/api/v1/compute/claim/", {"lane": "light"})
+                site_ok()
+                take_control(r)
+                job = r.get("job") if isinstance(r, dict) else None
+                if job:
+                    log("light lane: job %s (%s) runs next to the long one" % (str(job.get("uid"))[:8], job.get("kind")))
+                    t = threading.Thread(target=run_job, args=(site, job), daemon=True)
+                    t.nm_light = True
+                    t.start()
+                    running.append(t)
+                    last_hb = 0
+                    continue
             backoff = 5
         except SiteError as e:
-            warn("%s - retrying in %ss" % (e, backoff))
-            time.sleep(backoff)
-            backoff = min(60, backoff * 2)
+            if CONNECT is not None:
+                wait, msg = CONNECT.fail(e)                 # one line when the line drops, a reminder each minute, one when it is back
+                if msg:
+                    warn(msg)
+                time.sleep(wait)
+            else:
+                warn("%s - retrying in %ss" % (e, backoff))
+                time.sleep(backoff)
+                backoff = min(60, backoff * 2)
             continue
         except Exception as e:  # noqa: BLE001
             error("main loop error: %s" % e)

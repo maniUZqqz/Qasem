@@ -241,6 +241,43 @@ def _jobs_section(rng, node_id=None):
             "per_node_kind": {nid: rows_of(kinds, False) for nid, kinds in per_node_kind.items()}}
 
 
+MAX_DEVICE_ROWS = 2000
+DEVICE_FALLBACKS = 15
+
+
+def _devices_section(rng, node_id=None) -> dict:
+    """عامل ۲٫۱۱: هر کارِ تمام‌شده می‌نویسد روی چه دستگاهی اجرا شد (meta.device = cuda / directml / nvenc / cpu / mixed).
+    این‌جا شمرده می‌شود چند کار روی کارت و چند کار روی پردازنده رفت، به تفکیکِ نوعِ کار، و آخرین «افتادن روی پردازنده»ها با علت.
+    فقط ۲۰۰۰ کارِ آخرِ بازه خوانده می‌شود (``truncated``)."""
+    qs = (ComputeJob.objects.exclude(kind=PARK_KIND)
+          .filter(state=S.COMPLETED, finished_at__gte=rng["start"], finished_at__lt=rng["end"]).order_by("-finished_at"))
+    if node_id:
+        qs = qs.filter(node_id=node_id)
+    by_device: Counter = Counter()
+    by_kind: dict = defaultdict(Counter)
+    fallbacks: list = []
+    seen = old = 0
+    rows = list(qs.values_list("uid", "kind", "node__name", "finished_at", "result")[:MAX_DEVICE_ROWS + 1])
+    truncated = len(rows) > MAX_DEVICE_ROWS
+    for uid, kind, node_name, finished, result in rows[:MAX_DEVICE_ROWS]:
+        meta = (result or {}).get("meta") if isinstance(result, dict) else None
+        meta = meta if isinstance(meta, dict) else {}
+        device = str(meta.get("device") or "")
+        if not device:
+            old += 1                                    # کارِ پیش از عامل ۲٫۱۱ یا کاری که دستگاه ندارد (echo، دانلود)
+            continue
+        seen += 1
+        by_device[device] += 1
+        by_kind[kind][device] += 1
+        if meta.get("device_warning") and len(fallbacks) < DEVICE_FALLBACKS:
+            fallbacks.append({"uid": str(uid), "short": str(uid)[:8], "kind": kind, "kind_label": QV.kind_label(kind),
+                              "node": node_name, "at": finished, "device": device, "warning": str(meta["device_warning"])[:300]})
+    kinds = [{"kind": k, "kind_label": QV.kind_label(k), "count": sum(c.values()), "devices": dict(c)}
+             for k, c in sorted(by_kind.items(), key=lambda kv: -sum(kv[1].values()))]
+    return {"counted": seen, "without_device": old, "by_device": dict(by_device), "by_kind": kinds, "fallbacks": fallbacks,
+            "truncated": truncated}
+
+
 def _queue_now() -> dict:
     rows = (ComputeJob.objects.exclude(kind=PARK_KIND).filter(state__in=[S.QUEUED, S.CLAIMED, S.RUNNING])
             .values("state").annotate(n=Count("id"), oldest=Min(Coalesce("queued_at", "created_at"))))
@@ -465,6 +502,7 @@ def build_report(rng, node_id=None, now=None) -> dict:
         "site_version": str(getattr(settings, "NM_VERSION", "") or ""),
         "nodes": nodes,
         "jobs": {"per_kind": jobs["per_kind"], "totals": jobs["totals"]},
+        "devices": _devices_section(rng, node_id),
         "queue_now": _queue_now(),
         "errors": errors,
         "error_groups": [{"code": c, "count": k, "what": by_code[c]["what"]} for c, k in groups.most_common(5)],

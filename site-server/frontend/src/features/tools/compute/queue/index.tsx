@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../../../api/client";
 import Icon from "../../../../components/Icon";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Spinner, fa } from "../../../../components/ui";
+import DeviceInfo, { DeviceChip } from "./DeviceInfo";
 import JobOutputs from "./JobOutputs";
 import {
   KIND_OPTIONS,
@@ -557,6 +558,7 @@ function JobItem({
         <div className="nmq-cell nmq-c-node" data-label="سرور">
           <span className="nmq-main">{job.node ?? "—"}</span>
           {!job.node && job.node_wanted && <span className="nmq-small">می‌خواهد: {job.node_wanted}</span>}
+          <DeviceChip job={job} />
         </div>
 
         <div className="nmq-cell nmq-c-created" data-label="زمانِ ثبت">
@@ -635,6 +637,8 @@ function JobDetails({ job }: { job: QueueJob }) {
       ) : job.group === "done" ? (
         <p className="nmq-note">این کار خروجیِ فایلی نداشت (نتیجه‌اش مستقیم به همان صفحه‌ای رفت که آن را فرستاد).</p>
       ) : null}
+
+      <DeviceInfo job={job} />
 
       {job.retry_hint && (job.group === "failed" || job.group === "cancelled") && (
         <p className="nmq-note">

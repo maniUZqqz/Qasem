@@ -170,6 +170,15 @@ export type DownloadHistory = {
   explain: string;
 };
 
+export type DevicesInfo = {
+  counted: number;
+  without_device: number;
+  by_device: Record<string, number>;
+  by_kind: { kind: string; kind_label: string; count: number; devices: Record<string, number> }[];
+  fallbacks: { uid: string; short: string; kind: string; kind_label: string; node: string | null; at: string; device: string; warning: string }[];
+  truncated: boolean;
+};
+
 export type ReportData = {
   generated_at: string;
   range: {
@@ -186,6 +195,8 @@ export type ReportData = {
   site_version: string;
   nodes: ReportNode[];
   jobs: { per_kind: KindStat[]; totals: JobStat };
+  /** عامل ۲٫۱۱: هر کارِ تمام‌شده روی چه دستگاهی اجرا شد (کارت یا پردازنده) */
+  devices?: DevicesInfo;
   queue_now: { waiting: number; running: number; oldest_wait_s: number | null; oldest_wait_text: string };
   errors: ErrorItem[];
   error_groups: { code: string; count: number; what: string }[];

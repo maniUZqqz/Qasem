@@ -1,0 +1,107 @@
+/* «مانیتورینگ» (js/views/monitoring.js): the engine dashboard — islands stacked, each a card. Prefix .mn- */
+.mn { display: grid; gap: var(--s4); inline-size: 100%; max-inline-size: 760px; margin-inline: auto;
+  padding: var(--s5) var(--gutter) var(--s10); min-inline-size: 0; }
+.mn-head { display: grid; gap: var(--s1); }
+.mn-title { font-size: var(--fs-2xl); font-weight: 800; }
+.mn-lede { color: var(--text-2); font-size: var(--fs-md); line-height: 1.7; }
+.mn-note { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
+
+.mn-card { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-lg); background: var(--bg);
+  border: 1px solid var(--island-line); box-shadow: var(--island-shadow); }
+.mn-card-head { display: flex; align-items: center; gap: var(--s2); }
+.mn-card-head h2 { font-size: var(--fs-lg); font-weight: 800; }
+.mn-card-head .ic { color: var(--text-2); }
+.mn-head-link { margin-inline-start: auto; font-size: var(--fs-sm); font-weight: 600; color: var(--primary-text); }
+
+/* the inside of a card: its blocks keep a gap between them */
+.mn-live-body, .mn-health-body { display: grid; gap: var(--s3); }
+
+/* ---- live ---- */
+.mn-idle { display: flex; align-items: center; gap: var(--s3); color: var(--text-2); font-size: var(--fs-md); }
+.mn-idle .ic { color: var(--ok); }
+.mn-live-top { display: flex; align-items: center; gap: var(--s3); }
+.mn-live-ic { color: var(--warn-text); }
+.mn-live-what { display: grid; gap: 2px; flex: 1; min-inline-size: 0; }
+.mn-live-what b { font-size: var(--fs-md); font-weight: 800; }
+.mn-live-user { color: var(--text-2); font-size: var(--fs-sm); }
+.mn-live-wait { color: var(--warn-text); font-weight: 600; font-size: var(--fs-sm); }
+.mn-live-log { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7;
+  overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ---- usage meters ---- */
+.mn-use-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s4); }
+.mn-use-col { display: grid; gap: var(--s2); }
+.mn-use-h { font-size: var(--fs-sm); font-weight: 700; color: var(--text-2); }
+.mn-meter { display: grid; gap: 5px; }
+.mn-meter-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); font-size: var(--fs-sm); }
+.mn-meter-label { color: var(--text-2); }
+.mn-meter-top b { font-weight: 800; }
+.mn-meter-bar { position: relative; block-size: 7px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+.mn-meter-bar i { position: absolute; inset: 0; border-radius: inherit; background: var(--ok); transform-origin: right;
+  transform: scaleX(var(--p, 0)); transition: transform var(--dur-enter) var(--ease); }
+[dir="ltr"] .mn-meter-bar i { transform-origin: left; }
+.mn-meter.is-warn .mn-meter-bar i { background: var(--warn); }
+.mn-meter.is-bad .mn-meter-bar i { background: var(--danger); }
+.mn-meter.is-bad .mn-meter-top b { color: var(--danger-text); }
+
+/* ---- queue (reuses the .pj cards from pagejobs.css) ---- */
+.mn-queue .pj { margin: 0; }
+.mn-queue .pj:not(:empty) + .mn-queue-empty { display: none; }   /* a belt beside the JS hidden attribute */
+
+/* ---- health ---- */
+.mn-light { display: flex; align-items: center; gap: var(--s3); padding: var(--s3); border-radius: var(--r-md); }
+.mn-light b { font-size: var(--fs-lg); font-weight: 800; }
+.mn-light-sub { display: block; font-size: var(--fs-sm); color: var(--text-2); }
+.mn-light.is-ok { background: var(--ok-bg); } .mn-light.is-ok .ic { color: var(--ok); }
+.mn-light.is-warn { background: var(--warn-bg); } .mn-light.is-warn .ic { color: var(--warn-text); }
+.mn-light.is-bad { background: var(--danger-bg); } .mn-light.is-bad .ic { color: var(--danger-text); }
+.mn-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s2); }
+.mn-stats li { display: grid; gap: 2px; padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--bg-2);
+  border: 1px solid var(--line-2); }
+.mn-stats b { font-size: var(--fs-xl); font-weight: 800; }
+.mn-stats span { font-size: var(--fs-sm); color: var(--text-2); }
+.mn-events { display: grid; gap: var(--s2); }
+.mn-events-h { font-size: var(--fs-sm); font-weight: 700; color: var(--text-2); }
+.mn-events-list { display: grid; gap: 4px; }
+.mn-event { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s2); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); }
+.mn-event.is-bad { background: var(--danger-bg); color: var(--danger-text); }
+.mn-event.is-ok .ic { color: var(--ok); }
+.mn-event-what { flex: 1; min-inline-size: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.mn-event-user { color: var(--text-2); }
+.mn-event.is-bad .mn-event-user { color: inherit; opacity: .85; }
+.mn-event-when { flex: none; color: var(--text-2); font-size: var(--fs-xs); }
+.mn-event.is-bad .mn-event-when { color: inherit; opacity: .85; }
+
+/* ---- connection + proxy ---- */
+.mn-proxy-row { display: flex; gap: var(--s2); }
+.mn-proxy-field { position: relative; display: flex; align-items: center; flex: 1; min-inline-size: 0; }
+.mn-proxy-field > .ic { position: absolute; left: 12px; color: var(--text-3); pointer-events: none; }
+.mn-proxy-in { inline-size: 100%; min-block-size: 44px; padding-left: 36px; padding-right: 12px; text-align: left; }
+.mn-proxy-row .btn { min-block-size: 44px; padding-inline: var(--s4); }
+.mn-conn-actions { display: flex; }
+.mn-err { color: var(--danger-text); font-size: var(--fs-sm); font-weight: 600; }
+.mn-conn-result { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  font-size: var(--fs-sm); font-weight: 600; line-height: 1.6; }
+.mn-conn-result.is-wait { background: var(--bg-2); color: var(--text-2); }
+.mn-conn-result.is-ok { background: var(--ok-bg); color: var(--ok-text); }
+.mn-conn-result.is-ok .ic { color: var(--ok); }
+.mn-conn-result.is-bad { background: var(--danger-bg); color: var(--danger-text); }
+@media (max-width: 520px) { .mn-proxy-row { flex-direction: column; } .mn-conn-actions .btn, .mn-proxy-row .btn { inline-size: 100%; } }
+
+/* ---- his Instagram accounts: one island row each, the active one marked ---- */
+.mn-acc-list { display: grid; gap: var(--s2); }
+.mn-acc { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--bg-2); border: 1px solid var(--line-2); }
+.mn-acc.is-active { background: var(--bg); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); box-shadow: 0 0 0 3px var(--ok-bg); }
+.mn-acc-who { display: grid; gap: 2px; flex: 1; min-inline-size: 0; }
+.mn-acc-name { font-size: var(--fs-md); font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mn-acc-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.mn-acc-state i { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--warn); }
+.mn-acc-state.on i { background: var(--ok); }
+.mn-acc-add { display: flex; gap: var(--s2); }
+.mn-acc-field { position: relative; display: flex; align-items: center; flex: 1; min-inline-size: 0; }
+.mn-acc-field > .ic { position: absolute; left: 12px; color: var(--text-3); pointer-events: none; }
+.mn-acc-in { inline-size: 100%; min-block-size: 44px; padding-left: 36px; padding-right: 12px; text-align: left; }
+.mn-acc-add .btn { min-block-size: 44px; flex: none; }
+@media (max-width: 520px) { .mn-acc-add { flex-direction: column; } .mn-acc-add .btn { inline-size: 100%; } }

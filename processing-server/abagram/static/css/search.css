@@ -1,0 +1,100 @@
+/* «جستجو» (js/views/search.js): Instagram's search panel, mirrored for RTL. Quiet surfaces; the only colour is the
+   story ring on a result and the blue line that asks Instagram. */
+.se { display: flex; flex-direction: column; min-height: 100%; background: var(--bg); color: var(--text); }
+
+/* Head: title, the field, the field's error */
+.se-head { padding: var(--s4) var(--gutter) var(--s4); background: var(--bg); border-block-end: 1px solid var(--line); }
+.se-title { margin-block-end: var(--s4); font-size: var(--fs-xl); font-weight: 700; line-height: var(--lh-tight); }
+
+.se-box { display: flex; align-items: center; min-height: 44px; border-radius: var(--r-sm); background: var(--bg-3);
+  color: var(--text-2); }
+.se-box:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.se-glass { margin-inline-start: var(--s3); }
+.se-input { flex: 1; min-width: 0; height: 44px; padding-inline: var(--s3) var(--s1); border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text); font-size: 16px; line-height: 1.4; text-align: start; appearance: none; }
+/* Empty: the Persian placeholder sits at the start like every other line; typing switches to left-to-right */
+.se-input:placeholder-shown { direction: rtl; }
+.se-input::placeholder { color: var(--text-2); opacity: 1; }
+.se-input:focus, .se-input:focus-visible { outline: none; }
+.se-input::-webkit-search-cancel-button, .se-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.se-input[aria-invalid="true"] { color: var(--danger-text); }
+
+.se-clear { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: var(--r-sm);
+  color: var(--bg); touch-action: manipulation; }
+.se-clear-face { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--text-2);
+  transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.se-clear .ic { width: 12px; height: 12px; stroke-width: 3; }
+.se-clear:active .se-clear-face { transform: scale(.9); }
+.se-clear:focus-visible { outline-offset: -2px; }
+
+.se-err { margin-block-start: var(--s2); color: var(--danger-text); font-size: var(--fs-sm); line-height: var(--lh); }
+.se-err:empty { display: none; }
+
+/* Body: sections of rows */
+.se-body { flex: 1; padding-block: var(--s2) var(--s6); }
+.se-sec { padding-block-end: var(--s2); }
+.se-sec-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 44px;
+  margin-block: var(--s2) var(--s1); padding-inline: var(--gutter) var(--s2); }
+.se-sec-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.se-count { padding-inline-end: var(--s2); color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.se-note { margin-block-end: var(--s2); padding-inline: var(--gutter); color: var(--text-2); font-size: var(--fs-sm);
+  line-height: var(--lh); }
+.se-list { gap: var(--s2); }
+.se-list .plist-foot { padding-inline: var(--gutter); }
+
+/* Rows: a full-bleed line per person, like Instagram's results */
+.se-item { display: flex; align-items: center; min-width: 0; transition: background-color var(--dur-fast) var(--ease); }
+.se-row { display: flex; flex: 1; align-items: center; gap: var(--s3); min-width: 0; min-height: 64px;
+  padding: var(--s1) var(--gutter); color: var(--text); text-align: start; touch-action: manipulation;
+  transition: background-color var(--dur-fast) var(--ease); }
+.se-item > .se-row { padding-inline-end: var(--s1); }
+.se-row:focus-visible { outline-offset: -2px; border-radius: 0; }
+.se-row:active { background: var(--bg-3); }
+/* The slot is the ringed size, so a ring that appears later never moves the text */
+.se-av { display: grid; place-items: center; flex: none; width: 54px; height: 54px; }
+.se-text { display: grid; flex: 1; gap: 2px; min-width: 0; line-height: var(--lh-tight); }
+.se-top { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.se-user { font-size: var(--fs-md); font-weight: 600; }
+.se-sub { display: flex; align-items: baseline; gap: var(--s3); min-width: 0; color: var(--text-2); font-size: var(--fs-sm);
+  line-height: var(--lh); }
+.se-sub-name { flex: 0 1 auto; }
+.se-sub-fol { flex: none; }
+.se-remove { flex: none; margin-inline-end: var(--s2); color: var(--text-2); }
+.se-remove .ic { width: 20px; height: 20px; }
+.se-remove:hover { color: var(--text); }
+
+/* The line that asks Instagram */
+.se-read { width: 100%; margin-block-start: var(--s2); border-block-start: 1px solid var(--line-2); }
+.se-read-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
+  color: var(--text); }
+.se-read-label { min-width: 0; color: var(--primary-text); font-size: var(--fs-md); font-weight: 600; overflow-wrap: anywhere; }
+.se-read .se-sub { display: block; }
+
+/* States */
+.se-sk-row { display: flex; align-items: center; gap: var(--s3); min-height: 64px; padding: var(--s1) var(--gutter); }
+.se-sk-row .sk-avatar { margin-inline: 5px; }
+.se-sk-lines { display: grid; flex: 1; }
+.se-sk-lines .sk-line:last-child { width: 38%; }
+.se-none { padding: var(--s8) var(--gutter); color: var(--text-2); text-align: center; line-height: var(--lh); }
+.se-miss { display: grid; gap: var(--s2); padding: var(--s8) var(--gutter) var(--s4); text-align: center; }
+.se-miss-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.se-miss-text { max-width: 36ch; margin-inline: auto; color: var(--text-2); line-height: var(--lh); }
+.se-fail { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s3);
+  margin: var(--s3) var(--gutter); padding: var(--s2) var(--s3) var(--s2) var(--s4); border-radius: var(--r-md);
+  background: var(--danger-bg); color: var(--danger-text); font-size: var(--fs-sm); line-height: var(--lh); }
+
+@media (hover: hover) {
+  .se-item:hover, .se-read:hover { background: var(--bg-3); }
+  .se-item:hover .se-remove:hover { background: var(--bg-hover); }
+  .se-clear:hover .se-clear-face { background: var(--text); }
+}
+
+/* ≥ 768px: the drawer beside the rail scrolls by itself; the head stays on top */
+@media (min-width: 768px) {
+  .se-head { position: sticky; inset-block-start: 0; z-index: var(--z-sticky); padding: var(--s6) var(--s4) var(--s5); }
+  .se-title { margin-block-end: var(--s6); font-size: var(--fs-2xl); }
+  .se-row, .se-sk-row { padding-inline: var(--s6); }
+  .se-item > .se-row { padding-inline-end: var(--s1); }
+  .se-sec-head { padding-inline: var(--s6) var(--s3); }
+  .se-note, .se-list .plist-foot { padding-inline: var(--s6); }
+}

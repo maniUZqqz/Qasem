@@ -918,3 +918,10 @@ INSTALLED_APPS += ["apps.mobile"]
 from apps.common.versioning import read_version as _nm_read_version  # noqa: E402
 
 NM_VERSION = _nm_read_version() or "0.00"
+
+
+# ── Instagram trends (apps.igtrends): the trend finder's Instagram source. Pages are read by Abagram on the processing node
+# (compute job ig.scrape); the batch comes back into these tables. Manual import of Abagram JSON files works with the node off.
+INSTALLED_APPS += ["apps.igtrends"]
+CELERY_BEAT_SCHEDULE["igtrends-auto-scan"] = {"task": "apps.igtrends.tasks.auto_scan", "schedule": 1800.0, "options": {"expires": 900}}
+CELERY_BEAT_SCHEDULE["igtrends-sync"] = {"task": "apps.igtrends.tasks.sync", "schedule": 600.0, "options": {"expires": 500}}

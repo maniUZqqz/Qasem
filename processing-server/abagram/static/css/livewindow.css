@@ -1,0 +1,19 @@
+/* The live picture of Instagram's page on the server (core/livewindow.js). The small box hides until a first picture arrives. */
+.lw { display: none; gap: 10px; justify-self: stretch; text-align: start; }
+.lw.lw-on { display: grid; }
+.lw.lw-on + .lg-shot-box, .lw.lw-on + .ac-shot-box { display: none; }   /* the live picture replaces the still one */
+.lw-hint { margin: 0 0 12px; font-size: 14px; line-height: 1.8; color: var(--text-2); }
+.lw-pic { display: block; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; cursor: pointer; }
+.lw-pic:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.lw-img { display: block; width: 100%; height: auto; user-select: none; }
+.lw-pic-small .lw-img { max-height: 180px; object-fit: contain; }
+/* the big window: the whole page at (nearly) its real size, as tall as the screen allows */
+.lw-dlg .ov-body { display: grid; gap: 12px; }
+.lw-pic-big { justify-self: center; max-width: 100%; }
+.lw-pic-big .lw-img { width: auto; max-width: 100%; max-height: calc(92dvh - 240px); margin-inline: auto; }
+.lw-tools { display: grid; gap: 8px; }
+.lw-type { display: flex; gap: 8px; }
+.lw-in { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; font-size: 15px; background: var(--bg); color: var(--text); }
+.lw-keys { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 767px) { .lw-pic-big .lw-img { max-height: none; } }

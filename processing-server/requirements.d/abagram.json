@@ -1,0 +1,16 @@
+{
+  "feature": "abagram",
+  "title_fa": "آباگرام: خواندنِ اینستاگرام برای ترندها (محیطِ پایتون + مرورگر)",
+  "order": 60,
+  "platform": ["win"],
+  "kinds": ["ig.scrape"],
+  "note": "Abagram (the owner's own Instagram reader, vendored in abagram/) runs as a local service started by abagram_jobs.py. Its Python packages (requirements-node.lock.txt: FastAPI, Playwright, httpx ... pinned) go into their own environment <data>/abagram/venv - first from the wheel pack the site mirrors (abagram-wheels-cp311-win_amd64.zip, no internet outside the site), then the PyPI mirrors reachable from Iran. The browser is the Microsoft Edge every Windows 11 has (else Chrome, else the site's Chromium pack). Both steps are idempotent commands of abagram_jobs.py. NOT part of this list, because only the owner can do it once: signing in to Instagram through Abagram's own page (Open-Abagram.bat) and the VPN/proxy; until then ig.scrape stops with a clear Persian instruction in the trends page. ig.health is not blocked so the self-test can see the state.",
+  "items": [
+    {"id": "packages", "type": "cmd", "title": "Python packages of Abagram (FastAPI, Playwright ...)",
+     "check": ["{PY}", "{HERE}/abagram_jobs.py", "check-packages"], "check_timeout_s": 240,
+     "install": ["{PY}", "{HERE}/abagram_jobs.py", "install-packages"], "timeout_s": 3600},
+    {"id": "browser", "type": "cmd", "title": "Browser for Abagram (Microsoft Edge / Chrome)",
+     "check": ["{PY}", "{HERE}/abagram_jobs.py", "check-browser"],
+     "install": ["{PY}", "{HERE}/abagram_jobs.py", "install-browser"], "timeout_s": 3600}
+  ]
+}

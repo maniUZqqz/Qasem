@@ -288,6 +288,12 @@ def finish(request, uid):
             model_pull.pull_completed(job)
         except Exception:  # noqa: BLE001 — پاکسازیِ حافظهٔ شکست نباید پایانِ کار را بیندازد
             pass
+    if job.kind == "ig.scrape":
+        try:        # خواندنِ اینستاگرام تمام شد: نتیجه همین حالا وارد ترندها شود (apps.igtrends)
+            from apps.igtrends import dispatch as ig_dispatch
+            ig_dispatch.on_job_finished(job)
+        except Exception:  # noqa: BLE001 — ذخیرهٔ ترندها نباید پایانِ کار را بیندازد؛ sync دورهٔ بعد دوباره می‌گیرد
+            logger.exception("igtrends: could not take in the result of %s", job.uid)
     return Response({"ok": True, "state": job.state})
 
 

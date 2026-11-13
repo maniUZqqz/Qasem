@@ -1,0 +1,152 @@
+/* Login (js/views/login.js): Instagram's centered login column, mirrored for RTL. Prefix .lg- */
+.lg { display: grid; justify-items: center; padding: clamp(var(--s6), 8vh, 88px) var(--gutter) var(--s12); }
+.lg-col { display: grid; gap: var(--s3); inline-size: 100%; max-inline-size: 350px; }
+.lg-card { display: grid; gap: var(--s3); padding: var(--s10) var(--s10) var(--s6); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-md); }
+.lg-slot { display: grid; }
+
+/* Wordmark «آباگرام» beside the story-ring mark; the ring turns while a login/check job works (the one bold thing). */
+.lg-brand { display: flex; align-items: center; justify-content: center; gap: var(--s2); margin-block: var(--s1) var(--s6);
+  color: var(--text); font-size: var(--fs-3xl); font-weight: 800; line-height: 1.2; }
+.lg-mark { width: 36px; height: 36px; }
+.lg-mark.lg-turn { animation: lg-spin 1.1s linear infinite; }
+@keyframes lg-spin { to { transform: rotate(360deg); } }
+
+/* Fields with floating labels: the label sits inside the box and moves up (scale .8 → 12px) once there is text. */
+.lg-form { display: grid; gap: var(--s2); }
+.lg-f { display: grid; gap: var(--s1); }
+.lg-box { position: relative; display: flex; align-items: stretch; min-block-size: 44px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: var(--bg-2); transition: border-color var(--dur-fast) var(--ease); }
+.lg-box:focus-within { border-color: var(--text-2); }
+.lg-box:has(.lg-in:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lg-box:has(.lg-in[aria-invalid="true"]) { border-color: var(--danger); }
+.lg-fl { position: relative; flex: 1; min-inline-size: 0; cursor: text; }
+/* The inputs are dir=ltr (Latin text); `end` is then the right edge, under the Persian label. */
+.lg-in { display: block; inline-size: 100%; block-size: 100%; min-block-size: 42px; margin: 0; padding: 17px var(--s3) 3px;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: 16px; line-height: 22px;
+  text-align: end; }
+.lg-in:focus { outline: none; }
+.lg-in[readonly] { color: var(--text-2); }
+.lg-fl-t { position: absolute; inset-inline: var(--s3); inset-block-start: 50%; transform: translateY(-50%);
+  transform-origin: 100% 50%; color: var(--text-2); font-size: var(--fs-md); line-height: 1.2; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; pointer-events: none; transition: transform var(--dur-fast) var(--ease); }
+.lg-fl-t:dir(ltr) { transform-origin: 0 50%; }
+.lg-in:focus + .lg-fl-t,
+.lg-in:not(:placeholder-shown) + .lg-fl-t { transform: translateY(-50%) translateY(-11px) scale(.8); }
+.lg-in:-webkit-autofill + .lg-fl-t { transform: translateY(-50%) translateY(-11px) scale(.8); }
+/* Autofill: keep our colors, and tell the JS (animationstart "lg-af") so «ورود» is enabled. */
+.lg-in:-webkit-autofill { animation: lg-af 1ms; -webkit-text-fill-color: var(--text); box-shadow: inset 0 0 0 40px var(--bg-2); }
+@keyframes lg-af { from { opacity: 1; } to { opacity: 1; } }
+
+.lg-eye { flex: none; min-inline-size: 44px; padding-inline: var(--s3); border-radius: var(--r-sm); color: var(--text);
+  font-size: var(--fs-md); font-weight: 600; }
+.lg-eye:hover { color: var(--text-2); }
+.lg-err { padding-inline: var(--s1); color: var(--danger-text); font-size: var(--fs-sm); line-height: 1.5; }
+.lg-go { margin-block-start: var(--s2); }
+.lg-other { color: var(--warn-text); font-size: var(--fs-sm); line-height: var(--lh); text-align: center; }
+
+/* «یا» between two hairlines, then the saved-session link (its username on a second line). */
+.lg-alt { display: grid; gap: var(--s1); }
+.lg-or { display: flex; align-items: center; gap: var(--s4); margin-block: var(--s3) var(--s1); color: var(--text-2);
+  font-size: var(--fs-sm); font-weight: 600; }
+.lg-or::before, .lg-or::after { content: ""; flex: 1; block-size: 1px; background: var(--line); }
+.lg-saved { flex-wrap: wrap; row-gap: 0; padding-block: var(--s1); white-space: normal; line-height: 1.4; }
+.lg-saved-u { flex-basis: 100%; color: var(--text-2); font-size: var(--fs-sm); font-weight: 400; }
+.lg-saved-u:empty { display: none; }
+
+/* «تنظیمات اتصال»: a quiet disclosure at the foot of the card. */
+.lg-net { margin-block-start: var(--s2); }
+.lg-net-s { display: flex; align-items: center; justify-content: center; gap: var(--s2); min-block-size: 44px;
+  border-radius: var(--r-sm); color: var(--text); font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  list-style: none; user-select: none; transition: background-color var(--dur-fast) var(--ease); }
+.lg-net-s::-webkit-details-marker { display: none; }
+.lg-net-s:hover { background: var(--bg-3); }
+.lg-chev { transition: transform var(--dur) var(--ease); }
+.lg-net[open] .lg-chev { transform: rotate(180deg); }
+.lg-net-on { padding-inline: var(--s2); border-radius: var(--r-full); background: var(--ok-bg); color: var(--ok-text);
+  font-size: var(--fs-xs); font-weight: 600; line-height: 22px; }
+.lg-net > .field { margin-block-start: var(--s2); }
+
+/* While the job works: compact steps + the last log line. */
+.lg-prog { display: grid; gap: var(--s2); padding: var(--s3) var(--s4); border: 1px solid var(--line-2);
+  border-radius: var(--r-md); background: var(--bg-2); }
+.lg-steps { display: grid; gap: 2px; }
+.lg-step { display: flex; align-items: center; gap: var(--s2); min-block-size: 28px; color: var(--text-2); font-size: var(--fs-sm); }
+.lg-step[data-s="active"], .lg-step[data-s="waiting"] { color: var(--text); font-weight: 600; }
+.lg-step[data-s="done"] .lg-step-ic { color: var(--ok-text); }
+.lg-step[data-s="waiting"] .lg-step-ic { color: var(--warn-text); }
+.lg-step[data-s="failed"] { color: var(--danger-text); }
+.lg-step-ic { display: grid; place-items: center; flex: none; inline-size: 16px; block-size: 16px; }
+.lg-step-ic:empty::before { content: ""; inline-size: 6px; block-size: 6px; border-radius: 50%; background: currentColor; }
+.lg-log { padding-block-start: var(--s2); border-block-start: 1px solid var(--line); color: var(--text);
+  font-size: var(--fs-sm); line-height: var(--lh); overflow-wrap: anywhere; }
+.lg-log:empty { display: none; }
+.lg-log[data-level="err"] { color: var(--danger-text); }
+.lg-log[data-level="warn"] { color: var(--warn-text); }
+.lg-log[data-level="ok"] { color: var(--ok-text); }
+
+/* The failure block under «ورود»: our sentence, Instagram's own in a quote, and the page screenshot. */
+.lg-fail { display: grid; gap: var(--s2); margin-block-start: var(--s2); padding: var(--s3) var(--s4);
+  border-radius: var(--r-md); background: var(--danger-bg); color: var(--text); font-size: var(--fs-sm); line-height: var(--lh); }
+.lg-fail-t { display: flex; align-items: center; gap: var(--s2); color: var(--danger-text); font-size: var(--fs-md); font-weight: 700; }
+.lg-fail[data-tone="warn"] { background: var(--warn-bg); }
+.lg-fail[data-tone="warn"] .lg-fail-t { color: var(--warn-text); }
+.lg-q { margin: 0; padding-inline-start: var(--s3); border-inline-start: 3px solid var(--text-2); color: var(--text);
+  font-size: var(--fs-sm); line-height: var(--lh); white-space: pre-line; overflow-wrap: anywhere; }
+.lg-shot { display: block; inline-size: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-3); cursor: zoom-in; }
+.lg-shot img { inline-size: 100%; max-block-size: 240px; object-fit: cover; object-position: top;
+  transition: opacity var(--dur-fast) var(--ease); }
+.lg-shot:hover img { opacity: .9; }
+
+/* Code card and manual card: a gradient-ring badge, a title, a hint, then the action. */
+.lg-step-card { display: grid; justify-items: center; gap: var(--s3); text-align: center; }
+.lg-step-card > .field, .lg-step-card > .btn, .lg-q-box, .lg-shot-box { justify-self: stretch; text-align: start; }
+.lg-q-box:empty, .lg-shot-box:empty { display: none; }
+.lg-badge { display: grid; place-items: center; inline-size: 84px; block-size: 84px; padding: 3px; border-radius: 50%;
+  background: var(--ring); }
+.lg-badge-in { display: grid; place-items: center; inline-size: 100%; block-size: 100%; border-radius: 50%;
+  background: var(--bg-2); box-shadow: inset 0 0 0 3px var(--bg); color: var(--text); }
+.lg-badge .ic { width: 32px; height: 32px; }
+.lg-h { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.lg-hint { max-inline-size: 36ch; color: var(--text-2); font-size: var(--fs-sm); line-height: var(--lh);
+  white-space: pre-line; overflow-wrap: anywhere; }
+.input.lg-code-in { min-block-size: 52px; text-align: center; text-indent: .35em; letter-spacing: .35em;
+  font-size: var(--fs-2xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* The second card: where the password goes. */
+.lg-note { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s5) var(--s6); color: var(--text);
+  font-size: var(--fs-md); line-height: var(--lh); }
+.lg-note > .ic { flex: none; margin-block-start: 2px; color: var(--text-2); }
+
+@media (max-width: 767px) {
+  .lg { padding-block-start: var(--s6); }
+  .lg-card { border-color: transparent; padding-inline: 0; }
+  .lg-note { border-color: transparent; border-block-start-color: var(--line); border-radius: 0; padding-inline: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .lg-mark.lg-turn { animation-duration: 4s; } }
+
+/* a login for his other account: the active account keeps working, said once on top of the form */
+.lg-second { display: flex; align-items: flex-start; gap: var(--s2); padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
+.lg-second[hidden] { display: none; }
+.lg-second .ic { flex: none; margin-block-start: 3px; color: var(--primary-text); }
+
+/* «ورود به آباگرام» (js/views/gate.js): the site's own door, on the islands canvas before anything else loads. Prefix .gt-
+   Same column, card and fields as the Instagram login above; the card and the note float as islands. */
+.gt { position: relative; isolation: isolate; min-block-size: 100dvh; align-content: center; background: var(--canvas); }
+.gt::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60vw 46vh at 100% 0%, var(--glow-a), transparent 72%),
+    radial-gradient(52vw 50vh at 0% 8%, var(--glow-b), transparent 72%),
+    radial-gradient(50vw 40vh at 60% 100%, var(--glow-c), transparent 72%); }
+.gt .lg-card, .gt .lg-note { border-color: var(--island-line); border-radius: var(--island-r); box-shadow: var(--island-shadow); }
+.gt-brand { margin-block-end: var(--s1); }
+.gt-sub { margin-block-end: var(--s4); color: var(--text-2); font-size: var(--fs-md); line-height: var(--lh); text-align: center; }
+.gt-expired { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-text); font-size: var(--fs-sm); line-height: 1.6; }
+.gt-expired .ic { flex: none; }
+.gt-err { padding: var(--s2) var(--s1) 0; text-align: center; }
+@media (max-width: 767px) {
+  .gt .lg-card, .gt .lg-note { padding-inline: var(--s5); border-color: var(--island-line); border-radius: var(--island-r); }
+}

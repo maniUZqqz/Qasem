@@ -1,0 +1,374 @@
+/* نمایشگر رسانه — عکس و ویدیو.
+
+   الگوها از ویوئرهای MIRA برداشته شده‌اند (MediaViewer / ImageViewer /
+   VideoPlayer) و به وانیلا برگردانده‌اند: آنجا framer-motion کار
+   انیمیشن را می‌کرد، اینجا transition و Web Animations.
+
+   قاعده‌ی حرکت: ورود ۲۶۰ms، خروج ~۶۰٪ آن. فقط transform و opacity
+   انیمیت می‌شوند — width/height/top هرگز، چون layout را دوباره
+   محاسبه می‌کنند و روی موبایل می‌لنگند. */
+
+.vw {
+  --vw-ease: cubic-bezier(.16, 1, .3, 1);
+  --vw-in: 260ms;
+  --vw-out: 160ms;
+  --vw-chrome: rgba(18, 22, 24, .72);
+  --vw-hair: rgba(255, 255, 255, .14);
+
+  position: fixed;
+  inset: 0;
+  z-index: 55;   /* above the story viewer (50), under toasts (60) */
+  --accent: #0095f6;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* ستونِ ضمنیِ auto با مین‌کانتنتِ تصویر پهن‌تر از ویوپورت می‌شود و نوارِ بالا
+     (با دکمه‌ی بستن) را بیرون می‌اندازد — روی موبایل غیرقابلِ بستن. */
+  grid-template-columns: minmax(0, 1fr);
+  font: 400 15px/1.6 Vazirmatn, system-ui, sans-serif;
+  color: #f2f6f5;
+  overscroll-behavior: contain;
+}
+.vw[hidden] { display: none; }
+
+.vw-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .92);   /* solid: a full-screen blur flickers on his Intel HD 4600 */
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+.vw.in .vw-scrim { opacity: 1; }
+
+/* هر سه ردیف روی پرده شناورند و هرکدام تاخیر خودش را دارد؛ ورودِ
+   هم‌زمانِ همه‌چیز «پرش» به نظر می‌رسد، پله‌ای «باز شدن». */
+.vw-top, .vw-bottom, .vw-stage { position: relative; }
+
+.vw-top, .vw-bottom {
+  opacity: 0;
+  transition: opacity var(--vw-in) var(--vw-ease),
+              transform var(--vw-in) var(--vw-ease);
+}
+.vw-top { transform: translateY(-14px); }
+.vw-bottom { transform: translateY(14px); }
+.vw.in .vw-top { opacity: 1; transform: none; transition-delay: 50ms; }
+.vw.in .vw-bottom { opacity: 1; transform: none; transition-delay: 80ms; }
+
+/* کروم بعد از بی‌حرکتی محو می‌شود تا تصویر تمامِ صفحه باشد. */
+.vw.hide-ui .vw-top,
+.vw.hide-ui .vw-bottom,
+.vw.hide-ui .vw-edge { opacity: 0; pointer-events: none; }
+
+.vw-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, .55), transparent);
+}
+
+.vw-count {
+  /* «۲ / ۱۲» در جریانِ RTL وارونه می‌نشیند («۱۲ / ۲»)؛ خودِ شمارنده باید LTRِ جداشده باشد */
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--vw-chrome);
+}
+.vw-title { min-width: 0; flex: 1; padding-inline: 4px; }
+.vw-title b { display: block; font-weight: 600; font-size: 15px; unicode-bidi: isolate;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vw-title span { display: block; font-size: 13px; color: #b9c6c2; direction: ltr; unicode-bidi: isolate;
+  text-align: start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vw-btn {
+  flex: none;
+  width: 44px; height: 44px;          /* حداقلِ هدفِ لمس */
+  display: grid; place-items: center;
+  border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, .10);
+  color: #fff;
+  cursor: pointer;
+  transition: background 140ms ease-out, transform 140ms var(--vw-ease);
+}
+.vw-btn:hover { background: rgba(255, 255, 255, .2); }
+.vw-btn:active { transform: scale(.92); }
+.vw-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.vw-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor;
+              stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.vw-btn[disabled] { opacity: .38; pointer-events: none; }
+
+/* ---------------------------------------------------------- صحنه */
+
+.vw-stage {
+  display: grid;
+  /* هر دو محور باید کران‌دار باشند، وگرنه `max-width/height: 100%` تصویر به ناحیه‌ای
+     گره می‌خورد که خودش با همان تصویر بزرگ شده — و تصویرِ بلند از کادر می‌زند بیرون. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 14px;
+  touch-action: none;                  /* وگرنه مرورگر خودش pan می‌کند */
+}
+
+.vw-media {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  background: #000;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+  -webkit-user-select: none; user-select: none;
+}
+img.vw-media { cursor: zoom-in; will-change: transform; }
+.vw[data-zoom="1"] img.vw-media { cursor: grab; }
+.vw[data-drag="1"] img.vw-media { cursor: grabbing; }
+
+/* ورودِ جهت‌دار: عکس بعدی از سمتی می‌آید که کاربر رفته. */
+@keyframes vw-slide-in {
+  from { opacity: 0; transform: translateX(var(--vw-dx, 0)) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+.vw-swap { animation: vw-slide-in 240ms cubic-bezier(.2, .9, .3, 1) both; }
+
+/* فلش‌های کناری فقط روی دسکتاپ؛ روی موبایل سوایپ هست. */
+.vw-edge {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: opacity 180ms ease-out, transform 140ms var(--vw-ease);
+}
+/* در RTL «قبلی» سمتِ راست است و «بعدی» سمتِ چپ — و نوکِ فلش هم باید با همان جهت بخواند */
+.vw-edge.prev { inset-inline-start: 8px; }
+.vw-edge.next { inset-inline-end: 8px; }
+[dir="rtl"] .vw-edge svg { transform: scaleX(-1); }
+.vw-edge:hover { transform: translateY(-50%) scale(1.1); }
+@media (max-width: 640px) { .vw-edge { display: none; } }
+
+/* ------------------------------------------------ نوارهای استوری */
+
+.vw-segs {
+  position: absolute;
+  top: 0; inset-inline: 0;
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+  z-index: 2;
+}
+.vw-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .26);
+  overflow: hidden;
+}
+.vw-seg i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #fff;
+  transition: width 260ms var(--vw-ease);
+}
+.vw-seg.done i, .vw-seg.now i { width: 100%; }
+.vw-seg.done i { background: rgba(255, 255, 255, .7); }
+
+/* ---------------------------------------------------- نوار پایین */
+
+.vw-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 14px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .55), transparent);
+}
+.vw-cap { flex: 1; min-width: 0; font-size: 13px; color: #d6e0dd; unicode-bidi: isolate; }
+
+.vw-zoom {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  min-height: 32px;
+  background: var(--vw-chrome);
+  color: #fff;
+  font: 600 12px/1 Vazirmatn;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.vw-zoom[hidden] { display: none; }
+
+/* نوارِ تصاویر کوچک وقتی بیش از یک استوری هست */
+.vw-strip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.vw-strip::-webkit-scrollbar { display: none; }
+.vw-thumb {
+  flex: none;
+  width: 40px; height: 56px;
+  border: 0; padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #223;
+  opacity: .55;
+  cursor: pointer;
+  transition: opacity 150ms ease-out, transform 150ms var(--vw-ease);
+}
+.vw-thumb:hover { opacity: .9; }
+.vw-thumb[aria-current="true"] { opacity: 1; transform: scale(1.06); }
+.vw-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ------------------------------------------------- پخش‌کنندهٔ ویدیو */
+
+/* قابِ ثابت، مستقل از متادیتای ویدیو. اگر اندازه را به خودِ ویدیو
+   بسپاریم، تا وقتی metadata نیامده جعبه روی ۳۰۰×۱۵۰ پیش‌فرض جمع
+   می‌شود و کنترل‌ها له می‌شوند — و اگر کدک نباشد اصلاً باز نمی‌شود.
+   استوری هم ذاتاً عمودی است، پس قابِ پرتره درست‌تر است. */
+.vw-player {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(420px, 92vw);
+  height: min(74vh, 760px);
+  border-radius: 14px;
+  background: #000;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+  overflow: hidden;
+}
+.vw-player video {
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: contain;                 /* افقی هم بدون بریدگی جا شود */
+  background: #000;
+}
+
+/* دکمه‌ی پخشِ وسط: بزرگ و بی‌ابهام. وقتی در حال پخش است می‌رود. */
+.vw-big {
+  position: absolute;
+  width: 76px; height: 76px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 999px;
+  background: rgba(12, 16, 18, .72);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 180ms ease-out, transform 180ms var(--vw-ease);
+}
+.vw-big svg { width: 30px; height: 30px; fill: currentColor; stroke: none; }
+.vw-big:hover { transform: scale(1.08); background: var(--accent, #0e8f45); }
+.vw-player.playing .vw-big { opacity: 0; transform: scale(.8); pointer-events: none; }
+
+/* بازخوردِ لحظه‌ای وسطِ تصویر: پخش/مکث/±۵ ثانیه */
+.vw-flash {
+  position: absolute;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(12, 16, 18, .7);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+@keyframes vw-flash { from { opacity: .95; transform: scale(.6); }
+                        to { opacity: 0; transform: scale(1.35); } }
+.vw-flash { animation: vw-flash 550ms ease-out both; }
+
+.vw-spin {
+  position: absolute;
+  width: 40px; height: 40px;
+  border: 3px solid rgba(255, 255, 255, .25);
+  border-top-color: #fff;
+  border-radius: 999px;
+  animation: vw-rot .8s linear infinite;
+}
+@keyframes vw-rot { to { transform: rotate(360deg); } }
+
+/* نوار کنترل — همیشه LTR: زمان و نوار پیشرفت ذاتاً چپ‌به‌راست‌اند و
+   راست‌چین کردنشان یعنی نوار برعکس پر شود. */
+.vw-ctl {
+  direction: ltr;
+  position: absolute;
+  inset-inline: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 8px 6px;
+  border-radius: 14px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .78), rgba(0, 0, 0, .35));
+  transition: opacity 200ms ease-out;
+}
+.vw-player.playing.idle .vw-ctl { opacity: 0; pointer-events: none; }
+
+.vw-row { display: flex; align-items: center; gap: 4px; }
+.vw-gap { flex: 1; }
+.vw-ctl .vw-btn { width: 38px; height: 38px; }
+.vw-ctl .vw-btn svg { width: 18px; height: 18px; }
+.vw-time { font: 600 12px/1 Vazirmatn; font-variant-numeric: tabular-nums;
+           padding: 0 4px; white-space: nowrap; }
+
+/* نوار جست‌وجو: ناحیه‌ی لمسِ ۱۸px ولی خطِ دیدنیِ ۴px */
+.vw-bar { position: relative; flex: 1; height: 18px; cursor: pointer;
+          display: flex; align-items: center; touch-action: none; }
+.vw-bar i { position: absolute; inset-inline: 0; height: 4px; border-radius: 999px;
+            background: rgba(255, 255, 255, .22); transition: height 150ms ease-out; }
+.vw-bar .buf { background: rgba(255, 255, 255, .4); inset-inline-end: auto; width: 0; }
+.vw-bar .fill { background: var(--accent, #0e8f45); inset-inline-end: auto; width: 0; }
+.vw-bar:hover i { height: 6px; }
+.vw-bar b {
+  position: absolute;
+  width: 13px; height: 13px;
+  border-radius: 999px;
+  background: #fff;
+  transform: translateX(-50%) scale(0);
+  transition: transform 150ms var(--vw-ease);
+}
+.vw-bar:hover b, .vw-bar.dragging b { transform: translateX(-50%) scale(1); }
+
+.vw-tip {
+  position: absolute;
+  bottom: 20px;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .85);
+  font: 600 12px/1 Vazirmatn;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.vw-tip[hidden] { display: none; }
+
+/* --------------------------------------------- حالت‌های بارگذاری */
+
+.vw-panel {
+  display: grid; place-items: center; gap: 14px;
+  min-width: min(300px, 78vw);
+  min-height: 260px;                   /* جا از قبل رزرو شود، بدون پرش */
+  padding: 28px;
+  border-radius: 16px;
+  background: rgba(20, 27, 31, .92);
+  text-align: center;
+}
+.vw-ring { width: 74px; height: 74px; transform: rotate(-90deg); }
+.vw-ring circle { fill: none; stroke-width: 6; stroke-linecap: round; }
+.vw-ring .bg { stroke: rgba(255, 255, 255, .16); }
+.vw-ring .fg { stroke: var(--accent, #0e8f45);
+               transition: stroke-dashoffset 150ms linear; }
+.vw-pct { font: 700 13px/1 Vazirmatn; font-variant-numeric: tabular-nums; }
+.vw-sub { font-size: 13px; color: #a9b7b3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vw-scrim, .vw-top, .vw-bottom, .vw-btn, .vw-edge, .vw-big, .vw-thumb {
+    transition-duration: 1ms;
+  }
+  .vw-top, .vw-bottom { transform: none; }
+  .vw-swap { animation-duration: 1ms; }
+  .vw-flash { animation-duration: 300ms; }
+  .vw-spin { animation-duration: 2s; }
+}
+
+
+/* ------------------------------------------------- ماشه‌ها در این پروژه */
+
+/* قابل کلیک بودن باید دیده شود، نه حدس زده شود. */
+/* .vw itself keeps its zoom state in data-zoom="0|1": it is not a trigger */
+[data-zoom]:not(.vw), [data-zoom]:not(.vw) img { cursor: zoom-in; }

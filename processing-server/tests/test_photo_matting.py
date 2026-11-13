@@ -162,7 +162,7 @@ class TableAndManifestTests(unittest.TestCase):
         self.assertTrue(it.get("optional"))
 
     def test_agent_2_7_registers_the_job_kind_and_does_not_start_services_for_it(self):
-        self.assertEqual(agent.VERSION, "2.12")
+        self.assertEqual(agent.VERSION, "2.13")
         self.assertIn("photo.matting", agent.HANDLERS)
         self.assertIsNone(agent.ServiceManager.prepare_for(object(), "photo.matting", True),
                           "a matting job must not start the photo kit (.NET) or touch Ollama/ComfyUI")

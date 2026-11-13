@@ -1,0 +1,101 @@
+/* «رصدها» (js/views/monitors.js): the add bar, then one island card per watched page with its «تازه‌ها». Prefix .wt- */
+.wt { display: grid; gap: var(--s4); inline-size: 100%; max-inline-size: 720px; margin-inline: auto;
+  padding: var(--s5) var(--gutter) var(--s10); min-inline-size: 0; }
+.wt-head { display: grid; gap: var(--s1); }
+.wt-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.wt-title { font-size: var(--fs-2xl); font-weight: 800; }
+.wt-count { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.wt-lede { color: var(--text-2); font-size: var(--fs-md); line-height: 1.7; }
+
+/* ---- add bar: one field, one primary action, the whole-followers switch ---- */
+.wt-add { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-lg); background: var(--bg-2);
+  border: 1px solid var(--line-2); }
+.wt-label { font-weight: 700; font-size: var(--fs-md); }
+.wt-row { display: flex; gap: var(--s2); }
+.wt-field { position: relative; display: flex; align-items: center; flex: 1; min-inline-size: 0; }
+.wt-field > .ic { position: absolute; left: 14px; color: var(--text-3); pointer-events: none; }   /* the field is LTR: its start is the left */
+.wt-input { inline-size: 100%; min-block-size: 46px; padding-left: 40px; padding-right: 14px; text-align: left; }
+.wt-go { flex: none; min-block-size: 46px; }
+.wt-check { display: flex; align-items: flex-start; gap: var(--s3); cursor: pointer; }
+.wt-check-box { position: absolute; opacity: 0; inline-size: 1px; block-size: 1px; }
+.wt-check-ui { display: grid; place-items: center; flex: none; inline-size: 22px; block-size: 22px; margin-block-start: 1px;
+  border-radius: 7px; border: 2px solid var(--text-3); color: transparent;
+  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast); }
+.wt-check-box:checked + .wt-check-ui { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.wt-check-box:focus-visible + .wt-check-ui { outline: 2px solid var(--primary); outline-offset: 2px; }
+.wt-check > span:last-child { display: grid; gap: 2px; font-size: var(--fs-md); }
+.wt-check small { color: var(--text-2); font-size: var(--fs-sm); }
+.wt-err { color: var(--danger-text); font-size: var(--fs-sm); font-weight: 600; }
+@media (max-width: 520px) { .wt-row { flex-direction: column; } .wt-go { inline-size: 100%; } }
+
+.wt-summary { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+
+/* ---- the cards ---- */
+.wt-list .plist-rows { display: grid; gap: var(--s3); }
+.wt-card { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-lg); background: var(--bg);
+  border: 1px solid var(--island-line); box-shadow: var(--island-shadow); }
+.wt-card.is-paused { background: var(--bg-2); }
+.wt-card.is-paused .wt-who .av { filter: grayscale(1); opacity: .7; }
+.wt-top { display: flex; align-items: flex-start; gap: var(--s2); }
+.wt-who { display: flex; align-items: center; gap: var(--s3); flex: 1; min-inline-size: 0; color: var(--text);
+  border-radius: var(--r-md); }
+.wt-names { display: grid; gap: 2px; min-inline-size: 0; }
+.wt-user { display: inline-flex; align-items: center; gap: var(--s1); font-weight: 800; font-size: var(--fs-lg); min-inline-size: 0; }
+.wt-user bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-full { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-state { display: inline-flex; align-items: center; gap: 6px; margin-block-start: 2px; font-size: var(--fs-sm); font-weight: 600;
+  color: var(--text-2); }
+.wt-state i { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--text-3); }
+.wt-state.is-on i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+.wt-state.is-run { color: var(--primary-text); }
+.wt-state.is-run i { background: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent); }
+.wt-state.is-off i { background: var(--warn); }
+.wt-more { flex: none; }
+
+.wt-facts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); color: var(--text-2); font-size: var(--fs-sm); }
+.wt-facts b { color: var(--text); font-weight: 800; }
+
+.wt-harvest { display: grid; gap: 6px; }
+.wt-harvest-text { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); color: var(--text-2); }
+.wt-bar { position: relative; block-size: 6px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+.wt-bar i { position: absolute; inset: 0; background: var(--ring); transform-origin: right; transform: scaleX(var(--p, 0));
+  transition: transform var(--dur-enter) var(--ease); }
+[dir="ltr"] .wt-bar i { transform-origin: left; }
+
+/* ---- «تازه‌ها»: square tiles; a new one wears the story-ring gradient, a seen one a quiet hairline ---- */
+.wt-news { display: grid; gap: var(--s2); padding-block-start: var(--s3); border-block-start: 1px solid var(--line-2); }
+.wt-news-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.wt-news-head h3 { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--fs-md); font-weight: 800; }
+.wt-badge { min-inline-size: 22px; block-size: 22px; padding-inline: 6px; border-radius: var(--r-full); background: var(--danger);
+  color: #fff; font-size: 12px; font-weight: 800; line-height: 22px; text-align: center; }
+.wt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: var(--s2); }
+.wt-tile { position: relative; display: block; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--line); transition: transform var(--dur-fast) var(--ease); }
+.wt-tile.is-story { aspect-ratio: 9 / 14; }
+.wt-tile img { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: cover; }
+.wt-tile-ic { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); }
+.wt-tile img + .wt-tile-ic { display: none; }
+.wt-tile.is-new { padding: 3px; background: var(--ring); box-shadow: none; }
+.wt-tile.is-new img { inset: 3px; inline-size: calc(100% - 6px); block-size: calc(100% - 6px); border-radius: 11px; }
+.wt-tile-tag, .wt-tile-when { position: absolute; inset-inline-start: 6px; padding: 1px 6px; border-radius: var(--r-full);
+  background: rgba(0, 0, 0, .55); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; }
+.wt-tile-tag { inset-block-start: 6px; }
+.wt-tile-when { inset-block-end: 6px; font-weight: 600; max-inline-size: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-tile:active { transform: scale(.96); }
+@media (hover: hover) { .wt-tile:hover { transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .wt-tile, .wt-tile:hover, .wt-tile:active { transform: none; } }
+
+/* ---- loading ---- */
+.wt-sk-row { display: flex; align-items: center; gap: var(--s3); }
+.wt-sk-row .sk-avatar { inline-size: 56px; block-size: 56px; }
+.wt-sk-lines { display: grid; gap: var(--s2); flex: 1; }
+
+.wt-eta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s2); font-size: var(--fs-sm); color: var(--text-2); }
+.wt-eta b { color: var(--text); font-weight: 800; }
+.wt-eta small { flex-basis: 100%; padding-inline-start: 24px; color: var(--warn-text); font-size: var(--fs-sm); }
+
+/* a task of this page waits on something (no connection, Instagram's "wait") or was paused */
+.wt-alert { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-text); font-size: var(--fs-sm); font-weight: 600; line-height: 1.6; }
+.wt-alert > span { flex: 1; min-inline-size: 0; }
+.wt-alert .btn { flex: none; }

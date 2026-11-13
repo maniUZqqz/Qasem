@@ -1,0 +1,101 @@
+/* The end of a reading job (js/views/outcome.js): a quiet hairline card. The one loud thing is the success face —
+   the person's avatar inside the story ring, with a blue check that pops in at its corner. */
+.oc {
+  display: grid; gap: var(--s4); min-width: 0; padding: var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); color: var(--text);
+}
+@media (min-width: 768px) { .oc { padding: var(--s5); } }
+
+/* Head: face or tone disc at the start, title and one supporting line beside it */
+.oc-head { display: flex; align-items: flex-start; gap: var(--s3); min-width: 0; }
+.oc-ok .oc-head { align-items: center; }
+.oc-head-t { display: grid; gap: var(--s1); min-width: 0; padding-block-start: 2px; }
+.oc-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); overflow-wrap: anywhere; }
+.oc-title bdi { font-variant-numeric: tabular-nums; }
+.oc-text { font-size: var(--fs-md); line-height: var(--lh); color: var(--text-2); }
+.oc-who { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--s2); min-width: 0;
+  font-size: var(--fs-sm); line-height: var(--lh); color: var(--text-2); }
+.oc-who > bdi { font-weight: 600; color: var(--text); }
+.oc-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.oc-face { position: relative; display: inline-grid; flex: none; }
+.oc-tick {
+  position: absolute; inset-block-end: 2px; inset-inline-end: 2px; display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: var(--r-full); border: 2px solid var(--bg);
+  background: var(--primary); color: var(--on-primary);
+  animation: oc-pop var(--dur-enter) var(--ease-spring) both;
+}
+.oc-tick .ic { stroke-width: 3; }
+@keyframes oc-pop { from { opacity: 0; transform: scale(.4); } }
+
+.oc-disc { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: var(--r-full); }
+.oc-disc-ok { background: var(--ok-bg); color: var(--ok-text); }
+.oc-disc-warn { background: var(--warn-bg); color: var(--warn-text); }
+.oc-disc-bad { background: var(--danger-bg); color: var(--danger-text); }
+
+/* Facts: what this run saved, one short sentence per line */
+.oc-facts { display: grid; gap: var(--s2); padding-block-start: var(--s3); border-block-start: 1px solid var(--line-2); }
+.oc-fact { display: flex; align-items: flex-start; gap: var(--s2); min-width: 0; font-size: var(--fs-md); line-height: var(--lh); }
+.oc-fact > .ic { margin-block-start: var(--s1); color: var(--text-2); }
+.oc-fact > span { min-width: 0; overflow-wrap: anywhere; }
+.oc-fact bdi { font-weight: 600; font-variant-numeric: tabular-nums; }
+.oc-fact-warn > .ic { color: var(--warn-text); }
+
+/* The budget/cooldown sentence from the server */
+.oc-note { display: flex; align-items: flex-start; gap: var(--s2); padding: var(--s3); border-radius: var(--r-sm);
+  background: var(--warn-bg); color: var(--warn-text); font-size: var(--fs-md); line-height: var(--lh); }
+.oc-note > .ic { margin-block-start: var(--s1); }
+.oc-note > span { min-width: 0; overflow-wrap: anywhere; }
+
+.oc-cap { font-size: var(--fs-sm); font-weight: 600; line-height: var(--lh); color: var(--text-2); }
+
+/* Instagram's own sentence, verbatim; the bar follows the direction of its text */
+.oc-quote { display: grid; gap: var(--s1); min-width: 0; }
+.oc-quote blockquote {
+  margin: 0; padding: var(--s2) var(--s3); border-inline-start: 3px solid var(--line);
+  border-start-end-radius: var(--r-sm); border-end-end-radius: var(--r-sm); background: var(--bg-2);
+  font-size: var(--fs-md); line-height: var(--lh); text-align: start; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* Screenshot thumbnail: 160px, the top of the page (where Instagram's message sits) stays in view */
+.oc-shot { display: grid; gap: var(--s1); justify-items: start; inline-size: fit-content; max-inline-size: 100%; }
+.oc-shot-btn {
+  display: block; inline-size: 160px; max-inline-size: 100%; aspect-ratio: 16 / 10; overflow: hidden; cursor: zoom-in;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--tile-bg);
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.oc-shot-btn img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.oc-shot-btn:hover { border-color: var(--text-2); }
+.oc-shot-btn:active { transform: scale(.98); }
+
+/* Technical details: closed by default, Latin keys and values */
+.oc-tech { display: grid; gap: var(--s2); min-width: 0; padding-block-start: var(--s1); border-block-start: 1px solid var(--line-2); }
+.oc-tech > summary {
+  display: flex; align-items: center; gap: var(--s2); min-height: 44px; cursor: pointer; list-style: none;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); touch-action: manipulation;
+  transition: color var(--dur-fast) var(--ease);
+}
+.oc-tech > summary::-webkit-details-marker { display: none; }
+.oc-tech > summary:hover { color: var(--text); }
+.oc-chev { margin-inline-start: auto; transition: transform var(--dur) var(--ease); }
+.oc-tech[open] .oc-chev { transform: rotate(180deg); }
+.oc-kv { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: var(--s1) var(--s3);
+  font-size: var(--fs-sm); line-height: var(--lh); }
+.oc-kv dt { color: var(--text-2); overflow-wrap: anywhere; }
+.oc-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.oc-pre {
+  margin: 0; max-block-size: 180px; overflow: auto; padding: var(--s2) var(--s3); border-radius: var(--r-sm);
+  background: var(--bg-2); color: var(--text); font: 400 var(--fs-sm) / var(--lh) var(--font);
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: start;
+}
+
+/* Actions: the primary step first; they wrap into full-width rows in a narrow drawer */
+.oc-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.oc-acts > .btn { flex: 1 1 auto; }
+
+/* resultSummary(): one line — check, what was saved, a link to it */
+.oc-sum { display: flex; align-items: center; gap: var(--s2); min-width: 0; min-height: 44px; }
+.oc-sum-ic { color: var(--primary-text); }
+.oc-sum-t { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; line-height: var(--lh-tight); overflow-wrap: anywhere; }
+.oc-sum-t bdi { font-variant-numeric: tabular-nums; }
+.oc-sum > .btn { flex: none; }

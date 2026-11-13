@@ -1,0 +1,177 @@
+/* Profile page (js/views/profile.js): Instagram's profile header, highlights tray and tab bar, mirrored for RTL. */
+.pf { --pf-av: 86px; --pf-hl: 64px; width: 100%; max-width: var(--content-w); margin-inline: auto; padding-block-end: var(--s10); }
+
+/* ---- Header, phones: name row / avatar + stats / bio / freshness / buttons (Instagram app order) ---- */
+.pf-head {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  grid-template-areas: "title title more" "av stats stats" "bio bio bio" "fresh fresh fresh" "actions actions actions";
+  column-gap: var(--s5); row-gap: var(--s3); padding: var(--s2) var(--gutter) var(--s5);
+}
+.pf-info, .pf-row1 { display: contents; }
+.pf-av { grid-area: av; display: grid; place-items: center; }
+.pf-title { grid-area: title; display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.pf-user { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xl); font-weight: 700; line-height: var(--lh-tight); }
+.pf-title .badge-verified { width: 18px; height: 18px; }
+.pf-more { grid-area: more; margin-inline-end: calc(var(--s2) * -1); }
+
+.pf-stats { grid-area: stats; display: flex; justify-content: space-around; gap: var(--s1); min-width: 0; }
+.pf-stats > li { display: flex; justify-content: center; min-width: 0; }
+.pf-stats .stat { flex-direction: column; justify-content: center; gap: 0; padding-inline: var(--s1); line-height: 1.3; }
+.pf-stats .stat-n { font-size: var(--fs-lg); font-weight: 700; }
+.pf-stats .stat-l { font-size: var(--fs-sm); }
+
+/* Bio: name, category, text (each line keeps its own direction), links, people you both follow */
+.pf-bio { grid-area: bio; display: grid; justify-items: start; gap: 2px; min-width: 0; font-size: var(--fs-md); line-height: var(--lh); }
+.pf-bio > p { max-width: 100%; }
+.pf-name { font-weight: 600; }
+.pf-pron { margin-inline-start: var(--s2); color: var(--text-2); font-size: var(--fs-sm); font-weight: 400; }
+.pf-cat { color: var(--text-2); }
+.pf-text { white-space: pre-line; overflow-wrap: anywhere; unicode-bidi: plaintext; text-align: match-parent; }
+.pf-tag { color: var(--link); }
+.pf-tag:hover { text-decoration: underline; }
+.pf-links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s2); min-width: 0; }
+.pf-link, .pf-link-more { position: relative; display: inline-flex; align-items: center; gap: var(--s1); min-height: 28px; min-width: 0;
+  color: var(--link); font-weight: 600; }
+.pf-link::after, .pf-link-more::after { content: ""; position: absolute; inset: -8px 0; }   /* 44px hit area */
+.pf-link > bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-link:hover > bdi, .pf-link-more:hover { text-decoration: underline; }
+.pf-mutual { color: var(--text-2); font-size: var(--fs-sm); }
+
+.pf-fresh { grid-area: fresh; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2);
+  color: var(--text-2); font-size: var(--fs-sm); }
+.pf-approx { padding: 0 var(--s2); border-radius: var(--r-full); background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
+
+.pf-actions { grid-area: actions; display: flex; gap: var(--s2); }
+.pf-actions > .btn { flex: 1 1 0; min-width: 0; }
+
+@media (max-width: 389px) {   /* small phones: «۶۸۶٫۵ میلیون» must still sit apart from its neighbours */
+  .pf-head { column-gap: var(--s4); }
+  .pf-stats { gap: var(--s2); }
+  .pf-stats .stat-n { font-size: var(--fs-md); }
+}
+
+/* ---- Highlights tray: a row that scrolls sideways inside itself (never the page) ---- */
+.pf-hls { padding-block: var(--s1) var(--s4); }
+.pf-hl-row { display: flex; gap: var(--s3); overflow-x: auto; padding: var(--s1) var(--gutter); scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--gutter); overscroll-behavior-inline: contain; scrollbar-width: none; }
+.pf-hl-row::-webkit-scrollbar { display: none; }
+.pf-hl-row > li { flex: none; scroll-snap-align: start; }
+.pf-hl { display: grid; justify-items: center; gap: var(--s1); width: calc(var(--pf-hl) + var(--s3)); padding-block: var(--s1);
+  border-radius: var(--r-md); color: var(--text); }
+.pf-hl-ring { display: grid; place-items: center; width: var(--pf-hl); height: var(--pf-hl); padding: 3px; border-radius: 50%;
+  border: 1px solid var(--ring-seen); transition: transform var(--dur-fast) var(--ease); }
+.pf-hl-new .pf-hl-ring { border: 1.5px dashed var(--text-2); }   /* not read yet: its items are one click away */
+.pf-hl:active .pf-hl-ring { transform: scale(.94); }
+.pf-hl-face { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden;
+  border-radius: 50%; background: var(--bg-3); color: var(--text-2); }
+.pf-hl-face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pf-hl-t { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-sm); font-weight: 600; line-height: var(--lh-tight); }
+
+/* ---- Tabs: icon + label, the active one carries a 1px line on top (Instagram) ---- */
+.pf-tabs { display: flex; border-block-start: 1px solid var(--line); }
+.pf-tab { display: inline-flex; flex: 1 1 0; align-items: center; justify-content: center; gap: var(--s2); min-height: 48px;
+  margin-block-start: -1px; border-block-start: 1px solid transparent; color: var(--text-2);
+  font-size: var(--fs-sm); font-weight: 600; transition: color var(--dur-fast) var(--ease); }
+.pf-tab:hover { color: var(--text); }
+.pf-tab[aria-current="page"] { color: var(--text); border-block-start-color: var(--text); }
+.pf-tab:focus-visible { outline-offset: -2px; }
+/* switching tabs: a copy of the line glides from the old tab to the new one (profile.js slideTabLine) */
+.pf-tabs { position: relative; }
+.pf-tabs-line { position: absolute; inset-block-start: -1px; height: 1px; background: var(--text); transform-origin: 0 0;
+  pointer-events: none; }
+.pf-tab.is-gliding[aria-current="page"] { border-block-start-color: transparent; }
+.pf-body { min-height: 30vh; }
+
+/* ---- Tablet and desktop: avatar column at inline-start, details beside it ---- */
+@media (min-width: 768px) {
+  .pf { --pf-av: 150px; --pf-hl: 77px; padding-block-start: var(--s8); }
+  .pf-head { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); grid-template-areas: "av info"; align-items: start;
+    column-gap: var(--s8); padding: 0 var(--gutter) var(--s10); }
+  .pf-av { align-self: center; }
+  .pf-info { grid-area: info; display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
+  .pf-row1 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+  .pf-title { flex: 0 1 auto; }
+  .pf-user { font-weight: 400; }
+  .pf-actions > .btn { flex: none; }
+  .pf-more { margin: 0; }
+  .pf-stats { justify-content: flex-start; gap: var(--s10); }
+  .pf-stats .stat { flex-direction: row; gap: var(--s1); padding-inline: 0; }
+  .pf-stats .stat-n, .pf-stats .stat-l { font-size: var(--fs-md); }
+  .pf-stats .stat-n { font-weight: 600; }
+  .pf-bio { gap: var(--s1); }
+  .pf-hls { padding-block-end: var(--s10); }
+  .pf-hl-row { gap: var(--s6); padding-inline: var(--s10); }
+  .pf-tabs { justify-content: center; gap: var(--s12); }
+  .pf-tab { flex: none; min-height: 52px; }
+}
+
+/* ---- Private account card ---- */
+.pf-private { display: flex; align-items: center; gap: var(--s4); margin: 0 var(--gutter) var(--s4); padding: var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-md); }
+.pf-private-ic { display: grid; place-items: center; flex: none; width: 56px; height: 56px; border-radius: 50%;
+  border: 2px solid var(--text); color: var(--text); }
+.pf-private h2 { font-size: var(--fs-md); font-weight: 700; line-height: var(--lh-tight); }
+.pf-private p { margin-block-start: var(--s1); color: var(--text-2); font-size: var(--fs-sm); }
+
+/* ---- Loading and never-read states: the same shape as the real header ---- */
+.pf-skhead { display: flex; align-items: center; gap: var(--s5); padding: var(--s3) var(--gutter) var(--s5); }
+.pf-skhead .pf-av { flex: none; }
+.pf-sk-av { width: var(--pf-av); height: var(--pf-av); border-radius: 50%; }
+.pf-sklines { display: grid; flex: 1; gap: var(--s1); min-width: 0; }
+.pf-sklines .pf-user { margin-block-end: var(--s1); }
+.pf-sklines .sk-line:nth-of-type(1) { width: 70%; }
+.pf-sklines .sk-line:nth-of-type(2) { width: 90%; }
+.pf-sklines .sk-line:nth-of-type(3) { width: 45%; }
+.pf-still .sk { animation: none; }
+.pf-skgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; border-block-start: 1px solid var(--line);
+  padding-block-start: var(--s3); }
+.pf-missing { border-block-start: 1px solid var(--line); }
+.pf-missing .empty-text { max-width: 40ch; }
+
+@media (min-width: 768px) {
+  .pf-skhead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); column-gap: var(--s8);
+    padding: 0 var(--gutter) var(--s10); }
+  .pf-skhead .pf-av { display: grid; place-items: center; }
+  .pf-sklines { max-width: 420px; }
+  .pf-sklines .pf-user { font-weight: 400; }
+  .pf-skgrid { gap: var(--s1); }
+}
+
+/* ---- «و ۲ مورد دیگر»: every link of the bio ---- */
+.pf-linklist { display: grid; gap: 2px; padding: var(--s2); }
+.pf-linkrow { display: flex; align-items: center; gap: var(--s3); min-height: 56px; padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); transition: background-color var(--dur-fast) var(--ease); }
+.pf-linkrow:hover { background: var(--bg-3); }
+.pf-linkrow-ic { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--line); color: var(--text); }
+.pf-linkrow-t { display: grid; min-width: 0; }
+.pf-linkrow-t > bdi, .pf-linkrow-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: match-parent; }
+.pf-linkrow-t > bdi { font-weight: 600; }
+.pf-linkrow-t small { color: var(--text-2); font-size: var(--fs-sm); }
+
+/* The running-job bar under the header (js/views/jobbar.js) */
+.jbar { display: flex; align-items: center; gap: var(--s3); margin: var(--s3) var(--gutter); padding: var(--s2) var(--s2) var(--s2) var(--s3);
+  border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--line); color: var(--text); }
+.jbar .spin { color: var(--primary); flex: none; }
+.jbar-text { flex: 1; min-width: 0; display: grid; font-size: var(--fs-sm); line-height: 1.5; }
+.jbar-text b { font-size: var(--fs-md); font-weight: 700; }
+.jbar-log { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jbar-stop { flex: none; color: var(--danger-text); }
+.jbar-stop:hover:not(:disabled) { background: var(--danger-bg); }
+
+/* «JSONِ این پیج»: one quiet strip between the highlights and the tabs — what the file holds, and its download */
+.pf-json { display: flex; align-items: center; gap: var(--s3); margin: 0 var(--gutter) var(--s4); padding: var(--s3) var(--s4);
+  border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--bg-2); }
+.pf-json-ic { flex: none; display: grid; place-items: center; inline-size: 40px; block-size: 40px; border-radius: var(--r-sm);
+  background: var(--bg); color: var(--text); }
+.pf-json-t { flex: 1; min-inline-size: 0; display: grid; gap: var(--s1); }
+.pf-json-h { font-size: var(--fs-md); font-weight: 700; line-height: var(--lh-tight); }
+.pf-json-s { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+.pf-json-part { padding: 1px 8px; border-radius: var(--r-full); background: var(--bg); color: var(--text); }
+.pf-json-go { flex: none; }
+@media (max-width: 480px) {
+  .pf-json { flex-wrap: wrap; }
+  .pf-json-go { flex-basis: 100%; }
+}

@@ -1,0 +1,17 @@
+/* «VPN و نشانی» in settings (js/views/vpn.js): the exit-country choices. */
+.vp-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: var(--s2); }
+.vp-opt { display: grid; align-content: center; gap: 2px; min-height: 64px; padding: var(--s3); border: 1px solid var(--line);
+  border-radius: var(--r-md); background: var(--bg); text-align: start; }
+.vp-opt:hover:not(:disabled) { background: var(--bg-2); }
+.vp-opt:active:not(:disabled) { transform: scale(.98); }
+.vp-opt[aria-checked="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.vp-opt:disabled:not([aria-checked="true"]) { color: var(--text-3); }
+.vp-opt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.vp-name { font-weight: 700; }
+.vp-sub { color: var(--text-2); font-size: var(--fs-sm); }
+.vp-opt:disabled:not([aria-checked="true"]) .vp-sub { color: var(--text-3); }
+@media (prefers-reduced-motion: reduce) { .vp-opt:active:not(:disabled) { transform: none; } }
+/* the exit address: a long (IPv6) address wraps, and on phones the button moves under it */
+.vp-exit { flex-wrap: wrap; }
+.vp-exit .sg-grow { flex: 1 1 200px; min-width: 0; }
+.vp-ip { overflow-wrap: anywhere; }

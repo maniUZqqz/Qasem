@@ -1,0 +1,22 @@
+# Abagram on the NMarketing processing node: exact versions (the set the office copy runs with). Python 3.10-3.12, Windows.
+annotated-doc==0.0.6
+annotated-types==0.8.0
+anyio==4.16.0
+certifi==2026.10.23
+click==8.5.1
+colorama==0.4.6; sys_platform == "win32"
+exceptiongroup==1.3.1; python_version < "3.11"
+fastapi==0.141.1
+greenlet==3.2.4
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+playwright==1.58.0
+pydantic==2.11.7
+pydantic-core==2.33.2
+pyee==13.0.1
+starlette==0.50.0
+typing-extensions==4.16.0
+typing-inspection==0.4.5
+uvicorn==0.53.0

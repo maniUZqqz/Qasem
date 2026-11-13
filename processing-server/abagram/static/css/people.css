@@ -1,0 +1,109 @@
+/* People dialog: followers, following, likers, similar accounts (js/views/people.js). Instagram's list, mirrored. */
+
+/* Desktop/tablet: a fixed-height box so paging never makes it jump. Phones get the full-screen layer (size full). */
+@media (min-width: 768px) {
+  .pp-dlg { height: min(70dvh, 560px); }
+}
+.pp-dlg .ov-body { display: flex; flex-direction: column; }
+.pp-body { display: flex; flex-direction: column; flex: 1 0 auto; }
+.pp-main { display: flex; flex-direction: column; flex: 1 0 auto; }
+
+/* Search in this list: stays on top while the rows scroll */
+.pp-top { position: sticky; inset-block-start: 0; z-index: 1; display: grid; gap: var(--s1);
+  padding: var(--s3) var(--s4) var(--s2); background: var(--bg); }
+.pp-search { position: relative; display: flex; align-items: center; }
+.pp-search > .ic { position: absolute; inset-inline-start: var(--s3); color: var(--text-2); pointer-events: none; }
+.pp-q { padding-inline: 38px 44px; border-radius: var(--r-md); -webkit-appearance: none; appearance: none; }
+.pp-q::-webkit-search-cancel-button, .pp-q::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.pp-clear { position: absolute; inset-inline-end: 0; color: var(--text-2); }
+.pp-clear:hover:not(:disabled) { background: transparent; color: var(--text); }
+.pp-found { padding-inline: var(--s1); color: var(--text-2); font-size: var(--fs-sm); }
+
+/* Rows: 60px, avatar slot fixed so names line up with or without a story ring */
+.pp-list { padding: 0 var(--s2) var(--s3); }
+.pp-list .plist-foot { padding: var(--s3) var(--s2) 0; border-block-start: 1px solid var(--line-2); }
+.pp-row { display: flex; align-items: center; gap: var(--s3); min-height: 60px; padding: var(--s1) var(--s2); }
+.pp-av { display: grid; place-items: center; inline-size: 54px; block-size: 54px; flex: none; }
+.pp-who { display: grid; justify-items: start; align-content: center; gap: 2px; flex: 1; min-width: 0; min-height: 44px;
+  padding-block: var(--s1); line-height: var(--lh-tight); }
+.pp-name { display: flex; align-items: center; gap: var(--s1); max-width: 100%; min-width: 0; font-weight: 600; }
+.pp-name > bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pp-name > .ic { flex: none; }
+.pp-full { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+a.pp-who:hover .pp-name > bdi { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.pp-act { flex: none; min-inline-size: 84px; }
+.pp-sk .sk-line:last-child { width: 40%; }
+.pp-sk { padding-inline: var(--s4); }
+
+/* Loading, never read, empty, error: centered in the box, the action right under the words */
+.pp-state { display: grid; place-items: center; flex: 1 0 auto; padding-inline: var(--s4); }
+.pp-state .empty { padding-block: var(--s8); }
+.pp-none { padding: var(--s8) var(--s4); text-align: center; color: var(--text-2); }
+
+/* Footer: «۲۴ نفر از ۶۸۶ میلیون نفر خوانده شده», Instagram's notes, the read action */
+.pp-foot { display: grid; gap: var(--s3); }
+.pp-sum { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s1) var(--s3); }
+.pp-count { font-weight: 600; }
+.pp-when { color: var(--text-2); font-size: var(--fs-sm); }
+.pp-notes { display: grid; gap: var(--s1); }
+.pp-note { display: flex; align-items: flex-start; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); line-height: var(--lh); }
+.pp-note > .ic { margin-block-start: 3px; }
+.pp-note.pp-warn { color: var(--warn-text); }
+
+/* Phones: the list fills the screen (16px gutter kept); a narrower action leaves room for long names */
+@media (max-width: 767px) {
+  .pp-act { min-inline-size: 76px; }
+}
+
+/* ---- followers / following: a big window that fits the screen (js/views/people.js, .pp-wide) ---- */
+@media (min-width: 768px) {
+  .ov-layer[data-size="lg"] .ov-panel.pp-wide { inline-size: min(1100px, calc(100vw - 96px)); max-inline-size: none;
+    block-size: min(92dvh, 940px); max-block-size: none; }
+}
+.pp-wide .ov-body { padding: 0; }
+/* the head: how many of how many, the bar, what the reading does right now */
+.pp-hero { display: grid; gap: var(--s1); padding: var(--s3) var(--s5) var(--s2); border-block-end: 1px solid var(--line-2); }
+.pp-hero-num { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2); }
+.pp-big { font-size: var(--fs-3xl); font-weight: 800; line-height: 1.1; }
+.pp-of { color: var(--text-2); font-size: var(--fs-md); }
+.pp-pct { margin-inline-start: auto; color: var(--primary-text); font-size: var(--fs-lg); font-weight: 800; }
+.pp-bar { block-size: 8px; }
+.pp-line { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-md); line-height: 1.6; }
+.pp-line > .ic, .pp-line > .spin { flex: none; }
+.pp-line.is-live { color: var(--primary-text); }
+.pp-line.is-ok { color: var(--ok-text); }
+.pp-line.is-warn { color: var(--warn-text); }
+/* the tools: search and the filter side by side, under each other on a narrow screen */
+.pp-wide .pp-top { grid-template-columns: minmax(0, 1fr); padding: var(--s2) var(--s5); border-block-end: 1px solid var(--line-2); }
+/* ↑ an automatic column took the width of the whole tab strip (455px on a 390px phone) and pushed the tools out of the window */
+.pp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.pp-tools .pp-search { flex: 1 1 280px; min-inline-size: 0; }
+.pp-tabs { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; scrollbar-width: none; }   /* may shrink, then scrolls */
+.pp-tabs .seg { inline-size: max-content; }
+/* the rows: two columns of tiles; a person whose profile was read wears a green edge */
+.pp-wide .pp-list { padding: var(--s2) var(--s5); }
+.pp-grid .plist-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s3); }
+@media (max-width: 899px) { .pp-grid .plist-rows { grid-template-columns: minmax(0, 1fr); } }
+.pp-grid .plist-row { display: flex; }   /* the two tiles of a row are as tall as each other */
+.pp-grid .plist-row > .pp-row { flex: 1; min-inline-size: 0; }
+.pp-grid .pp-row { min-block-size: 68px; padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-md);
+  background: var(--bg); transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+.pp-grid .pp-row:hover { background: var(--bg-2); }
+.pp-grid .pp-row.is-read { border-color: color-mix(in srgb, var(--ok) 40%, var(--line-2)); }
+.pp-tags { display: flex; gap: 4px; margin-block-start: 4px; max-inline-size: 100%; overflow: hidden; }   /* one line: tiles stay one height */
+.pp-tag { flex: none; white-space: nowrap; }
+.pp-tag { padding: 1px 8px; border-radius: var(--r-full); background: var(--bg-3); color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.pp-tag.is-ok { background: var(--ok-bg); color: var(--ok-text); }
+.pp-fcount { margin-inline-start: var(--s2); color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+/* the footer: notes across, the two actions side by side — the whole-list one first */
+.pp-wide .ov-foot { padding: var(--s3) var(--s5) var(--s4); }
+.pp-wide .pp-foot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pp-wide .pp-foot > :not(.btn) { grid-column: 1 / -1; }
+.pp-wide .pp-foot > .primary, .pp-wide .pp-foot > .pp-live { order: -1; }
+.pp-live { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); }
+@media (max-width: 767px) {
+  .pp-hero, .pp-wide .pp-top, .pp-wide .pp-list, .pp-wide .ov-foot { padding-inline: var(--gutter); }
+  .pp-tools .pp-search, .pp-tabs { flex-basis: 100%; }
+  .pp-wide .pp-foot { grid-template-columns: minmax(0, 1fr); }
+  .pp-big { font-size: var(--fs-2xl); }
+}

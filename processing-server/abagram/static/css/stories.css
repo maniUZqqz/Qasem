@@ -1,0 +1,136 @@
+/* Story and highlight player (js/views/stories.js). A fixed dark room whatever the theme, like Instagram's own. */
+.st-layer {
+  /* Component tokens: the player is always dark, so its inks are fixed (bar values from docs/ui/views.md). */
+  --st-ink: #fff;
+  --st-ink-2: rgba(255, 255, 255, .85);
+  --st-track: rgba(255, 255, 255, .35);
+  --st-glass: rgba(255, 255, 255, .16);
+  --st-glass-2: rgba(255, 255, 255, .26);
+  --st-chip: rgba(0, 0, 0, .62);
+  --st-void: #000;
+  --st-room: #1a1a1a;
+  --st-dark-ink: #262626;
+  --st-h: min(100dvh - 48px, 900px);
+  position: fixed; inset: 0; z-index: var(--z-viewer); background: var(--st-void); color: var(--st-ink);
+  overscroll-behavior: contain; outline: none;
+}
+.st-layer.st-gone { pointer-events: none; }
+/* A cost sheet (download / read) opens above the player; overlay.js puts its layers at 40+ inline. */
+body:has(> .st-layer:not(.st-gone)) > .ov-layer { z-index: calc(var(--z-viewer) + 2) !important; }
+
+.st-stage { display: flex; align-items: center; justify-content: center; block-size: 100%; }
+.st-col { position: relative; flex: none; }
+.st-frame {
+  position: relative; overflow: hidden; inline-size: 100vw; block-size: 100dvh; background: var(--st-void);
+  user-select: none; transition: transform var(--dur) var(--ease);
+}
+.st-frame.st-drag { transition: none; }
+.st-media { position: absolute; inset: 0; display: grid; place-items: center; }
+.st-img { inline-size: 100%; block-size: 100%; max-inline-size: none; -webkit-user-drag: none; }
+.st-cover { object-fit: cover; }
+.st-fit { object-fit: contain; }
+
+/* Shades keep the white header and chips readable on a white picture. */
+.st-frame::before, .st-frame::after { content: ""; position: absolute; inset-inline: 0; z-index: 1; pointer-events: none; }
+.st-frame::before { inset-block-start: 0; block-size: 128px; background: linear-gradient(rgba(0, 0, 0, .5), transparent); }
+.st-frame::after { inset-block-end: 0; block-size: 45%; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); }
+.st-hit { position: absolute; inset: 0; z-index: 2; cursor: pointer; touch-action: none; -webkit-touch-callout: none; }
+
+/* Top: one bar per item, then the header row. */
+.st-top { position: absolute; inset-block-start: 0; inset-inline: 0; z-index: 3; padding: calc(var(--s2) + var(--safe-t)) var(--s2) 0; }
+.st-bars { display: flex; gap: 4px; padding-inline: var(--s1); }
+.st-seg { flex: 1; block-size: 2px; border-radius: 2px; background: var(--st-track); overflow: hidden; }
+.st-fill { display: block; block-size: 100%; background: var(--st-ink); transform: scaleX(0); transform-origin: left center; }
+:root[dir="rtl"] .st-fill { transform-origin: right center; }   /* the bars fill from the inline start */
+.st-head { display: flex; align-items: center; gap: var(--s2); padding-inline-start: var(--s2); }
+.st-who { display: flex; align-items: center; gap: var(--s2); flex: 1; min-inline-size: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, .45); }
+.st-who .av::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; }   /* 44px hit area */
+.st-user { flex: 0 1 auto; min-inline-size: 0; line-height: 44px; font-size: var(--fs-md); font-weight: 600; color: var(--st-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-user:hover { text-decoration: underline; }
+.st-title, .st-ago { min-inline-size: 0; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-title { font-weight: 600; color: var(--st-ink); }
+.st-ago { flex: none; color: var(--st-ink-2); }
+.st-acts { display: flex; flex: none; }
+.st-layer .st-ib { color: var(--st-ink); }
+.st-layer .st-ib:hover:not(:disabled) { background: var(--st-glass); }
+.st-ib .ic { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .4)); }
+
+/* Bottom: caption, chips, then the tool's own bar. Taps between chips fall through to the tap zones. */
+.st-low { position: absolute; inset-block-end: 0; inset-inline: 0; z-index: 3; display: grid; gap: var(--s3);
+  padding: var(--s3) var(--s3) calc(var(--s3) + var(--safe-b)); pointer-events: none; }
+.st-over { display: grid; gap: var(--s2); }
+.st-cap { font-size: var(--fs-md); line-height: var(--lh); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.st-tags { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.st-tags:empty { display: none; }
+.st-layer .st-tag { pointer-events: auto; min-height: 36px; background: var(--st-chip); color: var(--st-ink); }
+.st-layer a.st-tag:hover { background: rgba(0, 0, 0, .8); text-decoration: underline; }
+.st-bar { display: grid; gap: var(--s2); pointer-events: auto; }
+.st-bar:empty { display: none; }
+.st-dl { display: flex; gap: var(--s2); }
+.st-dl .btn { flex: 1 1 0; min-inline-size: 0; }
+.st-dl .btn span { overflow: hidden; text-overflow: ellipsis; }
+.st-layer .st-dl .btn:not(.primary) { background: var(--st-glass); color: var(--st-ink); }
+.st-layer .st-dl .btn:not(.primary):hover:not(:disabled) { background: var(--st-glass-2); }
+.st-count, .st-note { font-size: var(--fs-sm); color: var(--st-ink-2); text-align: center; text-shadow: 0 1px 2px rgba(0, 0, 0, .5); }
+.st-count { font-weight: 600; color: var(--st-ink); }
+
+/* Holding the picture hides the chrome, as on Instagram. */
+.st-top, .st-low { transition: opacity var(--dur) var(--ease); }
+.st-layer[data-hold] :is(.st-top, .st-low) { opacity: 0; }
+
+/* Loading, not read yet, nothing active: centered in the frame; only the close button stays. */
+.st-layer[data-msg] :is(.st-hit, .st-low, .st-bars, .st-nav, .st-acts > :not(:last-child)) { display: none; }
+.st-msg { position: relative; z-index: 4; display: grid; justify-items: center; gap: var(--s3); max-inline-size: 34ch;
+  padding: var(--s6); text-align: center; }
+.st-msg-t { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.st-msg-x { font-size: var(--fs-sm); color: var(--st-ink-2); }
+.st-msg .btn { margin-block-start: var(--s2); }
+.st-msg .av-face { background: var(--st-glass); color: var(--st-ink); }
+.st-none { display: grid; justify-items: center; gap: var(--s3); max-inline-size: 30ch; padding: var(--s6); text-align: center;
+  color: var(--st-ink-2); }
+
+/* Tablet and desktop: a 9:16 frame in a dark room, round arrows beside it. */
+.st-nav { display: none; }
+@media (min-width: 768px) {
+  .st-layer { background: var(--st-room); }
+  .st-stage { gap: calc(var(--s12) + var(--s6)); padding-block: var(--s6); }
+  .st-frame { inline-size: auto; block-size: var(--st-h); aspect-ratio: 9 / 16; max-inline-size: calc(100vw - 144px);
+    border-radius: var(--r-md); }
+  .st-top { padding-block-start: var(--s3); }
+  .st-layer .st-nav { position: absolute; inset-block-start: 50%; margin-block-start: -22px; z-index: 3; display: grid;
+    color: var(--st-dark-ink); background: radial-gradient(circle, var(--st-ink-2) 15px, transparent 16px); }
+  .st-layer .st-nav:hover:not(:disabled) { background: radial-gradient(circle, var(--st-ink) 15px, transparent 16px); }
+  .st-nav .ic { filter: none; }
+  .st-prev { inset-inline-start: -56px; }
+  .st-next { inset-inline-end: -56px; }
+}
+
+/* Wide screens: the neighbouring read highlights wait at the sides, dimmed; a click hops to one. */
+.st-side { display: none; }
+@media (min-width: 1100px) {
+  .st-side { display: flex; align-items: center; gap: var(--s6); flex: 1 1 0; min-inline-size: 0; block-size: 100%; overflow: hidden; }
+  .st-side:first-child { justify-content: flex-end; }
+  .st-mini { position: relative; flex: none; block-size: calc(var(--st-h) * .42); aspect-ratio: 9 / 16; overflow: hidden;
+    border-radius: var(--r-md); background: var(--st-dark-ink); transition: transform var(--dur-fast) var(--ease); }
+  .st-mini:hover { transform: scale(1.03); }
+  .st-mini img { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: cover; }
+  .st-mini::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, .55);
+    transition: opacity var(--dur-fast) var(--ease); }
+  .st-mini:hover::after { opacity: .7; }
+  .st-mini-in { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center;
+    gap: var(--s2); padding: var(--s3); }
+  .st-mini-t { max-inline-size: 100%; font-size: var(--fs-sm); font-weight: 600; color: var(--st-ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* The shared post card on a story: a tap shows Instagram's white «مشاهدهٔ پست» bubble above it */
+.st-spot { position: absolute; z-index: 3; cursor: pointer; border-radius: 12px; }
+.st-spot:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); }
+.st-bubble { position: absolute; inset-block-end: calc(100% + 10px); left: 50%; translate: -50% 0; z-index: 4; }
+.st-bubble-btn { position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 12px;
+  background: #fff; color: #000; font: 700 15px/1 var(--font); white-space: nowrap; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+.st-bubble-btn::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 12px; height: 12px; margin-left: -6px;
+  background: #fff; transform: rotate(45deg); border-radius: 2px; }
+.st-bubble-btn:hover { background: #f2f2f2; }

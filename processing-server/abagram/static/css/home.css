@@ -1,0 +1,109 @@
+/* «خانه» (js/views/home.js): stories tray of saved profiles, then the paged list. Prefix .hm- */
+.hm { --hm-col: 630px; display: grid; gap: var(--s3); inline-size: 100%; max-inline-size: var(--hm-col);
+  margin-inline: auto; padding-block: var(--s3) var(--s10); min-inline-size: 0; }
+
+/* Phones: a search field that opens #/search (a link dressed as Instagram's grey input) */
+.hm-find { display: flex; align-items: center; gap: var(--s2); min-block-size: 44px; margin-inline: var(--gutter);
+  padding-inline: var(--s4); border-radius: var(--r-sm); background: var(--bg-3); color: var(--text-2);
+  font-size: var(--fs-md); touch-action: manipulation; transition: background-color var(--dur-fast) var(--ease); }
+.hm-find:hover { background: var(--bg-hover); }
+.hm-find:active { background: var(--bg-hover); }
+
+/* ---- stories tray ---- */
+.hm-tray-slot { min-inline-size: 0; }
+.hm-tray { position: relative; border-block-end: 1px solid var(--line); }
+.hm-tray-list { display: flex; gap: var(--s2); padding: var(--s3) var(--gutter); scroll-padding-inline: var(--gutter);
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.hm-tray-list::-webkit-scrollbar { display: none; }
+.hm-tray-item { flex: none; inline-size: 80px; }
+.hm-tray-link { display: grid; justify-items: center; gap: var(--s1); padding-block: 2px; border-radius: var(--r-md);
+  touch-action: manipulation; }
+.hm-tray-link .av { transition: transform var(--dur-fast) var(--ease); }
+.hm-tray-link:active .av { transform: scale(.95); }
+.hm-tray-name { display: block; inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center; font-size: var(--fs-xs); line-height: var(--lh-tight); color: var(--text); }
+
+/* Arrows (pointer screens only): a small white disc in a 44px hit area, centred on the circles */
+.hm-arrow { position: absolute; z-index: var(--z-sticky); inset-block-start: calc(var(--s3) + 16px);
+  display: grid; place-items: center; inline-size: 44px; block-size: 44px; border-radius: var(--r-full); }
+.hm-arrow-prev { inset-inline-start: var(--s1); }
+.hm-arrow-next { inset-inline-end: var(--s1); }
+.hm-arrow-face { display: grid; place-items: center; inline-size: 30px; block-size: 30px; border-radius: var(--r-full);
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); box-shadow: var(--shadow-menu);
+  transition: transform var(--dur-fast) var(--ease); }
+.hm-arrow:hover .hm-arrow-face { transform: scale(1.08); }
+.hm-arrow:active .hm-arrow-face { transform: scale(.94); }
+.hm-arrow:focus-visible { outline-offset: -4px; border-radius: var(--r-full); }
+
+/* Tray placeholder while the list loads */
+.hm-tray-sk .hm-tray-list { overflow: hidden; }
+.hm-tray-sk .hm-tray-item { display: grid; justify-items: center; gap: var(--s2); padding-block: 2px; }
+.hm-sk-ring { inline-size: 76px; block-size: 76px; border-radius: 50%; }
+.hm-sk-name { inline-size: 52px; block-size: 12px; border-radius: var(--r-full); }
+
+/* ---- saved profiles ---- */
+.hm-saved { display: grid; gap: var(--s3); padding-inline: var(--gutter); padding-block-start: var(--s2); min-inline-size: 0; }
+.hm-head { display: grid; gap: var(--s1); }
+.hm-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); flex-wrap: wrap; }
+.hm-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.hm-count { font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Budget line: «۱۲ از ۳۰ صفحه در این ساعت» + a thin meter that fills from the inline start */
+.hm-budget { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); color: var(--text-2);
+  font-variant-numeric: tabular-nums; }
+.hm-budget .ic { flex: none; }
+.hm-meter { position: relative; flex: none; inline-size: 72px; block-size: 4px; border-radius: var(--r-full);
+  background: var(--bg-3); overflow: hidden; }
+.hm-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--primary); transform: scaleX(0);
+  transform-origin: right center; transition: transform var(--dur) var(--ease); }
+.hm-fill:dir(ltr) { transform-origin: left center; }
+.hm-budget.is-full { color: var(--warn-text); }
+.hm-budget.is-full .hm-fill { background: var(--warn); }
+
+/* Rows: avatar 44, name + badges + read time, then @user and followers */
+.hm-list { min-inline-size: 0; }
+.hm-row { display: flex; align-items: center; gap: var(--s3); min-block-size: 64px; padding: var(--s2);
+  margin-inline: calc(-1 * var(--s2)); border-radius: var(--r-sm); color: var(--text); touch-action: manipulation;
+  transition: background-color var(--dur-fast) var(--ease); }
+.hm-row:hover { background: var(--bg-3); }
+.hm-row:active { background: var(--bg-hover); }
+.hm-row-text { display: grid; flex: 1; min-inline-size: 0; }
+.hm-row-top { display: flex; align-items: center; gap: var(--s1); min-inline-size: 0; }
+.hm-row-top .ic { flex: none; }
+.hm-row-name { font-weight: 600; font-size: var(--fs-md); line-height: var(--lh-tight); }
+.hm-row-time { flex: none; margin-inline-start: auto; padding-inline-start: var(--s3); font-size: var(--fs-sm);
+  color: var(--text-2); white-space: nowrap; }
+.hm-row-sub { display: flex; align-items: center; gap: var(--s3); min-inline-size: 0; font-size: var(--fs-sm);
+  color: var(--text-2); line-height: var(--lh); }
+.hm-row-user { text-align: end; }
+.hm-row-fol { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Rows placeholder */
+.hm-sk-rows { display: grid; }
+.hm-sk-row { display: flex; align-items: center; gap: var(--s3); min-block-size: 64px; padding-block: var(--s2); }
+.hm-sk-lines { display: grid; flex: 1; min-inline-size: 0; }
+.hm-sk-lines .sk-line:first-child { inline-size: 45%; }
+.hm-sk-lines .sk-line:last-child { inline-size: 30%; }
+
+/* Error: what happened + how to fix it + retry */
+.hm-error-body { display: grid; justify-items: center; gap: var(--s4); }
+.hm-error-body .empty-text bdi { font-weight: 600; color: var(--text); }
+
+/* Tablet and desktop: no phone search field, the tray floats free of the hairline, arrows appear */
+@media (min-width: 768px) {
+  .hm { gap: var(--s4); padding-block-start: var(--s6); }
+  .hm-find { display: none; }
+  .hm-tray { border-block-end: 0; }
+  .hm-saved { padding-block-start: 0; }
+  .hm-title { font-size: var(--fs-xl); }
+}
+@media (max-width: 767px), (hover: none) {
+  .hm-arrow { display: none; }
+}
+
+/* delete beside each saved profile: quiet until hovered, red on hover */
+.hm-rowwrap { display: flex; align-items: center; gap: var(--s1); }
+.hm-rowwrap > .hm-row { flex: 1; min-width: 0; }
+.hm-del { flex: none; color: var(--text-2); }
+.hm-del:hover { color: var(--danger-text); background: var(--danger-bg); }
+@media (hover: hover) { .hm-del { opacity: .55; } .hm-rowwrap:hover .hm-del, .hm-del:focus-visible { opacity: 1; } }

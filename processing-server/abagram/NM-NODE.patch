@@ -1,0 +1,486 @@
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/app.py abagram/app.py
+--- a/app.py	2026-11-12 07:57:42.882350900 +0100
++++ b/app.py	2026-11-12 07:58:16.962029600 +0100
+@@ -12,7 +12,7 @@
+ import uvicorn
+ from fastapi import FastAPI, Request
+ from fastapi.exceptions import RequestValidationError
+-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
++from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+ from starlette.background import BackgroundTask
+ from fastapi.staticfiles import StaticFiles
+ from typing import Optional
+@@ -36,6 +36,7 @@
+ import ig_runs
+ import ig_profile
+ import ig_store
++import ig_trend
+ import ig_vpn
+ from ig_common import DATA, age_text
+ 
+@@ -144,6 +145,33 @@
+ API_TOKEN = os.environ.get("IGS_API_TOKEN", "").strip()
+ TOKEN_ME = {"username": "setup", "uid": "", "role": "full", "admin": True, "until": None}
+ 
++# NMarketing processing node (2026-11): IGS_NODE_MODE=1 runs this site as a local service of the node agent on a computer that is
++# not in the office (no AbaOne login there). The address is this computer only (127.0.0.1); every /api/ answer and the page itself
++# need the key in IGS_API_TOKEN: the agent sends it as X-Igs-Token, and the person who opens the site on that computer comes in
++# once through  http://127.0.0.1:<port>/?igs_key=<key>  (the node's Open-Abagram.bat does that), which sets an HttpOnly cookie.
++# Without a long key nothing is answered at all.
++NODE_MODE = os.environ.get("IGS_NODE_MODE") == "1"
++NODE_COOKIE = "igs_node"
++if NODE_MODE:
++    ig_auth.ENABLED = False          # no AbaOne login in this mode; the key above is the only door
++NODE_LOCKED = ("<!doctype html><html lang='fa' dir='rtl'><meta charset='utf-8'><title>آباگرام</title>"
++               "<body style='font-family:Tahoma,sans-serif;max-width:34rem;margin:4rem auto;line-height:2'>"
++               "<h2>آباگرام روی این کامپیوتر قفل است</h2>"
++               "<p>این سایت فقط از راهِ فایلِ <b>Open-Abagram.bat</b> (در پوشهٔ سرورِ پردازش) باز می‌شود؛ آن فایل کلیدِ ورود را خودش می‌فرستد.</p>"
++               "</body></html>")
++
++
++def node_cookie_value():
++    return hmac.new(API_TOKEN.encode("utf-8"), b"igs-node-ui", "sha256").hexdigest() if len(API_TOKEN) >= 32 else ""
++
++
++def node_ok(request):
++    """The agent's key header, or the cookie the page-opening link set."""
++    if token_ok(request):
++        return True
++    want = node_cookie_value()
++    return bool(want) and hmac.compare_digest((request.cookies.get(NODE_COOKIE) or "").encode("utf-8"), want.encode("utf-8"))
++
+ 
+ def token_ok(request):
+     given = request.headers.get("x-igs-token") or ""
+@@ -164,7 +192,18 @@
+     if request.method == "POST" and request.headers.get("x-igs") != "1":
+         return reply({"detail": "missing header"}, 403)
+     path = request.url.path
+-    if ig_auth.ENABLED and path.startswith("/api/") and path not in OPEN:
++    if NODE_MODE and (path == "/" or path.startswith("/api/")):
++        given = request.query_params.get("igs_key") if path == "/" else None
++        if given is not None and len(API_TOKEN) >= 32 and hmac.compare_digest(given.encode("utf-8"), API_TOKEN.encode("utf-8")):
++            door = RedirectResponse("/", status_code=303)
++            door.set_cookie(NODE_COOKIE, node_cookie_value(), max_age=30 * 86400, httponly=True, samesite="strict", path="/")
++            return door
++        if not node_ok(request):
++            if path == "/":
++                return HTMLResponse(NODE_LOCKED, status_code=401, headers={"Cache-Control": "no-store"})
++            return reply({"detail": "login", "message": "این آباگرام فقط از راهِ Open-Abagram.bat روی سرورِ پردازش باز می‌شود."}, 401)
++        request.state.who = TOKEN_ME
++    elif ig_auth.ENABLED and path.startswith("/api/") and path not in OPEN:
+         me = ig_auth.session(request.cookies.get(ig_auth.COOKIE))
+         if not me and token_ok(request):
+             me = TOKEN_ME
+@@ -782,6 +821,15 @@
+     return reply({"profile": store.load(username), **{name: head(name, sec.load(username)) for name, sec in sections.items()}})
+ 
+ 
++@app.get("/api/trend/{username}")
++async def trend_posts(username: str, limit: int = 24):
++    """The recent posts of one page with their numbers (NMarketing's trend finder) — never the followers or anyone else's data."""
++    if not ig_profile.USERNAME_RE.match(username):
++        return reply({"detail": "invalid"}, 404)
++    found = await asyncio.to_thread(ig_trend.recent, username, DATA, max(1, min(limit, ig_trend.MAX_POSTS)))
++    return reply(found) if found else reply({"detail": "none", "message": "از این صفحه چیزی ذخیره نشده؛ اول خواندنش را بزن."}, 404)
++
++
+ HEAD = 300   # people of a list the dossier carries; the rest come from /api/people
+ 
+ 
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/ig_common.py abagram/ig_common.py
+--- a/ig_common.py	2026-11-12 07:57:42.954143800 +0100
++++ b/ig_common.py	2026-11-12 07:57:50.478455500 +0100
+@@ -1,52 +1,66 @@
+-"""Shared by every step: settings from the environment, the two exceptions, small text helpers."""
+-import os
+-from pathlib import Path
+-
+-BASE = os.environ.get("IGS_BASE", "https://www.instagram.com").rstrip("/")
+-DATA = Path(os.environ.get("IGS_DATA") or Path(__file__).parent / "data")
+-HEADLESS = os.environ.get("IGS_HEADLESS") == "1"
+-# Instagram holds the account until a person passes its check ("confirm you're human", a code): every page goes there.
+-CHALLENGE_MSG = "اینستاگرام این حساب را تا «تأیید انسان بودن» نگه داشته؛ در «تنظیمات ← حساب و نشست» «بررسی نشست» را بزن و در پنجره خودت تأیید کن"
+-
+-
+-class Busy(Exception):
+-    pass
+-
+-
+-class Fail(Exception):
+-    """An attempt that ended without what it came for; kind is what the UI explains."""
+-
+-    def __init__(self, kind, msg="", ig_message=None, detail=None):
+-        super().__init__(msg)
+-        self.kind, self.msg, self.ig_message, self.detail = kind, msg, ig_message, detail
+-
+-
+-def first_line(e):
+-    text = str(e).strip()
+-    return text.splitlines()[0][:300] if text else e.__class__.__name__
+-
+-
+-LRI, PDI = chr(0x2066), chr(0x2069)
+-FA_DIGITS = str.maketrans("0123456789", "".join(chr(0x06F0 + i) for i in range(10)))
+-
+-
+-def ltr(text):
+-    """Isolate English text inside a Persian line so its punctuation stays where it belongs."""
+-    return LRI + str(text) + PDI
+-
+-
+-def fa(n):
+-    """Digits as Persian numerals, for sentences the server writes."""
+-    return str(n).translate(FA_DIGITS)
+-
+-
+-def age_text(seconds):
+-    """A rough Persian 'how long ago', for log lines."""
+-    s = int(seconds)
+-    if s < 60:
+-        return "چند ثانیه"
+-    if s < 3600:
+-        return fa(s // 60) + " دقیقه"
+-    if s < 86400:
+-        return fa(s // 3600) + " ساعت"
+-    return fa(s // 86400) + " روز"
++"""Shared by every step: settings from the environment, the two exceptions, small text helpers."""
++import os
++from pathlib import Path
++
++BASE = os.environ.get("IGS_BASE", "https://www.instagram.com").rstrip("/")
++DATA = Path(os.environ.get("IGS_DATA") or Path(__file__).parent / "data")
++HEADLESS = os.environ.get("IGS_HEADLESS") == "1"
++# NMarketing node (2026-11): the browser Playwright drives. IGS_BROWSER_EXE = a Chromium/Chrome/Edge program to use as it is;
++# IGS_BROWSER_CHANNEL = a browser that is installed on the computer ("msedge" is on every Windows 11) instead of Playwright's own
++# Chromium download (which is blocked from Iran). Both empty = Playwright's own Chromium, exactly as before.
++BROWSER_EXE = os.environ.get("IGS_BROWSER_EXE", "").strip()
++BROWSER_CHANNEL = os.environ.get("IGS_BROWSER_CHANNEL", "").strip()
++
++
++def browser_opts():
++    """The launch options that choose the browser (empty = Playwright's default Chromium)."""
++    if BROWSER_EXE:
++        return {"executable_path": BROWSER_EXE}
++    if BROWSER_CHANNEL:
++        return {"channel": BROWSER_CHANNEL}
++    return {}
++# Instagram holds the account until a person passes its check ("confirm you're human", a code): every page goes there.
++CHALLENGE_MSG = "اینستاگرام این حساب را تا «تأیید انسان بودن» نگه داشته؛ در «تنظیمات ← حساب و نشست» «بررسی نشست» را بزن و در پنجره خودت تأیید کن"
++
++
++class Busy(Exception):
++    pass
++
++
++class Fail(Exception):
++    """An attempt that ended without what it came for; kind is what the UI explains."""
++
++    def __init__(self, kind, msg="", ig_message=None, detail=None):
++        super().__init__(msg)
++        self.kind, self.msg, self.ig_message, self.detail = kind, msg, ig_message, detail
++
++
++def first_line(e):
++    text = str(e).strip()
++    return text.splitlines()[0][:300] if text else e.__class__.__name__
++
++
++LRI, PDI = chr(0x2066), chr(0x2069)
++FA_DIGITS = str.maketrans("0123456789", "".join(chr(0x06F0 + i) for i in range(10)))
++
++
++def ltr(text):
++    """Isolate English text inside a Persian line so its punctuation stays where it belongs."""
++    return LRI + str(text) + PDI
++
++
++def fa(n):
++    """Digits as Persian numerals, for sentences the server writes."""
++    return str(n).translate(FA_DIGITS)
++
++
++def age_text(seconds):
++    """A rough Persian 'how long ago', for log lines."""
++    s = int(seconds)
++    if s < 60:
++        return "چند ثانیه"
++    if s < 3600:
++        return fa(s // 60) + " دقیقه"
++    if s < 86400:
++        return fa(s // 3600) + " ساعت"
++    return fa(s // 86400) + " روز"
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/ig_login.py abagram/ig_login.py
+--- a/ig_login.py	2026-11-12 07:57:43.080033700 +0100
++++ b/ig_login.py	2026-11-12 07:57:50.479441900 +0100
+@@ -16,7 +16,7 @@
+ import ig_profile as pr
+ import ig_runs
+ from ig_budget import Budget
+-from ig_common import BASE, DATA, HEADLESS, Busy, Fail, first_line, ltr
++from ig_common import BASE, DATA, HEADLESS, Busy, Fail, browser_opts, first_line, ltr
+ from ig_deep import DeepReader
+ from ig_browse import BrowseReader
+ from ig_follow import FollowReader
+@@ -332,7 +332,7 @@
+         opts = dict(user_data_dir=str(PROFILE), headless=HEADLESS or not ig_prefs.load()["show_browser"], locale="en-US",
+                     viewport={"width": 1280, "height": 860},
+                     args=["--disable-blink-features=AutomationControlled"],
+-                    ignore_default_args=["--enable-automation"])
++                    ignore_default_args=["--enable-automation"], **browser_opts())
+         proxy = proxy or ig_prefs.load()["proxy"]      # his saved proxy when a job (the queue) passed none
+         if proxy:
+             opts["proxy"] = self.proxy_opts(proxy)
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/ig_trend.py abagram/ig_trend.py
+--- a/ig_trend.py	1970-01-01 01:00:00.000000000 +0100
++++ b/ig_trend.py	2026-11-12 07:58:16.837658200 +0100
+@@ -0,0 +1,50 @@
++"""Trend reading (NMarketing node, 2026-11): the recent posts of ONE page with their numbers, taken from what the profile read
++already saved. Pure functions, no browser and no request to Instagram.
++
++It exists so the processing node never has to pull a whole dossier (followers, following, other people's profiles) just to learn
++which posts of a page are doing well: this answer carries the page's public profile numbers and its posts, nothing else."""
++from datetime import datetime, timezone
++from pathlib import Path
++
++import ig_profile
++import ig_store
++from ig_common import DATA
++
++PROFILE_KEYS = ("username", "user_id", "full_name", "biography", "followers", "following", "posts", "is_private",
++                "is_verified", "is_business", "category", "fetched_at")
++POST_KEYS = ("code", "id", "kind", "taken_at", "caption", "hashtags", "likes", "comments", "views", "likes_hidden",
++             "comments_disabled", "pinned", "items_count", "width", "height", "paid_partnership")
++MAX_CAPTION = 2200      # Instagram's own limit for a caption
++MAX_POSTS = 60
++
++
++def _post(item):
++    out = {k: item.get(k) for k in POST_KEYS}
++    out["caption"] = (out.get("caption") or "")[:MAX_CAPTION]
++    out["hashtags"] = [str(h) for h in (item.get("hashtags") or [])][:30]
++    music = item.get("music")
++    out["music"] = ({"kind": music.get("kind") or "", "title": str(music.get("title") or "")[:200],
++                     "artist": str(music.get("artist") or "")[:200]} if isinstance(music, dict) else None)
++    return out
++
++
++def recent(username, root=DATA, limit=24, now=None):
++    """{'username', 'profile', 'posts', 'fetched_at', 'age_s'} for a page that was read, newest post first; None when nothing
++    is saved about it (the caller reads the page first)."""
++    user = ig_profile.clean_username(username)
++    if not user:
++        return None
++    root = Path(root)
++    profile = ig_profile.Store(root).load(user)
++    posts = ig_store.Section(root, "posts").load(user)
++    if not profile and not posts:
++        return None
++    items = [p for p in ((posts or {}).get("items") or []) if isinstance(p, dict) and p.get("code") and p.get("taken_at")]
++    items.sort(key=lambda p: p["taken_at"], reverse=True)
++    limit = max(1, min(int(limit), MAX_POSTS))
++    fetched = (posts or {}).get("fetched_at") or (profile or {}).get("fetched_at")
++    return {"format": "nm-ig-page", "version": 1, "username": user,
++            "profile": {k: (profile or {}).get(k) for k in PROFILE_KEYS},
++            "posts": [_post(p) for p in items[:limit]], "post_count_saved": len(items),
++            "fetched_at": fetched, "age_s": ig_profile.age_seconds({"fetched_at": fetched}, now) if fetched else None,
++            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/tests/nm_fixture.py abagram/tests/nm_fixture.py
+--- a/tests/nm_fixture.py	1970-01-01 01:00:00.000000000 +0100
++++ b/tests/nm_fixture.py	2026-11-12 07:58:51.991120300 +0100
+@@ -0,0 +1,35 @@
++"""Synthetic data in Abagram's own shapes (NMarketing node tests). Invented pages: no real person, no real post."""
++import json
++import time
++from pathlib import Path
++
++
++def profile(username="demo_fit_page", **kw):
++    base = {"username": username, "user_id": "9001", "full_name": "صفحهٔ آزمایشیِ تناسب اندام", "biography": "نمونهٔ ساختگی",
++            "followers": 52000, "following": 120, "posts": 340, "is_private": False, "is_verified": False, "is_business": True,
++            "category": "Gym/Physical Fitness Center", "fetched_at": "2026-11-10T08:00:00+00:00"}
++    base.update(kw)
++    return base
++
++
++def post(code, kind="reel", age_h=10, likes=900, comments=40, views=15000, caption="تمرین سینه در خانه #بدنسازی #تمرین_در_خانه",
++         music=None, now=None, **kw):
++    now = now or int(time.time())
++    p = {"code": code, "id": "1" + "".join(str(ord(c) % 10) for c in code), "kind": kind, "url": f"/{'reel' if kind == 'reel' else 'p'}/{code}/",
++         "taken_at": now - age_h * 3600, "caption": caption, "hashtags": [w[1:] for w in caption.split() if w.startswith("#")],
++         "mentions": ["someone_else"], "likes": likes, "comments": comments, "views": views, "likes_hidden": False,
++         "comments_disabled": False, "pinned": False, "location": None, "tagged": [], "music": music, "coauthors": [], "sponsors": [],
++         "paid_partnership": False, "alt": None, "items": [{"type": "video"}], "items_count": 1, "thumb": "https://example.invalid/t.jpg",
++         "width": 1080, "height": 1920, "fb_likes": None, "fb_comments": None}
++    p.update(kw)
++    return p
++
++
++def write_page(root, username, posts, prof=None):
++    """Save a page the way the engine does (profiles/p_<name>.json and posts/p_<name>.json)."""
++    root = Path(root)
++    (root / "profiles").mkdir(parents=True, exist_ok=True)
++    (root / "posts").mkdir(parents=True, exist_ok=True)
++    (root / "profiles" / f"p_{username}.json").write_text(json.dumps(prof or profile(username), ensure_ascii=False), "utf-8")
++    (root / "posts" / f"p_{username}.json").write_text(json.dumps({"items": posts, "reason": None, "fetched_at": "2026-11-10T08:00:00+00:00"},
++                                                                  ensure_ascii=False), "utf-8")
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/tests/test_node_mode.py abagram/tests/test_node_mode.py
+--- a/tests/test_node_mode.py	1970-01-01 01:00:00.000000000 +0100
++++ b/tests/test_node_mode.py	2026-11-12 07:59:06.283447600 +0100
+@@ -0,0 +1,97 @@
++"""IGS_NODE_MODE (NMarketing node): the key is the only door; /api/trend/<page> answers with the trend fields only.
++python tests/test_node_mode.py   (needs fastapi, httpx, playwright: the engine's own requirements)"""
++import os
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++sys.path.insert(0, str(HERE.parent))
++sys.path.insert(0, str(HERE))
++TMP = tempfile.mkdtemp(prefix="igs-node-")
++KEY = "k" * 48
++os.environ.update(IGS_DATA=TMP, IGS_NODE_MODE="1", IGS_API_TOKEN=KEY, IGS_NO_BROWSER="1", IGS_AUTH="1")
++
++from starlette.testclient import TestClient  # noqa: E402
++
++import app as site  # noqa: E402
++from nm_fixture import post, write_page  # noqa: E402
++
++H = {"X-Igs": "1"}
++
++
++class NodeModeTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        write_page(TMP, "demo_fit_page", [post("N1", age_h=3), post("N2", age_h=9)])
++
++    def client(self):
++        return TestClient(site.app, base_url="http://127.0.0.1")
++
++    def test_no_key_no_answer(self):
++        c = self.client()
++        self.assertEqual(c.get("/api/status").status_code, 401)
++        self.assertEqual(c.get("/api/trend/demo_fit_page").status_code, 401)
++        r = c.get("/")
++        self.assertEqual(r.status_code, 401)
++        self.assertIn("Open-Abagram.bat", r.text)
++
++    def test_wrong_key_no_answer(self):
++        c = self.client()
++        self.assertEqual(c.get("/api/status", headers={"X-Igs-Token": "x" * 48}).status_code, 401)
++        self.assertEqual(c.get("/?igs_key=" + "y" * 48, follow_redirects=False).status_code, 401)
++
++    def test_agent_key_header_opens_the_api(self):
++        c = self.client()
++        r = c.get("/api/status", headers={"X-Igs-Token": KEY})
++        self.assertEqual(r.status_code, 200)
++        self.assertIn("state", r.json())
++
++    def test_pairing_link_sets_a_cookie_that_opens_the_page_and_api(self):
++        c = self.client()
++        r = c.get("/?igs_key=" + KEY, follow_redirects=False)
++        self.assertEqual(r.status_code, 303)
++        cookie = r.headers.get("set-cookie", "")
++        self.assertIn("igs_node=", cookie)
++        self.assertIn("HttpOnly", cookie)
++        self.assertNotIn(KEY, cookie)                      # the cookie is a derived value, never the key itself
++        self.assertEqual(c.get("/api/auth/me").status_code, 200)
++        self.assertEqual(c.get("/").status_code, 200)
++
++    def test_post_still_needs_the_site_header(self):
++        c = self.client()
++        r = c.post("/api/cancel", headers={"X-Igs-Token": KEY})
++        self.assertEqual(r.status_code, 403)
++        r = c.post("/api/cancel", headers={"X-Igs-Token": KEY, **H})
++        self.assertNotEqual(r.status_code, 403)
++
++    def test_foreign_host_refused(self):
++        c = TestClient(site.app, base_url="http://evil.example")
++        self.assertEqual(c.get("/api/status", headers={"X-Igs-Token": KEY}).status_code, 403)
++
++    def test_trend_endpoint(self):
++        c = self.client()
++        r = c.get("/api/trend/demo_fit_page?limit=1", headers={"X-Igs-Token": KEY})
++        self.assertEqual(r.status_code, 200)
++        body = r.json()
++        self.assertEqual([p["code"] for p in body["posts"]], ["N1"])
++        self.assertNotIn("followers_list", body)
++        self.assertEqual(c.get("/api/trend/never_read", headers={"X-Igs-Token": KEY}).status_code, 404)
++        self.assertEqual(c.get("/api/trend/bad%20name", headers={"X-Igs-Token": KEY}).status_code, 404)
++
++
++class ShortKeyTests(unittest.TestCase):
++    def test_a_short_key_is_no_key(self):
++        old = site.API_TOKEN
++        site.API_TOKEN = "short"
++        try:
++            c = TestClient(site.app, base_url="http://127.0.0.1")
++            self.assertEqual(c.get("/api/status", headers={"X-Igs-Token": "short"}).status_code, 401)
++            self.assertEqual(c.get("/?igs_key=short", follow_redirects=False).status_code, 401)
++        finally:
++            site.API_TOKEN = old
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN '--exclude=static' '--exclude=__pycache__' abagram-orig/tests/test_trend_unit.py abagram/tests/test_trend_unit.py
+--- a/tests/test_trend_unit.py	1970-01-01 01:00:00.000000000 +0100
++++ b/tests/test_trend_unit.py	2026-11-12 07:58:57.895993900 +0100
+@@ -0,0 +1,55 @@
++"""ig_trend (NMarketing node): the recent posts of one page, nothing else. python tests/test_trend_unit.py"""
++import os
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++sys.path.insert(0, str(HERE.parent))
++sys.path.insert(0, str(HERE))
++TMP = tempfile.mkdtemp(prefix="igs-trend-")
++os.environ["IGS_DATA"] = TMP
++
++import ig_trend  # noqa: E402
++from nm_fixture import post, write_page  # noqa: E402
++
++
++class RecentTests(unittest.TestCase):
++    def test_returns_profile_numbers_and_posts_newest_first(self):
++        write_page(TMP, "demo_fit_page", [post("A1", age_h=50), post("A2", age_h=5), post("A3", age_h=20)])
++        out = ig_trend.recent("demo_fit_page", TMP)
++        self.assertEqual(out["format"], "nm-ig-page")
++        self.assertEqual([p["code"] for p in out["posts"]], ["A2", "A3", "A1"])
++        self.assertEqual(out["profile"]["followers"], 52000)
++        self.assertEqual(out["profile"]["username"], "demo_fit_page")
++
++    def test_only_the_trend_fields_leave(self):
++        write_page(TMP, "demo_two", [post("B1", music={"kind": "music", "title": "آهنگ", "artist": "هنرمند"})])
++        out = ig_trend.recent("demo_two", TMP)
++        one = out["posts"][0]
++        for gone in ("mentions", "tagged", "location", "thumb", "items", "url", "coauthors", "sponsors"):
++            self.assertNotIn(gone, one)
++        self.assertEqual(one["music"], {"kind": "music", "title": "آهنگ", "artist": "هنرمند"})
++        self.assertEqual(one["likes"], 900)
++        self.assertEqual(one["views"], 15000)
++
++    def test_limit_and_caption_cap(self):
++        write_page(TMP, "demo_three", [post(f"C{i}", age_h=i + 1, caption="ک" * 5000) for i in range(30)])
++        out = ig_trend.recent("demo_three", TMP, limit=5)
++        self.assertEqual(len(out["posts"]), 5)
++        self.assertEqual(out["post_count_saved"], 30)
++        self.assertEqual(len(out["posts"][0]["caption"]), ig_trend.MAX_CAPTION)
++
++    def test_nothing_saved_or_bad_name_is_none(self):
++        self.assertIsNone(ig_trend.recent("never_read_page", TMP))
++        self.assertIsNone(ig_trend.recent("../../etc/passwd", TMP))
++        self.assertIsNone(ig_trend.recent("", TMP))
++
++    def test_posts_without_code_or_time_are_dropped(self):
++        write_page(TMP, "demo_four", [post("D1"), {"caption": "no code", "taken_at": 5}, {"code": "x"}])
++        self.assertEqual([p["code"] for p in ig_trend.recent("demo_four", TMP)["posts"]], ["D1"])
++
++
++if __name__ == "__main__":
++    unittest.main()

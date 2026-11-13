@@ -1,0 +1,108 @@
+/* Reset, type, icons, buttons, inputs: the shared look every view builds on. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overflow-x: clip;
+  scrollbar-color: var(--bg-hover) transparent; }   /* quiet scrollbars everywhere (no grey Windows bars with arrows) */
+html[data-overlay] { overflow: hidden; }
+body {
+  margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text);
+  font: 400 var(--fs-md) / var(--lh) var(--font); overflow-x: clip;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, h5, p, ul, ol, dl, dd, figure { margin: 0; }
+.ov-body, .mn-pop { scrollbar-width: thin; }
+ul, ol { padding: 0; list-style: none; }
+img, video, svg { display: block; max-width: 100%; }
+img { height: auto; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; touch-action: manipulation; }
+button:disabled { cursor: default; }
+a { color: inherit; text-decoration: none; }
+bdi { unicode-bidi: isolate; }
+[hidden] { display: none !important; }
+::selection { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip {
+  position: fixed; inset-block-start: var(--s2); inset-inline-start: var(--s2); z-index: var(--z-toast);
+  padding: var(--s2) var(--s4); border-radius: var(--r-sm); background: var(--primary); color: var(--on-primary);
+  transform: translateY(-200%); transition: transform var(--dur) var(--ease);
+}
+.skip:focus-visible { transform: none; }
+
+/* Icons from the sprite: currentColor strokes, three sizes. */
+.ic { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round; }
+.ic-sm { width: 16px; height: 16px; }
+.ic-lg { width: 28px; height: 28px; }
+.ic.fill { fill: currentColor; stroke: none; }
+
+.muted { color: var(--text-2); }
+.small { font-size: var(--fs-sm); }
+.strong { font-weight: 600; }
+.nowrap { white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Buttons: 44px hit area everywhere; the visible box can be 32px (sm) inside the hit area. */
+.btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: 44px; padding: 0 var(--s4); border-radius: var(--r-sm); font-weight: 600; font-size: var(--fs-md);
+  line-height: 1.2; white-space: nowrap; user-select: none;
+  background: var(--bg-3); color: var(--text);
+  transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease), opacity var(--dur-fast);
+}
+.btn:hover:not(:disabled) { background: var(--bg-hover); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; }
+.btn.primary { background: var(--primary); color: var(--on-primary); }
+.btn.primary:hover:not(:disabled) { background: var(--primary-hover); }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover:not(:disabled) { background: var(--bg-3); }
+.btn.danger { background: transparent; color: var(--danger-text); }
+.btn.danger:hover:not(:disabled) { background: var(--danger-bg); }
+.btn.link { background: transparent; color: var(--primary-text); padding-inline: var(--s2); min-height: 44px; }
+.btn.link:hover:not(:disabled) { color: var(--primary-hover); background: transparent; text-decoration: underline; }
+.btn.sm { min-height: 36px; padding: 0 var(--s3); font-size: var(--fs-sm); }
+.btn.sm::after { content: ""; position: absolute; inset: -4px 0; }   /* keeps the 44px hit area */
+.btn.lg { min-height: 48px; font-size: var(--fs-lg); }
+.btn.full { width: 100%; }
+.btn[aria-busy="true"] { color: transparent; pointer-events: none; }
+.btn[aria-busy="true"] .spin { position: absolute; inset: 0; margin: auto; color: currentColor; }
+.btn.primary[aria-busy="true"] .spin { color: var(--on-primary); }
+.btn:not(.primary)[aria-busy="true"] .spin { color: var(--text); }
+
+.icon-btn {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: var(--r-full);
+  color: var(--text); transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.icon-btn:hover:not(:disabled) { background: var(--bg-3); }
+.icon-btn:active:not(:disabled) { transform: scale(.94); }
+.icon-btn[aria-pressed="true"] { color: var(--primary); }
+
+/* Inputs */
+.input {
+  width: 100%; min-height: 44px; padding: 0 var(--s3); border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--text); font-size: 16px;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.input:focus { border-color: var(--text-2); outline: none; }
+.input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+.input::placeholder { color: var(--text-2); }
+.input[dir="ltr"] { text-align: left; }
+.field { display: grid; gap: var(--s1); }
+.field > label { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.field .help { font-size: var(--fs-sm); color: var(--text-2); }
+.field .error { font-size: var(--fs-sm); color: var(--danger-text); }
+
+/* Spinner: the ring that turns (also used inside buttons). */
+.spin { width: 20px; height: 20px; border-radius: 50%; border: 2px solid currentColor; border-inline-end-color: transparent;
+  animation: spin 800ms linear infinite; opacity: .8; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }

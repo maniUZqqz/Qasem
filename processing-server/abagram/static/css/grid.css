@@ -1,0 +1,119 @@
+/* Profile tabs (js/views/profile-tabs.js): posts/reels grids (.gr-) and the about tab (.ab-). */
+
+/* ---- Grid: edge to edge on phones, 4px gaps from tablets up. A host with a side gutter on phones sets
+   --gr-bleed to that gutter so the grid still reaches the screen edges. ---- */
+.gr { display: grid; padding-block-end: var(--s10); }
+.gr-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px;
+  margin-inline: calc(var(--gr-bleed, 0px) * -1);
+}
+@media (min-width: 768px) {
+  .gr-grid { gap: 4px; margin-inline: 0; }
+}
+.gr-grid .sk-tile { aspect-ratio: 3 / 4; }
+.gr-tall .sk-tile { aspect-ratio: 9 / 16; }
+
+.gr-tile {
+  position: relative; display: block; aspect-ratio: 3 / 4; overflow: hidden; isolation: isolate;
+  background: var(--tile-bg); color: white; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.gr-tall .gr-tile { aspect-ratio: 9 / 16; }
+.gr-tile img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity var(--dur) var(--ease);
+}
+.gr-tile img.in { opacity: 1; }
+.gr-tile:active img { opacity: .85; }
+
+/* Neutral placeholder under the picture (shown while it loads, or when there is no picture at all). */
+.gr-ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-2); }
+.gr-ph .ic { opacity: .7; }
+
+/* Corner marks: kind at inline-end top, pin at inline-start top (Instagram's spots, mirrored). */
+.gr-kind, .gr-pin {
+  position: absolute; z-index: 1; inset-block-start: var(--s2); display: grid; place-items: center;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, .55));
+}
+.gr-kind { inset-inline-end: var(--s2); }
+.gr-pin { inset-inline-start: var(--s2); }
+.gr-kind .ic, .gr-pin .ic { width: 20px; height: 20px; }
+
+/* Reels: view count at inline-start bottom over a soft shade. */
+.gr-views {
+  position: absolute; z-index: 1; inset-inline: 0; inset-block-end: 0; display: flex; align-items: center;
+  gap: var(--s1); padding: var(--s8) var(--s2) var(--s2);
+  background: linear-gradient(to top, rgba(0, 0, 0, .5), transparent);
+  font-size: var(--fs-sm); font-weight: 600; line-height: 1;
+}
+.gr-views .ic { width: 16px; height: 16px; }
+
+/* Desktop hover (and keyboard focus): likes and comments over a 30% shade. */
+.gr-hover {
+  position: absolute; z-index: 2; inset: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: var(--s2) var(--s6); padding: var(--s2); background: rgba(0, 0, 0, .3);
+  font-size: var(--fs-lg); font-weight: 700; line-height: 1; opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.gr-n { display: inline-flex; align-items: center; gap: var(--s2); white-space: nowrap; }
+.gr-n .ic { width: 20px; height: 20px; }
+@media (hover: hover) {
+  .gr-tile:hover .gr-hover { opacity: 1; }
+}
+.gr-tile:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: 0; }
+.gr-tile:focus-visible .gr-hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .gr-tile img { transition: none; }
+}
+
+/* Under the grid: what is saved, and the button that reads more. */
+.gr-foot { display: grid; justify-items: center; gap: var(--s3); padding-block-start: var(--s6); text-align: center; }
+.gr-foot-line { color: var(--text-2); font-size: var(--fs-sm); }
+.gr-foot .btn { min-width: min(280px, 100%); }
+.gr-cap { color: var(--text); font-size: var(--fs-md); max-width: 44ch; }
+.gr-cap a { display: inline-flex; align-items: center; min-height: 44px; color: var(--link); font-weight: 600;
+  text-underline-offset: 3px; }
+.gr-cap a:hover { text-decoration: underline; }
+
+/* ---- About tab: one quiet column, like Instagram's «About this account» ---- */
+.ab {
+  display: grid; gap: var(--s8); width: 100%; max-width: calc(600px + 2 * var(--gutter)); margin-inline: auto;
+  padding-block: var(--s6) var(--s12); padding-inline: var(--gutter);
+}
+.ab-sec { display: grid; gap: var(--s2); min-width: 0; }
+.ab-h { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.ab-count { font-size: var(--fs-sm); font-weight: 400; color: var(--text-2); }
+.ab-none { color: var(--text-2); font-size: var(--fs-md); }
+
+.ab-list { display: grid; }
+.ab-row {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: var(--s3); align-items: center;
+  min-height: 64px; padding-block: var(--s3); border-block-end: 1px solid var(--line-2);
+}
+.ab-row:last-child { border-block-end: 0; }
+.ab-ic {
+  grid-row: 1 / span 2; display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: 50%; border: 1px solid var(--line); color: var(--text);
+}
+.ab-row dt { font-size: var(--fs-sm); color: var(--text-2); line-height: var(--lh-tight); }
+.ab-row dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); min-width: 0;
+  font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
+.ab-val { min-width: 0; }
+.ab-row dd .sk-line { display: inline-block; width: 12em; margin-block: 4px; }
+.ab-sub { color: var(--text-2); font-size: var(--fs-sm); }
+.ab-link { color: var(--link); font-weight: 600; }
+.ab-link:hover { text-decoration: underline; }
+
+/* Similar accounts: people rows in a paged list */
+.ab-people .plist-foot { padding-block-start: var(--s2); }
+.ab-person {
+  display: flex; align-items: center; gap: var(--s3); min-height: 64px; padding: var(--s2) var(--s2);
+  margin-inline: calc(var(--s2) * -1); border-radius: var(--r-md);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.ab-person:hover { background: var(--bg-2); }
+.ab-person:active { background: var(--bg-3); }
+.ab-person:focus-visible { outline-offset: -2px; border-radius: var(--r-md); }
+.ab-pname { display: grid; flex: 1; min-width: 0; line-height: var(--lh-tight); gap: 2px; }
+.ab-puser { display: flex; align-items: center; gap: var(--s1); min-width: 0; font-weight: 600; }
+.ab-pfull { color: var(--text-2); font-size: var(--fs-sm); }
+.ab-chev { color: var(--text-2); }

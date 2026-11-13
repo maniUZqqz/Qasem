@@ -1,0 +1,120 @@
+/* «تنظیمات» — js/views/settings.js. Phones: the list, then one section page; ≥768px: the list beside the section. */
+.sg { display: grid; gap: var(--s6); padding: var(--s4) var(--gutter) var(--s10); }
+.sg-side { display: grid; gap: var(--s3); align-content: start; min-width: 0; }
+.sg-h1 { font-size: var(--fs-2xl); font-weight: 800; line-height: var(--lh-tight); padding-inline: var(--s3); }
+.sg-nav { display: grid; gap: 2px; }
+
+/* Section rows: icon, label (+ a hint on phones), chevron. */
+.sg-row { display: flex; align-items: center; gap: var(--s3); min-height: 60px; padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); color: var(--text); touch-action: manipulation;
+  transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.sg-row:hover { background: color-mix(in srgb, var(--bg-3) 60%, transparent); }
+.sg-row:active { transform: scale(.98); }
+.sg-row[aria-current="page"] { background: var(--bg-3); }
+.sg-row[aria-current="page"] .sg-row-l { font-weight: 700; }
+.sg-row-ic { display: inline-grid; place-items: center; flex: none; }
+.sg-row-t { display: grid; gap: 2px; flex: 1; min-width: 0; line-height: var(--lh-tight); }
+.sg-row-l { font-weight: 600; }
+.sg-row-h { font-size: var(--fs-sm); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-row-go { color: var(--text-2); }
+
+/* The open section */
+.sg-main { display: grid; gap: var(--s5); align-content: start; min-width: 0; }
+.sg-head { display: flex; align-items: center; gap: var(--s1); min-height: 44px; }
+.sg-back { margin-inline-start: calc(var(--s2) * -1); }
+.sg-h2 { font-size: var(--fs-xl); font-weight: 700; line-height: var(--lh-tight); }
+.sg-h2:focus-visible { outline: none; }
+.sg-h3 { font-size: var(--fs-md); font-weight: 700; line-height: var(--lh-tight); }
+.sg-stack { display: grid; gap: var(--s4); min-width: 0; }
+.sg-intro { color: var(--text-2); max-width: 62ch; }
+.sg-muted { color: var(--text-2); font-size: var(--fs-sm); }
+.sg-link { color: var(--primary-text); font-weight: 600; }
+.sg-link:hover { text-decoration: underline; }
+
+/* Cards: the account, the pause, the files total */
+.sg-card { display: flex; align-items: center; gap: var(--s4); min-width: 0; padding: var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
+.sg-grow { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.sg-acct { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; max-width: 100%;
+  font-size: var(--fs-lg); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-acct:hover { text-decoration: underline; }
+.sg-card-ic { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: var(--r-full);
+  background: var(--bg-3); color: var(--text); }
+.sg-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.sg-zone { display: grid; gap: var(--s2); justify-items: start; padding-block-start: var(--s4); border-block-start: 1px solid var(--line); }
+.sg-zone .btn.danger { margin-inline-start: calc(var(--s3) * -1); padding-inline: var(--s3); }
+
+/* Usage meters: used of cap; green below 80%, amber from 80%, red when full (the words say it too). */
+.sg-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--s3); }
+.sg-meter { display: grid; gap: var(--s1); align-content: start; padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r-md); }
+.sg-meter-l { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.sg-meter-v { color: var(--text-2); }
+.sg-meter-v > bdi:first-child { color: var(--text); font-weight: 600; }
+.sg-big { font-size: var(--fs-2xl); font-weight: 800; line-height: var(--lh-tight); color: var(--text); }
+.sg-track { height: 6px; margin-block-start: var(--s2); border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+.sg-track > i { display: block; height: 100%; border-radius: inherit; background: var(--ok-text); }
+.sg-high .sg-track > i { background: var(--warn); }
+.sg-full .sg-track > i { background: var(--danger); }
+.sg-full { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.sg-meter-s { font-size: var(--fs-sm); font-weight: 600; color: var(--warn-text); }
+.sg-full .sg-meter-s { color: var(--danger-text); }
+
+.sg-cool { flex-wrap: wrap; align-items: flex-start; background: var(--warn-bg); border-color: transparent; }
+.sg-cool .sg-card-ic { background: var(--bg); color: var(--warn-text); }
+.sg-cool .sg-grow { flex-basis: 220px; }
+.sg-cool .sg-muted { color: var(--warn-text); }
+.sg-calm .sg-card-ic { background: var(--ok-bg); color: var(--ok-text); }
+
+/* Limits: fieldsets of number fields, and a save bar that stays in reach */
+.sg-set { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.sg-set > legend { width: 100%; padding: 0 0 var(--s3); }
+.sg-set + .sg-set > legend { padding-block-start: var(--s5); border-block-start: 1px solid var(--line); }
+.sg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--s4); }
+.sg-grid .field { align-content: start; }
+.sg-grid .input[dir="ltr"] { text-align: end; }
+.sg-bar { position: sticky; inset-block-end: calc(var(--tab-h) + var(--safe-b)); z-index: var(--z-sticky);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); padding-block: var(--s3);
+  background: var(--bg); border-block-start: 1px solid var(--line); }
+.sg-bar .sg-acts { margin-inline-start: auto; }
+.sg-dirty { font-size: var(--fs-sm); font-weight: 600; color: var(--warn-text); }
+.sg-dirty:empty { display: none; }
+
+.sg-look .seg { display: flex; max-width: 420px; }
+.sg-look .seg > button { flex: 1; min-height: 44px; }
+
+@media (max-width: 767px) {
+  .sg.sg-at-list .sg-main, .sg:not(.sg-at-list) .sg-side { display: none; }
+  .sg-row[aria-current="page"] { background: none; }
+  .sg-row[aria-current="page"] .sg-row-l { font-weight: 600; }
+  .sg-acts > .btn { flex: 1 1 auto; }
+  .sg-bar { margin-inline: calc(var(--gutter) * -1); padding-inline: var(--gutter); }
+  .sg-bar .sg-acts { flex: 1 1 100%; }
+}
+@media (min-width: 768px) {
+  .sg { grid-template-columns: minmax(200px, 260px) minmax(0, 600px); justify-content: center; gap: var(--s8); padding-block-start: var(--s8); }
+  .sg-side { position: sticky; inset-block-start: var(--s6); align-self: start; }
+  .sg-row { min-height: 48px; }
+  .sg-row-h, .sg-row-go, .sg-back { display: none; }
+  .sg-bar { inset-block-end: 0; }
+}
+
+/* The Chromium window switch */
+.sg-switchrow { align-items: center; }
+.sg-switch { position: relative; flex: none; width: 52px; height: 32px; border-radius: var(--r-full); background: var(--bg-hover);
+  transition: background-color var(--dur) var(--ease); }
+.sg-switch::after { content: ""; position: absolute; inset: -6px; }          /* 44px hit area */
+.sg-knob { position: absolute; inset-block-start: 3px; inset-inline-start: 3px; width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform var(--dur) var(--ease-spring); }
+.sg-switch[aria-checked="true"] { background: var(--ok); }
+[dir="rtl"] .sg-switch[aria-checked="true"] .sg-knob { transform: translateX(-20px); }
+[dir="ltr"] .sg-switch[aria-checked="true"] .sg-knob { transform: translateX(20px); }
+
+/* «کاربران» (the admin only): one row per person who may come in — name, last login, his access and «برداشتن» */
+.sg-users { display: grid; gap: var(--s2); }
+.sg-user { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); min-width: 0; padding: var(--s3) var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
+.sg-user .sg-grow { min-inline-size: 12ch; }
+.sg-user-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.sg-roles { display: grid; gap: var(--s2); justify-items: start; }
+/* «تبادلِ JSON»: a row of the section list that opens a page of its own */
+.sg-row-out { margin-block-start: var(--s2); border-block-start: 1px solid var(--line-2); border-start-start-radius: 0; border-start-end-radius: 0; }

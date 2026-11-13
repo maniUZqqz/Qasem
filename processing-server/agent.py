@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.12"
+VERSION = "2.13"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -3322,7 +3322,7 @@ def h_node_models(job):
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
 CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
-              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py")
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py")
 
 
 def code_stamp():
@@ -4267,6 +4267,12 @@ def device_extras(kind, payload):
     except Exception:  # noqa: BLE001 - the verdict then comes from the nvidia-smi samples
         pass
     return extra
+
+
+try:                       # the Instagram reader (Abagram) as a local service + job kinds ig.scrape / ig.health (abagram_jobs.py)
+    import abagram_jobs; abagram_jobs.register(sys.modules[__name__])
+except Exception as e:  # noqa: BLE001 - a broken optional module must never stop the agent
+    print("note: the Instagram reader (abagram_jobs.py) is not available: %s" % e, flush=True)
 
 
 def run_job(site, data):

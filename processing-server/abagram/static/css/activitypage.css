@@ -1,0 +1,143 @@
+/* «فعالیت» as a page (js/views/activity.js + actmodel.js): the strip of four tiles, then the list and the chosen activity's detail.
+   Prefix .act- (not .av: that is the avatar). Tones: live (working), ok, warn (waits for him / paused), bad (failed), idle, muted. Motion: transform/opacity only. */
+.act { display: grid; gap: var(--s4); inline-size: 100%; max-inline-size: 1240px; margin-inline: auto;
+  padding: var(--s5) var(--gutter) var(--s10); min-inline-size: 0; }
+.act-head { display: grid; gap: var(--s1); }
+.act-title { font-size: var(--fs-2xl); font-weight: 800; }
+.act-lede { color: var(--text-2); font-size: var(--fs-md); line-height: 1.8; max-inline-size: 72ch; }
+.act-muted { color: var(--text-2); font-size: var(--fs-md); }
+
+/* tones, shared by the tiles, the icon discs and the pills */
+.act .is-live { --tone: var(--primary-text); --tone-bg: color-mix(in srgb, var(--primary) 12%, transparent); }
+.act .is-ok { --tone: var(--ok-text); --tone-bg: var(--ok-bg); }
+.act .is-warn { --tone: var(--warn-text); --tone-bg: var(--warn-bg); }
+.act .is-bad { --tone: var(--danger-text); --tone-bg: var(--danger-bg); }
+.act .is-idle { --tone: var(--text-2); --tone-bg: var(--bg-3); }
+.act .is-muted { --tone: var(--text-3); --tone-bg: var(--bg-3); }
+
+/* ---- the strip: four tiles; one tap filters the list ---- */
+.act-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); }
+@media (max-width: 1023px) { .act-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* (phones: see the end of the file) */
+.act-tile { display: grid; gap: 6px; padding: var(--s4); text-align: start; border-radius: var(--island-r); background: var(--bg); color: var(--text);
+  border: 1px solid var(--island-line); box-shadow: var(--island-shadow); cursor: pointer; min-inline-size: 0;
+  transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.act-tile:hover { background: var(--bg-2); }
+.act-tile:active { transform: scale(.98); }
+.act-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.act-tile-head { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); font-weight: 700; }
+.act-tile-ic { display: grid; place-items: center; inline-size: 28px; block-size: 28px; border-radius: var(--r-full); background: var(--tone-bg); color: var(--tone); }
+.act-tile-v { font-size: var(--fs-lg); font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-tile.is-live .act-tile-v, .act-tile.is-warn .act-tile-v, .act-tile.is-bad .act-tile-v { color: var(--tone); }
+.act-tile-s { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- list (inline start) and detail: side by side from 960px, the list fits the window and scrolls inside ---- */
+.act-md { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: var(--s4); align-items: start; }
+.act-side, .act-main { border-radius: var(--island-r); background: var(--bg); border: 1px solid var(--island-line); box-shadow: var(--island-shadow); min-inline-size: 0; }
+.act-side { position: sticky; inset-block-start: var(--s4); display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--s3);
+  max-block-size: calc(100dvh - 2 * var(--s4)); padding: var(--s3); overflow: hidden; }
+.act-filter { overflow-x: auto; scrollbar-width: none; }
+.act-filter .seg { inline-size: max-content; }
+.act-list-box { overflow-y: auto; overscroll-behavior: contain; min-block-size: 0; }
+.act-list .plist-rows { display: grid; gap: 2px; }
+.act-main { padding: var(--s5); }
+.act-back { display: none; margin-block-end: var(--s3); }
+@media (max-width: 959px) {
+  .act-md { grid-template-columns: minmax(0, 1fr); }
+  .act-side { position: static; max-block-size: none; }
+  .act.is-open .act-side, .act:not(.is-open) .act-main { display: none; }
+  .act-back { display: inline-flex; }
+  .act-main { padding: var(--s4); }
+}
+
+/* one row: icon disc, title + pill, @user + when, a thin bar when it has a progress */
+.act-item { display: flex; align-items: flex-start; gap: var(--s3); inline-size: 100%; min-block-size: 64px; padding: var(--s3);
+  border: 0; border-radius: var(--r-md); background: transparent; color: var(--text); text-align: start; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease); }
+.act-item:hover { background: var(--bg-2); }
+.act-item[aria-current="true"] { background: var(--bg-2); box-shadow: inset -3px 0 0 var(--primary); }   /* RTL: the bar sits at the inline start */
+[dir="ltr"] .act-item[aria-current="true"] { box-shadow: inset 3px 0 0 var(--primary); }
+.act-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.act-ic { display: grid; place-items: center; flex: none; inline-size: 40px; block-size: 40px; border-radius: var(--r-full);
+  background: var(--tone-bg); color: var(--tone); }
+.act-ic-lg { inline-size: 56px; block-size: 56px; }
+.act-item.is-live .act-ic { animation: act-breathe 1.6s var(--ease) infinite alternate; }
+@keyframes act-breathe { to { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .act-item.is-live .act-ic { animation: none; } }
+.act-item-main { display: grid; gap: 4px; flex: 1; min-inline-size: 0; }
+.act-item-top { display: flex; align-items: center; gap: var(--s2); min-inline-size: 0; }
+.act-item-t { flex: 1; min-inline-size: 0; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-item-sub { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); min-inline-size: 0; }
+.act-item-sub bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-item-when { margin-inline-start: auto; flex: none; }
+.act-pill { flex: none; padding: 2px 10px; border-radius: var(--r-full); background: var(--tone-bg); color: var(--tone); font-size: var(--fs-sm); font-weight: 700; }
+.act-mini { position: relative; display: block; block-size: 4px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; margin-block-start: 2px; }
+.act-mini i { position: absolute; inset: 0; background: var(--primary); transform-origin: right; transform: scaleX(var(--p, 0)); transition: transform var(--dur-enter) var(--ease); }
+[dir="ltr"] .act-mini i { transform-origin: left; }
+
+/* ---- the detail ---- */
+.act-d { display: grid; gap: var(--s4); min-inline-size: 0; }
+.act-d-head { display: flex; align-items: center; gap: var(--s3); }
+.act-d-text { display: grid; gap: 2px; flex: 1; min-inline-size: 0; }
+.act-d-t { font-size: var(--fs-xl); font-weight: 800; }
+.act-d-sub { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-md); }
+.act-d-user { font-weight: 700; color: var(--text); }
+.act-d-user:hover { text-decoration: underline; }
+.act-d-head > .act-pill { font-size: var(--fs-md); padding: 4px 12px; }
+.act-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); margin: 0;
+  padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--bg-2); }
+.act-meta-i { display: grid; gap: 2px; min-inline-size: 0; }
+.act-meta dt { color: var(--text-2); font-size: var(--fs-sm); }
+.act-meta dd { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+.act-prog { display: grid; gap: var(--s2); }
+.act-prog-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s2); font-size: var(--fs-md); }
+.act-prog-top span { color: var(--text-2); font-size: var(--fs-sm); }
+.act-prog .pj-bar { block-size: 8px; }
+.act-note { display: flex; align-items: flex-start; gap: var(--s2); padding: var(--s3); border-radius: var(--r-md);
+  background: var(--bg-2); font-size: var(--fs-md); line-height: 1.7; }
+.act-note > .ic { flex: none; margin-block-start: 4px; color: var(--text-2); }
+.act-sec { font-size: var(--fs-md); font-weight: 800; margin-block-start: var(--s2); }
+.act-steps { display: grid; gap: var(--s2); }
+.act-step { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; column-gap: var(--s2); font-size: var(--fs-md); color: var(--text-2); }
+.act-step small { grid-column: 2; color: var(--text-2); font-size: var(--fs-sm); }
+.act-step-dot { display: grid; place-items: center; inline-size: 26px; block-size: 26px; border-radius: var(--r-full); border: 2px solid var(--line); }
+.act-step.is-active, .act-step.is-done { color: var(--text); }
+.act-step.is-active .act-step-dot { border-color: var(--primary); }
+.act-step.is-done .act-step-dot { border-color: var(--ok); background: var(--ok); color: #fff; }
+.act-step.is-failed .act-step-dot { border-color: var(--danger); background: var(--danger); color: #fff; }
+.act-step.is-skipped { opacity: .6; }
+.act-step-n { color: var(--text-2); font-size: var(--fs-sm); }
+.act-btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.act-from { color: var(--text-2); font-size: var(--fs-md); }
+.act-link { padding: 0; border: 0; background: none; color: var(--primary-text); font: inherit; font-weight: 700; cursor: pointer; }
+.act-link:hover { text-decoration: underline; }
+.act-link:focus-visible { outline: 2px solid var(--focus); border-radius: 4px; }
+.act-out { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s4); border-radius: var(--r-md); background: var(--tone-bg); }
+.act-out > .ic { flex: none; color: var(--tone); margin-block-start: 2px; }
+.act-out b { font-size: var(--fs-md); color: var(--tone); }
+.act-out p { margin: 4px 0 0; color: var(--text); font-size: var(--fs-md); line-height: 1.7; }
+.act-runs-l { display: grid; gap: 2px; }
+.act-run-row { display: flex; align-items: center; gap: var(--s3); inline-size: 100%; min-block-size: 44px; padding: var(--s2) var(--s3);
+  border: 0; border-radius: var(--r-md); background: transparent; color: var(--text); text-align: start; font: inherit; cursor: pointer; }
+.act-run-row:hover { background: var(--bg-2); }
+.act-run-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.act-run-when { margin-inline-start: auto; color: var(--text-2); font-size: var(--fs-sm); }
+/* the live card and the log come from the drawer's styles (activity.css); on this page they sit inside the island */
+.act-d-live .ac-run { padding: 0; border: 0; }
+.act-main .ac-log-box { height: auto; max-block-size: 440px; min-block-size: 200px; }
+.act-log-tall { max-block-size: 520px; }
+
+/* the news above the list: compact (js/views/notify.js noticeList({compact})) */
+.act .nt-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2); }
+.act .nt-head h3 { white-space: nowrap; }
+.act .nt-acts { display: inline-flex; flex-wrap: wrap; gap: var(--s3); }
+/* a phone: the four tiles two by two, smaller */
+@media (max-width: 479px) {
+  .act-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+  .act-tile { padding: var(--s3); gap: 4px; }
+  .act-tile-v { font-size: var(--fs-md); }
+}
+
+/* a finished run's own picture of its window, with when it was taken */
+.act-pic { margin: var(--s3) 0 0; display: grid; gap: var(--s2); justify-items: start; }
+.act-pic-cap { color: var(--text-2); font-size: var(--fs-md); line-height: 1.7; }

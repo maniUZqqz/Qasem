@@ -375,7 +375,7 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
-                       "edit": "ffmpeg", "multiangle": "multiangle"}
+                       "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")

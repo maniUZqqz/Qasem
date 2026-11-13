@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import {
@@ -14,6 +14,7 @@ import {
   Spinner,
   fa,
 } from "../../components/ui";
+import InstagramTrends from "./InstagramTrends";
 
 type News = {
   title: string;
@@ -85,7 +86,7 @@ const LLM_LABEL = ["نامرتبط (به نظرِ مدل)", "ربطِ ضعیف (
  *   across languages through a small category lexicon; the model's opinion is
  *   added when asked and reachable).
  */
-export default function TrendsPage() {
+function MarketTrends({ tabs }: { tabs: ReactNode }) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [trends, setTrends] = useState<Trend[]>([]);
@@ -233,6 +234,7 @@ export default function TrendsPage() {
           </Link>
         }
       />
+      {tabs}
 
       <ErrorBox message={error} />
       {notice && (
@@ -445,4 +447,66 @@ function TrendCard({ trend, busy, onIdea }: { trend: Trend; busy: boolean; onIde
       </div>
     </Card>
   );
+}
+
+type TrendsTab = "market" | "instagram";
+
+/**
+ * The trends page has two sources: the market's daily search trends (above) and what the pages the shop watches are making on
+ * Instagram right now (InstagramTrends: read by Abagram on the processing node, or imported from an Abagram file).
+ */
+export default function TrendsPage() {
+  const { id } = useParams<{ id: string }>();
+  const [params, setParams] = useSearchParams();
+  const [tab, setTab] = useState<TrendsTab>(() => {
+    const asked = params.get("tab");
+    if (asked === "instagram" || asked === "market") return asked;
+    try {
+      return localStorage.getItem("trends-tab") === "instagram" ? "instagram" : "market";
+    } catch {
+      return "market";
+    }
+  });
+
+  function choose(next: TrendsTab) {
+    setTab(next);
+    try {
+      localStorage.setItem("trends-tab", next);
+    } catch {
+      /* a private window may refuse storage; the tab still works */
+    }
+    const nextParams = new URLSearchParams(params);
+    nextParams.set("tab", next);
+    setParams(nextParams, { replace: true });
+  }
+
+  const tabs = (
+    <div role="tablist" aria-label="منبعِ ترند" className="mb-4 flex flex-wrap gap-2">
+      <Button role="tab" aria-selected={tab === "market"} variant={tab === "market" ? "primary" : "secondary"} onClick={() => choose("market")}>
+        ترندهای بازار
+      </Button>
+      <Button role="tab" aria-selected={tab === "instagram"} variant={tab === "instagram" ? "primary" : "secondary"} onClick={() => choose("instagram")}>
+        ترندهای اینستاگرام
+      </Button>
+    </div>
+  );
+
+  if (tab === "instagram") {
+    return (
+      <>
+        <PageHeader
+          title="ترندها"
+          subtitle="صفحه‌های هم‌حوزه‌ی شما همین حالا چه می‌سازند و چرا کار می‌کند"
+          actions={
+            <Link to={`/stores/${id}`}>
+              <Button variant="secondary">بازگشت</Button>
+            </Link>
+          }
+        />
+        {tabs}
+        <InstagramTrends storeId={id ?? ""} />
+      </>
+    );
+  }
+  return <MarketTrends tabs={tabs} />;
 }

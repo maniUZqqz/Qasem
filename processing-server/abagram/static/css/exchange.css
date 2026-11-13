@@ -1,0 +1,92 @@
+/* «تبادلِ JSON» (js/views/exchange.js): an upload card and the pages with their downloads, as islands. Prefix .xc-
+   Motion answers an action only: a file row rises in, its bar fills (transform), the drop zone lifts under a dragged file. */
+.xc { display: grid; gap: var(--s4); padding-block: var(--s4) var(--s8); }
+.xc-head { display: grid; gap: var(--s1); padding-inline: var(--s2); }
+.xc-h1 { font-size: var(--fs-2xl); font-weight: 800; line-height: var(--lh-tight); }
+.xc-lead { max-inline-size: 64ch; color: var(--text-2); font-size: var(--fs-md); line-height: var(--lh); }
+
+.xc-card { display: grid; gap: var(--s3); padding: var(--s5) var(--s6); background: var(--bg); border: 1px solid var(--island-line);
+  border-radius: var(--island-r); box-shadow: var(--island-shadow); min-inline-size: 0; }
+.xc-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.xc-h2 { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.xc-h2 > .ic { color: var(--text-2); }
+.xc-count { padding: 2px 10px; border-radius: var(--r-full); background: var(--bg-3); color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
+.xc-count:empty { display: none; }
+.xc-help { max-inline-size: 70ch; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.75; }
+
+/* the drop zone: a dashed field that answers a dragged file */
+.xc-drop { display: grid; justify-items: center; gap: var(--s2); padding: var(--s6) var(--s4); border: 2px dashed var(--line);
+  border-radius: var(--r-lg); background: var(--bg-2); text-align: center;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.xc-drop-ic { display: grid; place-items: center; inline-size: 56px; block-size: 56px; border-radius: 50%; background: var(--bg);
+  color: var(--text-2); transition: transform var(--dur) var(--ease), color var(--dur-fast) var(--ease); }
+.xc-drop-t { font-size: var(--fs-md); font-weight: 600; }
+.xc-drop-or { color: var(--text-2); font-size: var(--fs-sm); }
+.xc-drop.is-over { border-color: var(--primary); background: var(--bg-3); }
+.xc-drop.is-over .xc-drop-ic { transform: translateY(-4px); color: var(--primary-text); }
+
+/* one row per file: name and size, a bar while it goes up, then what changed */
+.xc-jobs { display: grid; gap: var(--s2); }
+.xc-jobs:empty { display: none; }
+.xc-job { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-md);
+  border-inline-start: 3px solid var(--line); background: var(--bg); }
+.xc-job[data-s="ok"] { border-inline-start-color: var(--ok); }
+.xc-job[data-s="bad"] { border-inline-start-color: var(--danger); }
+.xc-job-top { display: flex; align-items: flex-start; gap: var(--s2); }
+.xc-job-ic { flex: none; display: grid; place-items: center; inline-size: 28px; block-size: 28px; border-radius: var(--r-sm);
+  background: var(--bg-2); color: var(--text-2); }
+.xc-job-n { flex: 1; min-inline-size: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2);
+  font-size: var(--fs-sm); font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.xc-job-z { color: var(--text-2); font-weight: 400; }
+.xc-job-s { flex: none; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; }
+.xc-job[data-s="ok"] .xc-job-s { color: var(--ok-text); font-weight: 600; }
+.xc-job[data-s="bad"] .xc-job-s { color: var(--danger-text); font-weight: 600; }
+.xc-bar { position: relative; block-size: 6px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+.xc-bar-i { position: absolute; inset: 0; border-radius: inherit; background: var(--primary); transform-origin: right center;
+  transform: scaleX(0); transition: transform var(--dur) var(--ease); }
+.xc-bar-i:dir(ltr) { transform-origin: left center; }
+.xc-job[data-s="merge"] .xc-bar-i { transition: none; animation: xc-slide 1.1s var(--ease) infinite; }
+@keyframes xc-slide { from { transform: translateX(40%) scaleX(.35); } to { transform: translateX(-110%) scaleX(.35); } }
+@media (prefers-reduced-motion: reduce) { .xc-job[data-s="merge"] .xc-bar-i { animation: none; transform: none; opacity: .5; } }
+.xc-job-b:empty { display: none; }
+.xc-job-err { color: var(--danger-text); font-size: var(--fs-sm); line-height: 1.7; }
+.xc-rep { display: grid; gap: var(--s1); }
+.xc-rep-h { font-size: var(--fs-sm); font-weight: 700; }
+.xc-rep-ls { display: grid; gap: 2px; }
+.xc-rep-l { display: flex; align-items: flex-start; gap: var(--s2); font-size: var(--fs-sm); line-height: 1.75; }
+.xc-rep-l > .ic { flex: none; margin-block-start: 4px; color: var(--ok-text); }
+.xc-rep-l.xc-warn { color: var(--warn-text); }
+.xc-rep-l.xc-warn > .ic { color: var(--warn-text); }
+
+/* the pages: find, a saved profile outside the list, and the paged rows (5/10/15/20) */
+.xc-find { inline-size: 100%; min-block-size: 44px; }
+.xc-other { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--bg-2); }
+.xc-other[hidden] { display: none; }
+.xc-other-t { font-size: var(--fs-sm); line-height: 1.6; }
+.xc-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "av t dl"; align-items: center;
+  gap: var(--s1) var(--s3); padding-block: var(--s2); }
+.xc-row > .av { grid-area: av; }
+.xc-row-t { grid-area: t; display: grid; gap: var(--s1); min-inline-size: 0; }
+.xc-row-u { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); font-size: var(--fs-md); font-weight: 600;
+  line-height: 1.5; overflow-wrap: anywhere; }
+.xc-row-n { color: var(--text-2); font-size: var(--fs-sm); font-weight: 400; }
+.xc-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.xc-row .xc-dl { grid-area: dl; }
+@media (max-width: 480px) {
+  .xc-card { padding: var(--s4); }
+  .xc-row { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "av t" "av dl"; align-items: start; }
+  .xc-row .xc-dl { justify-self: start; }
+}
+
+/* the «فقط JSON» role: this page is the whole site, under a small bar with who is in and «خروج» */
+.xc-app { position: relative; isolation: isolate; min-block-size: 100dvh; background: var(--canvas); }
+.xc-app::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(55vw 42vh at 100% 0%, var(--glow-a), transparent 72%), radial-gradient(48vw 46vh at 0% 6%, var(--glow-b), transparent 72%); }
+.xc-top { position: sticky; inset-block-start: 0; z-index: var(--z-nav); display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3) var(--gutter); padding-block-start: calc(var(--s3) + var(--safe-t)); background: var(--canvas); }
+.xc-brand { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-lg); font-weight: 800; }
+.xc-mark { inline-size: 28px; block-size: 28px; }
+.xc-me { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-inline-start: auto; color: var(--text-2);
+  font-size: var(--fs-sm); }
+.xc-main { display: block; max-inline-size: var(--content-w); margin-inline: auto; padding-inline: var(--gutter); }

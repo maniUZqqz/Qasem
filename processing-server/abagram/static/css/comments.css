@@ -1,0 +1,67 @@
+/* «کامنت‌ها» — the comment rows under a post and the «liked by» line (js/views/comments.js).
+   Instagram's rhythm: a 32px face, the name above the text, a quiet meta row; logical properties only (RTL). */
+.cm { display: grid; gap: var(--s4); align-content: start; min-width: 0; }
+.ov-body > .cm { padding: var(--s3) var(--s4) calc(var(--s6) + var(--safe-b)); }   /* phones: the block is the sheet itself */
+.cm-blank .empty { padding-block: var(--s8); }
+.cm-blank .empty-title { font-size: var(--fs-lg); }
+
+/* Header: how much of the conversation is mirrored here */
+.cm-head { display: grid; gap: 2px; padding-block-end: var(--s3); border-block-end: 1px solid var(--line); }
+.cm-count { font-weight: 600; line-height: var(--lh-tight); }
+.cm-when, .cm-hint { font-size: var(--fs-sm); color: var(--text-2); }
+.cm-hint { line-height: var(--lh); }
+.cm-limit { display: inline-block; padding-block: var(--s1); color: var(--link); font-weight: 600; }
+.cm-limit:hover { text-decoration: underline; }
+
+/* One comment */
+.cm-list .plist-rows { gap: var(--s5); }
+.cm-row { display: flex; align-items: flex-start; gap: var(--s3); min-width: 0; }
+.cm-reply { padding-inline-start: calc(32px + var(--s3)); }
+.cm-row > .av { margin-block-start: 2px; }
+.cm-row > .av::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; }   /* 44px hit area */
+.cm-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cm-name { display: flex; align-items: center; gap: var(--s1); min-width: 0; line-height: var(--lh-tight); }
+.cm-name > .badge-verified { flex: none; }
+.cm-user { position: relative; display: block; flex: 0 1 auto; min-width: 0; font-weight: 600; color: var(--text);
+  transition: opacity var(--dur-fast) var(--ease); }
+.cm-user > bdi { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.cm-user::after { content: ""; position: absolute; inset: -10px -4px; }
+a.cm-user:hover, .cm-at:hover { opacity: .6; }
+span.cm-user { color: var(--text-2); font-weight: 400; }
+.cm-text { white-space: pre-line; overflow-wrap: anywhere; text-align: start; line-height: var(--lh); }
+.cm-text:not(.open) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden; }
+.cm-at, .cm-hash { color: var(--link); }
+.cm-more { position: relative; justify-self: start; min-height: 28px; font-size: var(--fs-sm); font-weight: 600;
+  color: var(--text-2); }
+.cm-more::after { content: ""; position: absolute; inset: -8px -6px; }
+.cm-more:hover { color: var(--text); }
+.cm-gif { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); color: var(--text-2); }
+
+/* Meta row: time, likes, replies, edited, pinned (each its own field, spaced, never joined by a dot) */
+.cm-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s3); min-height: 28px;
+  font-size: var(--fs-sm); color: var(--text-2); line-height: var(--lh-tight); }
+.cm-likes { font-weight: 600; }
+.cm-meta .chip { min-height: 24px; gap: 2px; padding-inline: var(--s2); font-size: var(--fs-xs); }
+.cm-meta .chip .ic { width: 14px; height: 14px; }
+
+/* A note in place of the likers (hidden count, none yet, not read) */
+.cm-note { display: flex; align-items: flex-start; gap: var(--s2); min-height: 44px; padding-block: var(--s2);
+  font-size: var(--fs-sm); color: var(--text-2); line-height: var(--lh); }
+.cm-note > .ic { margin-block-start: 3px; }
+
+/* «پسندیده‌شده توسط …»: up to 3 stacked faces (one gallery) + the line that opens the likers list */
+.cm-likers { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.cm-stack { isolation: isolate; display: inline-flex; align-items: center; flex: none; min-width: 44px; min-height: 44px;
+  justify-content: center; padding-inline: 2px; border-radius: var(--r-sm); transition: transform var(--dur-fast) var(--ease); }
+.cm-stack > .av { box-shadow: 0 0 0 2px var(--bg); }
+.cm-stack > .av + .av { margin-inline-start: -8px; }
+.cm-stack > :nth-child(1) { z-index: 3; }
+.cm-stack > :nth-child(2) { z-index: 2; }
+.cm-stack > :nth-child(3) { z-index: 1; }
+.cm-stack:active { transform: scale(.96); }
+.cm-liked { flex: 1; min-width: 0; display: grid; align-content: center; min-height: 44px; padding-block: 2px;
+  border-radius: var(--r-sm); text-align: start; line-height: var(--lh-tight); }
+.cm-liked-line { overflow-wrap: anywhere; }
+.cm-liked strong { font-weight: 600; transition: opacity var(--dur-fast) var(--ease); }
+.cm-liked:hover strong { opacity: .6; }
+.cm-liked-read { margin-block-start: 2px; font-size: var(--fs-sm); color: var(--text-2); }

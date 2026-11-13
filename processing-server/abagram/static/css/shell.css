@@ -1,0 +1,265 @@
+/* Shell: phone top bar + floating tab bar (< 768px), icon rail (768–1263px, or while a drawer is open),
+   sidebar (≥ 1264px). One <nav> serves all three; js/views/shell.js sets [data-rail] and [data-drawer].
+   Everything floats as islands on a mellow near-white canvas (his taste: never a page split by a hairline). */
+.sh { position: relative; min-height: 100dvh; background: var(--canvas); isolation: isolate; }
+/* A quiet wash of the ring colours behind the islands: static, no blur, no animation (weak GPU). */
+.sh::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(55vw 42vh at 100% 0%, var(--glow-a), transparent 72%),
+    radial-gradient(48vw 46vh at 0% 6%, var(--glow-b), transparent 72%),
+    radial-gradient(46vw 38vh at 62% 100%, var(--glow-c), transparent 72%); }
+.sh-col { min-width: 0; padding: 0 8px calc(var(--tab-h) + var(--safe-b) + 28px); }
+.sh-main { display: block; width: 100%; max-width: var(--content-w); min-width: 0; margin-inline: auto;
+  min-height: calc(100dvh - var(--top-h) - var(--tab-h) - var(--safe-b) - 40px);
+  background: var(--bg); border: 1px solid var(--island-line); border-radius: 16px; box-shadow: var(--island-shadow);
+  overflow: clip; }
+.sh-main:focus { outline: none; }
+
+/* Brand: the ring mark + «آباگرام» (+ a quiet second line in the sidebar) */
+.sh-brand { display: inline-flex; align-items: center; gap: var(--s3); min-height: 44px; padding-inline: var(--s1);
+  border-radius: var(--r-md); color: var(--text); flex: none; }
+.sh-mark { width: 32px; height: 32px; }
+.sh-brand-txt { display: grid; line-height: 1.15; }
+.sh-word { font-size: var(--fs-2xl); font-weight: 800; letter-spacing: -.01em; }
+.sh-sub { display: none; font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+
+/* Phone head: sticky top bar on the canvas, then the offline banner and the cooldown line */
+.sh-head { position: sticky; inset-block-start: 0; z-index: var(--z-nav); background: var(--canvas); }
+.sh-top { display: flex; align-items: center; gap: var(--s2); min-height: calc(var(--top-h) + var(--safe-t));
+  padding: var(--safe-t) var(--s3) 0; }
+.sh-top-end { display: flex; align-items: center; gap: var(--s2); min-width: 0; margin-inline-start: auto; }
+.sh-pill:not([hidden]) + .sh-act { display: none; }   /* the pill already leads to activity */
+.sh-act { position: relative; display: grid; place-items: center; width: 44px; height: 44px; flex: none;
+  border-radius: var(--r-full); color: var(--text); background: var(--bg); box-shadow: var(--island-shadow); }
+
+.sh-alerts { display: grid; gap: 6px; padding: 0 0 8px; }
+.sh-alerts:not(:has(> :not([hidden]))) { padding: 0; }
+.sh-offline, .sh-cool { display: flex; align-items: center; gap: var(--s2); min-height: 40px; border-radius: var(--r-md);
+  padding: var(--s2) var(--s3); font-size: var(--fs-sm); font-weight: 600; line-height: var(--lh-tight); }
+.sh-offline { justify-content: center; background: var(--danger-bg); color: var(--danger-text); text-align: center; }
+.sh-cool { background: var(--warn-bg); color: var(--warn-text); }
+.sh-cool-nav { display: none; }
+
+/* Job pill: the person's avatar inside the turning ring, two short lines */
+.sh-pill { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; min-height: 44px;
+  padding-block: 3px; padding-inline: 3px var(--s3); border-radius: var(--r-full); background: var(--bg);
+  box-shadow: var(--island-shadow); color: var(--text); transition: background-color var(--dur-fast) var(--ease); }
+.sh-pill-text { display: grid; min-width: 0; line-height: var(--lh-tight); }
+.sh-pill-title { font-size: var(--fs-sm); font-weight: 700; white-space: nowrap; }
+.sh-pill-sub { display: flex; gap: var(--s1); min-width: 0; font-size: var(--fs-sm); color: var(--text-2); white-space: nowrap; }
+.sh-pill-sub > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sh-pill-job { flex: 0 1 auto; }
+.sh-pill-sub > bdi { flex: 0 3 auto; min-width: 4.5em; }
+.sh-pill-ic { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 50%;
+  border: 2px solid currentColor; }
+.sh-pill.is-wait { background: var(--warn-bg); color: var(--warn-text); }
+.sh-pill.is-wait .sh-pill-sub { color: var(--warn-text); }
+.sh-pill.pulse { animation: sh-pulse calc(var(--dur-enter) * 2) var(--ease); }
+@keyframes sh-pulse { 35% { transform: scale(1.07); } }
+.sh-pill-nav { display: none; }
+.sh-pillrow { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.sh-pillrow .sh-pill { flex: 1; min-width: 0; }
+.sh-stop { flex: none; color: var(--text-2); }
+.sh-stop:hover:not(:disabled) { color: var(--danger-text); background: var(--danger-bg); }
+
+/* Sidebar-only parts: hidden on the phone bars */
+.sh-find, .sh-meter, .sh-acct-more, .sh-acct-state { display: none; }
+
+/* Phone tab bar: a floating island with five icons (labels for screen readers) */
+.sh-nav { position: fixed; inset-inline: 10px; inset-block-end: calc(10px + var(--safe-b)); z-index: var(--z-nav);
+  display: flex; align-items: center; gap: 2px; height: calc(var(--tab-h) + 8px); padding: 0 6px;
+  background: var(--bg); border: 1px solid var(--island-line); border-radius: 20px;
+  box-shadow: var(--island-shadow), 0 -1px 18px -12px rgba(0, 0, 0, .25); }
+.sh-items, .sh-foot { display: contents; }
+.sh-brand-nav { display: none; }
+.sh-item { position: relative; display: flex; flex: 1 1 0; align-items: center; justify-content: center; gap: 14px;
+  min-width: 44px; min-height: 46px; border-radius: 14px; color: var(--text);
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.sh-ic { position: relative; display: grid; place-items: center; width: 24px; height: 24px; flex: none;
+  transition: transform var(--dur-fast) var(--ease); }
+.sh-label { white-space: nowrap; }
+.sh-item:active .sh-ic, .sh-act:active .sh-ic { transform: scale(.9); }
+
+/* Active: bolder strokes, filled house, and the ring gradient as the mark (phone: a dot under the icon) */
+.sh-item[aria-current="page"] .ic { stroke-width: 2.6; }
+/* home: a real filled house (door kept open) instead of filling the outline, same 24px box */
+.sh-ic-on { display: none; }
+.sh-item[aria-current="page"] .sh-ic:has(.sh-ic-on) > .ic:not(.sh-ic-on) { display: none; }
+.sh-item[aria-current="page"] .sh-ic-on { display: block; }
+.sh-item[aria-current="page"] .sh-label { font-weight: 700; }
+.sh-item[aria-current="page"]::after { content: ""; position: absolute; inset-block-end: 4px; inset-inline-start: 50%;
+  width: 5px; height: 5px; margin-inline-start: -2.5px; border-radius: 50%; background: var(--ring); }
+.sh-acct .av-face { font-size: var(--fs-sm); }
+
+/* Failed-job dot on the activity icon */
+.sh-dot { position: absolute; inset-block-start: -1px; inset-inline-end: -3px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--bg); }
+
+/* Drawer panel: on phones a full page (an island) in place of the main column */
+.sh-drawer { min-height: calc(100dvh - var(--top-h) - var(--tab-h) - var(--safe-b) - 40px); background: var(--bg);
+  border: 1px solid var(--island-line); border-radius: 16px; box-shadow: var(--island-shadow); overflow: clip; }
+@media (max-width: 767.98px) {
+  .sh[data-drawer] .sh-main { display: none; }
+  .sh-item[data-name="settings"] { display: none; }   /* five places on the tab bar: settings stays one tap away under the account */
+  .sh-item[data-name="exchange"] { display: none; }   /* «تبادلِ JSON»: a row in «تنظیمات» on phones */
+  .sh-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sh-acct .av { --av: 26px !important; }
+}
+@media (hover: hover) {
+  .sh-act:hover { background: var(--bg-2); }
+  .sh-pill:not(.is-wait):hover { background: var(--bg-2); }
+  .sh-item:hover .sh-ic, .sh-act:hover .sh-ic { transform: scale(1.06); }
+  .sh-item:hover:not([aria-current="page"]) { background: var(--bg-2); }
+}
+
+/* ≥ 768px: the nav is a floating island on the inline-start side (the right in RTL); the icon rail is the base look */
+@media (min-width: 768px) {
+  .sh-col { padding: var(--frame); padding-inline-start: calc(var(--rail-w) + 2 * var(--frame)); }
+  .sh-main { min-height: calc(100dvh - 2 * var(--frame)); border-radius: var(--island-r); }
+  .sh-head { position: static; background: none; }
+  .sh-top, .sh-cool-top { display: none; }
+  .sh-alerts { padding: 0 0 var(--frame); max-width: var(--content-w); margin-inline: auto; }
+  .sh-nav { inset-block: var(--frame); inset-inline: var(--frame) auto; z-index: calc(var(--z-drawer) + 1);
+    flex-direction: column; align-items: stretch; gap: 0; width: var(--rail-w); height: auto;
+    padding: var(--s4) 10px; border-radius: var(--island-r); box-shadow: var(--island-shadow); }
+  .sh-items, .sh-foot { display: flex; flex-direction: column; gap: 6px; }
+  .sh-foot { margin-block-start: auto; padding-block-start: var(--s3); }
+  .sh-brand-nav { display: flex; justify-content: center; min-height: 48px; margin-block: 2px var(--s5); padding: 0; }
+  .sh-brand-nav .sh-brand-txt { display: none; }
+  .sh-item { flex: none; height: 52px; min-height: 52px; padding: 0; }
+  .sh-item[aria-current="page"] { background: var(--bg-3); }
+  /* the ring gradient as a short bar inside the active item, on its outer edge */
+  .sh-item[aria-current="page"]::after { inset-block: 16px; inset-inline: 5px auto; width: 3px; height: auto;
+    margin: 0; border-radius: 3px; }
+  .sh-item:focus-visible { outline-offset: -2px; }
+  .sh-pill-nav, .sh-cool-nav { position: relative; display: flex; justify-content: center; align-items: center; min-height: 52px; }
+  .sh-pill-nav { padding: 0; border-radius: 14px; box-shadow: none; }
+  .sh-pill-nav:not(.is-wait) { background: transparent; }
+  .sh-cool-nav { padding: 0; border-radius: 14px; }
+  .sh-pillrow { flex-direction: column; }
+  .sh-acct { height: 56px; }
+
+  .sh-drawer { position: fixed; inset-block: var(--frame); inset-inline-start: calc(var(--rail-w) + 2 * var(--frame));
+    z-index: var(--z-drawer); width: min(var(--drawer-w), calc(100vw - var(--rail-w) - 3 * var(--frame)));
+    min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--island-r);
+    box-shadow: var(--shadow-dialog); }
+
+  /* Rail: names appear as a bubble beside the icon on hover and keyboard focus */
+  .sh[data-rail] .sh-nav .sh-tip { position: absolute; inset-inline-start: calc(100% + 14px); inset-block-start: 50%;
+    z-index: 1; display: block; width: max-content; max-width: 260px; padding: var(--s1) var(--s3);
+    border-radius: var(--r-sm); background: var(--text); color: var(--bg); font-size: var(--fs-sm); font-weight: 600;
+    line-height: var(--lh); white-space: nowrap; box-shadow: var(--shadow-menu); pointer-events: none;
+    opacity: 0; translate: 0 -50%; transition: opacity var(--dur-fast) var(--ease); }
+  .sh[data-rail] .sh-nav .sh-tip :is(.sh-pill-sub, .sh-acct-state) { color: inherit; }
+  .sh[data-rail] .sh-nav :is(.sh-item, .sh-pill):focus-visible .sh-tip { opacity: 1; }
+}
+@media (min-width: 768px) and (hover: hover) {
+  .sh[data-rail] .sh-nav :is(.sh-item, .sh-pill, .sh-cool):hover .sh-tip { opacity: 1; }
+}
+
+/* ≥ 1264px without a drawer: the full sidebar island */
+@media (min-width: 1264px) {
+  .sh:not([data-rail]) .sh-col { padding-inline-start: calc(var(--nav-w) + 2 * var(--frame)); }
+  .sh:not([data-rail]) .sh-nav { width: var(--nav-w); padding: var(--s5) var(--s3) var(--s3); }
+  .sh:not([data-rail]) .sh-brand-nav { justify-content: flex-start; margin-block: 0 var(--s4); padding-inline: var(--s2); }
+  .sh:not([data-rail]) .sh-brand-nav .sh-brand-txt { display: grid; }
+  .sh:not([data-rail]) .sh-brand-nav .sh-mark { width: 36px; height: 36px; }
+  .sh:not([data-rail]) .sh-sub { display: block; }
+  .sh:not([data-rail]) .sh-word { font-size: 26px; }
+
+  /* the search field: one click to the search panel */
+  .sh:not([data-rail]) .sh-find { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-block-end: var(--s4);
+    padding-inline: 14px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text-2); font-size: var(--fs-sm); transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast); }
+  .sh:not([data-rail]) .sh-find:hover { border-color: var(--text-3); background: var(--bg); }
+  .sh:not([data-rail]) .sh-item[data-name="search"] { display: none; }
+
+  .sh:not([data-rail]) .sh-item { justify-content: flex-start; height: 48px; min-height: 48px; padding-inline: 18px 14px;
+    font-size: var(--fs-md); font-weight: 500; }
+
+  /* foot: the running job, this hour's budget, the account */
+  .sh:not([data-rail]) .sh-foot { gap: var(--s2); }
+  .sh:not([data-rail]) .sh-pillrow { flex-direction: row; }
+  .sh:not([data-rail]) :is(.sh-pill-nav, .sh-cool-nav) { justify-content: flex-start; gap: var(--s3); padding: var(--s2) var(--s3); }
+  .sh:not([data-rail]) .sh-pill-nav:not(.is-wait) { background: var(--bg-2); border: 1px solid var(--line-2); }
+  .sh:not([data-rail]) .sh-pill-nav .sh-pill-sub { flex-wrap: wrap; column-gap: var(--s1); }
+  .sh:not([data-rail]) .sh-cool-nav { align-items: flex-start; }
+  .sh:not([data-rail]) .sh-cool-nav .ic { margin-block-start: 2px; }
+
+  .sh:not([data-rail]) .sh-meter { display: grid; gap: 6px; padding: 10px 14px 12px; border-radius: 14px;
+    background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text); }
+  .sh:not([data-rail]) .sh-meter:hover { border-color: var(--line); }
+  .sh-meter-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); font-size: var(--fs-sm); }
+  .sh-meter-label { color: var(--text-2); }
+  .sh-meter-val { font-weight: 700; }
+  .sh-meter-bar { position: relative; height: 6px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+  .sh-meter-bar i { position: absolute; inset: 0; border-radius: inherit; background: var(--ok);
+    transform-origin: right; transform: scaleX(var(--p, 0)); transition: transform var(--dur) var(--ease); }
+  [dir="ltr"] .sh-meter-bar i { transform-origin: left; }
+  .sh-meter[data-t="warn"] .sh-meter-bar i { background: var(--warn); }
+  .sh-meter[data-t="bad"] .sh-meter-bar i { background: var(--danger); }
+
+  .sh:not([data-rail]) .sh-acct { height: auto; min-height: 60px; gap: var(--s3); padding: 10px 12px;
+    border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line-2); }
+  .sh:not([data-rail]) .sh-acct .sh-ic { width: 36px; height: 36px; }
+  .sh:not([data-rail]) .sh-acct .sh-label { display: grid; min-width: 0; line-height: 1.35; }
+  .sh-acct-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sh:not([data-rail]) .sh-acct-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm);
+    font-weight: 500; color: var(--text-2); }
+  .sh-acct-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .sh-acct-state.on i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .sh:not([data-rail]) .sh-acct-more { display: grid; margin-inline-start: auto; color: var(--text-2); }
+  .sh:not([data-rail]) .sh-acct[aria-current="page"] { background: var(--bg-3); }
+  .sh:not([data-rail]) .sh-acct[aria-current="page"]::after { display: none; }
+}
+@media (min-width: 768px) and (hover: hover) {
+  .sh-item:hover:not([aria-current="page"]) { background: var(--bg-2); }
+  .sh:not([data-rail]) .sh-acct:hover { background: var(--bg-3); }
+}
+
+/* A wide screen keeps the full sidebar while a drawer is open: the drawer opens beside it, over the page */
+@media (min-width: 1264px) {
+  .sh:not([data-rail]) .sh-drawer { inset-inline-start: calc(var(--nav-w) + 2 * var(--frame));
+    width: min(var(--drawer-w), calc(100vw - var(--nav-w) - 3 * var(--frame))); }
+}
+
+/* A drawer never lies on top of the page where there is room: the page moves aside, islands side by side */
+@media (min-width: 1180px) {
+  .sh[data-drawer] .sh-col { padding-inline-start: calc(var(--rail-w) + var(--drawer-w) + 3 * var(--frame)); }
+}
+@media (min-width: 1680px) {
+  .sh[data-drawer]:not([data-rail]) .sh-col { padding-inline-start: calc(var(--nav-w) + var(--drawer-w) + 3 * var(--frame)); }
+}
+/* Narrower screens: the drawer floats over the page, and the page dims behind it (solid, no blur); the dim fades in and
+   out with the drawer (opacity only), and a click on it closes the drawer (shell.js) */
+@media (min-width: 768px) and (max-width: 1179.98px) {
+  .sh-col::after { content: ""; position: fixed; inset: 0; z-index: calc(var(--z-drawer) - 1);
+    background: rgba(0, 0, 0, .28); opacity: 0; visibility: hidden;
+    transition: opacity var(--dur-enter) var(--ease), visibility 0s linear var(--dur-enter); }
+  .sh[data-drawer] .sh-col::after { opacity: 1; visibility: visible; transition: opacity var(--dur-enter) var(--ease); }
+}
+.sh-drawer { scrollbar-width: thin; }
+
+/* Motion of the frame (shell.js): the active pill glides from item to item; the sidebar folds into the rail and back as
+   one movement — the width glides, the rows glide (FLIP), names fade in — with no wrapping or spill while it moves. */
+.sh-ind { display: none; }
+@media (min-width: 768px) {
+  .sh-nav { transition: width var(--dur-enter) var(--ease); }
+  .sh-nav[data-morph] { overflow: clip; white-space: nowrap; }
+  .sh-nav[data-morph] .sh-tip { transition: none; }
+  .sh-items { position: relative; }
+  .sh-ind { position: absolute; inset-inline: 0; inset-block-start: 0; display: block; height: 52px; border-radius: 14px;
+    background: var(--bg-3); opacity: 0; pointer-events: none;
+    transition: transform var(--dur-enter) var(--ease), height var(--dur-enter) var(--ease), opacity var(--dur) var(--ease); }
+  .sh-ind::after { content: ""; position: absolute; inset-block: 16px; inset-inline-start: 5px; width: 3px;
+    border-radius: 3px; background: var(--ring); }
+  .sh-items[data-ind] .sh-item[aria-current="page"] { background: transparent; }
+  .sh-items[data-ind] .sh-item[aria-current="page"]::after { display: none; }
+  /* rail rows sit at the start with the padding that centres them, so the icons stay put while the width moves */
+  .sh-item { justify-content: flex-start; padding-inline-start: 16px; }
+  .sh-brand-nav { justify-content: flex-start; padding-inline-start: 12px; }
+  .sh-brand-nav .sh-mark { transition: width var(--dur-enter) var(--ease), height var(--dur-enter) var(--ease); }
+  /* the sidebar's search field while the search panel is open beside it */
+  .sh:not([data-rail]) .sh-find[aria-current="page"] { border-color: var(--text-3); background: var(--bg); color: var(--text);
+    font-weight: 700; }
+}

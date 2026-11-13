@@ -170,11 +170,40 @@ const HIDDEN_CAPS = new Set<string>([
   "hostname", "version", "agent", "platform", "comfy_nodes", "gpu", "slots", "ollama_models", "comfy_profiles",
   // نشانه‌های داخلیِ عامل (دانلودِ مدل و منبعِ فهرستِ مدل‌ها): چیزی برای نمایشِ مستقل ندارند
   "ollama_pull", "ollama_models_stale", "ollama_models_source",
+  // آباگرام (خواندنِ اینستاگرام): گزارشش یک نشانِ جدا دارد (AbagramBadge)
+  "abagram",
   // این‌ها در کشوی «سرویس‌ها» و نوارهای حافظه نشان داده می‌شوند
   "managed", "ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb",
   ...SERVICE_KEYS,
   ...MANAGED_KEYS,
 ]);
+
+/** گزارشِ آباگرامِ روی گره (capabilities.abagram از processing/abagram_jobs.py): نصب، روشن، ورود به اینستاگرام، خط. */
+const ABAGRAM_PROBLEM: Record<string, string> = {
+  installing: "آباگرام: در حالِ نصبِ خودکار",
+  install_error: "آباگرام: نصب خطا دارد",
+  service_down: "آباگرام روشن نیست",
+  starting: "آباگرام: در حالِ روشن‌شدن",
+  not_signed_in: "آباگرام: یک بار ورود به اینستاگرام لازم است",
+  unreachable: "آباگرام: اینستاگرام دیده نمی‌شود (VPN)",
+  cooldown: "آباگرام: مکثِ اینستاگرام",
+};
+
+function AbagramBadge({ caps }: { caps?: Record<string, unknown> }) {
+  const rep = caps?.abagram as
+    | { ready?: boolean; problem?: string | null; step?: string; error?: string; account?: string; url?: string }
+    | undefined;
+  if (!rep || typeof rep !== "object") return null;
+  const label = rep.ready ? `آباگرام آماده${rep.account ? ` (@${rep.account})` : ""}` : (rep.problem && ABAGRAM_PROBLEM[rep.problem]) || "آباگرام";
+  const detail = [rep.step, rep.error, rep.url].filter(Boolean).join(" — ");
+  return (
+    <span title={detail || "خواندنِ اینستاگرام برای ترندها (برگهٔ ترندهای اینستاگرام)"}>
+      <Badge tone={rep.ready ? "ok" : rep.problem === "installing" || rep.problem === "starting" || rep.problem === "cooldown" ? "info" : "warn"}>
+        {label}
+      </Badge>
+    </span>
+  );
+}
 
 /** فیلدِ فایلی که یک پیش‌تنظیم می‌خواهد. نامِ فیلد همان کلیدی است که بک‌اند (compute/submit) در payload.files می‌گذارد و عامل می‌خواند. */
 type PresetFile = { field: "image" | "video" | "audio"; label: string; accept: string; hint: string };
@@ -758,6 +787,7 @@ export default function ComputePage() {
                         {extras.map(([k]) => (
                           <Badge key={k} tone="brand">{k}</Badge>
                         ))}
+                        <AbagramBadge caps={n.capabilities as Record<string, unknown> | undefined} />
                       </div>
                       {!n.online && introduced && (
                         <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>طبق آخرین گزارشِ خودِ سرور</div>

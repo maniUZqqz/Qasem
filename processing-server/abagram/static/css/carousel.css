@@ -1,0 +1,71 @@
+/* «آلبوم» — the post's slides (js/views/carousel.js). It fills its box (the post's black media pane, .po-media) and
+   keeps every picture whole. The controls sit on the picture like Instagram's: arrows at the inline sides, dots at the
+   bottom, the «۲/۵» counter at the top inline-end corner. Colours on the picture are physical (it is always black),
+   so they are named once here and not taken from the light/dark tokens. */
+.ca { --ca-black: #000; --ca-white: #fff; --ca-ink: #262626; --ca-glass: rgba(18, 18, 18, .72);
+  --ca-btn: rgba(255, 255, 255, .9); --ca-dot: rgba(255, 255, 255, .5); --ca-soft: rgba(255, 255, 255, .84);
+  position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--ca-black); color: var(--ca-white); user-select: none; -webkit-user-select: none; }
+
+/* The window and the track: slide 0 at the inline start; the track moves by whole widths. */
+.ca-view { position: absolute; inset: 0; overflow: hidden; touch-action: pan-y pinch-zoom; }
+.ca-view:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 0; }
+.ca-track { display: flex; height: 100%; will-change: transform;
+  transition: transform var(--dur-enter) var(--ease-spring); }
+.ca-drag .ca-track { transition: none; }
+.ca-many .ca-view { cursor: grab; }
+.ca-drag .ca-view, .ca-drag .ca-slide > img { cursor: grabbing; }
+
+.ca-slide { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: grid; place-items: center;
+  overflow: hidden; }
+.ca-slide > img, .ca-slide > video { grid-area: 1 / 1; width: 100%; height: 100%; max-width: none; object-fit: contain;
+  background: var(--ca-black); }
+.ca-slide > img { cursor: zoom-in; -webkit-user-drag: none; }
+.ca-slide > video { direction: ltr; }   /* a video's timeline runs left to right (physical, rule 1) */
+
+/* Nothing saved for this slide: the kind icon and what to do */
+.ca-empty { grid-area: 1 / 1; display: grid; justify-items: center; align-content: center; gap: var(--s3);
+  max-width: 32ch; padding: var(--s6); text-align: center; font-size: var(--fs-md); line-height: var(--lh);
+  color: var(--ca-soft); }
+.ca-empty-ic { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%;
+  border: 2px solid currentColor; }
+
+/* A video slide shown as its picture (the video itself is not here) */
+.ca-note { grid-area: 1 / 1; align-self: end; display: inline-flex; align-items: center; gap: var(--s2);
+  max-width: calc(100% - var(--s6)); min-height: 32px; margin-block-end: var(--s8); padding: var(--s1) var(--s3);
+  border-radius: var(--r-full); background: var(--ca-glass); color: var(--ca-white); font-size: var(--fs-sm);
+  font-weight: 600; line-height: var(--lh-tight); pointer-events: none; }
+
+/* Counter «۲/۵» */
+.ca-count { position: absolute; z-index: 1; inset-block-start: var(--s3); inset-inline-end: var(--s3);
+  display: inline-flex; align-items: center; min-height: 26px; padding: 0 var(--s3); border-radius: var(--r-full);
+  background: var(--ca-glass); color: var(--ca-white); font-size: var(--fs-sm); font-weight: 600; line-height: 1;
+  font-variant-numeric: tabular-nums; pointer-events: none; }
+
+/* Prev / next: a 32px white circle inside a 44px button; hidden at the ends */
+.ca-nav { position: absolute; z-index: 1; inset-block-start: 50%; display: grid; place-items: center;
+  width: 44px; height: 44px; margin-block-start: -22px; border-radius: 50%; color: var(--ca-ink); }
+.ca-prev { inset-inline-start: var(--s1); }
+.ca-next { inset-inline-end: var(--s1); }
+.ca-nav > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--ca-btn); box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  transition: transform var(--dur-fast) var(--ease); }
+.ca-nav .ic { stroke-width: 2.5; }
+.ca-nav:hover > span { transform: scale(1.08); }
+.ca-nav:active > span { transform: scale(.92); }
+.ca-nav:focus-visible { outline-offset: -2px; border-radius: 50%; }
+
+/* Dots: the active one in the primary blue with a white halo (it reads on dark and light pictures alike) */
+.ca-dots { position: absolute; z-index: 1; inset-inline: 0; inset-block-end: var(--s3); display: flex;
+  justify-content: center; gap: var(--s1); pointer-events: none; }
+.ca-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ca-dot);
+  box-shadow: 0 0 2px rgba(0, 0, 0, .45); transition: transform var(--dur) var(--ease); }
+.ca-dot.on { background: var(--primary); box-shadow: 0 0 0 1px var(--ca-btn), 0 0 3px rgba(0, 0, 0, .4); }
+.ca-dot.sm { transform: scale(.66); }
+
+/* Wider screens: a little more air around the controls */
+@media (min-width: 768px) {
+  .ca-prev { inset-inline-start: var(--s2); }
+  .ca-next { inset-inline-end: var(--s2); }
+  .ca-dots { inset-block-end: var(--s4); }
+}

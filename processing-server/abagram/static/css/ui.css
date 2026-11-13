@@ -1,0 +1,101 @@
+/* Shared widgets from js/core/ui.js. */
+
+/* Avatar + ring. --av is the face size; the ring adds 3px around it with a 2px gap. */
+.av { position: relative; display: inline-grid; place-items: center; flex: none; width: var(--av); height: var(--av);
+  border-radius: 50%; }
+.av-face { position: relative; display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%;
+  overflow: hidden; background: var(--bg-3); color: var(--text-2); font-weight: 700;
+  font-size: calc(var(--av) * .4); line-height: 1; user-select: none; }
+.av-face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.av-ring { width: calc(var(--av) + 10px); height: calc(var(--av) + 10px); padding: 5px; }
+.av-ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; padding: 2px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.av-story::before { background: var(--ring); padding: 3px; }
+.av-seen::before { background: var(--ring-seen); padding: 1.5px; }
+.av-loading::before { background: var(--ring); padding: 3px; animation: ring-turn 1.1s linear infinite; }
+@keyframes ring-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .av-loading::before { animation-duration: 4s; } }
+button.av, a.av { cursor: pointer; border-radius: 50%; }
+button.av:active, a.av:active { transform: scale(.96); }
+
+.badge-verified { color: var(--verified); }
+.badge-lock { color: var(--text-2); }
+
+/* Chips */
+.chip { display: inline-flex; align-items: center; gap: var(--s1); min-height: 32px; padding: 0 var(--s3);
+  border-radius: var(--r-full); background: var(--bg-3); color: var(--text); font-size: var(--fs-sm); font-weight: 600;
+  max-width: 100%; }
+.chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.chip, a.chip { cursor: pointer; position: relative; }
+button.chip::after, a.chip::after { content: ""; position: absolute; inset: -6px 0; }
+button.chip:hover, a.chip:hover { background: var(--bg-hover); }
+.chip-ok { background: var(--ok-bg); color: var(--ok-text); }
+.chip-warn { background: var(--warn-bg); color: var(--warn-text); }
+.chip-danger { background: var(--danger-bg); color: var(--danger-text); }
+.chip-dark { background: rgba(0, 0, 0, .55); color: #fff; }
+
+/* Empty states: an invitation to act */
+.empty { display: grid; justify-items: center; gap: var(--s3); padding: var(--s10) var(--s4); text-align: center; }
+.empty-ic { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%;
+  border: 2px solid var(--text); color: var(--text); }
+.empty-title { font-size: var(--fs-xl); font-weight: 800; }
+.empty-text { max-width: 36ch; color: var(--text-2); font-size: var(--fs-md); }
+
+/* Skeletons */
+.sk { display: block; background: var(--bg-3); border-radius: var(--r-sm); animation: sk 1.4s ease-in-out infinite; }
+.sk-line { height: 14px; width: 60%; margin-block: 6px; }
+.sk-avatar { width: 44px; height: 44px; border-radius: 50%; }
+.sk-tile { aspect-ratio: 3 / 4; border-radius: 0; }
+@keyframes sk { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* Segmented control */
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--bg-3); }
+.seg > button { min-height: 38px; min-width: 44px; padding: 0 var(--s3); border-radius: var(--r-sm); font-weight: 600;
+  color: var(--text-2); transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast); }
+.seg > button:hover { color: var(--text); }
+.seg > button[aria-checked="true"] { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.seg-sm > button { min-height: 34px; min-width: 40px; font-size: var(--fs-sm); }
+
+/* Paged lists */
+.plist { display: grid; gap: var(--s2); }
+.plist-rows { display: grid; }
+.plist-row { min-width: 0; }
+.plist-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2); }
+.plist-foot:empty { display: none; }
+.pager { display: inline-flex; align-items: center; gap: 2px; }
+.pager-btn, .pager-num { display: inline-grid; place-items: center; min-width: 40px; height: 40px; padding: 0 var(--s2);
+  border-radius: var(--r-sm); font-weight: 600; font-size: var(--fs-sm); color: var(--text); }
+.pager-btn:hover:not(:disabled), .pager-num:hover { background: var(--bg-3); }
+.pager-btn:disabled { opacity: .35; }
+.pager-num[aria-current="page"] { background: var(--text); color: var(--bg); }
+.pager-gap { padding: 0 var(--s1); color: var(--text-2); }
+
+/* Stats: bold number, label after it (Instagram's "8,621 posts") */
+.stat { display: inline-flex; align-items: baseline; gap: var(--s1); min-height: 44px; align-items: center; white-space: nowrap; }
+.stat-n { font-weight: 700; }
+.stat-l { color: var(--text); }
+button.stat { padding: 0 var(--s1); border-radius: var(--r-sm); }
+button.stat:hover .stat-l { text-decoration: underline; }
+
+/* Toasts */
+.toasts { position: fixed; z-index: var(--z-toast); inset-inline: 0; inset-block-end: calc(var(--s4) + var(--safe-b));
+  display: grid; justify-items: center; gap: var(--s2); pointer-events: none; padding-inline: var(--s4); }
+.toast { display: flex; align-items: center; gap: var(--s3); max-width: min(480px, 100%); min-height: 48px;
+  padding: var(--s2) var(--s4); border-radius: var(--r-md); background: #262626; color: #fff; font-size: var(--fs-md);
+  box-shadow: var(--shadow-menu); pointer-events: auto; animation: toast-in var(--dur-enter) var(--ease-spring); }
+.toast.out { opacity: 0; transform: translateY(8px); transition: opacity var(--dur-exit) var(--ease-exit), transform var(--dur-exit) var(--ease-exit); }
+.toast-danger { background: #8f1d27; }
+.toast-ok { background: #1f5e10; }
+.toast-act { min-height: 36px; padding: 0 var(--s2); border-radius: var(--r-sm); color: #8fd0ff; font-weight: 700; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(16px); } }
+@media (min-width: 768px) { .toasts { inset-block-end: var(--s6); } }
+
+/* The cost sheet before a job starts (js/core/jobs.js) */
+.jb-cost { display: grid; gap: var(--s3); padding: var(--s4) var(--s5); }
+.jb-who { font-weight: 700; font-size: var(--fs-lg); text-align: center; }
+.jb-lines { display: grid; gap: var(--s2); }
+.jb-lines li { position: relative; padding-inline-start: var(--s5); color: var(--text); }
+.jb-lines li::before { content: ""; position: absolute; inset-inline-start: 4px; top: .7em; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--text-2); }

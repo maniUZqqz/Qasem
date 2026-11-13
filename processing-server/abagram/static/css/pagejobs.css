@@ -1,0 +1,96 @@
+/* Work that runs through the queue (js/views/pagejobs.js) and the highlight being read right now. */
+
+/* A highlight whose items are being read: the dashed ring becomes the ring gradient, turning (Instagram's loading ring) */
+.pf-hl-ring { position: relative; }
+.pf-hl.is-busy .pf-hl-ring { border-color: transparent; }
+.pf-hl.is-busy .pf-hl-ring::before { content: ""; position: absolute; inset: -3px; border-radius: 50%; padding: 3px;
+  background: conic-gradient(from 0deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5, rgba(79, 91, 213, 0) 80%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: ring-turn .9s linear infinite; }
+.pf-hl.is-busy .pf-hl-face { animation: pj-breathe 1.8s ease-in-out infinite; }
+.pf-hl.is-busy .pf-hl-t { color: var(--primary-text); font-weight: 700; }
+@keyframes pj-breathe { 50% { transform: scale(.94); } }
+@media (prefers-reduced-motion: reduce) {
+  .pf-hl.is-busy .pf-hl-ring::before { animation-duration: 4s; }
+  .pf-hl.is-busy .pf-hl-face { animation: none; }
+}
+
+/* «استخراج کامل» button: the second action beside refresh */
+.pj-full .ic { color: var(--text); }
+
+/* The progress cards (full extraction, follow request) under the profile header */
+.pj { display: grid; gap: var(--s3); margin: 0 var(--gutter); }
+.pj:empty { display: none; }
+.pj:not(:empty) { margin-block: var(--s2) var(--s4); }
+.pj-card { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-lg); background: var(--bg-2);
+  border: 1px solid var(--line); }
+.pj-card.is-running { border-color: color-mix(in srgb, var(--primary) 40%, var(--line)); }
+.pj-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s3); }
+.pj-head b { font-size: var(--fs-lg); font-weight: 800; }
+.pj-state { padding: 2px 10px; border-radius: var(--r-full); background: var(--bg-3); font-size: var(--fs-sm); font-weight: 700; }
+.pj-card.is-running .pj-state { background: var(--primary); color: var(--on-primary); }
+.pj-card.is-paused .pj-state { background: var(--warn-bg); color: var(--warn-text); }
+.pj-card.is-done .pj-state { background: var(--ok-bg); color: var(--ok-text); }
+.pj-card.is-failed .pj-state { background: var(--danger-bg); color: var(--danger-text); }
+.pj-count { margin-inline-start: auto; color: var(--text-2); font-size: var(--fs-sm); }
+.pj-bar { position: relative; height: 6px; border-radius: var(--r-full); background: var(--bg-3); overflow: hidden; }
+.pj-bar i { position: absolute; inset: 0; background: var(--ring); transform-origin: right; transform: scaleX(var(--p, 0));
+  transition: transform var(--dur-enter) var(--ease); }
+[dir="ltr"] .pj-bar i { transform-origin: left; }
+.pj-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px var(--s4); }
+.pj-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; column-gap: var(--s2);
+  font-size: var(--fs-sm); color: var(--text-2); }
+.pj-step small { grid-column: 2; font-size: var(--fs-sm); color: var(--text-2); opacity: .9; }
+.pj-dot { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line); }
+.pj-dot .spin { border-width: 2px; color: var(--primary); }
+.pj-step.is-active { color: var(--text); font-weight: 700; }
+.pj-step.is-active .pj-dot { border-color: transparent; }
+.pj-step.is-done { color: var(--text); }
+.pj-step.is-done .pj-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.pj-step.is-failed .pj-dot { background: var(--danger-bg); border-color: var(--danger); color: var(--danger-text); }
+.pj-step.is-skipped .pj-step-t { text-decoration: line-through; text-decoration-color: var(--text-3); }
+.pj-note { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
+.pj-btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/* The private page card with the follow request */
+.pj-private { align-items: flex-start; }
+.pj-private-text { display: grid; gap: var(--s2); justify-items: start; min-width: 0; }
+
+/* The sheet before a full extraction */
+.pj-sheet { display: grid; gap: var(--s3); padding: var(--s4) var(--s5); }
+.pj-who { font-weight: 800; font-size: var(--fs-lg); text-align: center; }
+.pj-steps { display: grid; gap: 6px; padding-inline-start: var(--s5); list-style: decimal; }
+.pj-steps li { padding-inline-start: var(--s1); }
+.pj-steps li::marker { color: var(--text-2); font-weight: 700; }
+
+/* Unread news count on «فعالیت» */
+.sh-badge { position: absolute; inset-block-start: -7px; inset-inline-end: -9px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: var(--r-full); background: var(--danger); color: #fff; font-size: 11px; font-weight: 800; line-height: 18px;
+  text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+
+/* News list in the activity drawer */
+.nt { display: grid; gap: var(--s2); margin: 0 var(--s4) var(--s4); }
+.nt:empty { display: none; }
+.nt-head { display: flex; align-items: center; justify-content: space-between; }
+.nt-head h3 { font-size: var(--fs-md); font-weight: 800; }
+.nt-list { display: grid; gap: 6px; }
+.nt-link { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s3); border-radius: var(--r-md); background: var(--bg-2);
+  border: 1px solid var(--line-2); color: var(--text); }
+.nt-link:hover { border-color: var(--line); }
+.nt-row.is-new .nt-link { background: var(--bg); border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); }
+.nt-ic { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--bg-3); }
+.nt-accepted, .nt-full_done { background: var(--ok-bg); color: var(--ok-text); }
+.nt-declined, .nt-failed { background: var(--danger-bg); color: var(--danger-text); }
+.nt-text { display: grid; gap: 2px; min-width: 0; font-size: var(--fs-sm); line-height: 1.6; }
+.nt-text b { font-size: var(--fs-md); }
+.nt-text small { color: var(--text-2); font-size: var(--fs-sm); }
+.pj-user { color: var(--text-2); font-weight: 600; }
+.ac .pj { margin-inline: var(--s4); }
+
+/* «رصد» toggle on the profile: on = the ring gradient's quiet tint, like the active sidebar item */
+.pj-watch { display: contents; }
+.pj-watch-on { background: var(--bg-3); }
+.pj-watch-on .ic { color: var(--ok); }
+.pj-opt { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-md); cursor: pointer; }
+.pj-opt input { inline-size: 18px; block-size: 18px; accent-color: var(--primary); }

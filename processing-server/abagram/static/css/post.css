@@ -1,0 +1,120 @@
+/* «پست» — the post viewer (js/views/post.js). Phone first: one full-screen column (top bar, header, media, counts,
+   caption, date + jobs). From 768px: Instagram's dialog — the media pane beside a 340/405px info pane. */
+.po-layer { --po-black: #000; --po-white: #fff; }   /* the media pane and the controls on the scrim are physical colours */
+.po-grid { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
+
+/* Phone top bar: back + «پست» */
+.po-top { position: sticky; inset-block-start: 0; z-index: 2; display: grid; grid-template-columns: 44px 1fr 44px;
+  align-items: center; min-height: 52px; padding: var(--safe-t) var(--s1) 0; background: var(--bg);
+  border-block-end: 1px solid var(--line); }
+.po-title { grid-column: 2; text-align: center; font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+
+/* Header: avatar, owner (+ coauthors), location, overflow menu */
+.po-head { display: flex; align-items: center; gap: var(--s3); min-height: 60px; padding-block: var(--s2);
+  padding-inline: var(--s3) var(--s1); }
+.po-who { flex: 1; min-width: 0; display: grid; gap: 2px; line-height: var(--lh-tight); }
+.po-names { display: flex; align-items: center; gap: var(--s1); min-width: 0; white-space: nowrap; }
+.po-names > * { flex: none; }
+.po-names .po-user { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.po-user { font-weight: 600; color: var(--text); transition: opacity var(--dur-fast) var(--ease); }
+.po-user:hover, .po-at:hover { opacity: .6; }
+.po-and { font-weight: 400; color: var(--text); }
+.po-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text-2); }
+
+/* Media pane: black, the post's own shape; the carousel fills it */
+.po-media { position: relative; display: grid; width: 100%; min-width: 0; aspect-ratio: var(--po-ar); max-height: 78dvh;
+  overflow: hidden; background: var(--po-black); }
+.po-media > * { grid-area: 1 / 1; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.po-plain { display: grid; place-items: center; object-fit: contain; color: var(--po-white); }
+
+/* Counts: heart / comment / views with their numbers (Instagram's action bar) */
+.po-acts { display: grid; gap: var(--s1); padding: var(--s1) var(--s2) 0; }
+.po-acts > :not(.po-counts) { padding-inline: var(--s2); }
+.po-counts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1); }
+.po-count { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; padding-inline: var(--s2);
+  border-radius: var(--r-sm); font-weight: 600; color: var(--text); white-space: nowrap; }
+button.po-count { transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+button.po-count:hover { background: var(--bg-3); }
+button.po-count:active { transform: scale(.96); }
+span.po-count { color: var(--text-2); font-weight: 400; }
+
+/* Caption, tags, music, the «all comments» link */
+.po-body { display: grid; gap: var(--s2); align-content: start; min-width: 0; padding: var(--s1) var(--s4) 0; }
+.po-cap { display: flex; align-items: flex-start; gap: var(--s3); min-width: 0; }
+.po-cap > .av { display: none; }
+.po-cap-main { flex: 1; min-width: 0; display: grid; gap: var(--s1); }
+.po-cap-text { white-space: pre-line; overflow-wrap: anywhere; text-align: start; line-height: var(--lh); }
+.po-cap-text:not(.open) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.po-cap-text .po-user { margin-inline-end: var(--s1); }
+.po-cap-text .badge-verified { display: inline-block; vertical-align: -3px; margin-inline-end: var(--s1); }
+.po-at, .po-hash { color: var(--link); }
+.po-more { position: relative; justify-self: start; min-height: 28px; color: var(--text-2); font-weight: 600; }
+.po-more::after { content: ""; position: absolute; inset: -8px -6px; }
+.po-more:hover { color: var(--text); }
+.po-ago { display: none; font-size: var(--fs-sm); color: var(--text-2); }
+.po-tags { display: grid; gap: var(--s3); padding-block-start: var(--s1); }
+.po-music { display: flex; align-items: center; gap: var(--s2); min-width: 0; font-size: var(--fs-sm); color: var(--text); }
+.po-music > bdi { font-weight: 600; }
+.po-chips { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s2); }
+.po-chip .badge-verified { flex: none; }
+.po-cm { display: none; }   /* phones: the comments open in a sheet */
+.po-all { justify-self: start; min-height: 44px; color: var(--text-2); text-align: start; }
+.po-all:hover { color: var(--text); }
+
+/* Date + the two jobs (read comments/likers, download) */
+.po-meta { display: grid; gap: var(--s3); padding: var(--s2) var(--s4) calc(var(--s6) + var(--safe-b)); }
+.po-date { font-size: var(--fs-sm); color: var(--text-2); }
+.po-jobs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.po-jobs > .btn { flex: 1 1 auto; }
+.po-jobs > .chip { min-height: 44px; padding-inline: var(--s4); }
+
+/* Phone order = Instagram's app: media, counts, caption, date */
+.po-acts { order: 1; }
+.po-body { order: 2; }
+.po-meta { order: 3; }
+
+.po-solo { display: grid; align-content: start; min-height: 100%; }
+.po-x, .po-chrome { display: none; }
+.po-ghost { position: fixed; z-index: 3; object-fit: cover; pointer-events: none; }
+
+@media (min-width: 768px) {
+  .ov-panel.po-panel { width: auto; border-radius: var(--r-sm); }
+  /* The media pane keeps the post's shape at min(90dvh, 900px) tall; wide posts get narrower, never under 450px tall. */
+  .po-grid { --po-info: 340px; --po-h: min(90dvh, 900px);
+    --po-maxw: calc(min(1200px, 100vw - 128px) - var(--po-info));
+    --po-w: min(calc(var(--po-h) * var(--po-ar)), var(--po-maxw));
+    grid-template-columns: var(--po-w) var(--po-info); grid-template-rows: auto minmax(0, 1fr) auto auto;
+    height: max(min(450px, var(--po-h)), calc(var(--po-w) / var(--po-ar))); }
+  .po-top, .po-all, .po-more { display: none; }
+  .po-media { grid-column: 1; grid-row: 1 / -1; width: auto; max-height: none; aspect-ratio: auto; }
+  .po-head { grid-column: 2; grid-row: 1; padding-inline: var(--s4) var(--s1); border-block-end: 1px solid var(--line); }
+  .po-body { grid-column: 2; grid-row: 2; gap: var(--s4); padding: var(--s4); overflow-y: auto; overscroll-behavior: contain; }
+  .po-acts { grid-column: 2; grid-row: 3; padding: var(--s1) var(--s2) 0; border-block-start: 1px solid var(--line); }
+  .po-meta { grid-column: 2; grid-row: 4; gap: var(--s2); padding: 0 var(--s4) var(--s4); }
+  .po-cap > .av { display: inline-grid; }
+  .po-cap-text:not(.open) { display: block; -webkit-line-clamp: unset; line-clamp: none; overflow: visible; }
+  .po-ago { display: block; }
+  .po-cm { display: block; }
+  .po-solo { width: min(440px, calc(100vw - 32px)); }
+  .po-solo .po-top { display: none; }
+
+  /* On the scrim, outside the dialog: close at the top corner, prev/next at the inline sides */
+  .po-chrome { display: contents; }
+  .po-x { position: fixed; z-index: 2; inset-block-start: var(--s2); inset-inline-end: var(--s2); display: grid;
+    place-items: center; width: 44px; height: 44px; border-radius: 50%; color: var(--po-white);
+    transition: opacity var(--dur-fast) var(--ease); }
+  .po-x:hover { opacity: .7; }
+  .po-nav { position: fixed; z-index: 2; inset-block-start: 50%; display: grid; place-items: center; width: 44px; height: 44px;
+    margin-block-start: -22px; }
+  .po-nav > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--po-white); color: var(--po-black); box-shadow: var(--shadow-menu);
+    transition: transform var(--dur-fast) var(--ease); }
+  .po-nav .ic { width: 18px; height: 18px; stroke-width: 2.5; }
+  .po-nav:hover > span { transform: scale(1.08); }
+  .po-nav:active > span { transform: scale(.94); }
+  .po-nav-prev { inset-inline-start: var(--s3); }
+  .po-nav-next { inset-inline-end: var(--s3); }
+}
+@media (min-width: 1024px) {
+  .po-grid { --po-info: 405px; }
+}

@@ -1,0 +1,108 @@
+/* «فعالیت» (js/views/activity.js): the reading job, like Instagram's notifications panel. Quiet hairline sections;
+   the colour is the ring turning on the person's avatar and the state of each step. */
+.ac { display: flex; flex-direction: column; min-height: 100%; background: var(--bg); color: var(--text); }
+.ac-head { padding: var(--s4) var(--gutter); border-block-end: 1px solid var(--line); }
+.ac-title { font-size: var(--fs-xl); font-weight: 700; line-height: var(--lh-tight); }
+.ac > .empty { flex: 1; align-content: center; }
+.ac-loading { display: grid; gap: var(--s2); padding: var(--s4) var(--gutter); }
+
+/* Current run: avatar, job title, @username + elapsed time, state chip */
+.ac-run { padding: var(--s4) var(--gutter) var(--s5); border-block-end: 1px solid var(--line); }
+.ac-run-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3); }
+.ac-face { display: grid; place-items: center; }
+.ac-face-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--bg-3);
+  color: var(--text-2); }
+.ac-run-text { min-width: 0; }
+.ac-run-t { font-size: var(--fs-md); font-weight: 700; line-height: var(--lh-tight); }
+.ac-run-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s3); margin-block-start: var(--s1);
+  color: var(--text-2); font-size: var(--fs-sm); line-height: var(--lh); }
+.ac-who { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-who-a { position: relative; color: var(--text); font-weight: 600; }
+.ac-who-a::after { content: ""; position: absolute; inset: -12px -4px; }   /* 44px hit area around the name */
+.ac-who-a:hover { text-decoration: underline; }
+.ac-time { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
+.ac-tag { display: flex; }
+
+/* Steps: 24px discs on a 2px line; the line turns green behind finished steps */
+.ac-steps { display: grid; margin-block-start: var(--s5); }
+.ac-step { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: var(--s3);
+  padding-block-end: var(--s5); }
+.ac-step:last-child { padding-block-end: 0; }
+.ac-step:not(:last-child)::before { content: ""; position: absolute; inset-inline-start: 11px; inset-block: 28px 4px;
+  width: 2px; border-radius: 1px; background: var(--line); }
+.ac-step[data-s="done"]:not(:last-child)::before { background: var(--ok); }
+.ac-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--text-2); background: var(--bg); color: var(--text-2); }
+.ac-disc .ic { stroke-width: 2.5; }
+.ac-step[data-s="active"] .ac-disc { border-color: transparent; color: var(--primary-text); }
+.ac-step[data-s="done"] .ac-disc { border: 0; background: var(--ok-bg); color: var(--ok-text); }
+.ac-step[data-s="failed"] .ac-disc { border: 0; background: var(--danger-bg); color: var(--danger-text); }
+.ac-step[data-s="waiting"] .ac-disc { border: 0; background: var(--warn-bg); color: var(--warn-text); }
+.ac-step[data-s="skipped"] .ac-disc { border: 0; background: var(--bg-3); }
+.ac-step[data-s="skipped"] .ac-disc::after { content: ""; width: 10px; height: 2px; border-radius: 1px; background: currentColor; }
+.ac-step-body { display: grid; min-width: 0; }
+.ac-step-t { font-size: var(--fs-md); line-height: 24px; color: var(--text-2); }
+.ac-step[data-s="active"] .ac-step-t, .ac-step[data-s="done"] .ac-step-t { color: var(--text); }
+.ac-step[data-s="active"] .ac-step-t { font-weight: 600; }
+.ac-step[data-s="failed"] .ac-step-t { color: var(--danger-text); font-weight: 600; }
+.ac-step[data-s="waiting"] .ac-step-t { color: var(--warn-text); font-weight: 600; }
+.ac-last { margin-block-start: 2px; color: var(--text-2); font-size: var(--fs-sm); line-height: var(--lh);
+  overflow-wrap: anywhere; }
+.ac-last[data-l="ok"] { color: var(--ok-text); }
+.ac-last[data-l="warn"] { color: var(--warn-text); }
+.ac-last[data-l="err"] { color: var(--danger-text); }
+
+/* The way out: a full-width red-text button on the quiet grey */
+.btn.ac-stop { margin-block-start: var(--s5); background: var(--bg-3); }
+.btn.ac-stop:hover:not(:disabled) { background: var(--danger-bg); }
+
+/* Slots for the wait card and the outcome card (outcome.js styles its own inside) */
+.ac-slot { padding: var(--s5) var(--gutter); border-block-end: 1px solid var(--line); }
+.ac-slot:empty { display: none; }
+
+/* need_code / need_manual: a gradient ring around the ask, then the form or the screenshot */
+.ac-wait { display: grid; justify-items: center; gap: var(--s3); text-align: center; }
+.ac-wait > .field, .ac-wait > .btn, .ac-q-box { justify-self: stretch; }
+.ac-wait > .field { text-align: start; }
+.ac-badge { display: grid; place-items: center; width: 72px; height: 72px; padding: 3px; border-radius: 50%;
+  background: var(--ring); }
+.ac-badge-in { display: grid; place-items: center; width: 100%; height: 100%; border: 3px solid var(--bg); border-radius: 50%;
+  background: var(--bg-2); color: var(--text); }
+.ac-wait-h { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.ac-hint { max-width: 40ch; color: var(--text-2); font-size: var(--fs-sm); line-height: var(--lh); overflow-wrap: anywhere; }
+.input.ac-code-in[dir] { min-height: 52px; text-align: center; text-indent: .35em; letter-spacing: .35em;
+  font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ac-q { margin: 0; padding: var(--s3) var(--s4); border-inline-start: 3px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-2); color: var(--text); font-size: var(--fs-sm); line-height: var(--lh); text-align: start;
+  overflow-wrap: anywhere; }
+.ac-q-box:empty, .ac-shot-box:empty { display: none; }
+.ac-shot { display: block; width: 160px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg-3); cursor: zoom-in; transition: transform var(--dur-fast) var(--ease); }
+.ac-shot:active { transform: scale(.97); }
+.ac-shot img { width: 100%; height: auto; }
+
+/* Log: fixed 240px box, newest at the bottom; level = 8px dot + the colour of the sentence */
+.ac-log { padding: var(--s4) var(--gutter) var(--s6); }
+.ac-sec-head { display: flex; align-items: center; gap: var(--s2); min-height: 44px; margin-block-end: var(--s2); }
+.ac-sec-t { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); }
+.ac-count { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.btn.ac-copy { margin-inline-start: auto; }
+.ac-log-box { height: 240px; overflow-y: auto; overscroll-behavior: contain; padding-block: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); scrollbar-width: thin; }
+.ac-log-box:focus-visible { border-radius: var(--r-md); }
+.ac-line { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: start; column-gap: var(--s2);
+  padding: 3px var(--s3); font-size: var(--fs-sm); line-height: var(--lh); }
+.ac-ldot { width: 8px; height: 8px; margin-block-start: calc(.8em - 4px); border-radius: 50%; background: var(--text-2); }
+.ac-line[data-l="ok"] .ac-ldot { background: var(--ok); }
+.ac-line[data-l="warn"] .ac-ldot { background: var(--warn); }
+.ac-line[data-l="err"] .ac-ldot { background: var(--danger); }
+.ac-lmsg { min-width: 0; overflow-wrap: anywhere; }
+.ac-line[data-l="warn"] .ac-lmsg { color: var(--warn-text); }
+.ac-line[data-l="err"] .ac-lmsg { color: var(--danger-text); }
+.ac-ltime { color: var(--text-2); font-size: var(--fs-xs); line-height: calc(var(--fs-sm) * var(--lh)); white-space: nowrap; }
+
+/* Compact step list inside the login card (renderInto) */
+.ac-compact { min-height: 0; background: transparent; }
+.ac-compact .ac-steps { margin-block-start: 0; }
+.ac-sum { margin-block-start: var(--s3); }
+.ac-sum:empty { display: none; }

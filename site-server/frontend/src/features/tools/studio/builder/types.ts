@@ -10,7 +10,9 @@ export type ThemeColors = {
   bg: string;
   surface: string;
 };
-export type ThemeT = { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number; style?: string };
+export type ThemeSnap = { colors: ThemeColors; font_body: string; font_head: string; button: string; radius: number; width: number };
+/** style_prev = پوسته پیش از اولین سبک (فقط تا وقتی سبکی نشسته)؛ «برگرداندنِ پوسته» همین را برمی‌گرداند. */
+export type ThemeT = ThemeSnap & { style?: string; style_keep?: boolean; style_prev?: ThemeSnap };
 export type StyleT = {
   key: string;
   label: string;

@@ -157,7 +157,7 @@ export const videoApi = {
     api.post<{ job_id: number; t0: number; t1: number }>(`${base(store)}/projects/${id}/preview/`, body).then((r) => r.data),
   captionsStatus: (store: string) => api.get<CaptionsStatus>(`${base(store)}/captions/status/`).then((r) => r.data),
   /** زیرنویسِ خودکار — job؛ نتیجه {clips: TextClip[], text, engine, count} */
-  captions: (store: string, body: { ref: string; start: number; end: number; at: number; speed?: number }) =>
+  captions: (store: string, body: { ref: string; start: number; end: number; at: number; speed?: number; language?: "fa" | "en" | "auto" }) =>
     api.post<{ job_id: number }>(`${base(store)}/captions/`, body).then((r) => r.data),
   /** ترجمهٔ زیرنویس — job؛ نتیجه {lang, items: [{id, text}]} */
   /** جمع‌کردنِ فایل‌های پروژه — job؛ نتیجه {url, files, bytes, skipped, name} */

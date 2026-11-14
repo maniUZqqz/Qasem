@@ -12,6 +12,8 @@ import { toggleKey } from "./autoedit/logic";
 import PolishStatus from "./autoedit/PolishStatus";
 import SilenceReview from "./autoedit/SilenceReview";
 import CaptionModePicker, { type CaptionMode } from "./autoedit/CaptionMode";
+import SpeechLanguagePicker, { type SpeechLang } from "./autoedit/SpeechLanguage";
+import CaptionLookPicker, { type CaptionLook } from "./autoedit/CaptionLook";
 import { SizeChips } from "./autoedit/SizesPanel";
 import { OpList } from "./ToolForm";
 import type { Video } from "./types";
@@ -141,6 +143,8 @@ export function VideoAutoBlock(p: Common) {
   const [sizeList, setSizeList] = useState<SizeInfo[] | null>(null);
   const [multi, setMulti] = useState(false);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("burn");
+  const [speechLang, setSpeechLang] = useState<SpeechLang>("fa");
+  const [captionLook, setCaptionLook] = useState<CaptionLook>("");
   const [sizePick, setSizePick] = useState<string[]>([]);
 
   async function toggleMulti(on: boolean) {
@@ -177,7 +181,7 @@ export function VideoAutoBlock(p: Common) {
     setAsking(null);
     setPolish("busy");
     try {
-      const r = await startPolish(p.storeId, p.video.id, { wait_for_words: true, deliver: true, captions: captionMode, ...(multi && sizePick.length ? { sizes: sizePick } : {}) });
+      const r = await startPolish(p.storeId, p.video.id, { wait_for_words: true, deliver: true, captions: captionMode, language: speechLang, ...(captionLook ? { caption_style: captionLook } : {}), ...(multi && sizePick.length ? { sizes: sizePick } : {}) });
       setPolishJob(r.job_id);
       setPolish("queued");
     } catch (err) {
@@ -250,7 +254,11 @@ export function VideoAutoBlock(p: Common) {
         <input type="checkbox" checked={multi} onChange={(e) => void toggleMulti(e.target.checked)} data-testid="video-polish-multi" />
         برای چند شبکه (ریلز، پست، یوتیوب، تیک‌تاک، تلگرام، آپارات …) هر کدام یک خروجی بساز
       </label>
-      <div className="mt-2"><CaptionModePicker value={captionMode} onChange={setCaptionMode} testId="video-polish-caption-mode" /></div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <CaptionModePicker value={captionMode} onChange={setCaptionMode} testId="video-polish-caption-mode" />
+        <SpeechLanguagePicker value={speechLang} onChange={setSpeechLang} testId="video-polish-speech-language" />
+        <CaptionLookPicker value={captionLook} onChange={setCaptionLook} testId="video-polish-caption-look" />
+      </div>
       {multi && sizeList && (
         <div className="mt-2">
           <SizeChips sizes={sizeList} picked={sizePick} onToggle={(k) => setSizePick((cur) => toggleKey(cur, k))} />

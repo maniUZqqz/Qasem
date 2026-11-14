@@ -91,6 +91,10 @@ def _apply_override(brief: dict, override: dict) -> None:
     for key in ("music", "captions"):
         if isinstance(o.get(key), bool):
             brief[key] = o[key]
+    from .tools import CAPTION_STYLES            # «سبکِ زیرنویس»: هفت ظاهرِ آماده؛ انتخابِ پنل همان‌طور که گفته شده می‌نشیند
+
+    if o.get("caption_style") in CAPTION_STYLES:
+        brief["caption_style"] = o["caption_style"]
     if o.get("background") in ("keep", "blur", "color", "image"):  # «پس‌زمینه»: همان / محو / رنگِ ساده / عکس (the chip beats the words)
         brief["background"] = o["background"]
         brief["matched"].append("پس‌زمینه")

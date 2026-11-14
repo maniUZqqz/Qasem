@@ -116,7 +116,7 @@ export default function CampaignBoard({
     focused.current = true;
     setOpen((prev) => new Set(prev).add(focusTaskId));
     window.setTimeout(
-      () => document.getElementById(`task-${focusTaskId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      () => document.getElementById(`task-${focusTaskId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),      // «center» روی کارتِ بلند عنوان و وضعیت را بالای قاب می‌برد (بازبینیِ ۱۱/۱۳)
       200,
     );
   }, [board, focusTaskId]);

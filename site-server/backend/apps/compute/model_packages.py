@@ -307,8 +307,8 @@ def preflight(node: ComputeNode, packages) -> str:
         # فقط بسته‌های کاتالوگِ تازه (دارای package_info): عاملِ قدیمی آن‌ها را نمی‌شناسد؛ بسته‌های قدیمی مثل همیشه
         unknown = [p for p in packages if (cat.get(p) or {}).get("display") and p not in status]
         if unknown:
-            return ("نرم‌افزارِ این سرور هنوز بسته‌های تازهٔ مدل را نمی‌شناسد (%s). یک بار «به‌روزرسانی» را از «دستورها» بزنید "
-                    "(یا Update.bat را روی آن کامپیوتر اجرا کنید) و دوباره دانلود را بزنید." % "، ".join(unknown[:3]))
+            return ("نرم‌افزارِ این سرور هنوز بسته‌های تازهٔ مدل را نمی‌شناسد (%s). سرور با روشن‌بودن خودش به‌روز می‌شود (به‌روزرسانیِ خودکار)؛ "
+                    "بعدش همین دانلود را دوباره بزنید، یا بگذارید «دانلودِ خودکار» کارش را بکند. اگر عجله دارید «به‌روزرسانی» را از «دستورها» بزنید." % "، ".join(unknown[:3]))
     need = missing_mb_of(node, packages)
     free = free_mb(node)
     if need and free is not None and need + MANUAL_RESERVE_MB > free:

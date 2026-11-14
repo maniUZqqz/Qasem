@@ -323,11 +323,13 @@ def _ago(when) -> str:
     if not when:
         return "هرگز"
     seconds = (timezone.now() - when).total_seconds()
+    from apps.common.fatext import fa_digits                       # Persian digits next to Persian words («۱۹ ساعت پیش»; review of 2026-11-13)
+
     if seconds < 3600:
-        return f"{max(1, int(seconds // 60))} دقیقه پیش"
+        return fa_digits(f"{max(1, int(seconds // 60))} دقیقه پیش")
     if seconds < 86400:
-        return f"{int(seconds // 3600)} ساعت پیش"
-    return f"{int(seconds // 86400)} روز پیش"
+        return fa_digits(f"{int(seconds // 3600)} ساعت پیش")
+    return fa_digits(f"{int(seconds // 86400)} روز پیش")
 
 
 def voice_nodes() -> list:
@@ -350,7 +352,7 @@ def offline_message(voice=None) -> str:
     seen = "، ".join(f"«{n['name']}» آخرین بار {n['last_seen_text']}" for n in nodes[:2]) or "هیچ سروری ثبت نشده"
     who = f"صدای کلون‌شدهٔ «{voice.name}»" if voice is not None else "صدای کلون‌شده"
     return (f"{who} فقط روی سرورِ پردازش (کامپیوترِ گرافیکی) ساخته و خوانده می‌شود و الان هیچ سرورِ پردازشی "
-            f"با سرویسِ صدا روشن نیست ({seen}). آن کامپیوتر را روشن و START.bat را اجرا کنید. "
+            f"با سرویسِ صدا روشن نیست ({seen}). آن کامپیوتر را روشن کنید؛ سرورِ پردازش خودش بالا می‌آید. "
             "صدای دیگری به‌جای این صدا خوانده نمی‌شود.")
 
 

@@ -294,7 +294,10 @@ def _polish(ctx: dict) -> list[dict]:
     if an["has_speech"]:
         steps.append(step("clean_voice", {"clip": "all", "level": "light"}, "نویزِ صدا گرفته شد"))
         if b.get("captions") is not False:
-            steps.append(step("add_captions", {"clip": "all", "style": "karaoke" if ctx["v"]["captions"] == "karaoke" else "pop"}, "زیرنویس با کلمهٔ هایلایت، بیرون از دکمه‌های شبکه"))
+            from .tools import CAPTION_STYLES
+
+            look = b.get("caption_style") if b.get("caption_style") in CAPTION_STYLES else ("karaoke" if ctx["v"]["captions"] == "karaoke" else "pop")
+            steps.append(step("add_captions", {"clip": "all", "style": look}, "زیرنویس با کلمهٔ هایلایت، بیرون از دکمه‌های شبکه"))
     if b.get("title"):
         steps.append(step("add_title", {"text": b["title"], "at": 0.3, "duration": 2.6, "template": ctx["v"]["title_template"]}, "تیتر روی ثانیه‌های اول"))
     if b.get("music") is not False:

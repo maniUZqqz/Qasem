@@ -2,10 +2,14 @@
 .th-root { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .th-controls { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .th-preview-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; order: -1; }
+.th-output { display: flex; flex-direction: column; gap: 16px; min-width: 0; order: -1; }  /* روی موبایل درست زیرِ پیش‌نمایش */
 @media (min-width: 1100px) {
   .th-root { grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); align-items: start; }
-  .th-preview-col { order: 0; }
-  .th-sticky { position: sticky; top: 12px; }
+  .th-preview-col { order: 0; align-self: stretch; }
+  /* ستونِ پیش‌نمایش فقط پیش‌نمایش و «ساخت» را دارد و به بلندیِ ستونِ کنترل‌ها کش می‌آید؛ نتیجه/تاریخچه جدا و زیرِ هر دو ستون‌اند
+     (قبلاً داخلِ همین ستون بودند و زیرِ کارتِ چسبان می‌لغزیدند: دکمهٔ «ساخت» زیرِ کارت‌های تاریخچه کلیک‌نشدنی می‌شد). */
+  .th-output { order: 0; grid-column: 1 / -1; }
+  .th-sticky { position: sticky; top: 12px; z-index: 2; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
 .th-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 800; color: var(--text); }

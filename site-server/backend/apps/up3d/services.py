@@ -39,6 +39,15 @@ def job_dir(job):
     return d
 
 
+def delete_project(project):
+    """Deletes a project AND the files of its jobs (frames, previews, final.mp4). Before 2026-11-14 only the rows went: ~1.3 MB per project stayed on disk for ever."""
+    folders = [data_abs(j.dir_rel()) for j in project.jobs.all()]
+    project.delete()
+    for d in folders:
+        shutil.rmtree(d, ignore_errors=True)
+    return len(folders)
+
+
 # ───────────────────────── نسخه‌ها
 
 def new_version(project, doc, source='editor', note='', auto_repair=False):

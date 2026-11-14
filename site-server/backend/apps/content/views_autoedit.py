@@ -152,7 +152,8 @@ class ProjectSizesView(APIView):
         return Response({"jobs": made, "skipped": skipped}, status=status.HTTP_202_ACCEPTED)
 
 
-def autoedit_payload(upload_id: int, *, platform: str = "", prompt: str = "", require_words: bool = False, deliver: bool = True, sizes=None, captions: str = "") -> dict:
+def autoedit_payload(upload_id: int, *, platform: str = "", prompt: str = "", require_words: bool = False, deliver: bool = True, sizes=None, captions: str = "",
+                     language: str = "", caption_style: str = "") -> dict:
     """The director job payload of the polish run for one upload (shared by the endpoint and the `queue_autoedit_rerun` command).
 
     `deliver` (default on): the run does not stop at a draft - when the draft is complete (captions filled in once the processing server is on)
@@ -161,12 +162,19 @@ def autoedit_payload(upload_id: int, *, platform: str = "", prompt: str = "", re
     override = {"recipe": "polish"}
     if platform:
         override["platform"] = platform
+    if caption_style:
+        from services.editing.director.tools import CAPTION_STYLES
+
+        if caption_style in CAPTION_STYLES:
+            override["caption_style"] = caption_style      # «ظاهرِ زیرنویس»: pop, box, karaoke, clean, neon, typewriter, lower
     options = {"variants": 1, "rounds": 1, "use_ai": False, "preview": False, "override": override, "require_words": require_words, "deliver": bool(deliver)}
     keys = social_sizes.clean_keys(sizes)
     if keys:
         options["sizes"] = keys
     if captions in ("burn", "soft"):
         options["captions"] = captions            # «زیرنویس: داخلِ تصویر / فایلِ جدا (.srt)»
+    if language in ("en", "auto"):
+        options["language"] = language            # «زبانِ گفتار»: فارسی (پیش‌فرض، همان رفتارِ قبلی) / English / تشخیصِ خودکار
     return {"kind": "run", "prompt": prompt[:600], "refs": [f"video:{upload_id}"], "options": options}
 
 
@@ -185,7 +193,8 @@ class UploadAutoEditView(APIView):
         payload = autoedit_payload(upload.pk, platform=str(request.data.get("platform") or "")[:12], prompt=str(request.data.get("prompt") or ""),
                                    require_words=bool(request.data.get("wait_for_words")), deliver=request.data.get("deliver", True) is not False,
                                    sizes=request.data.get("sizes") if isinstance(request.data.get("sizes"), list) else None,
-                                   captions=str(request.data.get("captions") or ""))
+                                   captions=str(request.data.get("captions") or ""), language=str(request.data.get("language") or "")[:8],
+                                   caption_style=str(request.data.get("caption_style") or "")[:16])
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director", "kind": "run", "origin": "autoedit", "upload_id": upload.pk})
         failed = dispatch_job(job, director_task, job.id, payload)
         if failed is not None:

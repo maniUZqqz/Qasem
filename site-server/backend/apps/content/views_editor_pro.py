@@ -232,7 +232,7 @@ class CaptionsView(APIView):
         if not state["ok"] and not state.get("waiting"):
             return _err("captions_unavailable", state["message"], status.HTTP_503_SERVICE_UNAVAILABLE)
         job = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "captions", "ref": ref})
-        failed = dispatch_job(job, captions_task, job.id, ref, start, end, at, speed)
+        failed = dispatch_job(job, captions_task, job.id, ref, start, end, at, speed, captions.clean_language(request.data.get("language")))
         if failed is not None:
             return failed
         return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)

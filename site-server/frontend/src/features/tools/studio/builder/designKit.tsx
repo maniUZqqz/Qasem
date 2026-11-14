@@ -1,5 +1,5 @@
 /** سبکِ طراحی و قطعه‌های آماده در ویرایشگرِ دیداری: انتخابگرِ سبک (پوسته) و کتابخانهٔ قطعه‌ها (افزودن). */
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, studioError } from "../api";
 import type { Catalog, CompMeta, Doc } from "./doc";
@@ -93,6 +93,9 @@ export function StylePicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // چیدمانِ بخش‌ها پیش و پس از اعمالِ سبک (فقط در همین نشست): «برگرداندنِ پوسته» اگر چیدمان بعدش دست نخورده باشد آن را هم برمی‌گرداند.
+  const docBefore = useRef<Doc | null>(null);
+  const docAfter = useRef<string>("");
   const cur = styles.find((s) => s.key === pick);
   const fontName = (k: string) => options.fonts.find((f) => f.value === k)?.label ?? k;
 
@@ -110,8 +113,39 @@ export function StylePicker({
         target,
         page: pageId,
       });
+      if (style && data.doc) {
+        if (!theme.style || !docBefore.current) docBefore.current = doc;      // اولین سبک: چیدمانِ اصلی را نگه دار
+        docAfter.current = JSON.stringify(data.doc);
+      }
       onApply(data.theme, data.doc ?? null);
-      setDone(style ? "سبک نشست. اگر دوست نداشتی، «برگرداندن» (Ctrl+Z) را بزن یا سبکِ دیگری انتخاب کن." : "لایهٔ سبک برداشته شد.");
+      setDone(
+        style
+          ? "سبک نشست. اگر دوست نداشتی، «برگرداندنِ پوسته به پیش از سبک» را بزن (برگرداندنِ Ctrl+Z فقط چیدمانِ بخش‌ها را برمی‌گرداند، نه رنگ و قلم را) یا سبکِ دیگری انتخاب کن."
+          : "لایهٔ سبک برداشته شد؛ رنگ‌ها و قلم‌هایی که سبک گذاشته بود همان ماندند.",
+      );
+    } catch (err) {
+      setError(studioError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restore() {
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const { data } = await api.post<{ theme: ThemeT }>(`/studio/projects/${slug}/builder/style/apply/`, { restore: true, theme, target, page: pageId });
+      const layoutUntouched = !!docBefore.current && JSON.stringify(doc) === docAfter.current;
+      onApply(data.theme, layoutUntouched ? docBefore.current : null);
+      docBefore.current = null;
+      docAfter.current = "";
+      setPick("");
+      setDone(
+        layoutUntouched
+          ? "رنگ‌ها، قلم‌ها و چیدمانِ بخش‌ها به حالتِ پیش از سبک برگشت."
+          : "رنگ‌ها و قلم‌ها به حالتِ پیش از سبک برگشت. چیدمانِ بخش‌ها دست نخورد (بعد از سبک ویرایش شده بود یا صفحه از نو باز شده بود).",
+      );
     } catch (err) {
       setError(studioError(err));
     } finally {
@@ -153,15 +187,20 @@ export function StylePicker({
             چیدمانِ بخش‌های همین صفحه هم با سبک جور شود
           </label>
           <label className="nbe-toggle">
-            <input type="checkbox" checked={keepBrand} onChange={(e) => setKeepBrand(e.target.checked)} />
+            <input type="checkbox" checked={keepBrand} onChange={(e) => setKeepBrand(e.target.checked)} title="رنگی که پیش از اولین سبک داشتید؛ نه رنگِ سبکی که قبلاً امتحان کرده‌اید" />
             رنگِ اصلیِ برندم همان بماند
           </label>
           <div className="nbe-row">
             <button type="button" className="nbe-add" data-testid="apply-style" disabled={busy} onClick={() => void apply(cur.key)}>
               {busy ? "در حالِ اعمال…" : theme.style === cur.key ? "دوباره اعمال کن" : "اعمالِ این سبک"}
             </button>
+            {theme.style && theme.style_prev && (
+              <button type="button" className="nbe-add" data-testid="restore-style" disabled={busy} onClick={() => void restore()}>
+                برگرداندنِ پوسته به پیش از سبک
+              </button>
+            )}
             {theme.style && (
-              <button type="button" className="nbe-link danger" disabled={busy} onClick={() => void apply("")}>
+              <button type="button" className="nbe-link danger" disabled={busy} onClick={() => void apply("")} title="فقط لایهٔ سبک برداشته می‌شود؛ رنگ‌ها و قلم‌هایی که سبک گذاشته همان می‌مانند (برای برگشتنِ کامل «برگرداندنِ پوسته به پیش از سبک» را بزنید)">
                 برداشتنِ سبک
               </button>
             )}

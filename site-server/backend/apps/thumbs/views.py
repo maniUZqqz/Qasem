@@ -28,6 +28,7 @@ from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from apps.stores import access
@@ -100,10 +101,18 @@ class OverviewView(APIView):
         })
 
 
+class SampleThrottle(AnonRateThrottle):
+    """هر بار عوض‌کردنِ قالب ۱۵ نمونه می‌خواهد؛ سقفِ ۳۰ در دقیقهٔ پیش‌فرض بعد از چند کلیک ۴۲۹ می‌داد و تصویرِ سبک‌ها می‌شکست (بازبینیِ ۱۱/۱۳).
+    فایل‌ها یک‌بار ساخته و کش می‌شوند و مجموعه‌شان محدود است (سبک × قالب)؛ پس سقفِ بالاتر خطری ندارد."""
+    scope = "thumb_sample"
+    rate = "600/min"
+
+
 class StyleSampleView(APIView):
     """نمونهٔ ساختگیِ یک سبک. ``<img src>`` سرآیندِ Authorization نمی‌فرستد، پس بدونِ ورود هم باز می‌شود (تصویر کاملاً ساختگی و عمومی است؛
     هیچ دادهٔ فروشگاه ندارد). فقط ``?brand=1`` برای کاربرِ واردشده با رنگ‌های برندِ همان فروشگاه کشیده می‌شود."""
     permission_classes = [AllowAny]
+    throttle_classes = [SampleThrottle]
 
     def get(self, request, store_id, key):
         if key not in STYLES:

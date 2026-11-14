@@ -81,7 +81,7 @@ def examples(cluster: IgTrendCluster, limit: int = 4) -> list[dict]:
              "why": (p.explain or {}).get("ratio")} for p in posts]
 
 
-def template_brief(store, cluster: IgTrendCluster, product=None) -> dict:
+def template_brief(store, cluster: IgTrendCluster, product=None, matched: bool = True) -> dict:
     stats = cluster.stats or {}
     fmt = cluster.fmt if cluster.fmt in OUTLINES else "reel"
     types = Counter(h.get("type") for h in stats.get("hooks", []) if h.get("type"))
@@ -89,7 +89,8 @@ def template_brief(store, cluster: IgTrendCluster, product=None) -> dict:
     topic = _topic(cluster)
     hook = HOOK_TEMPLATES.get(htype, HOOK_TEMPLATES["statement"]).format(topic=topic)
     tags = ["#" + t for t in (stats.get("hashtags") or [])[:6]]
-    thing = ("«%s»" % product.name) if product is not None else "پیشنهادِ خودتان"
+    # a product is NAMED only when the topic really is about it; "the first product" of a shop can be a billing item («بستهٔ توکن ۵۰تایی»)
+    thing = ("«%s»" % product.name) if product is not None and matched else "پیشنهادِ خودتان"
     idea = ("[قالبِ ساده — بدونِ هوش مصنوعی] %s دربارهٔ «%s» بسازید و در آن %s را نشان دهید؛ موضوع فقط زمینه است و محتوا دربارهٔ کارِ خودتان می‌ماند. "
             "قالبِ قلاب: %s." % (FORMAT_FA.get(fmt, "پست"), topic, thing, hook_label(htype)))
     caption = "%s\n\n• [نکتهٔ ۱ دربارهٔ %s]\n• [نکتهٔ ۲]\n• [نکتهٔ ۳]\n\nاگر به کارت آمد ذخیره‌اش کن.\n\n%s" % (hook, topic, " ".join(tags))
@@ -164,7 +165,7 @@ def make_idea(store, cluster: IgTrendCluster, *, use_ai: bool = True) -> dict:
         else:
             note = "هوش مصنوعی الان در دسترس نیست؛ قالبِ ساده ساخته شد."
     if brief is None:
-        brief = template_brief(store, cluster, product)
+        brief = template_brief(store, cluster, product, matched)
         brief["note"] = note
     brief["product_id"] = product.pk if product else None
     brief["product_name"] = product.name if product else None

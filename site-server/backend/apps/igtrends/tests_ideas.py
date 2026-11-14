@@ -50,6 +50,24 @@ class BriefTests(TestCase):
         self.assertFalse(matched)
         self.assertEqual(product.name, "کفش ورزشی")
 
+    def test_a_product_the_topic_is_not_about_is_never_named_in_the_template(self):
+        """Review of 2026-11-13: the template named the shop's FIRST product (for Chagher a billing item) under a topic about something else."""
+        Product.objects.create(store=self.store, name="بستهٔ توکنِ عادی — ۵۰ توکن", price=10, is_available=True)
+        product, matched = ideas.pick_product(self.store, self.home)
+        self.assertFalse(matched)
+        self.assertIsNotNone(product)
+        text = ideas.template_brief(self.store, self.home, product, matched)["idea"]
+        self.assertNotIn("بستهٔ توکن", text)
+        self.assertIn("پیشنهادِ خودتان", text)
+        out = ideas.make_idea(self.store, self.home, use_ai=False)
+        self.assertNotIn("بستهٔ توکن", out["brief"]["idea"])
+        self.assertEqual(out["brief"]["product_id"], product.pk)               # the idea is still linked to a product for the content page
+        self.assertFalse(out["brief"]["product_matched"])
+        # a matching product IS named
+        Product.objects.create(store=self.store, name="برنامهٔ تمرین در خانه", price=10, is_available=True)
+        named = ideas.template_brief(self.store, self.home, *ideas.pick_product(self.store, self.home))["idea"]
+        self.assertIn("برنامهٔ تمرین در خانه", named)
+
     def test_no_products_means_no_product_not_a_crash(self):
         out = ideas.make_idea(self.store, self.home, use_ai=False)
         self.assertIsNone(out["brief"]["product_id"])

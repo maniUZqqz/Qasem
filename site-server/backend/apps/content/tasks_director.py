@@ -129,7 +129,9 @@ def _queue_fill(job: Job, store, payload: dict, result: dict, final: dict, deliv
         if pending:
             count = sum(len(p["steps"]) for p in pending)
             fill = Job.objects.create(store=store, type=Job.Type.VIDEO_EDIT, context={"what": "director_fill", "of": job.id, "count": count})
-            if dispatch_job(fill, director_fill_task, fill.id, {"items": pending, **({"deliver": deliver} if deliver else {})}) is None:
+            opts_raw = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+            fill_payload = {"items": pending, "language": opts_raw.get("language") or "fa", **({"deliver": deliver} if deliver else {})}
+            if dispatch_job(fill, director_fill_task, fill.id, fill_payload) is None:
                 final["waiting_node"] = {"job_id": fill.id, "steps": count, "then_render": bool(deliver)}
                 final.setdefault("degraded", []).append(f"{count} مرحله (زیرنویس، حذفِ «اِم و اوم» یا گویندگی) به سرورِ پردازش نیاز دارد که الان روشن نیست؛ در صفِ پردازش ماند و با روشن شدنش خودکار به پیش‌نویس‌ها اضافه می‌شود.")
         opts = payload.get("options") if isinstance(payload.get("options"), dict) else {}
@@ -201,7 +203,10 @@ def director_task(self, job_id, payload):
         job.mark_running("آغازِ کارگردان")
         kind = payload.get("kind", "run")
         refs = [str(r) for r in (payload.get("refs") or [])][:24]
-        ctx = store_ctx(store, user=None, asr=bool(payload.get("asr", True)))
+        from services.editing import captions as captions_mod
+
+        speech_language = captions_mod.clean_language((payload.get("options") or {}).get("language") if isinstance(payload.get("options"), dict) else "")
+        ctx = store_ctx(store, user=None, asr=bool(payload.get("asr", True)), language=speech_language)
         assets, missing = [], []
         for ref in refs:
             item = ctx.describe(ref)
@@ -300,7 +305,9 @@ def director_fill_task(self, job_id, payload):
             return {"waiting": "node"}
         job.total_steps = max(1, len(payload.get("items") or []))
         job.mark_running("سرورِ پردازش روشن شد؛ تکمیلِ زیرنویس‌ها")
-        ctx = store_ctx(store, user=None, asr=True)
+        from services.editing import captions as captions_mod
+
+        ctx = store_ctx(store, user=None, asr=True, language=captions_mod.clean_language(payload.get("language")))
         done = still = 0
         for n, item in enumerate(payload.get("items") or [], start=1):
             draft = DirectorDraft.objects.filter(pk=item.get("draft"), store=store, promoted_at__isnull=True).first()   # an opened draft is the owner's: never touched

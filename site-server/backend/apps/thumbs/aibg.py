@@ -200,10 +200,10 @@ def resolve_prompt(store, *, text: str = "", preset: str = "", style: str = "", 
             base = tr.en
             info["translated"] = tr.source != "none"
         except (translate.Unavailable, translate.Failed) as exc:
-            info["note"] = (f"توضیحِ فارسیِ شما ترجمه نشد ({exc}); به‌جایش پس‌زمینهٔ آمادهٔ سبک ساخته شد. "
-                            "وقتی مترجم (هوش مصنوعی) برگشت، همین توضیح ترجمه می‌شود.")[:300]
+            info["note"] = hooks.fit_text("توضیحِ فارسیِ شما ترجمه نشد (%s). به‌جایش پس‌زمینهٔ آمادهٔ سبک ساخته شد. "
+                                          "وقتی مترجمِ هوش مصنوعی برگشت، همین توضیح ترجمه می‌شود." % hooks.friendly_reason(exc, 90), 300)
         except Exception as exc:  # noqa: BLE001
-            info["note"] = f"ترجمهٔ توضیح انجام نشد ({hooks.friendly_reason(translate.explain(exc))}); پس‌زمینهٔ آمادهٔ سبک ساخته شد."[:300]
+            info["note"] = hooks.fit_text("ترجمهٔ توضیح انجام نشد (%s). پس‌زمینهٔ آمادهٔ سبک ساخته شد." % hooks.friendly_reason(translate.explain(exc), 90), 300)
     if not base:
         base = hooks.BG_PROMPTS.get(style) or hooks.BG_PROMPTS["face_text"]
         if not info["note"] and not text and not preset:

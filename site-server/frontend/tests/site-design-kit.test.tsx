@@ -139,6 +139,18 @@ check("انتخابگرِ سبک: بی‌سبک ⇒ همهٔ کارت‌ها ه�
   assert.ok(!html.includes('data-testid="apply-style"'));
   assert.ok(!html.includes("برداشتنِ سبک"));
 });
+check("انتخابگرِ سبک: «برگرداندنِ پوسته به پیش از سبک» فقط وقتی عکسِ پوسته هست (بازبینیِ ۱۱/۱۳)", () => {
+  const snap = { colors: colors({ primary: "#126f85" }), font_body: "vazirmatn", font_head: "vazirmatn", button: "round", radius: 26, width: 1120 };
+  const withSnap = picker({ ...theme, style_prev: snap });
+  has(withSnap, 'data-testid="restore-style"');
+  has(withSnap, "برگرداندنِ پوسته به پیش از سبک");
+  assert.ok(!picker(theme).includes('data-testid="restore-style"'), "سبکی که پیش از این قابلیت نشسته عکس ندارد: دکمه‌اش نیست");
+  assert.ok(!picker({ ...theme, style: undefined, style_prev: undefined }).includes('data-testid="restore-style"'));
+});
+check("انتخابگرِ سبک: «برداشتنِ سبک» روشن می‌گوید رنگ و قلم می‌ماند", () => {
+  const html = picker(theme);
+  has(html, "رنگ‌ها و قلم‌هایی که سبک گذاشته همان می‌مانند");
+});
 check("انتخابگرِ سبک: بدونِ فهرستِ سبک چیزی نمی‌کشد", () => {
   assert.equal(picker(theme, { ...options, styles: [] }), "");
 });

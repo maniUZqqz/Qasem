@@ -126,7 +126,7 @@ export default function NodeModelsCard({
             <span className="min-w-0">
               <span className="block font-bold" style={{ color: "var(--text)" }}>
                 {p.title}
-                {p.optional && (
+                {p.optional && p.auto?.mode !== "on" && (
                   <span className="mr-2 text-xs font-normal" style={{ color: "var(--text-3)" }}>
                     (اختیاری)
                   </span>

@@ -220,4 +220,8 @@
 .u3d-docs ol, .u3d-docs ul { padding-inline-start: 1.3em; }
 .u3d-docs li { margin: 4px 0; }
 .u3d-docs code { font-family: Consolas, monospace; direction: ltr; unicode-bidi: embed; background: var(--surface-2); padding: 0 4px; border-radius: 4px; font-size: .85em; }
-@media (max-width: 900px) { .u3d-docs { grid-template-columns: 1fr; } .u3d-docs nav { position: static; } }
+@media (max-width: 900px) { .u3d-docs { grid-template-columns: minmax(0, 1fr); } .u3d-docs nav { position: static; } }
+/* بلوک‌های JSON و جدولِ API نباید ستون را از قابِ گوشی بیرون بدهند (۶۲۴px روی ۳۹۰px بود) */
+.u3d-docs > * { min-width: 0; }
+.u3d-docs .u3d-pre { overflow-x: auto; max-width: 100%; }
+.u3d-docs table { display: block; overflow-x: auto; max-width: 100%; }

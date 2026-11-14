@@ -28,6 +28,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.fatext import fa_digits
 from apps.stores import access
 
 from . import dispatch, engine, ideas, ingest, normalize, seeds
@@ -259,7 +260,7 @@ class ImportView(StoreView):
             return err("unreadable", str(exc))
         now = timezone.now()
         run.state, run.accounts_read, run.posts_new, run.posts_updated = IgScanRun.State.OK, out["accounts"], out["new"], out["updated"]
-        run.message = ("%d صفحه و %d پست وارد شد (%d تازه)." % (out["accounts"], out["posts"], out["new"]))[:300]
+        run.message = fa_digits("%d صفحه و %d پست وارد شد (%d تازه)." % (out["accounts"], out["posts"], out["new"]))[:300]
         run.finished_at = run.ingested_at = now
         run.summary = {"files": len(docs), "problems": problems}
         run.save()

@@ -199,7 +199,7 @@ class VoiceCloneTests(TestCase):
         r = self.client.post(f"{self.base}{voice_id}/build/", {"consent": True}, content_type="application/json")
         self.assertEqual(r.status_code, 503)
         self.assertEqual(r.json()["error"]["code"], "node_offline")
-        self.assertIn("START.bat", r.json()["error"]["message"])
+        self.assertIn("خودش بالا می‌آید", r.json()["error"]["message"])
 
         ComputeNode.objects.update(last_seen=timezone.now())
         r = self.client.post(f"{self.base}{voice_id}/build/", {"consent": True}, content_type="application/json")
@@ -291,7 +291,7 @@ class VoiceCloneTests(TestCase):
         ComputeNode.objects.update(last_seen=timezone.now() - timedelta(hours=3))
         with self.assertRaises(tts.TTSError) as ctx:
             provider.synthesize("سلام", Path(TMP) / "out.mp3")
-        self.assertIn("START.bat", str(ctx.exception))
+        self.assertIn("خودش بالا می‌آید", str(ctx.exception))
         self.assertIn("صدای دیگری", str(ctx.exception))
         self.assertFalse(ComputeJob.objects.filter(kind="voice.tts").exists())
 
@@ -464,11 +464,11 @@ class MossCloneTests(TestCase):
         self.node.save()
         r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
         self.assertEqual(r.status_code, 400)
-        self.assertIn("START.bat", r.json()["error"]["message"])
+        self.assertIn("دانلودِ خودکار", r.json()["error"]["message"])       # the models are not there: the owner presses «دانلود» or waits for the automatic download
         self.node.capabilities = {"voice": True, "agent": "1.6"}
         self.node.save()
         r = self.client.post(f"{self.base}{voice.pk}/build/", {"consent": True}, content_type="application/json")
-        self.assertIn("git pull", r.json()["error"]["message"])
+        self.assertIn("به‌روزرسانی", r.json()["error"]["message"])
         self.assertFalse(ComputeJob.objects.filter(kind="voice.clone").exists())
 
     def test_engine_can_be_switched(self):

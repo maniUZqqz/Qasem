@@ -1,5 +1,7 @@
 import { api } from "../../../../api/client";
 import type { CaptionMode } from "./CaptionMode";
+import type { SpeechLang } from "./SpeechLanguage";
+import type { CaptionLook } from "./CaptionLook";
 import type { SilenceAction, SilenceRow } from "./logic";
 
 /** API ِ «تدوینِ خودکار» (backend/apps/content/views_autoedit.py) */
@@ -60,7 +62,7 @@ export async function makeSizes(storeId: string, projectId: number, sizes: strin
   return data;
 }
 
-export async function startPolish(storeId: string, uploadId: number, opts: { platform?: string; wait_for_words?: boolean; deliver?: boolean; sizes?: string[]; captions?: CaptionMode } = {}): Promise<{ job_id: number }> {
+export async function startPolish(storeId: string, uploadId: number, opts: { platform?: string; wait_for_words?: boolean; deliver?: boolean; sizes?: string[]; captions?: CaptionMode; language?: SpeechLang; caption_style?: CaptionLook } = {}): Promise<{ job_id: number }> {
   const { data } = await api.post<{ job_id: number }>(`/stores/${storeId}/videos/${uploadId}/autoedit/`, opts);
   return data;
 }

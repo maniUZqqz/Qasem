@@ -92,6 +92,10 @@ def clean_theme(data, project=None):
         base['style'] = data['style']
         if data.get('style_keep'):
             base['style_keep'] = True
+        sp = data.get('style_prev')
+        if isinstance(sp, dict) and isinstance(sp.get('colors'), dict):      # پوستهٔ پیش از سبک (برای «برگرداندن»)؛ فقط تا وقتی سبکی نشسته
+            snap = clean_theme({k: v for k, v in sp.items() if k not in ('style', 'style_keep', 'style_prev')}, project)
+            base['style_prev'] = {k: snap[k] for k in ('colors', 'font_head', 'font_body', 'button', 'radius', 'width')}
     try:
         base['radius'] = max(0, min(40, int(data.get('radius', base['radius']))))
         base['width'] = max(800, min(1600, int(data.get('width', base['width']))))

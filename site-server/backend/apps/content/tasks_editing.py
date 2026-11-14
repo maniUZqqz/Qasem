@@ -1014,7 +1014,7 @@ def translate_captions_task(self, job_id, lang, items):
 
 
 @shared_task(bind=True)
-def captions_task(self, job_id, ref, start, end, at, speed=1.0):
+def captions_task(self, job_id, ref, start, end, at, speed=1.0, language="fa"):
     """Auto-captions for a stretch of a clip: speech → words (the node's `voice.asr`, else a clear message) →
     caption lines with per-word timing, placed on the timeline at `at` (the clip's speed followed)."""
     import tempfile
@@ -1040,7 +1040,7 @@ def captions_task(self, job_id, ref, start, end, at, speed=1.0):
         wav = Path(handle.name)
         captions.extract_audio(item["path"], float(start), float(end), wav)
         job.mark_progress(1, "در حال گوش‌دادن به گفتار (سرورِ پردازش)")
-        heard = captions.transcribe_wav(wav, store=job.store, on_tick=lambda j: job.mark_progress(1, "در حال گوش‌دادن به گفتار"))
+        heard = captions.transcribe_wav(wav, store=job.store, on_tick=lambda j: job.mark_progress(1, "در حال گوش‌دادن به گفتار"), language=language)
         words = heard.get("words") or []
         if not words:
             raise captions.CaptionsUnavailable("حرفی در این بخش شنیده نشد.")

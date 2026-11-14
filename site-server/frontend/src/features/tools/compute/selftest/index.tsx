@@ -202,10 +202,12 @@ function NodeSection({
             </span>
           )}
           <div className="nmt-head-end">
-            <Button size="sm" disabled={!node.online || busy !== null} onClick={() => onRun(node, false)}>
+            <Button size="sm" disabled={!node.online || busy !== null} onClick={() => onRun(node, false)}
+              title={!node.online ? "سرورِ پردازش خاموش است؛ آزمون خودکار با روشن‌شدنش اجرا می‌شود" : busy !== null ? "یک کارِ دیگر در حالِ انجام است" : "آزمونِ کاملِ همهٔ قابلیت‌ها"}>
               {busy === `run-${node.id}-std` ? <Spinner size={12} /> : <Icon name="play" size={13} />} آزمونِ کامل
             </Button>
-            <Button size="sm" variant="secondary" disabled={!node.online || busy !== null} onClick={() => onRun(node, true)}>
+            <Button size="sm" variant="secondary" disabled={!node.online || busy !== null} onClick={() => onRun(node, true)}
+              title={!node.online ? "سرورِ پردازش خاموش است؛ آزمون خودکار با روشن‌شدنش اجرا می‌شود" : busy !== null ? "یک کارِ دیگر در حالِ انجام است" : "آزمونِ عمیق با ویدیوی طولانی (چند دقیقه)"}>
               {busy === `run-${node.id}-deep` ? <Spinner size={12} /> : <Icon name="film" size={13} />} آزمونِ عمیق (با ویدیوی طولانی)
             </Button>
           </div>

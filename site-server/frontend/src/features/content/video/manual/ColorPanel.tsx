@@ -210,8 +210,9 @@ function LookGrid({ looks, current, thumbSource, clipId, onPick }: {
       if (key) applyColor(img, { look: key, look_amount: 100 }, looks);
       ctx.putImageData(img, 0, 0);
     }
+    // hasThumb: بار اول بومک‌ها هنوز در DOM نیستند (فقط با hasThumb ساخته می‌شوند)؛ بدونِ آن در وابستگی‌ها همهٔ ۱۶ کاشی تا اولین حرکتِ سرِ پخش سیاه می‌ماند (بازبینیِ ۱۱/۱۳)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, frameTick, clipId, looks, thumbSource]);
+  }, [tick, frameTick, clipId, looks, thumbSource, hasThumb]);
 
   const tile = (key: string, title: string) => (
     <button key={key || "none"} type="button" className={`cp-look ${current === key ? "is-on" : ""}`} aria-pressed={current === key} onClick={() => onPick(key)} data-look={key || "none"} title={title}>

@@ -15,7 +15,7 @@ switched on, best first], reserve_gb, big_mb}. This module decides WHEN and WHET
   in the panel, or the next day, tries again;
 * one download run at a time: nothing is planned while DownloadManager is running or already holds a package for the window.
 
-`plan()` is pure (tests/test_model_auto.py). The agent calls absorb() with every answer of the site, tick() from its main loop and
+`plan()` is pure (tests/test_model_catalog_node.py). The agent calls absorb() with every answer of the site, tick() from its main loop and
 report() when it builds the heartbeat; all three never raise.
 """
 import json

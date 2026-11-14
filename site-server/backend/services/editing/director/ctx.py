@@ -37,11 +37,12 @@ def _faces_in_window(folder: Path, faces) -> bool | None:
     return seen > 0
 
 
-def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) -> Ctx:
+def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0, language: str = "fa") -> Ctx:
     from apps.content import editor_project
     from services.editing import captions, media_cache
     from services.editing import timeline as tl
 
+    language = captions.clean_language(language)
     cache: dict[str, dict | None] = {}
 
     def describe(ref: str):
@@ -78,7 +79,8 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
         # ONE transcript per source file (kept on disk): captions, filler removal and the analysis all slice it, and re-running an
         # edited plan never listens to the same speech again; after silence removal a clip is many pieces, which must not mean many jobs.
         whole = min(float(item.get("duration") or 0) or captions.MAX_SECONDS, float(captions.MAX_SECONDS))
-        cache_file = media_cache.cache_dir() / f"asr-{media_cache._key(Path(item['path']), 'asr-whole')}.json"
+        # Persian keeps the old key (the cache of every earlier run stays valid); another language has its own transcript
+        cache_file = media_cache.cache_dir() / f"asr-{media_cache._key(Path(item['path']), 'asr-whole' if language == 'fa' else 'asr-whole-' + language)}.json"
         words_all = media_cache._read_json(cache_file)
         if not (isinstance(words_all, list) and words_all):
             state = captions.status()
@@ -89,7 +91,7 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
             wav = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
             try:
                 captions.extract_audio(item["path"], 0.0, whole, wav)
-                heard = captions.transcribe_wav(wav, store=store)
+                heard = captions.transcribe_wav(wav, store=store, language=language)
                 words_all = [{"w": w["w"], "s": w["s"], "e": w["e"]} for w in heard.get("words", [])]
                 if words_all:
                     media_cache._write_atomic(cache_file, json.dumps(words_all, ensure_ascii=False).encode("utf-8"))

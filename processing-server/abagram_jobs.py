@@ -52,8 +52,9 @@ PORT_RANGE = (8791, 8890)                  # 8790 is Abagram's own default: that
 WHEEL_PACK = "abagram-wheels-cp311-win_amd64.zip"
 CHROMIUM_PACK = "abagram-chromium-win64.zip"
 # the official index first whenever it answers from this computer (only the pinned names and versions of the lock file are asked for);
-# the mirrors that serve the same wheels from inside Iran follow (checked 2026-11-12 by the node platform: runflare 0.2 s, aliyun 3 s)
-INDEX_URLS = ("https://pypi.org/simple", "https://mirror-pypi.runflare.com/simple", "https://mirrors.aliyun.com/pypi/simple")
+# the mirror that serves the same wheels from inside Iran follows (aliyun 3 s). mirror-pypi.runflare.com was here until 2026-11-13: its /simple index
+# answers but every wheel download now returns HTTP 402 (payment required), so it only cost pip a retry cycle when pypi.org was blocked.
+INDEX_URLS = ("https://pypi.org/simple", "https://mirrors.aliyun.com/pypi/simple")
 LOOP_S = 15.0                              # the supervisor looks at the service this often
 REACH_EVERY_S = 3600.0                     # one anonymous connection test per hour, no more
 RETRY_INSTALL_S = (300, 900, 3600)         # after a failed install: wait, then try again by itself

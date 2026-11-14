@@ -284,8 +284,20 @@ def _result_words(compute, job) -> list[dict]:
 WHISPER_KIND = "asr.transcribe"
 WHISPER_PAYLOAD = {"audio": "audio.wav", "language": "fa", "model": "small", "word_timestamps": True, "vad": True}
 
+#: The language of the speech (the brief asks for Persian AND English): Persian is the default and keeps every old behaviour; "en" is English;
+#: "auto" lets Whisper detect it (an empty language in the payload).  Only an agent that advertises `caps.asr_languages` containing "auto"
+#: (agent 2.24+) is sent "auto" - an older worker would refuse the value, so the site falls back to Persian for it.
+LANGUAGES = ("fa", "en", "auto")
+LANGUAGE_LABELS = {"fa": "فارسی", "en": "English (انگلیسی)", "auto": "تشخیصِ خودکارِ زبان"}
 
-def whisper_payload(nodes) -> dict:
+
+def clean_language(value, default: str = "fa") -> str:
+    """Anything a client sends -> one of LANGUAGES (unknown -> `default`)."""
+    v = str(value or "").strip().lower()
+    return v if v in LANGUAGES else default
+
+
+def whisper_payload(nodes, language: str = "fa") -> dict:
     """The `asr.transcribe` payload.  `model: "auto"` = the BEST Whisper model installed on the node (large-v3-turbo once requirements.d/asr-large.json
     has put it there - far better Persian than `small` for the word-boundary cuts and the subtitles); sent only when EVERY node that may take the job
     advertises `caps.asr_models` (agent 2.19+), because an older agent knows only "small" and would refuse "auto"."""
@@ -295,6 +307,14 @@ def whisper_payload(nodes) -> dict:
             payload["model"] = "auto"
     except Exception:  # noqa: BLE001 - the old, safe model name
         pass
+    lang = clean_language(language)
+    if lang == "auto":
+        try:
+            detects = bool(nodes) and all("auto" in ((getattr(n, "capabilities", None) or {}).get("asr_languages") or []) for n in nodes)
+        except Exception:  # noqa: BLE001
+            detects = False
+        lang = "" if detects else "fa"             # "" = detect (faster-whisper language=None); an older agent keeps Persian
+    payload["language"] = lang
     return payload
 
 
@@ -311,9 +331,13 @@ def whisper_nodes(compute) -> list:
     return out
 
 
-def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> dict:
-    """wav → {"words": [{"w","s","e"}], "text": str, "engine": "node"|"local"}; raises `CaptionsUnavailable`."""
+def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900, language: str = "fa") -> dict:
+    """wav → {"words": [{"w","s","e"}], "text": str, "engine": "node"|"local", "language": "fa"|"en"|"auto"}; raises `CaptionsUnavailable`.
+
+    `language`: the speech language ("fa" default, "en", "auto").  The PersianAiKit's `voice.asr` recogniser is Persian-only, so it is only the
+    second chance for Persian; English and auto need Whisper (the node's `asr.transcribe`, or the site's own model)."""
     wav = Path(wav)
+    language = clean_language(language)
     try:
         from apps.compute import services as compute
 
@@ -324,7 +348,7 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
 
     if nodes or whisper:
         # the Whisper job first (when the card has it), the PersianAiKit's recogniser as the second chance
-        attempts = ([(WHISPER_KIND, whisper_payload(whisper))] if whisper else []) + ([("voice.asr", {"audio": "audio.wav"})] if nodes else [])
+        attempts = ([(WHISPER_KIND, whisper_payload(whisper, language))] if whisper else []) + ([("voice.asr", {"audio": "audio.wav"})] if nodes and language == "fa" else [])
         last: Exception | None = None
         for kind, payload in attempts:
             try:
@@ -346,7 +370,7 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
                 words = _result_words(compute, job)
                 if not words:
                     raise CaptionsUnavailable("در این بخش گفتاری شنیده نشد.")
-                return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "node", "via": kind}
+                return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "node", "via": kind, "language": language}
         if last is not None:
             raise last
         nodes = []
@@ -355,13 +379,13 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
         from services.audio import transcribe
 
         try:
-            heard = transcribe.transcribe(wav, language="fa")
+            heard = transcribe.transcribe(wav, language=None if language == "auto" else language)
         except transcribe.TranscriptionUnavailable as exc:
             raise CaptionsUnavailable(str(exc)) from exc
         words = [{"w": w.text, "s": round(w.start, 3), "e": round(w.end, 3)} for seg in heard.segments for w in seg.words]
         if not words:
             raise CaptionsUnavailable("در این بخش گفتاری شنیده نشد.")
-        return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "local"}
+        return {"words": words, "text": " ".join(w["w"] for w in words), "engine": "local", "language": language}
 
     if node_registered("voice"):
         raise waiting_error()

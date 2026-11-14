@@ -197,6 +197,41 @@ register(SelfTest(key="autoedit_words_large", label="تدوینِ خودکار: 
                   build=build_words_large, check=check_words_large, available=_large_available, gpu_required=True, after=("tts_piper",), order=73,
                   needs_features=("asr-gpu", "asr-large"), wait_install_s=6 * 3600, requeue={"kinds": ("asr.transcribe",)},
                   describe="مدلِ بزرگ خودکار دانلود می‌شود؛ تا آماده شدن آزمون منتظر می‌ماند. جوابِ مدلِ کوچک «قبول» حساب نمی‌شود."))
+def build_words_auto(ctx):
+    """The Persian Piper sample sent with language AUTO (an empty language in the payload): the node must detect Persian by itself."""
+    raw = _speech(ctx)
+    if not raw:
+        return None
+    from services.editing import captions
+
+    return Spec(captions.WHISPER_KIND, captions.whisper_payload([ctx.node], "auto"), files={"audio.wav": raw}, timeout_s=1800)
+
+
+def check_words_auto(ctx, job):
+    """The same pass check as `autoedit_words`, plus: Whisper detected the language of the sample (Persian) without being told."""
+    verdict = check_words(ctx, job)
+    if not verdict.ok:
+        return verdict
+    data = ctx.read_json(job, "transcript.json")
+    heard = str((data or {}).get("language") or "")
+    if heard != "fa":
+        return Verdict.failed("زبانِ تشخیص‌داده‌شده «%s» است؛ صدای آزمون فارسی است (تشخیصِ خودکارِ زبان کار نکرد)" % (heard or "نامعلوم"), device=verdict.device)
+    return Verdict.passed(verdict.detail + "؛ زبان خودکار تشخیص داده شد: فارسی", device=verdict.device, extra=verdict.extra)
+
+
+def _auto_language_available(node):
+    ok, why = _pipeline_available(node)
+    if not ok:
+        return ok, why
+    langs = (node.capabilities or {}).get("asr_languages")
+    if not isinstance(langs, list) or "auto" not in langs:
+        return False, "عاملِ این سرور هنوز تشخیصِ خودکارِ زبانِ گفتار را اعلام نکرده (به‌روزرسانیِ خودکار لازم است)"
+    return True, ""
+
+
+register(SelfTest(key="autoedit_words_auto", label="تدوینِ خودکار: تشخیصِ خودکارِ زبانِ گفتار (فارسی/انگلیسی)", group="video", kind="asr.transcribe",
+                  build=build_words_auto, check=check_words_auto, available=_auto_language_available, after=("tts_piper",), order=74,
+                  describe="ویدیوی انگلیسی هم باید درست شنیده شود: صدای فارسیِ آزمون بدونِ گفتنِ زبان فرستاده می‌شود و Whisper باید خودش «فارسی» را تشخیص بدهد"))
 register(SelfTest(key="autoedit_mix", label="تدوینِ خودکار: میکسِ گفتار و موسیقی (صدا روی هم نمی‌افتد)", group="video", virtual=virtual_mix,
                   kind="edit.render", available=_render_available, after=("edit_render",), order=56, wait_install_s=2 * 3600,
                   describe="گفتار + موسیقیِ بی‌تنظیم؛ گفتار یک بار شنیده شود، موسیقی زیرِ آن برود و بلندی نزدیکِ ‎−۱۴ LUFS باشد"))

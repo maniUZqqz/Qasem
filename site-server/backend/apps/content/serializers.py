@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.common.fatext import fa_digits
+
 from .models import Caption, GeneratedImage, VideoScene, VideoScript, VideoSegment
 
 
@@ -68,7 +70,14 @@ class CaptionSerializer(serializers.ModelSerializer):
         cache = self.context.setdefault("_banned_by_store", {})
         if obj.store_id not in cache:
             cache[obj.store_id] = caption_guard.banned_for(obj.store)
-        return caption_guard.check(obj, cache[obj.store_id])
+        hooks = self.context.setdefault("_hooks_by_product", {})
+        if obj.product_id not in hooks:                       # one query per product per request: the same opening line used by several drafts
+            from collections import Counter
+
+            hooks[obj.product_id] = Counter(
+                caption_guard.hook_key(t) for t in Caption.objects.filter(product_id=obj.product_id).values_list("short_text", flat=True)
+            )
+        return caption_guard.check(obj, cache[obj.store_id], hooks[obj.product_id])
 
     def get_about_image_url(self, obj):
         if obj.about_image and obj.about_image.image:
@@ -84,9 +93,9 @@ class CaptionSerializer(serializers.ModelSerializer):
                 "PRODUCT_SHOT": "عکس اینستاگرامی",
                 "ENHANCED": "عکس بهبودیافته",
             }.get(obj.about_image.kind, "تصویر")
-            return f"برای {kind} #{obj.about_image_id}"
+            return fa_digits(f"برای {kind} #{obj.about_image_id}")
         if obj.about_video:
-            return f"برای ویدیو #{obj.about_video_id}"
+            return fa_digits(f"برای ویدیو #{obj.about_video_id}")
         return "برای خود محصول"
 
 

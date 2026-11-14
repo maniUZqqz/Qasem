@@ -104,7 +104,7 @@ def build_scene(c, out):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     ctx = Context(c, out)
     stage('build')
-    environments.build(ctx)
+    ctx.floor_z = float((environments.build(ctx) or {}).get('floor_z') or 0.0)      # کفِ محیط؛ دوربین زیرش نمی‌رود (camera.py)
     lighting.build(ctx)
     lighting.build_extra(ctx)        # نورهای ویرایشگرِ آزاد
     for a in c['actors']:

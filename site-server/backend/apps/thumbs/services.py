@@ -285,7 +285,7 @@ def render_thumbnail(t: Thumbnail, *, user=None) -> Thumbnail:
         wait = bool(bg.get("job"))
     t.spec = spec
     t.bg_job = bg.get("job", "") if wait else ""
-    res, warnings = render_spec(t.store, spec, scale=1.0)
+    res, warnings = render_spec(t.store, spec, scale=1.0, guides=False)      # خطِ راهنما فقط در پیش‌نمایش است؛ در فایلِ نهایی نمی‌افتد (بازبینیِ ۱۱/۱۳)
     if extra.get("ai", {}).get("error"):
         warnings.append(f"پس‌زمینهٔ هوش مصنوعی ممکن نشد: {extra['ai']['error']} (پس‌زمینهٔ خودکار گذاشته شد)")
     _write_files(t, res.image)
@@ -352,6 +352,11 @@ def rerender(t: Thumbnail, patch: dict | None = None, user=None) -> Thumbnail:
 
 
 def delete(t: Thumbnail) -> None:
+    if t.state == Thumbnail.State.WAITING_BG and t.bg_job:
+        try:                                          # کارِ FLUX ِ منتظر نباید بعد از حذف در صف بماند و GPU را بسوزاند (بازبینیِ ۱۱/۱۳)
+            aibg.cancel(t.store, t.bg_job)
+        except Exception:  # noqa: BLE001 - حذفِ تامنیل به لغوِ کار گیر نکند
+            logger.warning("thumbs: could not cancel background job %s of thumbnail %s", t.bg_job, t.pk, exc_info=True)
     shutil.rmtree(photo.abs_path(t.dir_rel), ignore_errors=True)
     t.delete()
 
@@ -484,7 +489,7 @@ def layered_file(t: Thumbnail) -> tuple[bytes, list[str]]:
     if fmt.w * fmt.h > 1_400_000:
         scale = 0.75
         notes.append("برای کم‌ماندنِ حجمِ فایل لایه‌دار با ۷۵٪ اندازه ساخته شد.")
-    res, _w = render_spec(t.store, spec, scale=scale, keep_layers=True)
+    res, _w = render_spec(t.store, spec, scale=scale, keep_layers=True, guides=False)
     layers = []
     for k in res.kept:
         img = k["img"]

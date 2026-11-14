@@ -585,7 +585,7 @@ function ClusterCard({
               بساز
             </Button>
           )}
-          <Button variant="ghost" onClick={onDismiss} disabled={busy !== null}>
+          <Button variant="ghost" onClick={onDismiss} disabled={busy !== null} title="این موضوع به کارم نمی‌آید؛ از فهرست پنهان شود" aria-label="این موضوع به کارم نمی‌آید؛ پنهانش کن">
             نه
           </Button>
         </div>

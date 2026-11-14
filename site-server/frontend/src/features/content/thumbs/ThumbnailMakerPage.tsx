@@ -73,6 +73,7 @@ export default function ThumbnailMakerPage() {
   const [cutModels, setCutModels] = useState<CutoutNodeModel[] | null>(null);
   const [cutJob, setCutJob] = useState<{ uid: string; slot: "subject" | "subject2" } | null>(null);
   const previewTop = useRef<HTMLDivElement>(null);
+  const outputTop = useRef<HTMLDivElement>(null);
 
   // ---------- بارگیری
   const load = useCallback(async () => {
@@ -268,6 +269,8 @@ export default function ThumbnailMakerPage() {
         });
         setBatch(res.items);
         setNotice(`${fa(res.items.length)} نسخه ساخته شد.`);
+        // نتیجه زیرِ ستون‌ها می‌آید؛ بعد از ساخت همان‌جا می‌بریمش تا نتیجه را ببیند.
+        window.setTimeout(() => outputTop.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
       }
       const o = await thumbsApi.items(id);
       setHistory(o.items);
@@ -650,7 +653,7 @@ export default function ThumbnailMakerPage() {
                 </div>
                 <label className="dz-field check" style={{ flexDirection: "row" }}>
                   <input type="checkbox" checked={spec.guides} onChange={(e) => set({ guides: e.target.checked })} />
-                  <span>خطِ راهنمای حاشیهٔ امن</span>
+                  <span>خطِ راهنمای حاشیهٔ امن (فقط در پیش‌نمایش، در فایلِ نهایی نمی‌افتد)</span>
                 </label>
               </div>
               <div className={`th-preview-frame ${prevBusy ? "is-busy" : ""} ${isPortraitish ? "th-tall" : ""}`} style={aspectStyle(fmt)}>
@@ -705,7 +708,10 @@ export default function ThumbnailMakerPage() {
               {!hasText(spec) && <p className="dz-muted mt-2">برای ساخت دست‌کم یک متن (عنوان) بنویسید.</p>}
             </Card>
           </div>
+        </div>
 
+        {/* نتیجه و تاریخچه زیرِ هر دو ستون می‌آیند، نه داخلِ ستونِ چسبان: وگرنه کارت‌هایشان هنگامِ اسکرول روی کارتِ «ساخت» می‌افتاد (بازبینیِ ۱۱/۱۳). */}
+        <div className="th-output" ref={outputTop}>
           {batch.length > 0 && (
             <Card>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

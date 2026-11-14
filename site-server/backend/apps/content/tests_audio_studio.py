@@ -100,9 +100,9 @@ class AudioStudioTests(TestCase):
         self.assertFalse(AudioAsset.objects.exists(), "nothing is stored for a job no node can run")
         self.node.capabilities = {"voice": True, "agent": "1.6"}
         self.node.save()
-        self.assertIn("git pull", node_audio.status()["engines"]["music"]["message"])
+        self.assertIn("به‌روزرسانی", node_audio.status()["engines"]["music"]["message"])
         ComputeNode.objects.update(last_seen=timezone.now() - timedelta(hours=2))
-        self.assertIn("START.bat", node_audio.status()["engines"]["moss"]["message"])
+        self.assertIn("خودش بالا می‌آید", node_audio.status()["engines"]["moss"]["message"])
 
     # ------------------------------------------------------------------ speech
     def test_moss_speech_end_to_end(self):

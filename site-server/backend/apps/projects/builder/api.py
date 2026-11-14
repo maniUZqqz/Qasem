@@ -448,7 +448,8 @@ def theme_detail(request, slug):
 @studio_api('POST')
 def style_apply(request, slug):
     """«سبک» را روی پوسته (و اگر خواسته شد روی چیدمانِ بخش‌های همین صفحه) می‌نشاند و نتیجه را برمی‌گرداند؛ چیزی ذخیره نمی‌شود
-    (کاربر می‌بیند، خوشش آمد ذخیره/منتشر می‌کند). style خالی = برداشتنِ لایهٔ سبک (رنگ‌ها و قلم‌ها می‌مانند)."""
+    (کاربر می‌بیند، خوشش آمد ذخیره/منتشر می‌کند). style خالی = برداشتنِ لایهٔ سبک (رنگ‌ها و قلم‌ها می‌مانند).
+    restore=true = برگرداندنِ پوسته به حالتِ پیش از اولین سبک (از style_prev ِ خودِ پوسته؛ با بارگذاریِ دوباره هم می‌ماند)."""
     p = _project(slug)
     g = _guard(p)
     if g:
@@ -458,10 +459,17 @@ def style_apply(request, slug):
         return bad('این سبک پیدا نشد.')
     raw = request.data.get('theme')
     theme = theme_mod.clean_theme(raw, p) if isinstance(raw, dict) else _theme_json(p)[0]
+    if request.data.get('restore'):
+        # «برگرداندنِ پوسته به پیش از سبک»: رنگ‌ها، قلم‌ها، دکمه و گردی همان‌هایی می‌شوند که پیش از اولین سبک بودند
+        back = styles_mod.restore_theme(theme)
+        if back is None:
+            return bad('پوستهٔ پیش از سبک ذخیره نشده بود (سبک پیش از این قابلیت نشسته). رنگ‌ها و قلم‌ها را در همین زبانه دستی برگردانید.')
+        return Response({'ok': True, 'style': '', 'restored': True, 'theme': theme_mod.clean_theme(back, p)})
     if key:
-        new_theme = theme_mod.clean_theme(styles_mod.apply_to_theme(theme, key, keep_brand=bool(request.data.get('keep_brand'))), p)
+        new_theme = theme_mod.clean_theme(styles_mod.apply_to_theme(theme, key, keep_brand=bool(request.data.get('keep_brand')),
+                                                                     project_brand=p.brand_color), p)
     else:
-        new_theme = {k: v for k, v in theme.items() if k != 'style'}
+        new_theme = {k: v for k, v in theme.items() if k not in ('style', 'style_keep', 'style_prev')}
     out = {'ok': True, 'style': key, 'theme': new_theme}
     if request.data.get('apply_layout') and request.data.get('doc') is not None:
         target = request.data.get('target') or 'page'

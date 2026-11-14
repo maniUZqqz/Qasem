@@ -47,6 +47,28 @@ _PRICE = re.compile(r"(\d[\d,.٬،]*\s*(?:هزار\s*|میلیون\s*)?(?:توم
 _SENTENCE_END = tuple(".!؟?…)»\"'")
 _LONG_MIN_CHARS = 120
 
+# ── Round 3 (review of 2026-11-13): errors a reader sees at once that none of the rules above could see ──
+_PERSIAN_LETTER = re.compile(r"[\u0600-\u06FF]")
+#: ASCII digits inside Persian copy («1300 حرکت»): the shop writes Persian digits everywhere (Latin ones next to «۶۰۰٬۰۰۰» look like a slip)
+_LATIN_DIGITS = re.compile(r"(?<![A-Za-z0-9_])[0-9][0-9,.]*(?![A-Za-z_])")
+#: a whole sentence in parentheses: the model's remark to the owner, not copy for followers
+#: («(مقایسه دربارهٔ روندِ کار است، نه وعدهٔ نتیجه.)» was printed in post #9)
+_INTERNAL_NOTE = re.compile(r"\(([^()\n]{18,}?[.؟!])\)")
+_DOUBLE_PUNCT = re.compile(r"(?<!\.)\.\.(?!\.)|،،|؟؟|؛؛")
+#: claims the brand facts do not make (docs/chagher/brand-facts-fa.md §4 and §6): the sales line stays «بدونِ اغراق»
+UNVERIFIED_CLAIMS = ("با یک کلیک", "بدون خطا", "بهترین", "هرگز نمی‌تواند", "۱۰۰٪")
+#: «اسکنِ دستگاه … به‌صورتِ خودکار»: the scan registers nothing until the coach confirms
+_AUTO_SCAN = re.compile(r"(?:اسکن[^.!؟\n]{0,45}خودکار|خودکار[^.!؟\n]{0,45}اسکن)")
+#: the owner's slogan is «با چغر چغر تر شو» (two words); the glued «چغرتر» is the most common deviation
+_SLOGAN_GLUED = "چغرتر"
+#: everyday spoken forms (compared in the `normalize` form: no half-space) and the written verb forms
+_COLLOQUIAL = frozenset("رو میشه میتونه میتونید میتونم بذار بذاری بذارید داره نداره میکنه مینویسه میده میگیره نمیشه".split())
+_FORMAL_VERB = re.compile(r"^(?:میکند|میشود|میدهد|میتواند|میکنند|میدارد|میگذارد|میدهند|میگیرد|میکنیم|میشوند|مینویسد)$")
+#: the model sometimes writes the NAME of a typing character instead of using it («۳۰ نیم‌فاصله تومان»)
+_ARTIFACT = re.compile(r"نیم‌?\s?فاصله|ZWNJ")
+_WORDS = re.compile(r"[\w]+")
+_HOOK_STRIP = re.compile(r"[\W_]+|" + _EMOJI.pattern)
+
 
 def _fields(caption) -> list[tuple[str, str]]:
     return [
@@ -68,12 +90,20 @@ def _repeated_phrase(text: str) -> str | None:
     return None
 
 
-def check(caption, banned: list[str] | None = None) -> list[dict]:
+def hook_key(short_text: str) -> str:
+    """The opening line in a comparison form (no emoji, punctuation, half-space): two captions that start alike share a key."""
+    return _HOOK_STRIP.sub("", normalize(short_text or ""))
+
+
+def check(caption, banned: list[str] | None = None, hook_counts: dict[str, int] | None = None) -> list[dict]:
     """Warnings for one `Caption` row: `[{"code", "message"}]`, possibly empty.
 
     `banned` is the shop's «never say» list (one phrase each). Passing it in,
     rather than looking it up here, keeps this function free of queries so a
     list of thirty captions costs one lookup, not thirty.
+
+    `hook_counts` maps `hook_key(short_text)` to how many captions of the SAME product open with that line: the model likes to write the
+    same hook for every draft («چرا وقتت رو صرف نوشتن برنامه بذاری؟» ×4); it is passed in for the same reason as `banned`.
     """
     banned = banned or []
     warnings: list[dict] = []
@@ -111,6 +141,35 @@ def check(caption, banned: list[str] | None = None) -> list[dict]:
                 m.group(1),
             )
         emoji_total += len(_EMOJI.findall(text))
+        if _PERSIAN_LETTER.search(text):
+            for m in _LATIN_DIGITS.finditer(text):
+                add("latin_digits", f"عددِ لاتین در متنِ فارسی: «{m.group(0).strip(',.')}» — با ارقامِ فارسی بنویسید («{fa_digits(m.group(0).strip(',.'))}»).",
+                    m.group(0))
+        note = _INTERNAL_NOTE.search(text)
+        if note:
+            add("internal_note", f"به نظر می‌رسد یادداشتِ درونیِ مدل در متن مانده: «({note.group(1)[:50]}…)» — از متنِ پست حذفش کنید.", note.group(1)[:30])
+        if _ARTIFACT.search(text):
+            add("model_artifact", "کلمهٔ «نیم‌فاصله» (یا ZWNJ) به‌جای خودِ نویسه در متن مانده است — احتمالاً عددی یا واژه‌ای خراب شده.", "artifact")
+        if _DOUBLE_PUNCT.search(text):
+            add("double_punct", "علامتِ نگارشیِ دوبل («..» یا «،،») در متن هست.", "dp:" + name)
+        norm = normalize(text)
+        for claim in UNVERIFIED_CLAIMS:
+            if contains_phrase(text, claim, ignore_negated=False):
+                add("unverified_claim", f"ادعایی که در واقعیت‌های برند نیامده: «{claim}» — پیش از انتشار با مالک بسنجید (لحنِ برند: بدونِ اغراق).", claim)
+        scan = _AUTO_SCAN.search(norm)
+        if scan:
+            add("unverified_claim", "«اسکنِ دستگاه» خودکار معرفی شده؛ طبقِ واقعیت‌های برند تا تأییدِ مربی چیزی ثبت نمی‌شود — این را بنویسید.", "auto-scan")
+        if normalize(_SLOGAN_GLUED) in norm:
+            add("slogan_spelling", "شعارِ برند «با چغر چغر تر شو» است (دو واژه، با فاصله)؛ «چغرتر» چسبیده نوشته شده.", "slogan")
+        words = _WORDS.findall(norm)
+        if any(w in _COLLOQUIAL for w in words) and any(_FORMAL_VERB.match(w) for w in words):
+            add("register_mix", "لحنِ محاوره‌ای و رسمی در یک متن قاطی شده («رو/می‌شه» کنارِ «می‌کند/را») — یک لحن انتخاب کنید.", "register")
+
+    if hook_counts:
+        key = hook_key(caption.short_text or "")
+        n = hook_counts.get(key, 0) if key else 0                         # a caption without an opening line is not «a repeat»
+        if n > 1:
+            add("repeated_hook", f"همین جملهٔ آغازین در {fa_digits(n - 1)} کپشنِ دیگرِ همین محصول هم هست — برای هر پست یک آغازِ تازه بنویسید.")
 
     long_text = (caption.long_text or "").rstrip()
     if (

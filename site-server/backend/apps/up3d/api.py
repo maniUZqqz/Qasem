@@ -98,7 +98,7 @@ def projects(request):
 def project_detail(request, pk):
     p = get_object_or_404(Project, pk=pk)
     if request.method == 'DELETE':
-        p.delete()
+        SV.delete_project(p)                       # the job folders go with the rows (they stayed on disk before)
         return Response(status=204)
     return Response(project_json(p))
 

@@ -124,6 +124,11 @@ def _free_shot(ctx, shot, coll, sensor, cam_pos):
     return cam
 
 
+#: دوربین هرگز پایین‌تر از «کف + این مقدار» نمی‌رود (متر). زاویهٔ پایینِ stage_low (−۹°) و کشیدنِ reveal_pull (−۹° دیگر) دوربین را
+#: زیرِ کفِ استیج می‌بردند و چند ثانیه فقط کفِ بسته/تاریک دیده می‌شد (قالبِ «آشکارسازیِ قهرمان»، بازبینیِ ۱۱/۱۳).
+CAM_FLOOR_CLEARANCE = 0.05
+
+
 def build(ctx, series):
     """series(kind, id, anchor, frame) ⇐ نقطهٔ جهانیِ لنگرِ سوژه در آن فریم."""
     sc = bpy.context.scene
@@ -132,6 +137,7 @@ def build(ctx, series):
     sensor = _sensor(w, h)
     cam_pos = {}
     cams = []
+    floor_min = float(getattr(ctx, 'floor_z', 0.0) or 0.0) + CAM_FLOOR_CLEARANCE
     for shot in ctx.c['shots']:
         if shot.get('free'):
             cams.append(_free_shot(ctx, shot, coll, sensor, cam_pos))
@@ -249,6 +255,8 @@ def build(ctx, series):
             if move == 'rack_focus' and rack:
                 other = series(rack.split(':')[0], rack.split(':')[1], 'product' if rack.startswith('product') else 'eyes', f)
                 fpt = other.lerp(fpt, ease_inout(min(1.0, max(0.0, (u - 0.35) / 0.4))))
+            if pos.z < floor_min:                    # هرگز زیرِ کف: بدونِ این، دوربینِ پایین از پشتِ کف می‌دید ⇒ قابِ تاریک
+                pos.z = floor_min
             locs.append(pos[:])
             aims.append(look[:])
             focs.append(fpt[:])

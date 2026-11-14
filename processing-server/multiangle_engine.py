@@ -165,11 +165,13 @@ class Decoder:
             pass
 
 
-def read_audio(ff, path, seconds, sr=16000):
-    """Mono float32 PCM of the first `seconds` of the sound, or None when the file has no sound."""
+def read_audio(ff, path, seconds, sr=16000, start=0.0):
+    """Mono float32 PCM of `seconds` of the sound from `start` on (the same window the video and the muxed audio use), or None when the file has no sound.
+    (Before 2026-11-14 `start` was ignored here: pauses and beats were always read from the first seconds, whatever --start said.)"""
     import numpy as np
 
-    r = subprocess.run([ff, "-v", "error", "-nostdin", "-i", path, "-t", "%.2f" % seconds, "-vn", "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
+    seek = ["-ss", "%.3f" % start] if start else []
+    r = subprocess.run([ff, "-v", "error", "-nostdin"] + seek + ["-i", path, "-t", "%.2f" % seconds, "-vn", "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, timeout=600, creationflags=NO_WINDOW)
     if r.returncode != 0 or len(r.stdout) < sr * 4 // 2:
         return None
@@ -674,7 +676,7 @@ def run_virtual(a, progress):
     progress(0.32, "paths")
 
     # 3. the cut plan: where the sound allows a cut, which angle plays
-    pcm = read_audio(ff, a.video, duration) if info["has_audio"] else None
+    pcm = read_audio(ff, a.video, duration, start=start) if info["has_audio"] else None
     boundaries, kinds, beat = [], [], None
     energy, hop = None, 0.02
     if pcm is not None and len(pcm) > 16000:

@@ -413,7 +413,8 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
                 <select className="u-input" value={choice.music} onChange={(e) => setChoice({ ...choice, music: e.target.value })} data-testid="dr-music">
                   <option value="auto">خودکار (از کتابخانه یا همین انتخاب‌ها)</option>
                   <option value="none">بدونِ موسیقی</option>
-                  {(bin?.audio ?? []).map((a) => <option key={a.ref} value={a.ref}>{a.title}</option>)}
+                  {/* گویندگی‌های ساخته‌شده («گویندگیِ طبیعی (MOSS)…» و …) موسیقی نیستند؛ زیرِ گوینده تکرارشان همان «دو صدا هم‌زمان» بود (بازبینیِ ۱۱/۱۳) */}
+                  {(bin?.audio ?? []).filter((a) => !/^گویندگی/.test(a.title)).map((a) => <option key={a.ref} value={a.ref}>{a.title}</option>)}
                 </select>
               </label>
               <label className="dr-field"><span>پس‌زمینهٔ پشتِ گوینده</span>

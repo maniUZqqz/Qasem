@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.23"
+VERSION = "2.24"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -1752,6 +1752,7 @@ class Capabilities:
             import asr_jobs
 
             caps["asr_models"] = asr_jobs.installed_models(DATA)
+            caps["asr_languages"] = list(asr_jobs.LANGUAGES)            # agent 2.24: "auto" (language detection) is understood
         except Exception as e:  # noqa: BLE001 - an optional key must never keep the heartbeat from going out
             warn("asr models could not be listed: %s" % e)
         caps["http_relays"] = ["comfy" if k == "comfyui" else k for k in SERVICES]       # <prefix>.http relays (h_relay) this agent can do

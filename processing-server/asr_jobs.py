@@ -26,6 +26,20 @@ KIND = "asr.transcribe"
 #: returns decide where the automatic edit cuts and what the subtitles say.
 MODELS = ("large-v3-turbo", "small")
 AUTO_NAMES = ("", "auto", "best")
+#: what `payload.language` may be (agent 2.24): Persian (the default), English, any other Whisper language code, and "auto"/"detect"/"" = let the
+#: model detect it.  The heartbeat advertises `caps.asr_languages` so the site sends "auto" (an empty language) only to an agent that understands it.
+LANGUAGES = ("fa", "en", "auto")
+DETECT = ("", "auto", "detect")
+
+
+def worker_language(value):
+    """payload.language -> the --language argument of asr_worker.py: "" means detect, otherwise a lower-case Whisper code (default fa)."""
+    if value is None:
+        return "fa"
+    v = str(value).strip().lower()
+    if v in DETECT:
+        return ""
+    return v
 #: a model.bin smaller than this is a download in progress, not a model
 MIN_MODEL_BYTES = {"large-v3-turbo": 1_500_000_000, "small": 400_000_000}
 SUPPORT_FILES = ("config.json", "tokenizer.json")
@@ -90,7 +104,7 @@ def run(job, agent):
     mdir = model_dir(agent.DATA, name)
     small = model_dir(agent.DATA, "small") if model_ready(agent.DATA, "small") else None
     out = job.out("transcript.json")
-    cmd = worker_command(py, path, mdir, out, str(p.get("language") or "fa"), p.get("word_timestamps", True), p.get("vad", True), cpu_model_dir=small)
+    cmd = worker_command(py, path, mdir, out, worker_language(p.get("language")), p.get("word_timestamps", True), p.get("vad", True), cpu_model_dir=small)
     env = gpu.env_with_cuda_dlls(venv)
     env.setdefault("PYTHONUTF8", "1")
     job.progress(0.1, "faster-whisper: starting")
@@ -121,6 +135,7 @@ def run(job, agent):
             "audio_seconds": res.get("duration"), "device": res.get("device"), "compute_type": res.get("compute_type"),
             "load_s": res.get("load_seconds"), "asr_seconds": res.get("seconds")}
     meta["model_requested"] = asked
+    meta["language_requested"] = worker_language(p.get("language")) or "auto"
     if model_note:
         meta["model_note"] = model_note
     if res.get("fallback_reason"):

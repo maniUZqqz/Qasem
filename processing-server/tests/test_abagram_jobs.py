@@ -547,7 +547,7 @@ class InstallTests(unittest.TestCase):
 
     def test_a_failing_source_falls_through_to_the_next(self):
         with mock.patch.object(AJ, "pack_fits", lambda: False):
-            out = AJ.install(self.layout, self.agent, run=self.runner(pip_codes=(1, 1, 0)))
+            out = AJ.install(self.layout, self.agent, run=self.runner(pip_codes=(1,) * (len(AJ.INDEX_URLS) - 1) + (0,)))      # every source but the last fails
         self.assertEqual(out, "installed")
         urls = [c[c.index("--index-url") + 1] for c in self.pips()]
         self.assertEqual(urls, list(AJ.INDEX_URLS))

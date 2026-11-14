@@ -194,6 +194,27 @@
   --color-amber-50:  var(--warn-soft);
   --color-amber-100: var(--warn-soft);
   --color-amber-700: var(--warn);
+  /* بازبینی ۱۱/۱۳: «text-amber-800» روی تم تیره ۱٫۸:۱ بود (هشدارِ کپشن‌ها و گفت‌وگو خوانده نمی‌شد).
+     هر کلاسِ رنگیِ دیگری هم که در صفحه‌ها هست و نردبان نمی‌شناخت، حالا به توکن وصل است. */
+  --color-amber-200: color-mix(in srgb, var(--warn) 35%, transparent);
+  --color-amber-300: color-mix(in srgb, var(--warn) 55%, transparent);
+  --color-amber-600: var(--warn);
+  --color-amber-800: var(--warn);
+  --color-amber-900: var(--warn);
+  --color-orange-50:  var(--warn-soft);
+  --color-orange-200: color-mix(in srgb, var(--warn) 35%, transparent);
+  --color-orange-800: var(--warn);
+  --color-red-200: color-mix(in srgb, var(--bad) 35%, transparent);
+  --color-red-800: var(--bad);
+  --color-green-50:  var(--ok-soft);
+  --color-green-100: var(--ok-soft);
+  --color-green-200: color-mix(in srgb, var(--ok) 35%, transparent);
+  --color-green-700: var(--ok);
+  --color-green-800: var(--ok);
+  --color-sky-50:  var(--brand-soft);
+  --color-sky-200: color-mix(in srgb, var(--brand) 35%, transparent);
+  --color-sky-700: var(--brand-strong);
+  --color-sky-900: var(--brand-strong);
   --color-emerald-50:  var(--ok-soft);
   --color-emerald-100: var(--ok-soft);
   --color-emerald-600: var(--ok);

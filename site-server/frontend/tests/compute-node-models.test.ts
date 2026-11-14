@@ -191,6 +191,10 @@ ok(autoSummary(withAuto({ enabled: false, reserve_gb: 25, wanted: 3, pending_mb:
 ok(autoSummary(withAuto({ enabled: true, reserve_gb: 25, wanted: 0, pending_mb: 0, reported: true, states: {}, why: {} })).includes("هیچ قابلیتی"));
 ok(autoSummary(withAuto({ enabled: true, reserve_gb: 25, wanted: 4, pending_mb: 17000, reported: true, states: {}, why: {} })).includes("۱۷ گیگابایت"));
 ok(autoSummary(withAuto({ enabled: true, reserve_gb: 25, wanted: 4, pending_mb: 0, reported: true, states: {}, why: {} })).includes("نصب است"));
+// سرور هنوز گزارش نداده: «همه‌چیز نصب است» نباید گفته شود (بازبینیِ ۱۱/۱۳)
+const unreported = autoSummary(withAuto({ enabled: true, reserve_gb: 25, wanted: 4, pending_mb: 0, reported: false, states: {}, why: {} }));
+ok(unreported.includes("معلوم نیست"));
+ok(!unreported.includes("نصب است"));
 
 // سرورِ قدیمی: بعضی بسته‌ها را گزارش داده، بسته‌های تازه را نه
 const oldNode: NodeModels = { ...base(true, true), groups: [{ key: "image", title: "تصویر", note: "", packages: [{ ...fine, state: "installed" }, { ...schnell, state: "unknown" }] }] };

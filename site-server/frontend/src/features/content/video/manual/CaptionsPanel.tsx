@@ -6,6 +6,7 @@ import { useJobRunner } from "../../../../hooks/useJobRunner";
 import type { Job } from "../../../../types";
 import { videoApi } from "../api";
 import type { CaptionsStatus } from "../api";
+import SpeechLanguagePicker, { type SpeechLang } from "../autoedit/SpeechLanguage";
 import { MediaClip, Project, TextClip, clipLength, isMedia, timecode } from "./model";
 import { drawText, onTextFontsReady } from "./textRender";
 import "./text.css";
@@ -145,6 +146,9 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
     onNotice(`${fa(clips.length)} خط زیرنویس روی ترکِ زیرنویس آمد (با زمان‌بندیِ کلمه‌به‌کلمه).`);
   }, [onInsert, onNotice]);
 
+  const [lang, setLang] = useState<SpeechLang>("fa");
+  const langRef = useRef<SpeechLang>("fa");
+  langRef.current = lang;
   const runNext = useRef<() => Promise<void>>(async () => undefined);
   const onDone = useCallback(async () => {
     const id = jobId.current;
@@ -174,7 +178,7 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
     const speed = Math.max(0.25, Math.min(4, (c.end - c.start) / Math.max(0.1, clipLength(c))));
     try {
       runner.begin();
-      const r = await videoApi.captions(storeId, { ref: c.ref, start: c.start, end: c.end, at: c.at, speed });
+      const r = await videoApi.captions(storeId, { ref: c.ref, start: c.start, end: c.end, at: c.at, speed, language: langRef.current });
       jobId.current = r.job_id;
       runner.track(r.job_id);
     } catch (err) {
@@ -253,6 +257,9 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
           ? mode === "selected" ? "قطعه‌ای با صدا انتخاب نشده است." : "قطعه‌ای با صدا در پروژه نیست."
           : `${fa(sources.length)} قطعه — حدودِ ${timecode(total).slice(0, 5)} صدا`}
       </p>
+
+      <div className="tx-sub">زبانِ گفتار</div>
+      <SpeechLanguagePicker value={lang} onChange={setLang} testId="captions-speech-language" />
 
       <div className="tx-sub">سبکِ زیرنویس</div>
       <div className="tx-tpl-grid">

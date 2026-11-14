@@ -99,6 +99,69 @@ def _caption_subject(product, image_id, video_script_id):
     return about_image, about_video, subject
 
 
+def _recent_ctas(store, limit=8):
+    """The calls to action this shop already used, newest first and distinct.
+    The prompt shows them so a new caption does not end with the same sentence
+    (11 of the 33 stored captions of one shop did)."""
+    seen = []
+    rows = Caption.objects.filter(store=store).exclude(cta="").order_by("-id")
+    for cta in rows.values_list("cta", flat=True)[: limit * 6]:
+        cta = (cta or "").strip()
+        if cta and cta not in seen:
+            seen.append(cta)
+        if len(seen) >= limit:
+            break
+    return seen
+
+
+def _caption_attempt_budget(provider, models) -> int:
+    """How many models `recorded_json_call` will try for one request — the same
+    arithmetic as there — so the last one can accept a draft with warnings
+    instead of failing the whole job."""
+    conf = settings.UPMARKET_AI
+    cap = 1 if not conf.get("MODEL_FALLBACK_ENABLED", True) else conf.get("MODEL_MAX_ATTEMPTS", 2)
+    try:
+        from apps.ai.services import _models_for_provider
+
+        count = len(_models_for_provider(provider, [m for m in models if m]))
+    except Exception:  # noqa: BLE001
+        count = len([m for m in models if m])
+    return max(1, min(count, int(cap)))
+
+
+def _guard_warnings(captions, store) -> dict:
+    """`caption_guard` over freshly written captions: {caption id: [message, ...]}.
+
+    The guard used to run only when a caption was displayed, so a caption with
+    a wrong price was stored and logged as a success. Run at generation, the
+    result is kept in the job (and the panel shows the same warnings beside the
+    text). Never raises: a guard failure must not lose the captions."""
+    try:
+        from . import caption_guard
+
+        from collections import Counter
+
+        banned = caption_guard.banned_for(store)
+        # the same inputs as the panel's serializer, so the stored warnings are the ones the owner will see:
+        # how many drafts of the SAME product open with the same line
+        hooks = {}
+        for caption in captions:
+            if caption.product_id not in hooks:
+                hooks[caption.product_id] = Counter(
+                    caption_guard.hook_key(text)
+                    for text in Caption.objects.filter(product_id=caption.product_id).values_list("short_text", flat=True)
+                )
+        found = {}
+        for caption in captions:
+            warnings = caption_guard.check(caption, banned, hooks[caption.product_id])
+            if warnings:
+                found[caption.id] = [w["message"] for w in warnings]
+        return found
+    except Exception:  # noqa: BLE001
+        logger.exception("caption_guard failed for store %s", getattr(store, "id", None))
+        return {}
+
+
 @shared_task(bind=True)
 def generate_captions_task(
     self, job_id, product_id, platforms, tone="", objective="", image_id=None, video_script_id=None
@@ -121,6 +184,21 @@ def generate_captions_task(
         gpu.before_ollama_work(reasoning_models[0])
 
         provider = text_provider(product.store)
+
+        # The prompt's own rules are enforced on the answer (hashtag and emoji
+        # caps are fixed in place; a pasted instruction word, a foreign price, a
+        # CTA that is not a command and a medium text that equals the long one
+        # send the call to the next model). On the LAST model the same findings
+        # are kept as warnings instead, so the owner gets a draft, not an error.
+        calls = {"n": 0}
+        budget = _caption_attempt_budget(provider, reasoning_models)
+
+        def _validate(parsed):
+            calls["n"] += 1
+            return caption_prompts.validate_captions(
+                parsed, set(requested), product=product, strict=calls["n"] < budget,
+            )
+
         parsed, request_row = recorded_json_call(
             job=job,
             store=product.store,
@@ -130,16 +208,18 @@ def generate_captions_task(
             provider=provider,
             models=reasoning_models,
             prompt=caption_prompts.build_captions_prompt(
-                product, intelligence, requested, tone, objective, subject
+                product, intelligence, requested, tone, objective, subject,
+                avoid_ctas=_recent_ctas(product.store),
             ),
             system=caption_prompts.CAPTIONS_SYSTEM,
             # validated inside the call: an incomplete answer moves on to the
             # next installed model instead of failing the job
-            validate=lambda parsed: caption_prompts.validate_captions(parsed, set(requested)),
+            validate=_validate,
             validation_message="خروجی کپشن ناقص بود",
         )
 
         created_ids = []
+        created = []
         for item in parsed["captions"]:
             caption = Caption.objects.create(
                 store=product.store,
@@ -157,6 +237,7 @@ def generate_captions_task(
                 source_request=request_row,
             )
             created_ids.append(caption.id)
+            created.append(caption)
 
         if created_ids:
             billing.commit(
@@ -167,9 +248,10 @@ def generate_captions_task(
                 )
             )
 
+        warnings = _guard_warnings(created, product.store)
         job.mark_progress(1, "")
-        job.mark_completed({"caption_ids": created_ids})
-        return {"caption_ids": created_ids}
+        job.mark_completed({"caption_ids": created_ids, "warnings": warnings})
+        return {"caption_ids": created_ids, "warnings": warnings}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Caption job %s failed", job_id)
         job.mark_failed(exc)

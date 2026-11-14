@@ -50,6 +50,7 @@ class PublishJobSerializer(serializers.ModelSerializer):
             "attempts",
             "last_error",
             "published_at",
+            "scheduled_for",
             "created_at",
         ]
 

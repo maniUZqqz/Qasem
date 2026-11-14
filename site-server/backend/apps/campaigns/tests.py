@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from rest_framework.test import APITestCase
 
@@ -142,7 +143,9 @@ class PublishTaskTests(APITestCase):
         payload = build_payload(self.campaign, "instagram")
         self.assertEqual(payload["platform"], "instagram")
         self.assertEqual(payload["content"]["caption"]["short"], "کوتاه")
-        self.assertTrue(payload["content"]["video_url"].startswith("http://localhost:8000/media/"))
+        # the base is the deployment's PUBLIC_BASE_URL (live .env sets it), not always localhost
+        base = settings.UPMARKET_PUBLISHING["PUBLIC_BASE_URL"]
+        self.assertTrue(payload["content"]["video_url"].startswith(f"{base}/media/"))
         self.assertIsNone(payload["content"]["poster_url"])
 
     @patch("apps.campaigns.tasks.send_to_n8n")

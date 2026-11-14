@@ -62,6 +62,15 @@ const TONE: Record<string, "ok" | "warn" | "bad" | "info" | "neutral"> = {
   DROPPED: "neutral",
 };
 
+// رنگِ متنِ منوی وضعیت: وضعیت یک بار نشان داده می‌شود (خودِ منو)، نه دو بار (نشان + منو)
+const TONE_COLOR: Record<string, string> = {
+  ok: "var(--ok)",
+  warn: "var(--warn)",
+  bad: "var(--bad)",
+  info: "var(--brand-strong)",
+  neutral: "var(--text-2)",
+};
+
 /**
  * The campaign as a list of things that have to happen. §29.1
  *
@@ -230,16 +239,20 @@ export default function CampaignBoard({
                       outline: task.id === focusTaskId ? "2px solid var(--brand-strong)" : "none",
                     }}
                   >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={TONE[task.effective_state] ?? "neutral"}>
-                      {task.state_label}
-                    </Badge>
+                  {/* گوشی: عنوان یک ردیفِ کامل و کنترل‌ها زیرش (با flex-1 عنوان تا یک واژه در هر خط
+                      فشرده می‌شد و هر کار ۲۳۰px جا می‌گرفت)؛ دسکتاپ مثلِ قبل در یک ردیف. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    {task.machine_owned && (
+                      <Badge tone={TONE[task.effective_state] ?? "neutral"}>
+                        {task.state_label}
+                      </Badge>
+                    )}
                     {expandable ? (
                       <button
                         type="button"
                         onClick={() => toggle(task.id)}
                         aria-expanded={isOpen}
-                        className="min-w-0 flex-1 text-start text-sm"
+                        className="order-first min-w-0 basis-full text-start text-sm sm:order-none sm:basis-0 sm:flex-1"
                         style={{
                           color: "var(--text)",
                           background: "none",
@@ -255,7 +268,7 @@ export default function CampaignBoard({
                       </button>
                     ) : (
                       <span
-                        className="min-w-0 flex-1 text-sm"
+                        className="order-first min-w-0 basis-full text-sm sm:order-none sm:basis-0 sm:flex-1"
                         style={{
                           color: "var(--text)",
                           textDecoration:
@@ -286,7 +299,14 @@ export default function CampaignBoard({
                         <Select
                           value={task.effective_state}
                           onChange={(e) => setState(task, e.target.value)}
-                          style={{ width: "auto", minWidth: 120 }}
+                          aria-label="وضعیتِ کار"
+                          style={{
+                            width: "auto",
+                            minWidth: 96,
+                            padding: "4px 10px",
+                            fontSize: ".8rem",
+                            color: TONE_COLOR[TONE[task.effective_state] ?? "neutral"],
+                          }}
                         >
                           {board.states.map((state) => (
                             <option key={state.key} value={state.key}>

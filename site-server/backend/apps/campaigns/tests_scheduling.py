@@ -23,8 +23,10 @@ class ScheduleTests(TestCase):
         self.owner = User.objects.create_user("sched-owner", password="x")
         self.store = Store.objects.create(owner=self.owner, name="فروشگاه زمان‌بندی")
         product = Product.objects.create(store=self.store, name="کفش", price=1000)
+        # an approved campaign: a draft or rejected one is refused (tests_scheduling_guard)
         self.campaign = Campaign.objects.create(
             store=self.store, product=product, name="کمپین بهار",
+            approval_state=Campaign.ApprovalState.APPROVED,
         )
 
     def _queue(self, minutes_from_now):
@@ -115,6 +117,7 @@ class ScheduleAPITests(TestCase):
         product = Product.objects.create(store=self.store, name="کفش", price=1)
         self.campaign = Campaign.objects.create(
             store=self.store, product=product, name="کمپین",
+            approval_state=Campaign.ApprovalState.APPROVED,
         )
         self.client.force_login(self.owner)
 

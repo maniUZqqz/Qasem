@@ -150,6 +150,31 @@ def publish_campaign_task(self, job_id, campaign_id, publish_job_ids):
         return {"error": str(exc)}
 
 
+def _has_content(payload: dict) -> bool:
+    """Whether the package carries anything a follower could see.
+
+    A campaign whose caption and pictures were all removed after approval would
+    otherwise post an empty message (or an error page) at 9 a.m.
+    """
+    content = (payload or {}).get("content") or {}
+    caption = content.get("caption") or {}
+    if any(str(caption.get(key) or "").strip() for key in ("short", "medium", "long")):
+        return True
+    return any(content.get(key) for key in ("poster_url", "product_image_url", "video_url"))
+
+
+def _scheduled_failed(publish_job, reason: str) -> dict:
+    """Close a scheduled post as FAILED and tell the shop now, not when they
+    notice the post never appeared."""
+    from . import scheduling
+
+    publish_job.status = PublishJob.Status.FAILED
+    publish_job.last_error = reason[:2000]
+    publish_job.save()
+    scheduling.notify_failure(publish_job, reason)
+    return {"published": False, "error": reason[:200]}
+
+
 @shared_task
 def publish_scheduled_job(publish_job_id):
     """Publish one scheduled post. Called by the beat, never by a person.
@@ -158,7 +183,14 @@ def publish_scheduled_job(publish_job_id):
     person publishing picks platforms and watches a Job; the scheduler has one
     row whose time arrived and nobody watching. Reusing the interactive task
     would mean inventing a Job nobody opens and a progress bar nobody reads.
+
+    Nobody is watching, so this checks again at the minute it fires what the
+    owner decided when they pressed «زمان‌بندی»: days may have passed, and the
+    campaign may have been rejected or emptied since. Any failure — expected or
+    not — ends as a FAILED row with a reason and a notification; nothing may
+    leave the row RUNNING for ever.
     """
+    from . import scheduling
     from .models import PublishJob
 
     publish_job = (
@@ -170,29 +202,37 @@ def publish_scheduled_job(publish_job_id):
     if publish_job is None:
         logger.info("Scheduled publish %s vanished before it ran", publish_job_id)
         return {"error": "not_found"}
+    if publish_job.status not in (PublishJob.Status.PENDING, PublishJob.Status.RUNNING):
+        # delivered, failed or swept already: a second dispatch must not post twice
+        logger.info(
+            "Scheduled publish %s is %s; nothing to do", publish_job.pk, publish_job.status,
+        )
+        return {"skipped": publish_job.status}
 
     campaign = publish_job.campaign
-    payload = build_payload(campaign, publish_job.platform)
-    publish_job.payload = payload
-    publish_job.attempts += 1
-
     try:
+        if not scheduling.publishable(campaign):
+            return _scheduled_failed(
+                publish_job,
+                "کمپین دیگر تأیید نیست؛ انتشار انجام نشد. "
+                "اگر هنوز می‌خواهیدش، دوباره تأیید و زمان‌بندی کنید.",
+            )
+        payload = build_payload(campaign, publish_job.platform)
+        if not _has_content(payload):
+            return _scheduled_failed(
+                publish_job,
+                "کمپین محتوایی برای انتشار ندارد (کپشن، پوستر و ویدیو خالی است)؛ انتشار انجام نشد.",
+            )
+        publish_job.payload = payload
+        publish_job.attempts += 1
         response = _deliver(campaign, publish_job, payload)
     except (PublishError, novinhub.NovinHubError) as exc:
-        publish_job.status = PublishJob.Status.FAILED
-        publish_job.last_error = str(exc)[:2000]
-        publish_job.save()
-        # The shop finds out now, not when they notice the post never appeared.
-        from apps.customers.models import Notification, notify
-
-        notify(
-            campaign.store,
-            Notification.Type.AI_ERROR,
-            "انتشار زمان‌بندی‌شده ناموفق بود",
-            body=f"کمپین «{campaign.name}» روی {publish_job.platform}: {exc}"[:500],
-            link=f"/stores/{campaign.store_id}/campaigns",
+        return _scheduled_failed(publish_job, str(exc))
+    except Exception as exc:  # noqa: BLE001 — a bug must not leave the post RUNNING for ever
+        logger.exception("Scheduled publish %s crashed", publish_job.pk)
+        return _scheduled_failed(
+            publish_job, f"خطای پیش‌بینی‌نشده هنگام انتشار: {type(exc).__name__}: {exc}",
         )
-        return {"published": False, "error": str(exc)[:200]}
 
     publish_job.status = PublishJob.Status.SENT
     publish_job.response = response

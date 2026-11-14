@@ -515,10 +515,12 @@ export type ApprovalState = "DRAFT" | "APPROVED" | "REJECTED" | "PUBLISHED" | "A
 export interface PublishJobInfo {
   id: number;
   platform: string;
-  status: "PENDING" | "SENT" | "FAILED";
+  status: "PENDING" | "RUNNING" | "SENT" | "FAILED";
   attempts: number;
   last_error: string;
   published_at: string | null;
+  /** زمانِ انتشارِ زمان‌بندی‌شده؛ برای انتشارِ دستی null */
+  scheduled_for?: string | null;
   created_at: string;
 }
 

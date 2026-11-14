@@ -64,12 +64,31 @@ function CampaignCard({
   const [when, setWhen] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [scheduled, setScheduled] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const runner = useJobRunner(onChanged);
+
+  // انتشارهای زمان‌بندی‌شده‌ای که هنوز نرفته‌اند
+  const queued = campaign.publish_jobs.filter(
+    (pj) => pj.status === "PENDING" && !!pj.scheduled_for,
+  );
 
   const act = async (action: "approve" | "reject") => {
     setError(null);
+    setNotice(null);
+    // رد کردن، انتشارهای صف‌شده را هم لغو می‌کند؛ بدونِ پرسش این اتفاق بی‌صدا می‌افتاد
+    if (action === "reject" && queued.length > 0) {
+      const ok = window.confirm(
+        `این کمپین ${fa(queued.length)} انتشارِ زمان‌بندی‌شده دارد. با رد کردن، همه‌شان لغو می‌شوند. ادامه می‌دهید؟`,
+      );
+      if (!ok) return;
+    }
     try {
-      await api.post(`/campaigns/${campaign.id}/${action}/`);
+      const { data } = await api.post<{ cancelled_scheduled?: number }>(
+        `/campaigns/${campaign.id}/${action}/`,
+      );
+      if (action === "reject" && data?.cancelled_scheduled) {
+        setNotice(`${fa(data.cancelled_scheduled)} انتشارِ زمان‌بندی‌شده لغو شد.`);
+      }
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -109,11 +128,16 @@ function CampaignCard({
       return;
     }
     setScheduling(true);
+    setNotice(null);
     try {
-      await api.post(`/campaigns/${campaign.id}/schedule/`, {
-        when: at.toISOString(),
-        platforms,
-      });
+      const { data } = await api.post<{ scheduled: { created: boolean }[] }>(
+        `/campaigns/${campaign.id}/schedule/`,
+        { when: at.toISOString(), platforms },
+      );
+      // همین زمان و پلتفرم از قبل در صف بود: دوباره ثبت نشد (دو پستِ یکسان برای دنبال‌کننده‌ها)
+      if (data?.scheduled?.length && data.scheduled.every((row) => !row.created)) {
+        setNotice("این انتشار با همین زمان از قبل در صف بود؛ دوباره ثبت نشد.");
+      }
       setScheduled(
         at.toLocaleString("fa-IR", {
           month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
@@ -181,6 +205,11 @@ function CampaignCard({
       )}
 
       <ErrorBox message={error || runner.error} />
+      {notice && (
+        <p className="mt-2 text-xs" role="status" style={{ color: "var(--ok)" }}>
+          {notice}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {campaign.approval_state !== "PUBLISHED" && (
@@ -272,7 +301,20 @@ function CampaignCard({
                       : "text-slate-500"
                 }
               >
-                {pj.status === "SENT" ? "ارسال شد ✓" : pj.status === "FAILED" ? "خطا" : "در انتظار"}
+                {pj.status === "SENT"
+                  ? "ارسال شد ✓"
+                  : pj.status === "FAILED"
+                    ? "خطا"
+                    : pj.status === "RUNNING"
+                      ? "در حال انتشار"
+                      : pj.scheduled_for
+                        ? `زمان‌بندی‌شده برای ${new Date(pj.scheduled_for).toLocaleString("fa-IR", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : "در انتظار"}
               </span>
               {pj.last_error && <span className="text-red-500">{pj.last_error}</span>}
             </div>

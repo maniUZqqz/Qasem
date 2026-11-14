@@ -37,6 +37,42 @@ LATE_LIMIT = timedelta(hours=6)
 #: worker, and the next tick is a minute away.
 BATCH = 20
 
+#: Where a post may be sent from. Same list the interactive «انتشار حالا» accepts
+#: (views.SUPPORTED_PLATFORMS is this very set) — a fake platform name used to be
+#: queued and then fail at the minute it was due.
+SUPPORTED_PLATFORMS = frozenset({"instagram", "telegram", "linkedin"})
+
+#: A claimed post that has not finished after this long was lost with its worker
+#: (restart, OOM kill). Nothing else ever moves RUNNING on, so the beat does.
+RUNNING_LIMIT = timedelta(minutes=15)
+
+
+class ScheduleError(ValueError):
+    """A schedule request that must be refused, with a machine-readable `code`.
+
+    A `ValueError` subclass on purpose: callers (and older tests) that catch the
+    "time in the past" `ValueError` keep working.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def publishable(campaign) -> bool:
+    """Whether the owner's approval still stands for this campaign.
+
+    APPROVED is the rule. PUBLISHED counts too, exactly as in the interactive
+    publish: the first scheduled platform that goes out flips the campaign to
+    PUBLISHED, and the other platforms queued for the same morning must not
+    fail because of that.
+    """
+    from .models import Campaign
+
+    return campaign.approval_state in (
+        Campaign.ApprovalState.APPROVED, Campaign.ApprovalState.PUBLISHED,
+    )
+
 
 def due(now=None):
     """Scheduled publishes whose time has come and which nobody has taken."""
@@ -89,6 +125,7 @@ def run_due(now=None) -> dict:
     published = 0
     missed = 0
     skipped = 0
+    stuck = fail_stuck(now)
 
     for job in list(due(now)):
         if too_late(job, now):
@@ -116,25 +153,133 @@ def run_due(now=None) -> dict:
             )
             logger.warning("Could not dispatch scheduled publish %s: %s", job.pk, exc)
 
-    return {"published": published, "missed": missed, "already_taken": skipped}
+    return {
+        "published": published, "missed": missed, "already_taken": skipped,
+        "stuck": stuck,
+    }
 
 
-def schedule(campaign, platform: str, when, payload: dict | None = None):
-    """Queue a publish for a moment in the future.
+def fail_stuck(now=None) -> int:
+    """Fail scheduled posts that were claimed and then never finished.
 
-    Refuses a time in the past rather than publishing immediately: someone who
-    typed yesterday's date meant a different date, and honouring it literally
-    posts to their followers right now.
+    `claim()` sets RUNNING and only the task that was dispatched moves it on. If
+    that worker died, the row stays RUNNING for ever: the queue page shows
+    «در حال انتشار» for a post nobody is publishing, and the shop never learns
+    it did not go out. Whatever is still running after `RUNNING_LIMIT` is
+    marked failed with the reason, and the shop is told.
     """
     from .models import PublishJob
 
-    if when <= timezone.now():
-        raise ValueError("زمان انتشار باید در آینده باشد.")
-
-    return PublishJob.objects.create(
-        store=campaign.store,
-        campaign=campaign,
-        platform=platform,
-        scheduled_for=when,
-        payload=payload or {},
+    now = now or timezone.now()
+    rows = list(
+        PublishJob.objects
+        .filter(
+            status=PublishJob.Status.RUNNING,
+            scheduled_for__isnull=False,
+            updated_at__lt=now - RUNNING_LIMIT,
+        )
+        .select_related("campaign", "store")[:BATCH]
     )
+    failed = 0
+    for job in rows:
+        reason = (
+            "انتشار شروع شد ولی بعد از "
+            f"{int(RUNNING_LIMIT.total_seconds() // 60)} دقیقه تمام نشد "
+            "(احتمالاً سرویس در همان لحظه خاموش شد). "
+            "مطمئن نیستیم پست رفته یا نه؛ صفحهٔ شبکه را ببینید و در صورت نیاز دوباره زمان‌بندی کنید."
+        )
+        # conditional update: the worker may have finished in the meantime
+        changed = PublishJob.objects.filter(
+            pk=job.pk, status=PublishJob.Status.RUNNING,
+        ).update(
+            status=PublishJob.Status.FAILED, last_error=reason, updated_at=timezone.now(),
+        )
+        if not changed:
+            continue
+        failed += 1
+        logger.warning("Scheduled publish %s was stuck RUNNING; marked failed", job.pk)
+        notify_failure(job, reason)
+    return failed
+
+
+def notify_failure(job, reason: str) -> None:
+    """Tell the shop a scheduled post did not go out. Never raises."""
+    try:
+        from apps.customers.models import Notification, notify
+
+        notify(
+            job.campaign.store,
+            Notification.Type.AI_ERROR,
+            "انتشار زمان‌بندی‌شده ناموفق بود",
+            body=f"کمپین «{job.campaign.name}» روی {job.platform}: {reason}"[:500],
+            link=f"/stores/{job.campaign.store_id}/campaigns",
+        )
+    except Exception:  # noqa: BLE001 — a failed notification must not hide the failure itself
+        logger.exception("Could not notify about failed scheduled publish %s", job.pk)
+
+
+def cancel_pending(campaign) -> int:
+    """Drop the campaign's queued posts that have not started. Returns how many.
+
+    Called when the campaign is rejected or its content changes: the owner's
+    approval was for the old state, so a post that would go out at 9 a.m. with
+    content nobody approved must not stay queued. A post already RUNNING is in
+    flight and is left alone (the fire-time check in `publish_scheduled_job`
+    catches a rejected campaign before it delivers).
+    """
+    from .models import PublishJob
+
+    deleted, _ = PublishJob.objects.filter(
+        campaign=campaign,
+        status=PublishJob.Status.PENDING,
+        scheduled_for__isnull=False,
+    ).delete()
+    return deleted
+
+
+def schedule_get_or_create(campaign, platform: str, when, payload: dict | None = None):
+    """Queue a publish for a moment in the future. Returns `(job, created)`.
+
+    Refuses what must never reach the queue:
+    - a campaign the owner has not approved (or has since rejected): scheduling
+      it would hand the decision to the clock;
+    - a platform nobody can publish to («myspace», or text where a list was meant);
+    - a time in the past: someone who typed yesterday's date meant a different
+      date, and honouring it literally posts to their followers right now.
+
+    The same campaign + platform + moment is one row: pressing the button twice
+    (or a retried request) must not post the same thing twice.
+    """
+    from .models import PublishJob
+
+    if not publishable(campaign):
+        raise ScheduleError(
+            "not_approved",
+            "قبل از زمان‌بندی، کمپین باید تأیید شود (کمپینِ پیش‌نویس یا ردشده زمان‌بندی نمی‌شود).",
+        )
+    platform = str(platform or "").strip().lower()
+    if platform not in SUPPORTED_PLATFORMS:
+        raise ScheduleError(
+            "bad_platform",
+            f"پلتفرم «{platform}» پشتیبانی نمی‌شود؛ یکی از "
+            f"{', '.join(sorted(SUPPORTED_PLATFORMS))} را انتخاب کنید.",
+        )
+    if when <= timezone.now():
+        raise ScheduleError("past_time", "زمان انتشار باید در آینده باشد.")
+
+    # whole seconds: the same request repeated a moment later carries the same
+    # minute but not the same microsecond
+    when = when.replace(microsecond=0)
+    with transaction.atomic():
+        return PublishJob.objects.get_or_create(
+            campaign=campaign,
+            platform=platform,
+            scheduled_for=when,
+            defaults={"store": campaign.store, "payload": payload or {}},
+        )
+
+
+def schedule(campaign, platform: str, when, payload: dict | None = None):
+    """`schedule_get_or_create` for callers that only want the row."""
+    job, _created = schedule_get_or_create(campaign, platform, when, payload)
+    return job

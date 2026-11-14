@@ -10,12 +10,24 @@ from apps.jobs.models import Job
 from apps.jobs.serializers import JobSerializer
 from apps.jobs.services import dispatch_job
 
+from . import scheduling
 from .models import Campaign, PublishJob
 from .serializers import CampaignSerializer
 from .tasks import publish_campaign_task
 from apps.stores import access
 
-SUPPORTED_PLATFORMS = {"instagram", "telegram", "linkedin"}
+# one list for «انتشار حالا» and «زمان‌بندی»
+SUPPORTED_PLATFORMS = set(scheduling.SUPPORTED_PLATFORMS)
+
+#: What followers see of a campaign. Editing any of these after approval means
+#: the owner approved something else, so its queued posts are cancelled. (The
+#: name, goal, audience and notes are for the team; changing them changes
+#: nothing that is posted.)
+_CONTENT_FIELDS = ("product_id", "poster_id", "product_image_id", "caption_id", "video_script_id")
+
+
+def _content_signature(campaign) -> tuple:
+    return tuple(getattr(campaign, name) for name in _CONTENT_FIELDS)
 
 
 class CampaignViewSet(viewsets.ModelViewSet):
@@ -76,7 +88,22 @@ class CampaignViewSet(viewsets.ModelViewSet):
         if note:
             campaign.notes = (campaign.notes + "\n" if campaign.notes else "") + f"رد شد: {note}"
         campaign.save()
-        return Response(CampaignSerializer(campaign, context={"request": request}).data)
+        # a rejected campaign must not still go out at 9 a.m. from the queue
+        cancelled = scheduling.cancel_pending(campaign)
+        data = dict(CampaignSerializer(campaign, context={"request": request}).data)
+        data["cancelled_scheduled"] = cancelled
+        return Response(data)
+
+    def update(self, request, *args, **kwargs):
+        """Editing what is posted cancels the posts queued with the old content."""
+        before = _content_signature(self.get_object())
+        response = super().update(request, *args, **kwargs)
+        campaign = self.get_object()
+        if _content_signature(campaign) != before:
+            cancelled = scheduling.cancel_pending(campaign)
+            if cancelled and isinstance(response.data, dict):
+                response.data["cancelled_scheduled"] = cancelled
+        return response
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
@@ -183,16 +210,23 @@ class CampaignViewSet(viewsets.ModelViewSet):
 
 
 class CampaignScheduleView(APIView):
-    """Queue a campaign to publish at a future moment. Phase 24."""
+    """Queue a campaign to publish at a future moment. Phase 24.
+
+    Everything the interactive publish refuses is refused here too — the clock
+    must not be a way around the owner's approval: a draft or rejected campaign,
+    a platform that does not exist, a list given as text. The same request sent
+    twice queues one post, not two.
+    """
 
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _error(code, message, http=status.HTTP_400_BAD_REQUEST):
+        return Response({"error": {"code": code, "message": message}}, status=http)
+
     def post(self, request, pk):
+        from django.db import transaction
         from django.utils.dateparse import parse_datetime
-
-        from apps.stores import access
-
-        from . import scheduling
 
         campaign = get_object_or_404(
             Campaign.objects.filter(store__in=access.stores_for(request.user))
@@ -201,31 +235,62 @@ class CampaignScheduleView(APIView):
         )
         access.get_store(request.user, campaign.store_id, access.CAMPAIGNS)
 
-        when = parse_datetime(str(request.data.get("when", "")))
-        if when is None:
-            return Response(
-                {"error": {"code": "bad_time", "message": "زمان انتشار خوانده نشد."}},
-                status=status.HTTP_400_BAD_REQUEST,
+        if not scheduling.publishable(campaign):
+            return self._error(
+                "not_approved",
+                "قبل از زمان‌بندی، کمپین باید تأیید شود (کمپینِ پیش‌نویس یا ردشده زمان‌بندی نمی‌شود).",
             )
+
+        try:
+            when = parse_datetime(str(request.data.get("when", "")))
+        except ValueError:  # well-formed but impossible, e.g. month 13
+            when = None
+        if when is None:
+            return self._error("bad_time", "زمان انتشار خوانده نشد.")
         if timezone.is_naive(when):
             when = timezone.make_aware(when)
 
-        platforms = request.data.get("platforms") or ["instagram"]
-        created = []
-        for platform in platforms:
-            try:
-                job = scheduling.schedule(campaign, platform, when)
-            except ValueError as exc:
-                # Refused rather than published now: someone who typed
-                # yesterday's date meant a different date, and honouring it
-                # literally posts to their followers this second.
-                return Response(
-                    {"error": {"code": "past_time", "message": str(exc)}},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            created.append({"id": job.pk, "platform": platform, "at": job.scheduled_for})
+        raw = request.data.get("platforms")
+        if raw in (None, "", []):
+            raw = ["instagram"]
+        if not isinstance(raw, (list, tuple)):
+            return self._error(
+                "bad_platforms", "پلتفرم‌ها باید به‌صورت فهرست فرستاده شوند، نه متن.",
+            )
+        platforms: list[str] = []
+        for item in raw:
+            name = str(item or "").strip().lower()
+            if name not in platforms:  # «instagram» twice is one post
+                platforms.append(name)
+        unknown = [p for p in platforms if p not in SUPPORTED_PLATFORMS]
+        if unknown:
+            return self._error(
+                "bad_platform",
+                f"پلتفرم ناشناخته: {', '.join(unknown)}. "
+                f"یکی از {', '.join(sorted(SUPPORTED_PLATFORMS))} را انتخاب کنید.",
+            )
 
-        return Response({"scheduled": created}, status=status.HTTP_201_CREATED)
+        created = []
+        try:
+            # all or nothing: a bad time must not leave half the platforms queued
+            with transaction.atomic():
+                for platform in platforms:
+                    job, is_new = scheduling.schedule_get_or_create(campaign, platform, when)
+                    created.append({
+                        "id": job.pk, "platform": platform, "at": job.scheduled_for,
+                        "created": is_new,
+                    })
+        except scheduling.ScheduleError as exc:
+            # Refused rather than published now: someone who typed yesterday's
+            # date meant a different date, and honouring it literally posts to
+            # their followers this second.
+            return self._error(exc.code, str(exc))
+
+        fresh = any(row["created"] for row in created)
+        return Response(
+            {"scheduled": created},
+            status=status.HTTP_201_CREATED if fresh else status.HTTP_200_OK,
+        )
 
 
 class ScheduledPublishesView(APIView):

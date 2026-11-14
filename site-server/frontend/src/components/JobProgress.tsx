@@ -19,7 +19,7 @@ function formatElapsed(seconds: number): string {
 }
 
 /** این کار روی سرورِ پردازش (کامپیوترِ گرافیکی) منتظر است، نه این‌که مدل کند باشد. */
-function isWaitingForNode(label: string | undefined): boolean {
+export function isWaitingForNode(label: string | undefined): boolean {
   return !!label && /منتظر/.test(label) && /سرور/.test(label);
 }
 

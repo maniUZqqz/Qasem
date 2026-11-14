@@ -51,6 +51,15 @@ class CaptionSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Hashtags whose words were glued together («#برنامهورزشی») are shown repaired
+        # («#برنامه_ورزشی»); what is stored stays as it was until an edit is saved.
+        from . import hashtags
+
+        data["hashtags"] = hashtags.repair_all(data.get("hashtags") or [])
+        return data
+
     def get_warnings(self, obj):
         """Quality warnings (see caption_guard). The shop's banned phrases are
         looked up once per request, not once per caption."""

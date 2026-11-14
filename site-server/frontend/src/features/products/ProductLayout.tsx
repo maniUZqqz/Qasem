@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from 
 
 import { api, errorMessage } from "../../api/client";
 import Icon, { type IconName } from "../../components/Icon";
-import { Badge, Button, ErrorBox, Spinner } from "../../components/ui";
+import { Badge, Button, ErrorBox, Spinner, fa } from "../../components/ui";
 import { Product } from "../../types";
 import { useFlags } from "../panel/FlagsContext";
 
@@ -129,16 +129,20 @@ export default function ProductLayout() {
                 {product.name}
               </h1>
               <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                <Badge tone={product.available_quantity > 0 ? "ok" : "warn"}>
-                  {product.available_quantity > 0
-                    ? `${product.available_quantity} قابل فروش`
-                    : "ناموجود"}
-                </Badge>
+                {product.is_digital ? (
+                  <Badge tone="info">سرویس دیجیتال · بدونِ موجودی</Badge>
+                ) : (
+                  <Badge tone={product.available_quantity > 0 ? "ok" : "warn"}>
+                    {product.available_quantity > 0
+                      ? `${fa(product.available_quantity)} قابل فروش`
+                      : "ناموجود"}
+                  </Badge>
+                )}
                 {/* رزرو یعنی کالا در انبار هست ولی مشتریِ در حال پرداخت
                     رویش حساب کرده — عددِ انبار و عددِ فروختنی یکی نیستند. */}
                 {product.reserved_quantity > 0 && (
                   <Badge tone="info">
-                    {product.reserved_quantity} رزرو از {product.stock_quantity} موجودی
+                    {fa(product.reserved_quantity)} رزرو از {fa(product.stock_quantity)} موجودی
                   </Badge>
                 )}
                 {product.brand && <Badge>{product.brand}</Badge>}

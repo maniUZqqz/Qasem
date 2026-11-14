@@ -17,7 +17,8 @@ export function IntelligenceTab() {
 }
 
 export function MarketTab() {
-  return <MarketPanel productId={useProduct().product.id} />;
+  const { product } = useProduct();
+  return <MarketPanel productId={product.id} digital={!!product.is_digital} />;
 }
 
 export function ImagesTab() {

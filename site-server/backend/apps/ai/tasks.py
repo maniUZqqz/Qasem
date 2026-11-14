@@ -119,13 +119,21 @@ def analyze_market_task(self, job_id, product_id, research_inputs=""):
         intelligence = ProductIntelligence.objects.filter(product=product).first()
         provider = text_provider(product.store, kind=RESEARCH)
         job.total_steps = 2
-        job.mark_running("در حال جستجوی خودکار رقبا در وب (دیجی‌کالا/ترب)")
+        # A service has no price on Digikala/Torob: searching there would hand the
+        # model unrelated goods as «competitors» (apps.products.digital).
+        from apps.products.digital import is_digital
+
+        digital = is_digital(product)
+        job.mark_running(
+            "در حال بررسیِ بازار (سرویسِ دیجیتال: بدونِ جستجوی قیمت در دیجی‌کالا/ترب)"
+            if digital else "در حال جستجوی خودکار رقبا در وب (دیجی‌کالا/ترب)"
+        )
 
         # Real competitor data fetched by code — the owner enters nothing.
         # Marketplaces get the plain product name; general web gets a buying-intent
         # query so competitor SITES surface too.
         query = f"{product.name} {product.brand}".strip()
-        web_results = research_product(query, web_query=f"خرید {query}")
+        web_results = research_product(query, web_query=f"خرید {query}", skip_marketplaces=digital)
         job.mark_progress(1, "در حال تحلیل بازار و رقبا")
         reasoning_models = models_for(TASK_RESEARCH)
         gpu.before_ollama_work(reasoning_models[0])

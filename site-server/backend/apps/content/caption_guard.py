@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import re
 
-from apps.common.fatext import contains_phrase, en_digits, normalize
+from apps.common.fatext import contains_phrase, en_digits, fa_digits, normalize
+
+from . import hashtags as hashtag_tools
 
 #: a Persian/Latin price whose thousands separator is followed by 1-2 digits,
 #: i.e. a number that lost its last zero(s): «600,00» «۶۰۰٬۰۰»
@@ -30,6 +32,20 @@ MAX_EMOJI = 6
 
 #: a repeated phrase shorter than this is probably a connective, not a copy-paste
 MIN_REPEAT_CHARS = 8
+
+#: words that belong in an instruction to an IMAGE model, not in a post:
+#: «بدون آدم، فقط فضای باشگاه و تبلت» was printed to followers as if it were copy.
+#: Compared in the `normalize` form (no half-space, no kasra).
+_PROMPT_LEAK = re.compile(
+    r"(بدون\s*(?:آدم|انسان)|فقط\s*فضای|(?:تصویر|عکس)\s*زمینه|پرامپت|\bprompt\b|نمای\s*کلوز)"
+)
+
+#: «۶۰۰٬۰۰۰ تومان», «600 هزار تومان»: a price a person must confirm before it is published
+_PRICE = re.compile(r"(\d[\d,.٬،]*\s*(?:هزار\s*|میلیون\s*)?(?:تومان|ریال))")
+
+#: a long text should end where a sentence ends (or on an emoji)
+_SENTENCE_END = tuple(".!؟?…)»\"'")
+_LONG_MIN_CHARS = 120
 
 
 def _fields(caption) -> list[tuple[str, str]]:
@@ -73,19 +89,58 @@ def check(caption, banned: list[str] | None = None) -> list[dict]:
         if not text:
             continue
         for phrase in banned:
-            if contains_phrase(text, phrase):
+            # a sentence that DENIES the claim («ما نتیجه را تضمین نمی‌کنیم») is not the claim
+            if contains_phrase(text, phrase, ignore_negated=True):
                 add("banned", f"عبارتِ ممنوعِ شما در متن آمده: «{phrase}»", phrase)
         for m in _BROKEN_NUMBER.finditer(en_digits(text)):
             add("broken_number", f"عددِ ناقص: «{m.group(1)}» — احتمالاً صفرِ آخر افتاده است.", m.group(1))
         rep = _repeated_phrase(text)
         if rep:
             add("repeated", f"یک جمله دو بار پشتِ هم آمده: «{rep}»", rep)
+        leak = _PROMPT_LEAK.search(normalize(text))
+        if leak:
+            add(
+                "image_prompt",
+                f"به نظر می‌رسد دستورِ ساختِ تصویر وارد متن شده: «{leak.group(1)}» — از متنِ پست حذفش کنید.",
+                leak.group(1),
+            )
+        for m in _PRICE.finditer(en_digits(text)):
+            add(
+                "price_check",
+                f"قیمت در متن آمده («{fa_digits(m.group(1).strip())}»): پیش از انتشار با قیمتِ تأییدشدهٔ مالک بسنجید.",
+                m.group(1),
+            )
         emoji_total += len(_EMOJI.findall(text))
+
+    long_text = (caption.long_text or "").rstrip()
+    if (
+        len(long_text) >= _LONG_MIN_CHARS
+        and not long_text.endswith(_SENTENCE_END)
+        and not _EMOJI.search(long_text[-1])
+    ):
+        add("truncated", "متنِ بلند ناتمام به نظر می‌رسد (جمله به نقطه نرسیده) — پیش از انتشار تکمیلش کنید.")
 
     if emoji_total > MAX_EMOJI:
         add("emoji", f"ایموجی زیاد است ({emoji_total}).")
     # Hashtags are stored as plain words («هوش مصنوعی»); the panel writes them as Instagram wants them
     # (#هوش_مصنوعی) when it shows and copies them, so a missing «#» is not something to warn about.
+    # What IS wrong is a tag whose words were glued together («#برنامهورزشی»): it matches no search.
+    for tag in getattr(caption, "hashtags", None) or []:
+        if not isinstance(tag, str):
+            continue
+        fixed = hashtag_tools.repair(tag)
+        if hashtag_tools.clean(fixed) != hashtag_tools.clean(tag):
+            add(
+                "glued_hashtag",
+                f"هشتگِ چسبیده: «{tag}» ← «{fixed}» (در نمایش اصلاح شد؛ با «ویرایش» ذخیره کنید).",
+                tag,
+            )
+        elif hashtag_tools.is_glued(tag):
+            add(
+                "glued_hashtag",
+                f"هشتگِ بلند بدونِ «_»: «{tag}» — اگر چند واژه است با «_» جدایشان کنید.",
+                tag,
+            )
     return warnings
 
 

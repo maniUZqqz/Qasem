@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
-import JobProgress from "../../components/JobProgress";
+import JobProgress, { isWaitingForNode } from "../../components/JobProgress";
 import SegmentApproval from "../../components/SegmentApproval";
 import SegmentQualityChip from "../../components/SegmentQualityChip";
 import SoundDesignCard from "../../components/SoundDesignCard";
@@ -14,6 +14,7 @@ import {
   Field,
   Input,
   SectionTitle,
+  fa,
 } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { Job, SoundOption, StoreVoice, VideoSceneInfo, VideoScriptInfo } from "../../types";
@@ -179,6 +180,8 @@ export default function VideoStudioPanel({
   const anyRunning = scriptRunner.running || videoRunner.running || voiceRunner.running;
   const activeRunner = [voiceRunner, videoRunner, scriptRunner].find((r) => r.running) ?? null;
   const activeJob = activeRunner?.job ?? null;
+  // کارِ ساختِ ویدیو در صفِ «منتظرِ روشن‌شدنِ سرورِ پردازش» است؟ (قطعه‌های ناموفقِ قبلی را روشن‌تر توضیح می‌دهد)
+  const nodeWaiting = isWaitingForNode(activeJob?.current_step_label);
 
   // A render that stopped after a segment and is waiting for a look. Only the
   // video runner can park; the other two produce one thing and finish.
@@ -326,8 +329,8 @@ export default function VideoStudioPanel({
           )}
 
           <div className="flex items-center gap-3 text-sm">
-            <Chip>{script.total_duration} ثانیه</Chip>
-            <Chip>{script.scenes.length} صحنه</Chip>
+            <Chip>{fa(script.total_duration)} ثانیه</Chip>
+            <Chip>{fa(script.scenes.length)} صحنه</Chip>
             <Chip>{script.narration_language === "en" ? "نریشن انگلیسی" : "نریشن فارسی"}</Chip>
             <button
               onClick={() => setShowScenes((v) => !v)}
@@ -411,7 +414,7 @@ export default function VideoStudioPanel({
           {script.segments.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {script.segments.map((segment) => (
-                <SegmentQualityChip key={segment.index} segment={segment} />
+                <SegmentQualityChip key={segment.index} segment={segment} nodeWaiting={nodeWaiting} />
               ))}
             </div>
           )}

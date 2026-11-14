@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import Icon from "../../components/Icon";
 import { Alert, Badge, Card, EmptyState, fa } from "../../components/ui";
@@ -79,8 +80,13 @@ const STATUS_TONE: Record<string, "neutral" | "info" | "ok" | "bad" | "warn"> = 
 };
 
 export default function CalendarPage() {
-  const { scheduled, planned } = useCampaigns();
+  const { storeId, scheduled, planned } = useCampaigns();
+  const navigate = useNavigate();
   const [offset, setOffset] = useState(0);
+
+  /** باز کردنِ کار در تختهٔ کمپین: متنِ کامل، موعد و دکمهٔ کپی همان‌جاست. */
+  const openTask = (row: PlannedRow) =>
+    navigate(`/stores/${storeId}/campaigns?campaign=${row.campaign_id}&task=${row.id}`);
 
   const { cells, label, byDay, plannedByDay, first } = useMemo(() => {
     // ماهِ شمسیِ واقعی (قبلاً ماهِ میلادی بود و فقط عنوانش شمسی بود: «آبان» با
@@ -119,12 +125,20 @@ export default function CalendarPage() {
   const monthJal = jal(first);
   const todayKey = dayKey(new Date());
 
+  /** روی گوشی خانه‌ها فقط نقطه‌اند؛ زدن روی نقطه‌ها به فهرستِ همان روز می‌رود. */
+  const showDayList = (key: string) => {
+    const firstRow = plannedByDay.get(key)?.[0];
+    if (firstRow) {
+      document.getElementById(`plan-${firstRow.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
   return (
     <div className="space-y-4">
       {scheduled.length === 0 && planned.length > 0 && (
         <Alert tone="info" title="برنامهٔ پیشنهادی روی تقویم است">
           خانه‌های خط‌چین موعدِ پیشنهادیِ کارهای کمپین‌اند — هنوز چیزی زمان‌بندی یا منتشر نشده.
-          هر کار را در تب «کمپین‌ها» باز کنید تا متنش را ببینید.
+          روی هر کار بزنید تا متنِ کاملش (کپشن، اسلایدها، موعد) در تختهٔ کمپین باز شود.
         </Alert>
       )}
       {scheduled.length === 0 && planned.length === 0 && (
@@ -210,7 +224,14 @@ export default function CalendarPage() {
                     «۰۷:…» می‌رسید. آنجا فقط نقطه‌ی رنگی نشان داده می‌شود و
                     جزئیات در فهرست زیر تقویم می‌آید. */}
                 {(rows.length > 0 || plans.length > 0) && (
-                  <div className="flex flex-wrap justify-center gap-1 sm:hidden">
+                  <button
+                    type="button"
+                    disabled={plans.length === 0}
+                    onClick={() => showDayList(key)}
+                    aria-label={plans.length ? `${fa(plans.length)} کارِ پیشنهادی — دیدنِ فهرست` : undefined}
+                    className="flex w-full flex-wrap justify-center gap-1 sm:hidden"
+                    style={{ background: "none", border: 0, padding: "6px 0", cursor: plans.length ? "pointer" : "default" }}
+                  >
                     {plans.slice(0, 3).map((row) => (
                       <span
                         key={`p${row.id}`}
@@ -229,7 +250,7 @@ export default function CalendarPage() {
                         }}
                       />
                     ))}
-                  </div>
+                  </button>
                 )}
                 <div className="hidden space-y-1 sm:block">
                   {rows.slice(0, 3).map((row) => (
@@ -252,18 +273,21 @@ export default function CalendarPage() {
                     </div>
                   ))}
                   {plans.slice(0, Math.max(0, 3 - rows.length)).map((row) => (
-                    <div
+                    <button
+                      type="button"
                       key={`p${row.id}`}
-                      className="truncate rounded-md px-1.5 py-0.5 text-[11px]"
+                      onClick={() => openTask(row)}
+                      className="block w-full cursor-pointer truncate rounded-md px-1.5 py-0.5 text-start text-[11px] hover:bg-[var(--surface-2)]"
                       style={{
+                        background: "none",
                         border: "1px dashed var(--line)",
                         color: row.state === "DONE" ? "var(--text-3)" : "var(--text-2)",
                         textDecoration: row.state === "DONE" ? "line-through" : "none",
                       }}
-                      title={`${row.campaign} — ${row.kind_label} — پیشنهادی (${row.state_label})`}
+                      title={`${row.campaign} — ${row.kind_label} — پیشنهادی (${row.state_label}). برای دیدنِ متنِ کار بزنید.`}
                     >
                       {row.title}
-                    </div>
+                    </button>
                   ))}
                   {rows.length + plans.length > 3 && (
                     <div className="text-center text-[11px]" style={{ color: "var(--text-3)" }}>
@@ -337,23 +361,32 @@ export default function CalendarPage() {
               {month.map((row, i) => (
                 <li
                   key={row.id}
-                  className="flex items-center gap-3 px-4 py-3"
+                  id={`plan-${row.id}`}
                   style={{ borderTop: i ? "1px solid var(--line)" : "none" }}
                 >
-                  <span className="u-num w-12 shrink-0 text-center text-xs" style={{ color: "var(--text-3)" }}>
-                    {new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "short" }).format(
-                      new Date(row.due_at),
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm" style={{ color: "var(--text)" }}>
-                      {row.title}
+                  <button
+                    type="button"
+                    onClick={() => openTask(row)}
+                    className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-start"
+                    style={{ background: "none", border: 0 }}
+                    aria-label={`${row.title} — باز کردنِ متنِ کار`}
+                  >
+                    <span className="u-num w-12 shrink-0 text-center text-xs" style={{ color: "var(--text-3)" }}>
+                      {new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "short" }).format(
+                        new Date(row.due_at),
+                      )}
                     </span>
-                    <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                      {row.campaign} — پیشنهادی
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm" style={{ color: "var(--text)" }}>
+                        {row.title}
+                      </span>
+                      <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                        {row.campaign} — پیشنهادی
+                      </span>
                     </span>
-                  </span>
-                  <Badge tone="neutral">{row.state_label}</Badge>
+                    <Badge tone="neutral">{row.state_label}</Badge>
+                    <Icon name="next" size={14} />
+                  </button>
                 </li>
               ))}
             </ul>

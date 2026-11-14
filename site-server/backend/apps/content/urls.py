@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .views_caption_edit import CaptionDetailView
 from .views_audio import (
     AudioAssetDetailView,
     AudioAssetFileView,
@@ -100,6 +101,7 @@ from .views import (
 
 urlpatterns = [
     path("products/<int:pk>/captions/", CaptionView.as_view(), name="product-captions"),
+    path("products/<int:pk>/captions/<int:caption_id>/", CaptionDetailView.as_view(), name="product-caption-detail"),
     path("products/<int:pk>/image-studio/", ImageStudioView.as_view(), name="product-image-studio"),
     path("products/<int:pk>/video-script/", VideoScriptView.as_view(), name="product-video-script"),
     # What Advanced mode asks for before generating (§25).

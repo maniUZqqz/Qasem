@@ -218,11 +218,16 @@ export default function StoreProductsPage() {
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {/* قابل فروش، نه موجودی خام: کالایی که مشتری دارد پولش
                         را می‌فرستد دیگر برای نفر بعد نیست. */}
-                    <Badge tone={product.available_quantity > 0 ? "ok" : "warn"}>
-                      {product.available_quantity > 0
-                        ? `${fa(product.available_quantity)} قابل فروش`
-                        : "ناموجود"}
-                    </Badge>
+                    {product.is_digital ? (
+                      // سرویس انبار ندارد؛ «۹۹۹۹ قابل فروش» یعنی «نامحدود» و آدم را گمراه می‌کند
+                      <Badge tone="info">سرویس دیجیتال · بدونِ موجودی</Badge>
+                    ) : (
+                      <Badge tone={product.available_quantity > 0 ? "ok" : "warn"}>
+                        {product.available_quantity > 0
+                          ? `${fa(product.available_quantity)} قابل فروش`
+                          : "ناموجود"}
+                      </Badge>
+                    )}
                     {product.reserved_quantity > 0 && (
                       <Badge tone="info">{fa(product.reserved_quantity)} رزرو</Badge>
                     )}

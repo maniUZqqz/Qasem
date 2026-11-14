@@ -314,6 +314,8 @@ REST_FRAMEWORK = {
         "apps.common.renderers.NullableJSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
+    # the stock English 404 text becomes Persian (apps.common.api_errors)
+    "EXCEPTION_HANDLER": "apps.common.api_errors.exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,

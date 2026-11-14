@@ -143,7 +143,7 @@ def _api_default(capability: str) -> Resolved | None:
     return Resolved(
         capability=capability,
         kind="OPENAI",
-        name="API سازگار با OpenAI (پیش‌فرض .env)",
+        name="سرویسِ ابریِ هوش مصنوعی (کلیدِ پیش‌فرضِ سایت)",
         base_url=conf["AI_API_BASE_URL"],
         api_key=conf["AI_API_KEY"],
         model_name=conf[model_key],
@@ -160,8 +160,8 @@ def _ollama_default(capability: str) -> Resolved:
     from . import ollama_remote
 
     name = (
-        "Ollama روی سرورِ پردازش (پیش‌فرض .env)" if ollama_remote.is_agent_url(base)
-        else "Ollama (پیش‌فرض .env)"
+        "هوش مصنوعیِ لوکال روی سرورِ پردازش (Ollama)" if ollama_remote.is_agent_url(base)
+        else "هوش مصنوعیِ لوکال (Ollama)"
     )
     return Resolved(
         capability=capability,
@@ -198,7 +198,7 @@ def _defaults_for(capability: str) -> list[Resolved]:
             return [Resolved(
                 capability=capability,
                 kind="REPLICATE",
-                name="API تصویر/ویدیو (پیش‌فرض .env)",
+                name="سرویسِ ابریِ تصویر/ویدیو (کلیدِ پیش‌فرضِ سایت)",
                 base_url=conf.get("MEDIA_API_BASE_URL", ""),
                 api_key=conf.get("MEDIA_API_TOKEN", ""),
                 model_name=conf.get(
@@ -211,7 +211,7 @@ def _defaults_for(capability: str) -> list[Resolved]:
         return [Resolved(
             capability=capability,
             kind="COMFYUI",
-            name="ComfyUI (پیش‌فرض .env)",
+            name="ComfyUI (تنظیمِ پیش‌فرضِ سایت)",
             base_url=conf["COMFYUI_BASE_URL"],
             api_key="",
             model_name="flux_txt2img@v1" if capability == IMAGE else "wan22_i2v@v1",

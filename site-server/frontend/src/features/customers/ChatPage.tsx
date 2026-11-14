@@ -3,7 +3,8 @@ import { Link, useParams } from "react-router-dom";
 
 import Icon from "../../components/Icon";
 import { api, errorMessage, fetchAllPages } from "../../api/client";
-import { Button, Card, Chip, ErrorBox, Input, Spinner } from "../../components/ui";
+import { isUnlimitedStock } from "../../components/fmt";
+import { Button, Card, Chip, ErrorBox, Input, Spinner, fa } from "../../components/ui";
 import {
   ChatMessage,
   ChatResponse,
@@ -289,7 +290,7 @@ export default function ChatPage() {
               if (!showHistory) void loadHistory();
             }}
           >
-            🗂 گفتگوهای قبلی{history.length > 0 ? ` (${history.length})` : ""}
+            🗂 گفتگوهای قبلی{history.length > 0 ? ` (${fa(history.length)})` : ""}
           </Button>
           <Button variant="secondary" onClick={newConversation}>
             گفتگوی جدید
@@ -374,8 +375,10 @@ export default function ChatPage() {
                       <div>
                         <div className="font-bold">{p.name}</div>
                         <div className="text-slate-500">
-                          {Number(p.price).toLocaleString("fa-IR")} تومان · موجودی{" "}
-                          {p.stock_quantity}
+                          {Number(p.price).toLocaleString("fa-IR")} تومان ·{" "}
+                          {isUnlimitedStock(p.stock_quantity)
+                            ? "سرویسِ دیجیتال"
+                            : `موجودی ${fa(p.stock_quantity)}`}
                         </div>
                       </div>
                     </div>
@@ -419,7 +422,7 @@ export default function ChatPage() {
             <div className="ml-auto flex w-fit items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2 text-sm text-slate-500">
               <Spinner /> در حال فکر کردن…
               <span className="text-xs text-slate-400">
-                ({thinkingSeconds} ثانیه — مدل لوکال است و کمی طول می‌کشد)
+                ({fa(thinkingSeconds)} ثانیه — مدل لوکال است و کمی طول می‌کشد)
               </span>
             </div>
           )}

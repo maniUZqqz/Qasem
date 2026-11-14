@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage, fetchAllPages } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -14,6 +14,7 @@ import {
   Input,
   SectionTitle,
   Spinner,
+  fa,
 } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import {
@@ -48,7 +49,16 @@ const PLATFORMS = [
   { key: "linkedin", label: "لینکدین" },
 ];
 
-function CampaignCard({ campaign, onChanged }: { campaign: CampaignInfo; onChanged: () => void }) {
+function CampaignCard({
+  campaign,
+  onChanged,
+  focusTaskId = null,
+}: {
+  campaign: CampaignInfo;
+  onChanged: () => void;
+  /** کاری که از تقویم آمده و باید باز شود */
+  focusTaskId?: number | null;
+}) {
   const [platforms, setPlatforms] = useState<string[]>(["instagram"]);
   const [error, setError] = useState<string | null>(null);
   const [when, setWhen] = useState("");
@@ -126,6 +136,7 @@ function CampaignCard({ campaign, onChanged }: { campaign: CampaignInfo; onChang
   ];
 
   return (
+    <div id={`campaign-${campaign.id}`}>
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -269,14 +280,19 @@ function CampaignCard({ campaign, onChanged }: { campaign: CampaignInfo; onChang
         </div>
       )}
 
-      <CampaignBoard campaignId={campaign.id} />
+      <CampaignBoard campaignId={campaign.id} focusTaskId={focusTaskId} />
     </Card>
+    </div>
   );
 }
 
 /** فهرست کمپین‌ها و فرم ساخت. سربرگ و تب‌ها در `CampaignsLayout` است. */
 export default function CampaignListPage() {
   const { id: storeId } = useParams<{ id: string }>();
+  // از تقویم: ?campaign=<شماره>&task=<شماره> ← همان کار باز و دیده می‌شود
+  const [search] = useSearchParams();
+  const focusCampaign = search.get("campaign");
+  const focusTask = Number(search.get("task")) || null;
   const [campaigns, setCampaigns] = useState<CampaignInfo[] | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -445,7 +461,7 @@ export default function CampaignListPage() {
                   checked={useScript}
                   onChange={(e) => setUseScript(e.target.checked)}
                 />
-                استفاده از ویدیوی تولیدشده ({script.total_duration} ثانیه)
+                استفاده از ویدیوی تولیدشده ({fa(script.total_duration)} ثانیه)
               </label>
             )}
             <div>
@@ -469,7 +485,12 @@ export default function CampaignListPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {campaigns.map((campaign) => (
-            <CampaignCard key={campaign.id} campaign={campaign} onChanged={load} />
+            <CampaignCard
+              key={campaign.id}
+              campaign={campaign}
+              onChanged={load}
+              focusTaskId={String(campaign.id) === focusCampaign ? focusTask : null}
+            />
           ))}
         </div>
       )}

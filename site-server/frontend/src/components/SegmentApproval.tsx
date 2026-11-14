@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api, errorMessage } from "../api/client";
 import { Job } from "../types";
 import BeforeAfter from "./BeforeAfter";
-import { Alert, Badge, Button } from "./ui";
+import { Alert, Badge, Button, fa } from "./ui";
 
 /**
  * The five seconds the owner is asked to look at, and the answers.
@@ -134,7 +134,7 @@ export default function SegmentApproval({
     return (
       <Alert tone="ok" title="ساخت ویدیو متوقف شد">
         {refunded > 0
-          ? `${refunded} ثانیه اعتبار برگشت. می‌توانید با سناریوی دیگری دوباره شروع کنید.`
+          ? `${fa(refunded)} ثانیه اعتبار برگشت. می‌توانید با سناریوی دیگری دوباره شروع کنید.`
           : "اعتباری مصرف نشده بود. می‌توانید با سناریوی دیگری دوباره شروع کنید."}
       </Alert>
     );
@@ -202,7 +202,7 @@ export default function SegmentApproval({
             </div>
           )}
           {quality.attempts && quality.attempts > 1 && (
-            <div>🔁 این قطعه {quality.attempts} بار ساخته شد و بهترین نسخه نگه داشته شده است.</div>
+            <div>🔁 این قطعه {fa(quality.attempts)} بار ساخته شد و بهترین نسخه نگه داشته شده است.</div>
           )}
           {quality.vision_checked === false && (
             <div style={{ color: "var(--text-3)" }}>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
+import { faDateTime, isUnlimitedStock } from "../../components/fmt";
 import {
   Alert,
   Badge,
@@ -374,7 +375,10 @@ export default function OpportunitiesPage() {
                       {row.margin_percent === null ? "—" : `${fa(row.margin_percent)}٪`}
                     </td>
                     <td className="u-num">{row.profit === null ? "—" : toman(Number(row.profit))}</td>
-                    <td className="u-num">{fa(row.stock)}</td>
+                    <td className="u-num">
+                      {/* سرویسِ دیجیتال انبار ندارد؛ ۹۹۹۹ یعنی «نامحدود» */}
+                      {isUnlimitedStock(row.stock) ? "نامحدود" : fa(row.stock)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -471,7 +475,7 @@ function ChannelTable({ report }: { report: ChannelReport }) {
     <div className="mt-3">
       <Card padded={false}>
         <div className="px-4 pt-3 text-xs" style={{ color: "var(--text-3)" }}>
-          بررسیِ بازارها — {new Date(report.checked_at).toLocaleString("fa-IR")}. فقط آگهی‌هایی
+          بررسیِ بازارها — {faDateTime(report.checked_at)}. فقط آگهی‌هایی
           شمرده شده که همان کالا یا جایگزینِ آن‌اند.
           {report.problems.length > 0 && ` در دسترس نبود: ${report.problems.join("؛ ")}`}
         </div>

@@ -14,6 +14,7 @@ import {
   Table,
   fa,
 } from "../../components/ui";
+import { RichText } from "../../components/fmt";
 
 /**
  * CRM به‌عنوان یک جریان.
@@ -285,7 +286,7 @@ export default function CrmPage() {
 
       {board.note && (
         <Alert tone="info">
-          {board.note}
+          <RichText text={board.note} />
         </Alert>
       )}
     </div>

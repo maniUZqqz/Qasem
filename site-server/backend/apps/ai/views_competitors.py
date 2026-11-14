@@ -3,6 +3,8 @@
 One module because they are one screen's worth of thinking: who else sells
 this, what does it cost us, and what should we do about it.
 """
+import logging
+
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -371,6 +373,15 @@ class OpportunityListView(APIView):
     def get(self, request, store_id):
         store = access.get_store(request.user, store_id, access.ANALYTICS, write=False)
         state = request.query_params.get("state", Opportunity.State.OPEN)
+        # Suggestions written by an older version of the rules (wrong wording, a
+        # fixed digital-service text ...) are recomputed before they are shown,
+        # so a deploy does not leave yesterday's sentences on the owner's screen.
+        # No outside request is made here; dismissed rows are never brought back.
+        try:
+            if opportunities.needs_refresh(store):
+                opportunities.refresh(store)
+        except Exception:  # a refresh problem must never hide the list itself
+            logging.getLogger(__name__).exception("opportunity auto-refresh failed")
         rows = store.opportunities.all()
         if state != "all":
             rows = rows.filter(state=state)

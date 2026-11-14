@@ -14,6 +14,7 @@ import {
   SectionTitle,
   Spinner,
   TextArea,
+  fa,
 } from "../../components/ui";
 import { Store } from "../../types";
 import { Feature } from "../panel/FlagsContext";
@@ -147,7 +148,7 @@ export default function DashboardPage() {
                   <p className="mt-1 text-xs text-violet-600">{store.business_type}</p>
                 )}
                 <p className="mt-2 line-clamp-2 text-sm text-slate-500">{store.description || "—"}</p>
-                <p className="mt-3 text-xs text-slate-400">{store.product_count} محصول</p>
+                <p className="mt-3 text-xs text-slate-400">{fa(store.product_count)} محصول</p>
               </Card>
             </Link>
           ))}

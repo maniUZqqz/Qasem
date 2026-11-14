@@ -121,11 +121,13 @@ export default function ProductDetailsPage() {
           <Field
             label="موجودی انبار"
             hint={
-              product.reserved_quantity > 0
-                ? `${fa(product.reserved_quantity)} تا برای سفارش‌های پرداخت‌نشده رزرو شده، پس ${fa(
-                    product.available_quantity,
-                  )} تا قابل فروش است.`
-                : "همین عدد قابل فروش است؛ با تأیید هر سفارش خودکار کم می‌شود."
+              product.is_digital
+                ? "این یک سرویسِ دیجیتال است و انبار ندارد؛ عددِ ۹۹۹۹ یعنی «نامحدود» و به‌عنوان تعداد حساب نمی‌شود."
+                : product.reserved_quantity > 0
+                  ? `${fa(product.reserved_quantity)} تا برای سفارش‌های پرداخت‌نشده رزرو شده، پس ${fa(
+                      product.available_quantity,
+                    )} تا قابل فروش است.`
+                  : "همین عدد قابل فروش است؛ با تأیید هر سفارش خودکار کم می‌شود."
             }
           >
             <Input

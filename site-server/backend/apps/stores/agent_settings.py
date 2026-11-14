@@ -174,6 +174,12 @@ def violations(reply: str, banned: list[str]) -> list[str]:
     Plain case-insensitive substring matching. Persian has no cheap stemmer
     worth trusting here, and a fuzzy match that rejects good replies would push
     the owner to empty the field — which removes the protection entirely.
+
+    One exception, because the brand's own answers need it: a phrase that the
+    sentence itself DENIES does not count. «چغر جایگزینِ مربی نیست» and «نتیجه
+    را تضمین نمی‌کنیم» are what the agent must say to «جای مربی رو می‌گیره؟»,
+    and they contain the very words the owner banned as a claim. The check
+    looks for a negated verb in the same clause (`fatext.contains_phrase`).
     """
     if not reply or not banned:
         return []
@@ -182,4 +188,4 @@ def violations(reply: str, banned: list[str]) -> list[str]:
     # plain substring match - no stemming, for the reason above.
     from apps.common.fatext import contains_phrase
 
-    return [phrase for phrase in banned if contains_phrase(reply, phrase)]
+    return [phrase for phrase in banned if contains_phrase(reply, phrase, ignore_negated=True)]

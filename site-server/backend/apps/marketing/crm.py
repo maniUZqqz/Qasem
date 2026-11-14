@@ -156,8 +156,8 @@ def _risks(row: Row, subscription, now) -> list[Risk]:
             risks.append(Risk(
                 "ending",
                 (
-                    f"دوره‌ی آزمایشی {left} روز دیگر تمام می‌شود"
-                    if trialing else f"اشتراک {left} روز دیگر تمام می‌شود"
+                    f"دوره‌ی آزمایشی {fa_digits(left)} روز دیگر تمام می‌شود"
+                    if trialing else f"اشتراک {fa_digits(left)} روز دیگر تمام می‌شود"
                 ),
                 # The last useful moment to do anything about it.
                 level="high",
@@ -173,7 +173,7 @@ def _risks(row: Row, subscription, now) -> list[Risk]:
     if row.stage == Stage.ONBOARDING and row.days_since_signup >= 7:
         risks.append(Risk(
             "stuck",
-            f"{row.days_since_signup} روز از ثبت‌نام گذشته و هنوز چیزی منتشر نکرده",
+            f"{fa_digits(row.days_since_signup)} روز از ثبت‌نام گذشته و هنوز چیزی منتشر نکرده",
             level="high" if row.paying else "watch",
         ))
 
@@ -182,13 +182,13 @@ def _risks(row: Row, subscription, now) -> list[Risk]:
         # have not yet received what they paid for.
         risks.append(Risk(
             "not_activated",
-            f"پول می‌دهد ولی فقط {row.outputs} خروجی گرفته",
+            f"پول می‌دهد ولی فقط {fa_digits(row.outputs)} خروجی گرفته",
             level="high",
         ))
 
     if row.open_tickets:
         risks.append(Risk(
-            "tickets", f"{row.open_tickets} تیکت باز دارد", level="watch",
+            "tickets", f"{fa_digits(row.open_tickets)} تیکت باز دارد", level="watch",
         ))
 
     return risks

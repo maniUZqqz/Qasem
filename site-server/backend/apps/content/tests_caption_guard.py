@@ -77,7 +77,8 @@ class CaptionApiWarningsTests(TestCase):
         r = self.api.get(f"/api/v1/products/{self.product.pk}/captions/")
         self.assertEqual(r.status_code, 200)
         got = {w["code"] for w in r.data[0]["warnings"]}
-        self.assertEqual(got, {"banned", "broken_number"})
+        # a price in the text also earns the «confirm the price» reminder
+        self.assertEqual(got, {"banned", "broken_number", "price_check"})
 
     def test_more_than_thirty_captions_are_reachable(self):
         for i in range(34):

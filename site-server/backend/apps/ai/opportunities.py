@@ -26,7 +26,7 @@ from decimal import Decimal
 from django.db.models import Count, F, Sum
 from django.utils import timezone
 
-from apps.common.fatext import fa_digits
+from apps.common.fatext import fa_datetime, fa_digits
 from apps.products.digital import is_digital, store_is_digital
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,25 @@ PRICE_GAP_PERCENT = 20.0
 #: Every money value in this module's output, to the same two decimals the
 #: model fields use.
 _CENTS = Decimal("0.01")
+
+
+#: Bump when the WORDS or rules of a suggestion change. Stored suggestions carry the
+#: version they were written under (`evidence["rules"]`); `needs_refresh` notices an
+#: older one, so a deploy that fixes the wording fixes the owner's screen too - it
+#: used to keep showing «۹۹۹۹ عدد موجودی دارد» until someone pressed «بازمحاسبه».
+RULES_VERSION = 2
+
+
+def needs_refresh(store) -> bool:
+    """Open suggestions written by an older version of the rules?
+
+    «کجا بفروشم» rows are left out on purpose: they are only rewritten by a
+    marketplace check, so counting them would make a refresh look needed forever.
+    """
+    from .competitor_models import Opportunity
+
+    rows = store.opportunities.filter(state=Opportunity.State.OPEN).exclude(kind=Opportunity.Kind.CHANNEL)
+    return any((row.evidence or {}).get("rules") != RULES_VERSION for row in rows)
 
 
 def _money(value) -> Decimal:
@@ -289,6 +308,12 @@ def suggest(store, days: int = 30, channel_data: dict | None = None) -> list[dic
             if product is not None:
                 found += channel_suggestions(product, per_channel)
 
+    for candidate in found:
+        # a person reads these sentences: Persian digits («۳۰ روز», «و ۱ مورد دیگر»).
+        # The title is left alone - an open suggestion is matched to its row by title.
+        candidate["reason"] = fa_digits(candidate["reason"])
+        candidate["action"] = fa_digits(candidate["action"])
+        candidate["evidence"] = {**(candidate.get("evidence") or {}), "rules": RULES_VERSION}
     return found
 
 
@@ -551,7 +576,7 @@ def readiness(store, days: int = 30) -> dict:
         "key": "channels", "title": "بررسیِ بازارها (دیجی‌کالا، باسلام، ترب)",
         "done": bool(last),
         "detail": (
-            f"آخرین بررسی: {last.get('checked_at', '')[:16].replace('T', ' ')} — "
+            f"آخرین بررسی: {fa_datetime(last.get('checked_at', '')) or last.get('checked_at', '')[:16].replace('T', ' ')} — "
             f"{len(last.get('products') or [])} محصول."
             + (" مشکل: " + "؛ ".join(last.get("problems") or []) if last.get("problems") else "")
         ) if last else "هنوز بررسی نشده.",
@@ -563,6 +588,7 @@ def readiness(store, days: int = 30) -> dict:
     for item in items:
         # a person reads these lines: Persian digits, like the rest of the panel
         item["detail"] = fa_digits(item["detail"])
+        item["title"] = fa_digits(item["title"])
     return {
         "items": items,
         "done": sum(1 for i in items if i["done"]),

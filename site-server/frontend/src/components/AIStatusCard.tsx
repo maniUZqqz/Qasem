@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { Badge, Card, SectionTitle, Skeleton } from "./ui";
+import { Badge, Card, SectionTitle, Skeleton, fa } from "./ui";
 
 type Capability = {
   capability: string;
@@ -49,7 +49,7 @@ export default function AIStatusCard() {
               </div>
               <div className="truncate text-xs" style={{ color: "var(--text-3)" }}>
                 {row.model ?? "تنظیم نشده"}
-                {row.fallbacks > 0 && ` · ${row.fallbacks} پشتیبان`}
+                {row.fallbacks > 0 && ` · ${fa(row.fallbacks)} پشتیبان`}
               </div>
             </div>
             <Badge tone={row.local ? "ok" : "info"}>

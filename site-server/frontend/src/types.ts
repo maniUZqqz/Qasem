@@ -82,6 +82,8 @@ export interface Product {
   stock_status: string;
   tags: string[];
   is_available: boolean;
+  /** سرویس/کالای دیجیتال (موجودیِ ۹۹۹۹ = نامحدود): «قابل فروش» برایش معنا ندارد. */
+  is_digital?: boolean;
   images: ProductImage[];
   variants: ProductVariant[];
   attributes: ProductAttribute[];

@@ -16,6 +16,7 @@ import {
   Table,
   fa,
 } from "../../components/ui";
+import { RichText } from "../../components/fmt";
 
 type Key = {
   id: number;
@@ -243,7 +244,7 @@ export default function ApiKeysPage() {
             کلید تست — هیچ پردازشی انجام نمی‌دهد و از سهمیه‌ی شما چیزی کم
             نمی‌کند.{" "}
             {data?.sandbox && (
-              <span style={{ color: "var(--text-3)" }}>{data.sandbox.note}</span>
+              <span style={{ color: "var(--text-3)" }}><RichText text={data.sandbox.note} /></span>
             )}
           </span>
         </label>
@@ -361,7 +362,7 @@ export default function ApiKeysPage() {
                   </Button>
                 </div>
                 <p className="mt-1 text-sm leading-7" style={{ color: "var(--text-2)" }}>
-                  {endpoint.note}
+                  <RichText text={endpoint.note} />
                 </p>
                 {openDoc === endpoint.scope && data && (
                   <div className="mt-2">

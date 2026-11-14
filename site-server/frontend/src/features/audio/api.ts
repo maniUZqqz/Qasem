@@ -129,5 +129,7 @@ export function seconds(value: number): string {
   if (!value) return "—";
   const m = Math.floor(value / 60);
   const s = Math.round(value % 60);
-  return m ? `${m}:${String(s).padStart(2, "0")}` : `${s} ث`;
+  // ارقامِ فارسی، مثل بقیهٔ پنل: «۱:۱۵» و «۹ ث»
+  const digits = (n: string | number) => String(n).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+  return m ? digits(`${m}:${String(s).padStart(2, "0")}`) : `${digits(s)} ث`;
 }

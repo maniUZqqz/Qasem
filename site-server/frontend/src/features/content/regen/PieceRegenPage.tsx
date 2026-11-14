@@ -500,7 +500,7 @@ function SessionView({ storeId, sessionId }: { storeId: string; sessionId: strin
 
   async function cutRange() {
     if (!session || !range) return;
-    if (!window.confirm(`فریمِ ${start} تا ${end} (${(count / fps).toFixed(2)} ثانیه) از تصویر و صدا حذف شود؟ اصلِ ویدیو می‌ماند؛ نتیجه یک نسخهٔ تازه است.`)) return;
+    if (!window.confirm(`فریمِ ${fa(start)} تا ${fa(end)} (${fa((count / fps).toFixed(2))} ثانیه) از تصویر و صدا حذف شود؟ اصلِ ویدیو می‌ماند؛ نتیجه یک نسخهٔ تازه است.`)) return;
     setBusy(true);
     setError(null);
     try {

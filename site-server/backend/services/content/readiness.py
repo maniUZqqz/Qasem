@@ -77,7 +77,10 @@ def _brand_voice(store) -> bool:
 
 def check(product, kind: str) -> list[Requirement]:
     """What this particular output would want, in the order it matters."""
+    from apps.products.digital import is_digital
+
     store = product.store
+    digital = is_digital(product)
     missing: list[Requirement] = []
 
     # ---- video: the only genuinely blocking requirement in the product -----
@@ -106,7 +109,20 @@ def check(product, kind: str) -> list[Requirement]:
         ))
 
     # ---- quality, not blocking -------------------------------------------
-    if kind == VIDEO and _images(product) < 3:
+    if kind == VIDEO and _images(product) < 3 and digital:
+        # A service has no «angles». What makes its video believable is the real
+        # screens the customer will see after signing up.
+        missing.append(Requirement(
+            key="more_screens",
+            title="چند اسکرین‌شاتِ واقعی از خودِ سرویس",
+            why=(
+                "ویدیوی یک سرویسِ دیجیتال باید همان چیزی را نشان بدهد که مشتری "
+                "بعد از ثبت‌نام می‌بیند. دو سه تصویرِ واقعیِ صفحه‌های اصلی، ویدیو را "
+                "حرکت‌دار و باورپذیر می‌کند؛ محیطِ نرم‌افزار را با هوش مصنوعی نکشید."
+            ),
+            input="upload",
+        ))
+    elif kind == VIDEO and _images(product) < 3:
         missing.append(Requirement(
             key="more_angles",
             title="عکس از زاویه‌های دیگر",

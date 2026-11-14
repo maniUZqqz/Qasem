@@ -272,14 +272,28 @@ def search_web(query: str, limit: int = 8) -> list[dict]:
     )
 
 
-def research_product(query: str, limit_per_source: int = 8, web_query: str = "") -> dict:
-    """Run all sources; failures are recorded, never fatal. Returns real data only."""
+def research_product(
+    query: str, limit_per_source: int = 8, web_query: str = "", skip_marketplaces: bool = False,
+) -> dict:
+    """Run all sources; failures are recorded, never fatal. Returns real data only.
+
+    `skip_marketplaces` is for a digital service: Digikala and Torob sell boxes,
+    so a search for «برنامه‌ساز» there returns unrelated goods that the analysis
+    would then treat as competitors. The skip is written into the report so the
+    panel can say why no marketplace prices are shown.
+    """
     from django.conf import settings
 
     fetched_at = timezone.now().isoformat()
     sources_report = []
     items = []
-    for name, fetcher in SOURCES.items():
+    if skip_marketplaces:
+        sources_report.append({
+            "source": "marketplaces", "query": query, "fetched_at": fetched_at,
+            "ok": True, "count": 0, "skipped": True,
+            "error": "سرویسِ دیجیتال است؛ در بازارِ کالا (دیجی‌کالا، ترب) قیمتِ هم‌کالا ندارد",
+        })
+    for name, fetcher in ({} if skip_marketplaces else SOURCES).items():
         try:
             found = fetcher(query, limit_per_source)
             items.extend(found)

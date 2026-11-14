@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorMessage } from "../../api/client";
+import { faDateTime } from "../../components/fmt";
 import JobProgress from "../../components/JobProgress";
 import {
   Button,
@@ -10,6 +11,7 @@ import {
   Field,
   SectionTitle,
   TextArea,
+  fa,
 } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { CompetitorInfo, Job, MarketResearch } from "../../types";
@@ -89,7 +91,14 @@ function CompetitorCard({ competitor }: { competitor: CompetitorInfo }) {
   );
 }
 
-export default function MarketPanel({ productId }: { productId: number }) {
+export default function MarketPanel({
+  productId,
+  digital = false,
+}: {
+  productId: number;
+  /** سرویس/کالای دیجیتال: در دیجی‌کالا و ترب قیمتِ هم‌کالا ندارد */
+  digital?: boolean;
+}) {
   const [research, setResearch] = useState<MarketResearch | null>(null);
   const [notes, setNotes] = useState("");
 
@@ -137,10 +146,19 @@ export default function MarketPanel({ productId }: { productId: number }) {
       <ErrorBox message={error} />
 
       <div className="mb-4 space-y-3">
-        <p className="rounded-lg bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800">
-          🔎 قیمت و اطلاعات رقبا <b>خودکار</b> از دیجی‌کالا و ترب جستجو می‌شود — لازم نیست
-          چیزی وارد کنید. AI اجازه ندارد رقیب یا قیمتی از خودش بسازد.
-        </p>
+        {digital ? (
+          <p className="rounded-lg bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800">
+            💻 این یک <b>سرویسِ دیجیتال</b> است؛ در دیجی‌کالا و ترب قیمتِ هم‌کالا ندارد، پس قیمتِ
+            بازارِ کالا جستجو نمی‌شود. تحلیل از اطلاعاتِ خودِ محصول و یادداشت‌های شما ساخته
+            می‌شود؛ هر رقیب یا قیمتی که خودتان مطمئنید را در یادداشت بنویسید. AI اجازه ندارد
+            رقیب یا قیمتی از خودش بسازد.
+          </p>
+        ) : (
+          <p className="rounded-lg bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800">
+            🔎 قیمت و اطلاعات رقبا <b>خودکار</b> از دیجی‌کالا و ترب جستجو می‌شود — لازم نیست
+            چیزی وارد کنید. AI اجازه ندارد رقیب یا قیمتی از خودش بسازد.
+          </p>
+        )}
         <Field label="یادداشت‌های خودت (اختیاری)">
           <TextArea
             rows={2}
@@ -180,7 +198,7 @@ export default function MarketPanel({ productId }: { productId: number }) {
           {(research.web_results?.items?.length ?? 0) > 0 && (
             <div>
               <h4 className="mb-2 text-sm font-bold text-slate-700">
-                🔎 نتایج واقعی جستجوی وب ({research.web_results.items!.length} مورد)
+                🔎 نتایج واقعی جستجوی وب ({fa(research.web_results.items!.length)} مورد)
               </h4>
               <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-slate-100 p-2">
                 {research.web_results.items!.slice(0, 16).map((item, i) => (
@@ -215,7 +233,7 @@ export default function MarketPanel({ productId }: { productId: number }) {
           {(conclusions.competitors?.length ?? 0) > 0 && (
             <div>
               <h4 className="mb-2 text-sm font-bold text-slate-700">
-                🏁 رقبا و مقایسه ({conclusions.competitors!.length} رقیب شناسایی شد)
+                🏁 رقبا و مقایسه ({fa(conclusions.competitors!.length)} رقیب شناسایی شد)
               </h4>
               <div className="grid gap-3 lg:grid-cols-2">
                 {conclusions.competitors!.map((competitor, i) => (
@@ -242,14 +260,16 @@ export default function MarketPanel({ productId }: { productId: number }) {
             />
           </div>
           <p className="text-xs text-slate-400">
-            آخرین تحلیل: {new Date(research.created_at).toLocaleString("fa-IR")}
+            آخرین تحلیل: {faDateTime(research.created_at)}
           </p>
         </div>
       )}
 
       {!research && !running && (
         <p className="text-sm text-slate-400">
-          هنوز تحلیل بازاری انجام نشده. (نیازمند اتصال به Ollama در سیستم اصلی)
+          هنوز تحلیل بازاری انجام نشده. «{digital ? "تحلیل بازار" : "تحلیل بازار و رقبا"}» را بزنید؛
+          اگر سرورِ پردازش (کامپیوترِ گرافیکی) خاموش باشد، کار در صف می‌ماند و همین‌که روشن شود
+          خودکار انجام می‌شود.
         </p>
       )}
     </Card>

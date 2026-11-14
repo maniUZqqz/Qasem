@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import JobProgress from "../../components/JobProgress";
-import { Button, Card, Chip, ErrorBox, Field, Input, SectionTitle, fa } from "../../components/ui";
+import { Button, Card, Chip, ErrorBox, Field, Input, SectionTitle, TextArea, fa } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { Caption, GeneratedImageInfo, Job, VideoScriptInfo } from "../../types";
 
@@ -41,6 +41,11 @@ export default function CaptionsPanel({ productId }: { productId: number }) {
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [onlyWarned, setOnlyWarned] = useState(false);
+  // ویرایشِ دستیِ یک کپشن (قیمتِ ناقص، جملهٔ نیمه‌کاره، دستورِ تصویر در متن … را خودِ مالک درست می‌کند)
+  const [editId, setEditId] = useState<number | null>(null);
+  const [draft, setDraft] = useState({ short_text: "", medium_text: "", long_text: "", cta: "", hashtags: "" });
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [platforms, setPlatforms] = useState<string[]>(["INSTAGRAM", "TELEGRAM", "LINKEDIN"]);
   const [tone, setTone] = useState("");
   const [objective, setObjective] = useState("");
@@ -99,6 +104,33 @@ export default function CaptionsPanel({ productId }: { productId: number }) {
       runner.track(data.job_id, data.job);
     } catch (err) {
       runner.fail(errorMessage(err));
+    }
+  };
+
+  const startEdit = (c: Caption) => {
+    setEditError(null);
+    setDraft({
+      short_text: c.short_text ?? "",
+      medium_text: c.medium_text ?? "",
+      long_text: c.long_text ?? "",
+      cta: c.cta ?? "",
+      hashtags: c.hashtags.map(hashtag).filter(Boolean).join(" "),
+    });
+    setEditId(c.id);
+  };
+
+  const saveEdit = async () => {
+    if (editId === null) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      const { data } = await api.patch<Caption>(`/products/${productId}/captions/${editId}/`, draft);
+      setCaptions((prev) => prev.map((c) => (c.id === data.id ? data : c)));
+      setEditId(null);
+    } catch (err) {
+      setEditError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -239,8 +271,17 @@ export default function CaptionsPanel({ productId }: { productId: number }) {
                   <Chip>{PLATFORM_LABEL[caption.platform] ?? caption.platform}</Chip>
                   <span className="text-xs font-bold text-slate-500">#{fa(caption.id)}</span>
                 </span>
-                <span className="text-xs text-slate-400">
+                <span className="flex items-center gap-2 text-xs text-slate-400">
                   {new Date(caption.created_at).toLocaleDateString("fa-IR")}
+                  {editId !== caption.id && (
+                    <button
+                      type="button"
+                      onClick={() => startEdit(caption)}
+                      className="text-xs text-violet-600 hover:underline"
+                    >
+                      ویرایش
+                    </button>
+                  )}
                 </span>
               </div>
               <div className="mb-2 flex items-center gap-2">
@@ -260,7 +301,35 @@ export default function CaptionsPanel({ productId }: { productId: number }) {
                   ))}
                 </ul>
               )}
-              <div className="space-y-3 text-sm text-slate-700">
+              {editId === caption.id && (
+                <div className="space-y-2 text-sm">
+                  <Field label="کوتاه (استوری)">
+                    <TextArea rows={2} value={draft.short_text} onChange={(e) => setDraft({ ...draft, short_text: e.target.value })} />
+                  </Field>
+                  <Field label="متوسط (پست)">
+                    <TextArea rows={5} value={draft.medium_text} onChange={(e) => setDraft({ ...draft, medium_text: e.target.value })} />
+                  </Field>
+                  <Field label="بلند">
+                    <TextArea rows={7} value={draft.long_text} onChange={(e) => setDraft({ ...draft, long_text: e.target.value })} />
+                  </Field>
+                  <Field label="دعوت به اقدام (CTA)">
+                    <Input value={draft.cta} onChange={(e) => setDraft({ ...draft, cta: e.target.value })} />
+                  </Field>
+                  <Field label="هشتگ‌ها" hint="با فاصله از هم جدا کنید؛ واژه‌های هر هشتگ را با «_» به هم بچسبانید: #برنامه_ورزشی">
+                    <TextArea rows={2} value={draft.hashtags} onChange={(e) => setDraft({ ...draft, hashtags: e.target.value })} />
+                  </Field>
+                  <ErrorBox message={editError} />
+                  <div className="flex gap-2">
+                    <Button onClick={saveEdit} disabled={saving}>
+                      {saving ? "در حال ذخیره…" : "ذخیره"}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setEditId(null)} disabled={saving}>
+                      انصراف
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className={editId === caption.id ? "hidden" : "space-y-3 text-sm text-slate-700"}>
                 {caption.short_text && (
                 <div>
                   <div className="flex items-center justify-between">

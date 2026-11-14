@@ -89,6 +89,9 @@ class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
     attributes = ProductAttributeSerializer(many=True, read_only=True)
+    # A service with no stock count (stored as 9999 = "unlimited"): the panel shows
+    # «سرویس دیجیتال», not «۹۹۹۹ قابل فروش» (apps.products.digital).
+    is_digital = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -116,6 +119,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "shipping_info",
             "marketing_notes",
             "is_available",
+            "is_digital",
             "images",
             "variants",
             "attributes",
@@ -129,6 +133,15 @@ class ProductSerializer(serializers.ModelSerializer):
             "reserved_quantity", "available_quantity",
             "created_at", "updated_at",
         ]
+
+    def get_is_digital(self, obj):
+        from .digital import is_digital, store_is_digital
+
+        # one policy lookup per store per request, not per product
+        cache = self.context.setdefault("_store_digital", {})
+        if obj.store_id not in cache:
+            cache[obj.store_id] = store_is_digital(obj.store)
+        return is_digital(obj, cache[obj.store_id])
 
     def validate(self, attrs):
         category = attrs.get("category")

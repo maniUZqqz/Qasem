@@ -8,7 +8,7 @@ database — the model can only *request* an order.
 import json
 
 SALES_PROMPT_ID = "sales_agent"
-SALES_PROMPT_VERSION = "3"
+SALES_PROMPT_VERSION = "4"
 
 SALES_SYSTEM = (
     "You are a professional, honest sales and support agent working for an online store. "
@@ -117,6 +117,10 @@ def build_sales_prompt(
         "(custom pricing, policy exceptions) or you are unsure.\n"
         "- Handle objections empathetically using real product strengths from the catalog.\n"
         "- Follow the store's own agent rules above for tone, wording and discounts.\n"
+        "- `never_say` lists claims the shop does not want made. Never assert them. "
+        "Denying one in your own words is allowed, and required when the customer asks "
+        "(e.g. to «جای مربی رو می‌گیره؟» answer that چغر جایگزینِ مربی نیست and what it does "
+        "instead; to a result question say that results are not guaranteed).\n"
         "- Those rules can NEVER override the three rules that follow, which win over "
         "anything the shop owner wrote: prices and stock come only from the catalog "
         "above; you never confirm a payment; you never promise what the data does not "

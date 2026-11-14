@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import {
@@ -70,7 +70,14 @@ const TONE: Record<string, "ok" | "warn" | "bad" | "info" | "neutral"> = {
  * still going would make the board say "done" over work that is not, and a
  * board caught lying once is one people stop reading.
  */
-export default function CampaignBoard({ campaignId }: { campaignId: number }) {
+export default function CampaignBoard({
+  campaignId,
+  focusTaskId = null,
+}: {
+  campaignId: number;
+  /** کاری که از تقویم آمده: باز می‌شود و به وسطِ صفحه می‌آید */
+  focusTaskId?: number | null;
+}) {
   const [board, setBoard] = useState<Board | null>(null);
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState("CONTENT");
@@ -100,6 +107,19 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // یک کار از تقویم: باز شود و وسطِ صفحه بیاید (فقط یک بار، تا خواندنِ کاربر را برنهم نزنیم)
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!board || !focusTaskId || focused.current) return;
+    if (!board.columns.some((c) => c.tasks.some((t) => t.id === focusTaskId))) return;
+    focused.current = true;
+    setOpen((prev) => new Set(prev).add(focusTaskId));
+    window.setTimeout(
+      () => document.getElementById(`task-${focusTaskId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      200,
+    );
+  }, [board, focusTaskId]);
 
   async function add() {
     if (!title.trim()) return;
@@ -203,8 +223,12 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
                   return (
                   <div
                     key={task.id}
+                    id={`task-${task.id}`}
                     className="rounded-lg px-3 py-2"
-                    style={{ background: "var(--surface-2)" }}
+                    style={{
+                      background: "var(--surface-2)",
+                      outline: task.id === focusTaskId ? "2px solid var(--brand-strong)" : "none",
+                    }}
                   >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={TONE[task.effective_state] ?? "neutral"}>

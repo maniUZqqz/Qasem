@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { SegmentQuality, VideoSegmentInfo } from "../types";
 import BeforeAfter from "./BeforeAfter";
+import { fa } from "./ui";
 
 const SEGMENT_STATE: Record<string, string> = {
   PENDING: "در انتظار",
@@ -34,11 +35,26 @@ const TONE_STYLE: Record<string, { bg: string; fg: string }> = {
  * rather than wonder why it looks different from the preview. When the raw
  * render was kept, «قبل و بعد» puts the two side by side.
  */
-export default function SegmentQualityChip({ segment }: { segment: VideoSegmentInfo }) {
+/** خطایی که فقط می‌گوید «سرورِ پردازش آن لحظه آنلاین نبود» (نه خرابیِ خودِ قطعه). */
+const NODE_OFFLINE = /START\.bat|آنلاین نیست|سرورِ پردازشِ/;
+
+export default function SegmentQualityChip({
+  segment,
+  nodeWaiting = false,
+}: {
+  segment: VideoSegmentInfo;
+  /** کارِ این ویدیو همین حالا در صفِ «منتظرِ روشن‌شدنِ سرورِ پردازش» است */
+  nodeWaiting?: boolean;
+}) {
   const quality = segment.quality;
   const [compare, setCompare] = useState(false);
+  // «ناموفق» با دستورِ «START.bat را اجرا کنید» دروغ و دستی است: کار در صف است و
+  // خودش شروع می‌شود. فقط اگر کاری در صف نیست، به‌جای دستورِ نصب، دکمهٔ ساختن را می‌گوییم.
+  const nodeOffline = !quality && segment.status === "FAILED" && NODE_OFFLINE.test(segment.error ?? "");
   const statusTone =
-    segment.status === "DONE"
+    nodeOffline
+      ? "neutral"
+      : segment.status === "DONE"
       ? "ok"
       : segment.status === "FAILED"
         ? "bad"
@@ -62,11 +78,15 @@ export default function SegmentQualityChip({ segment }: { segment: VideoSegmentI
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-bold">قطعه {segment.index}</span>
+        <span className="font-bold">قطعه {fa(segment.index)}</span>
         <span>
           {quality
-            ? `${VERDICT[quality.verdict].label} · ${Math.round(quality.overall)}`
-            : SEGMENT_STATE[segment.status]}
+            ? `${VERDICT[quality.verdict].label} · ${fa(Math.round(quality.overall))}`
+            : nodeOffline
+              ? nodeWaiting
+                ? "در صف"
+                : "سرور خاموش بود"
+              : SEGMENT_STATE[segment.status]}
         </span>
       </div>
 
@@ -74,18 +94,18 @@ export default function SegmentQualityChip({ segment }: { segment: VideoSegmentI
         <div style={{ opacity: 0.85 }}>
           🔧 با کد اصلاح شد — بدون مصرف GPU
           {quality?.overall_before_repair != null
-            ? ` (${Math.round(quality.overall_before_repair)} → ${Math.round(quality.overall)})`
+            ? ` (${fa(Math.round(quality.overall_before_repair))} ← ${fa(Math.round(quality.overall))})`
             : ""}
         </div>
       )}
 
       {quality?.attempts && quality.attempts > 1 && (
-        <div style={{ opacity: 0.85 }}>🔁 {quality.attempts} بار ساخته شد؛ بهترین نسخه مانده</div>
+        <div style={{ opacity: 0.85 }}>🔁 {fa(quality.attempts)} بار ساخته شد؛ بهترین نسخه مانده</div>
       )}
 
       {quality?.problems.map((axis) => (
         <div key={axis.name} style={{ opacity: 0.9 }}>
-          {axis.note || `${axis.name}: ${Math.round(axis.score)}`}
+          {axis.note || `${axis.name}: ${fa(Math.round(axis.score))}`}
         </div>
       ))}
 
@@ -119,7 +139,15 @@ export default function SegmentQualityChip({ segment }: { segment: VideoSegmentI
         </div>
       )}
 
-      {!quality && segment.error && <div style={{ opacity: 0.9 }}>{segment.error}</div>}
+      {nodeOffline ? (
+        <div style={{ opacity: 0.9 }}>
+          {nodeWaiting
+            ? "منتظرِ روشن‌شدنِ سرورِ پردازش (کامپیوترِ گرافیکی) — همان لحظه خودکار ساخته می‌شود؛ کاری لازم نیست."
+            : "سرورِ پردازش (کامپیوترِ گرافیکی) در آن لحظه خاموش بود. وقتی روشن شد «ساختِ ویدیو» را دوباره بزنید."}
+        </div>
+      ) : (
+        !quality && segment.error && <div style={{ opacity: 0.9 }}>{segment.error}</div>
+      )}
     </div>
   );
 }

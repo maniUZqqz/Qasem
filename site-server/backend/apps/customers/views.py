@@ -10,7 +10,7 @@ from apps.stores.models import Store
 from services.ai.gateway import PolicyBlocked
 from services.ai.ollama import OllamaError
 
-from . import stock
+from . import ai_retry, links, stock
 from .agent import OPEN_ORDER_STATES, open_orders_payload
 from .turn import answer
 from .models import (
@@ -98,12 +98,16 @@ class ChatView(APIView):
             # Not an outage: the shop's own data policy forbids the only
             # provider that could answer. Saying "AI unavailable" here would
             # send the owner hunting a fault that does not exist.
+            ai_retry.mark_failed(conversation, exc)
             notify(
                 store,
                 Notification.Type.AI_ERROR,
                 "سیاست داده‌ی فروشگاه جلوی پاسخ AI را گرفت",
                 body=f"گفتگو #{conversation.id}: {exc}",
-                link=f"/stores/{store.id}/settings",
+                # «سیاست داده» is where it is explained and changed — the
+                # webhook path always linked there; this one linked to a
+                # `/settings` route that does not exist (a blank page).
+                link=links.data_policy_link(store.id),
                 context={"conversation_id": conversation.id, "policy": True},
             )
             return Response(
@@ -117,13 +121,16 @@ class ChatView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
         except OllamaError as exc:
-            # the one moment the AI can do nothing — tell the owner immediately
+            # the one moment the AI can do nothing — tell the owner immediately,
+            # and remember it on the thread so the inbox counts this customer
+            # as waiting and the AI is asked again when it is back.
+            ai_retry.mark_failed(conversation, exc)
             notify(
                 store,
                 Notification.Type.AI_ERROR,
                 "AI پاسخ نداد — مشتری منتظر است",
                 body=f"گفتگو #{conversation.id}: {exc}",
-                link=f"/stores/{store.id}/chat",
+                link=links.conversation_link(conversation),
                 context={"conversation_id": conversation.id},
             )
             return Response(
@@ -218,7 +225,13 @@ class HandoffView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         conversation.state = new_state
-        conversation.save(update_fields=["state", "updated_at"])
+        fields = ["state", "updated_at"]
+        if new_state != Conversation.State.AI:
+            # A person (or «closed») now owns the thread: the AI no longer
+            # owes it an answer, so it must not stay «AI جواب نداد».
+            ai_retry.clear_failed(conversation)
+            fields += ai_retry.CLEAR_FIELDS
+        conversation.save(update_fields=fields)
         return Response(ConversationSerializer(conversation).data)
 
 
@@ -305,7 +318,7 @@ class OrderReceiptView(APIView):
             Notification.Type.RECEIPT,
             f"رسید پرداخت برای سفارش #{order.id} رسید",
             body=f"مبلغ سفارش: {order.total} — منتظر بررسی و تأیید شماست.",
-            link=f"/stores/{order.store_id}/sales",
+            link=links.receipts_link(order.store_id),
             context={"order_id": order.id, "receipt_id": receipt.id},
         )
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)

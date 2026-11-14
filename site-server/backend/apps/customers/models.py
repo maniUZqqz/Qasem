@@ -55,6 +55,25 @@ class Conversation(TimeStampedModel):
     #: reply, which pushes the people we already answered to the top.
     last_customer_at = models.DateTimeField(null=True, blank=True)
 
+    # ---- «AI جواب نداد» ---------------------------------------------------
+    # The inbox knew two ways a customer could be waiting: a person had the
+    # thread (HUMAN) or the agent handed it over (ESCALATED). A third was
+    # invisible: the agent was asked, the model / node / API was down, and the
+    # customer's message simply stayed last. State stayed AI, `waiting_minutes`
+    # was None, the counter said «۰ نفر منتظر» — and nothing tried again when
+    # the AI came back. These columns make that case a real, countable,
+    # retryable state (see apps.customers.ai_retry).
+    #: When the agent last failed to answer this thread. Null = nothing is owed.
+    ai_failed_at = models.DateTimeField(null=True, blank=True)
+    #: One Persian sentence for the owner — why it failed (never a traceback).
+    ai_failed_reason = models.CharField(max_length=300, blank=True, default="")
+    #: Automatic re-tries so far, and when the last one was claimed. The claim
+    #: is what keeps two workers from answering the same customer twice.
+    ai_retries = models.PositiveSmallIntegerField(default=0)
+    ai_retry_at = models.DateTimeField(null=True, blank=True)
+    #: When the neutral «پیامتان رسید» went out — at most once per thread.
+    ai_ack_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         verbose_name = "گفتگو"
         verbose_name_plural = "گفتگوها"
@@ -65,18 +84,31 @@ class Conversation(TimeStampedModel):
         ]
 
     @property
-    def waiting_minutes(self) -> int | None:
-        """How long the customer has been waiting for a human.
+    def ai_failed(self) -> bool:
+        """The AI owes this customer an answer and could not give it."""
+        return self.state == self.State.AI and self.ai_failed_at is not None
 
-        None while the AI is handling it — that is not waiting, that is working.
+    @property
+    def is_test(self) -> bool:
+        """A thread the owner started from the panel's test chat."""
+        return getattr(self.customer, "channel", "") == "web-test"
+
+    @property
+    def waiting_minutes(self) -> int | None:
+        """How long the customer has been waiting for an answer.
+
+        A person owes it in HUMAN / ESCALATED; the AI owes it (and failed) when
+        `ai_failed` is set. None while the AI is simply working — that is not
+        waiting, that is working.
         """
-        if self.state not in (self.State.HUMAN, self.State.ESCALATED):
+        if not (self.state in (self.State.HUMAN, self.State.ESCALATED) or self.ai_failed):
             return None
-        if not self.last_customer_at:
+        since = self.last_customer_at or (self.ai_failed_at if self.ai_failed else None)
+        if not since:
             return None
         from django.utils import timezone
 
-        return int((timezone.now() - self.last_customer_at).total_seconds() // 60)
+        return max(0, int((timezone.now() - since).total_seconds() // 60))
 
     def __str__(self):
         return f"Conversation #{self.id} ({self.store.name})"

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from . import ai_retry, links
 from .agent import run_sales_agent
 from .models import Conversation, Message, Notification, SupportTicket, notify
 
@@ -78,7 +79,7 @@ def answer(conversation: Conversation, text: str) -> Turn:
             Notification.Type.ORDER,
             f"سفارش پیش‌نویس #{result['order'].id} ثبت شد",
             body=f"جمع: {result['order'].total} — گفتگو #{conversation.id}",
-            link=f"/stores/{store.id}/sales",
+            link=links.orders_link(store.id),
             context={"order_id": result["order"].id},
         )
     if result.get("ticket"):
@@ -88,7 +89,7 @@ def answer(conversation: Conversation, text: str) -> Turn:
             Notification.Type.TICKET,
             ("🔴 تیکت فوری: " if urgent else "تیکت پشتیبانی: ") + result["ticket"].subject,
             body=result["ticket"].description,
-            link=f"/stores/{store.id}/sales",
+            link=links.tickets_link(store.id),
             context={"ticket_id": result["ticket"].id},
         )
     if result["needs_human"]:
@@ -98,9 +99,12 @@ def answer(conversation: Conversation, text: str) -> Turn:
             Notification.Type.ESCALATION,
             f"گفتگو #{conversation.id} به انسان ارجاع شد",
             body=f"آخرین پیام مشتری: {text[:200]}",
-            link=f"/stores/{store.id}/chat",
+            link=links.conversation_link(conversation),
             context={"conversation_id": conversation.id},
         )
+    # An answer was recorded: nothing is owed to this customer any more, and a
+    # later failure on a new message deserves its own acknowledgement.
+    ai_retry.clear_failed(conversation)
     conversation.save()
 
     return Turn(message=message, result=result)

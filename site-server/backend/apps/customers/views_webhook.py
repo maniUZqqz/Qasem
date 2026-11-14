@@ -18,7 +18,7 @@ import json
 import logging
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.http import HttpResponse, JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -27,7 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from services.ai.gateway import PolicyBlocked
 from services.ai.ollama import OllamaError
 
-from . import webhooks
+from . import ai_retry, links, webhooks
 from .models import Conversation, Message, Notification, notify
 from .turn import answer
 
@@ -113,18 +113,33 @@ class InboundWebhook(View):
         return JsonResponse({"ok": True, "accepted": accepted})
 
 
-def run_agent_for(conversation_id: int, text: str, message_id: int | None = None) -> None:
+def run_agent_for(
+    conversation_id: int, text: str, message_id: int | None = None, retry: bool = False,
+) -> str:
     """The body of the task, importable without Celery.
 
     Failure here is the shop's problem to see, not the platform's to retry: the
     message is already stored, so the owner can answer it by hand from the
     inbox. Telling the platform it failed would only produce a duplicate.
+
+    A failure is *recorded on the conversation* (`ai_retry.mark_failed`): the
+    inbox counts the customer as waiting, and `ai_retry.run_cycle` asks the AI
+    again when it is back. `retry=True` is that second kind of call — it
+    updates the attempt count but does not notify the owner a second time.
+
+    Returns "answered", "failed", "skipped" (nothing to do: a person has the
+    thread, or the message was only a payment slip) or "missing".
     """
-    close_old_connections()
+    # A worker thread may hold a connection that outlived its age, so it is
+    # refreshed here. Never while the caller is inside a transaction: an eager
+    # task run from a request, or a test, owns that connection, and closing it
+    # under them is "Cannot operate on a closed database" for everything after.
+    if not connection.in_atomic_block:
+        close_old_connections()
     try:
         conversation = Conversation.objects.select_related("store").get(pk=conversation_id)
     except Conversation.DoesNotExist:
-        return
+        return "missing"
 
     # A payment slip, before anything else. It is filed even on a thread a
     # human has taken over, and it never waits behind a model call.
@@ -132,37 +147,56 @@ def run_agent_for(conversation_id: int, text: str, message_id: int | None = None
         receipt = _file_receipt(conversation, message_id)
         if receipt is not None and not text.strip():
             # A photo with no words needs no answer from the agent — the
-            # acknowledgement has already gone out.
-            return
+            # acknowledgement has already gone out. Remember that, so the
+            # beat does not mistake the thread for an unanswered one.
+            ai_retry.mark_receipt_filed(message_id)
+            return "skipped"
 
     if conversation.state != Conversation.State.AI:
-        return
+        return "skipped"
 
-    store = conversation.store
     try:
         turn = answer(conversation, text)
     except PolicyBlocked as exc:
+        _record_failure(conversation, exc, retry, policy=True)
+        return "failed"
+    except OllamaError as exc:
+        _record_failure(conversation, exc, retry)
+        return "failed"
+    except Exception as exc:  # noqa: BLE001 - a lost answer must still be visible
+        logger.exception("Sales agent crashed on conversation %s", conversation.pk)
+        _record_failure(conversation, exc, retry)
+        return "failed"
+
+    _send(conversation, turn.reply)
+    return "answered"
+
+
+def _record_failure(conversation: Conversation, exc: Exception, retry: bool, policy: bool = False) -> None:
+    """Remember it on the thread; tell the owner and the customer (once)."""
+    ai_retry.mark_failed(conversation, exc, retry=retry)
+    if retry:
+        return  # the owner already knows; this was only another attempt
+    store = conversation.store
+    if policy:
         notify(
             store,
             Notification.Type.AI_ERROR,
             "سیاست داده‌ی فروشگاه جلوی پاسخ AI را گرفت",
             body=f"گفتگو #{conversation.id}: {exc}",
-            link=f"/stores/{store.id}/data",
+            link=links.data_policy_link(store.id),
             context={"conversation_id": conversation.id, "policy": True},
         )
-        return
-    except OllamaError as exc:
+    else:
         notify(
             store,
             Notification.Type.AI_ERROR,
             "AI به پیام مشتری جواب نداد — مشتری منتظر است",
             body=f"گفتگو #{conversation.id}: {exc}",
-            link=f"/stores/{store.id}/inbox",
+            link=links.conversation_link(conversation),
             context={"conversation_id": conversation.id},
         )
-        return
-
-    _send(conversation, turn.reply)
+    ai_retry.send_ack(conversation)
 
 
 def _file_receipt(conversation: Conversation, message_id: int):
@@ -218,6 +252,6 @@ def _send(conversation: Conversation, reply: str) -> None:
             Notification.Type.AI_ERROR,
             "پاسخ ساخته شد ولی فرستاده نشد",
             body=f"گفتگو #{conversation.id} — {outcome.get('reason', '')}"[:300],
-            link=f"/stores/{conversation.store.id}/inbox",
+            link=links.conversation_link(conversation),
             context={"conversation_id": conversation.id},
         )

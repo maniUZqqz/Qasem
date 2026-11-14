@@ -2,6 +2,9 @@ import { ChangeEvent, FormEvent, useState } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
+import NumberField from "../../components/NumberField";
+import { plainNumber } from "../../components/numberInput";
+import { productErrorMessage } from "../../components/productErrors";
 import {
   Button,
   Card,
@@ -23,6 +26,10 @@ export default function ProductDetailsPage() {
   const { product, reload } = useProduct();
   const [params] = useSearchParams();
   const [draft, setDraft] = useState(product);
+  // قیمت و موجودی به‌صورت متن نگه داشته می‌شوند: کادرِ خالی «خالی» است، نه «۰»،
+  // و ارقام فارسی همان لحظه لاتین می‌شوند (NumberField).
+  const [priceText, setPriceText] = useState(plainNumber(product.price));
+  const [stockText, setStockText] = useState(String(product.stock_quantity ?? 0));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attrKey, setAttrKey] = useState("");
@@ -37,14 +44,14 @@ export default function ProductDetailsPage() {
     try {
       await api.patch(`/products/${id}/`, {
         name: draft.name,
-        price: draft.price,
-        stock_quantity: draft.stock_quantity,
+        price: priceText,
+        stock_quantity: stockText === "" ? 0 : Number(stockText),
         description: draft.description,
         brand: draft.brand,
       });
       await reload();
     } catch (err) {
-      setError(errorMessage(err));
+      setError(productErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -111,11 +118,12 @@ export default function ProductDetailsPage() {
             />
           </Field>
           <Field label="قیمت (تومان)">
-            <Input
-              type="number"
-              min="0"
-              value={draft.price}
-              onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+            <NumberField
+              value={priceText}
+              onChange={setPriceText}
+              unit="تومان"
+              decimals={/\.\d/.test(priceText)}
+              testId="product-price"
             />
           </Field>
           <Field
@@ -130,13 +138,11 @@ export default function ProductDetailsPage() {
                   : "همین عدد قابل فروش است؛ با تأیید هر سفارش خودکار کم می‌شود."
             }
           >
-            <Input
-              type="number"
-              min="0"
-              value={draft.stock_quantity}
-              onChange={(e) =>
-                setDraft({ ...draft, stock_quantity: Number(e.target.value) || 0 })
-              }
+            <NumberField
+              value={stockText}
+              onChange={setStockText}
+              unit="عدد"
+              testId="product-stock"
             />
           </Field>
           <Field label="برند">

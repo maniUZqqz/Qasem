@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from apps.common.models import TimeStampedModel
@@ -39,14 +40,20 @@ class Product(TimeStampedModel):
     description = models.TextField(blank=True)
     short_description = models.CharField(max_length=300, blank=True)
     brand = models.CharField(max_length=100, blank=True)
-    price = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    compare_at_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # Never negative — the model says so too (admin forms, `full_clean`), not only the API.
+    price = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0, validators=[MinValueValidator(0)],
+    )
+    compare_at_price = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)],
+    )
     # What the shop paid for it. Optional, and null rather than zero on
     # purpose: §5 wants **real** profit, and a missing cost has to read as
     # "unknown" rather than as "free", which would report the entire selling
     # price as margin and make the worst product look like the best one.
     cost_price = models.DecimalField(
         max_digits=14, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0)],
         verbose_name="قیمت تمام‌شده",
         help_text="چقدر برای شما آب خورده. بدون این، سود واقعی قابل محاسبه نیست.",
     )
@@ -111,7 +118,9 @@ class ProductVariant(TimeStampedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     name = models.CharField(max_length=100)
     attributes = models.JSONField(default=dict, blank=True)
-    price_override = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    price_override = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)],
+    )
     stock_quantity = models.PositiveIntegerField(default=0)
     reserved_quantity = models.PositiveIntegerField(
         default=0, verbose_name="رزروشده برای سفارش‌های پرداخت‌نشده",

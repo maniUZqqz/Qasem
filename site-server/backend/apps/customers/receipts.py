@@ -23,6 +23,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
+from . import links
 from .models import Notification, Order, PaymentReceipt, notify
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ def absorb(message) -> PaymentReceipt | None:
             Notification.Type.RECEIPT,
             f"مشتری برای سفارش #{order.id} تصویری فرستاد که دانلود نشد",
             body="عکس را از خود گفتگو در تلگرام/اینستاگرام ببینید و دستی تأیید کنید.",
-            link=f"/stores/{store.id}/sales",
+            link=links.receipts_link(store.id),
             context={"order_id": order.id, "conversation_id": conversation.id},
         )
         return None
@@ -152,7 +153,7 @@ def absorb(message) -> PaymentReceipt | None:
         Notification.Type.RECEIPT,
         f"رسید پرداخت برای سفارش #{order.id} رسید",
         body=f"مبلغ سفارش: {order.total} — منتظر بررسی و تأیید شماست.",
-        link=f"/stores/{store.id}/sales",
+        link=links.receipts_link(store.id),
         context={"order_id": order.id, "receipt_id": receipt.id},
     )
     return receipt

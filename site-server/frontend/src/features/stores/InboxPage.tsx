@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -30,6 +30,12 @@ type Conversation = {
   waiting_minutes: number | null;
   last_message: { role: string; text: string; at: string } | null;
   can_reply: boolean;
+  /** هوش مصنوعی پیامِ این مشتری را جواب نداد (خراب بود / سرورِ پردازش خاموش). */
+  ai_failed: boolean;
+  ai_failed_reason: string;
+  ai_retries: number;
+  /** از «چت آزمایشی» پنل شروع شده؛ خودکار دوباره امتحان نمی‌شود. */
+  is_test: boolean;
 };
 
 type ChannelStatus = {
@@ -44,7 +50,9 @@ type ChannelStatus = {
 type Inbox = {
   conversations: Conversation[];
   channels: ChannelStatus[];
-  counts: { waiting: number; unassigned: number; mine: number };
+  counts: { waiting: number; ai_failed: number; unassigned: number; mine: number };
+  /** چند ساعت خودکار دوباره امتحان می‌شود، بعد ارجاع به آدم. */
+  ai_retry_hours?: number;
 };
 
 const STATE_LABEL: Record<string, string> = {
@@ -68,6 +76,10 @@ const STATE_LABEL: Record<string, string> = {
  */
 export default function InboxPage() {
   const { id } = useParams<{ id: string }>();
+  // «?c=<شناسه>» — اعلانِ زنگوله مستقیم به همین گفتگو می‌آورد.
+  const [params] = useSearchParams();
+  const focusId = Number(params.get("c")) || null;
+  const focusedRef = useRef<number | null>(null);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Conversation | null>(null);
@@ -83,13 +95,59 @@ export default function InboxPage() {
       setInbox(data);
     } catch (err) {
       setError(errorMessage(err));
-      setInbox({ conversations: [], channels: [], counts: { waiting: 0, unassigned: 0, mine: 0 } });
+      setInbox({
+        conversations: [],
+        channels: [],
+        counts: { waiting: 0, ai_failed: 0, unassigned: 0, mine: 0 },
+      });
     }
   }, [id, filter]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // رسیدن از اعلان: گفتگوی نام‌برده باز می‌شود، به چشم می‌آید و قابِ پاسخ آماده است.
+  useEffect(() => {
+    if (!inbox || !focusId || focusedRef.current === focusId) return;
+    focusedRef.current = focusId;
+    const target = inbox.conversations.find((c) => c.id === focusId);
+    if (!target) {
+      setNotice("این گفتگو در فهرست نیست — شاید بسته شده است.");
+      return;
+    }
+    setSelected(target);
+    window.setTimeout(() => {
+      document
+        .getElementById(`conv-${focusId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }, [inbox, focusId]);
+
+  /** «دوباره امتحان کن»: درخواستِ تازه به هوش مصنوعی برای همین گفتگو. */
+  async function retry(conversation: Conversation) {
+    setError(null);
+    setNotice(null);
+    try {
+      const { data } = await api.post(`/stores/${id}/inbox/${conversation.id}/retry/`);
+      setNotice(data.message ?? "دوباره امتحان می‌شود.");
+      window.setTimeout(() => void load(), 4000);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  /** بستنِ گفتگویی که کسی لازم نیست جوابش را بدهد (آزمایشی، تکراری). */
+  async function resolve(conversation: Conversation) {
+    setError(null);
+    try {
+      await api.post(`/stores/${id}/inbox/${conversation.id}/resolve/`);
+      if (selected?.id === conversation.id) setSelected(null);
+      await load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   async function take(conversation: Conversation) {
     setError(null);
@@ -175,6 +233,7 @@ export default function InboxPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={filter} onChange={(e) => setFilter(e.target.value)}>
           <option value="">همه</option>
+          <option value="?ai_failed=1">AI جواب نداد ({fa(inbox.counts.ai_failed)})</option>
           <option value="?assigned=nobody">بدون مسئول ({fa(inbox.counts.unassigned)})</option>
           <option value="?assigned=me">مال من ({fa(inbox.counts.mine)})</option>
           <option value="?state=ESCALATED">ارجاع‌شده</option>
@@ -183,7 +242,21 @@ export default function InboxPage() {
         <Badge tone={inbox.counts.waiting > 0 ? "warn" : "ok"}>
           {fa(inbox.counts.waiting)} نفر منتظر جواب
         </Badge>
+        {inbox.counts.ai_failed > 0 && (
+          <Badge tone="bad">{fa(inbox.counts.ai_failed)} مورد: AI جواب نداد</Badge>
+        )}
       </div>
+
+      {inbox.counts.ai_failed > 0 && (
+        <div className="mb-4" data-testid="inbox-ai-failed-note">
+          <Alert tone="warn" title="هوش مصنوعی به بعضی مشتری‌ها جواب نداد">
+            وقتی هوش مصنوعی دوباره در دسترس باشد، پیامِ مشتری‌های واقعی خودکار دوباره
+            جواب داده می‌شود؛ اگر تا {fa(inbox.ai_retry_hours ?? 12)} ساعت جواب نگرفتند، به شما ارجاع می‌شوند.
+            گفتگوهای «آزمایشی» خودکار امتحان نمی‌شوند — دکمه‌ی «دوباره امتحان کن» یا «بستن»
+            با خودتان است.
+          </Alert>
+        </div>
+      )}
 
       {(oneWay.length > 0 || unconfigured.length > 0) && (
         <div className="mb-4 flex flex-col gap-2">
@@ -206,7 +279,17 @@ export default function InboxPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {inbox.conversations.map((conversation) => (
-            <Card key={conversation.id}>
+            <div
+              key={conversation.id}
+              id={`conv-${conversation.id}`}
+              data-testid={`conv-${conversation.id}`}
+              style={
+                focusId === conversation.id
+                  ? { borderRadius: "1rem", outline: "2px solid var(--brand)", outlineOffset: 2 }
+                  : undefined
+              }
+            >
+            <Card>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -214,9 +297,14 @@ export default function InboxPage() {
                       {conversation.customer_name || "مشتری"}
                     </span>
                     <Badge tone="neutral">{conversation.channel_title}</Badge>
-                    <Badge tone={conversation.state === "ESCALATED" ? "warn" : "info"}>
-                      {STATE_LABEL[conversation.state] ?? conversation.state}
-                    </Badge>
+                    {conversation.ai_failed ? (
+                      <Badge tone="bad">AI جواب نداد</Badge>
+                    ) : (
+                      <Badge tone={conversation.state === "ESCALATED" ? "warn" : "info"}>
+                        {STATE_LABEL[conversation.state] ?? conversation.state}
+                      </Badge>
+                    )}
+                    {conversation.is_test && <Badge tone="neutral">آزمایشی</Badge>}
                     {conversation.waiting_minutes !== null && (
                       <Badge tone={conversation.waiting_minutes > 60 ? "bad" : "warn"}>
                         {fa(conversation.waiting_minutes)} دقیقه منتظر
@@ -233,13 +321,41 @@ export default function InboxPage() {
                       {conversation.last_message.text}
                     </p>
                   )}
+                  {conversation.ai_failed && conversation.ai_failed_reason && (
+                    <p className="mt-1 text-xs" style={{ color: "var(--warn)" }}>
+                      {conversation.ai_failed_reason}
+                      {conversation.ai_retries > 0 &&
+                        ` — ${fa(conversation.ai_retries)} بار دوباره امتحان شد`}
+                    </p>
+                  )}
                   {conversation.assigned_username && (
                     <p className="text-xs" style={{ color: "var(--text-3)" }}>
                       مسئول: {conversation.assigned_username}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {conversation.ai_failed && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void retry(conversation)}
+                        data-testid={`retry-${conversation.id}`}
+                      >
+                        دوباره امتحان کن
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void resolve(conversation)}
+                        data-testid={`resolve-${conversation.id}`}
+                      >
+                        بستن
+                      </Button>
+                    </>
+                  )}
+                  <Link to={`/stores/${id}/chat?c=${conversation.id}`}>
+                    <Button variant="ghost">دیدن گفتگو</Button>
+                  </Link>
                   {!conversation.assigned_to && (
                     <Button variant="secondary" onClick={() => take(conversation)}>
                       من جواب می‌دهم
@@ -334,6 +450,7 @@ export default function InboxPage() {
                 </div>
               )}
             </Card>
+            </div>
           ))}
         </div>
       )}

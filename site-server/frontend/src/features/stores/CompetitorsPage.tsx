@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
+import NumberField from "../../components/NumberField";
 import {
   Alert,
   Badge,
@@ -850,12 +851,13 @@ function AddCompetitorProduct({
           placeholder="نام محصول رقیب (دستی)"
         />
       </div>
-      <div className="w-40">
-        <Input
-          type="number"
+      <div className="w-44">
+        <NumberField
           value={price}
-          onChange={(e) => setPrice(e.target.value)}
+          onChange={setPrice}
+          unit="تومان"
           placeholder="قیمت (تومان)"
+          testId="competitor-price"
         />
       </div>
       <Button type="submit" variant="secondary" disabled={busy || !name.trim()}>

@@ -34,7 +34,7 @@ class NovinHubNotConfigured(NovinHubError):
     def __init__(self):
         super().__init__(
             "توکن نوین‌هاب تنظیم نشده است. "
-            "در تنظیمات فروشگاه یا NOVINHUB_TOKEN در .env مقدارش را بگذار."
+            "آن را در صفحهٔ «اتصال شبکه‌ها»ی همین فروشگاه وارد کنید."
         )
 
 

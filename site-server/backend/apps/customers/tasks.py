@@ -46,3 +46,33 @@ def release_expired_reservations() -> int:
     from . import stock
 
     return stock.release_expired()
+
+
+@shared_task
+def retry_failed_ai_replies() -> dict:
+    """Answer the customers the AI could not answer, as soon as it can.
+
+    A beat task (every few minutes). While no AI path is usable it only counts —
+    no model call, no notification — so it is safe to run on a node that is
+    off for days; when the node (or the cloud API) returns, the waiting
+    conversations are answered within a tick. Past the retry window a thread
+    is handed to a person instead. See `ai_retry` for the whole contract.
+    """
+    from . import ai_retry
+
+    return ai_retry.run_cycle()
+
+
+@shared_task
+def retry_conversation(conversation_id: int) -> str:
+    """The owner pressed «دوباره امتحان کن» on one waiting conversation."""
+    from .models import Conversation
+    from . import ai_retry
+
+    conversation = (
+        Conversation.objects.filter(pk=conversation_id)
+        .select_related("store", "customer").first()
+    )
+    if conversation is None:
+        return "missing"
+    return ai_retry.retry_one(conversation)

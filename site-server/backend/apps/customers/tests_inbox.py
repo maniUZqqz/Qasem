@@ -40,7 +40,9 @@ class ChannelTests(TestCase):
             )
         self.assertTrue(row["can_send"])
         self.assertFalse(row["can_receive"])
-        self.assertIn("META_APP_SECRET", row["reason"])
+        # said in words — «تأیید اپ در Meta» — never as the settings key
+        self.assertIn("تأیید اپ در Meta", row["reason"])
+        self.assertNotIn("META_APP_SECRET", row["reason"])
 
     def test_instagram_receives_once_meta_credentials_are_set(self):
         from django.test import override_settings
@@ -104,7 +106,8 @@ class ChannelTests(TestCase):
         is a red herring."""
         outcome = channels.send("SMS", self.store, to="0912", text="سلام")
         self.assertFalse(outcome["sent"])
-        self.assertIn("SMS_API_KEY", outcome["reason"])
+        self.assertIn("سرویس پیامک", outcome["reason"])
+        self.assertNotIn("SMS_API_KEY", outcome["reason"])
 
     def test_a_message_over_the_channel_limit_is_refused(self):
         from django.conf import settings

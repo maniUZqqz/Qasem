@@ -110,14 +110,25 @@ class StoreConnectionsView(APIView):
         return Response(self._payload(store, profile, request))
 
     def _payload(self, store, profile, request) -> dict:
+        has_token = bool((profile.novinhub_token or "").strip())
+        has_telegram_token = bool((profile.telegram_bot_token or "").strip())
+        # Does a *shared* credential actually exist on this installation? The
+        # page used to say «توکن مشترک … کار می‌کند» and «از ربات مشترک
+        # استفاده می‌کنید» whenever the shop had no token of its own — whether
+        # or not there was anything shared to fall back on.
+        shared_instagram = bool(channels.shared_value("NOVINHUB_TOKEN"))
+        shared_telegram = bool(channels.shared_value("TELEGRAM_BOT_TOKEN"))
         return {
             # Never the token itself — only whether there is one.
-            "has_token": bool((profile.novinhub_token or "").strip()),
-            "has_telegram_token": bool((profile.telegram_bot_token or "").strip()),
+            "has_token": has_token,
+            "has_telegram_token": has_telegram_token,
+            "shared_token_available": shared_instagram,
+            "telegram_shared_available": shared_telegram,
             # True when this shop is answering through the installation's
             # shared bot, which is worth saying out loud: two shops on the
-            # shared bot speak to customers under the same name.
-            "telegram_shared": not (profile.telegram_bot_token or "").strip(),
+            # shared bot speak to customers under the same name. Only true when
+            # that bot exists.
+            "telegram_shared": (not has_telegram_token) and shared_telegram,
             "novinhub_account_ids": list(profile.novinhub_account_ids or []),
             "social_links": dict(store.social_links or {}),
             "social_keys": [{"key": k, "label": label} for k, label in SOCIAL_KEYS],
@@ -142,5 +153,18 @@ class StoreConnectionsView(APIView):
             "shared_token_note": (
                 "اگر توکن اختصاصی ندهید، از توکن مشترک NMarketing استفاده می‌شود — "
                 "کار می‌کند، ولی انتشار از حساب ما انجام می‌شود نه حساب خودتان."
+                if shared_instagram
+                else (
+                    "توکن اختصاصی این فروشگاه ثبت شده؛ پست‌ها از حساب خودتان منتشر می‌شوند."
+                    if has_token
+                    else "توکن نوین‌هاب را در کادر پایین وارد کنید؛ بدون آن، پست‌ها از اینجا "
+                         "در اینستاگرام منتشر نمی‌شوند."
+                )
+            ),
+            "telegram_note": (
+                ""
+                if has_telegram_token or shared_telegram
+                else "هنوز رباتی برای این فروشگاه وصل نیست. در @BotFather یک ربات "
+                     "بسازید و توکنش را در کادر پایین وارد کنید."
             ),
         }

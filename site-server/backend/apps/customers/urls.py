@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views_inbox import (
     ConversationAssignView,
+    ConversationResolveView,
+    ConversationRetryView,
     ConversationTagsView,
     InboxReplyView,
     InboxView,
@@ -66,6 +68,14 @@ urlpatterns = [
     path(
         "stores/<int:store_id>/inbox/<int:pk>/reply/",
         InboxReplyView.as_view(), name="inbox-reply",
+    ),
+    path(
+        "stores/<int:store_id>/inbox/<int:pk>/retry/",
+        ConversationRetryView.as_view(), name="inbox-retry",
+    ),
+    path(
+        "stores/<int:store_id>/inbox/<int:pk>/resolve/",
+        ConversationResolveView.as_view(), name="inbox-resolve",
     ),
     path("stores/<int:store_id>/chat/", ChatView.as_view(), name="store-chat"),
     path(

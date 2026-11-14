@@ -1,9 +1,72 @@
-from rest_framework import serializers
+from decimal import Decimal
 
+from rest_framework import serializers
+from rest_framework.fields import empty
+
+from apps.common.numbers import fa_money, normalize_number_text
 from apps.stores.models import Store
 
 from .models import Category, Product, ProductAttribute, ProductImage, ProductVariant
 from apps.stores import access
+
+
+class MoneyField(serializers.DecimalField):
+    """A price in tomans, the way an Iranian shop owner types it.
+
+    - «۳۰۰٬۰۰۰», «٣٠٠٬٠٠٠», «300,000» and «300000» are the same number.
+    - Never negative: the API used to store a price of -5000 and a margin
+      computed from it.
+    - An error says what is wrong *with this field*, in Persian — the stock
+      English «A valid number is required.» sat under a field called `price`.
+    - `allow_null=True` fields also treat an emptied box ("") as «not set».
+    """
+
+    def __init__(self, label_fa: str = "قیمت", **kwargs):
+        kwargs.setdefault("max_digits", 14)
+        kwargs.setdefault("decimal_places", 2)
+        kwargs.setdefault("min_value", Decimal("0"))
+        kwargs["error_messages"] = {
+            "invalid": f"{label_fa} باید عدد باشد؛ مثلاً ۳۰۰۰۰۰ (ارقام فارسی و جداکننده هم اشکال ندارد).",
+            "min_value": f"{label_fa} نمی‌تواند منفی باشد.",
+            "max_digits": f"{label_fa} خیلی بزرگ است؛ حداکثر ۱۲ رقم صحیح.",
+            "max_whole_digits": f"{label_fa} خیلی بزرگ است؛ حداکثر ۱۲ رقم صحیح.",
+            "max_decimal_places": f"{label_fa} حداکثر دو رقم اعشار دارد.",
+            "max_string_length": "عدد خیلی طولانی است.",
+            "null": f"{label_fa} را خالی نفرستید؛ یا عدد بدهید یا فیلد را حذف کنید.",
+            **kwargs.get("error_messages", {}),
+        }
+        super().__init__(**kwargs)
+
+    def run_validation(self, data=empty):
+        if isinstance(data, str) and not data.strip() and self.allow_null:
+            data = None
+        return super().run_validation(data)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            data = normalize_number_text(data)
+        return super().to_internal_value(data)
+
+
+class CountField(serializers.IntegerField):
+    """A whole number of items (stock), typed in any digits, never negative."""
+
+    def __init__(self, label_fa: str = "موجودی", **kwargs):
+        kwargs.setdefault("min_value", 0)
+        kwargs.setdefault("max_value", 2_000_000_000)
+        kwargs["error_messages"] = {
+            "invalid": f"{label_fa} باید عدد صحیح باشد؛ مثلاً ۱۲ (ارقام فارسی هم اشکال ندارد).",
+            "min_value": f"{label_fa} نمی‌تواند منفی باشد.",
+            "max_value": f"{label_fa} خیلی بزرگ است.",
+            "max_string_length": "عدد خیلی طولانی است.",
+            **kwargs.get("error_messages", {}),
+        }
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            data = normalize_number_text(data)
+        return super().to_internal_value(data)
 
 
 class OwnedStoreField(serializers.PrimaryKeyRelatedField):
@@ -74,6 +137,11 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
+    price_override = MoneyField(
+        label_fa="قیمتِ این گونه", required=False, allow_null=True,
+    )
+    stock_quantity = CountField(label_fa="موجودیِ این گونه", required=False)
+
     class Meta:
         model = ProductVariant
         fields = [
@@ -92,6 +160,15 @@ class ProductSerializer(serializers.ModelSerializer):
     # A service with no stock count (stored as 9999 = "unlimited"): the panel shows
     # «سرویس دیجیتال», not «۹۹۹۹ قابل فروش» (apps.products.digital).
     is_digital = serializers.SerializerMethodField()
+    # Money and counts accept what a Persian keyboard produces (۳۰۰٬۰۰۰) and
+    # refuse what makes no sense (a negative price, a compare-at price below
+    # the selling price) with a sentence about *that field*.
+    price = MoneyField(label_fa="قیمت", required=False)
+    compare_at_price = MoneyField(
+        label_fa="قیمت قبل از تخفیف", required=False, allow_null=True,
+    )
+    cost_price = MoneyField(label_fa="قیمت تمام‌شده", required=False, allow_null=True)
+    stock_quantity = CountField(label_fa="موجودی", required=False)
 
     class Meta:
         model = Product
@@ -148,4 +225,34 @@ class ProductSerializer(serializers.ModelSerializer):
         store = attrs.get("store") or (self.instance.store if self.instance else None)
         if category and store and category.store_id != store.id:
             raise serializers.ValidationError({"category": "Category must belong to the same store."})
+
+        # «قیمت قبل از تخفیف» is the crossed-out price: it only means something
+        # when it is *higher* than what the product sells for. Checked whenever
+        # either side is being CHANGED, against the stored value of the other —
+        # a form that re-sends an unchanged price must not start failing on a
+        # product whose old data already disagreed.
+        def changed(name):
+            if name not in attrs:
+                return False
+            return self.instance is None or attrs[name] != getattr(self.instance, name)
+
+        if changed("compare_at_price") or changed("price"):
+            price = attrs.get("price", self.instance.price if self.instance else Decimal("0"))
+            compare = attrs.get(
+                "compare_at_price", self.instance.compare_at_price if self.instance else None,
+            )
+            if compare and compare <= price:
+                if changed("compare_at_price"):
+                    raise serializers.ValidationError({
+                        "compare_at_price": (
+                            f"قیمت قبل از تخفیف باید از قیمت فروش ({fa_money(price)} تومان) "
+                            "بیشتر باشد؛ وگرنه تخفیفی در کار نیست. بیشترش کنید یا خالی بگذارید."
+                        )
+                    })
+                raise serializers.ValidationError({
+                    "price": (
+                        f"قیمت فروش از «قیمت قبل از تخفیف» ({fa_money(compare)} تومان) "
+                        "بالاتر یا برابر شد؛ اول آن را اصلاح یا پاک کنید."
+                    )
+                })
         return attrs

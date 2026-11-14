@@ -50,13 +50,15 @@ def _has_publishing(store) -> bool:
     The shared `.env` token counts: it is how a store publishes on day one,
     before the owner has their own NovinHub account.
     """
-    from django.conf import settings
+    from services.publishing import channels
 
     profile = getattr(store, "profile", None)
     if profile is not None and (profile.novinhub_token or "").strip():
         return True
-    conf = settings.UPMARKET_AI
-    return bool(conf.get("NOVINHUB_TOKEN") or conf.get("N8N_WEBHOOK_URL"))
+    # The same lookup the connections page uses, so this checklist step and the
+    # «الان چه چیزی کار می‌کند» list can never disagree about the shared token
+    # (it lives in UPMARKET_PUBLISHING; only UPMARKET_AI was being read here).
+    return bool(channels.shared_value("NOVINHUB_TOKEN") or channels.shared_value("N8N_WEBHOOK_URL"))
 
 
 def steps(store) -> list[Step]:

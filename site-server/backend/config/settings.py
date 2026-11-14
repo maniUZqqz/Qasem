@@ -434,6 +434,28 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 
+# ---- customers: answer the customers the AI could not answer ---------------
+# (apps.customers.ai_retry; its own block, apart from the entries above.)
+# Every tick the task asks the router whether any AI path is usable *right now*
+# and does nothing — no model call, no notification — while none is, so it is
+# safe while the GPU node is off for days. When the node (or the API) is back,
+# waiting conversations are answered within one tick; past the window they go
+# to a person instead.
+CUSTOMER_AI_RETRY = {
+    "WINDOW_HOURS": float(os.getenv("CUSTOMER_AI_RETRY_HOURS", "12")),
+    "PER_RUN": int(os.getenv("CUSTOMER_AI_RETRY_PER_RUN", "3")),
+    "GAP_MINUTES": float(os.getenv("CUSTOMER_AI_RETRY_GAP_MINUTES", "5")),
+    "MAX_ATTEMPTS": int(os.getenv("CUSTOMER_AI_RETRY_MAX_ATTEMPTS", "6")),
+    # «پیام شما رسید» — one neutral line to a real customer when the AI fails.
+    "SEND_ACK": os.getenv("CUSTOMER_AI_FAILURE_ACK", "1") == "1",
+}
+CELERY_BEAT_SCHEDULE["retry-failed-ai-replies"] = {
+    "task": "apps.customers.tasks.retry_failed_ai_replies",
+    "schedule": float(os.getenv("CUSTOMER_AI_RETRY_TICK_SECONDS", "300")),
+    "options": {"expires": 240},
+}
+
+
 def _redis_is_up(url: str, timeout: float = 0.6) -> bool:
     """One TCP connect to the broker. Never raises."""
     import socket

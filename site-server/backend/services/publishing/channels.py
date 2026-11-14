@@ -124,6 +124,56 @@ def get(key: str) -> Channel:
     return BY_KEY.get((key or "").upper(), WEBSITE)
 
 
+#: What a missing setting means to the shop — in words, never the setting's own
+#: name. `input` is the field on the connections page where the shop can fill
+#: it in ("" = not something a shop sets itself: the installation's own account
+#: or approval, which the service's administrator arranges).
+REQUIREMENT_LABELS: dict[str, tuple[str, str]] = {
+    "NOVINHUB_TOKEN": ("توکن نوین‌هاب", "novinhub_token"),
+    "TELEGRAM_BOT_TOKEN": ("توکن ربات تلگرام", "telegram_bot_token"),
+    "WHATSAPP_TOKEN": ("اتصال به واتساپ بیزینس", ""),
+    "WHATSAPP_PHONE_ID": ("شمارهٔ تأییدشدهٔ واتساپ بیزینس", ""),
+    "SMS_API_KEY": ("سرویس پیامک", ""),
+    "META_APP_SECRET": ("تأیید اپ در Meta", ""),
+    "META_VERIFY_TOKEN": ("تأیید اپ در Meta", ""),
+}
+
+
+def describe_missing(keys) -> list[dict]:
+    """`[{label, input}]` for these settings keys — de-duplicated, in order."""
+    out: list[dict] = []
+    for key in keys:
+        label, field = REQUIREMENT_LABELS.get(key, ("یک تنظیم این کانال", ""))
+        if not any(item["label"] == label for item in out):
+            out.append({"label": label, "input": field})
+    return out
+
+
+def _missing_sentence(items: list[dict]) -> str:
+    """«توکن نوین‌هاب» / «سرویس پیامک (راه‌اندازی‌اش با مدیر سرویس است)»."""
+    parts = [
+        i["label"] if i["input"] else f"{i['label']} (راه‌اندازی‌اش با مدیر سرویس است)"
+        for i in items
+    ]
+    return "، ".join(parts)
+
+
+def shared_value(key: str) -> str:
+    """The installation-wide value of a credential, wherever settings keep it.
+
+    `NOVINHUB_TOKEN` lives in `UPMARKET_PUBLISHING`, the channel credentials in
+    `UPMARKET_AI`; reading only one of them made a perfectly good shared token
+    invisible to the other half of the product.
+    """
+    from django.conf import settings
+
+    for block in ("UPMARKET_AI", "UPMARKET_PUBLISHING"):
+        value = (getattr(settings, block, None) or {}).get(key, "")
+        if value:
+            return str(value)
+    return ""
+
+
 def configured(channel: Channel, store) -> bool:
     """Is everything this channel needs actually filled in?
 
@@ -133,21 +183,18 @@ def configured(channel: Channel, store) -> bool:
     if not channel.requires:
         return True
 
-    from django.conf import settings
-
     profile = getattr(store, "profile", None)
-    conf = settings.UPMARKET_AI
 
     for key in channel.requires:
         if key == "NOVINHUB_TOKEN":
-            if (profile and (profile.novinhub_token or "").strip()) or conf.get(key):
+            if (profile and (profile.novinhub_token or "").strip()) or shared_value(key):
                 continue
             return False
         if key == "TELEGRAM_BOT_TOKEN":
             if telegram_token(store):
                 continue
             return False
-        if not conf.get(key):
+        if not shared_value(key):
             return False
     return True
 
@@ -160,11 +207,9 @@ def telegram_token(store) -> str:
     before. Without this, every shop answered from the same bot — the second
     shop to connect was speaking in the first one's name.
     """
-    from django.conf import settings
-
     profile = getattr(store, "profile", None)
     own = (getattr(profile, "telegram_bot_token", "") or "").strip()
-    return own or settings.UPMARKET_AI.get("TELEGRAM_BOT_TOKEN", "")
+    return own or shared_value("TELEGRAM_BOT_TOKEN")
 
 
 def status_for(store) -> list[dict]:
@@ -173,23 +218,28 @@ def status_for(store) -> list[dict]:
     The `reason` field is the one that earns its place: a channel that is off
     because a token is missing needs a different action from one that is
     one-way by design, and a single "unavailable" badge conflates them.
+
+    `reason` is for people: it names what is missing in words («توکن
+    نوین‌هاب»), never a settings key. `missing` is the same thing as data —
+    `[{label, input}]`, where `input` is the field on the connections page that
+    fixes it (empty when only the service's administrator can).
     """
     rows = []
-    from django.conf import settings
-
-    conf = settings.UPMARKET_AI
     for channel in CHANNELS:
         ready = configured(channel, store)
         # Receiving can need its own credentials — Meta's, for Instagram — and
         # not having them must not make the sender look broken.
-        inbound_missing = [k for k in channel.receives_with if not conf.get(k)]
+        inbound_missing = [k for k in channel.receives_with if not shared_value(k)]
         can_receive = channel.can_receive and ready and not inbound_missing
+
+        missing = describe_missing(channel.requires) if not ready else []
+        receives_missing = describe_missing(inbound_missing) if ready else []
 
         reason = ""
         if not ready:
-            reason = "تنظیم نشده: " + "، ".join(channel.requires)
+            reason = "تنظیم نشده: " + _missing_sentence(missing)
         elif inbound_missing:
-            reason = "فقط ارسال — برای دریافت لازم است: " + "، ".join(inbound_missing)
+            reason = "فقط ارسال — برای دریافت لازم است: " + _missing_sentence(receives_missing)
         elif not channel.can_receive:
             reason = channel.note
         rows.append({
@@ -200,6 +250,8 @@ def status_for(store) -> list[dict]:
             "configured": ready,
             "requires": list(channel.requires),
             "receives_with": list(channel.receives_with),
+            "missing": missing,
+            "receives_missing": receives_missing,
             "note": channel.note,
             "reason": reason,
         })
@@ -219,7 +271,8 @@ def send(channel_key: str, store, *, to: str, text: str) -> dict:
     if not configured(channel, store):
         return {
             "sent": False,
-            "reason": f"{channel.title} تنظیم نشده: " + "، ".join(channel.requires),
+            "reason": f"{channel.title} تنظیم نشده: "
+            + _missing_sentence(describe_missing(channel.requires)),
         }
     if channel.max_chars and len(text) > channel.max_chars:
         return {
@@ -253,8 +306,10 @@ def _send_telegram(store, to: str, text: str) -> dict:
             json={"chat_id": to, "text": text},
             timeout=15,
         )
-    except requests.RequestException as exc:
-        return {"sent": False, "reason": f"تلگرام در دسترس نبود: {exc}"[:200]}
+    except requests.RequestException:
+        # Not the exception text: a connection error quotes the request URL,
+        # and the URL of this call contains the bot's token.
+        return {"sent": False, "reason": "تلگرام در دسترس نبود؛ کمی بعد دوباره امتحان کنید."}
     if response.status_code >= 400:
         return {"sent": False, "reason": f"تلگرام پیام را نپذیرفت ({response.status_code})"}
     return {"sent": True, "reason": ""}

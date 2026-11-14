@@ -37,7 +37,8 @@ type Channel = {
   can_receive: boolean;
   can_send: boolean;
   configured: boolean;
-  requires: string[];
+  /** آنچه کم است، به زبانِ آدم؛ `input` = کادرِ همین صفحه که درستش می‌کند (خالی = کارِ مدیر سرویس). */
+  missing: { label: string; input: string }[];
   note: string;
   reason: string;
 };
@@ -45,7 +46,10 @@ type Channel = {
 type Payload = {
   has_token: boolean;
   has_telegram_token: boolean;
-  /** true یعنی این فروشگاه دارد با ربات مشترک سرویس جواب می‌دهد. */
+  /** توکنِ مشترکِ سرویس واقعاً وجود دارد؟ (وگرنه «توکن مشترک کار می‌کند» دروغ است.) */
+  shared_token_available: boolean;
+  telegram_shared_available: boolean;
+  /** true یعنی این فروشگاه دارد با ربات مشترکِ موجودِ سرویس جواب می‌دهد. */
   telegram_shared: boolean;
   novinhub_account_ids: string[];
   social_links: Record<string, string>;
@@ -54,7 +58,21 @@ type Payload = {
   webhooks: Record<string, string>;
   webhook_note: string;
   shared_token_note: string;
+  telegram_note: string;
 };
+
+/** کادرِ ورودی هر «چیزِ کم» در همین صفحه — لینکِ «تنظیمش کن» به آن می‌رود. */
+const INPUT_ID: Record<string, string> = {
+  novinhub_token: "conn-novinhub-token",
+  telegram_bot_token: "conn-telegram-token",
+};
+
+function focusInput(field: string) {
+  const el = document.getElementById(INPUT_ID[field] ?? "");
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  (el as HTMLInputElement).focus({ preventScroll: true });
+}
 
 const WEBHOOK_LABEL: Record<string, string> = {
   telegram: "تلگرام — در @BotFather دستور setWebhook",
@@ -126,7 +144,9 @@ export default function ConnectionsPage() {
   const clearTelegramToken = async () => {
     if (
       !window.confirm(
-        "توکن ربات اختصاصی پاک شود؟ بعد از آن پیام‌ها دوباره از ربات مشترک سرویس می‌رود.",
+        data?.telegram_shared_available
+          ? "توکن ربات اختصاصی پاک شود؟ بعد از آن پیام‌ها دوباره از ربات مشترک سرویس می‌رود."
+          : "توکن ربات اختصاصی پاک شود؟ ربات مشترکی وجود ندارد، پس تا توکن تازه‌ای وارد نکنید تلگرام کار نمی‌کند.",
       )
     ) {
       return;
@@ -147,7 +167,13 @@ export default function ConnectionsPage() {
   };
 
   const clearToken = async () => {
-    if (!window.confirm("توکن اختصاصی پاک شود؟ بعد از آن انتشار از حساب مشترک آپ‌مارکت انجام می‌شود.")) {
+    if (
+      !window.confirm(
+        data?.shared_token_available
+          ? "توکن اختصاصی پاک شود؟ بعد از آن انتشار از حساب مشترک آپ‌مارکت انجام می‌شود."
+          : "توکن اختصاصی پاک شود؟ توکن مشترکی وجود ندارد، پس تا توکن تازه‌ای وارد نکنید انتشار در اینستاگرام متوقف می‌شود.",
+      )
+    ) {
       return;
     }
     setSaving(true);
@@ -194,6 +220,21 @@ export default function ConnectionsPage() {
                     {c.reason}
                   </span>
                 )}
+                {/* هر چیزِ کم که خودِ فروشگاه می‌تواند بدهد، یک دکمه تا همان کادر. */}
+                {!c.configured &&
+                  c.missing
+                    .filter((m) => INPUT_ID[m.input])
+                    .map((m) => (
+                      <Button
+                        key={m.input}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => focusInput(m.input)}
+                        data-testid={`fix-${c.key.toLowerCase()}`}
+                      >
+                        {m.label} را وارد کنید
+                      </Button>
+                    ))}
               </span>
             </div>
           ))}
@@ -206,15 +247,19 @@ export default function ConnectionsPage() {
           action={
             data.has_token ? (
               <Badge tone="ok">توکن اختصاصی ثبت شده</Badge>
-            ) : (
+            ) : data.shared_token_available ? (
               <Badge tone="neutral">توکن مشترک</Badge>
+            ) : (
+              <Badge tone="warn">وصل نیست</Badge>
             )
           }
         >
           انتشار در اینستاگرام
         </SectionTitle>
 
-        <Alert tone="info">{data.shared_token_note}</Alert>
+        <Alert tone={data.has_token || data.shared_token_available ? "info" : "warn"}>
+          {data.shared_token_note}
+        </Alert>
 
         <div className="mt-4 grid gap-4">
           <Field
@@ -222,10 +267,13 @@ export default function ConnectionsPage() {
             hint={
               data.has_token
                 ? "توکنی ثبت شده است. برای عوض کردنش توکن تازه را بنویسید؛ خالی گذاشتن چیزی را پاک نمی‌کند."
-                : "اختیاری. خالی بماند، از حساب مشترک آپ‌مارکت استفاده می‌شود."
+                : data.shared_token_available
+                  ? "اختیاری. خالی بماند، از حساب مشترک آپ‌مارکت استفاده می‌شود."
+                  : "لازم است؛ بدون آن پست‌ها در اینستاگرام منتشر نمی‌شوند."
             }
           >
             <Input
+              id="conn-novinhub-token"
               type="password"
               value={token}
               onChange={(e) => {
@@ -267,8 +315,10 @@ export default function ConnectionsPage() {
           action={
             data.has_telegram_token ? (
               <Badge tone="ok">ربات اختصاصی</Badge>
-            ) : (
+            ) : data.telegram_shared_available ? (
               <Badge tone="neutral">ربات مشترک</Badge>
+            ) : (
+              <Badge tone="warn">وصل نیست</Badge>
             )
           }
         >
@@ -282,6 +332,7 @@ export default function ConnectionsPage() {
             در @BotFather یک ربات بسازید و توکنش را اینجا بگذارید.
           </Alert>
         )}
+        {data.telegram_note && <Alert tone="warn">{data.telegram_note}</Alert>}
 
         <div className="mt-4 grid gap-4">
           <Field
@@ -289,10 +340,13 @@ export default function ConnectionsPage() {
             hint={
               data.has_telegram_token
                 ? "توکنی ثبت شده است. برای عوض کردنش توکن تازه را بنویسید؛ خالی گذاشتن چیزی را پاک نمی‌کند."
-                : "اختیاری. خالی بماند، از ربات مشترک استفاده می‌شود."
+                : data.telegram_shared_available
+                  ? "اختیاری. خالی بماند، از ربات مشترک استفاده می‌شود."
+                  : "لازم است؛ بدون آن تلگرام پیام نمی‌گیرد و نمی‌فرستد."
             }
           >
             <Input
+              id="conn-telegram-token"
               type="password"
               value={telegramToken}
               onChange={(e) => {

@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import Icon from "../../components/Icon";
 import { api, errorMessage, fetchAllPages } from "../../api/client";
@@ -48,6 +48,11 @@ export default function ChatPage() {
   const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
   const [uploading, setUploading] = useState(false);
   const [history, setHistory] = useState<ConversationInfo[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  // «?c=<شناسه>» — اعلان یا صندوق پیام مستقیم به همین گفتگو می‌آورد.
+  const [params] = useSearchParams();
+  const wantedId = Number(params.get("c")) || null;
+  const openedRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   // a local 30B model answers in 1-2 minutes; a silent spinner reads as a crash
@@ -65,6 +70,8 @@ export default function ChatPage() {
       setHistory(await fetchAllPages<ConversationInfo>(`/stores/${id}/conversations/`));
     } catch {
       setHistory([]);
+    } finally {
+      setHistoryLoaded(true);
     }
   };
 
@@ -96,6 +103,16 @@ export default function ChatPage() {
       setLoadingConversation(false);
     }
   };
+
+  // رسیدن از اعلان / صندوق پیام: گفتگوی نام‌برده همین‌جا باز می‌شود.
+  useEffect(() => {
+    if (!wantedId || !historyLoaded || openedRef.current === wantedId) return;
+    openedRef.current = wantedId;
+    const found = history.find((c) => c.id === wantedId);
+    if (found) void openConversation(found);
+    else setError("این گفتگو پیدا نشد؛ شاید پاک شده یا مالِ این فروشگاه نیست.");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedId, historyLoaded, history]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

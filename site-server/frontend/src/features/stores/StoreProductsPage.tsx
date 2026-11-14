@@ -1,9 +1,11 @@
 import { FormEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { api, errorMessage } from "../../api/client";
+import { api } from "../../api/client";
 import Icon from "../../components/Icon";
+import NumberField from "../../components/NumberField";
 import OnboardingCard from "../../components/OnboardingCard";
+import { productErrorMessage } from "../../components/productErrors";
 import {
   Badge,
   Button,
@@ -55,7 +57,7 @@ export default function StoreProductsPage() {
       await reload();
       if (thenCamera.current) navigate(`/products/${created.data.id}?camera=1`);
     } catch (err) {
-      setError(errorMessage(err));
+      setError(productErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -112,19 +114,20 @@ export default function StoreProductsPage() {
               <Input value={name} onChange={(e) => setName(e.target.value)} required />
             </Field>
             <Field label="قیمت (تومان)">
-              <Input
-                type="number"
-                min="0"
+              <NumberField
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={setPrice}
+                unit="تومان"
+                placeholder="مثلاً ۳۰۰۰۰۰"
+                testId="product-price"
               />
             </Field>
             <Field label="موجودی">
-              <Input
-                type="number"
-                min="0"
+              <NumberField
                 value={stock}
-                onChange={(e) => setStock(e.target.value)}
+                onChange={setStock}
+                unit="عدد"
+                testId="product-stock"
               />
             </Field>
             <div className="sm:col-span-3">

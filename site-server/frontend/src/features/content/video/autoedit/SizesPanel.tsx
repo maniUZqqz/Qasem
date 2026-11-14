@@ -33,7 +33,7 @@ export function SizeChips({ sizes, picked, onToggle }: { sizes: SizeInfo[]; pick
                   className="rounded-lg px-3 py-1 text-sm"
                   style={{ border: `1px solid ${on ? "var(--brand)" : "var(--line)"}`, background: on ? "var(--brand-soft)" : "transparent", color: "var(--text)" }}
                 >
-                  {s.title} <span dir="ltr" className="text-xs" style={{ color: "var(--text-3)" }}>{s.width}×{s.height}</span>
+                  {s.title} <span dir="ltr" className="text-xs" style={{ color: "var(--text-3)" }}>{fa(s.width)}×{fa(s.height)}</span>
                 </button>
               );
             })}

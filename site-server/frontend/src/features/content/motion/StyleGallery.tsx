@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import Icon from "../../../components/Icon";
 import { Input, fa } from "../../../components/ui";
 import { Catalog, StyleDef, thumbUrl } from "./api";
+import { ownerLabel, styleMatches } from "./ownerNames";
 
 function Swatch({ s }: { s: StyleDef }) {
   const p = s.palette;
@@ -50,6 +51,7 @@ function Card({ s, active, onPick }: { s: StyleDef; active: boolean; onPick: () 
         </div>
         <div className="text-xs" style={{ color: "var(--text-3)", direction: "ltr", textAlign: "start" }}>
           {s.name_en}
+          {ownerLabel(s) ? ` · ${ownerLabel(s)}` : ""}
         </div>
         {s.inspired ? (
           <div className="mt-1 text-[11px] leading-5" style={{ color: "var(--text-3)" }}>
@@ -75,16 +77,7 @@ export default function StyleGallery({
   const [group, setGroup] = useState<string>("");
   const [q, setQ] = useState("");
   const list = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return catalog.styles.filter(
-      (s) =>
-        (!group || s.group === group) &&
-        (!needle ||
-          s.name_fa.includes(q.trim()) ||
-          s.name_en.toLowerCase().includes(needle) ||
-          s.tags.some((t) => t.includes(q.trim())) ||
-          (s.inspired || "").toLowerCase().includes(needle)),
-    );
+    return catalog.styles.filter((s) => (!group || s.group === group) && styleMatches(s, q));
   }, [catalog, group, q]);
   const current = catalog.styles.find((s) => s.id === value);
   return (

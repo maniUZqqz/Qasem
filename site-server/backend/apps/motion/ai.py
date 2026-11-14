@@ -35,6 +35,14 @@ def get_provider(store, kind: str | None = None):
 
 def explain(exc: Exception) -> str:
     text = str(exc or "").strip()
+    try:                                   # یک جملهٔ کوتاه («سرورِ پردازش خاموش است؛ متیس: …») به‌جای متنِ بلندِ تکراریِ هر دو مسیر
+        from apps.thumbs import hooks
+
+        short = hooks.reason_from_exception(exc, text, limit=200)
+        if short:
+            return short
+    except Exception:  # noqa: BLE001
+        pass
     if exc.__class__.__name__ in ("AllProvidersFailed", "PolicyBlocked") and text:
         return text[:400]
     try:
@@ -109,26 +117,101 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
                 "message": msg + ". یک پیش‌نویسِ ساده از روی متنِ خودتان ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید."}
 
 
+#: «سه مزیت: الف، ب و ج» / «چهار قدم تا اولین برنامه: …» / "three benefits: …" ⇒ عنوانِ فهرست + بدنه
+_COUNT = r"(?:[۰-۹0-9]+|دو|سه|چهار|پنج|شش|two|three|four|five|six)"
+_NOUN = r"(?:مزیت|نکته|قدم|گام|دلیل|ویژگی|امکان|مرحله|راه|مورد|حرکت|ترفند|benefits?|tips?|steps?|reasons?|features?|moves?)(?:‌ها)?"
+_LIST_INTRO = re.compile(r"^(?P<head>" + _COUNT + r"\s+" + _NOUN + r"(?:\s+[^\s:：]+){0,4})\s*[:：]\s*(?P<body>.+)$", re.S | re.I)
+#: جمله‌ای که «دستور به سازنده» است نه متنِ روی صفحه («در پایان دعوت به ثبت‌نام»)
+_CTA_SENTENCE = re.compile(r"^(?:و\s+|and\s+)?(?:در\s+(?:پایان|آخر|انتها)|پایان|آخر|انتها|at the end|in the end|finally|lastly)\b", re.I)
+_CTA_KINDS = (
+    (("ثبت‌نام", "ثبت نام", "عضویت", "sign up", "signup", "register"), ("همین حالا ثبت‌نام کنید", "ثبت‌نام"), ("Sign up now", "Sign up")),
+    (("خرید", "سفارش", "buy", "order"), ("همین حالا سفارش دهید", "سفارش"), ("Order now", "Order")),
+    (("تماس", "contact", "call us"), ("با ما تماس بگیرید", "تماس"), ("Get in touch", "Contact")),
+    (("دانلود", "نصب", "download", "install"), ("همین حالا دانلود کنید", "دانلود"), ("Download now", "Download")),
+    (("مشاوره", "advice", "consult"), ("مشاوره بگیرید", "مشاوره"), ("Get advice", "Ask us")),
+)
+
+
+def _fit(text: str, words: int, chars: int) -> str:
+    """متن را روی مرزِ واژه می‌برد و هیچ‌وقت وسطِ عبارت («بیش از | …») یا وسطِ واژه نمی‌شکند."""
+    text = re.sub(r"\s+", " ", text or "").strip(" -•\t،,;؛:")
+    if len(text.split()) <= words and len(text) <= chars:
+        return text
+    try:
+        from apps.thumbs import phrases
+
+        head, _ = phrases.clip(text, words, chars)
+        if head:
+            return head
+    except Exception:  # noqa: BLE001
+        pass
+    cut = " ".join(text.split()[:words])[:chars]
+    return cut.rsplit(" ", 1)[0] if " " in cut and len(cut) >= chars else cut
+
+
+def _items(body: str) -> list[str]:
+    """«الف، ب، و ج» ⇒ [الف، ب، ج]. جداکننده «،» است؛ «و»ِ آغازِ بند حذف می‌شود. در فهرستِ «الف، ب، ج و د» (بدونِ ویرگول پیش از «و») آخرین
+    بند فقط وقتی دو نیم‌شدنی باشد (دست‌کم دو واژه در هر طرف) و فهرست دست‌کم سه بند داشته باشد، در آخرین «و» شکسته می‌شود؛ «برنامهٔ ورزشی و غذایی»
+    (واژهٔ تک‌کلمه‌ای بعد از «و») هرگز نمی‌شکند."""
+    parts = [re.sub(r"^\s*(?:و|and)\s+", "", x, flags=re.I).strip(" -•\t.؛;") for x in re.split(r"[،,\n]+", body)]
+    parts = [x for x in parts if x]
+    if len(parts) >= 3 and not re.match(r"^\s*(?:و|and)\s+", re.split(r"[،,\n]+", body)[-1].strip() or "", re.I):
+        left, sep, right = parts[-1].rpartition(" و ") if " و " in parts[-1] else parts[-1].rpartition(" and ")
+        if sep and len(left.split()) >= 2 and len(right.split()) >= 2:
+            parts[-1:] = [left, right]
+    return [_fit(x, 14, 100) for x in parts][:5]
+
+
+def _cta_from(sentence: str, lang: str) -> tuple[str, str]:
+    low = sentence.lower()
+    for keys, fa_pair, en_pair in _CTA_KINDS:
+        if any(k in low for k in keys):
+            return fa_pair if lang == "fa" else en_pair
+    return ("همین حالا شروع کنید", "شروع") if lang == "fa" else ("Get started", "Start")
+
+
 def rules_scenes(idea: str, lang: str = "fa") -> list[dict]:
-    """بدونِ هوش مصنوعی: متنِ کاربر را به صحنه تقسیم می‌کند (عنوان، فهرست، دعوت به اقدام)."""
+    """بدونِ هوش مصنوعی: متنِ کاربر را به صحنه تقسیم می‌کند (عنوان، فهرست، دعوت به اقدام).
+
+    «معرفیِ چغر؛ سه مزیت: الف، ب و ج. در پایان دعوت به ثبت‌نام.» ⇒ عنوان «معرفیِ چغر»، فهرستِ «سه مزیت» با بندهای کامل و
+    دعوتِ «همین حالا ثبت‌نام کنید» با دکمهٔ «ثبت‌نام» (جمله‌های دستوری مثلِ «در پایان …» روی صفحه نمی‌آیند)."""
     parts = [p.strip(" -•\t") for p in re.split(r"[\n؛;.!؟?]+", idea) if p.strip(" -•\t")]
     if not parts:
         parts = [idea.strip()]
-    title = parts[0][:140]
-    rest = parts[1:]
-    scenes: list[dict] = [{"type": "title", "duration": 4, "title": title}]
-    if rest:
-        items = [x[:100] for x in rest[:5]]
-        last = None
-        if len(rest) >= 2:
-            last = rest[-1]
-            items = [x[:100] for x in rest[:-1][:5]]
-        if items:
-            scenes.append({"type": "list", "duration": min(9, 3 + 1.3 * len(items)), "title": "نکته‌ها" if lang == "fa" else "Highlights", "items": items})
-        if last:
-            scenes.append({"type": "cta", "duration": 4, "title": last[:140], "button": "همین حالا" if lang == "fa" else "Start now"})
+    first, rest = parts[0], parts[1:]
+    fa = lang == "fa"
+    list_title, items, cta_src, others = "", [], "", []
+    title_src = first
+    m = _LIST_INTRO.match(first)
+    if m:                                        # «چهار قدم تا اولین برنامه: …»: هم عنوانِ ویدیو است هم عنوانِ فهرست
+        words = m.group("head").split()
+        list_title, items = " ".join(words[:2]), _items(m.group("body"))
+        title_src = m.group("head") if len(words) > 2 else ""
+    for part in rest:
+        m = _LIST_INTRO.match(part)
+        if m and not items:
+            list_title, items = " ".join(m.group("head").split()[:2]), _items(m.group("body"))
+        elif _CTA_SENTENCE.match(part):
+            cta_src = cta_src or part
+        else:
+            others.append(part)
+    scenes: list[dict] = []
+    if title_src:
+        scenes.append({"type": "title", "duration": 4, "title": _fit(title_src, 12, 90)})
+    elif not items:
+        scenes.append({"type": "title", "duration": 4, "title": _fit(idea, 12, 90)})
+    if not items and others:                     # بدونِ «سه مزیت:»: بقیهٔ جمله‌ها بندهای فهرست‌اند (اگر چند تا باشد، آخری دعوت)
+        if len(others) >= 2 and not cta_src:
+            cta_src = others.pop()
+        items = [_fit(x, 14, 100) for x in others[:5]]
+    if items:
+        scenes.append({"type": "list", "duration": round(min(9.0, 3 + 1.3 * len(items)), 1), "title": list_title or ("نکته‌ها" if fa else "Highlights"),
+                       "items": items, "numbered": bool(list_title)})
+    if cta_src or len(scenes) > 1:
+        title, button = _cta_from(cta_src, lang)
+        scenes.append({"type": "cta", "duration": 4, "title": title, "button": button})
     else:
-        scenes.append({"type": "cta", "duration": 3, "title": "شروع کنید" if lang == "fa" else "Get started", "button": "ادامه" if lang == "fa" else "Go"})
+        scenes.append({"type": "cta", "duration": 3, "title": "شروع کنید" if fa else "Get started", "button": "ادامه" if fa else "Go"})
     return scenes
 
 

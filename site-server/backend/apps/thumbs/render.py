@@ -602,6 +602,8 @@ class Ctx:
         if not lg["show"] or self.inp.logo is None:
             return
         pos = lg["position"]
+        if pos == "auto" and getattr(self, "emblem_drawn", False):
+            return
         if pos == "auto":
             tile, (cx, cy) = self._auto_logo()
         else:

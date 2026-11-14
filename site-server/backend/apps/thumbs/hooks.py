@@ -340,6 +340,8 @@ def _idea(f: Formula, style: str, *, tp, n_txt: str, other: str, left: str, aud:
         sub = phrases.first_clause(prod.get("short") or "") or phrases.clip(tp.inner, 6, 40)[0] or tail or f.subtitle
     elif tail:
         sub = tail
+    elif tp.inner:
+        sub = phrases.first_clause(tp.inner, 8, 46) or f.subtitle         # «چغر؛ دستیار هوش مصنوعیِ مربی‌ها» ⇒ عنوان «چغر»، زیرعنوان «دستیار هوش مصنوعیِ مربی‌ها»
     idea = {
         "title": re.sub(r"\s+", " ", title).strip(), "subtitle": sub, "kicker": f.kicker, "number": n_txt if f.needs_number else "",
         "badge": prod.get("price_text", "") if prod and f.key == "new_product" else "",

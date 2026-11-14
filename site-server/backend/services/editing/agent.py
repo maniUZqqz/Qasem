@@ -83,6 +83,13 @@ def silence_summary(report: dict | None) -> dict | None:
     }
 
 
+def _fa(text) -> str:
+    """رقم‌های لاتین → فارسی برای متنی که آدم می‌خواند (پنل نیمی را فارسی و نیمی را لاتین نشان می‌داد)."""
+    from apps.common.fatext import fa_digits
+
+    return fa_digits(text)
+
+
 @dataclass
 class Plan:
     """What the agent intends, before anything is rendered."""
@@ -828,7 +835,7 @@ def judge(before: dict, after: dict, operations) -> tuple[bool, list[dict]]:
         if verdict == "worse":
             worse.append(title)
         effects.append({
-            "tool": key, "title": title, "verdict": verdict, "detail": detail,
+            "tool": key, "title": title, "verdict": verdict, "detail": _fa(detail),
             "before": metric_before, "after": metric_after,
         })
 
@@ -838,7 +845,7 @@ def judge(before: dict, after: dict, operations) -> tuple[bool, list[dict]]:
         worse.append("سفیدشدن پیکسل‌ها")
         effects.append({
             "tool": "clipping", "title": "پیکسل‌های سوخته", "verdict": "worse",
-            "detail": f"{clip_before * 100:.0f}٪ → {clip_after * 100:.0f}٪",
+            "detail": _fa(f"{clip_before * 100:.0f}٪ → {clip_after * 100:.0f}٪"),
             "before": clip_before, "after": clip_after,
         })
 

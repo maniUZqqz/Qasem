@@ -177,11 +177,26 @@ def create(store, user, *, mode: str, title: str = "", spec: dict | None = None,
             clean = specs.normalize_spec(spec or {}, max_total=max_total)
         except specs.SpecError as exc:
             raise MotionError(str(exc)) from exc
+        clean["brand"] = brand_with_defaults(store, clean.get("brand"))
         row = MotionRender(store=store, user=user, mode=mode, title=(title or _default_title(clean))[:200], spec=clean,
                            style=clean["style"], aspect=clean["aspect"], options=opts, target=target)
     row.message = "در صف"
     row.save()
     return row
+
+
+def brand_with_defaults(store, brand: dict | None) -> dict:
+    """رندری که از API (یا هر مسیری) بدونِ رنگ و لوگوی برند فرستاده شود، همان رنگ‌ها و لوگوی فروشگاه را می‌گیرد؛ پنل همیشه خودش پر می‌کند ولی
+    یک فراخوانِ مستقیم، ویدیوی بی‌لوگو با رنگ‌های پیش‌فرضِ سبک می‌ساخت. چیزی که کاربر صریح گذاشته بماند."""
+    b = dict(brand or {})
+    d = assets.store_defaults(store)
+    if b.get("use_brand_colors", True) and not b.get("colors") and d["colors"]:
+        b["colors"] = d["colors"]
+    if b.get("show_logo", True) and not b.get("logo") and d["logo"]:
+        b["logo"] = d["logo"]
+    if not b.get("name"):
+        b["name"] = d["name"]
+    return b
 
 
 def _default_title(spec: dict) -> str:

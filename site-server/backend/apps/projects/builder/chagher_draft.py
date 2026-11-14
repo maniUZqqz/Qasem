@@ -60,11 +60,35 @@ def blocks():
     return nav, page, foot
 
 
+def _lighten(hexv, k):
+    h = hexv.lstrip('#')
+    rgb = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    return '#%02x%02x%02x' % tuple(round(c + (255 - c) * k) for c in rgb)
+
+
+def readable_colors(colors):
+    """رنگِ برند روی زمینهٔ تیره (شفق، لوکسِ تیره) تباینِ ۳٫۳ می‌داد و متنِ کوچکِ آن (برچسبِ بالای تیتر، دکمهٔ دوم) خوانده نمی‌شد.
+    برندِ فیروزه‌ای همان خانواده می‌ماند ولی آن‌قدر روشن می‌شود که روی زمینه دست‌کم ۴٫۵ باشد؛ متنِ روی دکمهٔ پُر هم تیره می‌شود.
+    روی زمینهٔ روشن هیچ‌چیز عوض نمی‌شود (رنگِ برند همان است)."""
+    from .render import contrast
+    out = dict(colors)
+    if contrast(out['primary'], out['bg']) >= 4.5:
+        return out
+    for step in range(1, 41):
+        cand = _lighten(BRAND['primary'], step * 0.015)
+        if contrast(cand, out['bg']) >= 4.5:
+            out['primary'] = cand
+            break
+    out['on_primary'] = out['bg'] if contrast(out['bg'], out['primary']) >= contrast('#ffffff', out['primary']) else '#ffffff'
+    return out
+
+
 def theme(style=DEFAULT_STYLE):
     """سبک + رنگِ اصلیِ برند + قلمِ برند (وزیرمتن)؛ بقیهٔ پالت و شکل‌ها از سبک."""
     base = theme_mod.default_theme()
     base['colors']['primary'] = BRAND['primary']
     out = styles.apply_to_theme(base, style, keep_brand=True)
+    out['colors'] = readable_colors(out['colors'])
     out['font_head'] = out['font_body'] = 'vazirmatn'
     return theme_mod.clean_theme(out)
 
@@ -109,7 +133,7 @@ def create_draft(slug='chagher-landing', style=DEFAULT_STYLE):
     if p is not None:
         return p, False
     parts = build(style)
-    p = Project.objects.create(name='چغر — پیش‌نویسِ صفحهٔ فرود', slug=slug, brand_color=BRAND['primary'], site_title=BRAND['name'], description='پیش‌نویسِ صفحهٔ فرودِ چغر با سبکِ طراحی و قطعه‌های آماده (فقط پیش‌نویس).')
+    p = Project.objects.create(name='چغر — پیش‌نویسِ صفحهٔ فرود (%s)' % styles.STYLES[style]['label'], slug=slug, brand_color=BRAND['primary'], site_title=BRAND['name'], description='پیش‌نویسِ صفحهٔ فرودِ چغر با سبکِ طراحی و قطعه‌های آماده (فقط پیش‌نویس).')
     page = Page.objects.create(project=p, title='صفحهٔ اصلی', slug='', kind='home', body_html='', in_menu=False, order=10)
     Design.objects.create(project=p, target='page', page=page, draft=parts['page'], synced_hash=P.fingerprint(p, 'page', page))
     for target in ('header', 'footer'):

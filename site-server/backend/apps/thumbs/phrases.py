@@ -27,6 +27,9 @@ DETERMINERS = frozenset("""یک این آن هر همه چند دو سه چها�
 BOUNDARY = frozenset("""که با برای از در به تا بدون بی مثل مانند درباره دربارهٔ همراه بین""".split())
 #: حرفِ عطف: بریدنِ پیش از آن‌ها یک گروهِ هم‌پایه («شکم و پهلو») را می‌شکند
 COORD = frozenset("""و یا + &""".split())
+#: ترکیب‌های دووازه‌ای که یک مفهوم‌اند؛ عبارت بینشان بریده نمی‌شود
+COMPOUNDS = frozenset({("هوش", "مصنوعی"), ("یادگیری", "ماشین"), ("تناسب", "اندام"), ("شبکه", "اجتماعی"), ("کاهش", "وزن"), ("چربی", "سوزی"),
+                       ("عضله", "سازی"), ("برنامه", "ورزشی"), ("برنامه", "غذایی"), ("مربی", "بدنسازی")})
 QUESTION_START = frozenset("آیا چرا چطور چگونه چه کدام کی کجا چند".split())
 VERB_WORDS = frozenset("""کنیم کنید کنم کنند کند بکنیم بکنید بسازیم بسازید بسازد شویم شوید شوم شود بشویم بشوید بشود است هست هستند هستیم هستید
 باشد باشید باشیم نیست دارد دارند دارید داریم کرد شد بود بدانیم بدهیم ببریم بگیریم برسیم ببینیم بخوریم بخریم بسوزانیم بسوزانید بدهید بشناسیم
@@ -74,9 +77,10 @@ def _clean(text) -> str:
 
 
 _DASH = re.compile(r"\s+[—–]\s+")
+_CLAUSE_SPLIT = re.compile(r"\s*[؛;]\s*|(?<![0-9۰-۹])\s*[:：]\s+")
 
 
-def split_paren(text) -> tuple[str, str]:
+def split_paren(text, clause: bool = True) -> tuple[str, str]:
     """«الف (ب) — ج» ⇒ («الف»، «ب ج»): پرانتز و بخشِ بعد از خط‌تیرهٔ جداشده از عبارتِ اصلی جدا می‌شود (برای زیرعنوان)."""
     t = _clean(text)
     inner: list[str] = []
@@ -91,6 +95,12 @@ def split_paren(text) -> tuple[str, str]:
     if len(parts) > 1:
         t = parts[0]
         inner.extend(x.strip() for x in parts[1:])
+    # «چغر؛ دستیار هوش مصنوعیِ مربی‌ها …» / «چغر: دستیار …»: بخشِ پیش از «؛» یا «:» عنوان است و باقی توضیح (زیرعنوان)؛ وگرنه کلِ جمله
+    # عنوان می‌شد و روی «هوش | مصنوعی» بریده می‌شد. ساعت («۱۰:۳۰») و جمله‌های بدونِ توضیح دست نمی‌خورند.
+    cut = _CLAUSE_SPLIT.search(t) if clause else None
+    if cut and t[:cut.start()].strip(_EDGE) and len(t[cut.end():].split()) >= 2:
+        inner.insert(0, t[cut.end():].strip())
+        t = t[:cut.start()]
     return re.sub(r"\s+", " ", t).strip(_EDGE), " ".join(i for i in inner if i).strip(_EDGE)
 
 
@@ -114,6 +124,8 @@ def clip(text: str, max_words: int, max_chars: int = 0) -> tuple[str, str]:
         return " ".join(ws), ""
 
     def ok(k: int) -> bool:
+        if 1 <= k < len(ws) and (norm(ws[k - 1]), norm(ws[k])) in COMPOUNDS:
+            return False                                       # «هوش | مصنوعی»، «تناسب | اندام»: یک مفهومِ دووازه‌ای را نشکن
         return 1 <= k <= len(ws) and not dangling(ws[k - 1])
 
     def klass(k: int) -> int:
@@ -165,7 +177,7 @@ _STRONG = re.compile(r"\s*[.!؟?؛;\n]+\s*|\s+[—–]\s+|\s*—\s*|[:：]\s+|،
 def first_clause(text, max_words: int = 10, max_chars: int = 64) -> str:
     """از یک توضیحِ بلند (مثلاً توضیحِ محصول) کوتاه‌ترین بخشِ کامل و بی‌خطر را برمی‌دارد: اولین «بند» (تا نقطه، «؛»، «—»، «،»)
     و اگر هنوز بلند است، تا نزدیک‌ترین مرزِ طبیعی. بندی که قیمت/درصد/تخفیف/تضمین دارد کنار گذاشته می‌شود (ادعا نمی‌سازیم)."""
-    body = split_paren(text)[0]
+    body = split_paren(text, clause=False)[0]
     for part in _STRONG.split(body):
         part = part.strip(_EDGE)
         if not part or any(w in part for w in _RISKY) or not typo.is_rtl(part):

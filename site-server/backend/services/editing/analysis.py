@@ -52,6 +52,14 @@ FLICKER_DELTA = video_qc.FLICKER_DELTA
 CAST_DELTA = video_qc.CAST_DELTA
 
 
+
+def _fa(text) -> str:
+    """رقم‌های لاتین → فارسی برای متنی که آدم می‌خواند (پنل نیمی را فارسی و نیمی را لاتین نشان می‌داد)."""
+    from apps.common.fatext import fa_digits
+
+    return fa_digits(text)
+
+
 def has_audio(path) -> bool:
     """Whether there is an audio stream at all.
 
@@ -520,7 +528,7 @@ def obvious_problems(facts: dict) -> list[dict]:
     if facts.get("has_audio") and (facts.get("silence_seconds") or 0) > 2:
         found.append({
             "what": "silence",
-            "note": (
+            "note": _fa(
                 f"{facts['silence_count']} سکوت، روی‌هم "
                 f"{facts['silence_seconds']:.0f} ثانیه"
             ),

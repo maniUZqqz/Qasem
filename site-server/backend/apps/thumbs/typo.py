@@ -121,15 +121,26 @@ def parse_marked(text: str) -> tuple[list[list[tuple[str, bool]]], bool]:
     out: list[list[tuple[str, bool]]] = []
     for seg in forced:
         words: list[tuple[str, bool]] = []
+        # تکه‌ها: متنِ ساده و «*پررنگ*»؛ نوشتهٔ چسبیده به ستاره («*یک دقیقه*؟»، «*چغر*،») به همان واژه می‌چسبد و واژهٔ جدا نمی‌شود
+        runs: list[tuple[str, bool]] = []
         pos = 0
         for m in _HL_RE.finditer(seg):
-            for w in seg[pos:m.start()].split():
-                words.append((w, False))
-            for w in m.group(1).split():
-                words.append((w, True))
+            runs.append((seg[pos:m.start()], False))
+            runs.append((m.group(1), True))
             pos = m.end()
-        for w in seg[pos:].split():
-            words.append((w, False))
+        runs.append((seg[pos:], False))
+        glue = False                       # تکهٔ قبلی به نویسه‌ای غیر از فاصله ختم شد
+        for text, flag in runs:
+            if not text:
+                continue
+            toks = text.split()
+            if toks:
+                if glue and not text[0].isspace() and words:
+                    pw, pf = words[-1]
+                    words[-1] = (pw + toks[0], pf or flag)
+                    toks = toks[1:]
+                words.extend((w, flag) for w in toks)
+            glue = not text[-1].isspace()
         out.append(words)
     return [ln for ln in out if ln], marked
 

@@ -75,6 +75,18 @@ def _fade_side(c: Ctx, side: str) -> str:
     return "top"
 
 
+def _brand_emblem(c: Ctx, cx: float, cy: float, radius: float) -> bool:
+    """بدونِ عکسِ سوژه، حلقهٔ وسطِ طرح خالی و «ناتمام» دیده می‌شد؛ اگر فروشگاه لوگو دارد، نشانِ برند (روی دیسکِ سفید) جایش را می‌گیرد."""
+    if c.inp.logo is None:
+        return False
+    side = radius * 2 * 0.66
+    mark = P.contain(P.crop_to_alpha(c.inp.logo.convert("RGBA")), side, side)
+    c.center_add("دیسکِ نشانِ برند", "shape", S.circle(radius, fill="#ffffff", alpha=0.94), (cx, cy))
+    c.center_add("نشانِ برند", "accent", mark, (cx, cy))
+    c.emblem_drawn = True                                        # همان لوگو را دوباره در گوشه نگذار (جایگاهِ «خودکار»)
+    return True
+
+
 def _fallback_hero(c: Ctx, rect, accent: str | None = None, alt: str | None = None) -> None:
     """وقتی عکسِ سوژه نیست: یک «صحنهٔ انتزاعی» (هالهٔ نرم، دو حلقه، چند نقطهٔ شناور) تا جای خالی نماند.
 
@@ -86,6 +98,7 @@ def _fallback_hero(c: Ctx, rect, accent: str | None = None, alt: str | None = No
     a, b = accent or p.accent, alt or p.accent2
     c.add("هالهٔ پسِ صحنه", "fx", P.glow_blob(c.size, (cx, cy), r * 1.4, a, 0.4))
     c.center_add("دیسکِ نرم", "shape", S.circle(r * 0.62, fill=a, alpha=0.18), (cx, cy))
+    _brand_emblem(c, cx, cy, r * 0.62)
     c.center_add("حلقهٔ بیرونی", "shape", S.ring(r, c.u(4), a, 0.7), (cx, cy))
     c.center_add("حلقهٔ میانیِ خط‌چین", "shape", S.ring(r * 0.76, c.u(3), "#ffffff", 0.4, dash=True), (cx, cy))
     base = c.rnd.uniform(0, 2 * math.pi)
@@ -418,6 +431,7 @@ def minimal_luxury(c: Ctx) -> None:
         r0 = min(sub_rect[2] - sub_rect[0], sub_rect[3] - sub_rect[1])
         c.center_add("حلقهٔ تزئینی", "shape", S.ring(r0 * 0.28, c.u(3), p.accent, 0.9), (cxs, cys))
         c.center_add("حلقهٔ تزئینیِ دوم", "shape", S.ring(r0 * 0.2, c.u(2), p.accent, 0.6, dash=True), (cxs, cys))
+        _brand_emblem(c, cxs, cys, r0 * 0.185)
     items = c.stack(text_rect, [("kicker", 0.14), ("title", 1.0), ("subtitle", 0.42)])
     al = "center"
     fk = c.font_key if c.font_key != "lalezar" else "estedad"
@@ -1036,7 +1050,10 @@ def retro_poster(c: Ctx) -> None:
     if c.has("kicker"):
         lab = typo.label(c.content["kicker"], int(c.W * 0.03), font_key="estedad", weight=800, fill=cream_hi, bg=ink, radius=0.2)
         if lab:
-            c.add("برچسبِ بالا", "badge", lab, (W / 2 - lab.width / 2, c.u(24) - lab.height / 2))
+            lx, ly = W / 2 - lab.width / 2, c.u(24) - lab.height / 2
+            if any(c._overlap((lx, ly, lx + lab.width, ly + lab.height), a) > 0 for a in c.avoid):
+                ly = y0                                          # استوری/ریلز: نوارِ بالای برنامه روی برچسب می‌افتاد؛ زیرِ آن می‌نشیند
+            c.add("برچسبِ بالا", "badge", lab, (lx, ly))
     rad = c.W * (0.085 if wide else 0.1)
     _price_burst(c, c.clear_of_avoid((sr[2] - rad, sr[1] + rad * 1.2), rad), rad, hot, fg=pm.on(hot), outline=ink, rot=-12)
     c.finish(grain_amount=0.03, vign=0.2)

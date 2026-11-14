@@ -259,7 +259,8 @@ class RenderAndHistoryTests(ThumbsApiBase):
         self.store.logo.name = "logo.png"
         self.store.save()
         item = self.render()["items"][0]
-        self.assertIn("لوگو", [layer["name"] for layer in item["layers"]])
+        names = [layer["name"] for layer in item["layers"]]
+        self.assertTrue("لوگو" in names or "نشانِ برند" in names, names)       # بدونِ عکسِ سوژه، لوگو به‌صورتِ «نشانِ برند» در قلبِ طرح می‌آید
         self.assertEqual(item["palette"]["primary"], "#126f85")
 
     def test_variant_cap_and_history_cap(self):

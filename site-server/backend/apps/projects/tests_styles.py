@@ -780,7 +780,13 @@ class ChagherDraftTests(Base):
         for style in S.ORDER:
             parts = D.build(style)
             self.assertEqual(parts['theme']['style'], style)
-            self.assertEqual(parts['theme']['colors']['primary'], '#126f85', style)
+            c = parts['theme']['colors']
+            self.assertGreaterEqual(R.contrast(c['primary'], c['bg']), 4.5, style)             # متنِ کوچکِ رنگِ برند روی زمینهٔ هر سبک خوانا است
+            self.assertGreaterEqual(R.contrast(c['on_primary'], c['primary']), 4.5, style)     # و متنِ روی دکمهٔ پُر
+            if style not in ('aurora', 'dark-luxury'):
+                self.assertEqual(c['primary'], '#126f85', style)           # روی زمینهٔ روشن رنگِ برند دقیقاً همان است
+            else:                                                          # روی زمینهٔ تیره: همان فیروزه ولی روشن‌تر (هر کانال دست‌کم برابرِ رنگِ برند)
+                self.assertTrue(all(int(c['primary'][i:i + 2], 16) >= int('126f85'[i - 1:i + 1], 16) for i in (1, 3, 5)), (style, c['primary']))
             self.assertEqual(parts['theme']['font_head'], 'vazirmatn')
             for target in ('header', 'page', 'footer'):
                 out = R.render_doc(parts[target], R.Ctx(target=target, theme=parts['theme']['colors']))
@@ -822,6 +828,13 @@ class ChagherDraftTests(Base):
             self.assertIn(must, joined)
         self.assertNotRegex(joined, r'(?i)adobe|photoshop|premiere')
         self.assertEqual(parts['theme']['colors']['primary'], D.BRAND['primary'].lower())
+
+    def test_each_draft_name_tells_the_style(self):
+        from apps.projects.builder import chagher_draft as D
+        a, _ = D.create_draft('chg-a', 'bento-grid')
+        b, _ = D.create_draft('chg-b', 'aurora')
+        self.assertNotEqual(a.name, b.name)
+        self.assertIn(S.STYLES['aurora']['label'], b.name)
 
     def test_create_draft_is_draft_only_and_idempotent(self):
         from apps.projects.builder import chagher_draft as D

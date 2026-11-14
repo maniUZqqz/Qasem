@@ -14,7 +14,7 @@ import LookPanel from "./editor/LookPanel";
 import { ExportActions, PreviewPanel, ProjectJobs } from "./editor/SidePanels";
 import Summary from "./editor/Summary";
 import Timeline from "./editor/Timeline";
-import { Advanced, ButtonTabs, JobSteps, Muted, Section, useCatalog, usePoll, useStatus, useToast } from "./shared";
+import { Advanced, ButtonTabs, JobSteps, Muted, Section, queuedText, useCatalog, usePoll, useStatus, useToast } from "./shared";
 import type { Estimate, Issue, Item, JobKind, Project, QualityOverride, SceneDoc, Track, UploadResult } from "./types";
 
 /**
@@ -214,12 +214,7 @@ export default function ProjectPage() {
     }
     try {
       const j = await up3d.startJob(pid, actionFor(kind, body.profile as string | undefined), body);
-      toast(
-        j.waiting && j.waiting.eligible.length === 0
-          ? `کار #${fa(j.id)} ساخته شد ولی کارگرِ مناسبی آنلاین نیست — بخشِ ۵ را ببینید`
-          : `کار #${fa(j.id)} در صف گذاشته شد`,
-        !!(j.waiting && j.waiting.eligible.length === 0),
-      );
+      toast(queuedText(j), false);
       await load(false);
     } catch (e) {
       toast(errMsg(e), true);
@@ -227,14 +222,12 @@ export default function ProjectPage() {
   };
   const render = (prof: string, allowCpu: boolean, q: QualityOverride | null) =>
     void startJob("render", { profile: prof, ...(allowCpu ? { allow_cpu: true } : {}), ...(hasQuality(q) ? { quality: q } : {}) });
+  // کارگرِ آماده ⇒ همان لحظه؛ وگرنه کار در صفِ ماندگار می‌ماند و با روشن‌شدنِ سرورِ پردازش خودش اجرا می‌شود
+  // (اجرا روی CPU ِ سرور دکمهٔ جدا دارد، چون ساعت‌ها طول می‌کشد)
   const renderSelected = () => {
     const e = est[profile];
     if (!e) return;
-    if (e.available) render(profile, false, quality);
-    else if (e.cpu_seconds) {
-      if (e.cpu_seconds > 1800 && !window.confirm(`روی CPU ِ سرور حدودِ ${Math.round(e.cpu_seconds / 60)} دقیقه طول می‌کشد. شروع شود؟`)) return;
-      render(profile, true, quality);
-    }
+    render(profile, false, quality);
   };
   const cancelJob = async (jid: number) => {
     try {

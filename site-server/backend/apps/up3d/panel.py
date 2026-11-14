@@ -99,7 +99,7 @@ def catalog(request):
 def asset_thumbnails(request):
     """ساختِ تصویر/پیش‌نمایشِ دارایی‌ها با خودِ موتور: {kind, ids?} ⇐ کارِ thumbnail در صف."""
     kind = (request.data.get('kind') or '').strip()
-    if kind not in ('character', 'motion', 'environment', 'product'):
+    if kind not in ('character', 'motion', 'environment', 'product', 'lighting', 'shot'):
         raise exceptions.ValidationError('دستهٔ «%s» تصویرپذیر نیست' % kind)
     ids = request.data.get('ids') or [a.id for a in SV.reg().list(kind)]
     if isinstance(ids, str):

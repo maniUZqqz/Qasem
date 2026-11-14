@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import Icon from "../../../components/Icon";
 import { Alert, Badge, Button } from "../../../components/ui";
 import { P, dur, errMsg, fa, up3d } from "./api";
+import { queuedText } from "./queueText";
 import type { Catalog, Job, JobState, Status } from "./types";
 
 /**
@@ -121,7 +122,9 @@ export function JobLine({ job, action }: { job: Job; action?: ReactNode }) {
       {job.waiting && job.waiting.eligible.length === 0 && (
         <div className="mt-1 text-xs font-semibold" style={{ color: "var(--warn)" }}>
           منتظرِ کارگر —{" "}
-          {job.waiting.needs_gpu && !job.waiting.allow_cpu ? "این کیفیت کارگرِ GPU می‌خواهد و کارگرِ GPU آنلاین نیست" : "هیچ کارگری آنلاین نیست"}
+          {job.waiting.needs_gpu && !job.waiting.allow_cpu
+            ? `این کیفیت کارگرِ GPU می‌خواهد و کارگرِ GPU آنلاین نیست${(job.waiting.gpu_nodes || []).length ? " · با روشن‌شدنِ سرورِ پردازش خودکار اجرا می‌شود" : ""}`
+            : "هیچ کارگری آنلاین نیست"}
         </div>
       )}
       {action && <div className="mt-1.5">{action}</div>}
@@ -192,6 +195,8 @@ export function Advanced({
   );
 }
 
+export { queuedText };
+
 /**
  * کارِ آماده ولی بی‌کارگر: می‌گوید چرا (GPU لازم است / کسی آنلاین نیست)، کدام کارگرها آنلاین‌اند،
  * و سه راهِ پیشِ رو: اجرا روی CPU، راه‌اندازیِ کارگرِ GPU، لغو.
@@ -205,9 +210,13 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
   const gpuOnly = w.needs_gpu && !w.allow_cpu;
   const canCpu = !ready && gpuOnly && w.online.length > 0;
   // سرورِ پردازشِ GPU آنلاین است ولی کارگرِ سه‌بعدی‌اش نه ⇐ همین‌جا روشنش کن
-  const idleGpuNodes = (w.gpu_nodes || []).filter((n) => n.online && !n.worker_online && !n.via_queue);
   // عامل ۲٫۱۲ به بالا: کارِ سه‌بعدی در «صفِ پردازش» می‌ماند و با روشن‌بودنِ سرور خودکار اجرا می‌شود (بی‌هیچ کلیک)
   const queueNodes = (w.gpu_nodes || []).filter((n) => n.via_queue);
+  // سرورِ پردازشِ GPU ثبت است ولی عاملش هنوز قدیمی است (یا آفلاین): با اولین روشن‌شدن خودکار به‌روز می‌شود و کار را برمی‌دارد
+  const autoNodes = (w.gpu_nodes || []).filter((n) => !n.via_queue);
+  const waitsForNode = !ready && queueNodes.length === 0 && gpuOnly && autoNodes.length > 0;
+  // روشِ دستیِ قدیمی (فقط وقتی مسیرِ خودکار در کار نیست)
+  const idleGpuNodes = waitsForNode ? [] : (w.gpu_nodes || []).filter((n) => n.online && !n.worker_online && !n.via_queue);
   const enable = async (id: number, name: string) => {
     setBusyNode(id);
     try {
@@ -221,15 +230,26 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
   };
   return (
     <Alert
-      tone={ready || queueNodes.length > 0 ? "info" : "warn"}
+      tone={ready || queueNodes.length > 0 || waitsForNode ? "info" : "warn"}
       title={
         ready
           ? `کارگرِ «${w.eligible.join("، ")}» آماده است؛ کارِ #${fa(job.id)} تا چند ثانیهٔ دیگر شروع می‌شود`
           : queueNodes.length > 0
             ? `کارِ #${fa(job.id)} در صفِ سرورِ پردازشِ GPU است و خودکار اجرا می‌شود`
-            : `کارِ #${fa(job.id)} منتظرِ کارگر است و هیچ کارگرِ مناسبی آنلاین نیست`
+            : waitsForNode
+              ? `کارِ #${fa(job.id)} منتظرِ سرورِ پردازشِ GPU است و با روشن‌شدنِ آن خودکار اجرا می‌شود`
+              : `کارِ #${fa(job.id)} منتظرِ کارگر است و هیچ کارگرِ مناسبی آنلاین نیست`
       }
     >
+      {waitsForNode &&
+        autoNodes.map((n) => (
+          <div key={n.id} className="mb-1">
+            سرورِ پردازشِ <b>{n.name}</b> ({Array.isArray(n.gpu) ? n.gpu.join("، ") : n.gpu}):{" "}
+            {n.online
+              ? "آنلاین است و عاملش در حالِ به‌روزرسانیِ خودکار است؛ بعد از آن Blender را نصب می‌کند و این کار را برمی‌دارد."
+              : "آفلاین است. همین که روشن شود، خودش را به‌روز می‌کند، Blender را نصب می‌کند و این کار را اجرا می‌کند؛ کاری از شما لازم نیست."}
+          </div>
+        ))}
       {queueNodes.map((n) => (
         <div key={n.id} className="mb-1">
           سرورِ پردازشِ <b>{n.name}</b> ({Array.isArray(n.gpu) ? n.gpu.join("، ") : n.gpu}):{" "}
@@ -245,7 +265,7 @@ export function WaitingAlert({ job, onAllowCpu, onCancel }: { job: Job; onAllowC
       {w.v13 && queueNodes.length === 0 && (
         <div className="mb-1">این کار از قابلیت‌های موتورِ ۱٫۳ استفاده می‌کند؛ فقط به کارگرِ به‌روز می‌رسد.</div>
       )}
-      {!ready && queueNodes.length === 0 && (
+      {!ready && queueNodes.length === 0 && !waitsForNode && (
         <div>
           {gpuOnly ? `کیفیتِ «${job.profile}» کارگرِ GPU می‌خواهد. ` : ""}
           {w.online.length

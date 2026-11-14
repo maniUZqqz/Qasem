@@ -1,9 +1,10 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import Icon from "../../../components/Icon";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, PageHeader, Spinner, Table } from "../../../components/ui";
 import { ago, errMsg, fa, up3d } from "./api";
-import { Muted, useToast } from "./shared";
+import { Advanced, Muted, useToast } from "./shared";
 import type { GpuNode, Worker } from "./types";
 
 /**
@@ -126,9 +127,9 @@ export default function WorkersPage() {
     <div className="space-y-4">
       <PageHeader title="کارگرهای رندر" />
       <Muted>
-        رندرِ سنگین داخلِ پنل اجرا نمی‌شود؛ «کارگر» کار را از پنل می‌گیرد، با Blender رندر می‌کند و نتیجه را پس می‌فرستد. کارگرِ{" "}
-        <b>server-cpu</b> روی همین سرور با اولویتِ پایین فقط وقتی کار می‌کند که GPU نیست یا سرش گرم است. برای کیفیتِ
-        <b> استاندارد/بالا/4K</b> «رندرِ سه‌بعدی» ِ سرورِ پردازش (RTX 3060) را روشن کنید — همان کد، ده‌ها برابر سریع‌تر.
+        رندرِ سنگین داخلِ پنل اجرا نمی‌شود؛ «کارگر» کار را می‌گیرد، با Blender رندر می‌کند و نتیجه را پس می‌فرستد. کارگرِ <b>server-cpu</b> روی همین
+        سرور با اولویتِ پایین فقط پیش‌نمایش می‌سازد. کیفیتِ <b>استاندارد/بالا/4K</b> روی کارتِ گرافیکِ «سرورِ پردازش» (مثلاً RTX 3060) اجرا می‌شود و
+        همه‌چیزش خودکار است: چیزی نصب یا روشن نمی‌کنید، فقط سرورِ پردازش را به‌روز و روشن می‌کنید.
       </Muted>
       <ErrorBox message={error} />
 
@@ -137,13 +138,29 @@ export default function WorkersPage() {
           سرورهای پردازشِ GPU (رندرِ سه‌بعدی)
         </h2>
         <Muted>
-          کارها اول به GPU می‌روند: تا وقتی کارگرِ GPU ِ بیکار آنلاین است، سرور هیچ رندری برنمی‌دارد؛ اگر GPU سرش گرم است، سرور فقط
-          کارهای سبک (انیمیک، پیش‌نمایش، تصویر) را می‌سازد. کارِ سنگینی که با «اجرا روی CPU» روی سرور است، با آمدنِ GPU به آن واگذار
-          می‌شود و برای کارِ کوتاهِ تازه موقتاً کنار می‌رود (فریم‌های ساخته‌شده می‌مانند). روی سرورِ پردازش «رندرِ سه‌بعدی» را روشن کنید
-          (همین‌جا، یا ابزارها ← سرورهای پردازش ← سرویس‌ها ← «رندرِ سه‌بعدی»)؛ با «سوئیچِ خودکار» هر وقت کارِ سه‌بعدی منتظر باشد خودش
-          روشن می‌شود. بارِ اول worker-3d.bat ِ آن کامپیوتر Blender 4.5 (~۴۰۰ مگابایت) و دادهٔ کاراکترهای MPFB
-          (~۴۳۰ مگابایت) را از همین سایت می‌گیرد — دانلود ادامه‌پذیر است و پیش از باز شدن وارسی می‌شود. پوشهٔ processing ِ آن کامپیوتر
-          باید به‌روز باشد (git pull).
+          وقتی سرورِ پردازش را روشن می‌کنید، خودش این‌ها را انجام می‌دهد (پیشرفت و خطاها در همین جدول و در «سرورهای پردازش ← نصبِ خودکار» دیده می‌شود):
+        </Muted>
+        <ol className="mt-1 space-y-1 text-sm" style={{ color: "var(--text-2)", paddingInlineStart: "1.3em", listStyle: "decimal" }}>
+          <li>نرم‌افزارِ خودش را از همین سایت به‌روز می‌کند (به‌روزرسانیِ خودکار).</li>
+          <li>
+            Blender 4.5 را (~۴۰۰ مگابایت؛ اندازه و sha256 وارسی می‌شود) از آینهٔ همین سایت نصب می‌کند و کارتِ گرافیک را وارسی می‌کند (OptiX، وگرنه CUDA)؛ دادهٔ مجری‌های انسانی
+            (MPFB، ~۴۳۰ مگابایت) هم بعد از آن نصب می‌شود و جلوی رندرها را نمی‌گیرد.
+          </li>
+          <li>
+            رندر یک «کارِ صفِ پردازش» است و با کارهای سنگینِ دیگرِ همان کارت (Ollama، ComfyUI، صدا، ویدئو) یکی‌یکی اجرا می‌شود؛ پیش از رندر حافظهٔ کارت آزاد می‌شود.
+          </li>
+          <li>کارهای منتظر (مثلِ رندرِ کیفیتِ بالا که وقتی سرور خاموش بود در صف گذاشتید) در صفِ ماندگار می‌مانند و با روشن‌شدنِ سرور خودشان اجرا می‌شوند.</li>
+          <li>
+            آزمون‌های خودکارِ <code className="u3d-mono">up3d_stage</code> و <code className="u3d-mono">up3d_phone</code> با اولین اتصال (و هر شب) اجرا می‌شوند؛ نتیجه در{" "}
+            <Link to="/tools/compute/selftest" style={{ color: "var(--brand-strong)" }}>
+              آزمونِ خودکار
+            </Link>
+            .
+          </li>
+        </ol>
+        <Muted className="mt-2">
+          ترتیب: تا وقتی کارگرِ GPU ِ بیکار آنلاین است، سرورِ سایت رندری برنمی‌دارد؛ اگر GPU سرش گرم است، سرور فقط کارهای سبک (انیمیک، پیش‌نمایش، تصویر) را می‌سازد.
+          کارِ سنگینی که با «اجرا روی CPU» روی سرور است، با آمدنِ GPU به آن واگذار می‌شود.
         </Muted>
         {nodes.length === 0 ? (
           <div className="mt-2 text-sm" style={{ color: "var(--text-3)" }}>
@@ -174,7 +191,7 @@ export default function WorkersPage() {
                     </td>
                     <td className="text-xs">{Array.isArray(n.gpu) ? n.gpu.join(", ") : n.gpu}</td>
                     <td className="text-xs">
-                      {n.blender ? <Badge tone="ok">هست</Badge> : <Badge tone="warn">نیست — بارِ اول دانلود می‌شود</Badge>}
+                      {n.blender ? <Badge tone="ok">هست</Badge> : <Badge tone="warn">نیست — خودکار نصب می‌شود</Badge>}
                       {n.via_queue && n.install?.state && (
                         <div style={{ color: n.install.state === "failed" ? "var(--bad)" : "var(--text-3)" }}>
                           نصبِ خودکار: {n.install.state === "ready" ? "آماده" : n.install.state === "failed" ? "ناموفق" : "در حالِ انجام"}
@@ -184,15 +201,17 @@ export default function WorkersPage() {
                     </td>
                     <td className="text-xs">
                       {n.via_queue ? (
-                        <Badge tone="ok">از راهِ صفِ پردازش</Badge>
+                        <Badge tone="ok">خودکار — از راهِ صفِ پردازش</Badge>
                       ) : n.worker3d_running ? (
-                        <Badge tone="ok">در حالِ اجرا</Badge>
+                        <Badge tone="ok">در حالِ اجرا (روشِ قدیمی)</Badge>
                       ) : (
-                        <Badge>خاموش</Badge>
-                      )}{" "}
-                      <span style={{ color: "var(--text-3)" }}>
-                        {n.desired === true ? "· پنل: روشن" : n.desired === false ? "· پنل: خاموش" : n.auto_switch ? "· خودکار" : "· پیش‌فرضِ گره"}
-                      </span>
+                        <Badge tone="warn">منتظرِ به‌روزرسانیِ عامل</Badge>
+                      )}
+                      {!n.via_queue && (
+                        <div style={{ color: "var(--text-3)" }}>
+                          عاملِ {n.agent || "?"} قدیمی است؛ همین که سرور روشن شود خودکار به‌روز می‌شود و رندرِ سه‌بعدی بی‌هیچ کلیکی شروع می‌شود.
+                        </div>
+                      )}
                     </td>
                     <td className="text-xs">
                       {n.worker_online ? (
@@ -200,7 +219,7 @@ export default function WorkersPage() {
                           <Badge tone={n.worker_capable ? "ok" : "warn"}>{n.worker_capable ? "آنلاین" : "قدیمی"}</Badge>{" "}
                           {n.worker_gpu ? "GPU" : "بی‌GPU؟"} {n.worker_blender || ""} {n.worker_version ? `· up3d ${n.worker_version}` : ""}
                           {!n.worker_capable && (
-                            <div style={{ color: "var(--warn)" }}>پوشهٔ processing ِ این کامپیوتر قدیمی است؛ git pull کنید تا کار بگیرد</div>
+                            <div style={{ color: "var(--warn)" }}>نرم‌افزارِ این کامپیوتر قدیمی است؛ با Update.bat (یا به‌روزرسانیِ خودکارِ سرورِ پردازش) به‌روز می‌شود</div>
                           )}
                           {n.worker_capable && n.worker_mpfb === false && (
                             <div style={{ color: "var(--warn)" }}>دادهٔ کاراکترهای MPFB نیست ⇐ صحنه‌های با مجریِ ساخته‌شده به آن نمی‌رود</div>
@@ -211,23 +230,31 @@ export default function WorkersPage() {
                       )}
                     </td>
                     <td>
-                      <div className="flex flex-wrap gap-1.5">
-                        {n.desired !== true && (
-                          <Button size="sm" disabled={nodeBusy === n.id || !n.startable} onClick={() => void setNode3d(n, true)}>
-                            روشن کن
-                          </Button>
-                        )}
-                        {n.desired !== false && (
-                          <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, false)}>
-                            خاموش
-                          </Button>
-                        )}
-                        {n.desired != null && (
-                          <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, null)}>
-                            خودکار
-                          </Button>
-                        )}
-                      </div>
+                      {n.via_queue ? (
+                        <Link to="/tools/compute/selftest" className="u-btn u-btn-secondary u-btn-sm no-underline">
+                          آزمونِ خودکار
+                        </Link>
+                      ) : n.online ? (
+                        <Advanced title="روشِ دستیِ قدیمی" hint="فقط برای عاملِ قدیمی؛ لازم نیست">
+                          <div className="flex flex-wrap gap-1.5">
+                            {n.desired !== true && (
+                              <Button size="sm" disabled={nodeBusy === n.id || !n.startable} onClick={() => void setNode3d(n, true)}>
+                                روشن کن
+                              </Button>
+                            )}
+                            {n.desired !== false && (
+                              <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, false)}>
+                                خاموش
+                              </Button>
+                            )}
+                            {n.desired != null && (
+                              <Button size="sm" variant="ghost" disabled={nodeBusy === n.id} onClick={() => void setNode3d(n, null)}>
+                                خودکار
+                              </Button>
+                            )}
+                          </div>
+                        </Advanced>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -371,8 +398,11 @@ export default function WorkersPage() {
 
         <Card>
           <h2 className="text-lg font-bold" style={{ color: "var(--text)" }}>
-            راه‌اندازی روی کامپیوترِ ویندوز با کارتِ گرافیک
+            کارگرِ دستی روی یک کامپیوترِ دیگر (اختیاری)
           </h2>
+          <Muted className="mt-1">
+            برای «سرورِ پردازش»ی که در جدولِ بالاست لازم نیست؛ آن خودکار است. این روش فقط برای کامپیوترِ ویندوزِ دیگری با کارتِ گرافیک است که سرورِ پردازش ثبت نشده.
+          </Muted>
           <ol className="mt-2 space-y-1.5 text-sm" style={{ color: "var(--text-2)", paddingInlineStart: "1.3em", listStyle: "decimal" }}>
             <li>
               <b>Blender 4.5 LTS</b> و <b>Python 3.10+</b> را نصب کنید (از سایتِ رسمی).

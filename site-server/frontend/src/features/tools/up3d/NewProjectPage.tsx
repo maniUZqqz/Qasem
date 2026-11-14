@@ -191,6 +191,8 @@ export default function NewProjectPage() {
   const chosenEnv = cat.environment.find((e) => e.id === environment);
   const chosenVoice = cat.voice.find((v) => v.id === voice);
   const chosenTpl = templates.find((t) => t.id === template);
+  // قالبِ تبلیغاتیِ بی‌مجری: شکلِ محصول را خودِ قالب می‌گذارد، مجری و گفتار ندارد و صحنه (استیج) را خودش می‌چیند
+  const adShape = isAd && chosenTplMeta?.asset ? cat.product.find((p) => p.id === chosenTplMeta.asset) : undefined;
 
   const summary = (
     <Card>
@@ -205,25 +207,40 @@ export default function NewProjectPage() {
               {productName.trim() || <span style={{ color: "var(--bad)" }}>نام لازم است</span>}
               {brand.trim() ? ` · ${brand.trim()}` : ""}
               {" · "}
-              {modelFile.path ? "مدلِ خودتان" : label(chosenProduct)}
+              {adShape ? label(adShape) : modelFile.path ? "مدلِ خودتان" : label(chosenProduct)}
             </td>
           </tr>
-          <tr>
-            <td>مجری / محیط</td>
-            <td>
-              {label(chosenChar)} · {label(chosenEnv)}
-            </td>
-          </tr>
-          <tr>
-            <td>صدا / قاب</td>
-            <td>
-              {label(chosenVoice)} · {ASPECT_FA[aspect] || aspect}
-            </td>
-          </tr>
-          <tr>
-            <td>لحن</td>
-            <td>{tone}</td>
-          </tr>
+          {isAd ? (
+            <>
+              <tr>
+                <td>مجری / صحنه</td>
+                <td>بی‌مجری · استیجِ آماده با نورِ استودیویی و دوربینِ سینمایی (بعد از ساخت در ویرایشگر قابلِ تغییر است)</td>
+              </tr>
+              <tr>
+                <td>گفتار / قاب</td>
+                <td>بی‌گفتار (فقط تصویر و نوشته‌های خودِ شما) · {ASPECT_FA[aspect] || aspect}</td>
+              </tr>
+            </>
+          ) : (
+            <>
+              <tr>
+                <td>مجری / محیط</td>
+                <td>
+                  {label(chosenChar)} · {label(chosenEnv)}
+                </td>
+              </tr>
+              <tr>
+                <td>صدا / قاب</td>
+                <td>
+                  {label(chosenVoice)} · {ASPECT_FA[aspect] || aspect}
+                </td>
+              </tr>
+              <tr>
+                <td>لحن</td>
+                <td>{tone}</td>
+              </tr>
+            </>
+          )}
           <tr>
             <td>روش</td>
             <td>
@@ -233,7 +250,13 @@ export default function NewProjectPage() {
         </tbody>
       </table>
       <div className="mt-3">
-        {aiReady ? <Badge tone="ok">کارگردانِ AI آماده</Badge> : <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>}
+        {isAd ? (
+          <Badge tone="ok">قالبِ آماده — بی‌نیاز به AI</Badge>
+        ) : aiReady ? (
+          <Badge tone="ok">کارگردانِ AI آماده</Badge>
+        ) : (
+          <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>
+        )}
       </div>
       <Button type="submit" disabled={busy} className="mt-3 w-full" style={{ padding: 12 }}>
         {busy ? "در حالِ ساخت…" : "ساختِ برنامهٔ تبلیغ ⇐"}
@@ -263,7 +286,15 @@ export default function NewProjectPage() {
       <PageHeader
         title="تبلیغِ تازه"
         subtitle="سه گام: محصول ⇐ مجری و صحنه ⇐ پیام و کارگردانی. فقط نامِ محصول لازم است؛ بقیه پیش‌فرضِ خوب دارد."
-        actions={aiReady ? <Badge tone="ok">کارگردانِ AI آماده</Badge> : <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>}
+        actions={
+          isAd ? (
+            <Badge tone="ok">قالبِ آماده — بی‌نیاز به AI</Badge>
+          ) : aiReady ? (
+            <Badge tone="ok">کارگردانِ AI آماده</Badge>
+          ) : (
+            <Badge tone="warn">بدونِ کلیدِ AI ⇐ قالبِ آماده</Badge>
+          )
+        }
       />
       <ErrorBox message={error} />
 
@@ -358,16 +389,18 @@ export default function NewProjectPage() {
                 </div>
               </>
             )}
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="صدا">
-                <Select value={voice} onChange={(e) => setVoice(e.target.value)}>
-                  {cat.voice.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {label(v)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            <div className={`grid gap-3 ${isAd ? "sm:grid-cols-1" : "sm:grid-cols-3"}`}>
+              {!isAd && (
+                <Field label="صدا">
+                  <Select value={voice} onChange={(e) => setVoice(e.target.value)}>
+                    {cat.voice.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {label(v)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="قاب">
                 <Select value={aspect} onChange={(e) => setAspect(e.target.value)}>
                   {Object.entries(ASPECT_FA).map(([k, v]) => (
@@ -377,14 +410,16 @@ export default function NewProjectPage() {
                   ))}
                 </Select>
               </Field>
-              <Field label="لحن">
-                <Select value={tone} onChange={(e) => setTone(e.target.value)}>
-                  <option value="گرم و صمیمی">گرم و صمیمی</option>
-                  <option value="لوکس و آرام">لوکس و آرام</option>
-                  <option value="پرانرژی و شاد">پرانرژی و شاد</option>
-                  <option value="رسمی و مطمئن">رسمی و مطمئن</option>
-                </Select>
-              </Field>
+              {!isAd && (
+                <Field label="لحن">
+                  <Select value={tone} onChange={(e) => setTone(e.target.value)}>
+                    <option value="گرم و صمیمی">گرم و صمیمی</option>
+                    <option value="لوکس و آرام">لوکس و آرام</option>
+                    <option value="پرانرژی و شاد">پرانرژی و شاد</option>
+                    <option value="رسمی و مطمئن">رسمی و مطمئن</option>
+                  </Select>
+                </Field>
+              )}
             </div>
           </Section>
 

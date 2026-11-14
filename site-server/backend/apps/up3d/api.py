@@ -25,7 +25,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import authentication, exceptions, permissions
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.response import Response
 
 from up3d import director
@@ -273,6 +273,9 @@ def estimate(request):
         cpu = SV.estimate(prof, frames, allow_cpu=True, quality=q)
         out['cpu_seconds'] = cpu['seconds'] if cpu['available'] else None
         out['cpu_worker'] = cpu['worker']
+        # «در صف بگذار» تا سرورِ پردازشِ GPU روشن شود: پنل می‌گوید دقیقاً منتظرِ چه چیزی است
+        out['gpu_nodes'] = [{'name': n['name'], 'online': bool(n['online']), 'via_queue': bool(n['via_queue']),
+                             'install': (n.get('install') or {}).get('state')} for n in SV.gpu_nodes()]
     return Response(out)
 
 
@@ -296,6 +299,7 @@ def asset_preview_file(request, kind, asset_id):
 
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([])          # <img>/<video> بدونِ توکن می‌آیند (ناشناس)؛ ویرایشگر ده‌ها تصویر را یک‌جا می‌خواهد — سقفِ ۳۰ در دقیقه 429 می‌داد
 def asset_file(request, kind, asset_id, name):
     a = SV.reg().get(kind, asset_id)
     if not a or name not in ('thumbnail.jpg', 'preview.mp4'):
@@ -303,7 +307,9 @@ def asset_file(request, kind, asset_id, name):
     path = a.path(name)
     if not os.path.isfile(path):
         raise Http404
-    return FileResponse(open(path, 'rb'))
+    resp = FileResponse(open(path, 'rb'))
+    resp['Cache-Control'] = 'public, max-age=900'      # فایلِ ثابتِ کوچک: مرورگر دوباره نمی‌پرسد
+    return resp
 
 
 # ───────────────────────── پروتکلِ کارگر

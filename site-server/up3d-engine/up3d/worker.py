@@ -53,6 +53,26 @@ def probe_devices():
     return {'blender': exe, 'blender_version': ver, 'gpu': gpus or None}
 
 
+
+def device_text(dev, fallback=None):
+    """دستگاهِ رندر به فارسیِ خوانا، نه JSON ِ خام: «کارتِ گرافیک NVIDIA GeForce RTX 3060 (OptiX)» یا «پردازنده (CPU)»."""
+    if not isinstance(dev, dict):
+        return str(dev or '')
+    t = str(dev.get('type') or '').upper()
+    if t == 'CPU':
+        out = 'پردازنده (CPU)'
+        if dev.get('note'):
+            out += ' — %s' % dev['note']
+    else:
+        names = dev.get('devices') or ([dev['name']] if dev.get('name') else [])
+        kind = {'OPTIX': 'OptiX', 'CUDA': 'CUDA', 'HIP': 'HIP', 'ONEAPI': 'oneAPI', 'METAL': 'Metal'}.get(t, t or '؟')
+        out = 'کارتِ گرافیک %s (%s)' % ('، '.join(str(n) for n in names) or '؟', kind)
+    if fallback:
+        a, _, b = str(fallback).partition('->')
+        out += ' — جایگزینی: از %s به %s' % (a.strip() or '؟', b.strip() or '؟')
+    return out
+
+
 class Worker:
     def __init__(self, server, token, name=None, profiles=None, nice=15, threads=0, work_dir=None, once=False, log=print,
                  only_job=None, hooks=None, require_gpu=False):
@@ -204,7 +224,7 @@ class Worker:
             elif kind == 'info' and 'sec_per_frame' in data:
                 report('RENDERING', sec_per_frame=data['sec_per_frame'], frame=data.get('done'), total=data.get('total'))
             elif kind == 'info' and data.get('device'):
-                report('RENDERING', message='دستگاه: %s' % json.dumps(data.get('device'), ensure_ascii=False))
+                report('RENDERING', message='دستگاهِ رندر: %s' % device_text(data.get('device'), data.get('fallback')))
         self._rendering = False
         try:
             report('SCENE_BUILDING', message='دریافتِ بسته')

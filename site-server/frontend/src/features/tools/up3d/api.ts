@@ -165,17 +165,7 @@ export const up3d = {
 
 export { fa };
 
-/** ثانیه ⇐ «۳ دقیقه و ۱۰ ثانیه» */
-export function dur(sec: number | null | undefined): string {
-  if (sec == null || Number.isNaN(sec)) return "—";
-  const s0 = Math.max(0, Math.round(sec));
-  const h = Math.floor(s0 / 3600);
-  const m = Math.floor((s0 % 3600) / 60);
-  const s = s0 % 60;
-  if (h) return `${fa(h)} ساعت و ${fa(m)} دقیقه`;
-  if (m) return `${fa(m)} دقیقه${s && m < 10 ? ` و ${fa(s)} ثانیه` : ""}`;
-  return `${fa(s)} ثانیه`;
-}
+export { dur } from "./format";
 
 /** تاریخ-ساعتِ کوتاهِ فارسی. */
 export function when(value: string | null | undefined): string {

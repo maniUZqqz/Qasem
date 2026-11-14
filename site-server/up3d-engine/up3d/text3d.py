@@ -19,6 +19,8 @@ from . import paths
 BUILDERS = ('text3d', 'logo3d')
 MAX_POINTS = 14000          # سقفِ نقطه‌های یک شیء (رندر و فایلِ compiled سبک بماند)
 MAX_CHARS = 80
+DEFAULT_WRAP_RATIO = 4.5    # نوشتهٔ تک‌خطی که پهن‌تر از این نسبت (پهنا ÷ ارتفاع) شود خودکار چندخطی می‌شود
+MAX_WRAP_LINES = 4
 
 
 def is_rtl(text):
@@ -56,7 +58,84 @@ def text_mask(text, weight='Black', px=420, line_gap=1.2):
     return im
 
 
-def trace(mask, width_m, eps=0.9, min_area=10.0):
+def _ink_ratio(mask):
+    """نسبتِ پهنا به ارتفاعِ خودِ جوهر (نه کادرِ با حاشیه)."""
+    bb = mask.getbbox()
+    if not bb:
+        return 0.0
+    return (bb[2] - bb[0]) / float(max(1, bb[3] - bb[1]))
+
+
+def _split_lines(words, widths, n):
+    """کلمه‌ها (به ترتیبِ منطقی) را به n خط بشکن، طوری که پهن‌ترین خط کم‌ترین باشد (برنامه‌ریزیِ پویا). widths = پهنای هر کلمه (+ فاصله)."""
+    m = len(words)
+    pre = [0.0]
+    for w in widths:
+        pre.append(pre[-1] + w)
+    inf = float('inf')
+    best = [[inf] * (m + 1) for _ in range(n + 1)]       # best[k][i] = کمینهٔ پهن‌ترین خط وقتی i کلمهٔ اول در k خط جا شده‌اند
+    cut = [[0] * (m + 1) for _ in range(n + 1)]
+    best[0][0] = 0.0
+    for k in range(1, n + 1):
+        for i in range(k, m + 1):
+            for j in range(k - 1, i):
+                v = max(best[k - 1][j], pre[i] - pre[j])
+                if v < best[k][i]:
+                    best[k][i], cut[k][i] = v, j
+    out, i = [], m
+    for k in range(n, 0, -1):
+        j = cut[k][i]
+        out.append(' '.join(words[j:i]))
+        i = j
+    return list(reversed(out))
+
+
+def wrap_text(text, weight='Black', max_ratio=DEFAULT_WRAP_RATIO, px=160):
+    """نوشتهٔ تک‌خطیِ خیلی پهن را به ۲ تا ۴ خطِ متوازن بشکن تا ارتفاعِ حروف (و خوانایی در قابِ عمودی) خوب بماند.
+    فقط وقتی کار می‌کند که نوشته «خط تازه» نداشته باشد و حداقل دو کلمه داشته باشد؛ وگرنه همان نوشته برمی‌گردد.
+    نسبت از روی مسیرِ واقعیِ شکل‌دهی (Pillow + raqm) سنجیده می‌شود، پس برای فارسی و لاتین و ترکیبشان درست است."""
+    text = (text or '').strip()
+    if max_ratio is None or max_ratio <= 0 or '\n' in text:
+        return text
+    words = text.split()
+    if len(words) < 2:
+        return text
+    first = _ink_ratio(text_mask(text, weight, px=px))
+    if first <= max_ratio:
+        return text
+    from PIL import Image, ImageDraw
+    fnt = T.font(px, weight)
+    probe = ImageDraw.Draw(Image.new('L', (8, 8)))
+    space = probe.textlength(' ', font=fnt) or px * 0.25
+    widths = [probe.textlength(T.shape(w), font=fnt, **_kwargs(w)) + space for w in words]
+    best_text, best_ratio = text, first
+    for n in range(2, min(MAX_WRAP_LINES, len(words)) + 1):
+        cand = '\n'.join(_split_lines(words, widths, n))
+        r = _ink_ratio(text_mask(cand, weight, px=px))
+        if r < best_ratio:
+            best_text, best_ratio = cand, r
+        if r <= max_ratio:
+            break
+    return best_text
+
+
+def _smooth_contour(c, sigma):
+    """خطِ بسته (N×1×2، پیکسل‌ها) را با هسته‌ٔ گاوسی نرم کن (چرخه‌ای): پله‌های یک‌پیکسلیِ لبه صاف می‌شوند، گوشه‌ها فقط به اندازهٔ σ گرد می‌شوند."""
+    import numpy as np
+    pts = c[:, 0, :].astype('float64')
+    n = len(pts)
+    r = int(min(n // 2 - 1, max(1, round(3 * sigma))))
+    if n < 8 or r < 1:
+        return c
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / float(sigma)) ** 2)
+    k /= k.sum()
+    pad = np.concatenate([pts[-r:], pts, pts[:r]])
+    xs = np.convolve(pad[:, 0], k, mode='valid')
+    ys = np.convolve(pad[:, 1], k, mode='valid')
+    return np.stack([xs, ys], axis=1).astype('float32').reshape(-1, 1, 2)
+
+
+def trace(mask, width_m, eps=0.9, min_area=10.0, smooth=0.0):
     """ماسکِ L ⇐ {'polys': [{'pts': [[x, z]...], 'hole': bool}], 'w', 'h'} به متر (وسطِ پایین = مبدأ). None اگر ماسک خالی یا OpenCV نیست."""
     try:
         import cv2
@@ -75,6 +154,8 @@ def trace(mask, width_m, eps=0.9, min_area=10.0):
         for i, c in enumerate(cnts):
             if cv2.contourArea(c) < min_area:
                 continue
+            if smooth > 0:
+                c = _smooth_contour(c, smooth)
             ap = cv2.approxPolyDP(c, min(eps, max(0.22, 0.0045 * cv2.arcLength(c, True)) * (eps / 0.9)), True)[:, 0, :]
             if len(ap) < 3:
                 continue
@@ -112,7 +193,12 @@ def text_outline(params):
     weight = params.get('weight') if params.get('weight') in ('Black', 'Bold', 'Medium', 'Regular') else 'Black'
     width = _num(params.get('width_m'), 0.5, 0.02, 6.0)
     gap = _num(params.get('line_gap'), 1.2, 0.9, 2.0)
-    key = hashlib.sha1(json.dumps([text, weight, round(width, 4), gap, _font_stamp(weight), 'trace2'], ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
+    ratio = _num(params.get('wrap_ratio'), DEFAULT_WRAP_RATIO, 0.0, 12.0)     # 0 = نشکن
+    try:
+        text = wrap_text(text, weight, ratio)
+    except Exception:       # noqa: BLE001 — شکستنِ خودکار اختیاری است؛ نوشته همان تک‌خط می‌ماند
+        pass
+    key = hashlib.sha1(json.dumps([text, weight, round(width, 4), gap, _font_stamp(weight), 'trace3'], ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
     cache = os.path.join(paths.cache_dir('text3d'), 'text-%s.json' % key)
     if os.path.isfile(cache):
         try:
@@ -135,26 +221,45 @@ def _font_stamp(weight):
     return ['default', 0]
 
 
-def logo_mask(path, max_side=900, invert=False):
-    """تصویرِ لوگو ⇐ (ماسکِ L، تصویرِ RGBA ِ همان اندازه). آلفا اگر معنا دارد، وگرنه فاصله از رنگِ زمینه (گوشه‌ها)."""
+SMOOTH_SIDE = 1600          # ضلعِ بلندِ ماسکِ لوگو بعد از بزرگ‌کردن (هم‌پایهٔ یک لوگوی ۵۰۰ پیکسلی تا لبه‌ها پله‌پله نشوند)
+
+
+def logo_mask(path, max_side=SMOOTH_SIDE, invert=False):
+    """تصویرِ لوگو ⇐ (ماسکِ L، تصویرِ RGBA ِ همان اندازه). آلفا اگر معنا دارد، وگرنه فاصله از رنگِ زمینه (گوشه‌ها).
+
+    لوگوهای کوچک (مثلاً ۵۰۰ پیکسل) اگر همان‌طور آستانه‌گیری شوند، لبه‌هاشان پله‌پله می‌شود و ضخامت‌دادن آن پله‌ها را بزرگ نشان می‌دهد.
+    پس تصویر اول با Lanczos تا ~۱۶۰۰ پیکسل بزرگ می‌شود، «پوشش» (آلفا یا فاصله از زمینه) به‌صورتِ پیوسته کمی محو می‌شود
+    و بعد در ۵۰٪ آستانه‌گیری می‌شود؛ هم‌ارزِ یک لبهٔ زیرپیکسلی و صاف، بی‌آنکه گوشه‌های تیز گِرد شوند."""
     import numpy as np
-    from PIL import Image
+    from PIL import Image, ImageFilter
     im = Image.open(path)
     im.load()
     im = im.convert('RGBA')
-    im.thumbnail((max_side, max_side), Image.LANCZOS)
+    w0, h0 = im.size
+    s = float(max_side) / max(w0, h0)
+    if s > 1.0:
+        s = min(s, 4.0)
+        im = im.resize((max(2, int(round(w0 * s))), max(2, int(round(h0 * s)))), Image.LANCZOS)
+    else:
+        im.thumbnail((max_side, max_side), Image.LANCZOS)
+        s = 1.0
     a = np.array(im)
     alpha = a[:, :, 3]
     if alpha.min() < 200 and (alpha < 200).mean() > 0.02:
-        mask = alpha > 127
+        cover = alpha.astype('float32') / 255.0
     else:
-        rgb = a[:, :, :3].astype('int32')
+        rgb = a[:, :, :3].astype('float32')
         h, w = rgb.shape[:2]
         corners = np.array([rgb[0, 0], rgb[0, w - 1], rgb[h - 1, 0], rgb[h - 1, w - 1]])
         bg = np.median(corners, axis=0)
-        mask = np.abs(rgb - bg).sum(axis=2) > 90
+        dist = np.abs(rgb - bg).sum(axis=2)
+        cover = np.clip((dist - 60.0) / 60.0, 0.0, 1.0)         # 0 تا 1، نیمه‌راهش همان آستانهٔ قدیمیِ ۹۰
     if invert:
-        mask = ~mask
+        cover = 1.0 - cover
+    cv = Image.fromarray((cover * 255).astype('uint8'), 'L')
+    if s > 1.0:
+        cv = cv.filter(ImageFilter.GaussianBlur(radius=max(0.8, 0.45 * s)))
+    mask = (np.array(cv) > 127)
     return Image.fromarray((mask * 255).astype('uint8'), 'L'), im
 
 
@@ -168,7 +273,8 @@ def logo_outline(params, out_dir, uid):
     width = _num(params.get('width_m'), 0.4, 0.02, 6.0)
     mask, rgba = logo_mask(src, invert=bool(params.get('invert')))
     # لبهٔ کم‌رنگ و نویز را کنار بگذار: فقط تکه‌های بزرگ
-    out = trace(mask, width, eps=1.1, min_area=max(30.0, mask.size[0] * mask.size[1] * 0.00004))
+    # ماسکِ بزرگ‌شده: لبه را نرم کن (σ نسبت به اندازهٔ ماسک) و با تلرانسِ ریز چندضلعی بساز ⇐ منحنی‌ها بی‌پله و بی‌وجه‌های درشت
+    out = trace(mask, width, eps=0.8, min_area=max(30.0, mask.size[0] * mask.size[1] * 0.00004), smooth=max(0.8, 0.0028 * max(mask.size)))
     if not out:
         return None, None
     x0, y0, x1, y1 = [int(round(v)) for v in out['bbox_px']]

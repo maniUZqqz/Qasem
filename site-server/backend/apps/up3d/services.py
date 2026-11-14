@@ -775,6 +775,41 @@ def thumbnail_doc(kind, asset_id):
         doc['products'] = [{'id': 'p1', 'asset': asset_id, 'name': 'UpMarket', 'surface': 'table_center',
                             'params': {'brand': 'UpMarket 3D'}}]
         doc['shots'] = [{'shot': 'product_hero', 'start': 0, 'duration': 3, 'subject': 'p1', 'move': 'static'}]
+    elif kind in ('lighting', 'shot'):
+        # engine 1.3: pickers of the scene editor show a real picture of every light preset and every camera framing
+        a = r.get(kind, asset_id)
+        if kind == 'lighting':
+            stage = 'product' in (a.get('tags') or [])             # the 1.3 product-stage lights (studio, HDRI, golden hour, neon)
+            with_actor = not stage                                   # the older presenter lights aim at a face
+        else:
+            stage = a.get('subject') == 'product' and bool(a.get('min_engine'))
+            with_actor = a.get('subject') == 'actor'
+        if stage:
+            doc['environment'] = {'id': 'stage', 'params': {}}
+            doc['lighting'] = {'id': asset_id if kind == 'lighting' else 'studio_softbox', 'params': {}}
+            prod = {'phone_front': 'phone_showcase', 'phone_angle': 'phone_showcase', 'logo_front': 'text_3d'}.get(asset_id, 'perfume_bottle')
+            pp = {'brand': 'UpMarket 3D'} if prod == 'perfume_bottle' else {}
+            if prod == 'phone_showcase':           # a dark phone says nothing: show a sample app screen (the template's mock-up)
+                try:
+                    from up3d import screens as SC
+                    pp['screen_image'] = SC.make_screens('UpMarket 3D', 'تبلیغِ سه‌بعدی', [], count=1)[0]
+                except Exception:       # noqa: BLE001 — without the picture the screen stays dark, the thumbnail still renders
+                    pass
+            doc['products'] = [{'id': 'p1', 'asset': prod, 'name': 'UpMarket', 'surface': 'platform', 'params': pp}]
+            shot = asset_id if kind == 'shot' else 'stage_hero'
+            doc['shots'] = [{'shot': shot, 'start': 0, 'duration': 3, 'subject': 'p1', 'move': 'static'}]
+        elif with_actor:
+            if kind == 'lighting':
+                doc['lighting'] = {'id': asset_id, 'params': {}}
+            doc['actors'] = [{'id': 'host', 'character': ch, 'mark': 'center'}]
+            doc['products'] = [{'id': 'p1', 'asset': 'perfume_bottle', 'name': 'UpMarket', 'surface': 'table_right'}]
+            shot = asset_id if kind == 'shot' else 'medium'
+            doc['shots'] = [{'shot': shot, 'start': 0, 'duration': 3, 'subject': 'host', 'move': 'static'}]
+            doc['output']['aspect'] = '4:5'
+        else:                                      # a product shot of the older (pre-1.3) kind
+            doc['products'] = [{'id': 'p1', 'asset': 'perfume_bottle', 'name': 'UpMarket', 'surface': 'table_center',
+                                'params': {'brand': 'UpMarket 3D'}}]
+            doc['shots'] = [{'shot': asset_id, 'start': 0, 'duration': 3, 'subject': 'p1', 'move': 'static'}]
     elif kind == 'motion':
         m = r.get('motion', asset_id)
         d = m['duration']['default']

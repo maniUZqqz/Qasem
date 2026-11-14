@@ -20,7 +20,7 @@ const KINDS: { id: CatalogKind; name: string }[] = [
   { id: "voice", name: "صداها" },
 ];
 
-const THUMBABLE: CatalogKind[] = ["character", "motion", "environment", "product"];
+const THUMBABLE: CatalogKind[] = ["character", "motion", "environment", "product", "lighting", "shot"];
 
 function meta(kind: CatalogKind, a: Asset): string {
   switch (kind) {

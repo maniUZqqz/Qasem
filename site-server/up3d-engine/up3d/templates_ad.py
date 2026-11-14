@@ -35,6 +35,9 @@ AD_TEMPLATES = {
 #: فریمِ عمودیِ ۹:۱۶ و … ⇒ نسبتِ پهنا به ارتفاع
 ASPECT_WH = {'9:16': 9 / 16, '16:9': 16 / 9, '1:1': 1.0, '4:5': 4 / 5}
 
+#: بیشینهٔ نسبتِ پهنا به ارتفاعِ نوشتهٔ سه‌بعدی در هر قاب؛ نوشتهٔ پهن‌تر خودکار چندخطی می‌شود (در قابِ عمودی یک خطِ بلند ریز و کفِ قاب می‌افتاد)
+TEXT_WRAP_RATIO = {'9:16': 2.6, '4:5': 3.2, '1:1': 3.8, '16:9': 6.0}
+
 LOOKS = {
     'turntable': {'exposure': -0.55, 'look': 'agx', 'bloom': 0.25, 'vignette': 0.12, 'fade_in': 0.5, 'fade_out': 0.6, 'motion_blur': True, 'shutter': 0.4},
     'hero_reveal': {'exposure': -0.55, 'look': 'agx_contrast', 'bloom': 0.35, 'vignette': 0.22, 'fade_in': 1.0, 'fade_out': 0.6, 'motion_blur': True,
@@ -178,15 +181,15 @@ def _screens(b, reg):
 
 
 def _app_showcase(b, reg):
-    d = _Doc(reg, b, 'app_showcase', 'stage', {'floor_gloss': 0.5, 'backdrop_color': b.get('backdrop_color') or '#d5dbe4'},
+    d = _Doc(reg, b, 'app_showcase', 'stage', {'floor_gloss': 0.35, 'backdrop_color': b.get('backdrop_color') or '#a5afbd'},
              b.get('lighting') or 'studio_softbox')
     prm = {'screen_image' + ('' if i == 0 else '_%d' % (i + 1)): p for i, p in enumerate(_screens(b, reg))}
     prm['screen_interval'] = float(b.get('screen_interval') or 2.6)
     prm.update(b.get('product_params') or {})
     pid = d.product('phone_showcase', prm, name=b['product_name'])
-    d.shot('phone_angle', 3.6, pid, 'arc_right')
+    d.shot('phone_angle', 3.6, pid, 'arc_right', arc_deg=15)          # the default 30 degrees ended at 54: grazing glass reflections wash the screen out
     d.shot('phone_front', 4.4, pid, 'push_in')
-    d.shot('phone_angle', 3.6, pid, 'hero_orbit')
+    d.shot('phone_angle', 3.6, pid, 'hero_orbit', move_amount=0.6)
     return d.finish()
 
 
@@ -205,7 +208,8 @@ def _logo_reveal(b, reg):
         prm = {'logo_image': b['logo_image'], 'width_m': W, 'depth_m': 0.045, 'finish': b.get('finish') or 'white_gloss'}
     else:
         asset = 'text_3d'
-        prm = {'text': b['brand'] or b['product_name'], 'width_m': W, 'depth_m': 0.05, 'finish': b.get('finish') or 'gold'}
+        prm = {'text': b['brand'] or b['product_name'], 'width_m': W, 'depth_m': 0.05, 'finish': b.get('finish') or 'gold',
+               'wrap_ratio': TEXT_WRAP_RATIO.get(b['aspect'], 4.5)}
         if b['tagline'] and b.get('tagline_3d'):
             prm['text'] += '\n' + b['tagline']
     if color and not b.get('finish_keep_default'):

@@ -1018,3 +1018,192 @@ class RealRenderSmokeTests(TestCase):
             size, mean, std, rep = self._still(t, 120)
             self.assertGreater(std, 8, t)
             self.assertFalse(rep.get('warnings'), (t, rep.get('warnings')))
+
+
+# ───────────────────────── دورِ اصلاح (۱۴۰۵/۰۸/۲۳): صف‌گذاری بی‌CPU، متنِ چندخطی، لبهٔ نرمِ لوگو، تصویرِ نور/نما، بی‌سقفِ تصویرها
+
+
+class QueueWithoutCpuTests(TestCase):
+    """Node off: a GPU-class render can be created from the panel without «اجرا روی CPU» and waits by itself."""
+
+    def setUp(self):
+        from apps.compute.models import ComputeNode
+        User = get_user_model()
+        self.staff = User.objects.create_user(username='staff-fix', password='x', is_staff=True)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.staff)
+        self.project = Project.objects.create(title='پروژهٔ صف', brief={}, owner=self.staff)
+        self.version = SV.new_version(self.project, _valid_doc(), 'test', 'آزمون')
+        self.assertTrue(self.version.valid)
+        now = timezone.now()
+        Worker.objects.create(name='server-cpu', last_seen=now, capabilities={'gpu': None, 'cpu_count': 2, 'version': '1.3.0', 'mpfb': True})
+        # the GPU computer ran an old agent (no up3d.render) and is off now
+        self.node = ComputeNode.objects.create(name='DESKTOP-EAFBTGQ', last_seen=now - timedelta(hours=11),
+                                               capabilities={'gpu': 'RTX 3060', 'agent': '2.10', 'kinds': ['echo']})
+
+    def test_estimate_names_the_gpu_node_so_the_panel_can_say_what_it_waits_for(self):
+        r = self.client.get('/api/v1/up3d/estimate/', {'profile': 'high', 'project': self.project.pk})
+        self.assertEqual(r.status_code, 200)
+        e = r.json()
+        self.assertFalse(e['available'])
+        self.assertTrue(e['cpu_seconds'], 'the CPU alternative is still offered')
+        self.assertEqual([(n['name'], n['online'], n['via_queue']) for n in e['gpu_nodes']], [('DESKTOP-EAFBTGQ', False, False)])
+        ok = self.client.get('/api/v1/up3d/estimate/', {'profile': 'preview', 'project': self.project.pk}).json()
+        self.assertTrue(ok['available'])
+        self.assertNotIn('gpu_nodes', ok, 'only sent when nobody is ready')
+
+    def test_render_without_allow_cpu_creates_a_job_that_waits_for_the_node(self):
+        r = self.client.post('/api/v1/up3d/video-projects/%d/render/' % self.project.pk, {'profile': 'standard'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        job = Job.objects.get(pk=r.json()['id'])
+        self.assertNotIn('allow_cpu', job.params)
+        job.owner, job.state = 'worker', 'SCENE_BUILDING'      # what the orchestrator does after preparing the package
+        job.save()
+        w = self.client.get('/api/v1/up3d/jobs/%d/' % job.pk).json()['waiting']
+        self.assertTrue(w['needs_gpu'])
+        self.assertFalse(w['allow_cpu'])
+        self.assertEqual(w['eligible'], [], 'the CPU worker must not take a GPU-class render')
+        self.assertEqual([n['name'] for n in w['gpu_nodes']], ['DESKTOP-EAFBTGQ'])
+        self.assertEqual(w['node_queue'], [], 'the old agent cannot take it yet; it updates itself first')
+
+    def test_the_update_makes_the_node_take_it(self):
+        r = self.client.post('/api/v1/up3d/video-projects/%d/render/' % self.project.pk, {'profile': 'high'}, format='json')
+        job = Job.objects.get(pk=r.json()['id'])
+        job.owner, job.state = 'worker', 'SCENE_BUILDING'
+        job.save()
+        self.node.capabilities = {'gpu': 'RTX 3060', 'agent': '2.18', 'kinds': ['echo', 'up3d.render']}
+        self.node.last_seen = timezone.now()
+        self.node.save()
+        w = self.client.get('/api/v1/up3d/jobs/%d/' % job.pk).json()['waiting']
+        self.assertEqual(w['node_queue'], ['DESKTOP-EAFBTGQ'])
+
+
+class AssetFileTests(TestCase):
+    def test_images_are_not_rate_limited_and_are_cacheable(self):
+        from . import api
+        self.assertEqual(api.asset_file.cls.throttle_classes, [], 'an <img> has no token: the anonymous 30/min cap gave 429 to the editor')
+        r = APIClient().get('/3d/asset-file/environment/stage/thumbnail.jpg')      # anonymous, like an <img>
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('max-age', r['Cache-Control'])
+        r.close()
+        self.assertEqual(APIClient().get('/3d/asset-file/environment/nope/thumbnail.jpg').status_code, 404)
+
+
+class LightingShotThumbnailTests(TestCase):
+    def test_every_lighting_and_shot_has_a_picture_and_a_valid_thumbnail_scene(self):
+        from up3d.validate import validate
+        r = SV.reg()
+        for kind in ('lighting', 'shot'):
+            self.assertGreaterEqual(len(r.list(kind)), 12, kind)
+            for a in r.list(kind):
+                self.assertTrue(a.public()['has_thumbnail'], '%s/%s has no thumbnail.jpg' % (kind, a.id))
+                doc = SV.thumbnail_doc(kind, a.id)
+                rep = validate(doc, r)
+                self.assertTrue(rep.ok, '%s/%s: %s' % (kind, a.id, [i['message'] for i in rep.errors]))
+                if kind == 'lighting':
+                    self.assertEqual(doc['lighting']['id'], a.id)
+                else:
+                    self.assertEqual(doc['shots'][0]['shot'], a.id)
+
+    def test_the_thumbnail_api_accepts_both_kinds(self):
+        User = get_user_model()
+        c = APIClient()
+        c.force_authenticate(user=User.objects.create_user(username='staff-th', password='x', is_staff=True))
+        for kind in ('lighting', 'shot'):
+            r = c.post('/api/v1/up3d/assets/thumbnails/', {'kind': kind, 'ids': [SV.reg().list(kind)[0].id]}, format='json')
+            self.assertEqual(r.status_code, 200, r.content)
+            self.assertEqual(r.json()['queued'], 1)
+        self.assertEqual(c.post('/api/v1/up3d/assets/thumbnails/', {'kind': 'voice'}, format='json').status_code, 400)
+
+
+class Text3dFixTests(TestCase):
+    LONG = 'پژوهش گچ‌بری Chagher ۱۴۰۵'
+
+    def test_a_long_one_line_name_wraps_to_balanced_lines_and_grows_taller(self):
+        from up3d import text3d
+        flat = text3d.text_outline({'text': self.LONG, 'width_m': 0.46, 'wrap_ratio': 0})
+        wrapped = text3d.text_outline({'text': self.LONG, 'width_m': 0.46, 'wrap_ratio': 2.6})
+        self.assertGreater(flat['w'] / flat['h'], 5, 'one very wide line: tiny letters in a 9:16 frame')
+        self.assertLessEqual(wrapped['w'] / wrapped['h'], 3.4)
+        self.assertGreater(wrapped['h'], flat['h'] * 2)
+        self.assertAlmostEqual(wrapped['w'], 0.46, places=2)
+
+    def test_wrap_keeps_word_order_and_leaves_short_or_explicit_texts_alone(self):
+        from up3d import text3d
+        out = text3d.wrap_text(self.LONG, 'Black', 2.6)
+        self.assertIn('\n', out)
+        self.assertEqual(out.split(), self.LONG.split(), 'the logical word order is kept (each line is shaped on its own)')
+        self.assertLessEqual(len(out.split('\n')), text3d.MAX_WRAP_LINES)
+        self.assertEqual(text3d.wrap_text('چغر', 'Black', 2.6), 'چغر', 'one word cannot wrap')
+        two = 'اول\nدوم و سوم و چهارم و پنجم و ششم'
+        self.assertEqual(text3d.wrap_text(two, 'Black', 1.0), two, 'explicit line breaks are the author\'s')
+        self.assertEqual(text3d.wrap_text(self.LONG, 'Black', 0), self.LONG, 'wrap_ratio 0 switches it off')
+
+    def test_logo_ad_template_asks_for_a_wrap_that_fits_the_frame(self):
+        from up3d.templates_ad import TEXT_WRAP_RATIO
+        r = SV.reg()
+        for aspect, ratio in TEXT_WRAP_RATIO.items():
+            doc = templates.build('logo_reveal', dict(CHAGHER, aspect=aspect, brand=self.LONG), r)
+            self.assertEqual(doc['products'][0]['params']['wrap_ratio'], ratio, aspect)
+        self.assertLess(TEXT_WRAP_RATIO['9:16'], TEXT_WRAP_RATIO['16:9'])
+
+    def test_small_logo_contours_are_smooth_not_stair_stepped(self):
+        import math
+        from PIL import Image, ImageDraw
+        from up3d import text3d
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'logo.png')
+            im = Image.new('RGBA', (500, 500), (0, 0, 0, 0))
+            ImageDraw.Draw(im).ellipse((60, 60, 140, 140), fill=(18, 111, 133, 255))      # a small round feature: R = 40 px of 500
+            im.save(path)
+            outline, face = text3d.logo_outline({'logo_image': path, 'width_m': 0.4}, d, 'x')
+            self.assertTrue(face and os.path.isfile(face))
+            pts = outline['polys'][0]['pts']
+            worst, radii = 0.0, []
+            cx, cz = 0.0, outline['h'] / 2.0
+            for i, b in enumerate(pts):
+                a, c = pts[i - 1], pts[(i + 1) % len(pts)]
+                v1, v2 = (b[0] - a[0], b[1] - a[1]), (c[0] - b[0], c[1] - b[1])
+                worst = max(worst, abs(math.atan2(v1[0] * v2[1] - v1[1] * v2[0], v1[0] * v2[0] + v1[1] * v2[1])))
+                radii.append(math.hypot(b[0] - cx, b[1] - cz))
+            self.assertLess(math.degrees(worst), 18, 'one 1 px stair-step per vertex made 24-45 degree turns on such a feature')
+            self.assertLess((max(radii) - min(radii)) / (sum(radii) / len(radii)), 0.02, 'stays a round disc (the old 16-gon was off by ~3%)')
+            self.assertGreaterEqual(len(pts), 24, 'a smooth curve, not a coarse 16-gon')
+            self.assertGreaterEqual(Image.open(face).size[0], 120, 'the coloured front picture is enlarged too')
+
+
+class DeviceTextTests(TestCase):
+    def test_device_is_a_readable_persian_line_not_raw_json(self):
+        from up3d.worker import device_text
+        self.assertEqual(device_text({'type': 'CPU'}), 'پردازنده (CPU)')
+        gpu = device_text({'type': 'OPTIX', 'devices': ['NVIDIA GeForce RTX 3060']})
+        self.assertEqual(gpu, 'کارتِ گرافیک NVIDIA GeForce RTX 3060 (OptiX)')
+        self.assertNotIn('{', gpu)
+        self.assertIn('OPTIX', device_text({'type': 'CUDA', 'devices': ['RTX']}, 'OPTIX->CUDA'))
+        self.assertIn('پردازنده', device_text({'type': 'CPU', 'note': 'GPU failed: x'}, 'GPU->CPU'))
+
+
+class HdriSunsetTests(TestCase):
+    def test_sunset_has_a_warm_front_key_and_the_sun_turned_towards_the_stage(self):
+        lt = SV.reg().get('lighting', 'hdri_sunset')
+        self.assertTrue(lt['rig'], 'only the HDRI lit the product from behind: cold blue-grey')
+        self.assertLessEqual(min(l.get('kelvin', 5500) for l in lt['rig']), 4200, 'a warm key')
+        self.assertEqual(lt['world']['hdri'], 'venice_sunset')
+        self.assertIn('hdri_rotation', lt['params'])
+
+    def test_the_sun_of_the_picture_ends_up_in_front_of_the_product(self):
+        """Blender's environment texture: u = 0.5 - atan2(y, x) / 2pi, and the Mapping node turns the lookup by the rotation, so the sun
+        (the brightest pixel) stands at azimuth (0.5 - u) * 360 - rotation in the world (x to y). The camera looks from -Y: the sun must be on
+        the camera side (y < 0), otherwise only the blue sky lights the product from behind."""
+        import math
+        import cv2
+        lt = SV.reg().get('lighting', 'hdri_sunset')
+        path = _os.path.join(str(SV.settings.UP3D_ROOT), 'assets', 'hdri', lt['world']['hdri'] + '.hdr')
+        im = cv2.imread(path, cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR)
+        self.assertIsNotNone(im)
+        lum = im[:, :, 0] * 0.0722 + im[:, :, 1] * 0.7152 + im[:, :, 2] * 0.2126
+        _, x = divmod(int(lum.argmax()), lum.shape[1])
+        u = x / float(lum.shape[1])
+        azimuth = (0.5 - u) * 360.0 - float(lt['world']['hdri_rotation'])
+        self.assertLess(math.sin(math.radians(azimuth)), -0.5, 'the sun is on the camera side (azimuth %.0f)' % azimuth)
+        self.assertEqual(float(lt['params']['hdri_rotation']['default']), float(lt['world']['hdri_rotation']), 'the slider starts at the preset')

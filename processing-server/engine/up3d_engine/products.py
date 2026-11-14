@@ -322,13 +322,22 @@ def _cyl_y(name, r, y0, y1, x, z, coll, parent, mat, verts=40):
     return _obj(name, me, coll, parent, [mat])
 
 
-def _screen_material(img_path, brightness, aspect, name, base='#0a0d12'):
-    """Display: black glass with a clear coat (reflections) and the app image as emission, cover-fitted to the screen aspect."""
+def _screen_material(img_path, brightness, aspect, name, base='#0a0d12', glare=0.1):
+    """Display: black glass with a clear coat and the app image as emission, cover-fitted to the screen aspect.
+
+    glare 0..1 = how mirror-like the glass is. A full mirror coat (1.0) shows every studio softbox as a white sheet across the screen on the
+    angled phone shots and washes the app out; a product shot wants the glass to read as glass (a soft sheen, the sharp edge highlights on the
+    frame) while the app stays bright and saturated. Default 0.1: a low, slightly rough coat and a lower specular level; the brightness (default 2.0) keeps the app vivid."""
+    g = max(0.0, min(1.0, float(glare)))
     m, nt, p = M._new(name)
     p.inputs['Base Color'].default_value = M.hex_to_linear(base)
-    p.inputs['Roughness'].default_value = 0.06
-    p.inputs['Coat Weight'].default_value = 1.0
-    p.inputs['Coat Roughness'].default_value = 0.02
+    p.inputs['Roughness'].default_value = 0.06 + 0.16 * (1.0 - g)
+    p.inputs['Coat Weight'].default_value = 0.12 + 0.88 * g
+    p.inputs['Coat Roughness'].default_value = 0.02 + 0.12 * (1.0 - g)
+    try:
+        p.inputs['Specular IOR Level'].default_value = 0.2 + 0.3 * g
+    except KeyError:
+        pass
     if img_path and os.path.isfile(img_path):
         tc = M._node(nt, 'ShaderNodeTexCoord', (-1000, 0))
         mp = M._node(nt, 'ShaderNodeMapping', (-800, 0))
@@ -368,8 +377,8 @@ def phone(entry, coll, root):
     imgs = [i for i in imgs if os.path.isfile(str(i))]
     planes = []
     for k, img in enumerate(imgs or [None]):
-        mat = _screen_material(img, float(p.get('screen_brightness', 1.35)), sw / sh, 'screen:%s:%d' % (eid, k),
-                               p.get('screen_off_color', '#0a0d12'))
+        mat = _screen_material(img, float(p.get('screen_brightness', 2.0)), sw / sh, 'screen:%s:%d' % (eid, k),
+                               p.get('screen_off_color', '#0a0d12'), float(p.get('screen_glare', 0.1)))
         planes.append(_face('%s.screen%d' % (eid, k), spts, -d / 2 - 0.0003 - k * 0.00002, h / 2, -1, coll, root, mat))
     if len(planes) > 1:           # several app screens: a hard cut every `screen_interval` seconds (constant keys, looping)
         step = max(8, int(round(float(p.get('screen_interval', 2.6)) * fps)))

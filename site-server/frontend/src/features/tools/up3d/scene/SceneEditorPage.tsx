@@ -7,7 +7,7 @@ import { P, actionFor, clone, errMsg, fa, label, up3d } from "../api";
 import { IssueCount } from "../editor/BottomPanels";
 import { byId } from "../editor/model";
 import { hasQuality } from "../editor/QualityPanel";
-import { ToastProvider, useCatalog, usePoll, useToast } from "../shared";
+import { ToastProvider, queuedText, useCatalog, usePoll, useToast } from "../shared";
 import type { Estimate, Issue, Item, Project, QualityOverride, SceneDoc, Transform, UploadResult, Vec3 } from "../types";
 import { round3, sampleNum, sampleVec } from "./anim";
 import { Clock, useClockPlaying } from "./clock";
@@ -255,7 +255,7 @@ function SceneEditor() {
     }
     try {
       const j = await up3d.startJob(pid, actionFor("render", prof), { profile: prof, ...(allowCpu ? { allow_cpu: true } : {}), ...(hasQuality(q) ? { quality: q } : {}) });
-      toast(j.waiting && j.waiting.eligible.length === 0 ? `کار #${fa(j.id)} ساخته شد ولی کارگرِ مناسبی آنلاین نیست` : `کار #${fa(j.id)} در صف گذاشته شد`, !!(j.waiting && j.waiting.eligible.length === 0));
+      toast(queuedText(j), false);
       await load(false);
     } catch (e) {
       toast(errMsg(e), true);

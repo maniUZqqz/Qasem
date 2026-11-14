@@ -1,13 +1,13 @@
 {
   "id": "hdri_sunset",
-  "version": 1,
+  "version": 2,
   "name": {
     "fa": "محیطِ HDRI: غروبِ ونیز",
     "en": "HDRI sunset"
   },
   "description": {
-    "fa": "آسمانِ غروب با نورِ گرمِ جهت‌دار (Poly Haven، CC0)؛ برای صحنه‌های فضای باز",
-    "en": "A sunset sky with warm directional light (Poly Haven, CC0), for open-air scenes."
+    "fa": "آسمانِ غروب با نورِ گرمِ جهت‌دار (Poly Haven، CC0): خورشیدِ کم‌ارتفاع از جلو و سمتِ راست روی محصول و کفِ استیج می‌تابد (رنگِ گرمِ غروب)، با یک نورِ گرمِ مکمل از چپ و یک لبهٔ گرمِ پشت؛ برای صحنه‌های فضای باز",
+    "en": "A sunset sky (Poly Haven, CC0): the low sun shines on the product and the stage floor from the front right (warm sunset colour), with a warm fill from the left and a warm rim from behind."
   },
   "min_engine": "1.3.0",
   "order": 15,
@@ -16,11 +16,34 @@
     "hdri",
     "outdoor"
   ],
-  "rig": [],
+  "rig": [
+    {
+      "name": "warm_fill",
+      "azimuth": -42,
+      "elevation": 14,
+      "distance": 1.7,
+      "size": 1.3,
+      "size_y": 1.3,
+      "power": 24,
+      "kelvin": 3600,
+      "target": "stage"
+    },
+    {
+      "name": "rim_glow",
+      "azimuth": 128,
+      "elevation": 18,
+      "distance": 1.6,
+      "size": 0.35,
+      "size_y": 0.9,
+      "power": 34,
+      "kelvin": 3300,
+      "target": "stage"
+    }
+  ],
   "world": {
     "hdri": "venice_sunset",
     "hdri_strength": 1.2,
-    "hdri_rotation": 160.0
+    "hdri_rotation": 20.0
   },
   "params": {
     "intensity": {
@@ -46,7 +69,7 @@
     },
     "hdri_rotation": {
       "type": "number",
-      "default": 160.0,
+      "default": 20.0,
       "min": -180.0,
       "max": 180.0,
       "label": "چرخش محیط (درجه)"

@@ -479,7 +479,12 @@ export type Estimate = {
   needs_gpu?: boolean;
   cpu_seconds?: number | null;
   cpu_worker?: string | null;
+  /** سرورهای پردازشِ دارای GPU و آمادگی‌شان — فقط وقتی کارگری برای این پروفایل آماده نیست (api.estimate) */
+  gpu_nodes?: EstimateNode[];
 };
+
+/** یک سرورِ پردازشِ GPU در تخمین: برای جملهٔ «در صف می‌ماند و خودکار اجرا می‌شود» */
+export type EstimateNode = { name: string; online: boolean; via_queue: boolean; install?: string | null };
 
 /** قالبِ آماده. group: presenter (با مجری) | ad (تبلیغاتیِ بی‌مجری، موتورِ ۱٫۳)؛ asset: شکلِ ثابتِ محصولِ قالب؛ inputs: ورودی‌های ویژهٔ قالب */
 export type Template = {

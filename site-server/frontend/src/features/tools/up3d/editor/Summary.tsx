@@ -51,7 +51,9 @@ export default function Summary({
   const env = byId(cat, "environment", doc.environment.id);
   const actors = doc.actors.map((a) => label(byId(cat, "character", a.character)));
   const products = doc.products.map((pr) => pr.name || label(byId(cat, "product", pr.asset)));
-  const canRender = errors === 0 && !!e && (e.available || !!e.cpu_seconds);
+  // کارگر آماده نیست ⇒ همچنان می‌شود کار را در صفِ ماندگار گذاشت (با روشن‌شدنِ سرورِ پردازش خودش اجرا می‌شود)
+  const canRender = errors === 0 && !!e;
+  const queueing = !!e && !e.available;
 
   const check = (tone: "ok" | "warn" | "bad" | "neutral", text: string) => (
     <div className={tone}>
@@ -115,8 +117,8 @@ export default function Summary({
                 : e.available
                   ? `~${dur(e.seconds)} روی ${e.worker}`
                   : e.cpu_seconds
-                    ? `کارگرِ GPU آنلاین نیست · CPU ~${dur(e.cpu_seconds)}`
-                    : "هیچ کارگری آنلاین نیست"}
+                    ? `کارگرِ GPU آنلاین نیست · در صف می‌ماند (یا CPU ~${dur(e.cpu_seconds)})`
+                    : "هیچ کارگری آنلاین نیست · در صف می‌ماند"}
             </td>
           </tr>
         </tbody>
@@ -137,15 +139,15 @@ export default function Summary({
           : e.available
             ? check("ok", `کارگرِ ${e.worker} برای این کیفیت آماده است`)
             : e.cpu_seconds
-              ? check("warn", "کارگرِ GPU آنلاین نیست؛ فقط CPU ِ سرور (کند)")
-              : check("bad", "هیچ کارگری آنلاین نیست")}
+              ? check("warn", "کارگرِ GPU آنلاین نیست؛ «در صف بگذار» تا سرورِ پردازش روشن شود (خودکار اجرا می‌شود)")
+              : check("warn", "هیچ کارگری آنلاین نیست؛ کار در صف می‌ماند تا کارگری بیاید")}
         {status?.ai_ready ? check("ok", "کارگردانِ هوشِ مصنوعی وصل است") : check("warn", "بی‌کلیدِ AI — قالب‌ها و ویرایشِ دستی کار می‌کنند")}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button onClick={onRender} disabled={!canRender} title={errors ? "اول ایرادها را ترمیم کنید" : undefined}>
-          <Icon name="play" size={15} />
-          رندر با «{p ? label(p) : profile}»
+          <Icon name={queueing ? "clock" : "play"} size={15} />
+          {queueing ? `در صف بگذار «${p ? label(p) : profile}» (خودکار اجرا می‌شود)` : `رندر با «${p ? label(p) : profile}»`}
         </Button>
         {dirty && (
           <Button variant="secondary" onClick={onSave}>

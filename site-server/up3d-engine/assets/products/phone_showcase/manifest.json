@@ -57,10 +57,17 @@
     },
     "screen_brightness": {
       "type": "number",
-      "default": 1.35,
+      "default": 2.0,
       "min": 0.3,
       "max": 3.0,
       "label": "روشنیِ صفحه"
+    },
+    "screen_glare": {
+      "type": "number",
+      "default": 0.1,
+      "min": 0.0,
+      "max": 1.0,
+      "label": "براقیِ شیشهٔ صفحه (۰ = بی‌انعکاس، ۱ = آینه‌ای)"
     },
     "screen_off_color": {
       "type": "color",

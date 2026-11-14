@@ -6,6 +6,7 @@ import { Alert, Badge, Button, Field, Select } from "../../../../components/ui";
 import { P, desc, dur, fa, label, up3d } from "../api";
 import { Advanced, Muted } from "../shared";
 import type { Catalog, Estimate, QualityOverride, RenderProfile } from "../types";
+import { estimateText, queueNote } from "../queueText";
 import { DraftNumber } from "./fields";
 import { byId } from "./model";
 
@@ -70,13 +71,7 @@ export function hasQuality(q: QualityOverride | null | undefined): boolean {
   return !!q && Object.values(q).some((v) => v != null);
 }
 
-/** جملهٔ تخمین برای یک پروفایل (در کارتِ پروفایل و در خلاصه). */
-export function estimateText(e: Estimate | undefined): { text: string; tone: "ok" | "warn" | "bad" | "neutral" } {
-  if (!e) return { text: "در حالِ تخمین…", tone: "neutral" };
-  if (e.available) return { text: `${fa(e.frames)} فریم · ~${dur(e.seconds)} روی ${e.worker}`, tone: "ok" };
-  if (e.cpu_seconds) return { text: `${fa(e.frames)} فریم · کارگرِ GPU آنلاین نیست · روی CPU ِ سرور ~${dur(e.cpu_seconds)}`, tone: "warn" };
-  return { text: `${fa(e.frames)} فریم · هیچ کارگری آنلاین نیست`, tone: "bad" };
-}
+export { estimateText, queueNote };
 
 export default function QualityPanel({
   cat,
@@ -137,20 +132,19 @@ export default function QualityPanel({
     setQuality(hasQuality(next) ? next : null);
   };
 
+  // روی کارگرِ آماده؛ یا (کارگرِ GPU آنلاین نیست) در صفِ ماندگار تا سرورِ پردازش روشن شود؛ یا با تأییدِ صریح روی CPU ِ سرور
   const start = () => {
     if (!e || !p) return;
-    if (e.available) {
-      onRender(profile, false, q);
+    onRender(profile, false, q);
+  };
+  const startOnCpu = () => {
+    if (!e || !p || !e.cpu_seconds) return;
+    if (
+      e.cpu_seconds > 1800 &&
+      !window.confirm(`روی CPU ِ سرور حدودِ ${dur(e.cpu_seconds)} طول می‌کشد (اولویتِ پایین؛ سایت کند نمی‌شود). شروع شود؟`)
+    )
       return;
-    }
-    if (e.cpu_seconds) {
-      if (
-        e.cpu_seconds > 1800 &&
-        !window.confirm(`روی CPU ِ سرور حدودِ ${dur(e.cpu_seconds)} طول می‌کشد (اولویتِ پایین؛ سایت کند نمی‌شود). شروع شود؟`)
-      )
-        return;
-      onRender(profile, true, q);
-    }
+    onRender(profile, true, q);
   };
 
   const action = (() => {
@@ -168,18 +162,20 @@ export default function QualityPanel({
           شروعِ رندر «{label(p)}» — ~{dur(e.seconds)} روی {e.worker}
         </Button>
       );
-    if (e.cpu_seconds)
-      return (
-        <Button variant="secondary" onClick={start}>
-          <Icon name="cpu" size={15} />
-          اجرای «{label(p)}» روی CPU ِ سرور — ~{dur(e.cpu_seconds)}
-        </Button>
-      );
+    // کارگرِ مناسب آنلاین نیست: «در صف بگذار» همیشه هست (کار ماندگار می‌ماند و خودش اجرا می‌شود)
     return (
-      <Button disabled>
-        <Icon name="ban" size={15} />
-        هیچ کارگری آنلاین نیست
-      </Button>
+      <>
+        <Button onClick={start}>
+          <Icon name="clock" size={15} />
+          {p.recommended === "gpu" ? "در صف بگذار تا سرورِ پردازش (GPU) روشن شود" : "در صف بگذار تا کارگر آنلاین شود"}
+        </Button>
+        {e.cpu_seconds ? (
+          <Button variant="secondary" onClick={startOnCpu}>
+            <Icon name="cpu" size={15} />
+            اجرای «{label(p)}» روی CPU ِ سرور — ~{dur(e.cpu_seconds)}
+          </Button>
+        ) : null}
+      </>
     );
   })();
 
@@ -212,18 +208,19 @@ export default function QualityPanel({
       </div>
 
       {e && !e.available && !e.cpu_seconds && (
-        <Alert tone="bad" title="هیچ کارگرِ رندری آنلاین نیست">
-          رندر داخلِ پنل اجرا نمی‌شود؛ یک «کارگر» باید کار را بگیرد. کارگرِ CPU ِ سرور (server-cpu) باید روشن باشد، یا کارگرِ GPU را راه بیندازید.{" "}
+        <Alert tone="warn" title="هیچ کارگرِ رندری آنلاین نیست — ولی می‌شود کار را در صف گذاشت">
+          {queueNote(e)} رندر داخلِ پنل اجرا نمی‌شود؛ یک «کارگر» باید کار را بگیرد.{" "}
           <Link to={P.workers()} style={{ color: "var(--brand-strong)" }}>
             صفحهٔ کارگرها
           </Link>
         </Alert>
       )}
       {e && !e.available && e.cpu_seconds && p?.recommended === "gpu" && (
-        <Alert tone="warn" title={`کیفیتِ «${label(p)}» برای کارگرِ GPU است و کارگرِ GPU آنلاین نیست`}>
-          می‌توانید روی CPU ِ سرور اجرا کنید (خیلی کند: ~{dur(e.cpu_seconds)})، یا اول «انیمیک/پیش‌نمایش» بگیرید و کیفیتِ نهایی را بعد از راه‌اندازیِ کارگرِ GPU.{" "}
+        <Alert tone="info" title={`کیفیتِ «${label(p)}» برای کارگرِ GPU است و کارگرِ GPU الان آنلاین نیست`}>
+          «در صف بگذار» را بزنید: {queueNote(e)} اگر نمی‌خواهید منتظر بمانید می‌توانید روی CPU ِ سرور اجرا کنید (خیلی کند: ~{dur(e.cpu_seconds)})، یا اول
+          «انیمیک/پیش‌نمایش» بگیرید.{" "}
           <Link to={P.workers()} style={{ color: "var(--brand-strong)" }}>
-            راه‌اندازیِ کارگرِ GPU
+            وضعیتِ سرورِ پردازش
           </Link>
         </Alert>
       )}
@@ -234,7 +231,7 @@ export default function QualityPanel({
       </div>
       <Muted className="text-xs">
         پیشنهاد: اول «انیمیک» (چند دقیقه) برای وارسیِ حرکت و زمان، بعد «پیش‌نمایش» با نورِ واقعی؛ کیفیت‌های ۷۲۰p/۱۰۸۰p/4K روی کارگرِ GPU.
-        صحنه پیش از رندر خودکار ذخیره و وارسی می‌شود.
+        اگر سرورِ پردازش خاموش است «در صف بگذار» را بزنید؛ کار نمی‌پرد و با روشن‌شدنِ سرور خودش اجرا می‌شود. صحنه پیش از رندر خودکار ذخیره و وارسی می‌شود.
       </Muted>
 
       <Advanced title="تنظیماتِ پیشرفتهٔ کیفیت" hint="وضوح، نمونه، نویزگیر و گام روی همین پروفایل — زمانِ رندر با پیکسل × نمونه بزرگ می‌شود">

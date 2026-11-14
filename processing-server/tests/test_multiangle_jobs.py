@@ -37,6 +37,13 @@ try:
 except Exception:  # noqa: BLE001
     HAVE_RT = False
 
+try:
+    import numpy as np  # noqa: E402,F811
+    import cv2  # noqa: E402,F811
+    HAVE_CV = True
+except Exception:  # noqa: BLE001
+    HAVE_CV = False
+
 MODEL_DIRS = [os.environ.get("NM_MULTIANGLE_TEST_MODELS", ""), os.path.join(os.environ.get("NM_DATA_DIR", ""), "models", "multiangle")]
 
 
@@ -305,6 +312,83 @@ def agent_module_like(data):
     return agent
 
 
+def make_bars_clip(path, ff=None):
+    """4 s at 25 fps, 640x360: for 2 s a 288 px wide picture (x 176..464), then for 2 s a narrower one (216 px, x 212..428) - the black strips change at
+    second 2 like the owner's composite does at second 8. Every picture pixel has luma >= 70, so a strip is unmistakable."""
+    f = "lutyuv=y='clip(val,70,235)'"
+    subprocess.run([ff or FF, "-v", "error", "-y", "-f", "lavfi", "-i", "gradients=size=288x360:rate=25:duration=2", "-f", "lavfi", "-i", "gradients=size=216x360:rate=25:duration=2",
+                    "-filter_complex", "[0:v]%s,pad=640:360:176:0:black[a];[1:v]%s,pad=640:360:212:0:black[b];[a][b]concat=n=2:v=1:a=0[v]" % (f, f),
+                    "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path], check=True, stdin=subprocess.DEVNULL)
+
+
+def edge_luma(video, edge=3):
+    """[(first frame index with a dark edge or None)...]: the lowest mean luma of the `edge` outermost columns of every frame (no bar: > 50)."""
+    cap = cv2.VideoCapture(video)
+    low = []
+    ok, fr = cap.read()
+    while ok:
+        g = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+        low.append(min(float(g[:, :edge].mean()), float(g[:, -edge:].mean())))
+        ok, fr = cap.read()
+    cap.release()
+    return low
+
+
+@unittest.skipUnless(HAVE_CV and FF, "needs numpy, OpenCV and ffmpeg")
+class ChangingBarsOnRealVideo(unittest.TestCase):
+    """Black strips that change while the clip plays are found per frame and never shown in any angle (no model needed: the subject is the motion)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.work = tempfile.mkdtemp(prefix="nm-ma-bars-")
+        cls.clip = os.path.join(cls.work, "bars.mp4")
+        make_bars_clip(cls.clip)
+        import multiangle_engine as me
+        cls.me = me
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.work, ignore_errors=True)
+
+    def test_the_scan_finds_the_switch_on_its_own_frame(self):
+        me = self.me
+        info = me.probe(FF, self.clip)
+        union = me.sample_active_area(FF, self.clip, info, 4.0)
+        self.assertAlmostEqual(union[0], 176, delta=6)
+        self.assertAlmostEqual(union[2], 464, delta=6)
+        rects = me.scan_rects(FF, self.clip, info, union, 25.0, 0.0, 4.0)
+        self.assertAlmostEqual(len(rects), 100, delta=2)
+        import multiangle_core as mc
+        segs = mc.rect_segments(rects, 25.0, (union[2] - union[0], union[3] - union[1]))
+        self.assertEqual(len(segs), 2, segs)
+        self.assertAlmostEqual(segs[1]["t0"], 2.0, delta=0.09)                              # to the frame (a frame is 0.04 s)
+        self.assertAlmostEqual(segs[1]["px"][0], 36, delta=5)                               # 212 - 176 px of the union
+        self.assertAlmostEqual(segs[1]["px"][2], 252, delta=5)
+
+    def test_no_angle_shows_a_black_strip_and_the_angles_stay_in_sync(self):
+        models = os.path.join(self.work, "no-models")
+        os.makedirs(models, exist_ok=True)
+        out = os.path.join(self.work, "out")
+        env = dict(os.environ, NM_MULTIANGLE_NVENC="0")
+        r = subprocess.run([sys.executable, os.path.join(PROC, "multiangle_engine.py"), "virtual", "--video", self.clip, "--angles", "wide,medium,close", "--provider", "cpu",
+                            "--models", models, "--ffmpeg", FF, "--out-dir", out, "--pace", "fast", "--handheld", "0.3", "--max-upscale", "3"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env, timeout=300)
+        text = r.stdout.decode("utf-8", "replace")
+        self.assertEqual(r.returncode, 0, text[-800:])
+        plan = json.load(open(os.path.join(out, "plan.json"), encoding="utf-8"))
+        self.assertTrue(plan["source"]["black_bars"])
+        self.assertEqual(len(plan["source"]["bars_change"]), 2)
+        self.assertEqual(len(plan["angles"]), 3)
+        counts = []
+        for a in plan["angles"] + [{"file": plan["multicam"]}]:
+            low = edge_luma(os.path.join(out, a["file"]))
+            counts.append(len(low))
+            self.assertGreater(min(low), 50.0, "%s shows a black strip in frame %d" % (a["file"], low.index(min(low))))
+        self.assertEqual(len(set(counts)), 1, counts)
+        # the output is sized from the typical frame, never above the picture the layouts really have
+        self.assertLessEqual(plan["output"]["height"], 360)
+
+
 @unittest.skipUnless(HAVE_RT and FF and test_models(), "needs numpy + OpenCV + onnxruntime, ffmpeg and the model files (NM_MULTIANGLE_TEST_MODELS)")
 class RealEngine(unittest.TestCase):
     @classmethod
@@ -420,6 +504,18 @@ class RealEngine(unittest.TestCase):
         self.assertGreater(float(np.abs(frames[0].astype(np.float32) - frames[-1].astype(np.float32)).mean()), 0.5)         # the view really changed
         step = [float(np.abs(frames[i + 1].astype(np.float32) - frames[i].astype(np.float32)).mean()) for i in range(len(frames) - 1)]
         self.assertLess(max(step), 6 * (sum(step) / len(step)) + 1.0)                      # no flicker: no frame jumps against its neighbours
+
+    def test_a_2_5d_move_on_a_video_whose_bars_change_shows_no_strip(self):
+        clip = os.path.join(self.work, "bars.mp4")
+        make_bars_clip(clip)
+        job, meta, sent = self.run_kind("multiangle.move", {"input": "bars.mp4", "move": "truck_right", "amount": 0.6, "duration": 4.0, "fps": 15, "out_height": 240, "max_seconds": 4.0},
+                                        {"bars.mp4": clip})
+        with open(job.out("plan.json"), encoding="utf-8") as fh:
+            plan = json.load(fh)
+        self.assertEqual(len(plan["bars_change"]), 2, plan.get("bars_change"))
+        video = os.path.join(job.dir, "uploaded", "move.mp4") if "move.mp4" in sent else job.out("move.mp4")
+        low = edge_luma(video)
+        self.assertGreater(min(low), 40.0, "frame %d has a strip" % low.index(min(low)))
 
     def test_the_self_test_job(self):
         job, meta, sent = self.run_kind("multiangle.selftest", {"selftest": True}, {})

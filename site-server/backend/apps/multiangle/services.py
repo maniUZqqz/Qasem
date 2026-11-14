@@ -93,16 +93,44 @@ def presets() -> dict:
 
 # ------------------------------------------------------------------ sources (what the owner can pick)
 
+def _image_size(url: str | None) -> tuple[int, int]:
+    """(width, height) read from the header of a media file (the bin does not probe pictures); (0, 0) when it cannot be read."""
+    if not url:
+        return 0, 0
+    prefix = settings.MEDIA_URL.rstrip("/") + "/"
+    if not str(url).startswith(prefix):
+        return 0, 0
+    try:
+        from urllib.parse import unquote
+
+        from PIL import Image
+
+        path = media_root() / unquote(str(url)[len(prefix):].split("?", 1)[0])
+        if not path.is_file():
+            return 0, 0
+        with Image.open(path) as im:
+            return int(im.size[0]), int(im.size[1])
+    except Exception:  # noqa: BLE001 — a broken picture must not blank the picker
+        return 0, 0
+
+
 def list_sources(store) -> dict:
-    """{"videos": [...], "images": [...]} from the editor's media bin (so the refs are the same ones the editor uses)."""
+    """{"videos": [...], "images": [...]} from the editor's media bin (so the refs are the same ones the editor uses).
+    Pictures carry their real size (read from the file header - the bin itself leaves it 0), so the picker never shows «۰×۰»."""
     from apps.content import editor_project
 
     bin_ = editor_project.bin_items(store, limit=40)
     videos = [{"ref": v["ref"], "title": v["title"], "duration": v.get("duration") or 0, "width": v.get("width") or 0, "height": v.get("height") or 0,
                "has_audio": bool(v.get("has_audio")), "url": v.get("url"), "source": v.get("source")}
               for v in bin_.get("videos", []) if (v.get("duration") or 0) >= 1.0]
-    images = [{"ref": i["ref"], "title": i["title"], "width": i.get("width") or 0, "height": i.get("height") or 0, "url": i.get("url"), "source": i.get("source")}
-              for i in bin_.get("images", []) if i.get("kind") == "image"]
+    images = []
+    for i in bin_.get("images", []):
+        if i.get("kind") != "image":
+            continue
+        w, h = int(i.get("width") or 0), int(i.get("height") or 0)
+        if not (w and h):
+            w, h = _image_size(i.get("url"))
+        images.append({"ref": i["ref"], "title": i["title"], "width": w, "height": h, "url": i.get("url"), "source": i.get("source")})
     return {"videos": videos, "images": images}
 
 
@@ -143,7 +171,45 @@ def old_nodes():
 
 
 UPDATE_TEXT = ("نرم‌افزارِ سرورِ پردازش قدیمی است و «چندزاویه» را نمی‌شناسد: روی آن کامپیوتر Update.bat را اجرا کنید "
-               "(یا در «سرورهای پردازش» دکمهٔ «به‌روزرسانی»). بعد از آن همه‌چیز خودکار نصب می‌شود.")
+               "(یا در «سرورهای پردازش» دکمهٔ «به‌روزرسانی»). کارها تا آن موقع در صف می‌مانند و بعد از آن همه‌چیز خودکار نصب می‌شود.")
+UPDATE_OFFLINE_AUTO = "سرورِ پردازش خاموش است؛ با روشن شدنش خودش به‌روز می‌شود و کار اجرا می‌شود."
+UPDATE_ONLINE_AUTO = ("سرورِ پردازش روشن است و نرم‌افزارش خودکار به‌روز می‌شود؛ بعد از آن محیط و مدل‌ها هم خودکار نصب می‌شود و کارِ شما اجرا می‌شود. "
+                      "لازم نیست کاری بکنید.")
+UPDATE_OFFLINE_MANUAL = ("سرورِ پردازش خاموش است و نرم‌افزارش قدیمی است؛ بعد از روشن کردنش Update.bat را روی آن کامپیوتر اجرا کنید "
+                         "(یا در «سرورهای پردازش» دکمهٔ «به‌روزرسانی»). کارها تا آن موقع در صف می‌مانند.")
+UPDATE_NO_COMMAND = "سرورِ پردازش روشن است و نرم‌افزارش قدیمی است؛ با اجرای START.bat خودش به‌روز می‌شود. کارها تا آن موقع در صف می‌مانند."
+UPDATE_TRIES_OUT = ("سه تلاشِ خودکارِ به‌روزرسانی انجام شد و سرورِ پردازش هنوز قدیمی است؛ در «سرورهای پردازش» دکمهٔ «به‌روزرسانی» را بزنید "
+                    "(یا Update.bat را اجرا کنید). کارها در صف می‌مانند.")
+NO_NODE_TEXT = ("هنوز هیچ سرورِ پردازشی ثبت نشده؛ روی کامپیوترِ گرافیکی START.bat را یک بار اجرا کنید تا ثبت شود. "
+                "از آن به بعد کارها تا روشن شدنِ آن در صف می‌مانند.")
+
+
+def update_text(old) -> str:
+    """What the owner reads while every registered node still runs an agent that does not know «چندزاویه»: the job is queued and the node updates
+    itself (autopilot) - the text says which of the situations it is (off, on and updating, auto-update disabled, ...)."""
+    from apps.compute import autopilot
+    from apps.compute.models import ComputeSettings
+
+    online = [n for n in old if n.online]
+    try:
+        auto_on = bool(ComputeSettings.get().auto_update)
+    except Exception:  # noqa: BLE001 — a settings problem must not blank the page
+        auto_on = True
+    if not online:
+        return UPDATE_OFFLINE_AUTO if auto_on else UPDATE_OFFLINE_MANUAL
+    if not auto_on:
+        return UPDATE_TEXT
+    try:
+        wanted, why = autopilot.update_wanted(online[0])
+    except Exception:  # noqa: BLE001
+        wanted, why = True, ""
+    if wanted or not why:
+        return UPDATE_ONLINE_AUTO
+    if "دستورِ به‌روزرسانی را نمی‌شناسد" in why:
+        return UPDATE_NO_COMMAND
+    if "سه تلاش" in why:
+        return UPDATE_TRIES_OUT
+    return UPDATE_ONLINE_AUTO
 
 
 def node_row(node) -> dict:
@@ -182,14 +248,18 @@ def status() -> dict:
     rows = [node_row(n) for n in sorted(ns, key=lambda n: (not n.online, n.name))]
     can_virtual = any(r["online"] and r["ready"]["virtual"] for r in rows)
     can_move = any(r["online"] and r["ready"]["move"] for r in rows)
+    waiting_for_update = bool(old) and not rows
     if rows:
         message = next((r["message"] for r in rows if r["online"]), rows[0]["message"])
     elif old:
-        message = UPDATE_TEXT
+        message = update_text(old)
     else:
-        message = "هنوز هیچ سرورِ پردازشی ثبت نشده؛ روی کامپیوترِ گرافیکی START.bat را اجرا کنید. کارها تا آن موقع در صف می‌مانند."
+        message = NO_NODE_TEXT
+    # «can_queue»: a job can be registered right now - a node that knows the feature exists, or an older one that will update itself;
+    # only when no node was ever registered there is nothing for a job to wait for (the page then says so instead of promising a queue)
     return {"nodes": rows, "ready": {"virtual": can_virtual, "move": can_move}, "online": any(r["online"] for r in rows), "message": message,
-            "needs_update": [n.name for n in old] if not rows else [], "update_text": UPDATE_TEXT if (old and not rows) else ""}
+            "can_queue": bool(rows) or bool(old), "needs_update": [n.name for n in old] if not rows else [],
+            "update_text": message if waiting_for_update else "", "node_online": any(n.online for n in _nodes())}
 
 
 # ------------------------------------------------------------------ the self-test
@@ -350,17 +420,39 @@ def _sentences(obj) -> list[dict]:
 
 
 def _enqueue(run: MultiAngleRun, kind: str, payload: dict, name: str, path: Path, *, timeout_s: int):
+    """Register the compute job and keep it in the durable queue.
+
+    Normal case: a node that advertises «multiangle» is known (on or off) -> `enqueue_durable`. While every registered node still runs an agent
+    from before the feature (no «multiangle» capability yet) the job is queued anyway: such an agent is never offered the kind
+    (services.kind_unsupported / _kinds_q), it waits, and it runs as soon as the node has updated itself (autopilot) and reports the capability -
+    nobody has to press anything. Only when no node was ever registered there is nothing to wait for (503 `no_node`, no run is left)."""
     from apps.compute import services as SV
 
+    kw = dict(store=run.store, origin="multiangle", priority=60, timeout_s=timeout_s, dedupe=False)
     try:
-        job = SV.enqueue_durable(kind, payload, {name: str(path)}, store=run.store, origin="multiangle", priority=60, timeout_s=timeout_s, dedupe=False)
+        job = SV.enqueue_durable(kind, payload, {name: str(path)}, **kw)
     except SV.ComputeUnavailable as exc:
-        run.delete()
-        raise MultiAngleError(UPDATE_TEXT if old_nodes() else str(exc), 503, "no_node") from exc
+        old = old_nodes()
+        if not old:
+            run.delete()
+            raise MultiAngleError(NO_NODE_TEXT, 503, "no_node") from exc
+        try:
+            job = SV.enqueue(kind, payload, {name: str(path)}, require_online=False, **kw)
+        except Exception:
+            run.delete()
+            raise
     run.job_uid = str(job.uid)
-    run.message = str(job.message or "در صف")[:300]
+    run.message = (waiting_text() or str(job.message or "در صف"))[:300]
     run.save(update_fields=["job_uid", "message", "updated_at"])
     return job
+
+
+def waiting_text() -> str:
+    """Why a queued run is not running yet, when the reason is the node's old software (else '')."""
+    if multiangle_nodes():
+        return ""
+    old = old_nodes()
+    return update_text(old) if old else ""
 
 
 def _prune(store) -> None:
@@ -501,7 +593,7 @@ def refresh(run: MultiAngleRun) -> MultiAngleRun:
             text = str(QV.one(job).get("status_text") or "")
         except Exception:  # noqa: BLE001
             text = ""
-        run.state, run.progress, run.message = MultiAngleRun.State.QUEUED, 0.0, (text or "در صف — منتظرِ سرورِ پردازش")[:300]
+        run.state, run.progress, run.message = MultiAngleRun.State.QUEUED, 0.0, (waiting_text() or text or "در صف — منتظرِ سرورِ پردازش")[:300]
         run.save(update_fields=["state", "progress", "message", "updated_at"])
     else:
         run.state, run.progress, run.message = MultiAngleRun.State.RUNNING, float(job.progress or 0.0), _label(job.message)[:300]

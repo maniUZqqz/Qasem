@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.20"
+VERSION = "2.21"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:

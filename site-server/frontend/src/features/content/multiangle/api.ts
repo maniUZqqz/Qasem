@@ -58,6 +58,9 @@ export type NodeStatus = {
   message: string;
   needs_update: string[];
   update_text: string;
+  /** یک کار همین حالا ثبت می‌شود و در صف می‌ماند (سروری هست که چندزاویه را می‌داند یا خودش به‌روز می‌شود) */
+  can_queue: boolean;
+  node_online: boolean;
 };
 
 export type Angle = { key: string; label: string; url: string | null; preview: string | null; upload: number | null; upscale: number | null; ref: string | null };
@@ -163,10 +166,21 @@ export function cutBar(cuts: Cut[]): { angle: string; label: string; left: numbe
 }
 
 /** سنجشِ سادهٔ حالتِ دکمه‌ها برای هر حالت از «سرورِ پردازش» */
-export function readiness(st: NodeStatus | null | undefined, mode: "virtual" | "move25d"): { ok: boolean; tone: "ok" | "warn" | "info" | "bad"; text: string } {
-  if (!st) return { ok: false, tone: "info", text: "در حالِ بررسیِ سرورِ پردازش…" };
+export function readiness(
+  st: NodeStatus | null | undefined,
+  mode: "virtual" | "move25d",
+): { ok: boolean; tone: "ok" | "warn" | "info" | "bad"; text: string; queue: boolean } {
+  if (!st) return { ok: false, tone: "info", text: "در حالِ بررسیِ سرورِ پردازش…", queue: false };
   const ready = mode === "virtual" ? st.ready.virtual : st.ready.move;
-  if (ready && st.online) return { ok: true, tone: "ok", text: "سرورِ پردازش آماده است." };
-  if (st.needs_update.length) return { ok: false, tone: "warn", text: st.update_text };
-  return { ok: false, tone: st.online ? "info" : "warn", text: st.message };
+  if (ready && st.online) return { ok: true, tone: "ok", text: "سرورِ پردازش آماده است.", queue: true };
+  // سرورِ قدیمی یا خاموش: کار ثبت می‌شود و می‌ماند؛ سرور خودش به‌روز می‌شود، پس چیزی برای مالک نیست (آبی، نه هشدار)
+  const text = st.needs_update.length && st.update_text ? st.update_text : st.message;
+  return { ok: false, tone: st.can_queue ? "info" : "warn", text, queue: !!st.can_queue };
+}
+
+/** عنوانِ کارتِ وضعیت */
+export function nodeTitle(st: NodeStatus): string {
+  if (st.ready.virtual && st.ready.move && st.online) return "سرورِ پردازش آماده است";
+  if (!st.node_online && st.can_queue) return "سرورِ پردازش خاموش است";
+  return "سرورِ پردازش";
 }

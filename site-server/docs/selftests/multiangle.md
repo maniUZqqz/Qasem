@@ -27,6 +27,7 @@
 | `virtual.models_ran` | دست‌کم یک مدل واقعاً اجرا شد (دستگاهش در `plan.device`) |
 | `move.frames` | دست‌کم ۴۵ فریم (۲ ثانیه × ۲۵ = ۵۰) |
 | `move.parallax` | فریمِ آخر با فریمِ اول فرقِ واقعی دارد (دوربین واقعاً حرکت کرده) |
+| `virtual.bars` | نوارهای سیاهِ متغیر: یک کلیپِ ساختگیِ ۴ ثانیه‌ای با تصویرِ ۲۸۸ پیکسلی که در ثانیهٔ ۲ به ۲۱۶ پیکسل می‌رسد؛ `scan_rects` باید دقیقاً دو پله بدهد و پله سرِ ثانیهٔ ۲ (±۰٫۱) باشد (بدونِ مدل؛ در چند ثانیه) |
 | `move.depth` | `depth.png` ساخته شد |
 
 اجرای دستی روی گره: `python multiangle_engine.py selftest --out-dir OUT --models <data>\models\multiangle --ffmpeg ffmpeg` (با Pythonِ `<data>\venvs\multiangle`).

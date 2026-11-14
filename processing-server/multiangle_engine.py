@@ -35,7 +35,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import multiangle_core as mc  # noqa: E402
 
-VERSION = "1.0"
+VERSION = "1.1"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
 
 #: model file names inside --models (the manifest downloads them under these names)
@@ -410,8 +410,9 @@ class Models:
 
 # ───────────────────────────────────────────────────────────── analysis: who is in the picture, when
 
-def sample_active_area(ff, path, info, duration):
-    """The picture without black bars, from a handful of frames spread over the clip."""
+def sample_active_area(ff, path, info, duration, start=0.0):
+    """The picture without black bars (the UNION of what every sampled frame shows), from a handful of frames spread over the part of the clip
+    that is used. Bars that change inside this union are handled per frame by scan_rects."""
     import cv2
     import numpy as np
 
@@ -419,7 +420,7 @@ def sample_active_area(ff, path, info, duration):
     grays = []
     try:
         for k in range(6):
-            t = duration * (0.08 + 0.84 * k / 5.0)
+            t = start + duration * (0.04 + 0.92 * k / 5.0)
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
             ok, fr = cap.read()
             if ok and fr is not None:
@@ -437,7 +438,34 @@ def sample_active_area(ff, path, info, duration):
     return (int(x0), int(y0), int(min(w, x1)), int(min(h, y1)))
 
 
-def analyse(ff, path, info, crop, models, duration, progress):
+SCAN_LONG = 360
+
+
+def scan_rects(ff, path, info, crop, fps, start, duration, progress=None):
+    """The picture rectangle of EVERY frame inside `crop` (fractions of the crop), for clips whose black strips change while they play
+    (a composite: a 9:16 picture, then at second 8 a narrower layout). One more decode of the clip, scaled down to ~360 px and read as gray,
+    so it costs seconds, not minutes. Returns an (n, 4) array (multiangle_core.clean_rects) or None when the clip could not be read."""
+    import cv2
+
+    x0, y0, x1, y1 = crop
+    aw, ah = x1 - x0, y1 - y0
+    k = min(1.0, SCAN_LONG / float(max(aw, ah)))
+    sw, sh = max(32, int(aw * k) // 2 * 2), max(32, int(ah * k) // 2 * 2)
+    want = max(2, int(round(duration * fps)))
+    rects = []
+    dec = Decoder(ff, path, (info["width"], info["height"]), fps, crop=crop, scale=(sw, sh), start=start, duration=duration)
+    for fr in dec:
+        rects.append(mc.frame_rect(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)))
+        if progress is not None and len(rects) % 30 == 0:
+            progress(min(1.0, len(rects) / float(want)), "bars")
+        if len(rects) >= want:
+            break
+    if len(rects) < 2:
+        return None
+    return mc.clean_rects(rects, fps, pad=(1.5 / sw, 1.5 / sh))
+
+
+def analyse(ff, path, info, crop, models, duration, progress, start=0.0):
     """Walk the clip at ANALYSIS_FPS and find the people / faces; return the per-sample subject series."""
     import cv2
     import numpy as np
@@ -450,7 +478,7 @@ def analyse(ff, path, info, crop, models, duration, progress):
     motion = np.zeros((n, 3))                    # x, y, energy of the frame difference
     sal = np.zeros((n, 2))
     prev = None
-    dec = Decoder(ff, path, (info["width"], info["height"]), ANALYSIS_FPS, crop=crop, scale=(sw, sh), duration=duration)
+    dec = Decoder(ff, path, (info["width"], info["height"]), ANALYSIS_FPS, crop=crop, scale=(sw, sh), start=start, duration=duration)
     i = 0
     have_models = models.have("yunet") or models.have("yolos")
     for frame in dec:
@@ -460,6 +488,9 @@ def analyse(ff, path, info, crop, models, duration, progress):
         if have_models:
             dets = models.faces(frame) + models.persons(frame)
         tracker.update(i, dets)
+        if dets:
+            full_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            tracker.annotate(i, lambda box, face: mc.find_head_top(full_gray, face, box))
         gray = cv2.cvtColor(cv2.resize(frame, (64, int(64 * sh / sw) // 2 * 2 or 2), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
         s = mc.spectral_residual_saliency(gray)
         yy, xx = np.unravel_index(int(np.argmax(cv2.GaussianBlur(s.astype(np.float32), (0, 0), 2.0))), s.shape)
@@ -493,10 +524,17 @@ def subject_series(track, n, fps_a):
     box = np.stack([mc.fill_gaps(mc.median_filter(track["boxes"][:n, k], 3) if not np.isnan(track["boxes"][:n, k]).any() else track["boxes"][:n, k], gap, int(1.0 * fps_a)) for k in range(4)], axis=1)
     face = np.stack([mc.fill_gaps(track["faces"][:n, k], int(0.8 * fps_a), int(0.5 * fps_a)) for k in range(4)], axis=1)
     yaw = mc.fill_gaps(track["yaw"][:n], int(1.0 * fps_a), int(0.5 * fps_a))
-    return box, face, yaw
+    top = np.full(n, np.nan)
+    if track.get("tops") is not None and not np.isnan(track["tops"][:n]).all():
+        # the measured top of the head: a gap-filled, lightly smoothed series (a head top is a slow thing); the ends hold
+        top = mc.fill_gaps(track["tops"][:n], int(1.5 * fps_a), int(2.0 * fps_a))
+        known = ~np.isnan(top)
+        if known.sum() >= 3:
+            top[known] = mc.median_filter(top[known], 5)
+    return box, face, yaw, top
 
 
-def series_row(box, face, yaw, i):
+def series_row(box, face, yaw, top, i):
     import numpy as np
 
     b = box[i]
@@ -504,7 +542,7 @@ def series_row(box, face, yaw, i):
         return None
     f = face[i]
     return {"box": tuple(float(v) for v in b), "face": None if np.isnan(f).any() else tuple(float(v) for v in f),
-            "yaw": 0.0 if np.isnan(yaw[i]) else float(yaw[i])}
+            "yaw": 0.0 if np.isnan(yaw[i]) else float(yaw[i]), "top": None if np.isnan(top[i]) else float(top[i])}
 
 
 def pick_subjects(an):
@@ -535,7 +573,7 @@ def fallback_series(an, n):
     cx = np.convolve(np.pad(cx, (k, k), mode="edge"), ker, mode="same")[k:-k]
     cy = np.convolve(np.pad(cy, (k, k), mode="edge"), ker, mode="same")[k:-k]
     box = np.stack([cx - 0.12, cy - 0.25, np.full(n, 0.24), np.full(n, 0.5)], axis=1)
-    return box, np.full((n, 4), np.nan), np.zeros(n)
+    return box, np.full((n, 4), np.nan), np.zeros(n), np.full(n, np.nan)
 
 
 # ───────────────────────────────────────────────────────────── the virtual cameras
@@ -580,15 +618,22 @@ def run_virtual(a, progress):
     fps = float(a.fps) if a.fps else min(30.0, info["fps"])
     n_frames = int(duration * fps)
     progress(0.01, "probe")
-    crop = sample_active_area(ff, a.video, info, duration)
+    crop = sample_active_area(ff, a.video, info, duration, start)
     aw, ah = crop[2] - crop[0], crop[3] - crop[1]
     bars = (aw, ah) != (info["width"], info["height"])
     src_aspect = aw / float(ah)
     out_aspect = mc.out_aspect_for(a.format, src_aspect)
-    out_w, out_h = mc.pick_output_size(aw, ah, out_aspect, a.out_height or None, 1080)
+    # black strips that come and go inside that picture (a layout switch at second 8): the rectangle of every frame, so no angle shows a strip
+    rects = scan_rects(ff, a.video, info, crop, fps, start, duration, progress.sub(0.015, 0.03))
+    rects = mc.resample_rects(rects, n_frames) if rects is not None else None
+    moving_bars = rects is not None and mc.rects_vary(rects)
+    if not moving_bars:
+        rects = None
+    wide_scale = mc.effective_wide_scale(rects, src_aspect, out_aspect) if moving_bars else 1.0
+    out_w, out_h = mc.pick_output_size(aw, ah, out_aspect, a.out_height or None, 1080, wide_scale=wide_scale)
 
     # 1. who is where
-    an = analyse(ff, a.video, info, crop, models, duration, progress.sub(0.03, 0.30))
+    an = analyse(ff, a.video, info, crop, models, duration, progress.sub(0.03, 0.30), start)
     n_a = an["n"]
     mode, prim, sec, good = pick_subjects(an)
     if prim is None:
@@ -603,27 +648,28 @@ def run_virtual(a, progress):
         skipped = {k: "one_subject" for k in requested if k not in active and mc.ANGLES[k]["subjects"] == 2}
 
     # 2. the paths of every camera
+    s1_rows = [series_row(*prim, i) for i in range(n_a)]
+    s2_rows = [series_row(*sec, i) if sec is not None else None for i in range(n_a)]
     all_targets = {}
     for key in active:
-        rows = []
-        for i in range(n_a):
-            s1 = series_row(*prim, i)
-            s2 = series_row(*sec, i) if sec is not None else None
-            rows.append(mc.frame_for(key, s1, src_aspect, out_aspect, subj2=s2))
-        all_targets[key] = rows
+        all_targets[key] = [mc.frame_for(key, s1_rows[i], src_aspect, out_aspect, subj2=s2_rows[i]) for i in range(n_a)]
+    # where the head is, frame by frame: the hard rule that no close shot ever cuts the hair (mc.keep_headroom)
+    head_top = mc.head_top_series(t_a, [mc.head_top_of(r) if r is not None else float("nan") for r in s1_rows], n_frames, fps)
     if not a.out_height:
         # «auto» height: as many rows as the tightest shot can carry without being blown up much (never fewer than 720 unless the
         # picture itself is smaller, never more than the wide shot has)
         tight = min(float(np.median([r[2] for r in rows])) for rows in all_targets.values())
         want_h = max(720.0, min(1080.0, tight * ah * 1.5))
-        out_w, out_h = mc.pick_output_size(aw, ah, out_aspect, want_h, 1080)
-    log("source %dx%d (picture %dx%d%s), %.2f fps, %.1f s -> output %dx%d" % (info["width"], info["height"], aw, ah, " after cutting black bars" if bars else "", fps, duration, out_w, out_h))
+        out_w, out_h = mc.pick_output_size(aw, ah, out_aspect, want_h, 1080, wide_scale=wide_scale)
+    log("source %dx%d (picture %dx%d%s%s), %.2f fps, %.1f s -> output %dx%d" % (info["width"], info["height"], aw, ah, " after cutting black bars" if bars else "",
+                                                                          ", bars change %d times" % (len(mc.rect_segments(rects, fps)) - 1) if moving_bars else "", fps, duration, out_w, out_h))
     min_ch = mc.min_window_height(ah, out_h, a.max_upscale)
     paths, stats = {}, {}
     for idx, key in enumerate(active):
         targets = all_targets[key]
         push = 0.04 if key == "wide" else None
-        paths[key] = mc.build_path(key, t_a, targets, n_frames, fps, src_aspect, out_aspect, handheld_amount=a.handheld, seed=a.seed + idx, min_ch=min_ch, push=push)
+        paths[key] = mc.build_path(key, t_a, targets, n_frames, fps, src_aspect, out_aspect, handheld_amount=a.handheld, seed=a.seed + idx, min_ch=min_ch, push=push,
+                                   rects=rects, head_top=head_top if key in ("medium", "close", "over_shoulder") else None)
         stats[key] = mc.upscale_stats(paths[key]["ch"], ah, out_h)
     progress(0.32, "paths")
 
@@ -674,7 +720,7 @@ def run_virtual(a, progress):
             seg_of[f] = s["angle"]
     shot_frames = {}
     preview_at = int(n_frames * 0.4)
-    dec = Decoder(ff, a.video, (info["width"], info["height"]), fps, crop=crop, duration=duration, extra_vf=None)
+    dec = Decoder(ff, a.video, (info["width"], info["height"]), fps, crop=crop, start=start, duration=duration, extra_vf=None)
     done = 0
     try:
         for fi, frame in enumerate(dec):
@@ -713,7 +759,8 @@ def run_virtual(a, progress):
     result = {
         "v": 1, "engine": "multiangle", "mode": "virtual", "version": VERSION,
         "source": {"width": info["width"], "height": info["height"], "fps": info["fps"], "duration": info["duration"], "has_audio": info["has_audio"],
-                   "active": {"x": crop[0], "y": crop[1], "w": aw, "h": ah}, "black_bars": bars},
+                   "active": {"x": crop[0], "y": crop[1], "w": aw, "h": ah}, "black_bars": bars or moving_bars,
+                   "bars_change": mc.rect_segments(rects, fps, (aw, ah)) if moving_bars else []},
         "output": {"width": out_w, "height": out_h, "fps": fps, "format": a.format, "frames": done, "duration": round(done / fps, 3)},
         "subject_mode": mode, "subjects": subjects,
         "angles": [{"key": k, "label": mc.ANGLES[k]["label"], "file": files[k], "preview": "preview_%s.jpg" % k,
@@ -866,6 +913,8 @@ def run_move(a, progress):
         except ValueError:
             focus_xy = None
     progress(0.02, "load")
+    union = None                                  # a video: the picture area every frame lies in (pixels of the full frame)
+    rects = None                                  # a video: the picture rectangle of every frame inside `union` (fractions)
     if is_video:
         info = probe(ff, a.input)
         duration = min(info["duration"], float(a.max_seconds) if a.max_seconds < MAX_SECONDS else 12.0)
@@ -877,15 +926,32 @@ def run_move(a, progress):
         if first is None:
             raise EngineError("the video has no readable picture", "no_video")
         base = first
+        union = sample_active_area(ff, a.input, info, duration)
+        rects = scan_rects(ff, a.input, info, union, fps, 0.0, duration)
     else:
         info = None
         duration = float(a.duration or 4.0)
         base = load_image(a.input)
     n_frames = max(2, int(round(duration * fps)))
-    # black bars (a vertical clip inside a 16:9 frame, a letterboxed film): the move works on the picture only
-    bx0, by0, bx1, by1 = mc.active_area([cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)], threshold=16, min_share=0.03)
-    bx0, by0, bx1, by1 = bx0 // 2 * 2, by0 // 2 * 2, max(bx0 // 2 * 2 + 64, bx1 // 2 * 2), max(by0 // 2 * 2 + 64, by1 // 2 * 2)
-    base = base[by0:by1, bx0:bx1]
+    # black bars (a vertical clip inside a 16:9 frame, a letterboxed film): the move works on the picture only. A video's bars may change while
+    # it plays (a layout switch): every frame has its own picture box, the move always works on the picture of THAT frame
+    if union is not None and rects is not None:
+        ux0, uy0, ux1, uy1 = union
+
+        def frame_box(i):
+            r = rects[min(i, len(rects) - 1)]
+            x0, y0 = ux0 + int(round(r[0] * (ux1 - ux0))) // 2 * 2, uy0 + int(round(r[1] * (uy1 - uy0))) // 2 * 2
+            x1, y1 = ux0 + int(round(r[2] * (ux1 - ux0))) // 2 * 2, uy0 + int(round(r[3] * (uy1 - uy0))) // 2 * 2
+            return x0, y0, max(x0 + 64, x1), max(y0 + 64, y1)
+    else:
+        bx0, by0, bx1, by1 = mc.active_area([cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)], threshold=16, min_share=0.03)
+        bx0, by0, bx1, by1 = bx0 // 2 * 2, by0 // 2 * 2, max(bx0 // 2 * 2 + 64, bx1 // 2 * 2), max(by0 // 2 * 2 + 64, by1 // 2 * 2)
+
+        def frame_box(i):
+            return bx0, by0, bx1, by1
+    box0 = frame_box(0)
+    bars_vary = rects is not None and mc.rects_vary(rects)
+    base = base[box0[1]:box0[3], box0[0]:box0[2]]
     bh, bw = base.shape[:2]
     src_aspect = bw / float(bh)
     out_aspect = mc.out_aspect_for(a.format, src_aspect)
@@ -904,10 +970,17 @@ def run_move(a, progress):
     ow, oh = max(2, int(cw_px * sc) // 2 * 2), max(2, int(ch_px * sc) // 2 * 2)
     fx_local = (focus_xy[0] * bw - crop_box[0]) / float(crop_box[2])
     fy_local = (focus_xy[1] * bh - crop_box[1]) / float(crop_box[3])
+    # the focus point in pixels of the full frame: a frame with another picture box keeps the same point still
+    focus_px = (box0[0] + focus_xy[0] * bw, box0[1] + focus_xy[1] * bh)
 
-    def prep(frame):
-        frame = frame[by0:by1, bx0:bx1]
-        c = frame[crop_box[1]:crop_box[1] + crop_box[3], crop_box[0]:crop_box[0] + crop_box[2]]
+    def prep(frame, fi=0):
+        x0, y0, x1, y1 = frame_box(fi)
+        frame = frame[y0:y1, x0:x1]
+        if (x0, y0, x1, y1) == box0:
+            c = frame[crop_box[1]:crop_box[1] + crop_box[3], crop_box[0]:crop_box[0] + crop_box[2]]
+        else:
+            fh, fw = frame.shape[:2]
+            c, _ = crop_to_aspect(frame, out_aspect, min(max((focus_px[0] - x0) / float(fw), 0.0), 1.0), min(max((focus_px[1] - y0) / float(fh), 0.0), 1.0))
         return cv2.resize(c, (ow, oh), interpolation=cv2.INTER_AREA if sc < 1 else cv2.INTER_CUBIC)
 
     img0 = cv2.resize(crop_img, (ow, oh), interpolation=cv2.INTER_AREA if sc < 1 else cv2.INTER_CUBIC)
@@ -938,7 +1011,7 @@ def run_move(a, progress):
             if fi >= n_frames:
                 break
             if fi % stride == 0 or fi == n_frames - 1:
-                small = prep(fr)
+                small = prep(fr, fi)
                 gray = cv2.cvtColor(cv2.resize(small, (32, 32), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
                 keys.append((fi, depth_for(small, smoother, prev_gray, gray)))
                 prev_gray = gray
@@ -977,7 +1050,7 @@ def run_move(a, progress):
     for fi in range(n_frames):
         if is_video:
             fr = next(frames_iter, None)
-            small = prep(fr) if fr is not None else last
+            small = prep(fr, fi) if fr is not None else last
             last = small
         else:
             small = img0
@@ -997,6 +1070,7 @@ def run_move(a, progress):
     result = {
         "v": 1, "engine": "multiangle", "mode": "move25d", "version": VERSION, "move": a.move, "amount": a.amount,
         "input": "video" if is_video else "image", "output": {"width": ow, "height": oh, "fps": fps, "frames": n_frames, "duration": round(n_frames / fps, 3), "format": a.format},
+        "bars_change": mc.rect_segments(rects, fps, (union[2] - union[0], union[3] - union[1])) if bars_vary else [],
         "focus": {"x": round(focus_xy[0], 3), "y": round(focus_xy[1], 3), "depth": round(warp.focus_d, 3)},
         "safe_zoom": round(zoom, 3), "depth_keys": len(keys), "holes": {"mean": round(float(np.mean(holes)), 4), "max": round(float(np.max(holes)), 4)},
         "file": "move.mp4", "preview": "preview.jpg", "depth": "depth.png",
@@ -1051,6 +1125,15 @@ def make_selftest_inputs(ff, out_dir):
     return clip, photo
 
 
+def make_selftest_bars(ff, out):
+    """640x360, 4 s at 25 fps: a 288 px wide picture for 2 s, then a 216 px wide one - black strips that change at second 2 (like a composite)."""
+    f = "lutyuv=y='clip(val,70,235)'"
+    cmd = [ff, "-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=288x360:rate=25:duration=2", "-f", "lavfi", "-i", "testsrc2=size=216x360:rate=25:duration=2",
+           "-filter_complex", "[0:v]%s,pad=640:360:176:0:black[a];[1:v]%s,pad=640:360:212:0:black[b];[a][b]concat=n=2:v=1:a=0[v]" % (f, f),
+           "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", out]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, timeout=120, creationflags=NO_WINDOW)
+
+
 def run_selftest(a, progress):
     """One small real job of each kind on synthetic input + the pass checks the site reads (selftest.json)."""
     import numpy as np
@@ -1069,6 +1152,18 @@ def run_selftest(a, progress):
     work = os.path.join(a.out_dir, "selftest-work")
     os.makedirs(work, exist_ok=True)
     clip, photo = make_selftest_inputs(a.ffmpeg, work)
+    # 0. black strips that change in the middle of a clip are found on the very frame they change (no model involved)
+    try:
+        bars = os.path.join(work, "selftest-bars.mp4")
+        make_selftest_bars(a.ffmpeg, bars)
+        binfo = probe(a.ffmpeg, bars)
+        union = sample_active_area(a.ffmpeg, bars, binfo, 4.0)
+        rects = scan_rects(a.ffmpeg, bars, binfo, union, 25.0, 0.0, 4.0)
+        segs = mc.rect_segments(rects, 25.0) if rects is not None else []
+        check("virtual.bars", len(segs) == 2 and abs(segs[1]["t0"] - 2.0) <= 0.1 and abs(union[0] - 176) <= 8 and abs(union[2] - 464) <= 8,
+              "%d steps, switch at %s s, picture x %s-%s" % (len(segs), segs[1]["t0"] if len(segs) > 1 else "-", union[0], union[2]))
+    except Exception as e:  # noqa: BLE001
+        check("virtual.bars", False, "%s: %s" % (type(e).__name__, e))
     # 1. virtual cameras on the synthetic clip
     va = argparse.Namespace(video=clip, out_dir=os.path.join(work, "virtual"), models=a.models, ffmpeg=a.ffmpeg, angles="wide,medium,close", format="source", pace="fast", handheld=0.35,
                             seed=3, sentences="", rhythm="speech", provider=a.provider, max_seconds=60.0, out_height=360, max_upscale=2.0, start=0.0, duration=0.0, fps=0.0, multicam=True)

@@ -29,7 +29,7 @@ import random
 
 import numpy as np
 
-VERSION = "1.0"
+VERSION = "1.1"
 
 # ───────────────────────────────────────────────────────────── presets
 
@@ -216,7 +216,7 @@ class Tracker:
     def _new(self, i, det):
         t = {"id": self._next, "box": tuple(det["box"]), "miss": 0, "kind": det.get("kind", "person"),
              "boxes": np.full((self.n, 4), np.nan), "faces": np.full((self.n, 4), np.nan), "yaw": np.full(self.n, np.nan),
-             "score": 0.0, "hits": 0}
+             "tops": np.full(self.n, np.nan), "score": 0.0, "hits": 0}
         self._next += 1
         self._put(t, i, det)
         self._live.append(t)
@@ -292,13 +292,25 @@ class Tracker:
                     self._live.remove(t)
                     self._done.append(t)
 
+    def annotate(self, i, fn):
+        """Store `fn(box, face or None)` (the top of the head found in the picture, a fraction of the height, or None) for every subject
+        that was seen at sample `i` - the engine calls it right after `update` with the same frame."""
+        for t in self._live:
+            b = t["boxes"][i]
+            if np.isnan(b).any():
+                continue
+            f = t["faces"][i]
+            top = fn(tuple(float(v) for v in b), None if np.isnan(f).any() else tuple(float(v) for v in f))
+            if top is not None:
+                t["tops"][i] = top
+
     def tracks(self, min_hits=2):
         out = []
         for t in self._done + self._live:
             if t["hits"] < min_hits:
                 continue
             out.append({"id": t["id"], "kind": "person" if not np.isnan(t["faces"]).all() or t["kind"] == "person" else "face",
-                        "boxes": t["boxes"], "faces": t["faces"], "yaw": t["yaw"], "hits": t["hits"], "score": t["score"]})
+                        "boxes": t["boxes"], "faces": t["faces"], "yaw": t["yaw"], "tops": t["tops"], "hits": t["hits"], "score": t["score"]})
         return out
 
 
@@ -327,8 +339,18 @@ def rank_subjects(tracks, n):
 # ───────────────────────────────────────────────────────────── framing: where does each virtual camera look
 
 def _anatomy(subj):
-    """(face_h, eye_x, eye_y, head_top) of a subject dict {"box", "face", "yaw"} in source fractions. A detector's face box starts
-    at the brows, so the hair reaches about half a face height above it."""
+    """(face_h, eye_x, eye_y, head_top) of a subject dict {"box", "face", "yaw", "top"?} in source fractions. A detector's face box starts
+    at the brows, so the hair reaches about half a face height above it - unless the head is bowed over a laptop (the box then sits on the
+    nose) or the hair is big: the engine measures the real top of the head in the picture (find_head_top) and passes it as `top`; the estimate
+    here is only ever moved UP by it (more headroom, never less)."""
+    fh, ex, ey, top = _anatomy_prior(subj)
+    measured = subj.get("top")
+    if measured is not None and not (isinstance(measured, float) and math.isnan(measured)):
+        top = min(top, float(measured))
+    return fh, ex, ey, top
+
+
+def _anatomy_prior(subj):
     face, box = subj.get("face"), subj.get("box")
     if face is not None and not _nan(face):
         fx, fy, fw, fh = face
@@ -394,6 +416,71 @@ def frame_for(shot, subj, src_aspect, out_aspect, subj2=None, side=0.0):
     cx = ex + 0.17 * cw * direction                    # he sits on the far third: the shoulder of the other one enters on the near side
     cy = min(ey + (0.5 - 0.37) * ch, top - 0.05 * ch + 0.5 * ch)
     return cx, cy, ch
+
+
+def find_head_top(gray, face, box, search=1.15, thr=24.0):
+    """The top of the head (hair included) found IN THE PICTURE, as a fraction of the height - or None when the picture does not say.
+
+    The detectors miss it: a face looking down at a laptop is boxed from the nose, a person box starts at the forehead, big hair reaches
+    far above both. Around the head column the rows above the anchor estimate are compared with the picture at both sides of the head (same
+    row): a row belongs to the head when its centre is darker or brighter than BOTH sides (a wall with a light gradient, or a monitor beside
+    the head, is not a head). The head's rows must be connected to the anchor - an isolated lamp above does not count - and the search goes
+    at most `search` face heights above it. `gray` = 2-D frame (the analysis frame). Only an estimate that is HIGHER than the anchor is returned."""
+    g = np.asarray(gray, dtype=np.float32)
+    if g.ndim != 2 or g.size == 0:
+        return None
+    H, W = g.shape
+    subj = {"box": box, "face": face}
+    if (face is None or _nan(face)) and (box is None or _nan(box)):
+        return None
+    fh, ex, _ey, anchor = _anatomy_prior(subj)
+    half = max(2, int(round(0.40 * fh * H)))                 # the band: the middle of the head (the crown is highest there)
+    cx = int(round(ex * W))
+    b0, b1 = max(0, cx - half), min(W, cx + half + 1)
+    if b1 - b0 < 3:
+        return None
+    gap = int(round(0.25 * fh * H))
+    sides = []
+    for lo, hi in ((cx - int(round(0.95 * fh * H)), cx - int(round(0.65 * fh * H))), (cx + int(round(0.65 * fh * H)), cx + int(round(0.95 * fh * H)))):
+        lo, hi = max(0, lo), min(W, hi)
+        if hi - lo >= 2:
+            sides.append((lo, hi))
+    if not sides:
+        return None
+    y_anchor = int(min(max(anchor, 0.0), 1.0) * H)
+    y_top = max(0, int(round((anchor - search * fh) * H)))
+    y_start = min(H - 1, y_anchor + max(1, int(round(0.25 * fh * H))))      # a little below the anchor: the head must be there
+    if y_start <= y_top:
+        return None
+    band = g[y_top:y_start + 1, b0:b1].mean(axis=1)
+    side_vals = np.stack([g[y_top:y_start + 1, lo:hi].mean(axis=1) for lo, hi in sides], axis=0)
+    if len(sides) == 2:
+        lo_v, hi_v = side_vals.min(axis=0), side_vals.max(axis=0)
+        sig = np.maximum(lo_v - band, band - hi_v)
+        sig = np.maximum(sig, 0.0)
+    else:
+        sig = np.abs(band - side_vals[0])
+    head = sig > thr
+    row = len(head) - 1
+    while row >= 0 and not head[row]:                          # from just under the anchor go up to the first head row
+        row -= 1
+        if len(head) - 1 - row > gap + 2:
+            return None                                        # nothing head-like near the anchor: the anchor stands
+    if row < 0:
+        return None
+    top_row, miss = row, 0
+    for r in range(row, -1, -1):
+        if head[r]:
+            top_row, miss = r, 0
+        else:
+            miss += 1
+            if miss > max(2, gap // 2):
+                break
+    y = (y_top + top_row) / float(H)
+    if top_row == 0 and y_top > 0:
+        return None                                            # still going at the edge of the search window: not a head
+    y = max(0.0, y - 0.012)
+    return y if y < anchor - 0.004 else None
 
 
 # ───────────────────────────────────────────────────────────── the virtual camera operator
@@ -470,8 +557,58 @@ def handheld(n, fps, amount, seed=1):
     return out[0], out[1], out[2]
 
 
-def build_path(shot, times, targets, n, fps, src_aspect, out_aspect, handheld_amount=0.35, seed=1, min_ch=0.0, push=None):
-    """The full path of one virtual camera -> {"cx","cy","ch","roll"} arrays of length n (every window inside the picture)."""
+def resample_series(x, n):
+    """A 1-D series for exactly `n` frames (nearest, the last one held)."""
+    a = np.asarray(x, dtype=np.float64)
+    return a[np.minimum(np.arange(n), len(a) - 1)] if len(a) else np.full(n, np.nan)
+
+
+def head_top_of(subj):
+    """The top of a subject's head (fraction of the height) as the framing rules see it (detector estimate, raised by the measurement)."""
+    return float(_anatomy(subj)[3])
+
+
+def head_top_series(times, tops, n, fps, span=0.4):
+    """Per-frame head top (n,) from samples `tops` taken at `times` (seconds; NaN = unknown): linear in between, held at the ends, then a
+    running MINIMUM over +-`span` seconds - the HIGHEST head the neighbourhood saw, so a sample that is too low never lets the crop cut the hair.
+    All NaN when there is no sample."""
+    t = np.asarray(times, dtype=np.float64)
+    v = np.asarray(tops, dtype=np.float64)
+    ok = ~np.isnan(v)
+    if not ok.any():
+        return np.full(n, np.nan)
+    out = np.interp(np.arange(n) / float(fps), t[ok], v[ok])
+    k = 2 * max(1, int(round(span * fps))) + 1
+    pad = k // 2
+    win = np.lib.stride_tricks.sliding_window_view(np.pad(out, (pad, pad), mode="edge"), k)
+    return win.min(axis=1)
+
+
+def keep_headroom(cy, ch, top, fps, headroom=0.045, smooth_s=0.25):
+    """Never let the window's top edge sit lower than `headroom` of the window above the top of the head. The camera operator is a spring with a
+    dead zone and a speed limit, so a subject who leans in or stands up can outrun it for a moment; this is the hard rule behind the soft one:
+    where the window is too low it is lifted by exactly the missing amount. The lift is widened (dilated) and blurred over `smooth_s` seconds so
+    it glides in and out instead of kinking. `top` = per-frame head top (NaN = unknown -> no rule). Returns the new cy."""
+    cy = np.asarray(cy, dtype=np.float64)
+    ch = np.asarray(ch, dtype=np.float64)
+    top = np.asarray(top, dtype=np.float64)
+    need = (cy - ch / 2.0) - (top - headroom * ch)
+    corr = np.where(np.isnan(top), 0.0, np.maximum(need, 0.0))
+    if not corr.any():
+        return cy
+    k = 2 * max(1, int(round(smooth_s * fps))) + 1
+    pad = k // 2
+    dil = np.lib.stride_tricks.sliding_window_view(np.pad(corr, (pad, pad), mode="edge"), k).max(axis=1)
+    kern = np.ones(k) / k
+    soft = np.convolve(np.pad(dil, (pad, pad), mode="edge"), kern, mode="valid")
+    return cy - np.maximum(soft, corr)
+
+
+def build_path(shot, times, targets, n, fps, src_aspect, out_aspect, handheld_amount=0.35, seed=1, min_ch=0.0, push=None, rects=None, head_top=None, headroom=0.045):
+    """The full path of one virtual camera -> {"cx","cy","ch","roll"} arrays of length n (every window inside the picture).
+    `rects` = per-frame picture rectangles (black bars that change during the clip, see clean_rects): the window of every frame is also
+    kept inside THAT frame's rectangle, so a bar that appears at second 8 is never shown.
+    `head_top` = per-frame top of the head (head_top_series): the window is lifted wherever it would cut the hair (keep_headroom)."""
     params = dict(CAMERA[shot])
     params["src_aspect"], params["out_aspect"] = src_aspect, out_aspect
     t = np.asarray(times, dtype=np.float64)
@@ -490,7 +627,11 @@ def build_path(shot, times, targets, n, fps, src_aspect, out_aspect, handheld_am
     cw = window_width(ch, src_aspect, out_aspect)
     cx = path[:, 0] + dx * cw
     cy = path[:, 1] + dy * ch
+    if head_top is not None:
+        cy = keep_headroom(cy, ch, resample_series(head_top, n), fps, headroom)
     cx, cy, ch = clamp_window(cx, cy, ch, src_aspect, out_aspect, margin=margin, min_ch=min_ch)
+    if rects is not None:
+        cx, cy, ch = fit_to_rects(cx, cy, ch, resample_rects(rects, n), src_aspect, out_aspect, margin=margin)
     return {"cx": cx, "cy": cy, "ch": ch, "roll": roll}
 
 
@@ -508,11 +649,12 @@ def min_window_height(src_h_px, out_h_px, max_upscale=UPSCALE_HARD):
     return float(out_h_px / (max_upscale * src_h_px))
 
 
-def pick_output_size(src_active_w, src_active_h, out_aspect, req_h=None, max_h=1080):
+def pick_output_size(src_active_w, src_active_h, out_aspect, req_h=None, max_h=1080, wide_scale=1.0):
     """Output (w, h) - both even. The WIDE shot is the sharpest the source can give, so the output never has more rows than
-    the wide crop has (no made-up pixels in the base shot); `req_h` caps it further."""
+    the wide crop has (no made-up pixels in the base shot); `req_h` caps it further. `wide_scale` (<= 1) = how much of the full
+    wide window the typical frame really has when black bars come and go (effective_wide_scale)."""
     chm = max_window_height(src_active_w / src_active_h, out_aspect)
-    wide_h = chm * src_active_h
+    wide_h = chm * min(1.0, max(0.1, float(wide_scale))) * src_active_h
     h = min(float(req_h or max_h), float(max_h), wide_h)
     h = max(2, int(h) // 2 * 2)
     w = max(2, int(round(h * out_aspect)) // 2 * 2)
@@ -844,6 +986,128 @@ def active_area(gray_frames, threshold=14, min_share=0.02, pad=0):
     if y1 > 0.98 * h:
         y1 = h
     return x0, y0, x1, y1
+
+
+# ───────────────────────────────────────────────────────────── black bars that CHANGE during the clip
+
+#: a composite (a phone recording next to a selfie, a clip that switches from 9:16 to a narrower layout) has black strips whose width changes
+#: at second 8. `active_area` finds the union once; these find the picture rectangle of EVERY frame, so no angle ever shows a strip.
+FULL_RECT = (0.0, 0.0, 1.0, 1.0)
+
+
+def frame_rect(gray, threshold=16, min_share=0.10):
+    """(x0, y0, x1, y1) in fractions of ONE small gray frame: the columns / rows in which more than `min_share` of the pixels are lit.
+    A caption lying over a bar is a few rows high, so it does not count as picture. None = nothing lit (a black frame)."""
+    g = np.asarray(gray)
+    if g.ndim != 2 or g.size == 0:
+        return None
+    bright = g > threshold
+    xs = np.flatnonzero(bright.mean(axis=0) > min_share)
+    ys = np.flatnonzero(bright.mean(axis=1) > min_share)
+    if len(xs) == 0 or len(ys) == 0:
+        return None
+    h, w = g.shape
+    return (float(xs[0]) / w, float(ys[0]) / h, float(xs[-1] + 1) / w, float(ys[-1] + 1) / h)
+
+
+def clean_rects(rects, fps, win_s=0.4, tol=0.012, min_side=0.25, snap=0.02, pad=(0.0, 0.0)):
+    """Per-frame rectangles -> a steady (n, 4) array of (x0, y0, x1, y1).
+      * a frame with nothing lit, or a tiny rectangle (a fade through black, a dark scene) keeps the previous rectangle;
+      * a running median over `win_s` kills one-frame glitches and keeps real steps exactly where they are (a layout switch stays frame accurate);
+      * hysteresis: the rectangle only changes when an edge moves by more than `tol` (1.2 %), so compression noise never makes it breathe;
+      * edges within `snap` (2 %) of the border are the border (a hair of dark picture is not a bar);
+      * `pad` = (fraction of the width, of the height): the edges that ARE bars move inwards by this much (the scan is smaller than the picture)."""
+    n = len(rects)
+    if n == 0:
+        return np.zeros((0, 4))
+    a = np.full((n, 4), np.nan)
+    for i, r in enumerate(rects):
+        if r is not None and (r[2] - r[0]) >= min_side and (r[3] - r[1]) >= min_side:
+            a[i] = r
+    good = ~np.isnan(a[:, 0])
+    if not good.any():
+        return np.tile(np.array(FULL_RECT), (n, 1))
+    idx = np.maximum.accumulate(np.where(good, np.arange(n), -1))
+    first = int(np.flatnonzero(good)[0])
+    idx = np.where(idx < 0, first, idx)
+    a = a[idx]
+    k = max(3, int(round(win_s * fps)))
+    k += 1 - k % 2
+    for c in range(4):
+        a[:, c] = median_filter(a[:, c], k)
+    out = np.empty_like(a)
+    cur = a[0].copy()
+    for i in range(n):
+        if float(np.abs(a[i] - cur).max()) > tol:
+            cur = a[i].copy()
+        out[i] = cur
+    out[:, 0] = np.where(out[:, 0] < snap, 0.0, out[:, 0])
+    out[:, 1] = np.where(out[:, 1] < snap, 0.0, out[:, 1])
+    out[:, 2] = np.where(out[:, 2] > 1.0 - snap, 1.0, out[:, 2])
+    out[:, 3] = np.where(out[:, 3] > 1.0 - snap, 1.0, out[:, 3])
+    px, py = pad
+    out[:, 0] = np.where(out[:, 0] > 0.0, out[:, 0] + px, 0.0)
+    out[:, 1] = np.where(out[:, 1] > 0.0, out[:, 1] + py, 0.0)
+    out[:, 2] = np.where(out[:, 2] < 1.0, out[:, 2] - px, 1.0)
+    out[:, 3] = np.where(out[:, 3] < 1.0, out[:, 3] - py, 1.0)
+    return out
+
+
+def resample_rects(rects, n):
+    """The rectangle series for exactly `n` frames (the scan and the render may differ by a frame): nearest frame, the last one held."""
+    r = np.asarray(rects, dtype=np.float64)
+    if len(r) == 0:
+        return np.tile(np.array(FULL_RECT), (n, 1))
+    return r[np.minimum(np.arange(n), len(r) - 1)]
+
+
+def rects_vary(rects, tol=1e-6):
+    """True when some frame has a rectangle other than the whole crop (there are bars to keep out of the picture)."""
+    r = np.asarray(rects, dtype=np.float64)
+    return bool(len(r)) and bool(np.abs(r - np.array(FULL_RECT)).max() > tol)
+
+
+def fit_to_rects(cx, cy, ch, rects, src_aspect, out_aspect, margin=0.0):
+    """Keep every frame's crop window inside that frame's picture rectangle. A window that does not fit is made smaller (zoomed in,
+    same output shape) so its edges touch the rectangle; its centre is then clamped inside. Arrays in, arrays out."""
+    cx, cy, ch = (np.asarray(v, dtype=np.float64) for v in (cx, cy, ch))
+    r = np.asarray(rects, dtype=np.float64)
+    x0, y0, x1, y1 = r[:, 0], r[:, 1], r[:, 2], r[:, 3]
+    rw, rh = (x1 - x0), (y1 - y0)
+    max_ch = np.minimum(rh, rw * src_aspect / out_aspect) * (1.0 - 2.0 * margin)
+    ch = np.minimum(ch, max_ch)
+    cw = window_width(ch, src_aspect, out_aspect)
+    m = margin * np.minimum(rw, rh)
+    cx = np.minimum(np.maximum(cx, x0 + m + cw / 2.0), x1 - m - cw / 2.0)
+    cy = np.minimum(np.maximum(cy, y0 + m + ch / 2.0), y1 - m - ch / 2.0)
+    return cx, cy, ch
+
+
+def effective_wide_scale(rects, src_aspect, out_aspect):
+    """How tall the WIDE window of a typical frame is, as a share of the full-crop wide window (median over the clip, <= 1): the output size
+    is chosen from it, so a clip that is mostly narrow is not blown up."""
+    r = np.asarray(rects, dtype=np.float64)
+    if len(r) == 0:
+        return 1.0
+    rw, rh = r[:, 2] - r[:, 0], r[:, 3] - r[:, 1]
+    eff = np.minimum(rh, rw * src_aspect / out_aspect)
+    return float(min(1.0, np.median(eff) / max_window_height(src_aspect, out_aspect)))
+
+
+def rect_segments(rects, fps, size=None):
+    """The steps of a rectangle series -> [{"t0", "t1", "rect": [x0,y0,x1,y1] (fractions), "px": [..] when `size`=(w, h) is given}]."""
+    r = np.asarray(rects, dtype=np.float64)
+    out = []
+    start = 0
+    for i in range(1, len(r) + 1):
+        if i == len(r) or float(np.abs(r[i] - r[start]).max()) > 1e-9:
+            row = {"t0": round(start / float(fps), 3), "t1": round(i / float(fps), 3), "rect": [round(float(v), 4) for v in r[start]]}
+            if size:
+                w, h = size
+                row["px"] = [int(round(r[start][0] * w)), int(round(r[start][1] * h)), int(round(r[start][2] * w)), int(round(r[start][3] * h))]
+            out.append(row)
+            start = i
+    return out
 
 
 def spectral_residual_saliency(gray):

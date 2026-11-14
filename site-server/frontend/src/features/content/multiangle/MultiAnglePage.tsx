@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../../api/client";
 import Icon from "../../../components/Icon";
@@ -19,6 +19,7 @@ import {
   cutBar,
   mmss,
   multiangleApi,
+  nodeTitle,
   readiness,
 } from "./api";
 
@@ -170,7 +171,8 @@ function NodeCard({ storeId, status, onChange }: { storeId: string; status: Node
 
   if (!status) return null;
   const ready = status.ready.virtual && status.ready.move && status.online;
-  const tone = ready ? "ok" : status.needs_update.length ? "warn" : status.online ? "info" : "warn";
+  // سرورِ خاموش/قدیمی که خودش به‌روز می‌شود هشدار نیست (کاری برای مالک نیست)؛ فقط وقتی هیچ سروری ثبت نشده هشدار است
+  const tone = ready ? "ok" : status.can_queue ? "info" : "warn";
 
   async function prepare() {
     setBusy(true);
@@ -203,7 +205,7 @@ function NodeCard({ storeId, status, onChange }: { storeId: string; status: Node
   return (
     <Alert
       tone={tone}
-      title={ready ? "سرورِ پردازش آماده است" : "سرورِ پردازش"}
+      title={nodeTitle(status)}
       action={
         <div className="flex shrink-0 flex-col gap-2">
           {!ready && status.nodes.length > 0 && (
@@ -219,7 +221,7 @@ function NodeCard({ storeId, status, onChange }: { storeId: string; status: Node
         </div>
       }
     >
-      <div data-testid="node-message">{status.needs_update.length ? status.update_text : status.message}</div>
+      <div data-testid="node-message">{status.needs_update.length && status.update_text ? status.update_text : status.message}</div>
       {note && <div className="mt-1 text-xs">{note}</div>}
       {showMore && (
         <div className="mt-3 space-y-3">
@@ -286,28 +288,44 @@ function NodeDetails({ node, staff, busy, onTest }: { node: NodeRow; staff: bool
 
 // ───────────────────────────── فرم‌ها
 
-function SourceList({ items, value, onPick, empty }: { items: { ref: string; title: string; meta: string; url: string | null }[]; value: string; onPick: (ref: string) => void; empty: string }) {
+type SourceItem = { ref: string; title: string; meta: string; url: string | null; group?: string; thumb?: boolean };
+
+function SourceList({ items, value, onPick, empty }: { items: SourceItem[]; value: string; onPick: (ref: string) => void; empty: string }) {
   if (items.length === 0) return <div className="text-sm" style={{ color: "var(--text-3)" }}>{empty}</div>;
+  const groups = Array.from(new Set(items.map((i) => i.group ?? "")));
   return (
-    <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl p-1" style={{ background: "var(--surface-2)" }} role="radiogroup" data-testid="source-list">
-      {items.map((v) => (
-        <label
-          key={v.ref}
-          className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm"
-          style={{ background: value === v.ref ? "var(--brand-soft, var(--surface))" : "transparent" }}
-        >
-          <input type="radio" name="source" checked={value === v.ref} onChange={() => onPick(v.ref)} />
-          <span className="min-w-0 flex-1 truncate font-medium">{v.title}</span>
-          <span className="shrink-0 text-xs" style={{ color: "var(--text-3)" }}>
-            {v.meta}
-          </span>
-        </label>
+    <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl p-1" style={{ background: "var(--surface-2)" }} role="radiogroup" data-testid="source-list">
+      {groups.map((g) => (
+        <div key={g || "all"}>
+          {groups.length > 1 && g && (
+            <div className="sticky top-0 z-[1] px-3 py-1 text-xs font-bold" style={{ background: "var(--surface-2)", color: "var(--text-3)" }}>
+              {g}
+            </div>
+          )}
+          {items
+            .filter((v) => (v.group ?? "") === g)
+            .map((v) => (
+              <label
+                key={v.ref}
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm"
+                style={{ background: value === v.ref ? "var(--brand-soft, var(--surface))" : "transparent" }}
+              >
+                <input type="radio" name="source" checked={value === v.ref} onChange={() => onPick(v.ref)} />
+                {v.thumb && v.url && <img src={v.url} alt="" loading="lazy" decoding="async" className="h-9 w-9 shrink-0 rounded-md object-cover" />}
+                <span className="min-w-0 flex-1 truncate font-medium">{v.title}</span>
+                <span className="shrink-0 text-xs" style={{ color: "var(--text-3)" }}>
+                  {v.meta}
+                </span>
+              </label>
+            ))}
+        </div>
       ))}
     </div>
   );
 }
 
-const videoMeta = (v: VideoSource) => `${mmss(v.duration)} · ${fa(v.width)}×${fa(v.height)}${v.has_audio ? "" : " · بی‌صدا"}`;
+const videoMeta = (v: VideoSource) => `${mmss(v.duration)} · ${v.width && v.height ? `${fa(v.width)}×${fa(v.height)}` : "اندازه نامعلوم"}${v.has_audio ? "" : " · بی‌صدا"}`;
+const imageMeta = (i: ImageSource) => (i.width && i.height ? `عکس · ${fa(i.width)}×${fa(i.height)}` : "عکس");
 
 function Preview({ items, value }: { items: { ref: string; url: string | null }[]; value: string }) {
   const url = items.find((i) => i.ref === value)?.url;
@@ -426,9 +444,16 @@ function VirtualForm({ storeId, presets, videos, status, onCreated }: { storeId:
         </label>
 
         <ErrorBox message={error} />
-        {!ready.ok && <Alert tone={ready.tone === "ok" ? "info" : ready.tone}>{ready.text} کار ثبت می‌شود و در صف می‌ماند تا سرورِ پردازش آماده شود.</Alert>}
+        {!ready.ok && (
+          <Alert tone={ready.tone === "ok" ? "info" : ready.tone}>
+            <span data-testid="queue-note">
+              {ready.text}
+              {ready.queue ? " کار ثبت می‌شود و در صف می‌ماند تا سرورِ پردازش آماده شود." : ""}
+            </span>
+          </Alert>
+        )}
         <div className="flex justify-end">
-          <Button disabled={busy || !source || angles.length < 2} onClick={() => void submit()} data-testid="create-virtual">
+          <Button disabled={busy || !source || angles.length < 2 || (!!status && !status.can_queue)} onClick={() => void submit()} data-testid="create-virtual">
             {busy ? <Spinner size={14} /> : <Icon name="film" size={15} />} بساز
           </Button>
         </div>
@@ -464,13 +489,14 @@ function MoveForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready = readiness(status, "move25d");
-  const all = useMemo(
-    () => [
-      ...images.map((i) => ({ ref: i.ref, title: i.title, meta: `عکس · ${fa(i.width)}×${fa(i.height)}`, url: i.url })),
-      ...videos.map((v) => ({ ref: v.ref, title: v.title, meta: `فیلم · ${videoMeta(v)}`, url: v.url })),
-    ],
-    [images, videos],
-  );
+  const [kind, setKind] = useState<"all" | "video" | "image">("all");
+  const all = useMemo(() => {
+    // فیلم‌ها اول (تعدادشان کم است و زیرِ ده‌ها عکس گم می‌شدند)، بعد عکس‌ها؛ هر بخش عنوان دارد
+    const vids: SourceItem[] = videos.map((v) => ({ ref: v.ref, title: v.title, meta: videoMeta(v), url: v.url, group: "فیلم‌ها" }));
+    const imgs: SourceItem[] = images.map((i) => ({ ref: i.ref, title: i.title, meta: imageMeta(i), url: i.url, group: "عکس‌ها", thumb: true }));
+    return kind === "video" ? vids : kind === "image" ? imgs : [...vids, ...imgs];
+  }, [images, videos, kind]);
+  const everything = useMemo(() => [...videos, ...images], [videos, images]);
   const isVideo = source.startsWith("video:") || source.startsWith("edited:") || source.startsWith("script:");
 
   async function submit() {
@@ -490,9 +516,29 @@ function MoveForm({
     <Card>
       <div className="space-y-4" data-testid="move-form">
         <Field label="عکس یا فیلم" hint="از فیلم، چند ثانیهٔ اول (تا ۱۲ ثانیه) استفاده می‌شود.">
+          <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="نوعِ منبع" data-testid="source-kind">
+            {(
+              [
+                ["all", `همه (${fa(videos.length + images.length)})`],
+                ["video", `فیلم‌ها (${fa(videos.length)})`],
+                ["image", `عکس‌ها (${fa(images.length)})`],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={kind === k}
+                onClick={() => setKind(k)}
+                data-testid={`kind-${k}`}
+                className={`u-btn ${kind === k ? "u-btn-primary" : "u-btn-secondary"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <SourceList items={all} value={source} onPick={setSource} empty="عکس یا فیلمی در فروشگاه نیست." />
         </Field>
-        <Preview items={all} value={source} />
+        <Preview items={everything} value={source} />
 
         <div>
           <div className="mb-1.5 text-sm font-medium" style={{ color: "var(--text-2)" }}>
@@ -555,9 +601,16 @@ function MoveForm({
         </label>
 
         <ErrorBox message={error} />
-        {!ready.ok && <Alert tone={ready.tone === "ok" ? "info" : ready.tone}>{ready.text} کار ثبت می‌شود و در صف می‌ماند تا سرورِ پردازش آماده شود.</Alert>}
+        {!ready.ok && (
+          <Alert tone={ready.tone === "ok" ? "info" : ready.tone}>
+            <span data-testid="queue-note">
+              {ready.text}
+              {ready.queue ? " کار ثبت می‌شود و در صف می‌ماند تا سرورِ پردازش آماده شود." : ""}
+            </span>
+          </Alert>
+        )}
         <div className="flex justify-end">
-          <Button disabled={busy || !source} onClick={() => void submit()} data-testid="create-move">
+          <Button disabled={busy || !source || (!!status && !status.can_queue)} onClick={() => void submit()} data-testid="create-move">
             {busy ? <Spinner size={14} /> : <Icon name="camera" size={15} />} بساز
           </Button>
         </div>
@@ -774,9 +827,9 @@ function RunDetail({ run, busy, onEditor, storeId }: { run: Run; busy: boolean; 
           {run.move.label}
           {run.output ? ` · ${fa(run.output.width)}×${fa(run.output.height)} · ${fa(run.output.fps)} فریم‌بر‌ثانیه` : ""}. فیلم در سطلِ رسانهٔ «ادیتور ویدیو» هم هست.
         </div>
-        <a className="u-btn u-btn-secondary" href={`/stores/${storeId}/editor`}>
+        <Link className="u-btn u-btn-secondary" to={`/stores/${storeId}/editor`} data-testid="go-editor">
           <Icon name="film" size={15} /> رفتن به ادیتور ویدیو
-        </a>
+        </Link>
       </div>
     );
   }

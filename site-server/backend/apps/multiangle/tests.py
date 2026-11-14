@@ -40,6 +40,7 @@ READY_CAPS = {
     "multiangle_models": {k: {"state": "installed", "size_mb": 1} for k in ("yunet", "yolos", "depth")},
     "multiangle_ready": {"virtual": True, "move": True, "selftest": True},
 }
+OLD_CAPS = {"agent": "2.10", "ffmpeg": True, "commands": ["status", "update"]}          # an agent from before the feature that can be updated remotely
 EMPTY_CAPS = {
     "multiangle": True, "multiangle_version": "1.0", "kinds": ["multiangle.virtual", "multiangle.move", "multiangle.selftest"], "multiangle_runtime": {"ok": False, "providers": [], "gpu": False, "message": "no python"},
     "multiangle_models": {k: {"state": "missing", "size_mb": 1} for k in ("yunet", "yolos", "depth")},
@@ -180,7 +181,7 @@ class OptionsTests(TestCase):
     def test_the_shared_math_is_the_nodes_own_file(self):
         self.assertTrue(str(ma.core_path()).endswith("processing/multiangle_core.py"))
         self.assertTrue(ma.core_path().is_file())
-        self.assertEqual(ma.core().VERSION, "1.0")
+        self.assertEqual(ma.core().VERSION, "1.1")
 
 
 @override_settings(MEDIA_ROOT=str(MEDIA), NM_DATA_DIR=DATA, IS_TEST=True)
@@ -464,6 +465,87 @@ class MoveFlow(Base):
         self.assertEqual(r.status_code, 400)
 
 
+class WhileTheNodeIsOld(Base):
+    """The only node is still on software from before the feature (or off): «بساز» registers the job; it waits in the durable queue and runs after
+    the node has updated itself. Nothing is refused, nothing is left for the owner to do."""
+
+    caps = OLD_CAPS
+
+    def test_a_virtual_run_is_queued_for_an_old_node(self):
+        r = self.client.post(self.url("runs/"), {"mode": "virtual", "source": f"video:{self.clip.pk}", "angles": ["wide", "medium", "close"]}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        run = MultiAngleRun.objects.get(pk=r.data["run"]["id"])
+        self.assertEqual(run.state, "QUEUED")
+        job = ComputeJob.objects.get(uid=run.job_uid)
+        self.assertEqual((job.kind, job.state), ("multiangle.virtual", "QUEUED"))
+        self.assertIn(job.payload["video"], job.inputs)
+        self.assertIn("خودکار به‌روز", run.message)
+        self.assertEqual(r.data["run"]["state"], "QUEUED")
+        self.assertIsNone(SV.claim(self.node))                                              # the old agent is never offered the kind
+
+    def test_a_2_5d_move_from_a_video_and_from_a_photo_is_queued_too(self):
+        from apps.photoedit.models import PhotoAsset
+
+        r = self.client.post(self.url("runs/"), {"mode": "move25d", "source": f"video:{self.clip.pk}", "move": "truck_right"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        rel = "photoedit/test_pic_old.jpg"
+        (MEDIA / "photoedit").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PIC, MEDIA / rel)
+        asset = PhotoAsset.objects.create(store=self.store, original=rel)
+        r2 = self.client.post(self.url("runs/"), {"mode": "move25d", "source": f"photo:{asset.pk}", "move": "dolly_in"}, format="json")
+        self.assertEqual(r2.status_code, 201, r2.data)
+        self.assertEqual(MultiAngleRun.objects.filter(state="QUEUED").count(), 2)
+        self.assertEqual(ComputeJob.objects.filter(kind="multiangle.move", state="QUEUED").count(), 2)
+
+    def test_the_queued_job_runs_once_the_node_has_updated_and_is_ready(self):
+        r = self.client.post(self.url("runs/"), {"mode": "virtual", "source": f"video:{self.clip.pk}", "angles": ["wide", "close"]}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        run_id = r.data["run"]["id"]
+        self.assertIsNone(SV.claim(self.node))
+        self.node.capabilities = dict(READY_CAPS)                                           # the heartbeat after the automatic update
+        self.node.save()
+        fake_node_finishes(self.node)
+        run = self.client.get(self.url(f"runs/{run_id}/")).data["run"]
+        self.assertEqual(run["state"], "READY", run)
+
+    def test_the_page_and_the_queue_say_the_node_will_update_itself(self):
+        from apps.compute import queue as QV
+
+        self.client.post(self.url("runs/"), {"mode": "virtual", "source": f"video:{self.clip.pk}", "angles": ["wide", "close"]}, format="json")
+        job = ComputeJob.objects.get(kind="multiangle.virtual")
+        self.assertIn("به‌روز", QV.one(job)["status_text"])
+        ov = self.client.get(self.url()).data
+        self.assertTrue(ov["status"]["can_queue"])
+        self.assertIn("به‌روز", ov["runs"][0]["message"])
+        ComputeNode.objects.all().update(last_seen=timezone.now() - timedelta(hours=5))     # switched off in the meantime
+        ov = self.client.get(self.url()).data
+        self.assertEqual(ov["status"]["message"], services.UPDATE_OFFLINE_AUTO)
+        self.assertEqual(ov["runs"][0]["message"], services.UPDATE_OFFLINE_AUTO)
+
+    def test_nothing_registered_is_still_a_clear_503_and_leaves_no_run(self):
+        ComputeNode.objects.all().delete()
+        r = self.client.post(self.url("runs/"), {"mode": "move25d", "source": f"video:{self.clip.pk}", "move": "dolly_in"}, format="json")
+        self.assertEqual((r.status_code, r.data["error"]["code"]), (503, "no_node"))
+        self.assertEqual((MultiAngleRun.objects.count(), ComputeJob.objects.filter(kind__startswith="multiangle.").count()), (0, 0))
+
+
+class Pickers(Base):
+    def test_pictures_carry_their_real_size_not_zero(self):
+        from apps.photoedit.models import PhotoAsset
+
+        rel = "photoedit/test_pic_size.jpg"
+        (MEDIA / "photoedit").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PIC, MEDIA / rel)
+        PhotoAsset.objects.create(store=self.store, original=rel)
+        src = self.client.get(self.url()).data["sources"]
+        imgs = [i for i in src["images"] if i["ref"].startswith("photo:")]
+        self.assertTrue(imgs)
+        self.assertEqual((imgs[0]["width"], imgs[0]["height"]), (320, 192))
+        self.assertTrue(any(v["ref"] == f"video:{self.clip.pk}" for v in src["videos"]))
+        self.assertEqual(services._image_size("/elsewhere/x.jpg"), (0, 0))
+        self.assertEqual(services._image_size("/media/none.jpg"), (0, 0))
+
+
 class EditorProject(TestCase):
     def angles(self, offsets=(0, 0, 0)):
         return [{"ref": f"video:{i + 1}", "label": f"cam{i}", "duration": 10.0, "has_audio": True, "offset": o} for i, o in enumerate(offsets)]
@@ -589,10 +671,13 @@ class Preparation(TestCase):
         s = services.status()
         self.assertFalse(s["online"])
         self.assertIn("START.bat", s["message"])
-        self.node({"agent": "2.9", "ffmpeg": True}, "old")
+        self.assertFalse(s["can_queue"])                                     # nothing registered: a job has nothing to wait for
+        self.node(OLD_CAPS, "old")
         s = services.status()
         self.assertEqual(s["needs_update"], ["old"])
-        self.assertIn("Update.bat", s["update_text"])
+        self.assertTrue(s["can_queue"])
+        self.assertIn("خودکار به‌روز", s["update_text"])                     # auto-update is on by default: nothing for the owner to do
+        self.assertNotIn("Update.bat", s["update_text"])
         self.node(EMPTY_CAPS, "warm")
         s = services.status()
         self.assertEqual(s["needs_update"], [])
@@ -604,6 +689,40 @@ class Preparation(TestCase):
         self.assertTrue(s["ready"]["virtual"] and s["ready"]["move"])
         self.assertIn("آماده", s["message"])
         self.assertTrue(s["nodes"][0]["runtime"]["gpu"])
+
+    def test_an_old_node_that_is_off_says_it_updates_itself_when_switched_on(self):
+        self.node(OLD_CAPS, "old", online=False)
+        s = services.status()
+        self.assertFalse(s["online"])
+        self.assertEqual(s["message"], services.UPDATE_OFFLINE_AUTO)
+        self.assertEqual(s["update_text"], services.UPDATE_OFFLINE_AUTO)
+        self.assertIn("خاموش است", s["message"])
+        self.assertIn("خودش به‌روز می‌شود", s["message"])
+
+    def test_with_auto_update_off_the_owner_is_told_what_to_run_and_that_jobs_wait(self):
+        from apps.compute.models import ComputeSettings
+
+        cfg = ComputeSettings.get()
+        cfg.auto_update = False
+        cfg.save()
+        self.node(OLD_CAPS, "old", online=False)
+        s = services.status()
+        self.assertEqual(s["message"], services.UPDATE_OFFLINE_MANUAL)
+        self.assertIn("Update.bat", s["message"])
+        self.assertIn("در صف می‌مانند", s["message"])
+        ComputeNode.objects.all().update(last_seen=timezone.now())
+        self.assertEqual(services.status()["message"], services.UPDATE_TEXT)
+
+    def test_an_old_node_that_is_on_says_the_update_is_automatic(self):
+        self.node(OLD_CAPS, "old")
+        self.assertEqual(services.status()["message"], services.UPDATE_ONLINE_AUTO)
+
+    def test_an_agent_without_the_update_command_is_told_to_start_it_again(self):
+        self.node({"agent": "2.2", "ffmpeg": True}, "ancient")
+        s = services.status()
+        self.assertEqual(s["message"], services.UPDATE_NO_COMMAND)
+        self.assertTrue(s["can_queue"])
+        self.assertIn("START.bat", s["message"])
 
     def test_an_offline_node_says_so(self):
         self.node(READY_CAPS, "off", online=False)

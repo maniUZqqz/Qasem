@@ -434,6 +434,249 @@ class Picture(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_NP, "numpy is needed")
+class HeadTop(unittest.TestCase):
+    """The owner's clip: a man bows over his laptop, the face detector boxes him from the nose and the person box starts at the forehead, so the
+    close-up used to cut the top of his head off. The top of the head is now measured in the picture and only ever moves the estimate UP."""
+    H, W = 270, 480
+
+    def scene(self, head_cy=0.40, ry=0.15, rx=30, left=200.0, right=200.0, wall_to=None):
+        g = np.zeros((self.H, self.W), dtype=np.float32)
+        xs = np.linspace(0, 1, self.W, dtype=np.float32)[None, :]
+        g[:, :] = (left + (right - left) * xs) if wall_to is None else (left + (wall_to - left) * xs)
+        yy, xx = np.mgrid[0:self.H, 0:self.W]
+        cy, cx = head_cy * self.H, self.W / 2.0
+        inside = ((yy - cy) / (ry * self.H)) ** 2 + ((xx - cx) / rx) ** 2 <= 1.0
+        g[inside] = 40.0
+        return g
+
+    face = (0.465, 0.36, 0.07, 0.12)           # boxed low: the real hair top is at 0.25
+
+    def test_a_bowed_head_has_its_hair_top_found_above_the_detector_estimate(self):
+        top = mc.find_head_top(self.scene(), self.face, None)
+        self.assertIsNotNone(top)
+        self.assertAlmostEqual(top, 0.25 - 0.012, delta=0.02)
+        self.assertLess(top, 0.36 - 0.45 * 0.12)                                           # higher than the prior (the brows - half a face)
+
+    def test_an_anchor_that_is_already_above_the_hair_stands(self):
+        self.assertIsNone(mc.find_head_top(self.scene(), (0.465, 0.20, 0.07, 0.12), None))
+
+    def test_a_head_that_touches_the_top_of_the_frame(self):
+        top = mc.find_head_top(self.scene(head_cy=0.10, ry=0.12), (0.465, 0.13, 0.07, 0.12), None)
+        self.assertIsNotNone(top)
+        self.assertLessEqual(top, 0.01)
+
+    def test_a_person_box_without_a_face_works_too(self):
+        box = (0.38, 0.30, 0.24, 0.70)                                                      # starts at the forehead; the hair reaches 0.25
+        top = mc.find_head_top(self.scene(), None, box)
+        self.assertIsNotNone(top)
+        self.assertLess(top, 0.30)
+
+    def test_a_monitor_beside_the_head_or_a_wall_gradient_is_not_a_head(self):
+        self.assertAlmostEqual(mc.find_head_top(self.scene(left=255.0, right=200.0), self.face, None), 0.25 - 0.012, delta=0.02)
+        empty = self.scene(ry=0.0001, rx=0.01, left=150.0, right=230.0)                    # no head, only a lit wall gradient
+        self.assertIsNone(mc.find_head_top(empty, self.face, None))
+
+    def test_a_lamp_above_the_head_is_not_part_of_it(self):
+        g = self.scene()
+        g[50:58, 220:260] = 20.0                                                            # a dark lamp, separated from the hair by plain wall
+        self.assertAlmostEqual(mc.find_head_top(g, self.face, None), 0.25 - 0.012, delta=0.02)
+
+    def test_garbage_in_is_none(self):
+        self.assertIsNone(mc.find_head_top(np.zeros((0, 0)), self.face, None))
+        self.assertIsNone(mc.find_head_top(self.scene(), None, None))
+        self.assertIsNone(mc.find_head_top(self.scene(), (0.0, 0.3, 0.001, 0.001), None))
+
+    def test_the_tracker_keeps_the_measurement_per_sample(self):
+        tr = mc.Tracker(6, max_miss=3)
+        for i in range(4):
+            tr.update(i, [{"box": (0.3, 0.2, 0.3, 0.7), "kind": "person", "score": 0.9}])
+            tr.annotate(i, lambda box, face: 0.1 + 0.01 * i if i != 2 else None)
+        trk = tr.tracks()[0]
+        self.assertAlmostEqual(trk["tops"][0], 0.10)
+        self.assertAlmostEqual(trk["tops"][3], 0.13)
+        self.assertTrue(np.isnan(trk["tops"][2]) and np.isnan(trk["tops"][5]))
+
+    def test_the_close_up_keeps_the_whole_head_when_the_top_is_known(self):
+        sa = oa = 788 / 1080.0
+        subj = {"box": (0.137, 0.266, 0.484, 0.729), "face": (0.344, 0.353, 0.118, 0.116), "yaw": 0.0}
+        for shot in ("medium", "close"):
+            cx0, cy0, ch0 = mc.frame_for(shot, subj, sa, oa)
+            if shot == "close":
+                self.assertGreater(cy0 - ch0 / 2, 0.19, shot)                                # before: the window top is below the hair at 0.19
+            cx1, cy1, ch1 = mc.frame_for(shot, dict(subj, top=0.19), sa, oa)
+            self.assertLessEqual(cy1 - ch1 / 2, 0.19 - 0.04 * ch1, shot)
+        measured_lower = mc.frame_for("close", dict(subj, top=0.40), sa, oa)
+        self.assertEqual(measured_lower, mc.frame_for("close", subj, sa, oa))               # a measurement below the estimate changes nothing
+
+    def test_the_head_top_series_is_the_highest_head_of_the_neighbourhood(self):
+        t = np.arange(10) / 5.0
+        tops = np.array([0.30, 0.30, np.nan, 0.20, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30])
+        s = mc.head_top_series(t, tops, 60, 30.0, span=0.4)
+        self.assertEqual(len(s), 60)
+        self.assertAlmostEqual(float(s[18]), 0.20)                                          # the low sample lifts its whole neighbourhood
+        self.assertAlmostEqual(float(s[50]), 0.30)
+        self.assertTrue(np.all(np.isnan(mc.head_top_series([0.0, 1.0], [np.nan, np.nan], 5, 30.0))))
+
+    def test_headroom_is_a_hard_rule_that_glides_in(self):
+        n, fps = 90, 30.0
+        cy, ch = np.full(n, 0.5), np.full(n, 0.4)                                           # the window top sits at 0.30
+        self.assertTrue(np.array_equal(mc.keep_headroom(cy, ch, np.full(n, 0.35), fps), cy))   # plenty of room: untouched
+        self.assertTrue(np.array_equal(mc.keep_headroom(cy, ch, np.full(n, np.nan), fps), cy))  # no head known: untouched
+        low = mc.keep_headroom(cy, ch, np.full(n, 0.28), fps)
+        self.assertTrue(np.all(low - ch / 2 <= 0.28 - 0.045 * ch + 1e-9))
+        top = np.where(np.arange(n) < 45, 0.40, 0.20)                                        # he stands up at second 1.5
+        out = mc.keep_headroom(cy, ch, top, fps)
+        self.assertTrue(np.all(out - ch / 2 <= top - 0.045 * ch + 1e-9))
+        self.assertLess(float(np.abs(np.diff(out)).max()), 0.02)                            # a glide, not a jump
+
+    def test_build_path_lifts_the_window_to_keep_the_hair(self):
+        sa = oa = 16 / 9.0
+        t = np.linspace(0, 2.9, 4)
+        tg = [[0.5, 0.5, 0.4]] * 4
+        plain = mc.build_path("medium", t, tg, 90, 30.0, sa, oa, handheld_amount=0.0)
+        kept = mc.build_path("medium", t, tg, 90, 30.0, sa, oa, handheld_amount=0.0, head_top=np.full(90, 0.25))
+        self.assertAlmostEqual(float(plain["cy"][-1] - plain["ch"][-1] / 2), 0.30, places=3)
+        self.assertLessEqual(float((kept["cy"] - kept["ch"] / 2).max()), 0.25 - 0.045 * float(kept["ch"][0]) + 1e-6)
+        self.assertTrue(np.allclose(plain["ch"], kept["ch"]) and np.allclose(plain["cx"], kept["cx"]))
+        again = mc.build_path("medium", t, tg, 90, 30.0, sa, oa, handheld_amount=0.0, head_top=None)
+        self.assertTrue(np.allclose(plain["cy"], again["cy"]))
+
+    def test_a_nan_top_is_ignored(self):
+        subj = {"box": (0.3, 0.2, 0.3, 0.7), "face": (0.4, 0.25, 0.1, 0.12), "yaw": 0.0}
+        self.assertEqual(mc._anatomy(dict(subj, top=float("nan"))), mc._anatomy(subj))
+        self.assertEqual(mc._anatomy(dict(subj, top=None)), mc._anatomy(subj))
+
+
+@unittest.skipUnless(HAVE_NP, "numpy is needed")
+class ChangingBars(unittest.TestCase):
+    """A composite whose black strips change during the clip (the owner's main.mp4: a 9:16 picture, then at second 8 a narrower one): every
+    frame gets its own picture rectangle, and no virtual camera window may leave it."""
+
+    def lit(self, x0, x1, w=192, h=108, seed=1):
+        g = np.zeros((h, w), dtype=np.uint8)
+        g[:, x0:x1] = np.random.default_rng(seed).integers(60, 255, size=(h, x1 - x0))
+        return g
+
+    def two_layouts(self, n=90, switch=45, a=(0.10, 0.90), b=(0.25, 0.75)):
+        return [(a[0], 0.0, a[1], 1.0)] * switch + [(b[0], 0.0, b[1], 1.0)] * (n - switch)
+
+    def test_frame_rect_finds_the_picture_of_one_frame(self):
+        r = mc.frame_rect(self.lit(60, 130))
+        self.assertAlmostEqual(r[0], 60 / 192.0)
+        self.assertAlmostEqual(r[2], 130 / 192.0)
+        self.assertEqual((r[1], r[3]), (0.0, 1.0))
+        self.assertIsNone(mc.frame_rect(np.zeros((20, 20), dtype=np.uint8)))              # a black frame: unknown, not "empty picture"
+
+    def test_a_caption_lying_over_a_bar_is_not_picture(self):
+        g = self.lit(60, 130)
+        g[50:54, 10:50] = 255                                                             # four bright rows of text on the left bar
+        r = mc.frame_rect(g)
+        self.assertAlmostEqual(r[0], 60 / 192.0)
+
+    def test_the_layout_switch_stays_where_it_is_and_noise_does_not_move_it(self):
+        rng = np.random.default_rng(3)
+        noisy = [tuple(np.array(r) + rng.normal(0, 0.003, 4) * np.array([1, 0, 1, 0])) for r in self.two_layouts()]
+        out = mc.clean_rects(noisy, 30.0)
+        segs = mc.rect_segments(out, 30.0)
+        self.assertEqual(len(segs), 2, segs)
+        self.assertAlmostEqual(segs[0]["t1"], 45 / 30.0, places=6)                      # the step is on the very frame the layout changed
+        self.assertAlmostEqual(segs[0]["rect"][0], 0.10, delta=0.01)
+        self.assertAlmostEqual(segs[1]["rect"][0], 0.25, delta=0.01)
+
+    def test_glitches_and_black_frames_are_ignored(self):
+        rects = self.two_layouts()
+        rects[10] = None                                                                  # a dark frame
+        rects[20] = (0.0, 0.0, 1.0, 1.0)                                                  # one frame of everything lit
+        rects[60] = (0.4, 0.0, 0.6, 1.0)                                                  # one frame of nearly nothing
+        rects[61] = None
+        out = mc.clean_rects(rects, 30.0)
+        self.assertEqual(len(mc.rect_segments(out, 30.0)), 2)
+
+    def test_a_hair_of_dark_picture_at_the_border_is_the_border(self):
+        out = mc.clean_rects([(0.012, 0.0, 0.99, 1.0)] * 30, 30.0)
+        self.assertEqual(tuple(out[0]), (0.0, 0.0, 1.0, 1.0))
+        self.assertFalse(mc.rects_vary(out))
+
+    def test_only_the_real_bars_move_inwards_by_the_padding(self):
+        out = mc.clean_rects([(0.2, 0.0, 1.0, 1.0)] * 30, 30.0, pad=(0.01, 0.02))
+        self.assertAlmostEqual(out[0][0], 0.21)
+        self.assertEqual((out[0][1], out[0][2], out[0][3]), (0.0, 1.0, 1.0))
+        self.assertTrue(mc.rects_vary(out))
+
+    def test_a_clip_that_is_all_dark_means_no_bars(self):
+        out = mc.clean_rects([None] * 20, 30.0)
+        self.assertEqual(tuple(out[5]), mc.FULL_RECT)
+        self.assertEqual(len(mc.clean_rects([], 30.0)), 0)
+
+    def test_the_window_never_leaves_the_rectangle_of_its_frame(self):
+        sa = oa = 788 / 1080.0
+        n = 90
+        rects = mc.clean_rects(self.two_layouts(n), 30.0)
+        full = np.full(n, 0.5)
+        cx, cy, ch = mc.fit_to_rects(full, full, np.full(n, 1.0), rects, sa, oa)
+        cw = mc.window_width(ch, sa, oa)
+        self.assertTrue(np.all(cx - cw / 2 >= rects[:, 0] - 1e-9) and np.all(cx + cw / 2 <= rects[:, 2] + 1e-9))
+        self.assertTrue(np.all(cy - ch / 2 >= rects[:, 1] - 1e-9) and np.all(cy + ch / 2 <= rects[:, 3] + 1e-9))
+        self.assertAlmostEqual(float(ch[0]), 0.8, places=3)                               # 0.8 of the width -> 0.8 of the height (same shape)
+        self.assertAlmostEqual(float(ch[-1]), 0.5, places=3)                              # the narrower layout: a tighter wide shot, no bars
+        left = np.full(n, 0.12)
+        cx2, _, _ = mc.fit_to_rects(left, full, np.full(n, 0.3), rects, sa, oa)
+        self.assertGreaterEqual(float(cx2[-1] - mc.window_width(0.3, sa, oa) / 2), 0.25 - 1e-9)   # a close-up that wanted the old left edge is pulled in
+
+    def test_a_reel_from_a_narrow_layout_loses_less_height(self):
+        sa, oa = 788 / 1080.0, 9 / 16.0
+        rects = np.tile(np.array([0.25, 0.0, 0.75, 1.0]), (10, 1))
+        cx, cy, ch = mc.fit_to_rects([0.5] * 10, [0.5] * 10, [mc.max_window_height(sa, oa)] * 10, rects, sa, oa)
+        self.assertAlmostEqual(float(ch[0]), 0.5 * sa / oa, places=3)
+
+    def test_build_path_with_rects_keeps_every_frame_inside_and_cuts_only_at_the_switch(self):
+        sa = oa = 788 / 1080.0
+        n, fps = 90, 30.0
+        rects = mc.clean_rects(self.two_layouts(n), fps)
+        t = np.linspace(0, (n - 1) / fps, 6)
+        for shot in ("wide", "medium", "close"):
+            tg = [mc.frame_for(shot, {"box": (0.3, 0.1, 0.4, 0.8), "face": (0.45, 0.15, 0.1, 0.12), "yaw": 0.0}, sa, oa)] * 6
+            p = mc.build_path(shot, t, tg, n, fps, sa, oa, handheld_amount=0.35, rects=rects)
+            cw = mc.window_width(p["ch"], sa, oa)
+            self.assertTrue(np.all(p["cx"] - cw / 2 >= rects[:, 0] - 1e-9), shot)
+            self.assertTrue(np.all(p["cx"] + cw / 2 <= rects[:, 2] + 1e-9), shot)
+            self.assertTrue(np.all(p["cy"] - p["ch"] / 2 >= rects[:, 1] - 1e-9) and np.all(p["cy"] + p["ch"] / 2 <= rects[:, 3] + 1e-9), shot)
+            step = np.abs(np.diff(p["ch"]))
+            self.assertLess(float(np.delete(step, 44).max()), 0.02, shot)                    # no jump anywhere but the frame where the layout switches
+
+    def test_without_rects_the_path_is_exactly_what_it_was(self):
+        sa = oa = 16 / 9.0
+        t = np.linspace(0, 2.9, 4)
+        tg = [[0.5, 0.5, 0.5]] * 4
+        a = mc.build_path("medium", t, tg, 90, 30.0, sa, oa, handheld_amount=0.3, seed=2)
+        b = mc.build_path("medium", t, tg, 90, 30.0, sa, oa, handheld_amount=0.3, seed=2, rects=np.tile(np.array(mc.FULL_RECT), (90, 1)))
+        for k in ("cx", "cy", "ch", "roll"):
+            self.assertTrue(np.allclose(a[k], b[k]), k)
+
+    def test_the_output_size_follows_the_typical_frame_not_the_widest(self):
+        sa = oa = 788 / 1080.0
+        rects = np.tile(np.array([0.25, 0.0, 0.75, 1.0]), (50, 1))
+        scale = mc.effective_wide_scale(rects, sa, oa)
+        self.assertAlmostEqual(scale, 0.5, places=3)
+        self.assertEqual(mc.effective_wide_scale(np.tile(np.array(mc.FULL_RECT), (5, 1)), sa, oa), 1.0)
+        w_full, h_full = mc.pick_output_size(788, 1080, oa, None, 1080)
+        w_nar, h_nar = mc.pick_output_size(788, 1080, oa, None, 1080, wide_scale=scale)
+        self.assertEqual(h_full, 1080)
+        self.assertEqual(h_nar, 540)
+        self.assertEqual((w_nar % 2, h_nar % 2), (0, 0))
+
+    def test_rect_segments_and_resample(self):
+        out = mc.clean_rects(self.two_layouts(60, 20), 30.0)
+        segs = mc.rect_segments(out, 30.0, size=(788, 1080))
+        self.assertEqual([round(x["t0"], 3) for x in segs], [0.0, round(20 / 30.0, 3)])
+        self.assertEqual(segs[1]["px"][0], int(round(out[-1][0] * 788)))
+        r = mc.resample_rects(out, 70)
+        self.assertEqual(r.shape, (70, 4))
+        self.assertTrue(np.allclose(r[65], out[-1]))                                      # the last rectangle is held
+        self.assertEqual(mc.resample_rects([], 3).shape, (3, 4))
+
+
+@unittest.skipUnless(HAVE_NP, "numpy is needed")
 class Warp25D(unittest.TestCase):
     H, W = 60, 80
 

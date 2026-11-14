@@ -160,6 +160,11 @@ def _wait_reason(j: ComputeJob, now, nodes: list, pos: int) -> tuple[str, str]:
 
     pool = [n for n in nodes if can_serve(n)]
     if not pool:
+        if j.kind.startswith("multiangle.") and any(n.enabled and (n.capabilities or {}).get("agent") and not n.has(cap) for n in nodes):
+            # every node still runs software from before the feature: it updates itself when it is on (autopilot) and then takes the job
+            from apps.multiangle import services as MA
+
+            return "no_node", MA.waiting_text() or SV.NO_NODE_QUEUED_TEXT
         return "no_node", SV.NO_NODE_QUEUED_TEXT
     if j.kind != PARK_KIND and all(SV.job_blocked(n, j) for n in pool):
         if j.kind == "photo.matting":

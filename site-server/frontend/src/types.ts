@@ -17,6 +17,10 @@ export interface Store {
   logo: string | null;
   is_active: boolean;
   product_count: number;
+  /** نقشِ کاربرِ جاری در این فروشگاه و آنچه از پلن/پرداخت می‌تواند؛ null یعنی سرور بی درخواست سریال کرده. */
+  my_role?: string | null;
+  can_view_billing?: boolean | null;
+  can_manage_billing?: boolean | null;
   created_at: string;
 }
 

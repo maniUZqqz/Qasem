@@ -37,6 +37,9 @@ import SalesLayout from "./features/customers/SalesLayout";
 import SalesOverviewPage from "./features/customers/SalesOverviewPage";
 import TicketsPage from "./features/customers/TicketsPage";
 import { FlagsProvider, PageGate } from "./features/panel/FlagsContext";
+import NotFoundRoute, { LegacyRedirect } from "./features/panel/NotFoundPage";
+import PageTitle from "./features/panel/PageTitle";
+import { titleFor } from "./features/panel/tabTitle";
 import ProductDetailsPage from "./features/products/ProductDetailsPage";
 import ProductLayout from "./features/products/ProductLayout";
 import {
@@ -77,6 +80,14 @@ import Up3dRoutes from "./features/tools/up3d";
 // ۱۴۰۵/۰۸/۲۳: ویرایشگرِ عکس (~۱ مگابایتِ کد) فقط وقتی صفحه‌اش باز شد بار می‌شود؛ ورودِ اولِ پنل و ویرایشگرِ ویدیو سبک‌تر می‌شود
 const PhotoEditorPage = lazyPage(() => import("./features/content/photo/PhotoEditorPage"), "در حالِ بارگیریِ ویرایشگرِ عکس…");
 
+/** عنوانِ تبِ مرورگر برای صفحه‌های بیرونِ قابِ پنل (ورود، ثبت‌نام، …)؛ صفحه‌های داخلِ قاب را `Layout` عنوان می‌دهد. */
+const titled = (path: string, page: JSX.Element) => (
+  <>
+    <PageTitle title={titleFor(path)} />
+    {page}
+  </>
+);
+
 /**
  * هر صفحه پشت `PageGate` با کلیدِ خودش از `features/panel/registry.ts` است:
  * صفحه‌ای که ادمین خاموش کرده، به جای محتوا یک کارتِ «غیرفعال است» می‌بیند.
@@ -90,12 +101,15 @@ export default function App() {
       <AuthProvider>
         <FlagsProvider>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/login" element={titled("/login", <LoginPage />)} />
+            <Route path="/register" element={titled("/register", <RegisterPage />)} />
+            <Route path="/forgot-password" element={titled("/forgot-password", <ForgotPasswordPage />)} />
+            <Route path="/reset-password" element={titled("/reset-password", <ResetPasswordPage />)} />
             {/* «چه چیزی تازه است» — عمومی و بی‌قاب؛ نشانِ نسخه به این‌جا پیوند می‌دهد */}
             <Route path="/changelog" element={<ChangelogPage />} />
+            {/* آدرس‌های قدیمی به جای جدیدشان می‌روند (جست‌وجو و هش حفظ می‌شود) — مقصد خودش چک می‌کند وارد شده‌ای یا نه */}
+            <Route path="/stores/:id/settings" element={<LegacyRedirect to="/stores/:id/data" />} />
+            <Route path="/tools/compute/models" element={<LegacyRedirect to="/tools/models" />} />
             <Route element={<Layout />}>
               <Route path="/" element={<PageGate k="dashboard"><DashboardPage /></PageGate>} />
 
@@ -189,6 +203,9 @@ export default function App() {
                 <Route path="advanced" element={<PageGate k="product_advanced"><AdvancedTab /></PageGate>} />
               </Route>
             </Route>
+            {/* هر آدرسِ دیگر: «صفحه پیدا نشد» (داخلِ قابِ پنل برای واردشده، کارتِ مستقل برای وارد‌نشده).
+                قبلاً این‌جا هیچ مسیری نبود و آدرسِ ناشناخته صفحهٔ کاملاً خالی می‌داد. */}
+            <Route path="*" element={<NotFoundRoute />} />
           </Routes>
         </FlagsProvider>
       </AuthProvider>

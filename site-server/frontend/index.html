@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>NMarketing</title>
+    <script>
+      /* تم، پیش از اولین رنگ‌آمیزی: انتخابِ ذخیره‌شده را همین‌جا روی <html> می‌گذارد؛ بسته‌ی برنامه
+         (و ThemeToggle) دیرتر می‌رسند و صفحه تیره می‌پرید. ورود و صفحه‌های بی‌قاب هم از همین بهره می‌برند.
+         پیش‌فرض تیره است. کلید با components/ThemeToggle.tsx یکی است. */
+      (function () {
+        var theme = "dark";
+        try {
+          if (localStorage.getItem("upmarket-theme") === "light") theme = "light";
+        } catch (e) {}
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useParams } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../features/auth/AuthContext";
 import { useFlags } from "../features/panel/FlagsContext";
+import { usePageTitle } from "../features/panel/PageTitle";
+import { titleFor } from "../features/panel/tabTitle";
 import { DASHBOARD, PAGES, SECTIONS, pageHref, type PanelPage } from "../features/panel/registry";
 import Icon from "./Icon";
 import NotificationsBell from "./NotificationsBell";
@@ -12,7 +14,8 @@ import ThemeToggle from "./ThemeToggle";
 import UsageWidget from "./UsageWidget";
 import { Spinner } from "./ui";
 
-type Store = { id: number; name: string };
+/** `can_view_billing`: سرور می‌گوید نقشِ این کاربر مصرف و پلن را می‌بیند؛ نبودنش (سرورِ قدیمی) یعنی «امتحان کن». */
+type Store = { id: number; name: string; can_view_billing?: boolean | null };
 
 /**
  * منوی پنل از `features/panel/registry.ts` ساخته می‌شود — همان فهرستی که
@@ -50,12 +53,17 @@ export function openTool(path: string) {
   form.remove();
 }
 
-export default function Layout() {
+/**
+ * `children` فقط برای صفحه‌ی «پیدا نشد» است: همان قاب (منو، هدر) دورِ یک محتوای دلخواه، به‌جای `<Outlet />`.
+ * مسیرهای عادی بی‌فرزند می‌آیند و از `Outlet` می‌کشند.
+ */
+export default function Layout({ children }: { children?: ReactNode } = {}) {
   const { user, loading, logout } = useAuth();
   const { pageEnabled, sectionEnabled } = useFlags();
   const location = useLocation();
   const params = useParams();
   const [stores, setStores] = useState<Store[]>([]);
+  const [storesLoaded, setStoresLoaded] = useState(false);
   const [open, setOpen] = useState(false);
 
   // the store in the URL wins; otherwise remember the last one used so a
@@ -77,10 +85,16 @@ export default function Layout() {
     api
       .get("/stores/")
       .then(({ data }) => setStores(data.results ?? data ?? []))
-      .catch(() => setStores([]));
+      .catch(() => setStores([]))
+      .finally(() => setStoresLoaded(true));
   }, [user]);
 
   useEffect(() => setOpen(false), [location.pathname]);
+
+  // عنوانِ تب: «برچسبِ صفحه | نامِ فروشگاه | NMarketing» از روی فهرستِ منو، با هر تغییرِ آدرس.
+  // صفحه‌ی «پیدا نشد» (children) عنوانِ خودش را می‌گذارد.
+  const urlStoreName = urlStore ? stores.find((s) => String(s.id) === urlStore)?.name ?? null : null;
+  usePageTitle(children ? null : titleFor(location.pathname, urlStoreName));
 
   /**
    * گروه‌های منو تاشو‌اند.
@@ -280,7 +294,13 @@ export default function Layout() {
       })}
 
       <div className="mt-auto pt-4">
-        {activeStore && <UsageWidget storeId={activeStore} />}
+        {activeStore && (
+          <UsageWidget
+            storeId={activeStore}
+            // تا فهرستِ فروشگاه‌ها نیامده نمی‌دانیم نقش پلن را می‌بیند یا نه — درخواستی نمی‌زنیم (قبلاً برای هر نقشِ بی‌اجازه در هر صفحه یک ۴۰۳ ثبت می‌شد)
+            canView={storesLoaded && stores.find((s) => String(s.id) === activeStore)?.can_view_billing !== false}
+          />
+        )}
         <div
           className="mt-2.5 flex items-center gap-2 rounded-xl px-3 py-2"
           style={{ background: "rgb(255 255 255 / .05)", border: "1px solid var(--line)" }}
@@ -374,7 +394,7 @@ export default function Layout() {
         </header>
 
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
-          <Outlet />
+          {children ?? <Outlet />}
         </main>
       </div>
     </div>

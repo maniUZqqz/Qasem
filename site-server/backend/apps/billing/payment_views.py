@@ -149,7 +149,7 @@ class PaymentHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        store = _owned_store(request, pk)
+        store = _owned_store(request, pk, write=False)
         payments = Payment.objects.filter(store=store).select_related("plan")[:50]
         events = BillingEvent.objects.filter(store=store)[:50]
         sub = Subscription.objects.filter(store=store).select_related("plan").first()

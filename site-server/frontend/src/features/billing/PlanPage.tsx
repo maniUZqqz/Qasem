@@ -43,6 +43,8 @@ type Snapshot = {
   metrics: Metric[];
   blocked: boolean;
   billing?: boolean;
+  /** فقط مالک پلن را عوض می‌کند، پرداخت می‌کند و خروجی را برمی‌گرداند؛ «مدیر» می‌بیند ولی نمی‌تواند (`false`). */
+  can_manage?: boolean;
 };
 
 type Plan = {
@@ -278,6 +280,8 @@ export default function PlanPage() {
   }
 
   const sub = snap?.subscription;
+  // «مدیر» (و هر نقشی که مصرف را می‌بیند ولی صاحبِ پرداخت نیست): صفحه باز است، دکمه‌ها نه
+  const readOnly = snap?.can_manage === false;
   const statusTone =
     sub?.status === "ACTIVE" ? "ok" : sub?.status === "TRIALING" ? "info" : "warn";
 
@@ -288,6 +292,14 @@ export default function PlanPage() {
         subtitle="سهمیه‌ی این دوره و تاریخچه‌ی مصرف"
         actions={sub && <Badge tone={statusTone}>{sub.status_label}</Badge>}
       />
+
+      {readOnly && (
+        <div className="mb-5">
+          <Alert tone="info" title="این صفحه را فقط می‌بینید">
+            تغییرِ پلن، پرداخت و برگرداندنِ سهمیه با مالکِ فروشگاه است؛ مصرف و تاریخچه برای شما باز است.
+          </Alert>
+        </div>
+      )}
 
       {message && (
         <div className="mb-5">
@@ -356,7 +368,7 @@ export default function PlanPage() {
           یا درگاه است یا شماره‌ی کارت — و آن لحظه، جای پرسیدن نیست.
           وقتی فقط یک راه هست، انتخابی در کار نیست و چیزی نشان داده
           نمی‌شود. */}
-      {providers.length > 1 && (
+      {!readOnly && providers.length > 1 && (
         <fieldset className="mb-4 flex flex-wrap items-center gap-2">
           <legend className="mb-1.5 text-sm" style={{ color: "var(--text-2)" }}>
             پرداخت با
@@ -426,13 +438,16 @@ export default function PlanPage() {
 
               <Button
                 variant={current ? "secondary" : "primary"}
-                disabled={current || saving === plan.slug}
+                disabled={current || readOnly || saving === plan.slug}
                 onClick={() => choose(plan.slug, plan.price_toman)}
                 className="mt-4 w-full"
+                title={readOnly && !current ? "فقط مالکِ فروشگاه می‌تواند پلن را عوض کند" : undefined}
               >
                 {current
                   ? "پلن فعلی شما"
-                  : saving === plan.slug
+                  : readOnly
+                    ? "فقط مالک تغییر می‌دهد"
+                    : saving === plan.slug
                     ? "…"
                     : plan.price_toman > 0
                       ? "پرداخت و فعال‌سازی"
@@ -480,7 +495,7 @@ export default function PlanPage() {
                   <td>
                     {/* Only a committed row can be rejected: a reservation was
                         never charged, and a refunded one already came back. */}
-                    {row.state === "COMMITTED" ? (
+                    {row.state === "COMMITTED" && !readOnly ? (
                       <Button
                         variant="ghost"
                         onClick={() => void reject(row)}

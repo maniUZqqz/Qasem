@@ -27,22 +27,38 @@ type Snapshot = {
  * had a bad day; showing the meters next to the nav means the ceiling is never
  * a surprise.
  */
-export default function UsageWidget({ storeId }: { storeId: string }) {
+export default function UsageWidget({
+  storeId,
+  canView = true,
+}: {
+  storeId: string;
+  /**
+   * سرور در پاسخِ فروشگاه (`can_view_billing`) می‌گوید نقشِ این کاربر مصرف را می‌بیند یا نه.
+   * `false` یعنی نه: نه درخواستی می‌زنیم و نه چیزی نشان می‌دهیم — قبلاً هر صفحه برای
+   * نقش‌های بی‌اجازه یک ۴۰۳ می‌گرفت و کنسول و لاگِ سرور پر می‌شد.
+   */
+  canView?: boolean;
+}) {
   const [data, setData] = useState<Snapshot | null>(null);
 
   useEffect(() => {
+    if (!canView) {
+      setData(null);
+      return;
+    }
     let alive = true;
     api
       .get(`/stores/${storeId}/usage/`)
       .then(({ data }) => alive && setData(data))
+      // ۴۰۳/۴۰۴ (نقشِ بی‌اجازه، یا فروشگاهی که دیگر نیست) و هر خطای دیگر: بی‌صدا پنهان
       .catch(() => alive && setData(null));
     return () => {
       alive = false;
     };
-  }, [storeId]);
+  }, [storeId, canView]);
 
-  // billing switched off (no plans configured) or not loaded — show nothing
-  if (!data || data.billing === false || !data.subscription) return null;
+  // اجازه ندارد، صورت‌حساب خاموش است (پلنی تعریف نشده)، یا هنوز نیامده — چیزی نشان نده
+  if (!canView || !data || data.billing === false || !data.subscription) return null;
 
   return (
     <Link

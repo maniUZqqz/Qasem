@@ -23,8 +23,15 @@ class PlanListView(APIView):
         return Response(PlanSerializer(plans, many=True).data)
 
 
-def _owned_store(request, pk) -> Store:
-    return access.get_store(request.user, pk, access.BILLING)
+def _owned_store(request, pk, *, write: bool = True) -> Store:
+    """The store, if this user may reach its billing.
+
+    `write=False` is for READING: `access.READ` lets a «مدیر» (ADMIN) see billing
+    while `access.WRITE` keeps choosing a plan, paying and rejecting an output
+    for the owner. Without this flag every read — the sidebar meter asks on
+    every page — went through the write table and answered 403 to the admin.
+    """
+    return access.get_store(request.user, pk, access.BILLING, write=write)
 
 
 class StoreUsageView(APIView):
@@ -33,8 +40,11 @@ class StoreUsageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        store = _owned_store(request, pk)
-        return Response(services.snapshot(store))
+        store = _owned_store(request, pk, write=False)
+        data = dict(services.snapshot(store))
+        # tells the plan page whether to draw the buttons or the read-only note
+        data["can_manage"] = access.can(request.user, store, access.BILLING)
+        return Response(data)
 
 
 class StoreSubscriptionView(APIView):
@@ -43,7 +53,7 @@ class StoreSubscriptionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        store = _owned_store(request, pk)
+        store = _owned_store(request, pk, write=False)
         sub = Subscription.objects.filter(store=store).select_related("plan").first()
         if sub is None:
             return Response(None)
@@ -76,7 +86,7 @@ class StoreUsageHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        store = _owned_store(request, pk)
+        store = _owned_store(request, pk, write=False)
         rows = Usage.objects.filter(store=store).select_related("job")[:100]
         return Response(UsageSerializer(rows, many=True).data)
 

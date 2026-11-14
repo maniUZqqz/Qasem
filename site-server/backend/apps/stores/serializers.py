@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from . import access
 from .models import Store, StoreProfile
 
 
@@ -26,6 +27,28 @@ class StoreProfileSerializer(serializers.ModelSerializer):
 
 class StoreSerializer(serializers.ModelSerializer):
     product_count = serializers.IntegerField(source="products.count", read_only=True)
+    # What the CALLER may do here. The panel asks once instead of trying and
+    # getting 403s: the sidebar meter used to call /usage/ on every page for
+    # roles that cannot see billing. None when serialized without a request.
+    my_role = serializers.SerializerMethodField()
+    can_view_billing = serializers.SerializerMethodField()
+    can_manage_billing = serializers.SerializerMethodField()
+
+    def _user(self):
+        request = self.context.get("request")
+        return getattr(request, "user", None) if request is not None else None
+
+    def get_my_role(self, obj):
+        user = self._user()
+        return access.role_of(user, obj) if user is not None else None
+
+    def get_can_view_billing(self, obj):
+        user = self._user()
+        return access.can(user, obj, access.BILLING, write=False) if user is not None else None
+
+    def get_can_manage_billing(self, obj):
+        user = self._user()
+        return access.can(user, obj, access.BILLING) if user is not None else None
 
     class Meta:
         model = Store
@@ -42,6 +65,9 @@ class StoreSerializer(serializers.ModelSerializer):
             "social_links",
             "is_active",
             "product_count",
+            "my_role",
+            "can_view_billing",
+            "can_manage_billing",
             "created_at",
             "updated_at",
         ]

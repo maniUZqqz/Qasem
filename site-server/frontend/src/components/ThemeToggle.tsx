@@ -12,9 +12,18 @@ const KEY = "upmarket-theme";
  * کرده باشد، انتخابش سر جایش می‌ماند.
  */
 export default function ThemeToggle() {
-  const [dark, setDark] = useState(
-    () => (localStorage.getItem(KEY) ?? "dark") === "dark",
-  );
+  // شروع از همان چیزی که اسکریپتِ درون‌خطیِ index.html پیش از اولین رنگ‌آمیزی روی
+  // <html> گذاشته؛ اگر نبود (محیط بی‌اسکریپت)، از localStorage — که در حالت
+  // خصوصی یا با داده‌ی مسدود ممکن است خطا بدهد.
+  const [dark, setDark] = useState(() => {
+    const applied = document.documentElement.getAttribute("data-theme");
+    if (applied === "light" || applied === "dark") return applied === "dark";
+    try {
+      return (localStorage.getItem(KEY) ?? "dark") === "dark";
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");

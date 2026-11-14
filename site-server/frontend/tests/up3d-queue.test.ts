@@ -75,6 +75,14 @@ test("توستِ کار: کارگر آماده / در صفِ سرور / منتظ
   assert.match(queuedText(job({})), /کارگری آنلاین شد خودکار اجرا می‌شود/);
 });
 
+test("درست بعد از ساخت (هنوز بی‌waiting): توست از تخمین می‌گوید منتظرِ چیست", () => {
+  const t = queuedText(job(null), { ...base, gpu_nodes: [node()] });
+  assert.match(t, /^کار #۳۶ در صفِ انتظار گذاشته شد؛ /);
+  assert.match(t, /DESKTOP-EAFBTGQ آفلاین است/);
+  assert.match(t, /کاری از شما لازم نیست/);
+  assert.equal(queuedText(job(null), { ...base, available: true, worker: "gpu-1" }), "کار #۳۶ در صف گذاشته شد");
+});
+
 test("هیچ پیامی لاتینِ بی‌دلیل ندارد (فقط نامِ سرور، Blender و CPU)", () => {
   const texts = [
     estimateText({ ...base }).text,

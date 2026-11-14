@@ -202,7 +202,7 @@ export default function WorkersPage() {
                     <td className="text-xs">
                       {n.via_queue ? (
                         <Badge tone="ok">خودکار — از راهِ صفِ پردازش</Badge>
-                      ) : n.worker3d_running ? (
+                      ) : n.online && n.worker3d_running ? (
                         <Badge tone="ok">در حالِ اجرا (روشِ قدیمی)</Badge>
                       ) : (
                         <Badge tone="warn">منتظرِ به‌روزرسانیِ عامل</Badge>

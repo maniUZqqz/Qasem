@@ -255,7 +255,7 @@ function SceneEditor() {
     }
     try {
       const j = await up3d.startJob(pid, actionFor("render", prof), { profile: prof, ...(allowCpu ? { allow_cpu: true } : {}), ...(hasQuality(q) ? { quality: q } : {}) });
-      toast(queuedText(j), false);
+      toast(queuedText(j, allowCpu ? undefined : est[prof]), false);
       await load(false);
     } catch (e) {
       toast(errMsg(e), true);

@@ -206,7 +206,7 @@ export default function ProjectPage() {
   deleteRef.current = deleteSel;
 
   // ───────── کارها (همان اکشن‌های preview/render/export/contact ِ API)
-  const startJob = async (kind: JobKind, body: Record<string, unknown>) => {
+  const startJob = async (kind: JobKind, body: Record<string, unknown>, estimate?: Estimate) => {
     if (dirtyRef.current && !(await save(false))) return;
     if (!projRef.current?.valid) {
       toast("صحنه ایراد دارد؛ اول «ترمیمِ خودکار»", true);
@@ -214,14 +214,14 @@ export default function ProjectPage() {
     }
     try {
       const j = await up3d.startJob(pid, actionFor(kind, body.profile as string | undefined), body);
-      toast(queuedText(j), false);
+      toast(queuedText(j, estimate), false);
       await load(false);
     } catch (e) {
       toast(errMsg(e), true);
     }
   };
   const render = (prof: string, allowCpu: boolean, q: QualityOverride | null) =>
-    void startJob("render", { profile: prof, ...(allowCpu ? { allow_cpu: true } : {}), ...(hasQuality(q) ? { quality: q } : {}) });
+    void startJob("render", { profile: prof, ...(allowCpu ? { allow_cpu: true } : {}), ...(hasQuality(q) ? { quality: q } : {}) }, allowCpu ? undefined : est[prof]);
   // کارگرِ آماده ⇒ همان لحظه؛ وگرنه کار در صفِ ماندگار می‌ماند و با روشن‌شدنِ سرورِ پردازش خودش اجرا می‌شود
   // (اجرا روی CPU ِ سرور دکمهٔ جدا دارد، چون ساعت‌ها طول می‌کشد)
   const renderSelected = () => {

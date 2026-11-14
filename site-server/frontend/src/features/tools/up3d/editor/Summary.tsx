@@ -147,7 +147,7 @@ export default function Summary({
       <div className="mt-3 flex flex-wrap gap-2">
         <Button onClick={onRender} disabled={!canRender} title={errors ? "اول ایرادها را ترمیم کنید" : undefined}>
           <Icon name={queueing ? "clock" : "play"} size={15} />
-          {queueing ? `در صف بگذار «${p ? label(p) : profile}» (خودکار اجرا می‌شود)` : `رندر با «${p ? label(p) : profile}»`}
+          {queueing ? "در صف بگذار تا سرور روشن شود" : `رندر با «${p ? label(p) : profile}»`}
         </Button>
         {dirty && (
           <Button variant="secondary" onClick={onSave}>

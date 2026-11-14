@@ -30,9 +30,13 @@ export function queueNote(e: Estimate | undefined): string {
   return lines.join(" ");
 }
 
-/** پیامِ کوتاهِ بعد از ساختنِ یک کار (توست). */
-export function queuedText(j: Job): string {
+/**
+ * پیامِ کوتاهِ بعد از ساختنِ یک کار (توست). درست بعد از ساخت کار هنوز مالِ خودِ پنل است و `waiting` ندارد؛
+ * پس اگر تخمین گفته بود کارگری آماده نیست، همان را می‌گوییم (کار نمی‌پرد و خودکار اجرا می‌شود).
+ */
+export function queuedText(j: Job, e?: Estimate): string {
   const w = j.waiting;
+  if (!w && e && !e.available) return `کار #${fa(j.id)} در صفِ انتظار گذاشته شد؛ ${queueNote(e)}`;
   if (!w || w.eligible.length > 0) return `کار #${fa(j.id)} در صف گذاشته شد`;
   if (w.node_queue && w.node_queue.length > 0) return `کار #${fa(j.id)} در صفِ سرورِ پردازشِ ${w.node_queue.join("، ")} است و خودکار اجرا می‌شود`;
   const nodes = w.gpu_nodes || [];

@@ -84,3 +84,11 @@
 .nmt-hist { display: grid; gap: 4px; font-size: .8rem; color: var(--text-2); }
 .nmt-hist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 0; border-top: 1px solid var(--line); }
 .nmt-hist-row:first-child { border-top: none; }
+
+/* فهرستِ آزمون‌ها: بسته به‌طور پیش‌فرض، فقط تیترش دیده می‌شود */
+.nmt-catalog > summary { cursor: pointer; list-style: none; }
+.nmt-catalog > summary::-webkit-details-marker { display: none; }
+.nmt-catalog > summary h2::before { content: "▸ "; color: var(--text-3); }
+.nmt-catalog[open] > summary h2::before { content: "▾ "; }
+.nmt-catalog-group { display: grid; gap: 8px; }
+.nmt-catalog-group h3 { margin: 6px 0 0; font-weight: 700; }

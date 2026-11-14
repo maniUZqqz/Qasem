@@ -21,6 +21,7 @@ import {
   whenText,
   type AutoSettings,
   type BootFeature,
+  type CatalogItem,
   type NodeBlock,
   type Overview,
   type Progress,
@@ -163,6 +164,7 @@ export default function SelfTestPage() {
         <NodeSection key={n.id} node={n} busy={busy} onRun={startRun} onRerun={rerun} onBoot={retryBoot} onAutostart={setAutostart} />
       ))}
 
+      {data && data.catalog && data.catalog.length > 0 && <CatalogCard items={data.catalog} />}
       {data && <ProgressCard progress={data.progress} />}
       {data && <SettingsCard s={data.settings} busy={busy === "settings"} onSave={saveSettings} />}
     </div>
@@ -564,6 +566,48 @@ function ProgressCard({ progress }: { progress: Progress }) {
         )}
         <p className="nmt-small">کارهای کوتاه پشتِ یک کارِ بلند (مثلاً یک ویدیوی طولانی) معطل نمی‌مانند؛ دانلودها وقتی کارت بی‌کار است انجام می‌شوند.</p>
       </div>
+    </Card>
+  );
+}
+
+// ───────────────────────────────────────────── فهرستِ آزمون‌ها
+
+const GROUP_ORDER = ["system", "gpu", "text", "image", "audio", "video"];
+
+/** همهٔ آزمون‌های پذیرش، گروه‌گروه (از GET /compute/selftests/ → catalog)؛ مالک پیش از روشن کردنِ سرور می‌بیند چه چیزهایی خودکار آزموده می‌شود. */
+function CatalogCard({ items }: { items: CatalogItem[] }) {
+  const groups = GROUP_ORDER.map((g) => ({ g, rows: items.filter((i) => i.group === g) })).filter((x) => x.rows.length > 0);
+  const known = new Set(GROUP_ORDER);
+  const rest = items.filter((i) => !known.has(i.group));
+  if (rest.length) groups.push({ g: "other", rows: rest });
+  return (
+    <Card padded={false}>
+      <details className="nmt-sec nmt-catalog" data-testid="selftest-catalog">
+        <summary className="nmt-sec-title">
+          <h2>آزمون‌هایی که با روشن شدنِ سرور خودکار اجرا می‌شوند</h2>
+          <span>{fa(items.length)} آزمون — برای دیدنِ فهرست بزنید</span>
+        </summary>
+        <p className="nmt-small">
+          هر ویژگیِ برنامه (ویرایشِ عکس و ویدیو، تدوینِ خودکار، چندزاویه، استودیوی موشن، تامنیل‌ساز، روندهای اینستاگرام، سه‌بعدی، محتوای چغر …) یک کارِ واقعیِ کوچک دارد که
+          پس از هر نسخهٔ تازه و هر شب روی خودِ سرور اجرا می‌شود؛ نتیجه بالاتر، در «نتیجهٔ آزمون»، می‌آید.
+        </p>
+        {groups.map(({ g, rows }) => (
+          <div key={g} className="nmt-catalog-group">
+            <h3 className="nmt-small">{GROUP_FA[g] || "سایر"}</h3>
+            {rows.map((i) => (
+              <div className="nmt-test" key={i.key}>
+                <div className="nmt-test-row">
+                  <span className="nmt-test-title">{i.label}</span>
+                  {i.optional && <Badge tone="neutral">اختیاری</Badge>}
+                  {i.deep && <Badge tone="neutral">عمیق</Badge>}
+                  <span className="nmt-small" dir="ltr">{i.kind || i.key}</span>
+                </div>
+                {i.describe && <p className="nmt-small">{i.describe}</p>}
+              </div>
+            ))}
+          </div>
+        ))}
+      </details>
     </Card>
   );
 }

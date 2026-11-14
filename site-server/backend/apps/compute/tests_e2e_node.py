@@ -34,7 +34,9 @@ from .selftests import runner
 
 ENABLED = os.environ.get("NM_E2E_NODE") == "1"
 OLD_NODE = os.environ.get("NM_E2E_OLD_NODE", "")
-TMP = Path(tempfile.mkdtemp(prefix="nm-e2e-"))
+# the temp folder exists only when the opt-in run is on (importing this module in every normal test run must leave nothing behind) and is removed
+# again in tearDownClass; NM_E2E_KEEP=1 keeps it for inspection
+TMP = Path(tempfile.mkdtemp(prefix="nm-e2e-")) if ENABLED else Path(tempfile.gettempdir()) / "nm-e2e-disabled"
 
 WRAPPER = textwrap.dedent('''
     # START.bat in Python: the agent runs, update.py --agent-exited after each stop, again after a short pause, until STOP exists
@@ -56,9 +58,38 @@ def agent_version(folder: Path) -> str:
     return ""
 
 
+def kill_processes_in(folder) -> int:
+    """SIGTERM (then SIGKILL) every process whose working directory is `folder` or below it - the node agent, its START.bat stand-in, update.py and the
+    servers the agent started on its own (abagram, the voice/photo services ...; Linux /proc). Without this they outlive the test for days."""
+    me, mine = str(os.getpid()), str(folder)
+    hit = []
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        try:
+            cwd = os.readlink("/proc/%s/cwd" % pid) if pid.isdigit() and pid != me else ""
+        except OSError:
+            continue
+        if cwd == mine or cwd.startswith(mine + os.sep):
+            hit.append(int(pid))
+    for sig in (15, 9):
+        for pid in hit:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        time.sleep(1.5)
+    return len(hit)
+
+
 @unittest.skipUnless(ENABLED and OLD_NODE and os.path.isdir(OLD_NODE), "opt-in: NM_E2E_NODE=1 and NM_E2E_OLD_NODE=<folder of agent 2.10>")
 @override_settings(NM_DATA_DIR=TMP / "site-data", IS_TEST=True)
 class MorningWithTheRealAgent(LiveServerTestCase):
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        kill_processes_in(TMP)
+        if os.environ.get("NM_E2E_KEEP") != "1":
+            shutil.rmtree(TMP, ignore_errors=True)               # up to ~1.3 GB of downloaded models and unpacked packages
+
     def setUp(self):
         (TMP / "site-data").mkdir(parents=True, exist_ok=True)
         self.folder = TMP / "node"
@@ -88,8 +119,7 @@ class MorningWithTheRealAgent(LiveServerTestCase):
                 self.proc.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        # the agent child may outlive the wrapper
-        subprocess.call(["pkill", "-f", str(self.folder / "agent.py")])
+        kill_processes_in(self.folder)                  # the agent (started as `python agent.py`, relative) outlives the wrapper
         try:
             print("\n----- node log (last 60 lines) -----\n" + "\n".join(self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-60:]))
         except OSError:
@@ -172,3 +202,28 @@ class MorningWithTheRealAgent(LiveServerTestCase):
         job = ComputeJob.objects.get(pk=waiting.pk)
         self.assertEqual(job.state, "COMPLETED", "the job parked before the update did not run afterwards: %s %s" % (job.state, job.error))
         self.note("the job parked before the update ran on the new agent (node=%s)" % job.node)
+
+    @unittest.skipUnless(os.environ.get("NM_E2E_KEYS"), "diagnostic: NM_E2E_KEYS=photo_edit,photo_analyze runs only those self-tests with the real agent")
+    def test_selected_selftests(self):
+        """Run: ... manage.py test apps.compute.tests_e2e_node.MorningWithTheRealAgent.test_selected_selftests  (NM_E2E_KEYS=key1,key2).
+        The real agent updates from 2.10 first; then one manual run of just those tests; every result and job is printed."""
+        keys = [k for k in os.environ["NM_E2E_KEYS"].split(",") if k]
+        new_version = agent_version(Path(settings.BASE_DIR).parent / "processing")
+        self.start_node()
+        self.wait("the 2.10 agent", lambda: self.fresh().capabilities.get("agent") == "2.10" and self.fresh().online, 120, tick=False)
+        self.wait("the update", lambda: self.fresh().capabilities.get("agent") == new_version and self.fresh().online, 420, every=4)
+        caps = self.fresh().capabilities
+        self.note("caps: photo=%s startable=%s auto_switch=%s kinds=%s" % (caps.get("photo"), caps.get("startable"), caps.get("auto_switch"), len(caps.get("kinds") or [])))
+        SelfTestRun.objects.filter(node=self.node, state="RUNNING").update(state="ABORTED")      # the acceptance run of the new version is not wanted here
+        run = runner.start_run(self.node, "manual", only=keys)
+        end = time.time() + int(os.environ.get("NM_E2E_WAIT", "240"))
+        while time.time() < end:
+            runner.advance(run)
+            run.refresh_from_db()
+            self.note("results: %s" % {r.key: (r.state, r.detail[:160]) for r in run.results.all()})
+            for j in ComputeJob.objects.filter(origin="selftest").order_by("-id")[:4]:
+                self.note("  job %s %s state=%s msg=%s err=%s" % (str(j.uid)[:8], j.kind, j.state, (j.message or "")[:80], (j.error or "")[:240]))
+            if run.state != "RUNNING":
+                break
+            time.sleep(15)
+        self.note("final: %s" % {r.key: (r.state, r.detail[:400]) for r in run.results.all()})

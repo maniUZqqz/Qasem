@@ -85,6 +85,11 @@ const VERDICT_LABEL: Record<string, string> = {
   applied: "اعمال شد",
 };
 
+/** متنِ سرور (خلاصه، یادداشت، جزئیاتِ هر ابزار) با رقمِ فارسی و ممیزِ فارسی: «12.5 s» → «۱۲٫۵ s» */
+export function faText(text: string): string {
+  return fa(String(text ?? "")).replace(/([۰-۹])\.(?=[۰-۹])/g, "$1٫");
+}
+
 function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return null;
@@ -200,8 +205,8 @@ export default function BeforeAfter({
           {improved === true && <Badge tone="ok">بهتر شد</Badge>}
           {improved === false && <Badge tone="warn">بعضی سنجه‌ها بدتر شد</Badge>}
           {summary && (
-            <span className="text-xs" style={{ color: "var(--text-3)" }}>
-              {summary}
+            <span className="text-xs" style={{ color: "var(--text-3)" }} data-testid="ba-summary">
+              {faText(summary)}
             </span>
           )}
         </div>
@@ -265,7 +270,7 @@ export default function BeforeAfter({
 
       {note && (
         <p className="text-sm leading-7" style={{ color: "var(--text-2)" }}>
-          {note}
+          {faText(note)}
         </p>
       )}
 
@@ -286,38 +291,45 @@ export default function BeforeAfter({
               }}
             >
               <b>{effect.title}</b> · {VERDICT_LABEL[effect.verdict] ?? effect.verdict}
-              {effect.detail ? ` — ${effect.detail}` : ""}
+              {effect.detail ? ` — ${faText(effect.detail)}` : ""}
             </span>
           ))}
         </div>
       )}
 
       {rows.length > 0 && (
-        <table className="w-full text-xs" style={{ color: "var(--text-2)" }}>
+        <table className="ba-table w-full text-xs" data-testid="ba-table" style={{ color: "var(--text-2)", tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <colgroup>
+            <col />
+            <col style={{ width: compact ? 64 : 84 }} />
+            <col style={{ width: compact ? 72 : 96 }} />
+          </colgroup>
           <thead>
             <tr style={{ color: "var(--text-3)" }}>
               <th className="py-1 text-start font-normal">سنجه</th>
-              <th className="py-1 text-start font-normal">قبل</th>
-              <th className="py-1 text-start font-normal">بعد</th>
+              <th className="py-1 text-center font-normal">قبل</th>
+              <th className="py-1 text-center font-normal">بعد</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ row, b, a, tone }) => (
               <tr key={row.key} style={{ borderTop: "1px solid var(--line)" }}>
                 <td className="py-1">{row.label}</td>
-                <td className="py-1" dir="ltr">
-                  {b === null ? "—" : row.format(b)}
+                <td className="py-1 text-center" data-testid={`ba-before-${row.key}`} style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {b === null ? "—" : faText(row.format(b))}
                 </td>
                 <td
-                  className="py-1 font-bold"
-                  dir="ltr"
+                  className="py-1 text-center font-bold"
+                  data-testid={`ba-after-${row.key}`}
                   style={{
+                    fontVariantNumeric: "tabular-nums",
+                    paddingInlineStart: 16,                      // به‌اندازهٔ جای ✓/✗ در سمتِ دیگر: خودِ عدد زیرِ سرستون وسط می‌ماند
                     color:
                       tone === "ok" ? "var(--ok)" : tone === "bad" ? "var(--bad)" : "var(--text)",
                   }}
                 >
-                  {a === null ? "—" : row.format(a)}
-                  {tone === "ok" ? " ✓" : tone === "bad" ? " ✗" : ""}
+                  {a === null ? "—" : faText(row.format(a))}
+                  <span aria-hidden className="inline-block text-center" style={{ width: 16 }}>{tone === "ok" ? "✓" : tone === "bad" ? "✗" : ""}</span>
                 </td>
               </tr>
             ))}

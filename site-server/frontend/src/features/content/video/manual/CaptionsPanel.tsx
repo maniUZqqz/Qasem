@@ -22,6 +22,21 @@ type Props = {
   hasSrtSource: boolean;
 };
 
+/** «در صف — …»: فقط برچسبِ کوتاهِ «در صف» در قابِ نشان می‌ماند؛ جمله زیرش در یک پاراگرافِ شکسته‌شونده می‌آید (قبلاً کل جمله در یک قرصِ تک‌خط بود و از لبهٔ پنل بریده می‌شد) */
+export function waitingText(message: string): string {
+  return String(message || "").replace(/^\s*در صف\s*[—–-]+\s*/, "").trim();
+}
+
+export function WaitingNotice({ message }: { message: string }) {
+  const text = waitingText(message) || "سرورِ پردازش الان خاموش است؛ درخواست در صف می‌ماند و با روشن‌شدنِ سرور خودکار انجام می‌شود.";
+  return (
+    <div className="cap-wait" data-testid="captions-waiting-box">
+      <Badge tone="warn">در صف</Badge>
+      <p className="ws-hint cap-wait-text" data-testid="captions-waiting">{text}</p>
+    </div>
+  );
+}
+
 /** سبک‌های آمادهٔ زیرنویس — فقط کلیدهایی که titles.clean می‌شناسد؛ روی هر قطعهٔ ساخته‌شده ادغام می‌شوند */
 export const CAPTION_PRESETS: { key: string; title: string; hint: string; style: Partial<TextClip> }[] = [
   {
@@ -234,7 +249,7 @@ export default function CaptionsPanel({ storeId, project, selectionIds, onInsert
           <span className="ws-muted"><Spinner size={12} /> در حالِ بررسیِ سرورِ پردازش…</span>
         ) : ok ? (
           status.waiting
-            ? <Badge tone="warn"><span data-testid="captions-waiting">{status.message}</span></Badge>
+            ? <WaitingNotice message={status.message} />
             : <Badge tone="ok">{status.node ? "سرورِ پردازش (گفتارخوان) آنلاین است" : "مدلِ محلی آماده است"}</Badge>
         ) : (
           <Alert tone="warn" title="الان نمی‌شود گفتار را تشخیص داد">

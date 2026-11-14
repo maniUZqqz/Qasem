@@ -180,7 +180,7 @@ def run(prompt: str, assets: list[dict], ctx: Ctx, *, store=None, options: Optio
         brief, ai_info = ai_mod.refine_brief(store, request, assets, an, brief, call=call, job=job)
         if not ai_info.get("ok"):
             degraded.append("فهمیدنِ دستور با کلمه‌های کلیدی انجام شد چون هوش مصنوعی جواب نداد — " + (ai_info.get("error") or "در دسترس نبود"))
-    brief = finish_brief(brief, assets)
+    brief = finish_brief(brief, assets, request=request, store_name=str(getattr(store, "name", "") or ""))
     if brief.get("order"):
         pos = {r: i for i, r in enumerate(brief["order"])}
         assets = sorted(assets, key=lambda a: pos.get(a["ref"], 999))

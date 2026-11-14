@@ -214,7 +214,9 @@ export default function VideoEditorPage() {
   }
 
   async function remove(video: Video) {
-    if (!window.confirm(`«${video.title}» حذف شود؟`)) return;
+    if (!window.confirm(`«${video.title}» حذف شود؟
+
+ویدیوی اصلی، نسخهٔ تدوین‌شده و همهٔ فایل‌های کاریِ آن برای همیشه پاک می‌شوند. پروژه‌هایی که از این ویدیو استفاده کرده‌اند، آن قطعه را از دست می‌دهند.`)) return;
     try {
       await api.delete(`/stores/${id}/videos/${video.id}/`);
       await load();

@@ -33,7 +33,7 @@ CAPTION_STYLES: dict[str, dict] = {
     "box": {"title": "کادرِ تیره", "style": {"font": "vazir", "bold": True, "size": 5.6, "color": "#ffffff", "stroke": 0.0, "box": True,
                                             "box_color": "#000000", "box_opacity": 0.62, "box_pad": 22.0, "hl_color": "#ffd400", "hl_mode": "color"}},
     "karaoke": {"title": "کارائوکه (هایلایت)", "style": {"font": "vazir_black", "bold": False, "size": 6.6, "color": "#ffffff", "stroke_color": "#000000",
-                                                       "stroke": 12.0, "box": False, "hl_color": "#111111", "hl_mode": "box", "shadow": 8.0}},
+                                                       "stroke": 12.0, "box": False, "hl_color": "#ffd400", "hl_mode": "box", "shadow": 8.0}},
     "clean": {"title": "ساده و تمیز", "style": {"font": "vazir", "bold": True, "size": 5.2, "color": "#ffffff", "stroke": 6.0, "stroke_color": "#000000",
                                               "box": False, "shadow": 14.0, "hl_color": "#ffd400", "hl_mode": "color"}},
     # the word being spoken lights up in a signal colour and swells a little (the «reels» look); one more highlight family for the owner to pick

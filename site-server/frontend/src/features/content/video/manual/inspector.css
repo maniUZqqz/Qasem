@@ -5,3 +5,7 @@
 .ins-tabs .ins-more { margin-inline-start: auto; color: var(--brand, #6366f1); font-weight: 700; }
 .qs-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: 8px; border: 1px dashed var(--line); border-radius: 12px; background: color-mix(in srgb, var(--brand, #6366f1) 6%, transparent); font-size: 13px; color: var(--text); }
 .qs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* تبِ خروجی: «پروژه‌های دیگر» — برچسب‌دار و هم‌عرضِ کارت، گزینه‌های بلند با «…» کوتاه می‌شوند */
+.out-proj-others { margin: 8px 0 0; }
+.out-proj-select { width: 100%; max-width: 100%; min-width: 0; text-overflow: ellipsis; }

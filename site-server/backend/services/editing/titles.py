@@ -320,6 +320,27 @@ def _c(color: str) -> str:
     return f"&H{b:02X}{g:02X}{r:02X}&"
 
 
+def _rel_luminance(color: str) -> float:
+    """WCAG relative luminance (0 black … 1 white) of «#rrggbb»."""
+    def lin(v: int) -> float:
+        s = v / 255.0
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(int(color[1:3], 16)) + 0.7152 * lin(int(color[3:5], 16)) + 0.0722 * lin(int(color[5:7], 16))
+
+
+INK_DARK, INK_LIGHT = "#111111", "#ffffff"
+
+
+def ink_on(box_color: str) -> str:
+    """The letter colour that reads best on a marker box of `box_color`: near-black on a light or yellow box, white on a dark one.
+
+    (The «کادر» highlight used to paint the spoken word #111111 whatever the box was: on a dark box the word became an unreadable blob.)"""
+    lum = _rel_luminance(box_color)
+    dark_ratio = (lum + 0.05) / (_rel_luminance(INK_DARK) + 0.05)
+    light_ratio = (1.0 + 0.05) / (lum + 0.05)
+    return INK_DARK if dark_ratio >= light_ratio else INK_LIGHT
+
+
 def _a(opacity: float) -> str:
     """ASS alpha (00 opaque … FF transparent) for an opacity 0..1."""
     return "&H%02X&" % int(round(255 * (1 - max(0.0, min(1.0, opacity)))))
@@ -734,7 +755,7 @@ def _item_ass(n: int, it: dict, W: int, H: int) -> tuple[list[str], list[str]]:
         # karaoke tags for the active word (static inside the slice)
         mid_scale = base_scale * sm["scale"]
         if hl_mode == "box":
-            hl_open = f"{{\\1c{_c('#111111')}\\3c{_c(hl_color)}\\bord{_f(stroke_px + em * 0.16)}}}"
+            hl_open = f"{{\\1c{_c(ink_on(hl_color))}\\3c{_c(hl_color)}\\bord{_f(stroke_px + em * 0.16)}}}"
             hl_close = f"{{\\1c{_c(it['color'])}\\3c{_c(it['stroke_color'])}\\bord{_f(stroke_px)}}}"
         elif hl_mode == "scale":
             hl_open = f"{{\\1c{_c(hl_color)}\\fscx{_f(mid_scale * 1.12)}\\fscy{_f(mid_scale * 1.12)}}}"

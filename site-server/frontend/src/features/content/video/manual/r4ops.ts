@@ -236,7 +236,7 @@ export function parseSrt(raw: string): Cue[] {
     const ms = (x: string) => Number(x.padEnd(3, "0"));
     const start = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + ms(m[4]) / 1000;
     const end = Number(m[5]) * 3600 + Number(m[6]) * 60 + Number(m[7]) + ms(m[8]) / 1000;
-    const body = lines.slice(ti + 1).join("\n").replace(/<[^>]+>/g, "").trim();
+    const body = lines.slice(ti + 1).join("\n").replace(/<[^>]+>/g, "").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim();
     if (body && end > start) out.push({ start, end, text: body });
   }
   return out.sort((a, b) => a.start - b.start).slice(0, 2000);

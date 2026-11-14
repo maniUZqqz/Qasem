@@ -84,11 +84,38 @@ class Cue:
 
 
 def _stamp(seconds: float) -> str:
-    seconds = max(0.0, seconds)
-    hours, rest = divmod(int(seconds), 3600)
-    minutes, secs = divmod(rest, 60)
-    millis = int(round((seconds - int(seconds)) * 1000))
+    """«HH:MM:SS,mmm». The milliseconds are rounded FIRST and split afterwards: rounding only the fraction turned 2.9996 into «00:00:02,1000»
+    (an invalid stamp some players refuse) instead of «00:00:03,000»."""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value != value or value in (float("inf"), float("-inf")):       # NaN / infinity: a stamp must still be a stamp
+        value = 0.0
+    total_ms = max(0, int(value * 1000 + 0.5))                          # half up (round() goes to the even number: 0.5 ms gave 0)
+    hours, rest = divmod(total_ms, 3_600_000)
+    minutes, rest = divmod(rest, 60_000)
+    secs, millis = divmod(rest, 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+#: letters of the Arabic script (Persian, Arabic, Urdu, presentation forms)
+_RTL_LETTERS = re.compile("[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]")
+#: the invisible direction marks (LRM/RLM, the embeddings and the isolates) - written by `to_srt`, stripped by the importer
+BIDI_MARKS = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+RLE, PDF = "\u202b", "\u202c"
+
+
+def rtl_line(line: str) -> str:
+    """A line of Persian wrapped in a right-to-left embedding (RLE … PDF), so a player that sets the base direction from the first
+    letter does not turn «۲۰۲۶ سال خوبی بود.» or «NM یک ابزار است» inside out; a line with no Arabic-script letter is left alone."""
+    if not line or not _RTL_LETTERS.search(line) or line.startswith(RLE):
+        return line
+    return f"{RLE}{line}{PDF}"
+
+
+def strip_bidi(text: str) -> str:
+    return BIDI_MARKS.sub("", text or "")
 
 
 def wrap(text: str, width: int = MAX_LINE) -> str:
@@ -290,10 +317,11 @@ def to_srt(cues: list[Cue]) -> str:
     """SRT, because ffmpeg's `subtitles` filter and every platform read it."""
     blocks = []
     for cue in cues:
+        text = "\n".join(rtl_line(line) for line in str(cue.text).split("\n"))
         blocks.append(
             f"{cue.index}\n"
             f"{_stamp(cue.start)} --> {_stamp(cue.end)}\n"
-            f"{cue.text}\n"
+            f"{text}\n"
         )
     return "\n".join(blocks)
 

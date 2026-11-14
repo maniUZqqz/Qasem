@@ -74,6 +74,15 @@ const hex = (v: unknown, d: string): string => {
   return d;
 };
 
+/** رنگِ حرف روی کادرِ هایلایت: تقریباً سیاه روی کادرِ روشن/زرد، سفید روی کادرِ تیره (همان قاعدهٔ سرور: titles.ink_on) */
+export function inkOnBox(box: string): string {
+  const s = hex(box, "#ffd400");
+  const lin = (i: number) => { const v = parseInt(s.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const lum = 0.2126 * lin(1) + 0.7152 * lin(3) + 0.0722 * lin(5);
+  const darkLum = 0.0056;                                   // #111111
+  return (lum + 0.05) / (darkLum + 0.05) >= 1.05 / (lum + 0.05) ? "#111111" : "#ffffff";
+}
+
 export type Resolved = {
   text: string; text2: string; template: string; at: number; duration: number; font: string; size: number; bold: boolean; italic: boolean;
   color: string; opacity: number; stroke_color: string; stroke: number; shadow: number; shadow_color: string; box: boolean; box_color: string;
@@ -559,7 +568,7 @@ export function drawText(ctx: CanvasRenderingContext2D, clip: TextClip, t: numbe
         paint(tk.s, center, "center", rgba(r.hl_color, alpha));
         ctx.font = fontString(r, line.em, bold);
       } else if (isActive && r.hl_mode === "box") {
-        paint(tk.s, center, "center", rgba("#111111", alpha), g.em * 0.16, r.hl_color);
+        paint(tk.s, center, "center", rgba(inkOnBox(r.hl_color), alpha), g.em * 0.16, r.hl_color);
       } else if (isActive) {
         paint(tk.s, center, "center", rgba(r.hl_color, alpha));
       } else {

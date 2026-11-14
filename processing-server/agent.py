@@ -99,6 +99,9 @@ size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a j
 Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
 (BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
 onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
+Agent add-on (2.25) - InstAI as a neighbour (instai_jobs.py): the owner's InstAI folder on this PC is found, an old one (a Download-ZIP whose START.bat cannot update itself,
+or a GitHub main that is newer) is updated with InstAI's own updater while InstAI is NOT running, started once when the node starts, and its own self-test report
+rides on the heartbeat (caps.instai); the site's self-test entry «instai» judges it. NM_INSTAI_SYNC=0 reports only, NM_INSTAI_START=0 never starts it. No job kinds.
 Agent add-on (2.12) - «چندزاویه» (multiangle_jobs.py + multiangle_engine.py + multiangle_core.py): one camera -> several virtual cameras with a natural
 camera operator (wide / medium / close / two-shot / over-the-shoulder, synced clips + an auto-switched multicam edit), and 2.5D camera moves
 (dolly / truck / crane / orbit) from one picture or clip with Depth-Anything-V2-Small. Kinds multiangle.virtual / multiangle.move /
@@ -139,7 +142,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.24"
+VERSION = "2.25"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -3389,7 +3392,7 @@ def h_node_models(job):
 # ───────────────────────────────────────────── code updates (update.py / Update.bat / the panel)
 
 CODE_FILES = ("agent.py", "nm_data.py", "nm_fetch.py", "update.py", "download_models.py", ".nm-version.json", "gpu.py", "ollama_jobs.py",
-              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py", "model_auto.py", "up3d_jobs.py")
+              "outbox.py", "bootstrap.py", "autostart.py", "selftest_jobs.py", "asr_jobs.py", "abagram_jobs.py", "instance_lock.py", "model_auto.py", "up3d_jobs.py", "instai_jobs.py")
 
 
 def code_stamp():
@@ -4378,6 +4381,12 @@ try:                       # the Instagram reader (Abagram) as a local service +
     import abagram_jobs; abagram_jobs.register(sys.modules[__name__])
 except Exception as e:  # noqa: BLE001 - a broken optional module must never stop the agent
     print("note: the Instagram reader (abagram_jobs.py) is not available: %s" % e, flush=True)
+
+
+try:                       # InstAI (the owner's studio) as a neighbour: found, kept up to date, started, its own self-test report in the heartbeat (instai_jobs.py)
+    import instai_jobs; instai_jobs.register(sys.modules[__name__])
+except Exception as e:  # noqa: BLE001 - a broken optional module must never stop the agent
+    print("note: the InstAI neighbour (instai_jobs.py) is not available: %s" % e, flush=True)
 
 
 def run_job(site, data):

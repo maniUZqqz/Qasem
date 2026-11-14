@@ -23,6 +23,7 @@ from services.editing import captions as captions_module
 from services.media import files as media
 from services.video import subtitles
 
+from . import media_cleanup
 from .models import UploadedVideo, VideoProject
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,7 @@ def edit_video_task(self, job_id, upload_id, mode, operations=None, instruction=
     something about what they were willing to try.
     """
     job = Job.objects.get(id=job_id)
+    work, new_edit = None, False
     try:
         upload = UploadedVideo.objects.select_related("store").get(id=upload_id)
         job.total_steps = 3
@@ -164,10 +166,10 @@ def edit_video_task(self, job_id, upload_id, mode, operations=None, instruction=
 
         if outcome.output is not None:
             final = work / "edited.mp4"
-            if Path(outcome.output) != final:
-                final.write_bytes(Path(outcome.output).read_bytes())
+            media_cleanup.promote(Path(outcome.output), final)      # a rename, not read_bytes()+write_bytes(): the whole video never sits in the worker's RAM
             media.store(upload.edited, final)
             upload.state = UploadedVideo.State.EDITED
+            new_edit = True
 
         # Before/after, kept on the row: the panel shows the original and the
         # edited cut side by side with the numbers that changed, and a shop
@@ -206,6 +208,14 @@ def edit_video_task(self, job_id, upload_id, mode, operations=None, instruction=
         logger.exception("Video edit job %s failed", job_id)
         job.mark_failed(exc)
         return {"error": str(exc)}
+    finally:
+        # every render round, the denoised wav and the analysis frames of each round were left on the disk (about 4x the video)
+        if work is not None:
+            try:
+                if not media_cleanup.edit_running(upload_id, exclude_job=job.pk):
+                    media_cleanup.trim_after_edit(work, new_edit=new_edit)
+            except Exception:  # noqa: BLE001 - housekeeping never changes the outcome of the edit
+                logger.exception("Video edit job %s: cleaning the work folder failed", job_id)
 
 
 @shared_task(bind=True)
@@ -1081,11 +1091,17 @@ def _segment_file(path, s0: float, s1: float, side: int) -> tuple[Path, int, int
     sw, sh = _source_size(str(path))
     k = min(1.0, side / max(sw, sh))
     w, h = max(16, int(round(sw * k / 2)) * 2), max(16, int(round(sh * k / 2)) * 2)
+    import shutil
+
     folder = Path(tempfile.mkdtemp(prefix="nm-seg-"))
     out = folder / "clip.mp4"
-    subprocess.run([FFMPEG, "-y", "-v", "error", "-ss", f"{s0:.3f}", "-t", f"{s1 - s0:.3f}", "-i", str(path), "-an", "-vf", f"scale={w}:{h}",
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", str(out)],
-                   check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=600)
+    try:
+        subprocess.run([FFMPEG, "-y", "-v", "error", "-ss", f"{s0:.3f}", "-t", f"{s1 - s0:.3f}", "-i", str(path), "-an", "-vf", f"scale={w}:{h}",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", str(out)],
+                       check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=600)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)       # the callers only learn `folder` from a successful return
+        raise
     return out, w, h
 
 
@@ -1299,3 +1315,11 @@ def sync_task(self, job_id, refs):
         logger.info("Sync job %s: %s", job_id, exc)
         job.mark_failed(exc)
         return {"error": str(exc)}
+
+
+@shared_task
+def sweep_editing_media():
+    """Daily safety net for the editor's disk use: the work folder of a video that no longer exists (older than 3 days) and an uploaded file
+    no row points at (older than 7 days).  Every removal is logged; nothing else under MEDIA_ROOT is touched (see `media_cleanup`)."""
+    report = media_cleanup.sweep_orphans()
+    return {"removed": len(report["removed"]), "bytes": report["bytes"]}

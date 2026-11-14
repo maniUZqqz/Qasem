@@ -27,6 +27,7 @@ from django.conf import settings
 from services.editing import luts, mattes, stickers
 from services.editing import timeline as tl
 from services.media import files as media
+from services.video.subtitles import strip_bidi
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,7 @@ def parse_srt(text: str) -> list[dict]:
             g = [int(x) for x in m.groups()]
             start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
             end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
-            body = " ".join(rows[i + 1:]).strip()
+            body = strip_bidi(" ".join(rows[i + 1:])).strip()          # our own .srt carries invisible RTL marks (subtitles.rtl_line): the editor text stays clean
             if body and end > start:
                 lines.append({"start": round(start, 2), "end": round(end, 2), "text": body[:200]})
             break

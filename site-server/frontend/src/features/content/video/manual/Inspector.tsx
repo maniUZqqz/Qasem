@@ -17,6 +17,7 @@ import ExportPanel from "./ExportPanel";
 import MixerPanel from "./MixerPanel";
 import { usePlayheadStore, useThrottledPlayhead } from "./playhead";
 import ProPanel, { ProProps } from "./ProPanel";
+import ProjectPicker from "./ProjectPicker";
 import VersionsCard from "./VersionsCard";
 import QuickTemplates from "./QuickTemplates";
 import {
@@ -308,12 +309,9 @@ function OutTab(p: InspectorProps) {
           <Badge tone={saving === "saved" ? "ok" : saving === "error" ? "bad" : "neutral"}>
             {saving === "saving" ? "در حالِ ذخیره…" : saving === "saved" ? "ذخیره شد" : saving === "error" ? "ذخیره نشد" : "ذخیرهٔ خودکار"}
           </Badge>
-          <select className="u-input !w-auto" value={projectId ?? ""} onChange={(e) => onOpenProject(e.target.value ? Number(e.target.value) : null)} aria-label="پروژه‌ها" data-testid="project-select">
-            <option value="">پروژهٔ تازه</option>
-            {projects.map((r) => <option key={r.id} value={r.id}>{r.title || `پروژه ${r.id}`}</option>)}
-          </select>
           {projectId && <button type="button" className="ws-link" onClick={onDeleteProject}>حذفِ این پروژه</button>}
         </div>
+        <ProjectPicker projects={projects} projectId={projectId} onOpen={onOpenProject} />
       </div>
 
       <VersionsCard storeId={p.storeId} projectId={projectId} root={p.sound.root} onRestored={() => onOpenProject(projectId)} />

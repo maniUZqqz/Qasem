@@ -31,6 +31,9 @@
 
 /* زیرنویسِ خودکار */
 .cap-status { margin: 6px 0 8px; }
+.cap-wait { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 8px; }
+.cap-wait .u-badge { flex: none; }
+.cap-wait-text { margin: 0; flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .cap-run { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 
 /* خروجی */

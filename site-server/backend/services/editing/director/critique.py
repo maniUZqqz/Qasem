@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from .. import safezones
 from . import projectops as ops
-from .brief import PLATFORMS
+from .brief import PLATFORMS, title_problem
 
 SEVERITY_COST = {"bad": 22, "warn": 10, "info": 3}
 
@@ -148,6 +148,16 @@ def critique(project: dict, an: dict, brief: dict) -> dict:
     if not polish:
       items.append(_item("cta", "دعوت به اقدام در پایان", has_cta, "warn", "ویدیو با یک دعوت به اقدام (سفارش، تماس، بازدید) تمام نمی‌شود." if not has_cta else "پایانِ ویدیو دعوت به اقدام دارد.",
                        [{"tool": "end_card", "params": {"text": brief.get("cta") or "همین حالا سفارش بده", "duration": 2.5}, "why": "کارتِ پایانی اضافه شد"}]))
+
+    # 7b · the title is a title: not a file/library label («— عکس», «IMG_2031») and not cut in the middle of a word
+    shown = [str(c.get("text", "")).strip() for c in texts if float(c["at"]) <= 3.0 and not c.get("caption")]
+    wanted = (brief.get("title") or "").strip()
+    bad_titles = [(t, title_problem(t)) for t in dict.fromkeys(shown + ([wanted] if wanted else [])) if t and title_problem(t)]
+    if bad_titles:
+        t, why = bad_titles[0]
+        items.append(_item("title", "تیترِ ویدیو", False, "warn", f"تیترِ «{t}» {why}؛ یک عنوانِ کوتاه و معنادار (نامِ محصول یا برند) بنویسید.", None))
+    elif shown and wanted:
+        items.append(_item("title", "تیترِ ویدیو", True, "info", "تیتر معنادار و کامل است."))
 
     # 8 · length -------------------------------------------------------------
     if total > plat["max"] + 0.5:

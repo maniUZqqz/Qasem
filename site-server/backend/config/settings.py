@@ -983,3 +983,7 @@ NM_VERSION = _nm_read_version() or "0.00"
 INSTALLED_APPS += ["apps.igtrends"]
 CELERY_BEAT_SCHEDULE["igtrends-auto-scan"] = {"task": "apps.igtrends.tasks.auto_scan", "schedule": 1800.0, "options": {"expires": 900}}
 CELERY_BEAT_SCHEDULE["igtrends-sync"] = {"task": "apps.igtrends.tasks.sync", "schedule": 600.0, "options": {"expires": 500}}
+
+
+# ویرایشگرِ ویدیو: جارویِ روزانهٔ فایل‌های بی‌صاحب (پوشهٔ کاریِ ویدیویی که دیگر نیست و فایلِ آپلودیِ بی‌ردیف؛ فقط قدیمی‌ها، با لاگ) — apps/content/media_cleanup.py
+CELERY_BEAT_SCHEDULE["editing-media-sweep"] = {"task": "apps.content.tasks_editing.sweep_editing_media", "schedule": 86400.0, "options": {"expires": 7200}}

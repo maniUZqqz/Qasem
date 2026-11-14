@@ -22,6 +22,7 @@ from apps.jobs.services import dispatch_job
 from apps.stores import access
 from services.editing import agent, analysis, preferences, tools
 
+from . import media_cleanup
 from .models import UploadedVideo
 from .tasks_editing import analyze_upload_task, edit_video_task, repurpose_upload_task
 
@@ -133,7 +134,10 @@ class UploadedVideoDetailView(APIView):
     def delete(self, request, store_id, pk):
         store = access.get_store(request.user, store_id, access.CONTENT)
         upload = get_object_or_404(UploadedVideo, pk=pk, store=store)
+        snap = media_cleanup.snapshot(upload)
         upload.delete()
+        # `upload.delete()` removes the row only: the uploaded file, the edited copy and the whole work folder stayed on the disk for ever
+        media_cleanup.purge_upload(snap)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

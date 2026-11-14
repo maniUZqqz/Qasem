@@ -56,9 +56,9 @@ export default function ProjectListPage() {
           </EmptyState>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((pr) => (
-            <Link key={pr.id} to={pUrl(pr.slug)} className="no-underline" style={{ color: "inherit" }}>
+            <Link key={pr.id} to={pUrl(pr.slug)} className="min-w-0 no-underline" style={{ color: "inherit" }}>
               <Card hover className="h-full">
                 <div className="mb-2 flex items-center gap-2">
                   <span

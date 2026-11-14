@@ -25,6 +25,8 @@ failure.
 """
 from __future__ import annotations
 
+from apps.common.fatext import fa_digits
+
 import logging
 from datetime import timedelta
 
@@ -278,7 +280,7 @@ def what_worked(store, days: int = 90) -> dict:
             "posts": len(rows),
             "measured": len(measured),
             "message": (
-                f"فقط {len(measured)} پست آمار دارد. برای نتیجه‌گیری حداقل ۵ تا "
+                f"فقط {fa_digits(len(measured))} پست آمار دارد. برای نتیجه‌گیری حداقل ۵ تا "
                 "لازم است — کمتر از آن، الگو نیست و دنبال کردنش یعنی دنبال "
                 "کردن تصادف."
             ),

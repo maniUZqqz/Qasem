@@ -233,6 +233,8 @@ export interface Caption {
   about_video: number | null;
   about_image_url: string | null;
   about_label: string;
+  /** هشدارهای کنترلِ کیفیت: عبارتِ ممنوع، عددِ ناقص، جملهٔ تکراری … */
+  warnings?: { code: string; message: string }[];
   created_at: string;
 }
 

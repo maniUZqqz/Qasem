@@ -25,6 +25,8 @@ A CRM that quietly changes subscription state is a CRM that fights with billing.
 """
 from __future__ import annotations
 
+from apps.common.fatext import fa_digits
+
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -164,7 +166,7 @@ def _risks(row: Row, subscription, now) -> list[Risk]:
     if row.days_since_activity is not None and row.days_since_activity >= QUIET_DAYS:
         risks.append(Risk(
             "quiet",
-            f"{row.days_since_activity} روز است کاری نکرده",
+            f"{fa_digits(row.days_since_activity)} روز است کاری نکرده",
             level="high" if row.paying else "watch",
         ))
 

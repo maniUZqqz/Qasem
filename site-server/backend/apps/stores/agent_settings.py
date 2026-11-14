@@ -177,5 +177,9 @@ def violations(reply: str, banned: list[str]) -> list[str]:
     """
     if not reply or not banned:
         return []
-    haystack = reply.casefold()
-    return [phrase for phrase in banned if phrase.casefold() in haystack]
+    # Compared in a normalised form (digits, half-spaces, kasra, ي/ك) so «۹۸٪»
+    # in the rule and «98%» or «۹۸ ٪» in the text are the same claim. Still a
+    # plain substring match - no stemming, for the reason above.
+    from apps.common.fatext import contains_phrase
+
+    return [phrase for phrase in banned if contains_phrase(reply, phrase)]

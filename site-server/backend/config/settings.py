@@ -905,6 +905,12 @@ CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
     "schedule": 86400.0,
     "options": {"expires": 7200},
 }
+# صداهایی که با خطای قدیمیِ MOSS (BFloat16) ناموفق شدند، به‌محضِ آنلاین‌شدنِ سرورِ پردازش خودشان یک بار دوباره ساخته می‌شوند
+CELERY_BEAT_SCHEDULE["audio-retry-stale-failed"] = {
+    "task": "apps.content.tasks_audio.retry_stale_failed_audio",
+    "schedule": 300.0,
+    "options": {"expires": 240},
+}
 
 
 # ── Growth Engine (جذب مشتری) ──────────────────────────────────────────────────────────

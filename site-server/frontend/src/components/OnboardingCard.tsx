@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import Icon from "./Icon";
-import { Badge, Card, SectionTitle, Skeleton } from "./ui";
+import { Badge, Card, SectionTitle, Skeleton, fa } from "./ui";
 
 type Step = {
   key: string;
@@ -49,7 +49,7 @@ export default function OnboardingCard({ storeId }: { storeId: string | number }
       <div className="mb-3 flex items-center justify-between gap-3">
         <SectionTitle>قدم‌های بعدی</SectionTitle>
         <Badge tone="info">
-          {summary.done_count} از {summary.total}
+          {fa(summary.done_count)} از {fa(summary.total)}
         </Badge>
       </div>
 

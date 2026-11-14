@@ -223,8 +223,8 @@ export default function VideoStudioPanel({
               onChange={(e) => setLanguage(e.target.value as "fa" | "en")}
               className="u-input"
             >
-              <option value="fa">🇮🇷 فارسی</option>
-              <option value="en">🇬🇧 English</option>
+              <option value="fa">فارسی</option>
+              <option value="en">English (انگلیسی)</option>
             </select>
           </Field>
         </div>
@@ -328,7 +328,7 @@ export default function VideoStudioPanel({
           <div className="flex items-center gap-3 text-sm">
             <Chip>{script.total_duration} ثانیه</Chip>
             <Chip>{script.scenes.length} صحنه</Chip>
-            <Chip>{script.narration_language === "en" ? "🇬🇧 نریشن انگلیسی" : "🇮🇷 نریشن فارسی"}</Chip>
+            <Chip>{script.narration_language === "en" ? "نریشن انگلیسی" : "نریشن فارسی"}</Chip>
             <button
               onClick={() => setShowScenes((v) => !v)}
               className="text-violet-600 hover:underline"

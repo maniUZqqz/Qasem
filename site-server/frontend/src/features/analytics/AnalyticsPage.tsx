@@ -45,6 +45,19 @@ interface DayPoint {
   ai_requests: number;
 }
 
+/** میلی‌ثانیه را به زبانِ آدم: «۶ دقیقه»، نه «۳۵۶۹۶۰ms». */
+function humanMs(ms: number): string {
+  const v = Math.max(0, Math.round(ms || 0));
+  if (v < 1000) return `${fa(v)} میلی‌ثانیه`;
+  const sec = v / 1000;
+  if (sec < 60) return `${fa(Math.round(sec))} ثانیه`;
+  const min = sec / 60;
+  if (min < 60) return `${fa(Math.round(min))} دقیقه`;
+  const hr = min / 60;
+  if (hr < 48) return `${fa(Math.round(hr))} ساعت`;
+  return `${fa(Math.round(hr / 24))} روز`;
+}
+
 export default function AnalyticsPage() {
   const { id: storeId } = useParams<{ id: string }>();
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -142,7 +155,7 @@ export default function AnalyticsPage() {
             series="content"
             label="درخواست‌های AI"
             value={fa(overview.ai.requests)}
-            hint={`میانگین تأخیر ${fa(overview.ai.avg_latency_ms)}ms${
+            hint={`میانگین زمانِ پاسخ ${humanMs(overview.ai.avg_latency_ms)}${
               aiErrors ? ` · ${fa(aiErrors)} خطا` : ""
             }`}
           />

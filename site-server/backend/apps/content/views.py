@@ -76,9 +76,12 @@ class CaptionView(APIView):
 
     def get(self, request, pk):
         product = _owned_product(request, pk)
+        # 100, not 30: a shop that keeps its hand-written plan captions next to
+        # test runs must still be able to reach the oldest ones (the plan refers
+        # to them by number)
         captions = Caption.objects.filter(product=product).select_related(
-            "about_image", "about_video"
-        )[:30]
+            "about_image", "about_video", "store"
+        )[:100]
         return Response(
             CaptionSerializer(captions, many=True, context={"request": request}).data
         )

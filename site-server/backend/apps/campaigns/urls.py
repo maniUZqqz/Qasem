@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views_board import CampaignBoardView, CampaignTaskView
+from .views_board import CampaignBoardView, CampaignTaskView, StorePlannedView
 from .views import (
     CampaignScheduleView,
     CampaignViewSet,
@@ -26,6 +26,11 @@ urlpatterns = router.urls + [
     path(
         "stores/<int:store_id>/performance/",
         PerformanceView.as_view(), name="store-performance",
+    ),
+    # ---- the written-ahead plan, for the calendar ------------------------
+    path(
+        "stores/<int:store_id>/planned/",
+        StorePlannedView.as_view(), name="store-planned",
     ),
     # ---- campaign as a task manager (§29.1) ------------------------------
     path(

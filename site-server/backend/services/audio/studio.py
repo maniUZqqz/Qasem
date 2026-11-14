@@ -492,11 +492,60 @@ def sweep_drafts(store) -> int:
     return n
 
 
+#: the result fields a retry moves from the fresh take onto the failed row
+_RETRY_FIELDS = ("status", "job_uid", "error", "prompt", "engine", "voice_label", "license", "commercial",
+                 "cloned_voice", "params", "file_name", "size", "duration")
+
+
+def retry(asset, user):
+    """«دوباره بساز» for a failed take: same words / voice / settings, the SAME row (so the library, the videos that
+    use it and the card on screen keep their place). A fresh take is made exactly as the first time and its result
+    is moved onto the failed row; the allowance, the node routing and the durable queue all behave as for a new take."""
+    from apps.ai.models import AudioAsset
+
+    if asset.status != AudioAsset.Status.FAILED:
+        raise StudioError("فقط صدای ناموفق دوباره ساخته می‌شود.", 409, "not_failed")
+    p = asset.params or {}
+    store = asset.store
+    if asset.kind == AudioAsset.Kind.SPEECH:
+        fresh = create_speech(store, user, text=asset.text, voice_id=p.get("voice"), speed=p.get("speed", 1.0),
+                              title=asset.title, seed=p.get("seed"))
+    elif asset.kind == AudioAsset.Kind.SFX:
+        fresh = create_sfx(store, user, description=asset.text, preset=p.get("preset", ""),
+                           seconds=p.get("seconds", 8), seed=p.get("seed"), title=asset.title)
+    else:
+        style = next((s for s in MUSIC_STYLES if s["id"] == p.get("style")), None)
+        # a take made from a style alone stored the style's label as its text: do not say it twice
+        description = "" if style and _clean(asset.text) == style["label"] else asset.text
+        fresh = create_music(store, user, description=description, style=p.get("style", ""),
+                             seconds=p.get("seconds", 30), bpm=p.get("bpm"), seed=p.get("seed"), title=asset.title)
+    for name in _RETRY_FIELDS:
+        setattr(asset, name, getattr(fresh, name))
+    # a draft is swept a day after it was made: a retried one starts its day again
+    asset.created_at = timezone.now()
+    asset.save()
+    fresh.delete()   # the row only - the file (if the take was instant) now belongs to `asset`
+    return sync(asset)
+
+
 def delete(asset) -> None:
     path = asset_path(asset)
     if path is not None:
         path.unlink(missing_ok=True)
     asset.delete()
+
+
+_RAW_PYTHON = re.compile(r"(RuntimeError|Traceback|dtype|BFloat16|CUDA|TypeError|KeyError)")
+
+
+def _error_fa(asset) -> str:
+    """A failed row stored a node's raw Python error before the messages were translated (a dtype mismatch in MOSS,
+    already fixed on the node). Show what it means and what to do, not the traceback line."""
+    err = asset.error or ""
+    if asset.status == asset.Status.FAILED and _RAW_PYTHON.search(err) and not re.search(r"[؀-ۿ]", err):
+        return ("ساختنِ این صدا روی سرورِ پردازش با یک خطای فنی تمام شد (نسخهٔ قدیمیِ مدل). "
+                "«دوباره بساز» را بزنید؛ جزئیاتِ فنی: " + err[:160])
+    return err
 
 
 def asset_json(asset, *, progress=True) -> dict:
@@ -505,7 +554,7 @@ def asset_json(asset, *, progress=True) -> dict:
         "status_label": asset.get_status_display(), "title": asset.title, "text": asset.text, "prompt": asset.prompt,
         "params": asset.params or {}, "engine": asset.engine, "voice_label": asset.voice_label,
         "cloned_voice": asset.cloned_voice_id, "license": asset.license, "commercial": asset.commercial,
-        "duration": asset.duration, "size": asset.size, "error": asset.error, "saved": asset.saved,
+        "duration": asset.duration, "size": asset.size, "error": _error_fa(asset), "saved": asset.saved,
         "used_in": asset.used_in or [], "created_at": asset.created_at,
         "has_file": bool(asset.file_name) and asset.status == asset.Status.READY,
         "job": job_progress(asset) if progress else None,

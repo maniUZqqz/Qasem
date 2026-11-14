@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
 import { Badge, Button, Meter, Spinner, fa } from "../../components/ui";
-import { AudioAsset, assetFile, deleteAsset, getAsset, isFinal, patchAsset, seconds } from "./api";
+import { AudioAsset, assetFile, deleteAsset, getAsset, isFinal, patchAsset, retryAsset, seconds } from "./api";
 import { useAuthAudio } from "./useAuthAudio";
 
 /** Keeps a generated sound up to date while a processing node works on it (every 3 s, until it is final). */
@@ -72,6 +72,18 @@ export default function AssetCard({
       const fresh = await patchAsset(storeId, asset.id, { saved: !asset.saved });
       setAsset(fresh);
       onChange?.(fresh);
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retry = async () => {
+    setBusy(true);
+    setSrc(null);
+    try {
+      setAsset(await retryAsset(storeId, asset.id));
     } catch (err) {
       fail(err);
     } finally {
@@ -176,7 +188,11 @@ export default function AssetCard({
         </div>
       )}
       {asset.status === "FAILED" && (
-        <div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" onClick={() => void retry()} disabled={busy}>
+            <Icon name="refresh" size={13} />
+            دوباره بساز
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => void remove()}>
             <Icon name="trash" size={13} />
             حذف

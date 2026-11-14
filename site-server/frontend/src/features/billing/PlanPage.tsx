@@ -97,6 +97,7 @@ export default function PlanPage() {
   >([]);
   const [provider, setProvider] = useState<string>("");
   const [message, setMessage] = useState("");
+  const [denied, setDenied] = useState("");
   const [rejecting, setRejecting] = useState<number | null>(null);
 
   async function load() {
@@ -106,6 +107,9 @@ export default function PlanPage() {
       api.get(`/stores/${id}/usage/history/`),
     ]);
     if (s.status === "fulfilled") setSnap(s.value.data);
+    // 403: این نقشِ عضو به پلن و پرداخت دسترسی ندارد. قبلاً همین حالت به
+    // «اشتراک فعالی ندارید» ترجمه می‌شد و صفحه راهی نشان نمی‌داد.
+    else setDenied(errorMessage(s.reason));
     if (p.status === "fulfilled") setPlans(p.value.data ?? []);
     if (h.status === "fulfilled") setHistory(h.value.data ?? []);
     setLoading(false);
@@ -257,6 +261,17 @@ export default function PlanPage() {
             title="سیستم اشتراک هنوز فعال نشده"
             description="تا وقتی پلنی تعریف نشده باشد، سقفی هم اعمال نمی‌شود. مدیر سیستم می‌تواند با «seed_plans» پلن‌ها را بسازد."
           />
+        </Card>
+      </>
+    );
+  }
+
+  if (!snap && denied) {
+    return (
+      <>
+        <PageHeader title="پلن و مصرف" />
+        <Card>
+          <EmptyState icon="shield" title="این بخش برای نقشِ شما باز نیست" description={denied} />
         </Card>
       </>
     );

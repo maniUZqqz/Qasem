@@ -337,7 +337,7 @@ export default function ChatPage() {
         <div className="flex-1 space-y-3 overflow-y-auto p-1">
           {bubbles.length === 0 && (
             <p className="py-10 text-center text-sm text-slate-400">
-              مثلاً بپرسید: «این کفش برای دویدن خوبه؟» یا «سایز ۴۲ موجوده؟ می‌خوامش»
+              مثلاً بپرسید: «{store?.name ?? "این فروشگاه"} دقیقاً چه کاری انجام می‌دهد؟» یا «هزینه‌اش چقدر است و چطور شروع کنم؟»
             </p>
           )}
           {bubbles.map((bubble, i) => (

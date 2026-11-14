@@ -51,6 +51,9 @@ type Board = {
   states: { key: string; title: string }[];
 };
 
+// موعدِ پیشنهادی به تاریخِ شمسی (فقط پیشنهاد است؛ چیزی خودکار منتشر نمی‌شود)
+const DUE_FMT = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { month: "short", day: "numeric" });
+
 const TONE: Record<string, "ok" | "warn" | "bad" | "info" | "neutral"> = {
   TODO: "neutral",
   DOING: "info",
@@ -73,6 +76,17 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
   const [kind, setKind] = useState("CONTENT");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // کارهایی که توضیحشان باز است (متنِ اسلایدها، کپشن، موعدِ پیشنهادی…)
+  const [open, setOpen] = useState<Set<number>>(new Set());
+
+  function toggle(id: number) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const load = useCallback(async () => {
     try {
@@ -183,25 +197,55 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
                 {column.title} ({fa(column.done)}/{fa(column.total)})
               </p>
               <div className="flex flex-col gap-1">
-                {column.tasks.map((task) => (
+                {column.tasks.map((task) => {
+                  const expandable = !!(task.detail || task.because || task.due_at);
+                  const isOpen = open.has(task.id);
+                  return (
                   <div
                     key={task.id}
-                    className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2"
+                    className="rounded-lg px-3 py-2"
                     style={{ background: "var(--surface-2)" }}
                   >
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={TONE[task.effective_state] ?? "neutral"}>
                       {task.state_label}
                     </Badge>
-                    <span
-                      className="min-w-0 flex-1 text-sm"
-                      style={{
-                        color: "var(--text)",
-                        textDecoration:
-                          task.effective_state === "DONE" ? "line-through" : "none",
-                      }}
-                    >
-                      {task.title}
-                    </span>
+                    {expandable ? (
+                      <button
+                        type="button"
+                        onClick={() => toggle(task.id)}
+                        aria-expanded={isOpen}
+                        className="min-w-0 flex-1 text-start text-sm"
+                        style={{
+                          color: "var(--text)",
+                          background: "none",
+                          border: 0,
+                          padding: 0,
+                          cursor: "pointer",
+                          textDecoration:
+                            task.effective_state === "DONE" ? "line-through" : "none",
+                        }}
+                      >
+                        <span style={{ color: "var(--text-3)" }}>{isOpen ? "▾ " : "◂ "}</span>
+                        {task.title}
+                      </button>
+                    ) : (
+                      <span
+                        className="min-w-0 flex-1 text-sm"
+                        style={{
+                          color: "var(--text)",
+                          textDecoration:
+                            task.effective_state === "DONE" ? "line-through" : "none",
+                        }}
+                      >
+                        {task.title}
+                      </span>
+                    )}
+                    {task.due_at && (
+                      <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                        {DUE_FMT.format(new Date(task.due_at))}
+                      </span>
+                    )}
                     {task.assigned_username && (
                       <Badge tone="neutral">{task.assigned_username}</Badge>
                     )}
@@ -218,6 +262,7 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
                         <Select
                           value={task.effective_state}
                           onChange={(e) => setState(task, e.target.value)}
+                          style={{ width: "auto", minWidth: 120 }}
                         >
                           {board.states.map((state) => (
                             <option key={state.key} value={state.key}>
@@ -225,13 +270,43 @@ export default function CampaignBoard({ campaignId }: { campaignId: number }) {
                             </option>
                           ))}
                         </Select>
-                        <Button variant="ghost" onClick={() => remove(task)}>
+                        <Button variant="ghost" onClick={() => remove(task)} aria-label="حذفِ کار">
                           ×
                         </Button>
                       </>
                     )}
                   </div>
-                ))}
+                  {isOpen && (
+                    <div className="mt-2 space-y-2 border-t pt-2" style={{ borderColor: "var(--line)" }}>
+                      {task.because && (
+                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                          چرا: {task.because}
+                        </p>
+                      )}
+                      {task.detail && (
+                        <>
+                          <p
+                            className="whitespace-pre-wrap text-sm leading-7"
+                            style={{ color: "var(--text-2)" }}
+                          >
+                            {task.detail}
+                          </p>
+                          <button
+                            type="button"
+                            className="u-btn u-btn-ghost u-btn-sm"
+                            onClick={() => void navigator.clipboard?.writeText(`${task.title}
+
+${task.detail}`)}
+                          >
+                            کپیِ متنِ کار
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  </div>
+                  );
+                })}
               </div>
             </div>
           ))}

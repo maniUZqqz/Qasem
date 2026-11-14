@@ -141,6 +141,106 @@ class AudioStudioTests(TestCase):
         self.assertEqual(a["status"], "FAILED")
         self.assertIn("نصب نیست", a["error"])
 
+    def test_a_failed_take_can_be_made_again_on_the_same_row(self):
+        a = self.post(kind="speech", text="سلام دوستان چغر", voice="moss:mana", speed=1.1).json()
+        self.client.patch(f"{self.base}assets/{a['id']}/", {"saved": True}, content_type="application/json")
+        job = ComputeJob.objects.get(kind="voice.tts")
+        job.max_attempts = 1
+        job.save()
+        self.complete(job, ok=False, error=("MOSS-TTS Persian speech: RuntimeError: expected mat1 and mat2 to have "
+                                           "the same dtype, but got: float != struct c10::BFloat16"))
+        failed = self.client.get(f"{self.base}assets/{a['id']}/").json()
+        self.assertEqual(failed["status"], "FAILED")
+        self.assertIn("دوباره بساز", failed["error"], "a raw Python error is shown as what to do, not as a traceback line")
+
+        r = self.client.post(f"{self.base}assets/{a['id']}/retry/")
+        self.assertEqual(r.status_code, 200, r.content)
+        again = r.json()
+        self.assertEqual(again["id"], a["id"], "the SAME row: the library and the card keep their place")
+        self.assertEqual(again["status"], "PENDING")
+        self.assertEqual(again["error"], "")
+        self.assertTrue(again["saved"])
+        self.assertEqual(AudioAsset.objects.count(), 1, "no second row is left behind")
+        second = ComputeJob.objects.filter(kind="voice.tts").exclude(pk=job.pk).get()
+        self.assertEqual(second.payload["voice"], "mana")
+        self.complete(second)
+        done = self.client.get(f"{self.base}assets/{a['id']}/").json()
+        self.assertEqual(done["status"], "READY")
+        self.assertTrue(done["has_file"])
+        self.assertEqual(done["params"]["speed"], 1.1, "the speed of the first try is kept")
+
+    def test_old_moss_failures_are_remade_once_by_themselves_when_a_node_is_online(self):
+        from apps.content import tasks_audio
+
+        err = "MOSS-TTS Persian speech: RuntimeError: expected mat1 and mat2 to have the same dtype, but got: float != struct c10::BFloat16"
+        old = AudioAsset.objects.create(store=self.store, kind=AudioAsset.Kind.SPEECH, status=AudioAsset.Status.FAILED,
+                                        engine="moss-fa", text="سلام", prompt="سلام", error=err, saved=True,
+                                        params={"voice": "moss:mana", "speed": 1.0}, title="قدیمی")
+        other = AudioAsset.objects.create(store=self.store, kind=AudioAsset.Kind.SPEECH, status=AudioAsset.Status.FAILED,
+                                          engine="moss-fa", text="سلام", error="مدل‌های «MOSS» روی این سرور نصب نیست.",
+                                          params={"voice": "moss:mana", "speed": 1.0})
+        ComputeNode.objects.update(last_seen=timezone.now() - timedelta(hours=2))
+        self.assertEqual(tasks_audio.retry_stale_failed_audio(), 0, "nothing is queued while no node can run MOSS")
+        ComputeNode.objects.update(last_seen=timezone.now())
+        self.assertEqual(tasks_audio.retry_stale_failed_audio(), 1)
+        old.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(old.status, "PENDING")
+        self.assertTrue(old.params["auto_retried"])
+        self.assertEqual(other.status, "FAILED", "a take that failed for another reason is left to the owner")
+        job = ComputeJob.objects.get(kind="voice.tts")
+        job.max_attempts = 1
+        job.save()
+        self.complete(job, ok=False, error=err)
+        old.refresh_from_db()
+        studio.sync(old)
+        old.refresh_from_db()
+        self.assertEqual(old.status, "FAILED")
+        self.assertEqual(tasks_audio.retry_stale_failed_audio(), 0, "once: it is not retried again and again")
+
+    def test_waiting_takes_are_picked_up_without_anybody_opening_the_library(self):
+        """A take whose node job finished stayed PENDING until the library was opened (the shop's takes 31-35)."""
+        from apps.content import tasks_audio
+
+        a = self.post(kind="speech", text="سلام دوستان چغر", voice="moss:mana").json()
+        job = ComputeJob.objects.get(kind="voice.tts")
+        self.complete(job)
+        self.assertEqual(AudioAsset.objects.get(pk=a["id"]).status, "PENDING", "nothing has read the library yet")
+        ComputeNode.objects.update(last_seen=timezone.now() - timedelta(hours=2))    # the task must not need a node for this
+        tasks_audio.retry_stale_failed_audio()
+        row = AudioAsset.objects.get(pk=a["id"])
+        self.assertEqual(row.status, "READY")
+        self.assertTrue(row.file_name)
+        self.assertEqual(tasks_audio.sync_waiting_audio(), 0, "nothing left to bring up to date")
+
+    def test_a_bad_row_does_not_stop_the_sync_of_the_others(self):
+        from apps.content import tasks_audio
+
+        a = self.post(kind="speech", text="سلام یک", voice="moss:mana").json()
+        b = self.post(kind="speech", text="سلام دو", voice="moss:lora").json()
+        for job in list(ComputeJob.objects.filter(kind="voice.tts").order_by("pk")):
+            self.complete(job)
+        real = studio.sync
+        calls = []
+
+        def flaky(asset):
+            calls.append(asset.pk)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return real(asset)
+
+        with patch("services.audio.studio.sync", flaky):
+            self.assertEqual(tasks_audio.sync_waiting_audio(), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(AudioAsset.objects.filter(status="READY").count(), 1)
+        self.assertEqual({a["id"], b["id"]}, set(AudioAsset.objects.values_list("pk", flat=True)))
+
+    def test_retry_is_only_for_a_failed_take(self):
+        a = self.post(kind="speech", text="سلام", voice="moss:mana").json()
+        r = self.client.post(f"{self.base}assets/{a['id']}/retry/")
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["error"]["code"], "not_failed")
+
     def test_piper_speech_is_immediate_and_deduplicated(self):
         def fake(self_, text, out_path):
             out = Path(out_path).with_suffix(".wav")

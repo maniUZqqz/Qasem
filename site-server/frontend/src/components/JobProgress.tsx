@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
 
 import { Job } from "../types";
-import { Spinner } from "./ui";
+import { Spinner, fa } from "./ui";
 
 /** After this long a run is unusual enough to offer a way out. */
 const LONG_RUN_SECONDS = 8 * 60;
 
 function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  if (m === 0) return `${s} ثانیه`;
-  return `${m} دقیقه و ${s} ثانیه`;
+  // یک کارِ منتظرِ سرورِ پردازش ممکن است چند روز در صف بماند؛ «۶۹۴۷ دقیقه» برای آدم معنا ندارد
+  if (d > 0) return `${fa(d)} روز و ${fa(h)} ساعت`;
+  if (h > 0) return `${fa(h)} ساعت و ${fa(m)} دقیقه`;
+  if (m === 0) return `${fa(s)} ثانیه`;
+  return `${fa(m)} دقیقه و ${fa(s)} ثانیه`;
+}
+
+/** این کار روی سرورِ پردازش (کامپیوترِ گرافیکی) منتظر است، نه این‌که مدل کند باشد. */
+function isWaitingForNode(label: string | undefined): boolean {
+  return !!label && /منتظر/.test(label) && /سرور/.test(label);
 }
 
 /**
@@ -48,6 +58,7 @@ export default function JobProgress({
     ? Math.min(100, Math.round(((job?.progress_step ?? 0) / (job?.total_steps ?? 1)) * 100))
     : null;
   const tooLong = elapsed > LONG_RUN_SECONDS;
+  const waiting = isWaitingForNode(job?.current_step_label);
 
   return (
     <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
@@ -56,7 +67,7 @@ export default function JobProgress({
         <span className="font-medium">{job?.current_step_label || fallbackLabel}</span>
         {hasSteps && (
           <span className="text-xs text-violet-700">
-            (مرحله {job!.progress_step} از {job!.total_steps})
+            (مرحله {fa(job!.progress_step)} از {fa(job!.total_steps)})
           </span>
         )}
         {onCancel && (
@@ -78,15 +89,25 @@ export default function JobProgress({
           <div className="h-full w-1/3 animate-pulse rounded-full bg-violet-400" />
         )}
       </div>
-      <p className="mt-2 text-xs text-violet-700">
-        ⏱ {formatElapsed(elapsed)} گذشته — مدل‌های AI لوکال کند هستند؛ سیستم در حال کار است و
-        این صفحه خودکار به‌روز می‌شود. می‌توانید صفحه را ترک کنید و برگردید.
-      </p>
-      {tooLong && (
-        <p className="mt-1 text-xs font-medium text-amber-700">
-          ⚠️ این کار غیرعادی طولانی شده. اگر مدل روی سیستم جا نشده باشد ممکن است تمام نشود —
-          می‌توانید «لغو» بزنید و دوباره امتحان کنید.
+      {waiting ? (
+        <p className="mt-2 text-xs text-violet-700">
+          ⏱ {formatElapsed(elapsed)} در صف است — این کار منتظرِ روشن‌شدنِ سرورِ پردازش (کامپیوترِ گرافیکی)
+          است و همان لحظه که روشن شود خودکار شروع می‌شود. لازم نیست صفحه را باز نگه دارید و
+          چیزی از دست نمی‌رود.
         </p>
+      ) : (
+        <>
+          <p className="mt-2 text-xs text-violet-700">
+            ⏱ {formatElapsed(elapsed)} گذشته — مدل‌های AI لوکال کند هستند؛ سیستم در حال کار است و
+            این صفحه خودکار به‌روز می‌شود. می‌توانید صفحه را ترک کنید و برگردید.
+          </p>
+          {tooLong && (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              ⚠️ این کار غیرعادی طولانی شده. اگر مدل روی سیستم جا نشده باشد ممکن است تمام نشود —
+              می‌توانید «لغو» بزنید و دوباره امتحان کنید.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

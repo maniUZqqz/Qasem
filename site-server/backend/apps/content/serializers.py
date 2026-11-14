@@ -28,6 +28,7 @@ class GeneratedImageSerializer(serializers.ModelSerializer):
 class CaptionSerializer(serializers.ModelSerializer):
     about_image_url = serializers.SerializerMethodField()
     about_label = serializers.SerializerMethodField()
+    warnings = serializers.SerializerMethodField()
 
     class Meta:
         model = Caption
@@ -46,8 +47,19 @@ class CaptionSerializer(serializers.ModelSerializer):
             "about_video",
             "about_image_url",
             "about_label",
+            "warnings",
             "created_at",
         ]
+
+    def get_warnings(self, obj):
+        """Quality warnings (see caption_guard). The shop's banned phrases are
+        looked up once per request, not once per caption."""
+        from . import caption_guard
+
+        cache = self.context.setdefault("_banned_by_store", {})
+        if obj.store_id not in cache:
+            cache[obj.store_id] = caption_guard.banned_for(obj.store)
+        return caption_guard.check(obj, cache[obj.store_id])
 
     def get_about_image_url(self, obj):
         if obj.about_image and obj.about_image.image:

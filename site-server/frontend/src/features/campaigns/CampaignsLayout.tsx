@@ -31,7 +31,25 @@ export type ScheduledRow = {
   published_at: string | null;
 };
 
-type Ctx = { storeId: string; scheduled: ScheduledRow[]; reloadScheduled: () => Promise<void> };
+/** کاری از تختهٔ کمپین که موعدِ پیشنهادی دارد (هنوز زمان‌بندی نشده — فقط برنامه است). */
+export type PlannedRow = {
+  id: number;
+  campaign_id: number;
+  campaign: string;
+  kind: string;
+  kind_label: string;
+  title: string;
+  due_at: string;
+  state: string;
+  state_label: string;
+};
+
+type Ctx = {
+  storeId: string;
+  scheduled: ScheduledRow[];
+  planned: PlannedRow[];
+  reloadScheduled: () => Promise<void>;
+};
 
 export function useCampaigns() {
   return useOutletContext<Ctx>();
@@ -41,6 +59,7 @@ export default function CampaignsLayout() {
   const { id: storeId } = useParams<{ id: string }>();
   const { pageEnabled } = useFlags();
   const [scheduled, setScheduled] = useState<ScheduledRow[]>([]);
+  const [planned, setPlanned] = useState<PlannedRow[]>([]);
 
   const reloadScheduled = useCallback(async () => {
     try {
@@ -55,6 +74,14 @@ export default function CampaignsLayout() {
   useEffect(() => {
     void reloadScheduled();
   }, [reloadScheduled]);
+
+  useEffect(() => {
+    // برنامهٔ نوشته‌شده از پیش؛ نبودنش نباید تقویم را خراب کند
+    api
+      .get<PlannedRow[]>(`/stores/${storeId}/planned/`)
+      .then(({ data }) => setPlanned(data))
+      .catch(() => setPlanned([]));
+  }, [storeId]);
 
   if (!storeId) return null;
 
@@ -118,7 +145,7 @@ export default function CampaignsLayout() {
         ))}
       </nav>
 
-      <Outlet context={{ storeId, scheduled, reloadScheduled } satisfies Ctx} />
+      <Outlet context={{ storeId, scheduled, planned, reloadScheduled } satisfies Ctx} />
     </div>
   );
 }

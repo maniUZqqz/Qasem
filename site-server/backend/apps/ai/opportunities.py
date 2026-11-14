@@ -26,6 +26,9 @@ from decimal import Decimal
 from django.db.models import Count, F, Sum
 from django.utils import timezone
 
+from apps.common.fatext import fa_digits
+from apps.products.digital import is_digital, store_is_digital
+
 logger = logging.getLogger(__name__)
 
 #: Sold this many or fewer in the window and still sitting on stock → slow.
@@ -167,6 +170,7 @@ def suggest(store, days: int = 30, channel_data: dict | None = None) -> list[dic
     report = profit_report(store, days)
     by_id = {r["product_id"]: r for r in report["products"]}
     found = []
+    store_digital = store_is_digital(store)
 
     for product in Product.objects.filter(store=store):
         stats = by_id.get(product.pk, {})
@@ -216,14 +220,30 @@ def suggest(store, days: int = 30, channel_data: dict | None = None) -> list[dic
             })
 
         # ---- sitting stock ------------------------------------------------
-        if product.stock_quantity > 0 and units <= SLOW_MOVER_SALES:
+        if is_digital(product, store_digital) and units <= SLOW_MOVER_SALES:
+            # A service has no stock: «9999 عدد» is the owner's way of writing
+            # «unlimited». Say what is true - nothing was sold - instead of
+            # pretending there is a pile of boxes.
+            found.append({
+                "kind": Opportunity.Kind.CONTENT,
+                "product": product,
+                "title": f"«{product.name}» در {fa_digits(days)} روز گذشته فروشی نداشته",
+                "reason": (
+                    f"این یک سرویسِ دیجیتال است (ظرفیتِ فروشش محدود نیست) و در "
+                    f"{fa_digits(days)} روزِ گذشته {fa_digits(units)} فروش ثبت شده."
+                ),
+                "action": "یک پستِ آموزشی یا ویدیوی کوتاه دربارهٔ همین سرویس بسازید و پیش‌نویسش را بازبینی کنید.",
+                "evidence": {"digital": True, "units": units},
+                "priority": 50,
+            })
+        elif product.stock_quantity > 0 and units <= SLOW_MOVER_SALES:
             found.append({
                 "kind": Opportunity.Kind.CONTENT,
                 "product": product,
                 "title": f"«{product.name}» موجود است ولی نمی‌فروشد",
                 "reason": (
-                    f"{product.stock_quantity} عدد موجودی دارد و در {days} روز "
-                    f"گذشته {units} عدد فروخته."
+                    f"{fa_digits(product.stock_quantity)} عدد موجودی دارد و در {fa_digits(days)} روز "
+                    f"گذشته {fa_digits(units)} عدد فروخته."
                 ),
                 "action": "یک پوستر یا ویدیوی کوتاه برایش بسازید و منتشر کنید.",
                 "evidence": {"stock": product.stock_quantity, "units": units},
@@ -399,9 +419,11 @@ def check_channels(store) -> dict:
     from apps.products.models import Product
     from services.research import channels
 
-    products = list(
-        Product.objects.filter(store=store, is_available=True).order_by("-updated_at")[:CHANNEL_CHECK_PRODUCTS]
-    )
+    store_digital = store_is_digital(store)
+    products = [
+        p for p in Product.objects.filter(store=store, is_available=True).order_by("-updated_at")
+        if not is_digital(p, store_digital)
+    ][:CHANNEL_CHECK_PRODUCTS]  # digital services are not sold in these marketplaces
     data = channels.check_products(products) if products else {}
     problems = sorted({
         f"{row['label']}: {row.get('error')}"
@@ -538,6 +560,9 @@ def readiness(store, days: int = 30) -> dict:
         "fix": {"label": "بررسیِ بازارها", "action": "check_channels"},
     })
 
+    for item in items:
+        # a person reads these lines: Persian digits, like the rest of the panel
+        item["detail"] = fa_digits(item["detail"])
     return {
         "items": items,
         "done": sum(1 for i in items if i["done"]),

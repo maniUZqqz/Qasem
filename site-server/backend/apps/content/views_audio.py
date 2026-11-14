@@ -217,6 +217,23 @@ class AudioAssetDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class AudioAssetRetryView(APIView):
+    """«دوباره بساز» برای صدایی که ناموفق شد (مثلاً سرورِ پردازش وسطِ کار خاموش شد یا خطای قدیمیِ مدل بود)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id, pk):
+        from services.audio import node_audio, studio
+
+        _store, asset = _asset(request, store_id, pk, write=True)
+        try:
+            return Response(studio.asset_json(studio.retry(asset, request.user)))
+        except studio.StudioError as exc:
+            return _error(exc.code, str(exc), exc.status)
+        except node_audio.NodeAudioError as exc:
+            return _error("node_" + exc.code, str(exc), status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
 class AudioAssetFileView(APIView):
     permission_classes = [IsAuthenticated]
 

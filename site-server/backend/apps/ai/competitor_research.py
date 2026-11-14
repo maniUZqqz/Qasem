@@ -233,11 +233,27 @@ def discover(store, *, max_products: int = 6, per_source: int = 20) -> dict:
     """
     from apps.products.models import Product
 
-    products = list(
-        Product.objects.filter(store=store, is_available=True).order_by("-updated_at")[:max_products]
+    from apps.products.digital import is_digital, store_is_digital
+
+    all_products = list(
+        Product.objects.filter(store=store, is_available=True).order_by("-updated_at")
     )
-    if not products:
+    if not all_products:
         return {"suggestions": [], "sources": [], "note": "اول محصول اضافه کنید؛ رقیب را از روی محصولِ شما پیدا می‌کنیم."}
+    # Marketplaces list physical goods. Searching them for the name of a software
+    # plan returns whatever shares a word with it (a «کتابخانه» of exercises
+    # matched wooden bookshelves) - noise that looks like evidence. Digital
+    # services are skipped, and the owner is told why.
+    store_digital = store_is_digital(store)
+    products = [p for p in all_products if not is_digital(p, store_digital)][:max_products]
+    if not products:
+        return {
+            "suggestions": [], "sources": [], "products_checked": [],
+            "note": (
+                "محصولاتِ این فروشگاه سرویسِ دیجیتال‌اند و در دیجی‌کالا/باسلام کالای هم‌ردیفی ندارند؛ "
+                "جست‌وجوی خودکار برایشان بی‌معنی است. رقیب را دستی با نشانیِ سایتش اضافه کنید و «کرال» بزنید."
+            ),
+        }
 
     known = set()
     for c in Competitor.objects.filter(store=store):

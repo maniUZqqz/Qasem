@@ -49,6 +49,57 @@ def _campaign(user, pk, permission=access.CAMPAIGNS, write=True):
     return campaign
 
 
+#: A task's detail is the written plan (slide texts, scripts, reply templates).
+#: It used to be cut at 2000 characters without a word; the column is a TextField,
+#: so the cap only needs to stop abuse.
+DETAIL_MAX = 8000
+
+
+def _clean_due(value):
+    """`due_at` from a request: a timezone-aware datetime, or None for "no date".
+
+    A string used to be stored as is. The row saved, but reading it back crashed
+    (`is_late` compares it with now()), so the *response* was a 500 for a task
+    that had in fact been created - and a garbage string raised the same 500 on
+    PATCH. Now a bad value is a 400 that says what to send.
+    """
+    if value in (None, ""):
+        return None
+    from django.utils import timezone
+    from django.utils.dateparse import parse_datetime
+
+    parsed = value if hasattr(value, "tzinfo") else parse_datetime(str(value))
+    if parsed is None:
+        raise ValueError("bad due")
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed)
+    return parsed
+
+
+def _bad_due():
+    return Response(
+        {"error": {"code": "bad_due", "message": "موعد باید تاریخ و ساعتِ معتبر باشد، مثل 2026-11-13T12:00:00Z."}},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _clean_priority(value):
+    try:
+        n = int(value or CampaignTask.Priority.NORMAL)
+    except (TypeError, ValueError):
+        raise ValueError("bad priority")
+    if n not in CampaignTask.Priority.values:
+        raise ValueError("bad priority")
+    return n
+
+
+def _bad_priority():
+    return Response(
+        {"error": {"code": "bad_priority", "message": "اولویت باید یکی از ۱ (کم)، ۲ (معمولی) یا ۳ (زیاد) باشد."}},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class CampaignBoardView(APIView):
     """Everything this campaign needs, grouped by kind. §29.1"""
 
@@ -113,14 +164,24 @@ class CampaignBoardView(APIView):
         if kind not in CampaignTask.Kind.values:
             kind = CampaignTask.Kind.OTHER
 
+        try:
+            due_at = _clean_due(request.data.get("due_at"))
+        except ValueError:
+            return _bad_due()
+        try:
+            priority = _clean_priority(request.data.get("priority"))
+        except ValueError:
+            return _bad_priority()
+
         task = CampaignTask.objects.create(
             campaign=campaign,
             store=campaign.store,
             kind=kind,
             title=title[:200],
-            detail=str(request.data.get("detail", ""))[:2000],
-            due_at=request.data.get("due_at") or None,
-            priority=int(request.data.get("priority") or CampaignTask.Priority.NORMAL),
+            detail=str(request.data.get("detail", ""))[:DETAIL_MAX],
+            because=str(request.data.get("because", ""))[:300],
+            due_at=due_at,
+            priority=priority,
             order=campaign.tasks.count(),
         )
         return Response(
@@ -155,7 +216,27 @@ class CampaignTaskView(APIView):
         changed = []
         for field in ("title", "detail", "due_at", "priority", "order", "kind"):
             if field in request.data:
-                setattr(task, field, request.data[field])
+                value = request.data[field]
+                if field == "due_at":
+                    try:
+                        value = _clean_due(value)
+                    except ValueError:
+                        return _bad_due()
+                elif field == "priority":
+                    try:
+                        value = _clean_priority(value)
+                    except ValueError:
+                        return _bad_priority()
+                elif field == "detail":
+                    value = str(value or "")[:DETAIL_MAX]
+                elif field == "title":
+                    value = str(value or "").strip()[:200]
+                    if not value:
+                        return Response(
+                            {"error": {"code": "no_title", "message": "کار بدون عنوان نمی‌شود."}},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                setattr(task, field, value)
                 changed.append(field)
 
         if "assigned_to" in request.data:
@@ -183,3 +264,41 @@ class CampaignTaskView(APIView):
         campaign = _campaign(request.user, pk)
         get_object_or_404(CampaignTask, pk=task_id, campaign=campaign).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StorePlannedView(APIView):
+    """Everything on the shop's campaign boards that has a suggested date.
+
+    The publishing calendar only knew about posts that were *scheduled*. A
+    content plan written ahead of time (four weeks of carousels, reels, stories)
+    lives on the boards as tasks with a suggested due date, and until now
+    nothing showed it on a calendar - the one place a person looks to ask
+    "what goes out when, and where are the gaps?". This lists those tasks;
+    it schedules nothing and publishes nothing.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CAMPAIGNS, write=False)
+        rows = (
+            CampaignTask.objects
+            .filter(store=store, due_at__isnull=False)
+            .exclude(state__in=[CampaignTask.State.DROPPED])
+            .select_related("campaign")
+            .order_by("due_at", "order", "id")[:300]
+        )
+        return Response([
+            {
+                "id": t.pk,
+                "campaign_id": t.campaign_id,
+                "campaign": t.campaign.name,
+                "kind": t.kind,
+                "kind_label": t.get_kind_display(),
+                "title": t.title,
+                "due_at": t.due_at,
+                "state": t.effective_state,
+                "state_label": dict(CampaignTask.State.choices).get(t.effective_state, t.state),
+            }
+            for t in rows
+        ])

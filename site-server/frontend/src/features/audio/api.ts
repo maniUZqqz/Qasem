@@ -110,6 +110,12 @@ export async function patchAsset(storeId: string | number, id: number, body: Par
   return data;
 }
 
+/** «دوباره بساز» برای صدای ناموفق: همان ردیف، همان متن و صدا، کارِ تازه در صف. */
+export async function retryAsset(storeId: string | number, id: number): Promise<AudioAsset> {
+  const { data } = await api.post(`${audioBase(storeId)}assets/${id}/retry/`);
+  return data;
+}
+
 export async function deleteAsset(storeId: string | number, id: number): Promise<void> {
   await api.delete(`${audioBase(storeId)}assets/${id}/`);
 }

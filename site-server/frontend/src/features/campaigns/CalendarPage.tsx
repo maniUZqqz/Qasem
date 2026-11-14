@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import Icon from "../../components/Icon";
 import { Alert, Badge, Card, EmptyState, fa } from "../../components/ui";
-import { type ScheduledRow, useCampaigns } from "./CampaignsLayout";
+import { type PlannedRow, type ScheduledRow, useCampaigns } from "./CampaignsLayout";
 
 /**
  * تقویم انتشار — ماه شمسی، با آنچه در هر روز می‌رود.
@@ -28,6 +28,36 @@ const faMonthYear = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
 });
 const faTime = new Intl.DateTimeFormat("fa-IR", { hour: "2-digit", minute: "2-digit" });
 
+const jalaliParts = new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+});
+
+/** سال/ماه/روزِ شمسیِ یک تاریخ. */
+function jal(d: Date): { year: number; month: number; day: number } {
+  const out = { year: 0, month: 0, day: 0 };
+  for (const part of jalaliParts.formatToParts(d)) {
+    if (part.type === "year" || part.type === "month" || part.type === "day") {
+      out[part.type] = parseInt(part.value, 10);
+    }
+  }
+  return out;
+}
+
+/** روزِ اولِ ماهِ شمسیِ «offset» ماه از ماهِ جاری. ماه‌های شمسی ۲۹ تا ۳۱ روزه‌اند؛
+ *  هر قدم را از روزِ اول با +۳۱ (یا −۱) برمی‌داریم و دوباره به روزِ ۱ برمی‌گردانیم. */
+function jalaliMonthStart(offset: number): Date {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  d.setDate(d.getDate() - (jal(d).day - 1));
+  for (let i = 0; i < Math.abs(offset); i++) {
+    d.setDate(d.getDate() + (offset > 0 ? 31 : -1));
+    d.setDate(d.getDate() - (jal(d).day - 1));
+  }
+  return d;
+}
+
 /** کلید روز به وقت محلی. `toISOString` اینجا غلط است: ساعت ۲ بامداد
  *  تهران، در UTC هنوز *دیروز* است و پست را یک خانه عقب می‌برد. */
 function dayKey(d: Date): string {
@@ -49,15 +79,13 @@ const STATUS_TONE: Record<string, "neutral" | "info" | "ok" | "bad" | "warn"> = 
 };
 
 export default function CalendarPage() {
-  const { scheduled } = useCampaigns();
+  const { scheduled, planned } = useCampaigns();
   const [offset, setOffset] = useState(0);
 
-  const { cells, label, byDay } = useMemo(() => {
-    const today = new Date();
-    const cursor = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-
-    // شنبه ابتدای هفته است: getDay() یکشنبه را صفر می‌گیرد، پس +1 و mod 7
-    const first = new Date(cursor);
+  const { cells, label, byDay, plannedByDay, first } = useMemo(() => {
+    // ماهِ شمسیِ واقعی (قبلاً ماهِ میلادی بود و فقط عنوانش شمسی بود: «آبان» با
+    // روزهای آذر در همان جدول)
+    const first = jalaliMonthStart(offset);
     const lead = (first.getDay() + 1) % 7;
     const start = new Date(first);
     start.setDate(first.getDate() - lead);
@@ -67,10 +95,17 @@ export default function CalendarPage() {
       const key = dayKey(new Date(row.scheduled_for));
       map.set(key, [...(map.get(key) ?? []), row]);
     }
+    const pmap = new Map<string, PlannedRow[]>();
+    for (const row of planned) {
+      const key = dayKey(new Date(row.due_at));
+      pmap.set(key, [...(pmap.get(key) ?? []), row]);
+    }
 
     return {
-      label: faMonthYear.format(cursor),
+      first,
+      label: faMonthYear.format(first),
       byDay: map,
+      plannedByDay: pmap,
       cells: Array.from({ length: 42 }, (_, i) => {
         const date = new Date(start);
         date.setDate(start.getDate() + i);
@@ -79,14 +114,20 @@ export default function CalendarPage() {
       // شش هفته ثابت است تا ارتفاع تقویم بین ماه‌ها نپرد و دکمه‌ی ماه
       // بعد زیر دست کاربر جابه‌جا نشود
     };
-  }, [scheduled, offset]);
+  }, [scheduled, planned, offset]);
 
-  const monthOf = new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1).getMonth();
+  const monthJal = jal(first);
   const todayKey = dayKey(new Date());
 
   return (
     <div className="space-y-4">
-      {scheduled.length === 0 && (
+      {scheduled.length === 0 && planned.length > 0 && (
+        <Alert tone="info" title="برنامهٔ پیشنهادی روی تقویم است">
+          خانه‌های خط‌چین موعدِ پیشنهادیِ کارهای کمپین‌اند — هنوز چیزی زمان‌بندی یا منتشر نشده.
+          هر کار را در تب «کمپین‌ها» باز کنید تا متنش را ببینید.
+        </Alert>
+      )}
+      {scheduled.length === 0 && planned.length === 0 && (
         <Alert tone="info" title="هنوز چیزی زمان‌بندی نشده">
           در تب «کمپین‌ها» یک کمپین را تأیید کنید، بعد از همان‌جا زمان انتشارش را
           بگذارید. زمان‌بند هر دقیقه بررسی می‌کند — <strong>دیر منتشر می‌کند ولی هرگز
@@ -141,7 +182,9 @@ export default function CalendarPage() {
           {cells.map((date, i) => {
             const key = dayKey(date);
             const rows = byDay.get(key) ?? [];
-            const outside = date.getMonth() !== monthOf;
+            const plans = plannedByDay.get(key) ?? [];
+            const jd = jal(date);
+            const outside = jd.month !== monthJal.month || jd.year !== monthJal.year;
             const isToday = key === todayKey;
             return (
               <div
@@ -166,8 +209,15 @@ export default function CalendarPage() {
                 {/* روی گوشی هر خانه ~۵۰ پیکسل است و «۰۷:۵۶ کمپین پاییزه» به
                     «۰۷:…» می‌رسید. آنجا فقط نقطه‌ی رنگی نشان داده می‌شود و
                     جزئیات در فهرست زیر تقویم می‌آید. */}
-                {rows.length > 0 && (
+                {(rows.length > 0 || plans.length > 0) && (
                   <div className="flex flex-wrap justify-center gap-1 sm:hidden">
+                    {plans.slice(0, 3).map((row) => (
+                      <span
+                        key={`p${row.id}`}
+                        className="block h-1.5 w-1.5 rounded-full"
+                        style={{ border: "1px dashed var(--text-3)" }}
+                      />
+                    ))}
                     {rows.slice(0, 4).map((row) => (
                       <span
                         key={row.id}
@@ -201,9 +251,23 @@ export default function CalendarPage() {
                       {faTime.format(new Date(row.scheduled_for))} {row.campaign}
                     </div>
                   ))}
-                  {rows.length > 3 && (
+                  {plans.slice(0, Math.max(0, 3 - rows.length)).map((row) => (
+                    <div
+                      key={`p${row.id}`}
+                      className="truncate rounded-md px-1.5 py-0.5 text-[11px]"
+                      style={{
+                        border: "1px dashed var(--line)",
+                        color: row.state === "DONE" ? "var(--text-3)" : "var(--text-2)",
+                        textDecoration: row.state === "DONE" ? "line-through" : "none",
+                      }}
+                      title={`${row.campaign} — ${row.kind_label} — پیشنهادی (${row.state_label})`}
+                    >
+                      {row.title}
+                    </div>
+                  ))}
+                  {rows.length + plans.length > 3 && (
                     <div className="text-center text-[11px]" style={{ color: "var(--text-3)" }}>
-                      +{fa(rows.length - 3)} مورد دیگر
+                      +{fa(rows.length + plans.length - 3)} مورد دیگر
                     </div>
                   )}
                 </div>
@@ -217,12 +281,8 @@ export default function CalendarPage() {
       {(() => {
         const month = scheduled
           .filter((r) => {
-            const d = new Date(r.scheduled_for);
-            return (
-              d.getMonth() === monthOf &&
-              d.getFullYear() ===
-                new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1).getFullYear()
-            );
+            const j = jal(new Date(r.scheduled_for));
+            return j.month === monthJal.month && j.year === monthJal.year;
           })
           .sort(
             (a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime(),
@@ -264,11 +324,49 @@ export default function CalendarPage() {
         );
       })()}
 
+      {/* برنامهٔ پیشنهادیِ همین ماه — روی گوشی خانه‌ها فقط نقطه‌اند */}
+      {(() => {
+        const month = planned.filter((r) => {
+          const j = jal(new Date(r.due_at));
+          return j.month === monthJal.month && j.year === monthJal.year;
+        });
+        if (!month.length) return null;
+        return (
+          <Card padded={false} className="sm:hidden">
+            <ul>
+              {month.map((row, i) => (
+                <li
+                  key={row.id}
+                  className="flex items-center gap-3 px-4 py-3"
+                  style={{ borderTop: i ? "1px solid var(--line)" : "none" }}
+                >
+                  <span className="u-num w-12 shrink-0 text-center text-xs" style={{ color: "var(--text-3)" }}>
+                    {new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "short" }).format(
+                      new Date(row.due_at),
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm" style={{ color: "var(--text)" }}>
+                      {row.title}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                      {row.campaign} — پیشنهادی
+                    </span>
+                  </span>
+                  <Badge tone="neutral">{row.state_label}</Badge>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })()}
+
       {/* راهنما با برچسب، نه فقط رنگ */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <Badge tone="info">زمان‌بندی‌شده</Badge>
         <Badge tone="ok">منتشر شد</Badge>
         <Badge tone="bad">شکست خورد</Badge>
+        {planned.length > 0 && <Badge tone="neutral">خط‌چین = پیشنهادِ برنامه</Badge>}
         <span style={{ color: "var(--text-3)" }}>
           — جزئیات هر مورد در تب «صف انتشار» است.
         </span>

@@ -92,6 +92,10 @@ class Worker:
         self.log = log
         os.makedirs(self.work, exist_ok=True)
         self.caps = None
+        # «finish»هایی که به پنل نرسیدند (پنل ری‌استارت بود، شبکه رفت). کارِ تمام‌شده نباید از نو رندر شود؛ پس نگه داشته و دوباره فرستاده می‌شوند
+        # (روی دیسک هم تا با ری‌استارتِ کارگر گم نشوند).
+        self._pending_path = os.path.join(self.work, 'pending-finish.json')
+        self._pending = self._load_pending()
 
     def capabilities(self):
         if self.caps is None:
@@ -107,6 +111,48 @@ class Worker:
             self.log('کارگر %s · Blender %s · GPU: %s' % (self.name, dev.get('blender_version'), dev.get('gpu') or 'ندارد'))
         return self.caps
 
+    # ── finishهای نرسیده
+    def _load_pending(self):
+        try:
+            with open(self._pending_path, encoding='utf-8') as fh:
+                d = json.load(fh)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_pending(self):
+        try:
+            if self._pending:
+                with open(self._pending_path + '.tmp', 'w', encoding='utf-8') as fh:
+                    json.dump(self._pending, fh)
+                os.replace(self._pending_path + '.tmp', self._pending_path)
+            elif os.path.isfile(self._pending_path):
+                os.remove(self._pending_path)
+        except OSError:
+            pass
+
+    def send_finish(self, jid, payload):
+        """⇒ True اگر پنل پایان را گرفت (یا دیگر نمی‌خواهدش: ۴xx). وگرنه نگه داشته می‌شود تا flush_pending دوباره بفرستد."""
+        try:
+            self.api.post('/api/worker/jobs/%s/finish/' % jid, payload)
+        except ApiError as e:
+            if e.permanent:                     # مثلاً کار به کارگرِ دیگری رفته یا پاک شده؛ فرستادنِ دوباره بی‌فایده است
+                self.log('پایانِ کارِ %s پذیرفته نشد و رها شد: %s' % (jid, e))
+            else:
+                self._pending[str(jid)] = payload
+                self._save_pending()
+                self.log('پایانِ کارِ %s به پنل نرسید؛ دوباره فرستاده می‌شود (%s)' % (jid, e))
+                return False
+        if self._pending.pop(str(jid), None) is not None:
+            self._save_pending()
+        return True
+
+    def flush_pending(self):
+        """⇒ True اگر چیزی در انتظار نمانده. تا پایانِ کارِ قبلی به پنل نرسد، کارِ تازه گرفته نمی‌شود (وگرنه پنل همان کار را دوباره می‌دهد)."""
+        for jid, payload in list(self._pending.items()):
+            self.send_finish(jid, payload)
+        return not self._pending
+
     def claim_body(self):
         body = dict(self.capabilities())
         if self.only_job:
@@ -116,6 +162,7 @@ class Worker:
     def run_one(self):
         """Node-agent mode: announce, claim (only_job if given) and run exactly one job. Returns the claimed job (or None)."""
         self.api.post('/api/worker/heartbeat/', self.capabilities())
+        self.flush_pending()
         job = self.api.post('/api/worker/claim/', self.claim_body()).get('job')
         if job:
             self.run_job(job)
@@ -128,6 +175,9 @@ class Worker:
                 if time.time() - last_hb > 30:
                     self.api.post('/api/worker/heartbeat/', self.capabilities())
                     last_hb = time.time()
+                if self._pending and not self.flush_pending():
+                    time.sleep(6)               # پایانِ کارِ قبلی هنوز نرسیده: کارِ تازه نگیر
+                    continue
                 r = self.api.post('/api/worker/claim/', self.claim_body())
                 job = r.get('job')
                 if job:
@@ -268,9 +318,10 @@ class Worker:
                 files['engine_log'] = log
             report('RENDERING', message='فرستادنِ خروجی (%d فایل)' % len(files))
             self.api.upload('/api/worker/jobs/%s/upload/' % jid, files)
-            self.api.post('/api/worker/jobs/%s/finish/' % jid, {'ok': True, 'seconds': round(time.time() - t0, 1)})
-            self.log('کارِ %s تمام شد (%.0f ثانیه)' % (jid, time.time() - t0))
-            self.last = {'ok': True, 'job': jid, 'seconds': round(time.time() - t0, 1), 'files': sorted(files)}
+            secs = round(time.time() - t0, 1)
+            sent = self.send_finish(jid, {'ok': True, 'seconds': secs})       # نرسید ⇒ نگه داشته و دوباره فرستاده می‌شود؛ کار شکست نخورده است
+            self.log('کارِ %s تمام شد (%.0f ثانیه)%s' % (jid, time.time() - t0, '' if sent else ' — پایانش هنوز به پنل نرسیده'))
+            self.last = {'ok': True, 'job': jid, 'seconds': secs, 'files': sorted(files), **({} if sent else {'pending_finish': True})}
         except Exception as e:
             if ext_cancel[0] and not release[0]:
                 self.log('کارِ %s: کارِ سرورِ پردازش لغو شد؛ کارِ سه‌بعدی و فریم‌هایش می‌مانند' % jid)
@@ -288,9 +339,9 @@ class Worker:
                 log = os.path.join(jdir, 'engine.log')
                 if os.path.isfile(log):
                     self.api.upload('/api/worker/jobs/%s/upload/' % jid, {'engine_log': log})
-                self.api.post('/api/worker/jobs/%s/finish/' % jid, {'ok': False, 'error': msg, 'cancelled': cancel[0]})
             except ApiError:
                 pass
+            self.send_finish(jid, {'ok': False, 'error': msg, 'cancelled': cancel[0]})      # دیگر بی‌صدا قورت داده نمی‌شود
             self.log('کارِ %s ناموفق: %s' % (jid, msg))
             self.last = {'ok': False, 'job': jid, 'error': msg}
         finally:

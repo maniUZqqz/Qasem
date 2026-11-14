@@ -56,6 +56,8 @@ h1,h2,h3,h4{font-family:var(--nb-font-head,inherit)}
 .nb-head{max-width:720px;margin-inline:auto;margin-bottom:36px;text-align:center}
 .nb-title{font-size:clamp(1.55rem,3.4vw,2.2rem);font-weight:800;line-height:1.3;margin:0 0 10px}
 .nb-sub{font-size:1.06rem;line-height:1.95;margin:0;opacity:.8}
+h1,h2,h3,.nb-hero-title,.nb-title{text-wrap:balance}
+p,.nb-sub{text-wrap:pretty}
 .nb-grid{display:grid;gap:22px}
 .nb-hero{background:linear-gradient(135deg,var(--brand),color-mix(in srgb,var(--brand) 55%,#0f172a));color:var(--brand-ink,#fff);padding-block:clamp(64px,10vw,128px)}
 .nb-hero-copy.is-center{max-width:760px;margin-inline:auto;text-align:center}
@@ -145,12 +147,12 @@ h1,h2,h3,h4{font-family:var(--nb-font-head,inherit)}
 .nb-header-extra{display:flex;align-items:center;gap:10px;margin-inline-start:auto}
 .nb-cart{position:relative;display:inline-grid;place-items:center;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);color:inherit}
 .nb-badge{position:absolute;top:-4px;inset-inline-end:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:var(--brand);color:var(--brand-ink,#fff);font-size:.7rem;line-height:18px;text-align:center}
-.nb-sub{position:relative;display:inline-flex}
-.nb-sub>a{display:inline-flex;align-items:center;gap:6px}
+div.nb-sub{position:relative;display:inline-flex}
+div.nb-sub>a{display:inline-flex;align-items:center;gap:6px}
 .nb-caret{display:inline-block;width:0;height:0;border-inline:4px solid transparent;border-top:5px solid currentColor;opacity:.55}
 .nb-sub-menu{display:none;position:absolute;top:100%;inset-inline-start:0;min-width:190px;padding:6px;flex-direction:column;align-items:stretch;gap:2px;background:var(--card,#fff);color:var(--text,#111);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.14);z-index:60}
 .nb-sub-menu a{display:block;border-radius:8px;white-space:nowrap}
-.nb-sub:hover .nb-sub-menu,.nb-sub:focus-within .nb-sub-menu{display:flex}
+div.nb-sub:hover .nb-sub-menu,div.nb-sub:focus-within .nb-sub-menu{display:flex}
 .nb-nav-toggle{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .nb-burger{display:none;width:42px;height:42px;border-radius:10px;border:1px solid var(--line);cursor:pointer;flex-direction:column;align-items:center;justify-content:center;gap:4px;order:3}
 .nb-burger i{display:block;width:18px;height:2px;border-radius:2px;background:currentColor}
@@ -168,9 +170,9 @@ h1,h2,h3,h4{font-family:var(--nb-font-head,inherit)}
   .nb-burger{display:inline-flex}
   .nb-nav{display:none;order:4;width:100%;flex-direction:column;align-items:stretch;padding-block:8px;border-top:1px solid var(--line)}
   .nb-nav-toggle:checked~.nb-nav{display:flex}
-  .nb-sub{display:block}
-  .nb-sub>a{display:flex;justify-content:space-between}
-  .nb-sub .nb-sub-menu,.nb-sub:hover .nb-sub-menu{display:flex;position:static;min-width:0;padding:0 16px 4px;background:none;border:0;box-shadow:none;color:inherit}
+  div.nb-sub{display:block}
+  div.nb-sub>a{display:flex;justify-content:space-between}
+  div.nb-sub .nb-sub-menu,div.nb-sub:hover .nb-sub-menu{display:flex;position:static;min-width:0;padding:0 16px 4px;background:none;border:0;box-shadow:none;color:inherit}
   .nb-sub-menu a{white-space:normal;font-size:.92rem}
   .nb-caret{display:none}
   .nb-header-extra{order:2}

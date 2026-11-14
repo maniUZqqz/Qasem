@@ -910,8 +910,9 @@ class SubmenuTests(TestCase):
         self.assertIn('aria-haspopup="true"', out)
         self.assertRegex(out, r'<div class="nb-sub-menu"><a href="/design/" class="on">طراحی</a>')
         from apps.projects.builder.blocks_css import BLOCK_CSS as css
-        self.assertIn('.nb-sub:focus-within .nb-sub-menu', css)     # با صفحه‌کلید هم باز می‌شود
-        self.assertIn('.nb-sub .nb-sub-menu,.nb-sub:hover .nb-sub-menu{display:flex;position:static', css)     # روی گوشی همیشه باز
+        # قاعده‌های زیرمنو فقط روی `div.nb-sub` است: `.nb-sub` توضیحِ زیرِ تیترِ بخش هم هست (<p class="nb-sub">) و «inline-flex»ِ زیرمنو آن را کنارِ تیتر می‌چید
+        self.assertIn('div.nb-sub:focus-within .nb-sub-menu', css)     # با صفحه‌کلید هم باز می‌شود
+        self.assertIn('div.nb-sub .nb-sub-menu,div.nb-sub:hover .nb-sub-menu{display:flex;position:static', css)     # روی گوشی همیشه باز
 
     def test_generated_context_is_valid_python(self):
         SiteTheme.objects.create(project=self.p, active=True, menu=self.rows, menu_published=self.rows, published={}, draft={})

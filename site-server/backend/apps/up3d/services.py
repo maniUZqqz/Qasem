@@ -572,11 +572,15 @@ def worker_upload(job, files):
 
 
 def worker_finish(job, worker, ok, error='', seconds=None):
+    """پایانِ کارِ کارگر. بی‌توان (idempotent): کارگر وقتی پاسخ را نگرفت (۵۰۲، قطعیِ شبکه) همین را دوباره می‌فرستد؛ اگر کار پیش‌تر پایان گرفته
+    (کنترلِ کیفیت و بعدش، یا لغو/شکست) بار دوم هیچ‌چیز را عوض نمی‌کند و False می‌دهد. ⇒ True اگر همین بار اعمال شد."""
+    if job.state in FINAL or job.state in ('QUALITY_CHECK', 'ASSEMBLING'):
+        return False
     if not ok:
         job.error = error
         job.owner = 'panel'
         job.set_state('CANCELLED' if job.cancel_requested else 'FAILED', 'کارگر: ' + (error[:300] or 'خطا'))
-        return
+        return True
     rp = os.path.join(job_dir(job), 'engine_report.json')
     if os.path.isfile(rp):
         with open(rp, encoding='utf-8') as fh:
@@ -593,6 +597,7 @@ def worker_finish(job, worker, ok, error='', seconds=None):
     job.owner = 'panel'
     job.frames_done = job.frames_total
     job.set_state('QUALITY_CHECK', 'خروجیِ کارگر رسید (%s ثانیه)' % seconds)
+    return True
 
 
 def process_finish(job):

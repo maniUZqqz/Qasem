@@ -18,7 +18,21 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
 .nbe-code{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre;text-align:left}
 .nbe-pagesel{width:190px;max-width:32vw;flex:none}
 .nbe-save{font-size:12px;color:var(--text-3);white-space:nowrap}
-.nbe-save.error,.nbe-save.conflict{color:var(--bad)}
+.nbe-save.error,.nbe-save.conflict{color:var(--bad);font-weight:700}
+.nbe-savebar{gap:12px}
+.nbe-savebar .nbe-add{margin:0;flex:none}
+.nbe-check{display:grid;gap:14px}
+.nbe-check p{margin:0;color:var(--text-2);font-size:13px;line-height:1.9}
+.nbe-check-group{display:grid;gap:6px}
+.nbe-check-group h4{margin:4px 0 0;font-size:12px;font-weight:800;color:var(--text-3)}
+.nbe-check-row{display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--e-panel2);border:1px solid var(--e-line);border-radius:10px;padding:8px 10px}
+.nbe-check-row>span{flex:1;min-width:0;font-size:13px;line-height:1.8;overflow-wrap:anywhere}
+.nbe-check-row small{display:block;color:var(--text-3);font-size:11.5px}
+.nbe-check-row .nbe-add{margin:0;flex:none;white-space:nowrap}
+.nbe-check-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px;position:sticky;bottom:-14px;margin-inline:-16px;padding:12px 16px;background:var(--e-panel);border-top:1px solid var(--e-line);z-index:1}
+.nbe-check-actions .nbe-add{margin:0}
+.nbe-primary{background:var(--brand);color:#fff!important;border:0;border-radius:10px;padding:8px 18px;font-weight:800}
+.nbe-quiet{background:none;border:0;color:var(--text-3);text-decoration:underline;font-size:12px;padding:6px 8px;margin-inline-start:auto}
 .nbe-publish{background:linear-gradient(135deg,var(--ok,#10b981),color-mix(in srgb,var(--ok,#10b981) 70%,#065f46));color:#fff!important;border:0;border-radius:10px;padding:8px 20px;font-weight:800;margin-inline-start:6px;white-space:nowrap}
 .nbe-a{display:inline-block;text-decoration:none}
 .nbe-morewrap{position:relative}
@@ -166,7 +180,7 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
 @media (max-width:1180px){
   .nbe-body{grid-template-columns:260px minmax(0,1fr) 270px}
   .nbe-libgrid{grid-template-columns:repeat(2,1fr)}
-  .nbe-save{display:none}
+  .nbe-save:not(.error):not(.conflict){display:none}
 }
 /* گوشی: پنل‌ها برگه‌ای از پایین باز می‌شوند */
 @media (max-width:900px){
@@ -192,6 +206,9 @@ textarea.nbe-input{resize:vertical;line-height:1.7}
   .nbe-input,textarea.nbe-input{font-size:16px}
   .nbe-tabs button{padding:10px 0}
   .nbe-notice{font-size:12px;padding:6px 10px}
+  .nbe-save.error,.nbe-save.conflict{display:none}
+  .nbe-check-row{flex-direction:column;align-items:stretch}
+  .nbe-check-row .nbe-add{width:100%}
 }
 
 /* سبکِ طراحی و قطعه‌های آماده */

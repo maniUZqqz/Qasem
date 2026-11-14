@@ -21,14 +21,14 @@ SPECS = [
     # ─────────────── سربرگ‌ها
     C('nav_classic', 'navbar', 'سربرگِ ساده', 'نشان در یک سو، منو وسط و یک دکمه در سوی دیگر؛ در گوشی با همبرگر',
       _NAV_SLOTS, _NAV_IN,
-      """.nbc-nav-classic .nb-header-in{min-height:70px}.nbc-nav-classic .nb-brand{font-family:var(--nb-font-head,inherit)}
+      """.nbc .nb-brand .nb-logo{height:40px;width:auto;max-width:200px}.nbc-nav-classic .nb-header-in{min-height:70px}.nbc-nav-classic .nb-brand{font-family:var(--nb-font-head,inherit)}
 .nbc-nav-classic .nb-nav{margin-inline-start:12px}""",
       'سربرگ منو هدر ناوبار ساده', 'corporate-clean minimalism bento-grid swiss', root='header'),
 
     C('nav_centered_logo', 'navbar', 'سربرگِ نشانِ وسط', 'نشان یا نام در وسط و منو زیرِ آن؛ برای برندهای باوقار',
       [IM('logo', 'نشان (لوگو)'), T('logo_alt', 'توضیحِ نشان', ''), TG('sticky', 'هنگامِ پایین‌رفتن بالای صفحه بماند', False)],
       '<div class="nb-wrap nb-header-in">' + _NAV_BRAND + _NAV_MENU + '</div>',
-      """.nbc-nav-centered-logo .nb-header-in{flex-direction:column;justify-content:center;gap:6px;padding-block:18px}
+      """.nbc .nb-brand .nb-logo{height:44px;width:auto;max-width:220px}.nbc-nav-centered-logo .nb-header-in{flex-direction:column;justify-content:center;gap:6px;padding-block:18px}
 .nbc-nav-centered-logo .nb-brand{font-family:var(--nb-font-head,inherit);font-size:1.8rem}.nbc-nav-centered-logo .nb-nav{justify-content:center}
 .nbc-nav-centered-logo{border-bottom:var(--st-hd-bd,1px solid var(--line))}
 @media (max-width:760px){.nbc-nav-centered-logo .nb-header-in{flex-direction:row;justify-content:space-between}}""",
@@ -36,7 +36,7 @@ SPECS = [
 
     C('nav_floating_pill', 'navbar', 'سربرگِ شناورِ گرد', 'نواری گرد و شناور که روی صفحه می‌ماند؛ مناسبِ سبک‌های شیشه‌ای و روشن',
       _NAV_SLOTS, _NAV_IN,
-      """.nbc-nav-floating-pill{background:transparent;border:0;margin-block-start:12px;top:12px}
+      """.nbc .nb-brand .nb-logo{height:36px;width:auto;max-width:180px}.nbc-nav-floating-pill{background:transparent;border:0;margin-block-start:12px;top:12px}
 .nbc-nav-floating-pill .nb-header-in{max-width:min(var(--nb-width,1140px),calc(100% - 24px));padding-inline:22px;min-height:60px;border-radius:999px;
 border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--card));-webkit-backdrop-filter:var(--st-hd-bf,blur(12px));backdrop-filter:var(--st-hd-bf,blur(12px));box-shadow:0 16px 44px -22px rgba(0,0,0,.45)}
 @media (max-width:760px){.nbc-nav-floating-pill .nb-header-in{border-radius:26px}}""",
@@ -45,22 +45,23 @@ border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--c
     C('nav_announce', 'navbar', 'سربرگِ همراهِ نوارِ اعلان', 'یک نوارِ باریکِ اعلان در بالا و زیرش سربرگِ تمیز',
       [T('announce', 'متنِ اعلان', 'یک خبرِ کوتاه یا پیشنهادِ ویژه'), T('announce_btn', 'پیوندِ اعلان', 'بیشتر'), L('announce_link', 'نشانیِ پیوندِ اعلان')] + _NAV_SLOTS,
       """<div class="nbc-ann"><div class="nb-wrap"><span data-s="announce"></span><a class="nbc-link" data-s="announce_btn" data-h="announce_link"></a></div></div>""" + _NAV_IN,
-      """.nbc-ann{background:var(--brand);color:var(--brand-ink,#fff);font-size:.88rem;font-weight:600}.nbc-ann .nb-wrap{display:flex;gap:12px;justify-content:center;align-items:center;padding-block:7px;flex-wrap:wrap;text-align:center}
+      """.nbc .nb-brand .nb-logo{height:40px;width:auto;max-width:200px}.nbc-ann{background:var(--brand);color:var(--brand-ink,#fff);font-size:.88rem;font-weight:600}.nbc-ann .nb-wrap{display:flex;gap:12px;justify-content:center;align-items:center;padding-block:7px;flex-wrap:wrap;text-align:center}
 .nbc-ann .nbc-link{color:inherit;text-decoration:underline;text-underline-offset:3px;opacity:1}""",
       'سربرگ منو هدر نوار اعلان بنر بالا', 'corporate-clean bento-grid soft-pastel neo-brutalism retro-y2k', root='header'),
 
     # ─────────────── پابرگ‌ها
     C('footer_columns', 'footer', 'پابرگِ چندستونه', 'معرفیِ کوتاه و شبکه‌ها، منوی سایت، یک فهرستِ پیوند و تماس',
-      [A('about', 'معرفیِ کوتاه', 'یکی دو جمله دربارهٔ کسب‌وکارت.'), A('social', 'شبکه‌های اجتماعی (هر خط: نام | نشانی)', ''), T('menu_title', 'تیترِ ستونِ منو', 'دسترسیِ سریع'),
+      [IM('logo', 'نشان (لوگو)'), T('logo_alt', 'توضیحِ نشان', ''), A('about', 'معرفیِ کوتاه', 'یکی دو جمله دربارهٔ کسب‌وکارت.'), A('social', 'شبکه‌های اجتماعی (هر خط: نام | نشانی)', ''), T('menu_title', 'تیترِ ستونِ منو', 'دسترسیِ سریع'),
        T('col2_title', 'تیترِ ستونِ پیوندها', 'منابع'), A('col2_links', 'پیوندها (هر خط: متن | نشانی)', 'پرسش‌های پرتکرار | #\nقوانین | #\nحریمِ خصوصی | #'),
        T('col3_title', 'تیترِ ستونِ تماس', 'تماس'), A('col3_text', 'تماس', 'راه‌های ارتباطی را این‌جا بنویس.')] + _FT_SLOTS,
-      """<div class="nbc-fc"><div class="nbc-fc-about"><b class="nbc-fc-brand">[[TITLE]]</b><p class="nbc-text" data-s="about|m"></p><ul class="nbc-fc-social" data-links="social"></ul></div>"""
+      """<div class="nbc-fc"><div class="nbc-fc-about"><!--if:logo--><img class="nbc-fc-logo" data-i="logo" data-alt="logo_alt"><!--/if--><b class="nbc-fc-brand">[[TITLE]]</b><p class="nbc-text" data-s="about|m"></p><ul class="nbc-fc-social" data-links="social"></ul></div>"""
       """<nav class="nbc-fc-col"><h4 class="nbc-h3" data-s="menu_title"></h4>[[MENU]]</nav>"""
       """<div class="nbc-fc-col"><h4 class="nbc-h3" data-s="col2_title"></h4><ul class="nbc-links" data-links="col2_links"></ul></div>"""
       """<div class="nbc-fc-col"><h4 class="nbc-h3" data-s="col3_title"></h4><p class="nbc-text" data-s="col3_text|m"></p></div></div>""" + _FT_COPY,
       """.nbc-footer-columns{padding-block:clamp(34px,5vw,60px) 22px;background:var(--st-hd-bg,var(--card));color:var(--ink);border-top:var(--st-hd-bd,1px solid var(--line))}
 .nbc-fc{display:grid;grid-template-columns:1.5fr repeat(3,1fr);gap:clamp(22px,4vw,56px);padding-bottom:30px}
 .nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.35rem;color:var(--brand);margin-bottom:10px}
+.nbc .nbc-fc-logo{display:block;height:44px;width:auto;margin-bottom:12px}
 .nbc-fc-col{display:grid;gap:9px;align-content:start}.nbc-fc-col .nbc-h3{font-size:1rem;margin-bottom:4px}
 .nbc-fc-col>a{color:var(--ink-2);text-decoration:none;opacity:.9}.nbc-fc-col>a:hover{color:var(--brand)}
 .nbc-fc-social{list-style:none;margin:14px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap}.nbc-fc-social:empty{display:none}

@@ -75,6 +75,7 @@ urlpatterns = [
     path('projects/<slug:slug>/builder/design/', vb.design_save),             # PUT پیش‌نویس
     path('projects/<slug:slug>/builder/render/', vb.render_canvas),           # POST رندرِ بوم
     path('projects/<slug:slug>/builder/publish/', vb.publish),                # POST انتشار
+    path('projects/<slug:slug>/builder/check/', vb.check_publish),            # POST «هنوز نمونه است»های پیش از انتشار
     path('projects/<slug:slug>/builder/versions/<int:pk>/', vb.version_detail),  # GET · POST بازگشت
     path('projects/<slug:slug>/builder/pages/', vb.page_create),              # POST از قالبِ آماده
     path('projects/<slug:slug>/builder/pages/<int:pk>/starter/', vb.page_starter),

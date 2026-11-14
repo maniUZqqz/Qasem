@@ -11,6 +11,8 @@ BASE = r"""
 .nbc .nbc-kicker{display:inline-block;font-size:.84rem;font-weight:700;color:var(--brand);margin:0 0 12px;letter-spacing:.01em}
 .nbc .nbc-title{font-family:var(--nb-font-head,inherit);font-size:clamp(1.7rem,4vw,2.75rem);font-weight:var(--st-head-w,800);line-height:1.28;letter-spacing:var(--st-head-ls,-.01em);margin:0 0 14px;text-transform:var(--st-head-tt,none)}
 .nbc .nbc-h3{font-family:var(--nb-font-head,inherit);font-size:1.18rem;font-weight:var(--st-head-w,800);line-height:1.5;margin:0 0 6px}
+.nbc .nbc-title,.nbc .nbc-h3{text-wrap:balance}
+.nbc .nbc-lead,.nbc .nbc-text{text-wrap:pretty}
 .nbc .nbc-lead{font-size:1.06rem;line-height:2;color:var(--ink-2);margin:0 0 22px;max-width:62ch}
 .nbc .nbc-text{color:var(--ink-2);line-height:1.95;margin:0;font-size:.97rem}
 .nbc .nbc-muted{color:var(--ink-3);font-size:.88rem}

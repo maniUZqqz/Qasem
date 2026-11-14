@@ -6,6 +6,7 @@
  * در خروجیِ سایت نمی‌ماند.
  */
 import type { DropTarget } from "./doc";
+import { EditSession, browserTimers } from "./editSession";
 
 export type CanvasPayload = {
   base_css: string;
@@ -13,7 +14,7 @@ export type CanvasPayload = {
   parts: { id: string; html: string }[];
   header: string;
   footer: string;
-  warnings: { id: string; type: string; text: string }[];
+  warnings: { id: string; type: string; text: string; kind?: string }[];
   sample_models: string[];
   title: string;
 };
@@ -22,7 +23,12 @@ export type BarAction = "up" | "down" | "duplicate" | "delete" | "parent" | "sav
 
 export type CanvasCallbacks = {
   onSelect: (id: string | null) => void;
-  onText: (id: string, path: string, value: string) => void;
+  /** continued: همین نوشتن (جلسهٔ ویرایش) پیش‌تر هم به سند رسیده است؛ پس در تاریخچهٔ «برگشت» ردیفِ تازه نمی‌خواهد. */
+  onText: (id: string, path: string, value: string, continued: boolean) => void;
+  /** کاربر همین حالا تایپ کرد (هنوز به سند نرسیده)؛ نشانِ ذخیره باید «در حالِ ذخیره» شود. */
+  onTyping?: () => void;
+  /** ویرایش تمام شد یا برگشت و چیزِ ذخیره‌نشده‌ای نمانده. */
+  onSettled?: () => void;
   onAction: (action: BarAction, id: string) => void;
   onStartMove: (id: string, parentX: number, parentY: number) => void;
   onChrome: (which: "header" | "footer") => void;
@@ -96,6 +102,9 @@ export class CanvasCtl {
   private selected: string | null = null;
   private editing: HTMLElement | null = null;
   private editOriginal = "";
+  private synced = "";
+  private pushed = false;
+  private session: EditSession | null = null;
   private dragging = false;
   private preview = false;
   private raf = 0;
@@ -135,12 +144,14 @@ export class CanvasCtl {
     const page = this.$("s-page");
     if (page.textContent !== p.page_css) page.textContent = p.page_css;
     if (p.header !== this.headerHtml) {
-      this.$("nb-h").innerHTML = p.header;
-      this.headerHtml = p.header;
+      const busy = this.editingIn("nb-h");        // وسطِ تایپ در سربرگ: عنصر را از زیرِ دستِ کاربر نکش
+      if (!busy) this.$("nb-h").innerHTML = p.header;
+      this.headerHtml = busy ? "" : p.header;
     }
     if (p.footer !== this.footerHtml) {
-      this.$("nb-f").innerHTML = p.footer;
-      this.footerHtml = p.footer;
+      const busy = this.editingIn("nb-f");
+      if (!busy) this.$("nb-f").innerHTML = p.footer;
+      this.footerHtml = busy ? "" : p.footer;
     }
     this.patchBlocks(p.parts);
     if (!p.parts.length) {
@@ -149,6 +160,10 @@ export class CanvasCtl {
       this.cache.clear();
     }
     this.reposition();
+  }
+
+  private editingIn(id: string): boolean {
+    return !!this.editing && this.$(id).contains(this.editing);
   }
 
   private patchBlocks(parts: CanvasPayload["parts"]): void {
@@ -171,7 +186,10 @@ export class CanvasCtl {
     let prev: Element | null = null;
     for (const part of parts) {
       let el = present.get(part.id) ?? null;
-      if (!el || this.cache.get(part.id) !== part.html) {
+      if (el && this.editing && el.contains(this.editing)) {
+        // همین بخش وسطِ تایپ است (ذخیرهٔ خودکار هنگامِ نوشتن): جایگزینش نکن تا مکان‌نما نپرد. بعد از پایانِ ویرایش دوباره رندر می‌شود.
+        this.cache.delete(part.id);
+      } else if (!el || this.cache.get(part.id) !== part.html) {
         const tpl = doc.createElement("template");
         tpl.innerHTML = part.html;
         const fresh = tpl.content.firstElementChild ?? doc.createElement("div");
@@ -277,8 +295,15 @@ export class CanvasCtl {
       if (this.editing) {
         const el = this.editing;
         if (e.key === "Escape") {
+          this.session?.cancel();
           el.innerHTML = this.editOriginal;
+          const undo = this.pushed && this.synced !== this.editOriginal;
+          const block = el.closest("[data-bid]") as HTMLElement | null;
+          const path = el.dataset.nbEdit as string;
+          const value = this.valueOf(el);
           this.stopEditing();
+          if (undo && block?.dataset.bid) this.cb.onText(block.dataset.bid, path, value, true);   // آنچه خودکار ذخیره شده بود هم برگردد
+          this.cb.onSettled?.();
           e.preventDefault();
         } else if (e.key === "Enter" && el.dataset.nbMode === "plain") {
           e.preventDefault();
@@ -363,6 +388,10 @@ export class CanvasCtl {
     const doc = this.doc as Document;
     this.editing = el;
     this.editOriginal = el.innerHTML;
+    this.synced = el.innerHTML;
+    this.pushed = false;
+    this.session = new EditSession(() => this.syncEdit(), browserTimers());
+    el.addEventListener("input", this.onInput);
     const rich = el.dataset.nbMode === "rich";
     el.setAttribute("contenteditable", rich ? "true" : "plaintext-only");
     if (el.contentEditable !== (rich ? "true" : "plaintext-only")) el.setAttribute("contenteditable", "true");
@@ -375,6 +404,33 @@ export class CanvasCtl {
     }
     el.addEventListener("blur", this.onBlur);
     this.reposition();
+  }
+
+  private onInput = (): void => {
+    this.session?.input();
+    this.cb.onTyping?.();
+  };
+
+  private valueOf(el: HTMLElement): string {
+    if (el.dataset.nbMode === "rich") return el.innerHTML;
+    return (el.innerText || "").replace(new RegExp(String.fromCharCode(10) + "+$"), "");
+  }
+
+  /** متنِ در حالِ نوشتن را، بی‌پایان‌دادن به ویرایش، به سند می‌رساند (ذخیرهٔ خودکار هنگامِ تایپ و هنگامِ بستنِ زبانه). */
+  syncEdit(): void {
+    const el = this.editing;
+    if (!el) return;
+    this.session?.cancel();
+    if (el.innerHTML === this.synced) {
+      this.cb.onSettled?.();
+      return;
+    }
+    const block = el.closest("[data-bid]") as HTMLElement | null;
+    if (!block?.dataset.bid) return;
+    this.synced = el.innerHTML;
+    const continued = this.pushed;
+    this.pushed = true;
+    this.cb.onText(block.dataset.bid, el.dataset.nbEdit as string, this.valueOf(el), continued);
   }
 
   private onBlur = (): void => {
@@ -395,7 +451,10 @@ export class CanvasCtl {
     const el = this.editing;
     if (!el) return;
     el.removeEventListener("blur", this.onBlur);
+    el.removeEventListener("input", this.onInput);
     el.removeAttribute("contenteditable");
+    this.session?.cancel();
+    this.session = null;
     this.editing = null;
     this.$("nb-rich").style.display = "none";
   }
@@ -403,14 +462,17 @@ export class CanvasCtl {
   commitEdit(): void {
     const el = this.editing;
     if (!el) return;
-    const changed = el.innerHTML !== this.editOriginal;
-    const rich = el.dataset.nbMode === "rich";
-    const value = rich ? el.innerHTML : (el.innerText || "").replace(/\n+$/, "");
+    this.session?.cancel();
+    const changed = el.innerHTML !== this.synced;        // آنچه خودکار ذخیره شده دوباره فرستاده نمی‌شود
+    const value = this.valueOf(el);
     const path = el.dataset.nbEdit as string;
     const block = el.closest("[data-bid]") as HTMLElement | null;
+    const continued = this.pushed;
     this.stopEditing();
     if (changed && block?.dataset.bid) {
-      this.cb.onText(block.dataset.bid, path, value);
+      this.cb.onText(block.dataset.bid, path, value, continued);
+    } else {
+      this.cb.onSettled?.();
     }
   }
 

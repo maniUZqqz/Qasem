@@ -343,8 +343,10 @@ def _worker(request):
     return request.auth
 
 
+# کارگرِ رندر (توکنِ خودش را دارد) هر ۶ ثانیه claim، هر چند ثانیه progress و در پایانِ هر کار upload/finish می‌زند. زیرِ سقفِ «ناشناس» (۳۰ در دقیقه) ماند و
+# «finish»ِ یک رندرِ تمام‌شده 429 گرفت و کار دوباره اجرا شد؛ پس کارگر مثلِ asset_file از سقفِ عمومی بیرون است (احراز با توکن، نه با IP).
 worker_api = lambda fn: api_view(['GET', 'POST'])(authentication_classes([WorkerAuth])(  # noqa: E731
-    permission_classes([permissions.AllowAny])(fn)))
+    permission_classes([permissions.AllowAny])(throttle_classes([])(fn))))
 
 
 @worker_api
@@ -402,8 +404,8 @@ def w_upload(request, pk):
 @worker_api
 def w_finish(request, pk):
     w, j = _wjob(request, pk)
-    SV.worker_finish(j, w, bool(request.data.get('ok')), str(request.data.get('error') or ''), request.data.get('seconds'))
-    return Response({'ok': True})
+    applied = SV.worker_finish(j, w, bool(request.data.get('ok')), str(request.data.get('error') or ''), request.data.get('seconds'))
+    return Response({'ok': True, 'already': not applied})          # بار دوم (کارگر پاسخِ اول را نگرفته) بی‌اثر و بی‌خطا
 
 
 @worker_api

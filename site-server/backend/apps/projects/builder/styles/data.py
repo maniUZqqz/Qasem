@@ -173,7 +173,8 @@ STYLES = {
                    'hl_bd': '1px solid #d4af37', 'hl_sh': '0 28px 70px -28px rgba(212,175,55,.4)'},
         'sections': {'hero': 'start', 'features': 'numbered', 'pricing': 'flat', 'testimonials': 'big', 'faq': 'plain', 'cta': 'outline', 'site_header': 'minimal'},
         'extra': '.nb-eyebrow{letter-spacing:.14em;font-size:.78rem;color:#d4af37}'
-                 '.nb-hero-title{font-weight:700}.nb-btn.is-ghost{color:#f4eee3;border-color:rgba(244,238,227,.35)}'
+                 '.nb-hero-title{font-weight:700;line-height:1.4}.nb-hero.nbv-start h1.nb-hero-title{line-height:1.4}.nb-title,.nb-h{line-height:1.4}'
+                 '.nb-btn.is-ghost{color:#f4eee3;border-color:rgba(244,238,227,.35)}'
                  '.nb-btn.is-outline{color:#d4af37;border-color:#d4af37}.nb-plan-price{color:#d4af37}',
         'uiux': {'style_id': 'dark-mode-oled', 'font_pairing': 'Luxury Serif', 'palette': 'Luxury/Premium Brand'},
     },
@@ -229,9 +230,10 @@ STYLES = {
         'sections': {'hero': 'start', 'features': 'numbered', 'pricing': 'flat', 'testimonials': 'big', 'faq': 'plain', 'cta': 'bar', 'site_header': 'centered'},
         'extra': '.nb-feature,.nb-quote,.nb-faq-item{border-top:2px solid #1a1814;padding-top:16px;padding-inline:0}'
                  '.nb-plan{border:1px solid #1a1814}.nb-eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:.78rem;color:#b3261e;font-weight:700;padding:0}'
-                 '.nb-hero-title{font-size:clamp(2.4rem,7vw,4.6rem);line-height:1.12}.nb-hero .nb-btn.is-ghost{color:#1a1814;border-color:#1a1814}'
-                 '.nb-title{border-bottom:2px solid #1a1814;padding-bottom:10px;display:inline-block}.nb-head{text-align:start;margin-inline:0}'
-                 '.nb-text>p:first-child::first-letter{font-family:var(--nb-font-head);font-size:3.2em;float:inline-start;line-height:.9;padding-inline-end:.12em;color:#b3261e}',
+                 '.nb-hero-title{font-size:clamp(2.4rem,7vw,4.6rem);line-height:1.4}.nb-hero.nbv-start h1.nb-hero-title{line-height:1.4}.nb-hero .nb-btn.is-ghost{color:#1a1814;border-color:#1a1814}'
+                 # عنوانِ بخش زیرِ خودش خط دارد: «بلوک» باشد تا توضیحِ زیرش کنارش ننشیند. (حرفِ اولِ درشت / drop-cap حذف شد: ::first-letter ترفندِ لاتین است و در فارسی حرفِ اول را از کلمه می‌کَند)
+                 '.nb-title{border-bottom:2px solid #1a1814;padding-bottom:10px;display:inline-block}.nb-head .nb-title{display:block;width:fit-content;max-width:100%}'
+                 '.nb-head{text-align:start;margin-inline:0}.nb-title,.nb-h{line-height:1.4}',
         'uiux': {'style_id': 'editorial-grid-magazine', 'font_pairing': 'Editorial Classic', 'palette': 'Magazine/Blog'},
     },
     'retro-y2k': {

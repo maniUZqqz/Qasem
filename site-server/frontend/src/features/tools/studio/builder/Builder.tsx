@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { accessToken } from "../../../../api/client";
 import { api, downloadZip, pUrl, studioError } from "../api";
 import AiBox from "../AiBox";
 import { BarAction, CanvasCtl, CanvasPayload } from "./canvas";
@@ -15,11 +16,13 @@ import type { Block, Device, Doc, DropTarget, Rec } from "./doc";
 import { DEVICE_LABEL, FieldInput, FormEnv, StyleForm, Svg } from "./fields";
 import { LibraryPanel, MediaPanel, MenuPanel, Modal, OutlinePanel, StarterGrid, ThemePanel, VersionsPanel } from "./panels";
 import HostingPanel from "../hosting/HostingPanel";
+import { PublishCheckDialog } from "./PublishCheck";
+import { Finding, loadConfirmed, needsConfirm, rememberConfirmed, splitWarnings } from "./publishFindings";
+import { SaveState, canKeepalive, chipState, chipText, hasUnsaved, retryDelay } from "./saveSync";
 import type { AssetT, Bootstrap, MenuRow, PublishResp, SectionT, StarterT, ThemeT, VersionT } from "./types";
 import "./builder.css";
 
 type SidePane = "add" | "outline" | "theme" | "menu" | "media" | "versions";
-type SaveState = "saved" | "saving" | "error" | "conflict";
 const FRAME_WIDTH: Record<Device, string> = { d: "100%", t: "768px", p: "390px" };
 const I = {
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
@@ -92,6 +95,9 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   const [versions, setVersions] = useState<VersionT[]>(boot.versions);
   const [previewInfo, setPreviewInfo] = useState(boot.preview);
   const [save, setSave] = useState<SaveState>("saved");
+  const [typing, setTyping] = useState(false);
+  const [themeState, setThemeState] = useState<"idle" | "pending" | "failed">("idle");
+  const [check, setCheck] = useState<{ all: Finding[]; fresh: Finding[] } | null>(null);
   const [dirty, setDirty] = useState(boot.status.dirty);
   const [notice, setNotice] = useState(boot.notice);
   const [warnings, setWarnings] = useState<CanvasPayload["warnings"]>([]);
@@ -124,14 +130,30 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   const firstDoc = useRef(true);
   const firstTheme = useRef(true);
   const blockedSave = useRef(false);
+  const inflight = useRef<Promise<void> | null>(null);
+  const verRef = useRef(0); // شمارندهٔ تغییرهای سند
+  const savedVer = useRef(0); // آخرین شمارنده‌ای که سرور گرفته
+  const attemptRef = useRef(0);
+  const retryTimer = useRef<number | undefined>();
+  const flushRef = useRef<() => Promise<void>>(async () => undefined);
+  const themeRef = useRef(theme);
+  const menuRef = useRef(menu);
+  const themeAttempt = useRef(0);
+  const themeRetry = useRef<number | undefined>();
+  const themeFailedRef = useRef(false);
+  const allowUnload = useRef(false);
+  const unsavedRef = useRef(false);
+  themeRef.current = theme;
+  menuRef.current = menu;
 
   const labelOf = useCallback((type: string) => D.specOf(catalog, type)?.label ?? "", [catalog]);
 
   /* ─────────── تاریخچه ─────────── */
-  const commit = useCallback((next: Doc) => {
-    pastRef.current = [...pastRef.current.slice(-99), docRef.current];
+  const commit = useCallback((next: Doc, continued = false) => {
+    if (!continued) pastRef.current = [...pastRef.current.slice(-99), docRef.current];
     futureRef.current = [];
     docRef.current = next;
+    verRef.current += 1;
     setDocState(next);
   }, []);
   const undo = useCallback(() => {
@@ -140,6 +162,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     pastRef.current = pastRef.current.slice(0, -1);
     futureRef.current = [docRef.current, ...futureRef.current];
     docRef.current = prev;
+    verRef.current += 1;
     setDocState(prev);
   }, []);
   const redo = useCallback(() => {
@@ -148,35 +171,112 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     futureRef.current = futureRef.current.slice(1);
     pastRef.current = [...pastRef.current, docRef.current];
     docRef.current = next;
+    verRef.current += 1;
     setDocState(next);
   }, []);
 
   /* ─────────── ذخیرهٔ خودکار ─────────── */
-  const flushDoc = useCallback(async () => {
+  /* هر تغییرِ سند شمارنده‌اش (verRef) را یکی بالا می‌برد؛ ذخیره فقط وقتی «ذخیره شد» می‌شود که آخرین شمارنده را رسانده باشد.
+     شکست ⇒ «ذخیره نشد» و تلاشِ دوباره با فاصلهٔ ۲، ۵، ۱۵ ثانیه (و هر ۱۵ ثانیه)؛ برگشتنِ اینترنت هم همین‌طور. */
+  const saveRef = useRef<SaveState>("saved");
+  saveRef.current = save;
+
+  const scheduleRetry = useCallback(() => {
+    window.clearTimeout(retryTimer.current);
+    const wait = retryDelay(attemptRef.current);
+    attemptRef.current += 1;
+    retryTimer.current = window.setTimeout(() => void flushRef.current(), wait);
+  }, []);
+
+  const flushDoc = useCallback(async (): Promise<void> => {
     window.clearTimeout(saveTimer.current);
+    window.clearTimeout(retryTimer.current);
     if (blockedSave.current) return;
-    setSave("saving");
-    try {
-      const { data } = await api.put<{ status: { rev: number; dirty: boolean } }>(`/studio/projects/${slug}/builder/design/`, {
-        target,
-        page: pageRef,
-        doc: docRef.current,
-        rev: revRef.current,
-      });
-      revRef.current = data.status.rev;
-      setDirty(data.status.dirty);
-      setSave("saved");
-    } catch (err) {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      if (status === 409) {
-        blockedSave.current = true;
-        setSave("conflict");
-        setNotice(studioError(err));
-      } else {
-        setSave("error");
-      }
+    if (inflight.current) {
+      // یک ذخیره در راه است: پایانش را صبر کن و فقط اگر چیزِ تازه‌ای مانده دوباره بفرست (دو PUT هم‌زمان rev را به هم می‌زند)
+      await inflight.current.catch(() => undefined);
+      if (blockedSave.current || savedVer.current === verRef.current) return;
     }
-  }, [slug, target, pageRef]);
+    const sent = verRef.current;
+    const run = (async () => {
+      setSave("saving");
+      try {
+        const { data } = await api.put<{ status: { rev: number; dirty: boolean } }>(`/studio/projects/${slug}/builder/design/`, {
+          target,
+          page: pageRef,
+          doc: docRef.current,
+          rev: revRef.current,
+        });
+        revRef.current = data.status.rev;
+        savedVer.current = sent;
+        attemptRef.current = 0;
+        setDirty(data.status.dirty);
+        if (verRef.current === sent) setSave("saved"); // تغییرِ تازه‌تری در راه است ⇒ «در حالِ ذخیره» می‌ماند
+      } catch (err) {
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (status === 409) {
+          blockedSave.current = true;
+          setSave("conflict");
+        } else {
+          setSave("error");
+          scheduleRetry();
+        }
+      }
+    })();
+    inflight.current = run;
+    try {
+      await run;
+    } finally {
+      if (inflight.current === run) inflight.current = null;
+    }
+  }, [slug, target, pageRef, scheduleRetry]);
+  flushRef.current = flushDoc;
+
+  /* بستنِ زبانه یا رفتن به برنامهٔ دیگر: fetch با keepalive تا درخواست با بسته‌شدنِ صفحه نمی‌میرد (بدنهٔ بزرگ ⇒ راهِ معمولی) */
+  const flushBeacon = useCallback(() => {
+    if (blockedSave.current || inflight.current) return;
+    if (savedVer.current === verRef.current && saveRef.current === "saved") return;
+    const body = JSON.stringify({ target, page: pageRef, doc: docRef.current, rev: revRef.current });
+    if (!canKeepalive(body)) {
+      void flushDoc();
+      return;
+    }
+    const sent = verRef.current;
+    const token = accessToken();
+    let run: Promise<void> = Promise.resolve();
+    run = fetch(`/api/v1/studio/projects/${slug}/builder/design/`, {
+      method: "PUT",
+      keepalive: true,
+      body,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    })
+      .then(async (r) => {
+        if (r.ok) {
+          const d = (await r.json()) as { status: { rev: number; dirty: boolean } };
+          revRef.current = d.status.rev;
+          savedVer.current = sent;
+          attemptRef.current = 0;
+          setDirty(d.status.dirty);
+          if (verRef.current === sent) setSave("saved");
+        } else if (r.status === 409) {
+          blockedSave.current = true;
+          setSave("conflict");
+        } else {
+          setSave("error");
+          scheduleRetry();
+        }
+      })
+      .catch(() => {
+        setSave("error");
+        scheduleRetry();
+      })
+      .finally(() => {
+        if (inflight.current === run) inflight.current = null;
+      });
+    inflight.current = run;
+  }, [slug, target, pageRef, flushDoc, scheduleRetry]);
+  const flushBeaconRef = useRef(flushBeacon);
+  flushBeaconRef.current = flushBeacon;
 
   useEffect(() => {
     if (firstDoc.current) {
@@ -184,34 +284,85 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       return;
     }
     setDirty(true);
+    if (blockedSave.current) {
+      setSave("conflict"); // نسخهٔ تازه‌تری جای دیگر ذخیره شده؛ تا «بارگذاریِ نسخهٔ جدید» چیزی فرستاده نمی‌شود، پس «در حالِ ذخیره» نمی‌نویسیم
+      return;
+    }
     setSave("saving");
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => void flushDoc(), 1200);
     return () => window.clearTimeout(saveTimer.current);
   }, [doc, flushDoc]);
 
+  /* پوسته و منو: همان نشان و همان تلاشِ دوباره (پیش‌تر شکستش بی‌صدا بود) */
+  const saveTheme = useCallback(async (): Promise<void> => {
+    window.clearTimeout(themeRetry.current);
+    try {
+      await api.put(`/studio/projects/${slug}/builder/theme/`, { theme: themeRef.current, menu: menuRef.current });
+      themeAttempt.current = 0;
+      setThemeState("idle");
+    } catch {
+      setThemeState("failed");
+      const wait = retryDelay(themeAttempt.current);
+      themeAttempt.current += 1;
+      themeRetry.current = window.setTimeout(() => void saveThemeRef.current(), wait);
+    }
+  }, [slug]);
+  const saveThemeRef = useRef(saveTheme);
+  saveThemeRef.current = saveTheme;
+
   useEffect(() => {
     if (firstTheme.current) {
       firstTheme.current = false;
       return;
     }
+    setThemeState("pending");
     window.clearTimeout(themeTimer.current);
-    themeTimer.current = window.setTimeout(() => {
-      void api.put(`/studio/projects/${slug}/builder/theme/`, { theme, menu });
-    }, 800);
+    themeTimer.current = window.setTimeout(() => void saveTheme(), 800);
     return () => window.clearTimeout(themeTimer.current);
-  }, [theme, menu, slug]);
+  }, [theme, menu, saveTheme]);
 
   useEffect(() => {
+    // کارِ ذخیره‌نشده هست ⇒ مرورگر هنگامِ بستن/بازنشانیِ زبانه بپرسد
     const warn = (e: BeforeUnloadEvent) => {
-      if (save === "saving") {
-        e.preventDefault();
-        e.returnValue = "";
-      }
+      if (allowUnload.current || !unsavedRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    // متنِ نیمه‌نوشته همان لحظه (همزمان) به سند برسد و فرستاده شود
+    const out = () => {
+      ctlRef.current?.syncEdit();
+      flushBeaconRef.current();
+    };
+    const vis = () => {
+      if (document.visibilityState === "hidden") out();
+    };
+    const online = () => {
+      if (saveRef.current === "error") void flushRef.current();
+      if (themeFailedRef.current) void saveThemeRef.current();
     };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [save]);
+    window.addEventListener("pagehide", out);
+    document.addEventListener("visibilitychange", vis);
+    window.addEventListener("online", online);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      window.removeEventListener("pagehide", out);
+      document.removeEventListener("visibilitychange", vis);
+      window.removeEventListener("online", online);
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      // رفتن به صفحهٔ دیگرِ پنل (دکمهٔ «بازگشت»): آنچه نوشته‌ای نماند
+      ctlRef.current?.syncEdit();
+      flushBeaconRef.current();
+      window.clearTimeout(retryTimer.current);
+      window.clearTimeout(themeRetry.current);
+    },
+    [],
+  );
 
   /* ─────────── بوم ─────────── */
   const applyAction = useCallback(
@@ -337,7 +488,12 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     if (!frame) return;
     const ctl = new CanvasCtl(frame, {
       onSelect: setSelected,
-      onText: (id, path, value) => commit(D.setProp(docRef.current, id, path, value)),
+      onText: (id, path, value, continued) => {
+        setTyping(false);
+        commit(D.setProp(docRef.current, id, path, value), continued);
+      },
+      onTyping: () => setTyping(true),
+      onSettled: () => setTyping(false),
       onAction: applyAction,
       onStartMove: (id, x, y) => {
         const f = D.find(docRef.current, id);
@@ -360,6 +516,16 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   }, []);
 
   const [frameReady, setFrameReady] = useState(false);
+  const jumpRef = useRef<string | null>(new URLSearchParams(window.location.search).get("b"));
+  useEffect(() => {
+    if (!frameReady || !jumpRef.current) return;
+    const id = jumpRef.current;
+    jumpRef.current = null;
+    if (D.find(docRef.current, id)) {
+      setSelected(id);
+      window.setTimeout(() => ctlRef.current?.select(id, true), 500);
+    }
+  }, [frameReady]);
 
   useEffect(() => {
     window.addEventListener("keydown", keyHandler);
@@ -451,13 +617,69 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   };
 
   /* ─────────── انتشار ─────────── */
-  /* انتشارِ واقعی: صفحه‌ها نوشته می‌شوند و بقیه‌اش (ساخت، مهاجرت، جابه‌جایی) کارِ پس‌زمینهٔ سرور است */
+  /* انتشارِ واقعی: صفحه‌ها نوشته می‌شوند و بقیه‌اش (ساخت، مهاجرت، جابه‌جایی) کارِ پس‌زمینهٔ سرور است.
+     اول بررسیِ «هنوز نمونه است» (متنِ نمونه، شمارهٔ ساختگی، پیوندِ خالی، تصویرِ انتخاب‌نشده)؛ اگر چیزِ تازه‌ای بود پنجرهٔ تأیید می‌آید. */
   async function publishLive() {
     ctlRef.current?.commitEdit();
     window.clearTimeout(saveTimer.current);
     setPublishing(true);
     setPubError(null);
     try {
+      let found: Finding[];
+      try {
+        const r = await api.post<{ findings: Finding[] }>(`/studio/projects/${slug}/builder/check/`, { target, page: pageRef, doc: docRef.current });
+        found = r.data.findings ?? [];
+      } catch (err) {
+        setPubError(`بررسیِ پیش از انتشار انجام نشد، پس منتشر نشد: ${studioError(err)}`);
+        return;
+      }
+      const fresh = needsConfirm(found, loadConfirmed(slug));
+      if (fresh.length) {
+        setCheck({ all: found, fresh });
+        return;
+      }
+      await runLive();
+    } catch (err) {
+      setPubError(studioError(err));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function confirmPublish() {
+    if (!check) return;
+    rememberConfirmed(slug, check.all);
+    setCheck(null);
+    setPublishing(true);
+    setPubError(null);
+    try {
+      await runLive();
+    } catch (err) {
+      setPubError(studioError(err));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function saveOnly() {
+    setCheck(null);
+    await flushDoc();
+    setNotice("پیش‌نویس ذخیره شد؛ سایت منتشر نشد.");
+  }
+
+  function goToFinding(f: Finding) {
+    setCheck(null);
+    if (f.target === target && (f.target !== "page" || f.page === (pageRef ?? null))) {
+      setSelected(f.id);
+      ctlRef.current?.select(f.id, true);
+      return;
+    }
+    const sub = f.target === "page" ? `builder/page/${f.page}` : `builder/${f.target}`;
+    void flushDoc().then(() => navigate(`${pUrl(slug, sub)}?b=${encodeURIComponent(f.id)}`));
+  }
+
+  async function runLive() {
+    {
       await api.put(`/studio/projects/${slug}/builder/theme/`, { theme, menu });
       const { data } = await api.post<PublishResp>(`/studio/projects/${slug}/builder/publish/`, { target, page: pageRef, doc: docRef.current, live: true });
       if (data.status) {
@@ -471,10 +693,6 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       setLiveJob(st.job);
       setLiveWarnings(data.warnings ?? []);
       setLiveOpen(true);
-    } catch (err) {
-      setPubError(studioError(err));
-    } finally {
-      setPublishing(false);
     }
   }
 
@@ -545,6 +763,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   }
 
   function goto(value: string) {
+    ctlRef.current?.commitEdit();
     void flushDoc().then(() => {
       if (value === "__new") setNewPageOpen(true);
       else navigate(pUrl(slug, `builder/${value}`));
@@ -552,7 +771,10 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   }
 
   const current = target === "page" ? `page/${pageRef}` : target;
-  const saveText = { saved: dirty ? "پیش‌نویس ذخیره شد" : "منتشر شده", saving: "در حالِ ذخیره…", error: "ذخیره نشد؛ دوباره تلاش می‌شود", conflict: "جای دیگری هم باز است" }[save];
+  const chip = chipState({ save, typing, themePending: themeState === "pending", themeFailed: themeState === "failed" });
+  unsavedRef.current = hasUnsaved(chip);
+  themeFailedRef.current = themeState === "failed";
+  const saveText = chipText(chip, dirty, themeState === "failed");
 
   const panelSide = (
     <>
@@ -625,6 +847,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     </>
   );
 
+  const sideWarnings = useMemo(() => splitWarnings(warnings), [warnings]);
   const selModel = selBlock?.props?.model ? boot.models.find((m) => m.ref === selBlock.props.model) : undefined;
 
   const panelSettings = selBlock && selSpec ? (
@@ -667,10 +890,20 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     <div className="nbe-pane nbe-empty-side">
       <p className="nbe-note">روی هر چیزی در صفحه بزن تا تنظیماتش این‌جا بیاید. برای نوشتن، مستقیم روی متن بزن.</p>
       {page && <PageSettings slug={slug} page={page} onPages={setPages} />}
-      {warnings.length > 0 && (
+      {sideWarnings.placeholders.length > 0 && (
+        <div className="nbe-checks-list" data-testid="placeholder-list">
+          <h4 className="nbe-h">هنوز نمونه یا ناتمام است ({new Intl.NumberFormat("fa-IR").format(sideWarnings.placeholders.length)})</h4>
+          {sideWarnings.placeholders.slice(0, 16).map((w, i) => (
+            <button type="button" key={i} data-kind={w.kind} onClick={() => { setSelected(w.id); ctlRef.current?.select(w.id, true); }}>
+              {w.text}
+            </button>
+          ))}
+        </div>
+      )}
+      {sideWarnings.general.length > 0 && (
         <div className="nbe-checks-list">
           <h4 className="nbe-h">پیشنهادهایی برای بهتر شدن</h4>
-          {warnings.slice(0, 12).map((w, i) => (
+          {sideWarnings.general.slice(0, 12).map((w, i) => (
             <button type="button" key={i} onClick={() => { setSelected(w.id); ctlRef.current?.select(w.id, true); }}>
               {w.text}
             </button>
@@ -701,7 +934,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           </optgroup>
           <option value="__new">+ صفحهٔ تازه…</option>
         </select>
-        <span className={`nbe-save ${save}`} data-testid="save-state">{saveText}</span>
+        <span className={`nbe-save ${chip}`} data-testid="save-state" data-state={chip}>{saveText}</span>
         <div className="nbe-top-mid">
           {(["d", "t", "p"] as Device[]).map((dv) => (
             <button key={dv} type="button" className={`nbe-iconbtn2 nbe-dev ${device === dv ? "on" : ""}`} data-device={dv} title={DEVICE_LABEL[dv]} aria-label={DEVICE_LABEL[dv]} onClick={() => setDevice(dv)}>
@@ -739,6 +972,22 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
         <div className="nbe-notice" role="status">
           <span>{notice}</span>
           <button type="button" aria-label="بستن" onClick={() => setNotice("")}>×</button>
+        </div>
+      )}
+      {(chip === "error" || chip === "conflict") && (
+        <div className="nbe-notice bad nbe-savebar" role="alert" data-testid="save-alert">
+          <span>
+            {chip === "conflict"
+              ? "این صفحه در زبانه یا دستگاهِ دیگری هم عوض شده؛ تا نسخهٔ تازه را نگیری ذخیره نمی‌شود."
+              : themeState === "failed" && save !== "error"
+                ? "پوسته و منو ذخیره نشد؛ خودکار دوباره تلاش می‌شود."
+                : "ذخیره نشد. تغییرهایت روی همین صفحه مانده و خودکار دوباره تلاش می‌شود."}
+          </span>
+          {chip === "conflict" ? (
+            <button type="button" className="nbe-add" data-testid="save-reload" onClick={() => { allowUnload.current = true; window.location.reload(); }}>بارگذاری نسخهٔ جدید</button>
+          ) : (
+            <button type="button" className="nbe-add" data-testid="save-retry" onClick={() => { void flushRef.current(); void saveThemeRef.current(); }}>همین حالا دوباره تلاش کن</button>
+          )}
         </div>
       )}
       {canvasError && <div className="nbe-notice bad" role="alert"><span>{canvasError}</span></div>}
@@ -793,6 +1042,18 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           {dirty && <p className="nbe-warn">هوشِ مصنوعی روی نسخهٔ منتشرشده کار می‌کند؛ پیش‌نویسِ منتشرنشده‌ات را نمی‌بیند. بهتر است اول «انتشار» را بزنی. (پیش‌نویس گم نمی‌شود و در «نسخه‌ها» می‌ماند.)</p>}
           <AiBox slug={slug} endpoint={target === "page" ? `ai/page/${pageRef}/` : `ai/shared/${target}/`} title="چه چیزی عوض شود؟" placeholder="مثلاً: متنِ سربرگِ بزرگ را دوستانه‌تر کن" note="پیش از اعمال، تغییرها را می‌بینی و تأیید می‌کنی. بعدش صفحه باز هم با کلیک ویرایش می‌شود." />
         </Modal>
+      )}
+      {check && (
+        <PublishCheckDialog
+          findings={check.fresh}
+          labelOf={labelOf}
+          here={{ target, page: pageRef ?? null }}
+          busy={publishing}
+          onGo={goToFinding}
+          onPublish={() => void confirmPublish()}
+          onSaveOnly={() => void saveOnly()}
+          onClose={() => setCheck(null)}
+        />
       )}
       {liveOpen && <LiveDialog slug={slug} job={liveJob} warnings={liveWarnings} onClose={() => setLiveOpen(false)} onSelect={(id) => { setLiveOpen(false); setSelected(id); ctlRef.current?.select(id); }} />}
       {result && <PublishDialog slug={slug} result={result} preview={previewInfo} onClose={() => setResult(null)} onSelect={(id) => { setResult(null); setSelected(id); ctlRef.current?.select(id, true); }} />}

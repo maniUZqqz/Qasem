@@ -2,15 +2,37 @@
 import json
 import mimetypes
 import os
-import re
 import time
+import socket
 import urllib.error
 import urllib.request
 import uuid
 
+# پنل وقتی ری‌استارت می‌شود (۵۰۲/۵۰۳/۵۰۴) یا سقفِ درخواست می‌گیرد (۴۲۹) هنوز کاری را انجام نداده؛ فرستادنِ دوباره امن است.
+# فاصله‌ها به ثانیه؛ اگر سرور Retry-After بدهد همان (حداکثر ۶۰ ثانیه) می‌ماند.
+RETRY_STATUS = (429, 502, 503, 504)
+RETRY_DELAYS = (2, 5, 10, 20)
+RETRY_AFTER_MAX = 60
+
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message='', status=None, retry_after=None):
+        super().__init__(message)
+        self.status = status                # کدِ HTTP، یا None اگر سرور اصلاً در دسترس نبود
+        self.retry_after = retry_after      # ثانیه، اگر سرور گفته بود
+
+    @property
+    def permanent(self):
+        """خطای ۴xx (جز ۴۲۹): تکرارش فایده ندارد."""
+        return self.status is not None and 400 <= self.status < 500 and self.status != 429
+
+
+def _retry_after(err):
+    try:
+        v = err.headers.get('Retry-After') if getattr(err, 'headers', None) else None
+        return min(RETRY_AFTER_MAX, max(0, int(float(v)))) if v not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
 
 
 class ApiClient:
@@ -20,7 +42,21 @@ class ApiClient:
         self.scheme = scheme
         self.timeout = timeout
 
-    def _req(self, method, path, data=None, headers=None, raw=False, timeout=None):
+    sleep = staticmethod(time.sleep)        # آزمون جایگزینش می‌کند
+
+    def _req(self, method, path, data=None, headers=None, raw=False, timeout=None, retries=None):
+        """retries: چند بار دوباره (پیش‌فرض ۴). فقط 429/502/503/504 و نرسیدن به سرور تکرار می‌شود؛ ۴xxِ دیگر و زمان‌گذشتن نه
+        (زمان‌گذشتن یعنی شاید سرور کار را کرده؛ تکرارِ ناخواسته ممنوع)."""
+        n = len(RETRY_DELAYS) if retries is None else max(0, int(retries))
+        for i in range(n + 1):
+            try:
+                return self._once(method, path, data, headers, raw, timeout)
+            except ApiError as e:
+                if i >= n or not (e.status in RETRY_STATUS or (e.status is None and getattr(e, 'connect_failed', False))):
+                    raise
+                self.sleep(e.retry_after if e.retry_after is not None else RETRY_DELAYS[min(i, len(RETRY_DELAYS) - 1)])
+
+    def _once(self, method, path, data=None, headers=None, raw=False, timeout=None):
         url = self.server + path
         h = {'Accept': 'application/json'}
         if self.token:
@@ -37,9 +73,12 @@ class ApiClient:
             with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                 payload = r.read()
         except urllib.error.HTTPError as e:
-            raise ApiError('%s %s ⇐ %s %s' % (method, path, e.code, e.read()[:400].decode('utf-8', 'replace'))) from e
+            raise ApiError('%s %s ⇐ %s %s' % (method, path, e.code, e.read()[:400].decode('utf-8', 'replace')),
+                           status=e.code, retry_after=_retry_after(e)) from e
         except urllib.error.URLError as e:
-            raise ApiError('سرور در دسترس نیست: %s' % e) from e
+            err = ApiError('سرور در دسترس نیست: %s' % e)
+            err.connect_failed = not isinstance(getattr(e, 'reason', None), (socket.timeout, TimeoutError))   # نرسیدن، نه زمان‌گذشتن
+            raise err from e
         if raw:
             return payload
         return json.loads(payload.decode('utf-8')) if payload else {}
@@ -61,7 +100,7 @@ class ApiClient:
                 return dest
             except ApiError as e:
                 last = e
-                if re.search(r'⇐ 4\d\d', str(e)):      # 4xx: تکرار فایده ندارد
+                if e.permanent:                          # 4xx (جز ۴۲۹): تکرار فایده ندارد
                     raise
                 time.sleep(5 * (2 ** i))
         raise last

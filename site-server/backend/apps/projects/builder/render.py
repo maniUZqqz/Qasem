@@ -10,7 +10,7 @@ import math
 import re
 from urllib.parse import parse_qs, urlparse
 
-from . import components as comps, icons, variants
+from . import components as comps, icons, placeholders, variants
 from .catalog import BLOCKS, CONTAINERS
 from .clean import esc, neutralize, safe_url, walk
 
@@ -229,8 +229,9 @@ class Renderer:
             return '<img%s src="%s" alt="" data-nb-ph="1"%s>' % (k, PLACEHOLDER_IMG, extra)
         return ''
 
-    def warn(self, b, text):
-        self.warnings.append({'id': b['id'], 'type': b['type'], 'text': text})
+    def warn(self, b, text, kind=''):
+        """kind: '' = پیشنهادِ عمومی؛ sample/contact/link/alt/media = «هنوز نمونه یا ناتمام است» (placeholders.KINDS) که پیش از انتشار پرسیده می‌شود."""
+        self.warnings.append({'id': b['id'], 'type': b['type'], 'text': text, 'kind': kind})
 
     def rule(self, selector, decls):
         decls = [d for d in decls if d]
@@ -418,9 +419,9 @@ class Renderer:
         p = b['props']
         src = p.get('src')
         if not src:
-            self.warn(b, 'این تصویر هنوز انتخاب نشده.')
+            self.warn(b, 'این تصویر هنوز انتخاب نشده.', 'media')
         elif not (p.get('alt') or (self.asset(src).alt if self.asset(src) else '')):
-            self.warn(b, 'برای این تصویر توضیح بنویس تا نابینایان و گوگل هم بفهمند چیست.')
+            self.warn(b, 'برای این تصویر توضیح بنویس تا نابینایان و گوگل هم بفهمند چیست.', 'alt')
         img = self.img(src, p.get('alt'), sizes='(max-width:800px) 100vw, 800px')
         if not img:
             return ''
@@ -455,7 +456,7 @@ class Renderer:
             elif p.get('link'):
                 inner = '<a class="nb-btn is-outline is-md" href="%s" target="_blank" rel="noopener">دیدنِ ویدیو</a>' % esc(safe_url(p['link']))
         if not inner:
-            self.warn(b, 'ویدیو هنوز انتخاب نشده.')
+            self.warn(b, 'ویدیو هنوز انتخاب نشده.', 'media')
             if not self.ctx.canvas:
                 return ''
             inner = '<div class="nb-video-ph" data-nb-ph="1">ویدیو را از ستونِ تنظیمات انتخاب کن</div>'
@@ -489,12 +490,12 @@ class Renderer:
             if not row.get('image'):
                 continue
             if not row.get('alt'):
-                self.warn(b, 'برای تصویرهای گالری توضیح بنویس.')
+                self.warn(b, 'برای تصویرهای گالری توضیح بنویس.', 'alt')
             i = self.img(row['image'], row.get('alt'), sizes='(max-width:640px) 50vw, 400px')
             if i:
                 cells.append('<div class="nb-gallery-cell">%s</div>' % i)
         if not cells:
-            self.warn(b, 'گالری هنوز تصویری ندارد.')
+            self.warn(b, 'گالری هنوز تصویری ندارد.', 'media')
             if not self.ctx.canvas:
                 return ''
             cells = ['<div class="nb-gallery-cell"><img src="%s" alt="" data-nb-ph="1"></div>' % PLACEHOLDER_IMG] * 3
@@ -522,7 +523,7 @@ class Renderer:
         media = ''
         if p.get('image') or (split and self.ctx.canvas):
             if p.get('image') and not p.get('image_alt') and not (self.asset(p['image']) and self.asset(p['image']).alt):
-                self.warn(b, 'برای تصویرِ سربرگ توضیح بنویس.')
+                self.warn(b, 'برای تصویرِ سربرگ توضیح بنویس.', 'alt')
             media = self.img(p.get('image'), p.get('image_alt'), sizes='(max-width:800px) 100vw, 560px', lazy=False)
         if split:
             inner = '<div class="nb-hero-split"><div class="nb-hero-copy">%s</div><div class="nb-hero-media">%s</div></div>' % (copy, media)
@@ -945,6 +946,7 @@ def render_doc(doc, ctx):
     for b in (doc or {}).get('blocks') or []:
         parts.append((b['id'], r.block(b)))
     check_contrast((doc or {}).get('blocks'), r)
+    placeholders.check((doc or {}).get('blocks'), r)
     if ctx.target == 'page':
         check_headings(r)
     html = '\n\n'.join(h for _, h in parts if h)

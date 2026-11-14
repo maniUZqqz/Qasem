@@ -379,6 +379,38 @@ def refresh_all(project):
     return skipped
 
 
+def check_site(project, target, page, doc):
+    """«هنوز نمونه یا ناتمام است»ها برای هرچه با «انتشار» روی اینترنت می‌رود: سندِ در دستِ ویرایش (همان که الان روی بوم است، نه نسخهٔ ذخیره‌شده)،
+    سربرگ/پابرگ (پیش‌نویسِ عوض‌شده یا منتشرشده) و صفحه‌های دیگرِ پیش‌تر منتشرشده. فقط می‌خواند؛ چیزی نمی‌سازد و نمی‌نویسد.
+    ⇒ [{'id', 'type', 'kind', 'text', 'target', 'page', 'page_title'}]"""
+    from .placeholders import KINDS
+    here = get_design(project, target, page, create=False)
+    jobs = [(target, page, clean_doc(doc, target))]
+    for d in Design.objects.filter(project=project).select_related('page'):
+        if here is not None and d.pk == here.pk:
+            continue
+        if d.target == 'page':
+            src = d.published if d.published_at else None          # صفحه‌ای که روی سایت هست
+        elif (d.draft or {}).get('blocks') and canonical(d.draft) != canonical(d.published):
+            src = d.draft                                            # سربرگ/پابرگِ عوض‌شده با همین انتشار می‌رود
+        else:
+            src = d.published or None
+        if src and src.get('blocks'):
+            jobs.append((d.target, d.page, src))
+    out, seen = [], set()
+    for tgt, pg, dc in jobs:
+        for w in render_doc(dc, _ctx(project, tgt)).warnings:
+            if w.get('kind') not in KINDS:
+                continue
+            key = (tgt, pg.pk if pg else None, w['id'], w['kind'], w['text'])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({'id': w['id'], 'type': w['type'], 'kind': w['kind'], 'text': w['text'], 'target': tgt,
+                        'page': pg.pk if pg else None, 'page_title': pg.title if pg else ''})
+    return out
+
+
 def publish_site(project, target, page, doc, user='', build=True):
     """انتشار: همین صفحه + سربرگ/پابرگ/پوسته/منو ⇐ تولیدِ کد ⇐ پیش‌نمایش. ⇒ dict برای پنل."""
     design = get_design(project, target, page)

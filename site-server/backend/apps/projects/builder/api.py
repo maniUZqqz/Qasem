@@ -194,6 +194,22 @@ def publish(request, slug):
     return Response(out, status=200 if out['ok'] else 500)
 
 
+@studio_api('POST')
+def check_publish(request, slug):
+    """POST {target, page, doc}: متنِ نمونه، شمارهٔ ساختگی، پیوندِ خالی و تصویرِ انتخاب‌نشده در هرچه با «انتشار» روی اینترنت می‌رود.
+    فقط می‌خواند؛ پنل پیش از انتشارِ واقعی فهرستش را به کاربر نشان می‌دهد و تأیید می‌خواهد."""
+    p = _project(slug)
+    g = _guard(p)
+    if g:
+        return g
+    target, page = _target(request.data, p)
+    try:
+        findings = P.check_site(p, target, page, request.data.get('doc'))
+    except (DocError, TypeError) as exc:
+        return bad(exc)
+    return Response({'findings': findings, 'count': len(findings)})
+
+
 @studio_api('GET', 'POST')
 def version_detail(request, slug, pk):
     """GET: سندِ یک نسخه. POST: برگرداندنش به پیش‌نویس (سایت تا انتشار عوض نمی‌شود)."""

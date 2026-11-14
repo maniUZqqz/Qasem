@@ -30,7 +30,7 @@ class Command(BaseCommand):
         if opts['html']:
             out = os.path.abspath(opts['html'])
             os.makedirs(os.path.join(os.path.dirname(out), 'fonts'), exist_ok=True)
-            parts = D.build(opts['style'])
+            parts = D.build(opts['style'], logo=D.BRAND['logo_url'])      # پیش‌نمایشِ مستقل بی‌پایگاه‌داده است؛ نشان از نشانیِ عمومیِ خودِ چغر
             with open(out, 'w', encoding='utf-8', newline='\n') as fh:
                 fh.write(D.static_page(parts))
             _faces, used = T.font_faces(parts['theme'])

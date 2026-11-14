@@ -9,6 +9,7 @@
     GET  /api/v1/compute/progress/                    پیشرفتِ کلیِ صف به تفکیکِ نوعِ کار
     POST /api/v1/compute/nodes/<pk>/bootstrap/        «تلاش دوباره» برای نصبِ نیازمندی‌ها (دستورِ bootstrap)
     POST /api/v1/compute/nodes/<pk>/autostart/        {enabled}  ⇒ شروعِ خودکارِ برنامه هنگامِ روشن شدنِ کامپیوتر
+    GET/POST /api/v1/compute/owner-steps/              کارهایی که فقط مالک می‌تواند بکند (وضعیتِ زنده + تیکِ تصمیم‌ها)
 """
 from __future__ import annotations
 
@@ -126,3 +127,18 @@ def node_autostart(request, pk):
     node.desired = desired
     node.save(update_fields=["desired"])
     return Response({"autostart_wanted": enabled})
+
+
+@api_view(["GET", "POST"])
+@permission_classes([permissions.IsAdminUser])
+def owner_steps(request):
+    """«کارهایی که فقط خودِ مالک می‌تواند بکند» با وضعیتِ زنده (owner_steps.py). POST {key, done}: تیکِ «انجام شد» برای کارهای تصمیمی."""
+    from . import owner_steps as OS
+
+    if request.method == "POST":
+        d = _data(request)
+        try:
+            OS.set_mark(str(d.get("key") or ""), bool(d.get("done")))
+        except KeyError:
+            return Response({"error": {"code": "not_found", "message": "این مورد پیدا نشد."}}, status=status.HTTP_404_NOT_FOUND)
+    return Response(OS.build())

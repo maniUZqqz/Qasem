@@ -147,7 +147,13 @@ export type Idea = {
   bg_prompt_en: string;
   mood: string;
   needs_second: boolean;
-  spec_patch: { format: string; style: string; content: Partial<Content>; colors: { mood: string } };
+  spec_patch: {
+    format: string; style: string; content: Partial<Content>;
+    colors: { mood: string; primary?: string; secondary?: string; accent?: string; use_brand?: boolean };
+    subject?: { side?: "auto" | "left" | "right" | "center" };
+  };
+  /** فقط وقتی ایده از روی یک مرجع ساخته شده */
+  reference?: { id: string; title: string; source: string; source_label: string; mood_fa: string; image: string };
 };
 
 export type IdeasResult = {
@@ -158,6 +164,7 @@ export type IdeasResult = {
   ai: { tried: boolean; ok: boolean; label: string; reason: string };
   message: string;
   ideas: Idea[];
+  reference?: { id: string; title: string; mood_fa: string; palette_mode: "brand" | "reference" };
 };
 
 export type Archetype = {
@@ -199,12 +206,53 @@ export type BgJob = {
 
 export type CutoutNodeModel = { id: string; title: string; hint: string; state: string; state_fa: string; installed_on: string[] };
 
+export type RefPaletteColor = { hex: string; share: number; name: string; name_en: string };
+export type RefAnalysis = {
+  size: [number, number];
+  aspect: number;
+  format_hint: string;
+  palette: RefPaletteColor[];
+  roles: { primary: string; secondary: string; accent: string };
+  mood: string;
+  mood_fa: string;
+  brightness: number;
+  saturation: number;
+  contrast: number;
+  layout: { subject_side: "left" | "right" | "center"; text_zone: string; focus: [number, number]; concentration: number; busy: number; calm: number };
+  styles: { key: string; title: string; score: number; why: string }[];
+  summary: string;
+};
+export type RefRow = {
+  id: string;
+  source: "upload" | "url" | "pinterest" | "commons";
+  source_label: string;
+  title: string;
+  image: string;
+  page_url?: string;
+  author?: string;
+  license?: string;
+  license_url?: string;
+  analysis: RefAnalysis;
+};
+export type CommonsPoster = { id: number; title: string; thumb_url: string; page_url: string; author: string; license: string; license_url: string; width: number; height: number };
+
 const P = (id: string) => `/stores/${id}/thumbnails`;
 
 export const thumbsApi = {
   overview: async (id: string) => (await api.get<Overview>(`${P(id)}/`)).data,
   moodboard: async (id: string) => (await api.get<{ archetypes: Archetype[]; note: string }>(`${P(id)}/moodboard/`)).data,
   ideas: async (id: string, body: Record<string, unknown>) => (await api.post<IdeasResult>(`${P(id)}/ideas/`, body)).data,
+  references: async (id: string) => (await api.get<{ references: RefRow[]; max: number; pinterest_note: string }>(`${P(id)}/references/`)).data,
+  refSearch: async (id: string, q: string) => (await api.post<{ results: CommonsPoster[]; note: string }>(`${P(id)}/references/search/`, { q })).data,
+  refAddUrl: async (id: string, url: string) => (await api.post<RefRow>(`${P(id)}/references/`, { url })).data,
+  refAddCommons: async (id: string, poster: CommonsPoster) => (await api.post<RefRow>(`${P(id)}/references/`, { commons: poster })).data,
+  refUpload: async (id: string, file: File, title?: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (title) fd.append("title", title);
+    return (await api.post<RefRow>(`${P(id)}/references/`, fd)).data;
+  },
+  refRemove: async (id: string, rid: string) => api.delete(`${P(id)}/references/${rid}/`),
   preview: async (id: string, spec: Spec, signal?: AbortSignal) => (await api.post<Preview>(`${P(id)}/preview/`, { spec }, { signal })).data,
   render: async (id: string, body: { spec: Spec; variants: number; title?: string; ai?: { preset?: string; text?: string; prompt_en?: string } }) =>
     (await api.post<{ items: ThumbItem[]; batch: string }>(`${P(id)}/render/`, body)).data,
@@ -256,14 +304,25 @@ export function defaultSpec(format: string, style = "face_text"): Spec {
   };
 }
 
-/** ایده ⇒ spec (فقط قالب، سبک، متن‌ها و حال‌وهوا عوض می‌شود؛ عکس‌ها و رنگ‌ها می‌مانند). */
+/** ایده ⇒ spec (قالب، سبک، متن‌ها و حال‌وهوا عوض می‌شود؛ عکس‌ها می‌مانند. ایده‌ای که از «مرجع» آمده رنگ و سمتِ سوژه را هم می‌آورد). */
 export function applyIdea(spec: Spec, idea: Idea, keepFormat = false): Spec {
+  const pc = idea.spec_patch.colors;
+  const fromRef = Boolean(idea.reference);
+  const colors = { ...spec.colors, mood: pc.mood || "" };
+  if (fromRef) {
+    colors.use_brand = pc.use_brand !== false;
+    colors.primary = pc.primary ?? "";
+    colors.secondary = pc.secondary ?? "";
+    colors.accent = pc.accent ?? "";
+  }
+  const side = idea.spec_patch.subject?.side;
   return {
     ...spec,
     format: keepFormat ? spec.format : idea.spec_patch.format,
     style: idea.spec_patch.style,
     content: { ...EMPTY_CONTENT, ...idea.spec_patch.content },
-    colors: { ...spec.colors, mood: idea.spec_patch.colors.mood || "" },
+    colors,
+    subject: fromRef && side ? { ...spec.subject, side } : spec.subject,
   };
 }
 

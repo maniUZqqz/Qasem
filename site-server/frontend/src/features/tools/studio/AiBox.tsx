@@ -47,7 +47,7 @@ export default function AiBox({
       const { data } = await api.post<{ proposal: ProposalT }>(`/studio/projects/${slug}/${endpoint}`, {
         instruction,
         section: withSection ? section : "",
-        ...(withDesign ? { style: design.style, components: design.components } : {}),
+        ...(withDesign ? { style: design.style, components: design.components, refs21: design.refs21 ?? [] } : {}),
       });
       navigate(pUrl(slug, `ai/proposal/${data.proposal.id}`));
     } catch (err) {

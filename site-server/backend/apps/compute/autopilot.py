@@ -3,14 +3,20 @@
   * به‌روزرسانیِ خودکار — بستهٔ کدِ سایت از عاملِ گره تازه‌تر است و گره بی‌کار است ⇒ سایت خودش دستورِ «update» را می‌فرستد
     (تنظیم: ComputeSettings.auto_update، پیش‌فرض روشن). تا انجامِ به‌روزرسانی کارِ تازه‌ای به گره داده نمی‌شود
     (`should_withhold`)، وگرنه صفِ پر هیچ‌وقت گره را بی‌کار نمی‌گذاشت. حداکثر ۳ تلاش برای هر بسته؛ بعد از آن گره دوباره کار می‌گیرد.
-  * آزمونِ خودکار — پس از هر نسخهٔ تازهٔ عامل (همین جا در heartbeat)، هر شب (ساعتِ تنظیم‌شده، وقتِ تهران) و با دکمه.
+  * آزمونِ خودکار — پس از هر نسخهٔ تازهٔ عامل (همین جا در heartbeat)، هر شب (ساعتِ تنظیم‌شده، وقتِ تهران)، با دکمه، و **هر بار که
+    سرورِ پردازش بعد از یک قطعیِ واقعی (≥ ۱۰ دقیقه) دوباره روشن شد** (`note_presence`) ⇒ هر ویژگیِ وابسته به گره بی‌دست‌زدنِ ما سنجیده می‌شود.
   * `tick()` هر دقیقه از `tasks.maintenance` صدا زده می‌شود.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
 from datetime import timedelta
+from pathlib import Path
 
+from django.conf import settings
 from django.utils import timezone
 
 from . import commands as C
@@ -127,6 +133,45 @@ def on_heartbeat(node) -> None:
     auto.save(update_fields=["last_selftest_key", "updated_at"])
 
 
+ONLINE_GAP = 600                  # ثانیه: قطعیِ کوتاه‌تر «روشن‌شدن» حساب نمی‌شود (قطعِ لحظه‌ایِ خط)
+
+
+def _presence_path() -> Path:
+    return Path(settings.NM_DATA_DIR) / "node-online-state.json"
+
+
+def note_presence(node, now_ts: float | None = None) -> bool:
+    """حضورِ گره را در فایلِ کوچکی نگه می‌دارد؛ ⇒ True وقتی همین الان بعد از قطعیِ ≥ ONLINE_GAP دوباره روشن شده (یک بار برای هر قطعی).
+    اولین بار که گره دیده می‌شود، «از کِی قطع بود» را از last_seen می‌خواند (روزی که سایت به‌روز شد و گره از دیروز خاموش بود هم می‌شمارد)."""
+    now_ts = now_ts if now_ts is not None else time.time()
+    path = _presence_path()
+    try:
+        st = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = {}
+    key = str(node.pk)
+    rec = st.get(key) or {}
+    online = bool(node.online)
+    fire = False
+    if online:
+        if rec.get("online") is False and now_ts - float(rec.get("since", now_ts)) >= ONLINE_GAP:
+            fire = True
+        if rec.get("online") is not True:
+            rec = {"online": True, "since": now_ts}
+    elif rec.get("online") is not False:
+        seen = node.last_seen.timestamp() if node.last_seen else now_ts
+        rec = {"online": False, "since": min(now_ts, seen)}
+    if st.get(key) != rec:
+        st[key] = rec
+        tmp = path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(st), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            logger.warning("autopilot: could not write the presence state")
+    return fire
+
+
 def nightly_due(node, cfg, now=None) -> str:
     """تاریخِ امروزِ تهران اگر آزمونِ شبانه باید الان بسته شود، وگرنه ''."""
     if not cfg.nightly_selftest:
@@ -146,11 +191,18 @@ def tick(now=None) -> dict:
     from .selftests import runner
 
     cfg = ComputeSettings.get()
-    out = {"updates": 0, "nightly": 0}
+    out = {"updates": 0, "nightly": 0, "online": 0}
     for node in ComputeNode.objects.filter(enabled=True):
+        try:
+            came_online = note_presence(node)
+        except Exception:  # noqa: BLE001
+            came_online = False
         if not node.online:
             continue
         try:
+            if came_online and cfg.auto_selftest and (node.capabilities or {}).get("agent") and not update_wanted(node, cfg)[0]:
+                runner.start_run(node, "online")             # روشن شد ⇒ همهٔ قابلیت‌های وابسته به گره خودکار سنجیده می‌شود (اجرای در جریان بود ⇒ همان)
+                out["online"] += 1
             if send_update(node):
                 out["updates"] += 1
             today = nightly_due(node, cfg, now)

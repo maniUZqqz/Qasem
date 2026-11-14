@@ -96,3 +96,6 @@
   .cr-panel { max-height: none; }
   .cr-h { width: 28px; height: 28px; margin: -14px 0 0 -14px; }
 }
+
+/* پخشِ روان: وقتی ماشین کند است بومِ مانیتور هنگامِ پخش کوچک می‌شود و این برچسب را نشان می‌دهد */
+.vw-lowq { position: absolute; inset-block-start: 6px; inset-inline-start: 6px; z-index: 5; padding: 2px 8px; border-radius: 999px; font-size: 11px; line-height: 1.7; color: #fff; background: rgb(0 0 0 / .62); pointer-events: none; }

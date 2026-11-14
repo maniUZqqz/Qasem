@@ -31,6 +31,7 @@ class KnowledgeInputSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     sort_order = serializers.IntegerField(required=False)
     is_active = serializers.BooleanField(required=False)
+    product = serializers.ChoiceField(choices=["nm", "chagher"], required=False)
 
 
 class WriteSerializer(serializers.Serializer):
@@ -50,13 +51,13 @@ class ApproveSerializer(serializers.Serializer):
 
 class KnowledgeListView(GrowthView):
     def get(self, request):
-        return Response(kb.listing())
+        return Response(kb.listing(request.query_params.get("product") or "nm"))
 
     def post(self, request):
         serializer = KnowledgeInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            item = kb.create(serializer.validated_data, request.user)
+            item = kb.create(serializer.validated_data, request.user, serializer.validated_data.get("product") or "nm")
         except ValidationFailed as exc:
             return validation_response(exc)
         return Response(kb.item_json(item), status=status.HTTP_201_CREATED)
@@ -91,7 +92,11 @@ class RestoreDefaultsView(GrowthView):
     """POST - put back the default knowledge items and default templates that were deleted (nothing edited is touched)."""
 
     def post(self, request):
-        return Response(seed.restore_defaults())
+        out = seed.restore_defaults()
+        wants = (request.data.get("product") if hasattr(request.data, "get") else "") or request.query_params.get("product")
+        if wants == "chagher":
+            out = {k: out[k] + v for k, v in seed.seed_product("chagher").items()}
+        return Response(out)
 
 
 class WriterStatusView(GrowthView):

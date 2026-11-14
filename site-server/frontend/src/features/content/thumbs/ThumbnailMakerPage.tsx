@@ -384,6 +384,7 @@ export default function ThumbnailMakerPage() {
             format={spec.format}
             formats={ov.formats}
             products={ov.products}
+            hasBrand={ov.brand.colors.length > 0}
             onUse={useIdea}
             onUseStyle={useStyle}
           />

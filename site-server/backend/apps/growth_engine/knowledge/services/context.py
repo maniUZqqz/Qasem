@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from apps.growth_engine.compliance.models import GrowthSettings
 from apps.growth_engine.core import normalization as nz
 
+from .. import products
 from ..models import KnowledgeItem
 
 KB_CHAR_BUDGET = 7000
@@ -62,7 +63,8 @@ def numbers_known(texts: list[str]) -> set[str]:
 def build(item) -> Context:
     ctx = Context()
     used = 0
-    for k in KnowledgeItem.objects.filter(is_active=True).order_by("section", "sort_order", "id"):
+    product = products.normalize(getattr(getattr(item, "campaign", None), "product", ""))
+    for k in KnowledgeItem.objects.filter(is_active=True, product=product).order_by("section", "sort_order", "id"):
         if k.needs_value:
             continue  # a price nobody typed in: not a fact
         body = k.body.strip()

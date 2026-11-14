@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../../../api/client";
 import Icon from "../../../../components/Icon";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Spinner, fa } from "../../../../components/ui";
 import JobOutputs from "../queue/JobOutputs";
+import OwnerSteps from "./OwnerSteps";
 import {
   DEVICE_FA,
   GROUP_FA,
@@ -166,6 +167,7 @@ export default function SelfTestPage() {
 
       {data && data.catalog && data.catalog.length > 0 && <CatalogCard items={data.catalog} />}
       {data && <ProgressCard progress={data.progress} />}
+      {data && <OwnerSteps />}
       {data && <SettingsCard s={data.settings} busy={busy === "settings"} onSave={saveSettings} />}
     </div>
   );

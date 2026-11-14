@@ -7,7 +7,7 @@ import { LoadState } from "../components/bits";
 import Modal, { ConfirmDialog } from "../components/Modal";
 import { Flash } from "../components/outreach/shared";
 import { fieldErrorsOf, useAction } from "../outreach/api";
-import type { KnowledgeItem, KnowledgeList, KnowledgeSection } from "../outreach/types";
+import type { KnowledgeItem, KnowledgeList, KnowledgeSection, ProductKey } from "../outreach/types";
 
 type WriterStatus = { known: boolean; first?: string; order?: string[]; model?: string; local?: { ready: boolean; reason: string }; reason?: string };
 
@@ -25,7 +25,7 @@ const SECTION_HELP: Record<KnowledgeSection, string> = {
 type Draft = { section: KnowledgeSection; title: string; body: string; url: string; note: string; is_active: boolean };
 const EMPTY: Draft = { section: "feature", title: "", body: "", url: "", note: "", is_active: true };
 
-function ItemDialog({ open, item, section, onClose, onSaved }: { open: boolean; item: KnowledgeItem | null; section: KnowledgeSection; onClose: () => void; onSaved: () => void }) {
+function ItemDialog({ open, item, section, product, onClose, onSaved }: { open: boolean; item: KnowledgeItem | null; section: KnowledgeSection; product: ProductKey; onClose: () => void; onSaved: () => void }) {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [sections, setSections] = useState<{ key: KnowledgeSection; label: string }[]>([]);
   const save = useAction();
@@ -45,7 +45,7 @@ function ItemDialog({ open, item, section, onClose, onSaved }: { open: boolean; 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const body = { ...draft, title: draft.title.trim(), body: draft.body.trim(), url: draft.url.trim(), note: draft.note.trim() };
+    const body = { ...draft, title: draft.title.trim(), body: draft.body.trim(), url: draft.url.trim(), note: draft.note.trim(), ...(item ? {} : { product }) };
     const done = await save.run(() => (item ? g.patch<KnowledgeItem>(`/knowledge/${item.id}/`, body) : g.post<KnowledgeItem>("/knowledge/", body)));
     if (done) onSaved();
   };
@@ -170,7 +170,8 @@ function ItemCard({ item, onEdit, onDelete, onToggle, onReset }: { item: Knowled
  * internal tools are seeded OFF and the price is empty until a person types it. The AI writer may only talk about what is here.
  */
 export default function KnowledgePage() {
-  const list = useGet<KnowledgeList>("/knowledge/");
+  const [product, setProduct] = useState<ProductKey>("nm");
+  const list = useGet<KnowledgeList>(`/knowledge/?product=${product}`);
   const writer = useGet<WriterStatus>("/knowledge/writer-status/");
   const [editing, setEditing] = useState<KnowledgeItem | null>(null);
   const [adding, setAdding] = useState<KnowledgeSection | null>(null);
@@ -202,7 +203,7 @@ export default function KnowledgePage() {
     }
   };
   const restore = async () => {
-    const done = await act.run(() => g.post<{ knowledge: number; templates: number }>("/knowledge/restore-defaults/"));
+    const done = await act.run(() => g.post<{ knowledge: number; templates: number }>("/knowledge/restore-defaults/", { product }));
     if (done) {
       setNotice({ tone: done.knowledge + done.templates > 0 ? "ok" : "warn", text: done.knowledge + done.templates > 0 ? `${fa(done.knowledge)} مورد و ${fa(done.templates)} قالبِ پیش‌فرض برگردانده شد.` : "چیزی کم نبود؛ همهٔ پیش‌فرض‌ها سرِ جایشان هستند." });
       list.reload();
@@ -214,7 +215,9 @@ export default function KnowledgePage() {
     <div className="space-y-5" data-testid="knowledge-page">
       <PageHeader
         title="دانشِ محصول"
-        subtitle="آنچه آپ‌مارکت واقعاً دارد و می‌تواند، با زبانِ خودتان. نویسندهٔ هوشمند فقط به همین‌ها (و اطلاعاتِ خودِ لید) تکیه می‌کند و چیزی از خودش نمی‌سازد."
+        subtitle={product === "chagher"
+          ? "آنچه چغر واقعاً دارد و می‌تواند، فقط از سایتِ عمومیِ chagher.ir. نویسندهٔ هوشمندِ کمپین‌های چغر فقط به همین‌ها (و اطلاعاتِ خودِ لید) تکیه می‌کند."
+          : "آنچه آپ‌مارکت واقعاً دارد و می‌تواند، با زبانِ خودتان. نویسندهٔ هوشمند فقط به همین‌ها (و اطلاعاتِ خودِ لید) تکیه می‌کند و چیزی از خودش نمی‌سازد."}
         actions={
           <Button variant="secondary" onClick={restore} disabled={act.busy} data-testid="knowledge-restore">
             <Icon name="refresh" size={15} /> بازگرداندنِ پیش‌فرض‌های حذف‌شده
@@ -222,9 +225,26 @@ export default function KnowledgePage() {
         }
       />
 
-      <Alert tone="info" title="این متن‌ها از کجا آمده‌اند؟">
-        از خودِ محصول و سایتِ عمومیِ آن (صفحهٔ قیمت‌ها، صفحهٔ اصلی، فهرستِ قابلیت‌های پنل). هیچ قیمت، عدد، نظرِ مشتری یا نتیجهٔ فروشی از خودمان ننوشته‌ایم. چیزهایی که فقط ابزارِ داخلی‌اند (مثل سایت‌ساز) غیرفعال گذاشته شده‌اند تا شما تصمیم بگیرید به مشتری وعده‌اش را بدهید یا نه.
-      </Alert>
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="محصول" data-testid="product-tabs">
+        {(data?.products ?? [{ key: "nm" as ProductKey, label: "NMarketing (آپ‌مارکت)", short: "NM" }, { key: "chagher" as ProductKey, label: "چغر", short: "چغر" }]).map((p) => (
+          <button key={p.key} type="button" role="tab" aria-selected={product === p.key} data-product={p.key}
+            className={`u-btn u-btn-sm ${product === p.key ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setProduct(p.key)}>
+            {p.label}
+          </button>
+        ))}
+        <span className="text-xs" style={{ color: "var(--text-3)" }}>هر کمپین یک محصول دارد؛ نویسنده فقط دانشِ همان محصول را می‌بیند.</span>
+      </div>
+
+      {product === "chagher" ? (
+        <Alert tone="warn" title="آنچه تأیید نشده، فعال نیست">
+          هر جمله‌ای که این‌جا فعال است از سایتِ عمومیِ chagher.ir آمده. قیمتِ بسته (واحد و عدد)، آمارِ صفحهٔ اصلی (٪ رضایت، تعدادِ برنامه…) و نامِ کاربریِ اینستاگرام تأیید نشده‌اند: قیمت خالی و آن دو مورد غیرفعال‌اند و تا شما تأیید نکنید در هیچ پیامی نمی‌آیند.
+          امضای پیام (نام و شرکتِ فرستنده) از «تنظیماتِ جذب مشتری» می‌آید؛ پیش از کمپینِ چغر آن را بررسی کنید.
+        </Alert>
+      ) : (
+        <Alert tone="info" title="این متن‌ها از کجا آمده‌اند؟">
+          از خودِ محصول و سایتِ عمومیِ آن (صفحهٔ قیمت‌ها، صفحهٔ اصلی، فهرستِ قابلیت‌های پنل). هیچ قیمت، عدد، نظرِ مشتری یا نتیجهٔ فروشی از خودمان ننوشته‌ایم. چیزهایی که فقط ابزارِ داخلی‌اند (مثل سایت‌ساز) غیرفعال گذاشته شده‌اند تا شما تصمیم بگیرید به مشتری وعده‌اش را بدهید یا نه.
+        </Alert>
+      )}
 
       {data && data.summary.prices_missing > 0 && (
         <Alert tone="warn" title="قیمت وارد نشده است">
@@ -294,6 +314,7 @@ export default function KnowledgePage() {
         open={editing !== null || adding !== null}
         item={editing}
         section={adding ?? "feature"}
+        product={product}
         onClose={() => {
           setEditing(null);
           setAdding(null);

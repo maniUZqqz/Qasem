@@ -149,6 +149,8 @@ export type Campaign = {
   channel_label?: string;
   status: CampaignState;
   status_label?: string;
+  product?: ProductKey;
+  product_label?: string;
   created_by_name?: string;
   created_at?: string;
   started_at?: string | null;
@@ -306,9 +308,15 @@ export type KnowledgeItem = {
   needs_value: boolean;
   needs_value_hint: string;
   updated_at: string;
+  product?: ProductKey;
 };
 
+export type ProductKey = "nm" | "chagher";
+export type ProductInfo = { key: ProductKey; label: string; short: string };
+
 export type KnowledgeList = {
+  product?: ProductKey;
+  products?: ProductInfo[];
   sections: { key: KnowledgeSection; label: string }[];
   items: KnowledgeItem[];
   summary: { total: number; active: number; prices_missing: number; defaults_missing: number };

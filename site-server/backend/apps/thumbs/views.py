@@ -3,7 +3,8 @@
     GET   /                              ⇐ قالب‌ها، سبک‌ها، فونت‌ها، رنگِ برند، وضعیتِ هوش مصنوعی/سرورِ پردازش، محصول‌ها، تاریخچهٔ اخیر
     GET   styles/<سبک>/sample.jpg        ⇐ پیش‌نمایشِ نمونهٔ یک سبک (ساختگی، کَش‌شده)
     GET   moodboard/                     ⇐ الگوهای رایجِ چیدمان (توصیفِ گزیده)
-    POST  ideas/                         ⇐ {topic|product, format, count, number, other, ai, use_price} ⇒ ایده‌ها
+    GET/POST references/ · POST references/search/ · DELETE references/<id>/   ⇐ مرجع (پینِ پینترست، پوسترِ آزاد، عکسِ خودتان) ⇒ رنگ/حال‌وهوا/چیدمان
+    POST  ideas/                         ⇐ {topic|product, format, count, number, other, ai, use_price, reference?, palette?} ⇒ ایده‌ها
     POST  preview/                       ⇐ {spec} ⇒ پیش‌نمایشِ سریع (JPEG base64)
     POST  render/                        ⇐ {spec, variants, title, ai?} ⇒ نسخه‌های A/B (کامل)
     GET   items/ · items/<id>/ (GET، PATCH، DELETE) · items/<id>/download/?fmt=png|jpg
@@ -28,12 +29,12 @@ from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from apps.stores import access
 
-from . import aibg, archetypes, cutout, ideation, palette, services, typo
+from . import aibg, archetypes, cutout, ideation, palette, references, services, typo
 from . import formats as F
 from . import render as R
 from .models import Thumbnail
@@ -42,8 +43,8 @@ from .styles import STYLE_ORDER, STYLES
 logger = logging.getLogger(__name__)
 
 
-def _err(message: str, code: str = "thumbs", http=status.HTTP_400_BAD_REQUEST):
-    return Response({"error": {"code": code, "message": message}}, status=http)
+def _err(message: str, code: str = "thumbs", http=status.HTTP_400_BAD_REQUEST, extra: dict | None = None):
+    return Response({"error": {"code": code, "message": message, **(extra or {})}}, status=http)
 
 
 def _int(value, default: int) -> int:
@@ -164,15 +165,95 @@ class IdeasView(APIView):
         if fmt not in F.FORMATS:
             return _err("قالبِ ناشناخته است.")
         number = int(d["number"]) if str(d.get("number") or "").strip().isdigit() else None
+        ref = None
+        if d.get("reference"):
+            ref = references.get(store.pk, str(d["reference"]))
+            if ref is None:
+                return _err("مرجع پیدا نشد (شاید پاک شده است).", "not_found", status.HTTP_404_NOT_FOUND)
         try:
             result = ideation.ideate(store, str(d.get("topic") or ""), product=product, fmt=fmt, count=_int(d.get("count"), 6), number=number,
                                      other=str(d.get("other") or "")[:80], use_ai=bool(d.get("ai", True)), variation=_int(d.get("variation"), 0),
                                      use_price=bool(d.get("use_price", False)))
         except ValueError as exc:
             return _err(str(exc))
+        if ref is not None:
+            mode = "reference" if str(d.get("palette") or "") == "reference" else "brand"
+            result["ideas"] = references.restyle(result["ideas"], ref, fmt=fmt, palette_mode=mode)
+            result["reference"] = {"id": ref["id"], "title": ref.get("title", ""), "mood_fa": ref["analysis"]["mood_fa"], "palette_mode": mode}
+            result["message"] += f" ایده‌ها با رنگ، حال‌وهوا و چیدمانِ مرجعِ «{ref.get('title') or 'بدون‌نام'}» دوباره پوشانده شد؛ متن‌ها دست‌نخورده‌اند."
         row = services.save_idea_set(store, request.user, product, result)
         result["id"] = row.pk
         return Response(result)
+
+
+class RefThrottle(UserRateThrottle):
+    """جست‌وجو و گرفتنِ مرجع به سایتِ بیرونی می‌رود؛ سقفِ نرم تا ابزار به ابزارِ خزنده تبدیل نشود."""
+    scope = "thumb_ref"
+    rate = "40/min"
+
+
+class ReferencesView(APIView):
+    """GET ⇒ مرجع‌های فروشگاه (مودبردِ شما) · POST ⇒ مرجعِ تازه: فایلِ ``file`` ، یا ``{url}`` (عکس یا صفحه، مثلِ پینِ پینترست) ، یا ``{commons: {thumb_url, title, author, license, page_url}}``."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_classes = [RefThrottle]
+
+    def get(self, request, store_id):
+        store = _store(request, store_id, write=False)
+        return Response({"references": references.listing(store.pk), "max": references.MAX_REFS_PER_STORE,
+                         "pinterest_note": "پینترست API ِ عمومیِ جست‌وجو ندارد؛ پینِ دلخواه را باز کنید و نشانیِ همان صفحه را بدهید. عکس‌های پینترست در ایران فیلتر است: اگر مرورگرتان (با VPN) به آن می‌رسد خودش آن را می‌گیرد، وگرنه عکس را ذخیره و از «عکسِ خودم» بارگذاری کنید. عکس فقط تحلیل می‌شود و در خروجی نمی‌آید.",
+                         "sources": references.SOURCES})
+
+    def post(self, request, store_id):
+        store = _store(request, store_id)
+        d = request.data
+        try:
+            up = request.FILES.get("file")
+            if up is not None:
+                if up.size > references.MAX_IMAGE_BYTES:
+                    raise references.RefError("عکس بزرگ‌تر از ۸ مگابایت است.")
+                img = references._open_image(up.read())
+                row = references.save(store.pk, img, source="upload", title=str(d.get("title") or os.path.splitext(os.path.basename(up.name))[0])[:160])
+            elif d.get("commons"):
+                c = d["commons"] if isinstance(d["commons"], dict) else {}
+                img = references.fetch_commons(str(c.get("thumb_url") or ""))
+                row = references.save(store.pk, img, source="commons", title=str(c.get("title") or "")[:160],
+                                      extra={"page_url": str(c.get("page_url") or "")[:300], "author": str(c.get("author") or "")[:100],
+                                             "license": str(c.get("license") or "")[:40], "license_url": str(c.get("license_url") or "")[:300],
+                                             "image_url": str(c.get("thumb_url") or "")[:300]})
+            elif d.get("url"):
+                img, meta = references.fetch_url(str(d["url"]))
+                row = references.save(store.pk, img, source=meta["source"], title=str(d.get("title") or meta.get("title") or "")[:160],
+                                      extra={"page_url": meta["page_url"], "image_url": meta["image_url"]})
+            else:
+                return _err("عکس، نشانی یا یک پوسترِ آزاد بدهید.")
+        except references.RefError as exc:
+            return _err(str(exc), extra=exc.extra)
+        return Response(row, status=status.HTTP_201_CREATED)
+
+
+class ReferenceSearchView(APIView):
+    """POST ``{q}`` ⇒ پوسترهای آزادِ ویکی‌مدیا کامنز (مجوزِ آزاد؛ پدیدآور و مجوز کنارِ هر نتیجه)."""
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [RefThrottle]
+
+    def post(self, request, store_id):
+        _store(request, store_id, write=False)
+        try:
+            rows = references.search_commons(str(request.data.get("q") or ""), limit=_int(request.data.get("limit"), 12))
+        except references.RefError as exc:
+            return _err(str(exc))
+        return Response({"results": rows, "note": "فقط پرونده‌های با مجوزِ آزاد (مالکیتِ عمومی، CC0، CC BY، CC BY-SA). عکس فقط برای تحلیلِ رنگ و چیدمان است."})
+
+
+class ReferenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, store_id, rid):
+        store = _store(request, store_id)
+        if not references.delete(store.pk, rid):
+            return _not_found()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PreviewView(APIView):

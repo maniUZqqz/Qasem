@@ -238,6 +238,8 @@ export type ProposalT = {
   can_apply: boolean;
   can_revert: boolean;
   change_count: number;
+  /** AI در دسترس نبود و درخواست در صفِ انتظار است (خودکار اجرا می‌شود) */
+  parked?: boolean;
 };
 
 export type ChangeT = {

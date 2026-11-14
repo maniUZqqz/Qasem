@@ -34,11 +34,18 @@ def job_json(job: OutreachJob | None) -> dict | None:
     }
 
 
+def _product_label(key: str) -> str:
+    from apps.growth_engine.knowledge import products
+
+    return products.PRODUCTS.get(products.normalize(key), {}).get("short", key)
+
+
 def campaign_json(campaign: Campaign, counts: dict[str, int] | None = None) -> dict:
     counts = counts or {}
     return {
         "id": campaign.pk, "name": campaign.name, "template": {"id": campaign.template_id, "name": campaign.template.name},
         "mode": campaign.mode, "mode_label": campaign.get_mode_display(), "channel": campaign.channel, "channel_label": channel_label(campaign.channel),
+        "product": campaign.product, "product_label": _product_label(campaign.product),
         "status": campaign.status, "status_label": campaign.get_status_display(),
         "counts": counts, "items_total": sum(counts.values()),
         "created_by_name": campaign.created_by.username if campaign.created_by_id else "",
@@ -132,6 +139,7 @@ class CampaignCreateSerializer(serializers.Serializer):
     template_id = serializers.IntegerField(min_value=1)
     mode = serializers.ChoiceField(choices=Campaign.Mode.choices, default=Campaign.Mode.AUTO)
     channel = serializers.ChoiceField(choices=[c[0] for c in CAMPAIGN_CHANNEL_CHOICES], default=Channel.CONTACT_FORM)
+    product = serializers.ChoiceField(choices=["nm", "chagher"], default="nm", required=False)
     lead_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), required=False, max_length=5000)
     force = serializers.BooleanField(required=False)
 

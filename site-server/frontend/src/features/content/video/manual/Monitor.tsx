@@ -64,7 +64,8 @@ export function useMediaUrls(media: Record<string, MediaItem>, refs: string[]): 
 }
 
 export type MonitorHandle = {
-  getFrame: () => ImageData | null;
+  /** ``maxSide``: برای اسکوپ‌ها (فریمِ کوچک‌شده)؛ بدونِ آن فریمِ کامل (قطره‌چکان) */
+  getFrame: (maxSide?: number) => ImageData | null;
   getCanvas: () => HTMLCanvasElement | null;
   invalidate: () => void;
   /** هر بار که مانیتور یک فریم کشید خبر می‌دهد (اسکوپ‌ها، «برشِ قاب»)؛ تابعِ برگشتی اشتراک را برمی‌دارد */
@@ -155,6 +156,13 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
   const matteNow = useRef(new Map<string, Source>());
   const timeRef = useRef(time);
   const [frameVersion, setFrameVersion] = useState(0);
+  // کیفیتِ پخش خودکار: اگر کشیدنِ فریم از بودجهٔ زمانی بیشتر طول بکشد، بومِ مانیتور هنگامِ پخش کوچک‌تر می‌شود (توقف ⇒ دوباره کامل)
+  const quality = useRef(1);
+  const drawEma = useRef(0);
+  const slow = useRef(0);
+  const fast = useRef(0);
+  const [lowQ, setLowQ] = useState(false);
+  const dims = useRef({ fw: 0, fh: 0 });
 
   const mediaClips = useMemo(() => flat.tracks.flatMap((t) => t.clips.filter(isMedia).map((c) => ({ c, t }))), [flat]);
   const refs = useMemo(() => Array.from(new Set(mediaClips.map((x) => x.c.ref))), [mediaClips]);
@@ -165,6 +173,7 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
   const ar = project.format.width / project.format.height;
   const fw = Math.max(60, Math.min(size.w, size.h * ar));
   const fh = fw / ar;
+  dims.current = { fw, fh };
   const total = projectLength(project);
 
   // ───────── اندازهٔ قاب
@@ -184,16 +193,46 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
     cv.setAttribute("data-testid", "program-canvas");
     const host = holder.current;
     if (host && cv.parentElement !== host) host.prepend(cv);
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    let w = fw * dpr;
-    let h = fh * dpr;
-    const k = Math.min(1, 900 / Math.max(w, h));
-    w *= k;
-    h *= k;
-    compositor.current.setSize(w, h);
+    applySize();
     requestRender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fw, fh]);
+
+  /** اندازهٔ بومِ ترکیب = قاب × dpr (حداکثر ۹۰۰ پیکسل) × کیفیتِ فعلیِ پخش */
+  const applySize = useCallback(() => {
+    const comp = compositor.current;
+    if (!comp) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    let w = dims.current.fw * dpr;
+    let h = dims.current.fh * dpr;
+    const k = Math.min(1, 900 / Math.max(w, h)) * quality.current;
+    comp.setSize(w * k, h * k);
+  }, []);
+
+  /** هر فریمِ پخش‌شده زمانِ کشیدنش را گزارش می‌دهد؛ ۲۰ فریمِ پیاپیِ کند ⇒ یک پله کوچک‌تر؛ ۱۵۰ فریمِ پیاپیِ سریع ⇒ یک پله بزرگ‌تر */
+  const adapt = useCallback((ms: number) => {
+    const e = drawEma.current = drawEma.current ? drawEma.current * 0.9 + ms * 0.1 : ms;
+    if (e > 24 && quality.current > 0.5) {
+      fast.current = 0;
+      if (++slow.current >= 20) {
+        slow.current = 0;
+        quality.current = Math.max(0.5, Math.round(quality.current * 75) / 100);
+        applySize();
+        setLowQ(true);
+      }
+    } else if (e < 7 && quality.current < 1) {
+      slow.current = 0;
+      if (++fast.current >= 150) {
+        fast.current = 0;
+        quality.current = Math.min(1, Math.round((quality.current / 0.75) * 100) / 100);
+        applySize();
+        if (quality.current >= 1) setLowQ(false);
+      }
+    } else {
+      slow.current = Math.max(0, slow.current - 1);
+      fast.current = 0;
+    }
+  }, [applySize]);
 
   // ───────── منبع‌ها (element ِ هر کلیپ)
   const releaseElement = useCallback((id: string) => {
@@ -320,11 +359,13 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
     if (!comp) return;
     const sources = syncMedia(t, isPlaying, r);
     const L = latest.current;
+    const t0 = isPlaying ? performance.now() : 0;
     comp.render({ project: L.project, time: t, sources, looks: L.looks, compare: L.compare, luts: L.luts, mattes: matteNow.current });
+    if (isPlaying) adapt(performance.now() - t0);
     L.engine?.sync(L.flat, t, isPlaying, L.duckSpans);
     L.onFrame?.();
     if (frameSubs.current.size) frameSubs.current.forEach((f) => f());
-  }, [syncMedia]);
+  }, [syncMedia, adapt]);
 
   const requestRender = useCallback(() => {
     if (latest.current.playing || rafRender.current) return;
@@ -336,7 +377,7 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
   }, [draw]);
 
   useImperativeHandle(ref, () => ({
-    getFrame: () => compositor.current?.getImageData() ?? null,
+    getFrame: (maxSide?: number) => compositor.current?.getImageData(maxSide) ?? null,
     getCanvas: () => compositor.current?.canvas ?? null,
     invalidate: () => requestRender(),
     subscribeFrame,
@@ -366,6 +407,14 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
   useEffect(() => {
     if (!playing) {
       for (const [, e] of elements.current) if (e.el instanceof HTMLMediaElement && !e.el.paused) e.el.pause();
+      if (quality.current < 1) {            // پخش تمام شد ⇒ ایستاده کیفیتِ کامل
+        quality.current = 1;
+        drawEma.current = 0;
+        slow.current = fast.current = 0;
+        applySize();
+        setLowQ(false);
+        requestRender();
+      }
       return;
     }
     let raf = 0;
@@ -522,6 +571,7 @@ const Monitor = memo(forwardRef<MonitorHandle, Props>(function Monitor(props, re
     <div className="vw-monitor" data-testid="monitor">
       <div className="vw-stage" ref={stage}>
         <div className="vw-frame" ref={holder} style={{ width: fw, height: fh }} data-testid="program-frame">
+          {lowQ && playing && <span className="vw-lowq" data-testid="lowq" role="status">پخشِ روان: کیفیتِ پیش‌نمایش موقتاً کم شد (خروجی کامل است)</span>}
           {safeShown !== SAFE_OFF && !crop && <SafeZoneLayer zoneKey={safeShown} zone={zoneByKey(zones, safeShown)} />}
           {total === 0 && (
             <div className="grid h-full w-full place-items-center px-4 text-center text-xs" style={{ color: "var(--text-3)", position: "absolute", inset: 0 }}>

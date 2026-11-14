@@ -1,9 +1,10 @@
 import { useState } from "react";
 
 import { api, studioError } from "./api";
+import C21stBrowser from "./C21stBrowser";
 import { Check, Help } from "./common";
 
-export type DesignValue = { style: string; components: string[] };
+export type DesignValue = { style: string; components: string[]; refs21?: string[] };
 type Opts = {
   styles: { key: string; label: string; en: string; mood: string; colors: { primary: string; bg: string; text: string } }[];
   components: { key: string; label: string; cat: string; cat_label: string }[];
@@ -81,6 +82,14 @@ export default function DesignPicker({ value, onChange }: { value: DesignValue; 
                 ))}
               </div>
             </div>
+            <details className="rounded-lg p-2" style={{ border: "1px dashed var(--line)" }} data-testid="design-c21st">
+              <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--text-2)" }}>
+                الهام از کاتالوگِ 21st.dev (اختیاری، تا ۳ قطعه){value.refs21?.length ? ` — ${value.refs21.length} انتخاب شده` : ""}
+              </summary>
+              <div className="mt-2">
+                <C21stBrowser mode="ai" picked={value.refs21 ?? []} onPick={(ids) => onChange({ ...value, refs21: ids })} />
+              </div>
+            </details>
             <Help>به هوشِ مصنوعی فقط همین سبک و چند قطعهٔ مرتبط داده می‌شود، نه کلِ کتابخانه؛ همین باعث می‌شود نتیجه بهتر و حرفه‌ای‌تر شود.</Help>
           </>
         )}

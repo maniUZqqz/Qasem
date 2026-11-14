@@ -166,6 +166,7 @@ export type Overview = { nodes: NodeBlock[]; catalog: CatalogItem[]; settings: A
 
 export const TRIGGER_FA: Record<string, string> = {
   version: "پس از نسخهٔ تازهٔ برنامه",
+  online: "با روشن‌شدنِ سرورِ پردازش",
   nightly: "آزمونِ شبانه",
   manual: "دکمهٔ «آزمونِ کامل»",
   deep: "آزمونِ عمیق",

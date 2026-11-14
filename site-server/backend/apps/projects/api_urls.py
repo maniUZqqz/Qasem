@@ -6,7 +6,7 @@ from django.urls import path
 
 from apps.ai_engine import api as ai
 from apps.project_importer import api as imp
-from . import api
+from . import api, c21st_api
 from .builder import api as vb
 from .hosting import api as hosting
 from .hosting import api as hosting
@@ -111,6 +111,10 @@ urlpatterns = [
     path('ai/route/pull/', ai.ai_route_pull),                                 # POST دانلودِ مدل روی گره
     path('ai/settings/test/', ai.ai_settings_test),                           # POST
     path('ai/design-options/', ai.design_options),                            # GET سبک‌ها و قطعه‌های قابلِ انتخاب در حالتِ AI
+    path('c21st/', c21st_api.c21st_list),                                     # GET کاتالوگِ 21st.dev (جست‌وجو)
+    path('c21st/crawl/', c21st_api.c21st_crawl),                              # POST به‌روزرسانیِ کاتالوگ (صفِ Celery)
+    path('c21st/key/', c21st_api.c21st_key),                                  # POST · DELETE کلیدِ API ِ مالک
+    path('c21st/code/', c21st_api.c21st_code),                                # POST گرفتنِ کدِ یک قطعه (با کلید)
     path('projects/<slug:slug>/ai/', ai.ai_home),                             # GET · POST {act}
     path('projects/<slug:slug>/ai/page/<int:pk>/', ai.ai_edit_page),          # POST
     path('projects/<slug:slug>/ai/shared/<str:kind>/', ai.ai_edit_shared),    # POST
@@ -120,6 +124,7 @@ urlpatterns = [
     path('projects/<slug:slug>/ai/proposals/<int:pk>/apply/', ai.ai_apply),   # POST {change: [ids]}
     path('projects/<slug:slug>/ai/proposals/<int:pk>/reject/', ai.ai_reject), # POST
     path('projects/<slug:slug>/ai/proposals/<int:pk>/revert/', ai.ai_revert), # POST
+    path('projects/<slug:slug>/ai/proposals/<int:pk>/retry/', ai.ai_retry),   # POST اجرای دوبارهٔ درخواستِ پارک‌شده (AI در دسترس نبود)
 
     # واردکردن
     path('import/', imp.import_form),                                         # GET ریشه‌ها · POST (multipart)

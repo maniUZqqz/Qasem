@@ -96,6 +96,14 @@ export default function VideoEditorPage() {
   }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const up = useVideoUpload<Video>(id!);
+  // ۱۴۰۵/۰۸/۲۴: روی لپ‌تاپ تایم‌لاین زیرِ خطِ صفحه بود (هدر + سه کارتِ حالت ~۲۶۰ پیکسل جا می‌گرفت). با باز شدنِ حالتِ «دستی» صفحه یک بار
+  // طوری اسکرول می‌شود که نوارِ عنوانِ فضای کار بالای صفحه باشد و تایم‌لاین بدونِ اسکرول دیده شود (اسکرولِ کاربر بعد از آن دست‌نخورده است).
+  const workspaceBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mode !== "manual" || typeof window === "undefined" || window.innerWidth < 1000) return;
+    const t = window.setTimeout(() => workspaceBox.current?.scrollIntoView({ block: "start", behavior: "auto" }), 60);
+    return () => window.clearTimeout(t);
+  }, [mode]);
 
   const load = useCallback(async () => {
     try {
@@ -253,7 +261,7 @@ export default function VideoEditorPage() {
       />
 
       {mode === "manual" && (
-        <div className="mb-6">
+        <div className="mb-6" ref={workspaceBox}>
           <VideoWorkspace storeId={id!} tools={tools} startRef={manualStart} onStartConsumed={() => setManualStart(null)} startProject={manualProject} onProjectOpened={() => setManualProject(null)} onGoDirector={() => setMode("prompt")} />
         </div>
       )}

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { errorMessage } from "../../../api/client";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, Select, Spinner, fa } from "../../../components/ui";
 import { Archetype, FormatInfo, Idea, IdeasResult, ProductRow, thumbsApi } from "./api";
+import ReferenceBoard from "./ReferenceBoard";
 
 /**
  * «ایده»: موضوع یا محصول ⇒ عنوان‌های قلاب‌دار + مفهومِ تصویری + سبکِ پیشنهادی؛ و «مودبرد» ِ الگوهای رایج.
@@ -13,6 +14,7 @@ export default function IdeasPanel({
   format,
   formats,
   products,
+  hasBrand = true,
   onUse,
   onUseStyle,
 }: {
@@ -20,6 +22,7 @@ export default function IdeasPanel({
   format: string;
   formats: FormatInfo[];
   products: ProductRow[];
+  hasBrand?: boolean;
   onUse: (idea: Idea) => void;
   onUseStyle: (style: string, format: string) => void;
 }) {
@@ -37,6 +40,9 @@ export default function IdeasPanel({
   const [boardNote, setBoardNote] = useState("");
   const [showBoard, setShowBoard] = useState(false);
   const [boardError, setBoardError] = useState<string | null>(null);
+  const [showRefs, setShowRefs] = useState(false);
+  const [refId, setRefId] = useState("");
+  const [paletteMode, setPaletteMode] = useState<"brand" | "reference">("brand");
 
   useEffect(() => setIdeaFormat(format), [format]);
 
@@ -55,6 +61,7 @@ export default function IdeasPanel({
     try {
       const res = await thumbsApi.ideas(storeId, {
         topic, product: productId || undefined, format: ideaFormat, count: 6, number: number || undefined, ai: useAi, use_price: usePrice, variation: nextVariation,
+        reference: refId || undefined, palette: refId ? paletteMode : undefined,
       });
       setResult(res);
       setVariation(nextVariation);
@@ -74,10 +81,21 @@ export default function IdeasPanel({
           <h2 className="text-base font-extrabold" style={{ color: "var(--text)" }}>ایده‌پردازی</h2>
           <p className="dz-muted">موضوع یا محصول را بدهید؛ عنوانِ قلاب‌دار، مفهومِ تصویری و سبکِ مناسبِ هر پلتفرم پیشنهاد می‌شود.</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => setShowBoard((v) => !v)}>
-          {showBoard ? "بستنِ مودبرد" : "مودبردِ الگوهای رایج"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setShowRefs((v) => !v)} aria-expanded={showRefs}>
+            {showRefs ? "بستنِ مرجع‌ها" : refId ? "مرجع انتخاب شده ✓" : "ایده از روی مرجع (پینترست و پوستر)"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setShowBoard((v) => !v)}>
+            {showBoard ? "بستنِ مودبرد" : "مودبردِ الگوهای رایج"}
+          </Button>
+        </div>
       </div>
+
+      {showRefs && (
+        <div className="mb-4">
+          <ReferenceBoard storeId={storeId} selected={refId} onSelect={setRefId} paletteMode={paletteMode} onPaletteMode={setPaletteMode} hasBrand={hasBrand} />
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="dz-field wide">
@@ -128,7 +146,9 @@ export default function IdeasPanel({
                   <Badge tone={i.source === "ai" ? "brand" : "neutral"}>{i.source === "ai" ? "هوش مصنوعی" : i.formula_label}</Badge>
                   <Badge tone="info">{i.style_title}</Badge>
                   {i.number && <Badge>عدد {fa(i.number)}</Badge>}
+                  {i.reference && <Badge tone="warn">از مرجع: {i.reference.mood_fa}</Badge>}
                 </div>
+                {i.reference && <img className="th-idea-ref" src={i.reference.image} alt="مرجع" loading="lazy" />}
                 <div className="th-idea-title">{i.title.replace(/\*/g, "")}</div>
                 {i.subtitle && <div className="dz-muted">{i.subtitle}</div>}
                 <p className="dz-muted" style={{ marginTop: 6 }}>{i.concept}</p>

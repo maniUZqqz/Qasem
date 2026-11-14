@@ -162,7 +162,23 @@ def _design(post):
     style = (post.get('style') or '').strip()
     style = style if style in styles.STYLES else ''
     keys = [k for k in post.getlist('components') if k in components.COMPONENTS][:5]
-    return {'style': style, 'components': keys} if (style or keys) else None
+    from apps.projects.builder import c21st
+    refs = c21st.valid_ids(post.getlist('refs21'))          # الهام از کاتالوگِ 21st.dev (حداکثر ۳؛ شناسهٔ ناشناخته دور ریخته می‌شود)
+    out = {'style': style, 'components': keys}
+    if refs:
+        out['refs21'] = refs
+    return out if (style or keys or refs) else None
+
+
+@studio_api('POST')
+def ai_retry(request, slug, pk):
+    """پیشنهادی که چون AI در دسترس نبود در صف مانده، همین حالا دوباره اجرا شود."""
+    from . import parking
+    prop = get_object_or_404(AiProposal, pk=pk, project__slug=slug)
+    if not parking.resume_now(prop.pk):
+        return bad('این پیشنهاد در صفِ انتظار نیست (یا صفحهٔ مربوطش پاک شده). درخواست را دوباره بفرست.')
+    prop.refresh_from_db()
+    return Response({'ok': True, 'proposal': proposal_json(prop)})
 
 
 @studio_api('GET')

@@ -110,6 +110,7 @@ class Campaign(TimeStampedModel):
     template = models.ForeignKey(MessageTemplate, on_delete=models.PROTECT, related_name="campaigns", verbose_name="قالب")
     mode = models.CharField("حالت", max_length=8, choices=Mode.choices, default=Mode.AUTO)
     channel = models.CharField("کانال", max_length=16, choices=CAMPAIGN_CHANNEL_CHOICES, default=Channel.CONTACT_FORM)
+    product = models.CharField("محصول", max_length=20, default="nm", help_text="کدام محصول را معرفی می‌کند (knowledge/products.py)؛ نویسندهٔ هوشمند فقط دانشِ همین محصول را می‌بیند")
     status = models.CharField("وضعیت", max_length=10, choices=Status.choices, default=Status.DRAFT)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="ساخته‌شده توسط"

@@ -3,6 +3,7 @@ import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, studioError } from "../api";
 import type { Catalog, CompMeta, Doc } from "./doc";
+import C21stBrowser from "../C21stBrowser";
 import { Svg } from "./fields";
 import type { StyleT, ThemeOptions, ThemeT } from "./types";
 
@@ -244,6 +245,7 @@ export function ComponentsPanel({
   const [open, setOpen] = useState<string | null>(null);
   const [prev, setPrev] = useState<Preview | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [src, setSrc] = useState<"own" | "c21">("own");
 
   const items = useMemo(() => {
     const word = q.trim();
@@ -272,8 +274,23 @@ export function ComponentsPanel({
 
   if (!meta) return <p className="nbe-note">فهرستِ قطعه‌ها نیامد.</p>;
   const cats = meta.categories.filter((c) => (meta.items ?? []).some((i) => i.cat === c.key && i.scope.includes(target)));
+  if (src === "c21") {
+    return (
+      <div data-testid="components">
+        <div className="nbe-chips" role="tablist">
+          <button type="button" onClick={() => setSrc("own")}>قطعه‌های ما</button>
+          <button type="button" className="on" data-testid="src-c21">کاتالوگِ 21st.dev</button>
+        </div>
+        <C21stBrowser mode="manual" onAddNearest={onAdd} />
+      </div>
+    );
+  }
   return (
     <div data-testid="components">
+      <div className="nbe-chips" role="tablist">
+        <button type="button" className="on">قطعه‌های ما</button>
+        <button type="button" data-testid="src-c21" onClick={() => setSrc("c21")}>کاتالوگِ 21st.dev</button>
+      </div>
       <input className="nbe-input" placeholder="جست‌وجوی قطعه…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی قطعه" />
       <div className="nbe-chips" role="tablist">
         <button type="button" className={!cat ? "on" : ""} onClick={() => setCat("")}>

@@ -924,6 +924,18 @@ NM_SITES_MIN_DISK_MB = int(os.getenv("NM_SITES_MIN_DISK_MB", "1500"))
 NM_SITES_MIN_MEM_MB = int(os.getenv("NM_SITES_MIN_MEM_MB", "500"))
 NM_SITES_MEMORY_MAX_MB = int(os.getenv("NM_SITES_MEMORY_MAX_MB", "192"))
 NM_SITES_CPU_QUOTA = int(os.getenv("NM_SITES_CPU_QUOTA", "40"))
+# سایت‌ساز: درخواستِ AI که چون هوش مصنوعی در دسترس نبود در صف مانده، با برگشتنِ AI خودکار اجرا می‌شود
+CELERY_BEAT_SCHEDULE["ai-parked-resume"] = {
+    "task": "apps.ai_engine.tasks.resume_parked",
+    "schedule": 300.0,
+    "options": {"expires": 280},
+}
+# سایت‌ساز: کاتالوگِ 21st.dev (فقط فهرستِ عمومیِ .md؛ بار اولِ خالی و بعد هفته‌ای یک بار)
+CELERY_BEAT_SCHEDULE["c21st-catalog-refresh"] = {
+    "task": "apps.projects.tasks.c21st_refresh",
+    "schedule": 21600.0,
+    "options": {"expires": 3600},
+}
 CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
     "task": "apps.projects.tasks.published_sites_daily",
     "schedule": 86400.0,

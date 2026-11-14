@@ -289,9 +289,19 @@ export class Compositor {
     return s;
   }
 
-  /** فریمِ زیرِ سرِ پخش برای اسکوپ‌ها */
-  getImageData(): ImageData | null {
+  /**
+   * فریمِ زیرِ سرِ پخش برای اسکوپ‌ها و قطره‌چکان. ``maxSide`` اگر داده شود و فریم بزرگ‌تر باشد، اول به یک بومِ کوچک کشیده می‌شود
+   * (اسکوپ‌ها در یک کادرِ ~۳۰۰ پیکسلی کشیده می‌شوند؛ خواندنِ کلِ ۹۰۰×۵۰۰ هر ۶۶ms روی ماشینِ ضعیف پخش را می‌لَگاند).
+   */
+  getImageData(maxSide?: number): ImageData | null {
     try {
+      if (maxSide && Math.max(this.w, this.h) > maxSide) {
+        const k = maxSide / Math.max(this.w, this.h);
+        const S = this.get("scope", Math.max(2, Math.round(this.w * k)), Math.max(2, Math.round(this.h * k)));
+        S.x.imageSmoothingQuality = "low";
+        S.x.drawImage(this.canvas, 0, 0, S.c.width, S.c.height);
+        return S.x.getImageData(0, 0, S.c.width, S.c.height);
+      }
       return this.ctx.getImageData(0, 0, this.w, this.h);
     } catch {
       return null;

@@ -8,6 +8,7 @@ from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.services.editing import ValidationFailed
 
 from ..models import KnowledgeItem
+from .. import products as P
 from . import seed_data
 
 MAX_BODY = 3000
@@ -69,18 +70,24 @@ def item_json(item: KnowledgeItem) -> dict:
     return {
         "id": item.pk, "section": item.section, "section_label": item.get_section_display(), "title": item.title, "body": item.body, "url": item.url,
         "sort_order": item.sort_order, "is_active": item.is_active, "note": item.note, "is_default": bool(item.seed_key), "seed_key": item.seed_key or "",
-        "needs_value": item.needs_value, "needs_value_hint": PRICE_HINT if item.needs_value else "",
+        "needs_value": item.needs_value, "needs_value_hint": PRICE_HINT if item.needs_value else "", "product": item.product,
         "updated_at": item.updated_at,
     }
 
 
-def listing() -> dict:
-    items = list(KnowledgeItem.objects.all())
+def listing(product: str = P.DEFAULT) -> dict:
+    product = P.normalize(product)
+    if product != P.DEFAULT and not KnowledgeItem.objects.filter(product=product).exists():
+        from . import seed
+
+        seed.seed_product(product)                   # بارِ اولِ یک محصولِ تازه: پیش‌فرض‌هایش (فقط واقعیت‌های تأییدشده) سرِ جایشان می‌آید
+    items = list(KnowledgeItem.objects.filter(product=product))
     order = {s: i for i, s in enumerate(seed_data.SECTION_ORDER)}
     items.sort(key=lambda i: (order.get(i.section, 99), i.sort_order, i.pk))
     sections = [{"key": value, "label": label} for value, label in KnowledgeItem.Section.choices]
-    missing = [k for k, *_ in seed_data.KNOWLEDGE if not KnowledgeItem.objects.filter(seed_key=k).exists()]
+    missing = [k for k, *_ in seed_data.knowledge_of(product) if not KnowledgeItem.objects.filter(seed_key=k).exists()]
     return {
+        "product": product, "products": P.public(),
         "sections": sections, "items": [item_json(i) for i in items],
         "summary": {
             "total": len(items), "active": sum(1 for i in items if i.is_active),
@@ -89,9 +96,9 @@ def listing() -> dict:
     }
 
 
-def create(data: Mapping, actor) -> KnowledgeItem:
+def create(data: Mapping, actor, product: str = P.DEFAULT) -> KnowledgeItem:
     clean = validate(data)
-    return KnowledgeItem.objects.create(updated_by=actor if getattr(actor, "is_authenticated", False) else None, **clean)
+    return KnowledgeItem.objects.create(updated_by=actor if getattr(actor, "is_authenticated", False) else None, product=P.normalize(product), **clean)
 
 
 def update(item: KnowledgeItem, data: Mapping, actor) -> KnowledgeItem:
@@ -107,7 +114,7 @@ def update(item: KnowledgeItem, data: Mapping, actor) -> KnowledgeItem:
 
 def reset_to_default(item: KnowledgeItem, actor) -> KnowledgeItem:
     """Put a default item's title / text / address back to the shipped ones (an edited price goes back to empty)."""
-    for seed_key, section, title, body, url, active, note, order in seed_data.KNOWLEDGE:
+    for seed_key, section, title, body, url, active, note, order in seed_data.KNOWLEDGE + seed_data.CHAGHER_KNOWLEDGE:
         if seed_key == item.seed_key:
             item.title, item.body, item.url, item.note = title, body, url, note
             item.updated_by = actor if getattr(actor, "is_authenticated", False) else None

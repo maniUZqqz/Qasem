@@ -73,6 +73,7 @@ urlpatterns = [
     path("selftests/<int:pk>/", views_platform.run_detail),
     path("selftests/<int:pk>/rerun/", views_platform.rerun),
     path("progress/", views_platform.progress),
+    path("owner-steps/", views_platform.owner_steps),             # «کارهای مالک» با وضعیتِ زنده (owner_steps.py)
     path("nodes/<int:pk>/bootstrap/", views_platform.node_bootstrap_retry),
     path("nodes/<int:pk>/autostart/", views_platform.node_autostart),
 ]

@@ -43,7 +43,7 @@ export default function AiHomePage() {
     setBusy(act);
     setFormError(null);
     try {
-      const body = act === "frontend" ? { act, brief, shell, samples, pages, style: design.style, components: design.components } : { act, description };
+      const body = act === "frontend" ? { act, brief, shell, samples, pages, style: design.style, components: design.components, refs21: design.refs21 ?? [] } : { act, description };
       const { data: d } = await api.post<{ proposal: ProposalT }>(`/studio/projects/${slug}/ai/`, body);
       navigate(pUrl(slug, `ai/proposal/${d.proposal.id}`));
     } catch (err) {

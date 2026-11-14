@@ -86,3 +86,18 @@
 .th-selftest { margin: 0; font-size: 12px; color: var(--text-3); }
 .th-selftest[data-state="failed"] { color: var(--bad); }
 .th-selftest[data-state="ok"] { color: var(--ok, var(--text-2)); }
+
+/* مرجع‌ها (پینترست / پوسترِ فیلم / عکسِ خودتان) */
+.th-refs { border: 1px dashed var(--line-strong, var(--line)); border-radius: 14px; padding: 12px; background: var(--surface); min-width: 0; }
+.th-reftabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.th-reftab { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); font-size: 13px; cursor: pointer; }
+.th-reftab[aria-selected="true"] { border-color: var(--brand); color: var(--text); box-shadow: var(--glow); }
+.th-refgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.th-refcard { display: flex; flex-direction: column; border: 2px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-2); min-width: 0; }
+.th-refcard[data-selected="true"] { border-color: var(--brand); box-shadow: var(--glow); }
+.th-refcard > img, .th-refpick img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; background: var(--surface); }
+.th-refpick { padding: 0; border: 0; background: none; cursor: pointer; display: block; width: 100%; }
+.th-refmeta { padding: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; min-width: 0; }
+.th-chips { display: flex; gap: 3px; }
+.th-chips i { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); display: block; }
+.th-idea-ref { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; float: inline-end; margin-inline-start: 8px; border: 1px solid var(--line); }

@@ -412,6 +412,15 @@ def _answer_label(pr):
     return answer_label(pr.answered_via, pr.answered_by, bool(pr.fallback_note)) if pr.answered_via else ''
 
 
+def _parked(pk):
+    """AI در دسترس نبود و درخواست در صفِ انتظار است (apps/ai_engine/parking.py)."""
+    try:
+        from apps.ai_engine import parking
+        return parking.is_parked(pk)
+    except Exception:  # noqa
+        return False
+
+
 def proposal_json(pr):
     return {
         'id': pr.id, 'task': pr.task, 'task_display': pr.get_task_display(), 'title': pr.title,
@@ -422,6 +431,7 @@ def proposal_json(pr):
         'calls': pr.calls, 'created_at': _dt(pr.created_at), 'applied_at': _dt(pr.applied_at),
         'is_running': pr.is_running, 'can_apply': pr.can_apply, 'can_revert': pr.can_revert,
         'change_count': pr.changes.count(),
+        'parked': pr.status == 'failed' and _parked(pr.id),
     }
 
 

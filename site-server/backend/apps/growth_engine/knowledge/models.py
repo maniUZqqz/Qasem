@@ -31,6 +31,7 @@ class KnowledgeItem(TimeStampedModel):
     url = models.CharField("نشانی (نمونه یا پیشنهاد)", max_length=500, blank=True)
     sort_order = models.PositiveSmallIntegerField("ترتیب", default=100)
     is_active = models.BooleanField("فعال", default=True)
+    product = models.CharField("محصول", max_length=20, default="nm", db_index=True, help_text="nm یا chagher (products.py): نویسنده فقط به دانشِ محصولِ همان کمپین تکیه می‌کند")
     seed_key = models.CharField("کلیدِ موردِ پیش‌فرض", max_length=60, null=True, blank=True, unique=True)
     note = models.CharField("یادداشتِ داخلی", max_length=400, blank=True, help_text="برای تیم؛ در پیام‌ها نمی‌آید")
     updated_by = models.ForeignKey(

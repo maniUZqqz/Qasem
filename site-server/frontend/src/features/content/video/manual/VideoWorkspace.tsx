@@ -111,7 +111,7 @@ function ScopesLive({ monitor }: { monitor: RefObject<MonitorHandle> }) {
       setVer((v) => v + 1);
     };
     const off = monitor.current?.subscribeFrame?.(() => {
-      const wait = 66 - (performance.now() - last);
+      const wait = 100 - (performance.now() - last);
       if (wait <= 0) fire();
       else if (!timer) timer = window.setTimeout(fire, wait);
     });
@@ -121,7 +121,7 @@ function ScopesLive({ monitor }: { monitor: RefObject<MonitorHandle> }) {
       window.clearTimeout(timer);
     };
   }, [monitor]);
-  const getFrame = useCallback(() => monitor.current?.getFrame() ?? null, [monitor]);
+  const getFrame = useCallback(() => monitor.current?.getFrame(360) ?? null, [monitor]);   // اسکوپ‌ها در کادرِ کوچک کشیده می‌شوند؛ فریمِ ۳۶۰ پیکسلی کافی است
   return <Scopes getFrame={getFrame} version={ver} />;
 }
 

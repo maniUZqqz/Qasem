@@ -31,6 +31,7 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
   const [templateId, setTemplateId] = useState("");
   const [channel, setChannel] = useState<CampaignChannel>("contact_form");
   const [mode, setMode] = useState<CampaignMode>("auto");
+  const [product, setProduct] = useState<"nm" | "chagher">("nm");
   // a template written for another channel is not offered; "auto" campaigns take any (the channel's own default is used per lead)
   const templates = useMemo(
     () => allTemplates.filter((t) => channel === "auto" || !t.channel || t.channel === "any" || t.channel === channel),
@@ -81,7 +82,7 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const campaign = await action.run(() => g.post<Campaign>("/outreach/campaigns/", { name: name.trim(), template_id: Number(templateId), mode, channel }));
+    const campaign = await action.run(() => g.post<Campaign>("/outreach/campaigns/", { name: name.trim(), template_id: Number(templateId), mode, channel, product }));
     if (!campaign) return;
     if (allIds.length === 0) {
       setResult({ campaign });
@@ -184,6 +185,13 @@ export default function NewCampaignDialog({ open, onClose, initialLeadIds }: { o
         <Field label="نامِ کمپین">
           <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="مثلاً: فروشگاه‌های پوشاکِ تهران — آبان" data-autofocus data-testid="campaign-name" />
           {errors.name && <span className="mt-1 block text-xs" style={{ color: "var(--bad)" }}>{errors.name}</span>}
+        </Field>
+
+        <Field label="کدام محصول را معرفی می‌کند؟" hint={product === "chagher" ? "نویسندهٔ هوشمند فقط دانشِ چغر را می‌بیند؛ امضای پیام (نام و شرکتِ فرستنده) از «تنظیمات» می‌آید." : "نویسندهٔ هوشمند فقط دانشِ همین محصول را می‌بیند."}>
+          <Select value={product} onChange={(e) => setProduct(e.target.value as "nm" | "chagher")} data-testid="campaign-product">
+            <option value="nm">NMarketing (آپ‌مارکت)</option>
+            <option value="chagher">چغر (برای مربی‌ها و باشگاه‌ها)</option>
+          </Select>
         </Field>
 
         <Field label="کانال (از چه راهی پیام برود؟)" hint={channel === "auto" ? "برای هر لید اولین کانالِ روشن (به ترتیبِ صفحهٔ «کانال‌ها») که بتواند به او برسد." : manualOnly ? "این کانال را خودتان می‌فرستید؛ لینک و متن آماده می‌شود و نتیجه را ثبت می‌کنید." : undefined}>

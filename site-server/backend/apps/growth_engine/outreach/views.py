@@ -151,7 +151,7 @@ class CampaignListView(GrowthView):
         if template is None:
             return validation_response(ValidationFailed([{"field": "template_id", "code": "not_found", "message": "این قالب پیدا نشد."}]))
         try:
-            campaign = campaigns.create_campaign(name=data["name"], template=template, mode=data["mode"], user=request.user, channel=data["channel"])
+            campaign = campaigns.create_campaign(name=data["name"], template=template, mode=data["mode"], user=request.user, channel=data["channel"], product=data.get("product") or "nm")
         except campaigns.CampaignError as exc:
             return _problem(exc)
         body = campaign_json(campaign)

@@ -32,6 +32,7 @@ from django.utils import timezone
 from apps.code_generation import generator, preview_runner, services as gen_services
 from apps.projects.models import App, Field, Model, SharedPart, View
 from .models import AiChange, AiProposal, AiSettings
+from . import parking
 from .providers import AiError, extract_json, get_provider
 
 STALE_AFTER = datetime.timedelta(minutes=45)      # کارِ چندمرحله‌ای روی سرورِ پردازش می‌تواند طولانی باشد
@@ -226,8 +227,13 @@ def _call(provider, proposal, system, payload):
     proposal.save(update_fields=['calls'])
     try:
         raw = provider.complete(system, json.dumps(payload, ensure_ascii=False))
-    except (ValueError, KeyError, TypeError, OSError) as exc:
-        raise AiError('سرویس جواب نداد: %s' % str(exc)[:300])
+    except Exception as exc:  # noqa — AI «در دسترس نیست» (۴۰۲، گرهٔ خاموش، مهلت…) ⇒ پیامِ فارسی و پارک؛ بقیه مثلِ قبل
+        unavailable = parking.unavailable_from(exc)
+        if unavailable is not None:
+            raise unavailable from exc
+        if isinstance(exc, (ValueError, KeyError, TypeError, OSError)):
+            raise AiError('سرویس جواب نداد: %s' % str(exc)[:300])
+        raise
     _note_route(provider, proposal)
     data = extract_json(raw)
     if not isinstance(data, dict):
@@ -265,6 +271,9 @@ def _launch(proposal, fn, *args):
     def job():
         try:
             fn(proposal, *args)
+            parking.clear(proposal.pk)
+        except parking.AiUnavailable as exc:
+            parking.park(proposal, fn, args, exc)
         except (AiError, ValueError, KeyError, TypeError) as exc:
             _fail(proposal, exc)
         except Exception as exc:  # noqa — هر خطایی باید در پیشنهاد ثبت شود، نه این‌که «در حالِ کار» بماند
@@ -339,10 +348,10 @@ def _design_style(design):
 
 def _design_for(design, brief, kind):
     """design = {'style': کلید, 'components': [کلیدها]} ⇒ بستهٔ کوچکِ پرامپت یا None."""
-    if not design or not (_design_style(design) or design.get('components')):
+    if not design or not (_design_style(design) or design.get('components') or design.get('refs21')):
         return None
     from apps.projects.builder import ai_context
-    return ai_context.build(_design_style(design), brief or '', kind or 'home', design.get('components') or ())
+    return ai_context.build(_design_style(design), brief or '', kind or 'home', design.get('components') or (), refs21=design.get('refs21') or ())
 
 
 def _design_css(design, body_html, css):

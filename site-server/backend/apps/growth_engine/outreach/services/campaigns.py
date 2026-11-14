@@ -52,8 +52,12 @@ class AddResult:
 # --------------------------------------------------------------------------- create
 
 
-def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=None, channel: str = Channel.CONTACT_FORM) -> Campaign:
+def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=None, channel: str = Channel.CONTACT_FORM, product: str = "nm") -> Campaign:
+    from apps.growth_engine.knowledge import products
+
     name = nz.normalize_text(name)
+    if not products.valid(product):
+        raise CampaignError("invalid_product", "محصولِ کمپین معتبر نیست.")
     if not name:
         raise CampaignError("name_required", "نامِ کمپین را بنویسید.")
     if len(name) > 150:
@@ -69,7 +73,8 @@ def create_campaign(*, name: str, template: MessageTemplate, mode: str, user=Non
     if channel != AUTO and template.channel not in (ANY, channel):
         raise CampaignError("template_channel", "این قالب برای کانالِ دیگری نوشته شده؛ قالبِ همین کانال را انتخاب کنید.")
     campaign = Campaign.objects.create(
-        name=name, template=template, mode=mode, channel=channel, created_by=user if getattr(user, "is_authenticated", False) else None
+        name=name, template=template, mode=mode, channel=channel, product=products.normalize(product),
+        created_by=user if getattr(user, "is_authenticated", False) else None,
     )
     _audit(campaign, user, f"کمپین «{campaign.name}» ساخته شد ({campaign.get_mode_display()}، {campaign.get_channel_display()})")
     return campaign

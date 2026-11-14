@@ -116,8 +116,13 @@ def _size(payload):
     return len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
 
 
-def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, max_chars=MAX_CHARS):
-    """⇒ {'style': …, 'components': […], 'howto': …} کوچک و محدود؛ style_key خالی = بدونِ سبک (فقط قطعه‌ها)."""
+INSPIRATION_HOWTO_FA = ('«inspiration» فقط الهام است (قطعه‌هایی از کاتالوگِ 21st.dev با مجوزِ خودشان): ساختار و حسِ آن‌ها را بگیر ولی با HTML و CSSِ ساده و '
+                        'کلاس‌های خودمان بنویس؛ React، Tailwind و کتابخانهٔ بیرونی وارد نکن و کدِ آن‌ها را کپی نکن.')
+
+
+def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, max_chars=MAX_CHARS, refs21=()):
+    """⇒ {'style': …, 'components': […], 'howto': …, 'inspiration'?: […]} کوچک و محدود؛ style_key خالی = بدونِ سبک (فقط قطعه‌ها).
+    refs21 = شناسهٔ قطعه‌های کاتالوگِ 21st.dev (حداکثر ۳، فقط الهام؛ برشِ کدِ کوتاه فقط برای مجوزِ آزاد و کدِ گرفته‌شده)."""
     payload = {'howto': HOWTO_FA}
     if style_key in styles_mod.STYLES:
         payload['style'] = style_brief(style_key)
@@ -127,20 +132,42 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
         c = comps.COMPONENTS[k]
         rows.append({'key': k, 'class': comps.class_of(k), 'cat': c['cat'], 'purpose': '%s — %s' % (c['label'], c['desc']), 'html': skeleton(k)})
     payload['components'] = rows
-    payload['stats'] = {'components': len(rows), 'chars': 0, 'limit': max_chars}
-    # سقفِ سخت (با خودِ stats): اول HTMLها را کوتاه کن، بعد قطعه‌های آخر را بینداز
+    insp = []
+    if refs21:
+        from . import c21st
+        insp = c21st.inspiration_for(refs21)
+        if insp:
+            payload['inspiration'] = insp
+            payload['howto'] = HOWTO_FA + ' ' + INSPIRATION_HOWTO_FA
+    payload['stats'] = {'components': len(rows), 'chars': 0, 'limit': max_chars, 'inspiration': len(insp)}
+    # سقفِ سخت (با خودِ stats): اول برشِ کدِ الهام‌ها، بعد HTMLها را کوتاه کن، بعد الهام‌ها و قطعه‌های آخر را بینداز
     guard = 0
-    while _size(payload) > max_chars and guard < 40:
+    trimmed = set()
+    while _size(payload) > max_chars and guard < 60:
         guard += 1
-        longest = max(rows, key=lambda x: len(x['html']), default=None)
+        longest_ex = max((x for x in insp if x.get('code_excerpt')), key=lambda x: len(x['code_excerpt']), default=None)
+        if longest_ex is not None:
+            if len(longest_ex['code_excerpt']) > 200:
+                longest_ex['code_excerpt'] = longest_ex['code_excerpt'][:int(len(longest_ex['code_excerpt']) * 0.6)]
+            else:
+                longest_ex.pop('code_excerpt')
+            continue
+        longest = max((x for x in rows if id(x) not in trimmed), key=lambda x: len(x['html']), default=None)
         if longest and len(longest['html']) > MIN_COMPONENT_HTML:
             cut = max(MIN_COMPONENT_HTML, int(len(longest['html']) * 0.75))
             longest['html'] = longest['html'][:cut].rsplit('<', 1)[0] + '<!-- … -->'
+            trimmed.add(id(longest))                     # هر قطعه یک بار کوتاه می‌شود (وگرنه با نشانِ «…» دوباره بلندتر از کف می‌شد و حلقه هرگز به حذفِ قطعه نمی‌رسید)
+        elif insp:                                       # الهام اختیاری است؛ پیش از قطعه‌های اصلی کنار می‌رود
+            insp.pop()
+            if not insp:
+                payload.pop('inspiration', None)
+                payload['howto'] = HOWTO_FA
         elif len(rows) > 1:
             rows.pop()
         else:
             break
     payload['stats']['components'] = len(rows)
+    payload['stats']['inspiration'] = len(insp)
     for _ in range(3):                                   # عددِ chars خودش در اندازه حساب می‌شود؛ تا ثابت شدن
         payload['stats']['chars'] = _size(payload)
     return payload

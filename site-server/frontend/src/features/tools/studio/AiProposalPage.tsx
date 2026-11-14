@@ -85,6 +85,19 @@ export default function AiProposalPage() {
   if (!data) return <Loading error={error} />;
   const prop = data.proposal;
 
+  async function retryNow() {
+    setBusy("retry");
+    try {
+      await api.post(`/studio/projects/${slug}/ai/proposals/${pk}/retry/`, {});
+      notify("درخواست دوباره فرستاده شد.", "info");
+      await load();
+    } catch (err) {
+      notify(studioError(err), "bad");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function post(action: "apply" | "reject" | "revert") {
     if (action === "revert" && !confirmDo("تغییرهای این پیشنهاد برگردانده شود؟")) return;
     setBusy(action);
@@ -167,7 +180,17 @@ export default function AiProposalPage() {
           </div>
         </Card>
       )}
-      {prop.status === "failed" && (
+      {prop.status === "failed" && prop.parked && (
+        <Card>
+          <SectionHead title="در صفِ انتظارِ هوشِ مصنوعی" />
+          <p className="mt-2 text-sm" style={{ color: "var(--text-2)", overflowWrap: "anywhere" }} data-testid="ai-parked">{prop.error}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => void retryNow()} disabled={busy !== null}>{busy === "retry" ? "…" : "همین حالا دوباره امتحان کن"}</Button>
+            <span className="text-xs" style={{ color: "var(--text-3)" }}>هر ۵ دقیقه خودش هم امتحان می‌کند؛ این صفحه را می‌توانید ببندید.</span>
+          </div>
+        </Card>
+      )}
+      {prop.status === "failed" && !prop.parked && (
         <Card>
           <SectionHead tone="bad" title="ناموفق" />
           <Pre text={prop.error} maxHeight={240} rtl />

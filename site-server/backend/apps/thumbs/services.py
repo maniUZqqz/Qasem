@@ -26,6 +26,7 @@ from apps.photoedit import services as photo
 from apps.photoedit.models import PhotoAsset
 
 from . import aibg, cutout, hooks, palette
+from . import primitives as P
 from . import formats as F
 from . import render as R
 from . import typo
@@ -90,6 +91,8 @@ def prepare_inputs(store, spec: dict, *, allow_matting: bool = True) -> tuple[R.
         mode = sd["mode"] if which == 1 else "auto"
         if mode == "photo":
             img, is_cut, note = cutout.load_asset(asset), False, ""
+            if img is not None and P.is_blank(img):
+                img, note = None, cutout.BLANK_NOTE
         else:
             img, is_cut, note = cutout.ensure(store, asset, allow_site=allow_matting)
         if img is None:
@@ -162,10 +165,25 @@ def preview(store, raw_spec) -> dict:
 
 FONT_ROTATION = ("lalezar", "estedad", "sahel", "vazirmatn")
 MOOD_ROTATION = ("vivid", "dark", "warm", "cool", "neon", "light")
+#: برای هر حال‌وهوای پایه، سه حال‌وهوای «کاملاً متفاوت». «پرانرژی/گرم/سرد» با رنگِ برند یک پالت می‌سازند و «سینمایی» به «تیره» می‌ماند،
+#: پس جایگزین‌ها از شاخه‌های واقعاً جدا (تیره، روشن، نئونی، پرانرژی، لوکس) انتخاب می‌شوند تا نسخه‌های A/B/D/F با چشم هم فرق داشته باشند.
+MOOD_ALTS = {
+    "vivid": ("dark", "light", "neon"), "warm": ("dark", "light", "neon"), "cool": ("dark", "light", "neon"),
+    "dark": ("vivid", "light", "luxury"), "cinema": ("vivid", "light", "neon"), "light": ("dark", "vivid", "neon"),
+    "neon": ("vivid", "light", "dark"), "luxury": ("vivid", "light", "neon"),
+}
+
+
+def _font_fa(key: str) -> str:
+    return typo.FONT_CHOICES[key][0].split(" — ")[0]
 
 
 def variation_plan(spec: dict, n: int) -> list[tuple[dict, str]]:
-    """نسخهٔ A = همان؛ B = رنگِ اصلی/دوم جابه‌جا و سوژه آن‌طرف؛ C/E = سبکِ دیگرِ مناسبِ همین قالب؛ D = فونتِ دیگر؛ F = حالِ‌وهوای دیگر."""
+    """نسخهٔ A = همان؛ B = حال‌وهوای دیگر + رنگِ اصلی/دوم جابه‌جا + سوژه آن‌طرف؛ C/E = سبکِ دیگرِ مناسبِ همین قالب؛
+    D = فونتِ دیگر + حال‌وهوای سوم؛ F = حال‌وهوای چهارم + فونتِ دیگر.
+
+    هر نسخه دست‌کم یک تغییرِ «درشت» دارد (پالتِ رنگیِ کاملاً دیگر یا سبکِ دیگر)، نه فقط جابه‌جاییِ دو رنگِ نزدیک یا فونتی که شبیهِ قبلی است
+    (در چیدمانِ‌های با سوژهٔ وسطی همین‌ها نسخه‌ها را یکی می‌کرد)."""
     n = max(1, min(MAX_VARIANTS, int(n or 1)))
     has2 = bool(spec["subject2"].get("asset"))
     alts = [s for s in hooks.preferred_styles(spec["format"]) if s != spec["style"] and s in STYLES and (not STYLES[s].needs_second or has2)]
@@ -182,20 +200,31 @@ def variation_plan(spec: dict, n: int) -> list[tuple[dict, str]]:
         return sp
 
     base_var = int(spec["colors"].get("variation") or 0)
+    seed = int(spec.get("seed", 1))
+    base_mood = spec["colors"].get("mood") or STYLES[spec["style"]].mood
+    moods = MOOD_ALTS.get(base_mood, ("dark", "light", "neon"))
+    cur = spec["font"] if spec["font"] != typo.AUTO_FONT else STYLES[spec["style"]].font
+
+    def font_after(k: int) -> str:
+        i = FONT_ROTATION.index(cur) if cur in FONT_ROTATION else -1
+        return FONT_ROTATION[(i + k) % len(FONT_ROTATION)]
+
     for i in range(1, n):
         if i == 1:
-            plans.append((derive(colors__variation=base_var + 1), "رنگ‌ها جابه‌جا شد و سوژه آن‌طرف رفت"))
+            m = moods[0]
+            plans.append((derive(colors__mood=m, colors__variation=base_var + 1, seed=seed + 7),
+                          f"حال‌وهوای «{palette.MOOD_FA.get(m, m)}»؛ رنگ‌ها جابه‌جا شد و سوژه آن‌طرف رفت"))
         elif i in (2, 4) and alts:
             alt = alts[(0 if i == 2 else 1) % len(alts)]
-            plans.append((derive(style=alt, colors__variation=(0 if i == 2 else 1) + base_var), f"سبکِ «{STYLES[alt].title}»"))
+            plans.append((derive(style=alt, colors__variation=(0 if i == 2 else 1) + base_var, seed=seed + i), f"سبکِ «{STYLES[alt].title}»"))
         elif i == 3:
-            cur = spec["font"] if spec["font"] != typo.AUTO_FONT else STYLES[spec["style"]].font
-            nxt = FONT_ROTATION[(FONT_ROTATION.index(cur) + 1) % len(FONT_ROTATION)] if cur in FONT_ROTATION else FONT_ROTATION[0]
-            plans.append((derive(font=nxt, colors__variation=base_var + 2), f"فونتِ «{typo.FONT_CHOICES[nxt][0].split(' — ')[0]}»"))
+            nxt, m = font_after(1), moods[1]
+            plans.append((derive(font=nxt, colors__mood=m, colors__variation=base_var + 2, seed=seed + 13),
+                          f"فونتِ «{_font_fa(nxt)}» با حال‌وهوای «{palette.MOOD_FA.get(m, m)}»"))
         else:
-            mood = MOOD_ROTATION[(i + base_var) % len(MOOD_ROTATION)]
-            plans.append((derive(colors__mood=mood, seed=int(spec.get("seed", 1)) + i, colors__variation=base_var + i),
-                          f"حال‌وهوای «{palette.MOOD_FA.get(mood, mood)}»"))
+            nxt, m = font_after(2), moods[2]
+            plans.append((derive(font=nxt, colors__mood=m, seed=seed + 19 + i, colors__variation=base_var + i),
+                          f"حال‌وهوای «{palette.MOOD_FA.get(m, m)}» با فونتِ «{_font_fa(nxt)}»"))
     return plans
 
 

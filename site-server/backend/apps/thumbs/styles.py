@@ -76,14 +76,24 @@ def _fade_side(c: Ctx, side: str) -> str:
 
 
 def _fallback_hero(c: Ctx, rect, accent: str | None = None, alt: str | None = None) -> None:
-    """وقتی عکسی نیست: حلقه‌های هم‌مرکز و یک انفجارِ رنگی — جای خالی نماند."""
+    """وقتی عکسِ سوژه نیست: یک «صحنهٔ انتزاعی» (هالهٔ نرم، دو حلقه، چند نقطهٔ شناور) تا جای خالی نماند.
+
+    عمداً هیچ شکلِ کارتونی (انفجار، جرقه) نمی‌گذارد تا خروجیِ نهایی «جاپرکن» به نظر نیاید؛ در گزارش هم هشدار می‌آید که عکسِ سوژه نیست."""
+    c.warn_no_subject()
     p = c.pal
     cx, cy = (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2
     r = min(rect[2] - rect[0], rect[3] - rect[1]) * 0.42
-    for i, (k, a) in enumerate(((1.0, 0.22), (0.78, 0.35), (0.56, 0.6))):
-        c.center_add(f"شکلِ جایگزین {i + 1}", "shape", S.circle(r * k, fill=accent or p.accent, alpha=a), (cx, cy))
-    c.center_add("انفجارِ جایگزین", "shape", S.burst(r * 0.5, alt or p.accent2, outline=p.ink, ow=c.u(6), points=12, rot=c.rnd.uniform(0, 30)), (cx, cy))
-    c.center_add("جرقه", "shape", S.sparkle(r * 0.18, "#ffffff"), (cx + r * 0.55, cy - r * 0.6))
+    a, b = accent or p.accent, alt or p.accent2
+    c.add("هالهٔ پسِ صحنه", "fx", P.glow_blob(c.size, (cx, cy), r * 1.4, a, 0.4))
+    c.center_add("دیسکِ نرم", "shape", S.circle(r * 0.62, fill=a, alpha=0.18), (cx, cy))
+    c.center_add("حلقهٔ بیرونی", "shape", S.ring(r, c.u(4), a, 0.7), (cx, cy))
+    c.center_add("حلقهٔ میانیِ خط‌چین", "shape", S.ring(r * 0.76, c.u(3), "#ffffff", 0.4, dash=True), (cx, cy))
+    base = c.rnd.uniform(0, 2 * math.pi)
+    for i in range(6):                                           # نقطه‌های شناور روی حلقهٔ بیرونی
+        ang = base + i * (2 * math.pi / 6) + c.rnd.uniform(-0.25, 0.25)
+        rad = c.u(c.rnd.uniform(7, 14))
+        c.center_add(f"نقطهٔ تزئینی {i + 1}", "shape", S.circle(rad, fill=b if i % 2 else "#ffffff", alpha=0.85),
+                     (cx + math.cos(ang) * r, cy + math.sin(ang) * r))
 
 
 def _kicker(c: Ctx, rect, *, bg: str | None = None, fg: str | None = None, align: str = "right", px: float = 0.036, slant: float = 0.0):
@@ -104,6 +114,7 @@ def _price_burst(c: Ctx, center, radius: float, fill: str, fg: str | None = None
     if not typo.plain(text):
         return None
     p = c.pal
+    center = c.fit_badge(center, radius)                       # روی عنوان/زیرعنوان/برچسب نیفتد
     c.center_add("نشانِ تخفیف/قیمت", "badge", S.burst(radius, fill, outline=outline or p.ink, ow=c.u(5), points=14, rot=rot), center)
     st = TextStyle(fill=fg or pm.on(fill), font_key="lalezar", weight=400, align="center", line_gap=1.0, stroke=None, stroke_w=0.0)
     box = (center[0] - radius * 0.68, center[1] - radius * 0.55, center[0] + radius * 0.68, center[1] + radius * 0.55)
@@ -345,7 +356,7 @@ def question_hook(c: Ctx) -> None:
         qbox = (W * 0.18, H * 0.04, W * 0.78, H * 0.98)
     else:
         qbox = (W * 0.3, sr[1] - H * 0.02, W * 0.98, H * 0.86)
-    c.text("علامتِ سؤالِ بزرگ", "؟", qbox, q, max_lines=1, min_f=0.2, max_f=1.2, avoid=False, opacity=0.38)
+    c.text("علامتِ سؤالِ بزرگ", "؟", qbox, q, max_lines=1, min_f=0.2, max_f=1.2, avoid=False, opacity=0.38, deco=True)
     img, cut = c.subject_rgba()
     if img is not None and cut:
         c.put_cutout("سوژه", img, sr, valign="bottom", scale=0.92, outline="#ffffff", ow=c.u(11), glow=(p.accent, c.u(22), 0.5))
@@ -358,7 +369,7 @@ def question_hook(c: Ctx) -> None:
         s = c.u(c.rnd.uniform(70, 110))
         st = TextStyle(fill=[ "#ffffff", p.accent2, p.accent][i % 3], stroke=p.ink, stroke_w=0.1, font_key="lalezar", weight=400,
                        align="center", rotate=c.rnd.uniform(-22, 22), shadow=(0.02, 0.05, 0.03, "#000000", 0.5))
-        c.text(f"علامتِ سؤالِ ریز {i + 1}", "؟", (rx - s, ry - s, rx + s, ry + s), st, max_lines=1, min_f=0.03, max_f=0.2, avoid=False)
+        c.text(f"علامتِ سؤالِ ریز {i + 1}", "؟", (rx - s, ry - s, rx + s, ry + s), st, max_lines=1, min_f=0.03, max_f=0.2, avoid=False, deco=True)
     if cut:
         _arrow_accent(c, sr, z["side"], color="#ffffff")
     items = c.stack(tr, [("kicker", 0.15), ("title", 1.0), ("subtitle", 0.35)])

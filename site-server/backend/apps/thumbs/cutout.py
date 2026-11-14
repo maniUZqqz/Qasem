@@ -32,6 +32,9 @@ def cache_path(store, asset: PhotoAsset) -> Path:
     return photo.abs_path(f"thumbs/s{store.pk}/cut/a{asset.pk}.png")
 
 
+BLANK_NOTE = ("این عکس فقط یک زمینهٔ ساده (بدونِ چهره یا کالا) است و به‌عنوانِ سوژه کنار گذاشته شد؛ عکسِ واقعیِ کالا یا چهره را انتخاب کنید.")
+
+
 def load_asset(asset: PhotoAsset) -> Image.Image | None:
     p = photo.abs_path(asset.original)
     if not p.is_file():
@@ -53,6 +56,8 @@ def ensure(store, asset: PhotoAsset, *, allow_site: bool = True) -> tuple[Image.
         return None, False, "فایلِ عکس پیدا نشد."
     if P.has_cutout(img):
         return img, True, ""
+    if P.is_blank(img):                                  # گرادیان/تک‌رنگ: سوژه‌ای در آن نیست (برشِ بی‌فایده را هم انجام نده)
+        return None, False, BLANK_NOTE
     cp = cache_path(store, asset)
     if cp.is_file():
         try:

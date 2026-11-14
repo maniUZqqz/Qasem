@@ -64,8 +64,11 @@ def _shape(text: str, rtl: bool) -> str:
 
 
 def to_fa_digits(text: str) -> str:
-    """رقم‌های لاتین ⇒ فارسی؛ ویرگولِ بینِ رقم‌ها ⇒ «٬». متنِ لاتینِ خالص دست نمی‌خورد."""
-    if not text or not is_rtl(text):
+    """رقم‌های لاتین ⇒ فارسی؛ ویرگولِ بینِ رقم‌ها ⇒ «٬». متنِ لاتینِ خالص («HIIT»، «3D»، «Wi-Fi 6») دست نمی‌خورد،
+    ولی رشتهٔ فقط‌عددی («7»، «20%»، «10:30») که حرفِ لاتین ندارد هم فارسی می‌شود (کادرِ «عدد» در سبکِ عدد/لیست)."""
+    if not text:
+        return text
+    if not is_rtl(text) and (re.search(r"[A-Za-z]", text) or not re.search(r"[0-9]", text)):
         return text
     out = text.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
     return re.sub(r"(?<=[۰-۹]),(?=[۰-۹])", "٬", out)
@@ -200,6 +203,7 @@ def fit(text: str, path: str, box_w: float, box_h: float, style: TextStyle, *, m
     if not groups:
         return None
     rtl = is_rtl(text) if rtl is None else rtl
+    max_lines = max(max_lines, min(len(groups), 5))     # «الف|ب|ج» = سه خطِ اجباری؛ سقفِ خط نباید آن را به نقطهٔ ریز تبدیل کند
     px = int(max_px)
     floor = max(8, int(min_px * 0.45))
     res = None

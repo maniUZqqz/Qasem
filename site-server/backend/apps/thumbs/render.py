@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass, field
 
@@ -19,6 +20,8 @@ from . import primitives as P
 from . import typo
 from .formats import Format
 
+NO_SUBJECT_WARNING = ("عکسِ سوژه انتخاب نشده؛ به‌جایش یک تزئینِ ساده گذاشته شد. برای نتیجهٔ حرفه‌ای‌تر عکسِ چهره یا کالا "
+                      "(ترجیحاً بدونِ پس‌زمینه) را اضافه کنید.")
 MAX_TITLE, MAX_SUB, MAX_SHORT = 110, 140, 40
 CONTENT_LIMITS = {"title": MAX_TITLE, "subtitle": MAX_SUB, "kicker": 34, "number": 6, "badge": 26, "tagline": 90, "credits": 260,
                   "cta": 30, "label_a": 24, "label_b": 24}
@@ -246,7 +249,9 @@ class Ctx:
         return self.comp.add(name, kind, img, (center[0] - img.width / 2, center[1] - img.height / 2), **kw)
 
     def text(self, name: str, text: str, rect, st: typo.TextStyle, *, max_lines: int = 3, min_f: float = 0.03, max_f: float = 0.16,
-             ax: str = "center", ay: str = "middle", avoid: bool = True, opacity: float = 1.0, blend: str = "normal") -> Placed | None:
+             ax: str = "center", ay: str = "middle", avoid: bool = True, opacity: float = 1.0, blend: str = "normal",
+             deco: bool = False) -> Placed | None:
+        """``deco=True`` ⇒ متنِ تزئینی (علامتِ سؤالِ غول‌آسا…): لوگو/نشان می‌توانند رویش بنشینند و در برخورد حساب نمی‌شود."""
         text = typo.clean(text)
         if not typo.plain(text):
             return None
@@ -264,7 +269,8 @@ class Ctx:
         bbox = self.comp.add(name, "text", blk.img, xy, opacity=opacity, blend=blend)
         nominal = (xy[0] + blk.origin[0], xy[1] + blk.origin[1], xy[0] + blk.origin[0] + blk.nominal[0], xy[1] + blk.origin[1] + blk.nominal[1])
         if bbox:
-            self.texts.append({"name": name, "bbox": list(bbox), "px": blk.px, "lines": blk.lines, "text": typo.plain(text)})
+            self.texts.append({"name": name, "bbox": list(bbox), "px": blk.px, "lines": blk.lines, "text": typo.plain(text),
+                               **({"deco": True} if deco else {})})
         return Placed(bbox, nominal, blk)
 
     def stack(self, rect, items: list[tuple[str, float]]) -> dict[str, tuple[float, float, float, float]]:
@@ -290,6 +296,63 @@ class Ctx:
         else:
             bb = self.comp.add(name, "badge", img, xy or (0, 0))
         return img, bb
+
+    # --- برخورد
+    def obstacles(self) -> list[tuple[tuple[float, float, float, float], float, bool]]:
+        """⇒ [(کادر، وزن، سخت؟)]: متن‌ها و نشان‌ها «سخت»‌اند (هیچ‌چیز نباید رویشان بنشیند)، سوژه و فلش «نرم».
+        متنِ تزئینی (``deco``) حساب نمی‌شود."""
+        out: list[tuple[tuple[float, float, float, float], float, bool]] = []
+        for t in self.texts:
+            if not t.get("deco"):
+                out.append((tuple(t["bbox"]), 1.0, True))
+        for lay in self.comp.report:
+            k, bb = lay["kind"], tuple(lay["bbox"])
+            if k == "badge":
+                out.append((bb, 1.0, True))
+            elif k in ("subject", "photo"):
+                out.append((bb, 0.12, False))
+            elif k == "accent" and "فلش" in lay["name"]:
+                out.append((bb, 0.5, False))
+        return out
+
+    @staticmethod
+    def _overlap(a, b) -> float:
+        ix = min(a[2], b[2]) - max(a[0], b[0])
+        iy = min(a[3], b[3]) - max(a[1], b[1])
+        return ix * iy if ix > 0 and iy > 0 else 0.0
+
+    def fit_badge(self, center: tuple[float, float], radius: float) -> tuple[float, float]:
+        """جای نشانِ گرد را (اگر روی متن یا نشانِ دیگر می‌افتد) به نزدیک‌ترین جای آزاد می‌برد؛ همیشه بیرونِ ناحیه‌های پرهیز."""
+        hard = [b for b, _, h in self.obstacles() if h]
+        reach = radius + self.u(6)                                 # کمی فاصله از متن
+
+        def hits(pt) -> float:
+            """مجموعِ «عمقِ فرورفتگیِ» دایره در کادرهای سخت (۰ = هیچ‌جا برخورد ندارد)."""
+            tot = 0.0
+            for o in hard:
+                dx = max(o[0] - pt[0], 0.0, pt[0] - o[2])
+                dy = max(o[1] - pt[1], 0.0, pt[1] - o[3])
+                d = math.hypot(dx, dy)
+                if d < reach:
+                    tot += reach - d
+            return tot
+
+        base = self.clear_of_avoid(center, radius)
+        if hits(base) == 0:
+            return base
+        x0, y0, x1, y1 = self.safe
+        cands = [base]
+        step = radius * 0.55
+        for ring in range(1, 8):
+            for k in range(16):
+                ang = k * math.pi / 8
+                cands.append(self.clear_of_avoid((center[0] + math.cos(ang) * ring * step, center[1] + math.sin(ang) * ring * step), radius))
+        for pt in ((x0 + radius, y0 + radius), (x1 - radius, y0 + radius), (x0 + radius, y1 - radius), (x1 - radius, y1 - radius)):
+            cands.append(self.clear_of_avoid(pt, radius))
+        free = [pt for pt in cands if hits(pt) == 0]
+        if free:
+            return min(free, key=lambda pt: (pt[0] - center[0]) ** 2 + (pt[1] - center[1]) ** 2)
+        return min(cands, key=lambda pt: (hits(pt), (pt[0] - center[0]) ** 2 + (pt[1] - center[1]) ** 2))
 
     # --- پس‌زمینه‌ها
     def bg_wants_photo(self) -> bool:
@@ -468,31 +531,88 @@ class Ctx:
         if msg not in self.warnings:
             self.warnings.append(msg)
 
+    def warn_no_subject(self) -> None:
+        self._warn_once(NO_SUBJECT_WARNING)
+
     # --- لوگو
+    def _logo_tile(self, scale: float = 1.0) -> Image.Image:
+        side = int(self.W * (0.12 if self.orient != "tall" else 0.16) * scale)
+        img = P.crop_to_alpha(self.inp.logo.convert("RGBA"))
+        logo = P.contain(img, side, side * 0.8)
+        pad = max(2, int(self.u(16) * (0.5 + 0.5 * scale)))
+        tile = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
+        m = P.rounded_mask(tile.size, pad * 1.1)
+        tile = Image.alpha_composite(tile, P.solid(tile.size, "#ffffff", m, 0.92))
+        tile.alpha_composite(logo, (pad, pad))
+        return tile
+
+    def _logo_xy(self, pos: str, tile: Image.Image) -> tuple[float, float]:
+        x0, y0, x1, y1 = self.safe
+        cx = {"tl": x0, "bl": x0, "tr": x1 - tile.width, "br": x1 - tile.width, "tc": (self.W - tile.width) / 2, "bc": (self.W - tile.width) / 2}[pos]
+        cy = {"tl": y0, "tr": y0, "tc": y0, "bl": y1 - tile.height, "br": y1 - tile.height, "bc": y1 - tile.height}[pos]
+        return cx, cy
+
+    def _logo_slides(self, tile: Image.Image, near: tuple[float, float]) -> list[tuple[float, float]]:
+        """جاهای دیگرِ لبهٔ حاشیهٔ امن (کنارِ گوشه‌ها): روی لبه‌های بالا/پایین/چپ/راست می‌لغزد؛ نزدیک‌ترین به گوشهٔ دلخواه اول."""
+        x0, y0, x1, y1 = self.safe
+        pts: list[tuple[float, float]] = []
+        for i in range(9):
+            x = x0 + (x1 - x0 - tile.width) * i / 8
+            pts += [(x, y0), (x, y1 - tile.height)]
+        for j in range(1, 6):
+            y = y0 + (y1 - y0 - tile.height) * j / 6
+            pts += [(x0, y), (x1 - tile.width, y)]
+        return sorted(pts, key=lambda q: (q[0] - near[0]) ** 2 + (q[1] - near[1]) ** 2)
+
+    def _auto_logo(self) -> tuple[Image.Image, tuple[float, float]]:
+        """جایگاهِ «خودکار»: جایی که روی عنوان، زیرعنوان، برچسب و نشان‌ها و ناحیه‌های پرهیزِ پلتفرم نیفتد (و ترجیحاً روی سوژه هم نه).
+
+        ترتیبِ ترجیح: گوشه‌ها (بالا-چپ برای افقی/مربع، بالا-راست برای عمودی) با اندازهٔ کامل ← گوشه‌ها با ۸۲٪ ← لغزیدن روی لبه‌ها
+        ← اندازه‌های کوچک‌تر (۶۶٪، ۵۲٪، ۴۰٪) با همین ترتیب. چیدمانی که حتی با ۴۰٪ جا نداشته باشد کم‌برخوردترین جا را می‌گیرد.
+        لوگوی مربع‌شکل (مثلِ لوگوی چغر) کاشیِ بلندتری از لوگوی کشیده می‌سازد و در قالب‌های شلوغ (جلدِ مجله در ۱۶:۹) گوشهٔ آزاد کم است؛
+        برای همین لغزیدن و اندازهٔ کوچک‌تر لازم است."""
+        order = ("tl", "tr", "bl", "br", "tc", "bc") if self.orient in ("wide", "square") else ("tr", "tl", "br", "bl", "tc", "bc")
+        obs = self.obstacles()
+        margin = self.u(10)
+        stages = [(1.0, False), (0.82, False), (1.0, True), (0.82, True), (0.66, False), (0.66, True), (0.52, False), (0.52, True), (0.4, False), (0.4, True)]
+        best: tuple[float, int, Image.Image, tuple[float, float]] | None = None
+        tiles: dict[float, Image.Image] = {}
+        for si, (scale, slide) in enumerate(stages):
+            tile = tiles.setdefault(scale, self._logo_tile(scale))
+            area = float(tile.width * tile.height)
+            first = self._logo_xy(order[0], tile)
+            cands = self._logo_slides(tile, first) if slide else [self._logo_xy(pos, tile) for pos in order]
+            for oi, (x, y) in enumerate(cands):
+                box = (x, y, x + tile.width, y + tile.height)
+                bigger = (box[0] - margin, box[1] - margin, box[2] + margin, box[3] + margin)
+                hard = sum(self._overlap(bigger, b) for b, _, h in obs if h)
+                hard += sum(self._overlap(box, a) for a in self.avoid)
+                soft = sum(self._overlap(box, b) * w for b, w, h in obs if not h)
+                score = hard + (soft if soft > 0.3 * area * 0.12 else 0.0)
+                if score == 0:
+                    return tile, (x, y)
+                key = (score, si * 100 + oi)
+                if best is None or key < (best[0], best[1]):
+                    best = (score, si * 100 + oi, tile, (x, y))
+        assert best is not None
+        return best[2], best[3]
+
     def put_logo(self) -> None:
         lg = self.spec["logo"]
         if not lg["show"] or self.inp.logo is None:
             return
         pos = lg["position"]
         if pos == "auto":
-            pos = "tl" if self.orient in ("wide", "square") else "tr"
-            # روی ناحیه‌های پرهیز نیفتد
-        side = int(self.W * (0.12 if self.orient != "tall" else 0.16))
-        img = P.crop_to_alpha(self.inp.logo.convert("RGBA"))
-        logo = P.contain(img, side, side * 0.8)
-        pad = int(self.u(16))
-        tile = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
-        m = P.rounded_mask(tile.size, pad * 1.1)
-        tile = Image.alpha_composite(tile, P.solid(tile.size, "#ffffff", m, 0.92))
-        tile.alpha_composite(logo, (pad, pad))
-        x0, y0, x1, y1 = self.safe
-        cx = {"tl": x0, "bl": x0, "tr": x1 - tile.width, "br": x1 - tile.width, "tc": (self.W - tile.width) / 2, "bc": (self.W - tile.width) / 2}[pos]
-        cy = {"tl": y0, "tr": y0, "tc": y0, "bl": y1 - tile.height, "br": y1 - tile.height, "bc": y1 - tile.height}[pos]
-        box = (cx, cy, cx + tile.width, cy + tile.height)
-        for a in self.avoid:                                     # لوگو روی ناحیهٔ پرهیز نیفتد: به گوشهٔ مقابل برود
-            if box[0] < a[2] and box[2] > a[0] and box[1] < a[3] and box[3] > a[1]:
-                cx = x1 - tile.width if cx < self.W / 2 else x0
-                break
+            tile, (cx, cy) = self._auto_logo()
+        else:
+            tile = self._logo_tile()
+            x0, y0, x1, y1 = self.safe
+            cx, cy = self._logo_xy(pos, tile)
+            box = (cx, cy, cx + tile.width, cy + tile.height)
+            for a in self.avoid:                                 # جایگاهِ دستی روی ناحیهٔ پرهیز نیفتد: به گوشهٔ مقابل برود
+                if box[0] < a[2] and box[2] > a[0] and box[1] < a[3] and box[3] > a[1]:
+                    cx = x1 - tile.width if cx < self.W / 2 else x0
+                    break
         self.comp.add("لوگو", "logo", tile, (cx, cy))
 
     def finish(self, grain_amount: float = 0.0, vign: float = 0.0) -> None:
@@ -540,6 +660,8 @@ def render(spec: dict, inputs: Inputs | None = None, *, scale: float = 1.0, keep
         side = "right" if int(oc.get("variation") or 0) % 2 == 1 else "left"      # نسخهٔ B سوژه را آن‌طرف می‌گذارد
     c.subject_side = "left" if side == "center" else side
     sd.fn(c)
+    if inp.subject is None and sd.subject == "recommended":
+        c.warn_no_subject()
     c.put_logo()
     img = c.comp.canvas
     if (guides if guides is not None else spec.get("guides")):

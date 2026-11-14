@@ -15,7 +15,7 @@ import json
 import logging
 import re
 
-from . import archetypes, hooks, palette, typo
+from . import archetypes, hooks, palette, phrases, typo
 from .render import CONTENT_LIMITS
 from .styles import STYLES
 
@@ -102,7 +102,7 @@ def _default_ask(store, prompt: str) -> tuple[dict, dict]:
             validation_message="ایده‌ها ناقص بود")
         info = translate._describe(provider)
     except Exception as exc:  # noqa: BLE001 — متیسِ بی‌اعتبار (۴۰۲)، گرهٔ خاموش، سیاستِ داده، پیکربندی…
-        raise AIUnavailable(hooks.friendly_reason(translate.explain(exc))) from exc
+        raise AIUnavailable(hooks.reason_from_exception(exc, translate.explain(exc))) from exc
     return parsed, (info or {})
 
 
@@ -138,7 +138,9 @@ def clean_ai_ideas(parsed, *, fmt: str, source_text: str) -> list[dict]:
         style = raw.get("style") if raw.get("style") in STYLES else pref[i % len(pref)]
 
         def field(name, limit):
-            v = _EMOJI.sub("", _fa(raw.get(name)))[:limit].strip()
+            v = _EMOJI.sub("", _fa(raw.get(name))).strip()
+            if len(v) > limit:                                   # سقفِ حرف: روی مرزِ واژه، نه وسطِ کلمه (و روی واژهٔ ناتمام هم نه)
+                v = phrases.clip(v, 999, limit)[0]
             return "" if _risky(v, source_text) else v
 
         number = re.sub(r"\D", "", typo.clean(raw.get("number")).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")))[:2]
@@ -205,10 +207,10 @@ def ideate(store, topic: str, *, product=None, fmt: str = "youtube", count: int 
             if not ideas:
                 ai_info["reason"] = "هوش مصنوعی جوابِ قابل‌استفاده نداد."
         except AIUnavailable as exc:
-            ai_info["reason"] = str(exc)[:300]
+            ai_info["reason"] = hooks.fit_text(str(exc), 300)
         except Exception as exc:  # noqa: BLE001 — هیچ خطایی نباید ایده‌ها را بخواباند
             logger.exception("thumbs.ideation: AI path crashed")
-            ai_info["reason"] = f"خطای پیش‌بینی‌نشده در هوش مصنوعی: {exc}"[:300]
+            ai_info["reason"] = hooks.fit_text(f"خطای پیش‌بینی‌نشده در هوش مصنوعی: {exc}", 300)
     via = "rules"
     if ideas:
         via = "ai"

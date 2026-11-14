@@ -216,6 +216,26 @@ def has_cutout(img: Image.Image, min_clear: float = 0.04) -> bool:
     return float((a < 20).mean()) >= min_clear
 
 
+def is_blank(img: Image.Image, edge_frac: float = 0.006, step: float = 10.0) -> bool:
+    """عکسِ «بی‌سوژه»: زمینهٔ تک‌رنگ، گرادیانِ ساده یا پس‌زمینهٔ تزئینیِ کم‌جزئیات (مثلِ عکسِ جای‌نگهدارِ محصول که فقط یک گرادیان با چند
+    نوارِ کم‌رنگ است و هیچ شیئی در آن نیست).
+
+    دو سنجه روی تصویرِ کوچک:
+    ۱) تفاضلِ مرتبهٔ دوم (۶۴×۶۴): برای رنگِ ثابت و گرادیانِ خطی صفر است؛ فقط لبهٔ واقعیِ یک شیء/چهره بالایش می‌برد. کمتر از ۰٫۶٪ پیکسل لبه ⇒ ساده.
+    ۲) تضادِ محلی (۹۶×۹۶، تفاوت با نسخهٔ محوشده): پس‌زمینه‌های تزئینی میانگینِ ≈۲ و کمتر از ۵٫۵٪ پیکسلِ پرتضاد دارند، درحالی‌که
+       حتی کالای کوچک (۱۸٪ِ پهنا) روی زمینهٔ ساده ≈۳٫۶ دارد و عکس‌های واقعی بالای ۵٫۵. (سنجیده با عکس‌های واقعیِ سایت.)
+    کالا روی زمینهٔ سفید دورِ خودش لبه دارد ⇒ ساده حساب نمی‌شود."""
+    rgb = img.convert("RGB")
+    a = np.asarray(rgb.resize((64, 64), Image.Resampling.BILINEAR), dtype=np.float32)
+    d2x = np.abs(a[:, 2:] - 2 * a[:, 1:-1] + a[:, :-2]).max(axis=2)
+    d2y = np.abs(a[2:] - 2 * a[1:-1] + a[:-2]).max(axis=2)
+    if (float((d2x > step).mean()) + float((d2y > step).mean())) / 2 < edge_frac:
+        return True
+    s = rgb.resize((96, 96), Image.Resampling.BILINEAR)
+    d = np.abs(np.asarray(s, dtype=np.float32) - np.asarray(s.filter(ImageFilter.GaussianBlur(6)), dtype=np.float32)).max(axis=2)
+    return float(d.mean()) < 2.6 and float((d > 12).mean()) < 0.055
+
+
 # ───────────────────────────── ماسک‌ها و شکل‌ها
 
 def aa_mask(size: tuple[int, int], draw_fn, ss: int = 3) -> Image.Image:

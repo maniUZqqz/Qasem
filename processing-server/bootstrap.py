@@ -24,7 +24,10 @@ ort-gpu (onnxruntime inside a venv offers a GPU provider), cmd (any check/instal
 
 State lives in <data>/bootstrap-state.json; `status()` is what the heartbeat reports (progress, errors, the tail of the install
 log) and what the panel shows with a retry button. A failed item is retried by itself after 10 / 30 / 90 / 240 minutes (a
-dropped line fixes itself); `retry()` is the panel button. Big items obey the site's download window; the rest never wait.
+dropped line fixes itself) and after that every 4 hours for as long as the node runs - it never gives up; a new start of the agent gives
+every failed item one fresh try at once; `retry()` is the panel button. Big items obey the site's download window - except the FIRST
+install of a feature (the owner has just switched the node on: everything must come now, not at 02:00; a spec key "respect_window": true
+opts a feature out of that exemption); the rest never wait.
 """
 import collections
 import glob
@@ -95,6 +98,7 @@ class Ctx:
         self.token = token
         self.py = py or sys.executable
         self.download_allowed = download_allowed or (lambda: True)
+        self.exempt = False          # True while a feature is installed for the first time: the download window is not asked (see may_download)
         self.say = say or (lambda msg, frac=None: None)
         self._run = run
         self._fetch = fetch
@@ -105,6 +109,12 @@ class Ctx:
     def _has_gpu():
         import shutil
         return bool(shutil.which("nvidia-smi"))
+
+    def may_download(self):
+        """May a big download start now? Outside the site's download window nobody-is-waiting downloads pause - EXCEPT the first install of a
+        feature (`exempt`, set by Bootstrap.process_item): the owner has just switched the computer on and everything it needs must come at
+        once, not at 02:00 (2026-11-14). A feature that was ready once and needs a re-install later (a new pinned version) obeys the window."""
+        return bool(self.exempt) or bool(self.download_allowed())
 
     def path(self, *parts):
         return os.path.join(self.data, *parts)
@@ -238,7 +248,7 @@ def _pip_install(ctx, item):
     py = ctx.venv_python(item["venv"]) if item.get("venv") else ctx.py
     if not py:
         raise BootstrapError("venv %s is missing" % item.get("venv"))
-    if item.get("big") and not ctx.download_allowed():            # e.g. the CUDA wheels (~1 GB): obey the site's download window
+    if item.get("big") and not ctx.may_download():                # e.g. the CUDA wheels (~1 GB): obey the site's download window (not on a first install)
         raise BootstrapError("WAIT: waiting for the download window")
     cache = ctx.path("pip-cache")
     os.makedirs(cache, exist_ok=True)
@@ -327,7 +337,7 @@ def _archive_check(ctx, item):
 
 
 def _archive_install(ctx, item):
-    if item.get("big", True) and not ctx.download_allowed():
+    if item.get("big", True) and not ctx.may_download():
         raise BootstrapError("WAIT: waiting for the download window")
     dest = ctx.path(*item["dest"].split("/"))
     os.makedirs(dest, exist_ok=True)
@@ -380,7 +390,7 @@ def _files_check(ctx, item):
 def _files_install(ctx, item):
     base = ctx.path(*item["dest"].split("/"))
     total = sum(int(f.get("size") or 0) for f in item["files"])
-    if (item.get("big") or total >= BIG_BYTES) and not ctx.download_allowed():
+    if (item.get("big") or total >= BIG_BYTES) and not ctx.may_download():
         raise BootstrapError("WAIT: waiting for the download window")
     done = 0
     for f in item["files"]:
@@ -522,6 +532,17 @@ class Bootstrap:
         self.thread = None
         self.running_item = None
         self.specs, self.spec_errors = load_specs(specs_dir)
+        self._forgive_failures()
+
+    def _forgive_failures(self):
+        """A new process (the computer was switched on again, an update restarted the agent) gives every failed item one fresh try at once:
+        the line, the mirror or the disk that failed it may be fine now, and nobody should have to press «retry» for that."""
+        for f, items in self.state.items():
+            if f.startswith("_") or not isinstance(items, dict):
+                continue
+            for st in items.values():
+                if isinstance(st, dict) and st.get("state") == "failed":
+                    st["at"] = 0
 
     # ---- state
     def _load(self):
@@ -565,13 +586,26 @@ class Bootstrap:
         return all(self.item_state(feature, it["id"]).get("state") in ("ready", "skipped") for it in spec["items"])
 
     def _due(self, st):
-        """May a failed item be tried again now? (automatic retries back off; a manual retry clears `failed`)."""
+        """May a failed item be tried again now? Automatic retries back off 10 / 30 / 90 / 240 minutes and then go on every 4 hours for as
+        long as the node runs - they never give up (2026-11-14: «nothing by hand»); the panel's retry button and a new start try at once."""
         if st.get("state") != "failed":
             return True
         tries = int(st.get("tries") or 0)
-        if tries > len(RETRY_AFTER_S):
-            return False
-        return self.clock() - st.get("at", 0) >= RETRY_AFTER_S[min(tries - 1, len(RETRY_AFTER_S) - 1)] if tries else True
+        if not tries:
+            return True
+        return self.clock() - st.get("at", 0) >= RETRY_AFTER_S[min(tries - 1, len(RETRY_AFTER_S) - 1)]
+
+    def first_install(self, spec):
+        """True until the feature has been completely ready once on this computer: its first install ignores the download window
+        (spec key "respect_window": true opts out, for a feature whose files nobody needs urgently)."""
+        return not spec.get("respect_window") and spec["feature"] not in (self.state.get("_ready_once") or {})
+
+    def _remember_ready(self, feature):
+        with self.lock:
+            seen = self.state.setdefault("_ready_once", {})
+            if feature not in seen:
+                seen[feature] = self.clock()
+                self._save()
 
     def process_item(self, spec, item):
         """check -> install -> check again. Returns True when the item is ready."""
@@ -597,6 +631,7 @@ class Bootstrap:
         self._set(f, iid, state="installing", detail="installing ...", progress=0.05, tries=int(st.get("tries") or 0),
                   error="", tail=[])
         self.running_item = (f, iid)
+        ctx.exempt = self.first_install(spec)
         try:
             install(ctx, item)
             ok, detail = check(ctx, item)
@@ -614,6 +649,7 @@ class Bootstrap:
             return False
         finally:
             self.running_item = None
+            ctx.exempt = False
         self._set(f, iid, state="ready", detail=str(detail)[:200], progress=1.0, error="", tail=[], tries=0)
         return True
 
@@ -654,6 +690,7 @@ class Bootstrap:
                     pending += 1
             if not blocked:
                 done_features.add(f)
+                self._remember_ready(f)
         return pending
 
     def loop(self):

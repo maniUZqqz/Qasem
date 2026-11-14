@@ -195,8 +195,8 @@ class InstallFlowTests(Base):
         self.assertEqual(hosts[:2], [bs.PYPI_INDEXES[0].split("/")[2], bs.PYPI_INDEXES[1].split("/")[2]])
 
     def test_a_big_pip_step_waits_for_the_download_window_and_a_small_one_does_not(self):
-        self.spec("rt", items=[{"id": "venv", "type": "venv", "name": "e"},
-                               {"id": "pip", "type": "pip", "venv": "e", "packages": ["numpy==1.26.4"], "big": True}])
+        self.spec("rt", respect_window=True, items=[{"id": "venv", "type": "venv", "name": "e"},
+                                                    {"id": "pip", "type": "pip", "venv": "e", "packages": ["numpy==1.26.4"], "big": True}])
         self.spec("small", items=[{"id": "venv", "type": "venv", "name": "s"},
                                   {"id": "pip", "type": "pip", "venv": "s", "packages": ["pillow==10.4.0"]}])
         self.window_open[0] = False
@@ -313,7 +313,7 @@ class ArchiveAndFilesTests(Base):
 
     def test_big_files_wait_for_the_download_window_small_ones_do_not(self):
         data = self.zip_bytes()
-        self.spec("a", items=[dict(self.NODE, big=True, sha256=hashlib.sha256(data).hexdigest())])
+        self.spec("a", respect_window=True, items=[dict(self.NODE, big=True, sha256=hashlib.sha256(data).hexdigest())])
         self.sys.downloads["http://site/3d/files/downloads/node.zip"] = data
         self.window_open[0] = False
         eng = self.engine()
@@ -404,6 +404,107 @@ class WorkerLoopTests(Base):
             time.sleep(0.05)
         eng.stop()
         self.assertEqual(eng.status()["features"]["rt"]["state"], "ready")
+
+
+class FirstInstallAndRetryTests(Base):
+    """2026-11-14: the owner switches the node on during the day - the download window must not hold back the first install, and a
+    failed step must never need a click."""
+
+    PIP = [{"id": "venv", "type": "venv", "name": "e"},
+           {"id": "pip", "type": "pip", "venv": "e", "packages": ["numpy==1.26.4"], "big": True}]
+
+    def test_the_first_install_ignores_the_download_window(self):
+        self.spec("rt", kinds=["asr.transcribe"], items=self.PIP)
+        self.window_open[0] = False                                           # outside the night window, in the middle of the day
+        eng = self.engine()
+        self.assertEqual(eng.run_once(), 0)
+        f = eng.status()["features"]["rt"]
+        self.assertEqual(f["state"], "ready")
+        self.assertNotIn("asr.transcribe", eng.status()["blocked_kinds"])
+        self.assertIn("rt", eng.state["_ready_once"])
+
+    def test_a_reinstall_of_a_feature_that_was_ready_obeys_the_window(self):
+        self.spec("rt", items=self.PIP)
+        self.window_open[0] = False
+        eng = self.engine()
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "ready")
+        self.sys.installed.clear()                                            # a new pinned version later: the package must be fetched again
+        eng.run_once()
+        item = eng.status()["features"]["rt"]["items"][1]
+        self.assertEqual(item["state"], "waiting")
+        self.assertIn("download window", item["detail"])
+        self.window_open[0] = True
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "ready")
+
+    def test_the_exemption_is_remembered_across_a_restart(self):
+        self.spec("rt", items=self.PIP)
+        self.engine().run_once()
+        again = self.engine()
+        self.assertIn("rt", again.state["_ready_once"])
+        self.assertFalse(again.first_install({"feature": "rt"}))
+        self.assertTrue(again.first_install({"feature": "other"}))
+        self.assertFalse(again.first_install({"feature": "other", "respect_window": True}))
+
+    def test_a_first_install_that_fails_for_another_reason_stays_a_first_install(self):
+        self.spec("rt", items=self.PIP)
+        self.sys.pip_fail_on = {u.split("/")[2] for u in bs.PYPI_INDEXES}
+        self.window_open[0] = False
+        eng = self.engine()
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "failed")
+        self.assertTrue(eng.first_install({"feature": "rt"}))
+
+    def test_a_failed_step_never_gives_up_it_goes_on_every_four_hours(self):
+        self.spec("rt", items=self.PIP)
+        self.sys.pip_fail_on = {u.split("/")[2] for u in bs.PYPI_INDEXES}
+        eng = self.engine()
+        eng.run_once()
+        for n in range(len(bs.RETRY_AFTER_S) + 3):                            # more failures than the old limit (it stopped after the 5th)
+            self.clock[0] += bs.RETRY_AFTER_S[-1] + 1
+            eng.run_once()
+        self.assertGreater(eng.state["rt"]["pip"]["tries"], len(bs.RETRY_AFTER_S) + 1)
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "failed")
+        self.sys.pip_fail_on = set()                                          # the line is back, hours or days later
+        self.clock[0] += bs.RETRY_AFTER_S[-1] + 1
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "ready")
+
+    def test_a_new_start_gives_a_failed_step_one_fresh_try_at_once(self):
+        self.spec("rt", items=self.PIP)
+        self.sys.pip_fail_on = {u.split("/")[2] for u in bs.PYPI_INDEXES}
+        self.engine().run_once()
+        self.sys.pip_fail_on = set()
+        self.clock[0] += 5                                                    # far less than the first pause
+        eng = self.engine()                                                    # the agent was restarted
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["state"], "ready")
+
+    def test_nothing_shipped_waits_for_the_download_window_on_a_first_install(self):
+        """Every requirements.d file of this package, with the window shut and no network: each step either runs or fails on its own
+        (the fake download answers 404) - none of them sits in «waiting for the download window»."""
+        import shutil as _sh
+        for name in os.listdir(os.path.join(HERE, "requirements.d")):
+            _sh.copy(os.path.join(HERE, "requirements.d", name), os.path.join(self.req, name))
+        self.window_open[0] = False
+        eng = self.engine()
+        eng.run_once()
+        waiting = []
+        for fname, feat in eng.status()["features"].items():
+            for it in feat["items"]:
+                if it["state"] == "waiting" and "download window" in (it["detail"] or ""):
+                    waiting.append("%s/%s" % (fname, it["id"]))
+        self.assertEqual(waiting, [])
+        reached = [i for feat in eng.status()["features"].values() for i in feat["items"] if "HTTP 404" in (i["error"] or "")]
+        self.assertTrue(reached, "no download was even attempted - the test would prove nothing")
+
+    def test_a_feature_that_opts_out_still_waits_for_the_window(self):
+        self.spec("rt", respect_window=True, items=self.PIP)
+        self.window_open[0] = False
+        eng = self.engine()
+        eng.run_once()
+        self.assertEqual(eng.status()["features"]["rt"]["items"][1]["state"], "waiting")
 
 
 if __name__ == "__main__":

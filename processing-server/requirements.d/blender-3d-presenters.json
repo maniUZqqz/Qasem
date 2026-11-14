@@ -1,7 +1,7 @@
 {
   "feature": "blender-3d-presenters",
   "title_fa": "دادهٔ مجری‌های انسانیِ ویدیوی سه‌بعدی (MPFB / MakeHuman)",
-  "order": 61,
+  "order": 80,
   "needs_gpu": true,
   "platform": ["win"],
   "requires": ["blender-3d"],

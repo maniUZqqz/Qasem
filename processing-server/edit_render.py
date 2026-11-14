@@ -482,6 +482,33 @@ def upload_resumable(job, agent, path, name, say):
 
 # ───────────────────────────────────────────── the job
 
+NVDEC_ERROR = re.compile(r"cuda|cuvid|hwaccel|hardware", re.I)
+NVENC_ERROR = re.compile(r"nvenc|NVENC|OpenEncodeSession|No capable devices")
+
+
+def render_with_fallbacks(ff, p, local, work, used_nvenc, hw, total, report, warn=print, build=None, run=None):
+    """Run the final render and fall back one step at a time: a card that cannot DECODE (NVDEC) decodes on the CPU, a card that cannot ENCODE (NVENC)
+    encodes with x264 - and both can fail one after the other (11/13 review: after the decoder fallback an encoder failure used to end the job instead
+    of falling back too). Any other error is real and raised. Returns (output path, used_nvenc, hw args that finally worked)."""
+    build = build or build_command
+    run = run or run_ffmpeg
+    while True:
+        cmd, out = build(ff, p, local, work, used_nvenc, hw)
+        try:
+            run(cmd, total, report)
+            return out, used_nvenc, hw
+        except RuntimeError as e:
+            text = str(e)
+            if hw and NVDEC_ERROR.search(text) and not re.search(r"nvenc|OpenEncodeSession", text, re.I):
+                warn("GPU decoding (NVDEC) failed (%s) - decoding on the CPU instead" % text[:200])
+                hw = []
+            elif used_nvenc and NVENC_ERROR.search(text):
+                warn("NVENC failed (%s) - encoding on the CPU instead" % text[:200])
+                used_nvenc = False
+            else:
+                raise
+
+
 def run(job, agent):
     """The handler of edit.render (agent.h_edit_render calls it). → meta dict for the site."""
     p = job.payload
@@ -533,23 +560,8 @@ def run(job, agent):
     def report(frac):
         job.progress(0.2 + 0.7 * frac, "render|%d%%" % int(frac * 100))
 
-    cmd, out = build_command(ff, p, local, work, used_nvenc, hw)
     r0 = time.time()
-    try:
-        run_ffmpeg(cmd, total, report)
-    except RuntimeError as e:
-        if hw and re.search(r"cuda|cuvid|hwaccel|hardware", str(e), re.I) and not re.search(r"nvenc|OpenEncodeSession", str(e), re.I):
-            agent.warn("GPU decoding (NVDEC) failed (%s) - decoding on the CPU instead" % str(e)[:200])
-            hw = []
-            cmd, out = build_command(ff, p, local, work, used_nvenc, hw)
-            run_ffmpeg(cmd, total, report)
-        elif used_nvenc and re.search(r"nvenc|NVENC|OpenEncodeSession|No capable devices", str(e)):
-            agent.warn("NVENC failed (%s) - encoding on the CPU instead" % str(e)[:200])
-            used_nvenc = False
-            cmd, out = build_command(ff, p, local, work, False, hw)
-            run_ffmpeg(cmd, total, report)
-        else:
-            raise
+    out, used_nvenc, hw = render_with_fallbacks(ff, p, local, work, used_nvenc, hw, total, report, warn=agent.warn)
     render_seconds = round(time.time() - r0, 1)
     if not os.path.isfile(out) or os.path.getsize(out) <= 0:
         raise RuntimeError("ffmpeg produced no file")

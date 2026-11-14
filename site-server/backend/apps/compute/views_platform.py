@@ -17,7 +17,7 @@ from rest_framework import exceptions, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from . import autopilot, sched
+from . import autopilot, bootstrap_fa, sched
 from . import commands as C
 from .models import ComputeNode, ComputeSettings, SelfTestRun
 from .selftests import REGISTRY, load_all, runner, tests
@@ -39,7 +39,7 @@ def node_block(node: ComputeNode) -> dict:
     return {"id": node.pk, "name": node.name, "online": node.online, "enabled": node.enabled, "agent": caps.get("agent"),
             "gpu": caps.get("gpu") or "", "gpu_info": caps.get("gpu_info") or {}, "last_seen": node.last_seen,
             "run": runner.run_json(run) if run else None, "running": bool(run and run.state == SelfTestRun.State.RUNNING),
-            "auto": autopilot.status_of(node), "bootstrap": boot, "autostart": caps.get("autostart") or {},
+            "auto": autopilot.status_of(node), "bootstrap": bootstrap_fa.translate(boot), "autostart": caps.get("autostart") or {},
             "autostart_wanted": (node.desired or {}).get("autostart", True) is not False, "outbox": caps.get("outbox") or {},
             "net": caps.get("net") or {}, "lanes": caps.get("lanes") or {}, "can_bootstrap": "bootstrap" in (caps.get("commands") or [])}
 

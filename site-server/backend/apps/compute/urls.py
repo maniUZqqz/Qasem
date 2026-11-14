@@ -4,6 +4,8 @@ from django.urls import path
 from . import (api, transfer, views_matting, views_models, views_ollama, views_commands, views_platform, views_report,
                views_retry, views_update, views_voice)
 
+from . import views_readiness  # noqa: E402  (آمادگیِ صبحِ مالک)
+
 urlpatterns = [
     # پروتکلِ گره‌ها (Authorization: Node <token>)
     path("heartbeat/", api.heartbeat),
@@ -65,6 +67,7 @@ urlpatterns = [
     path("nodes/<int:pk>/commands/", views_commands.node_commands),  # «دستورها»: به‌روزرسانی/راه‌اندازیِ دوباره/ساخت/وضعیت/لاگ
     # آزمونِ خودکارِ سرورِ پردازش، پیشرفتِ کلیِ صف، نصبِ خودکار و شروعِ خودکار (کارکنان) — views_platform.py
     path("selftests/", views_platform.overview),
+    path("readiness/", views_readiness.readiness_report),          # «اگر همین حالا گره را روشن کنند…»: فقط‌خواندنی (readiness.py)
     path("selftests/run/", views_platform.start),
     path("selftests/history/", views_platform.history),
     path("selftests/<int:pk>/", views_platform.run_detail),

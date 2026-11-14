@@ -1,12 +1,12 @@
 {
   "feature": "asr-large",
   "title_fa": "تشخیص گفتارِ دقیق‌ترِ فارسی (Whisper large-v3-turbo روی کارت گرافیک)",
-  "order": 41,
+  "order": 90,
   "needs_gpu": true,
   "platform": ["win"],
   "requires": ["asr-gpu"],
   "kinds": [],
-  "note": "The better speech model for the automatic video edit (word-boundary cuts, retakes, subtitles in Persian): Whisper large-v3-turbo converted for CTranslate2 (deepdml/faster-whisper-large-v3-turbo-ct2, MIT, a conversion of OpenAI's MIT-licensed whisper-large-v3-turbo), pinned revision, from hf-mirror.com then huggingface.co (both answer from Iran). It runs in the SAME environment as 'asr-gpu' (venvs/asr, faster-whisper 1.1.0 reads it unchanged), about 3 GB of VRAM in float16 on the RTX 3060 (int8_float16 when the card is shared with Ollama), several times faster than real time. `kinds` stays empty on purpose: until this model is on the node the 'small' model of 'asr-gpu' answers (asr_jobs.py picks the best installed model; the node advertises caps.asr_models and the site asks for 'auto'), so a 1.6 GB download never blocks a job. Big item: it obeys the site's download window.",
+  "note": "The better speech model for the automatic video edit (word-boundary cuts, retakes, subtitles in Persian): Whisper large-v3-turbo converted for CTranslate2 (deepdml/faster-whisper-large-v3-turbo-ct2, MIT, a conversion of OpenAI's MIT-licensed whisper-large-v3-turbo), pinned revision, from hf-mirror.com then huggingface.co (both answer from Iran). It runs in the SAME environment as 'asr-gpu' (venvs/asr, faster-whisper 1.1.0 reads it unchanged), about 3 GB of VRAM in float16 on the RTX 3060 (int8_float16 when the card is shared with Ollama), several times faster than real time. `kinds` stays empty on purpose: until this model is on the node the 'small' model of 'asr-gpu' answers (asr_jobs.py picks the best installed model; the node advertises caps.asr_models and the site asks for 'auto'), so a 1.6 GB download never blocks a job. Big item: like every feature in this folder its FIRST install ignores the site's download window (the owner switches the node on during the day), and it comes last (order 90) so 1.6 GB never holds up Blender, Abagram or the matting model.",
   "items": [
     {"id": "model", "type": "files", "title": "Whisper large-v3-turbo model (1.6 GB)", "dest": "models/faster-whisper-large-v3-turbo", "big": true,
      "files": [

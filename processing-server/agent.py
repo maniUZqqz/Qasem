@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.22"
+VERSION = "2.23"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -3403,6 +3403,18 @@ def code_stamp():
     return tuple(out)
 
 
+#: The stamp of the code files AS THEY WERE WHEN THIS PROCESS LOADED THEM. It must be taken before anything can wait: a second START.bat
+#: window waits as a standby in take_instance_lock() with the old code already in memory, and when the first agent stops for an update the
+#: standby wins the lock while the files on disk are new. With a baseline taken after the wait it would run the OLD code, think it is
+#: current, and the site would think so too (heartbeat code.id comes from the new .nm-version.json) - found by the 11/13 review.
+STARTUP_STAMP = code_stamp()
+
+
+def code_changed_since_start():
+    """The files of this folder are not the ones this process loaded: restart on them (when the running jobs end)."""
+    return code_stamp() != STARTUP_STAMP
+
+
 def _updater():
     import importlib
     import update as upd                                 # update.py next to this file
@@ -4619,13 +4631,12 @@ def main():
     backoff = 5
     announced = False
     comfy_state = None
-    stamp = code_stamp()
     started = time.time()
     confirmed = False
     draining = False
     while True:
         running = [t for t in running if t.is_alive()]
-        if not draining and code_stamp() != stamp:
+        if not draining and code_changed_since_start():
             draining = True
             log("the code of this folder was updated - restarting on it %s" % (
                 "when the running job(s) end" if running else "now"))

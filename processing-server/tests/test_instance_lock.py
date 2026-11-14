@@ -50,8 +50,10 @@ class LockTests(unittest.TestCase):
         self.assertIn("started", info)
         a.release()
         b.acquire()
-        raw = open(self.path, "rb").read()
-        self.assertEqual(json.loads(raw[il.INFO_AT:].decode("utf-8"))["pid"], os.getpid())       # one clean note, no leftovers of an older one
+        with open(self.path, "rb") as fh:                         # byte 0 is the LOCKED byte: Windows refuses to read it, so start after it (like holder())
+            fh.seek(il.INFO_AT)
+            raw = fh.read()
+        self.assertEqual(json.loads(raw.decode("utf-8"))["pid"], os.getpid())                     # one clean note, no leftovers of an older one
 
     def test_a_process_that_dies_frees_the_lock(self):
         code = ("import sys, time; sys.path.insert(0, %r); import instance_lock as il; lk = il.InstanceLock(%r); "

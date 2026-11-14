@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 
-import { clock, countsLine, mutedFor, openCount, previewWindow, seedChoices, toAnswers, toggleKey, type SilenceRow } from "../src/features/content/video/autoedit/logic";
+import { clock, countsLine, momentLabel, mutedFor, openCount, previewWindow, quickMoments, seedChoices, toAnswers, toggleKey, type SilenceRow } from "../src/features/content/video/autoedit/logic";
 
 const results: { name: string; ok: boolean; err?: string }[] = [];
 function check(name: string, fn: () => void) {
@@ -69,6 +69,25 @@ check("صدا فقط از یکی از دو ویدیوی قبل/بعد پخش م�
 check("انتخابِ اندازه‌ها", () => {
   assert.deepEqual(toggleKey(["a"], "b"), ["a", "b"]);
   assert.deepEqual(toggleKey(["a", "b"], "a"), ["b"]);
+});
+
+check("برچسبِ لحظهٔ ویدیو برای اسلایدرِ قبل/بعد (دقیقه:ثانیه)", () => {
+  assert.equal(momentLabel(0), "0:00");
+  assert.equal(momentLabel(12.4), "0:12");
+  assert.equal(momentLabel(84), "1:24");
+  assert.equal(momentLabel(-5), "0:00");
+});
+
+check("لحظه‌های پیشنهادیِ نگاه به نور: پنج لحظه، دور از لبه‌ها، روی نیم‌ثانیه", () => {
+  const m = quickMoments(97.7);
+  assert.deepEqual(m.map((x) => x.label), ["اول", "یک‌چهارم", "وسط", "سه‌چهارم", "آخر"]);
+  for (const x of m) {
+    assert.ok(x.t >= 0.2 && x.t <= 97.7 - 0.4, `${x.label} ${x.t} must stay inside the video`);
+    assert.equal(x.t * 2, Math.round(x.t * 2), `${x.label} ${x.t} is on a half second`);
+  }
+  assert.deepEqual(m.map((x) => x.t), [...m.map((x) => x.t)].sort((a, b) => a - b), "in order");
+  assert.equal(m[2].t, 49);
+  assert.deepEqual(quickMoments(0.5), [], "a clip shorter than a second has nothing to choose between");
 });
 
 const failed = results.filter((r) => !r.ok);

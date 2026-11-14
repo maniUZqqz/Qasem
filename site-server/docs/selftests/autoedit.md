@@ -7,6 +7,10 @@ registers `autoedit_matte` (kind `edit.matte`). The first two are skipped - with
 pipeline (`asr.transcribe`, `edit.matte`, `edit.render`), never failed; the matte test needs `edit.matte`. The pass logic is the same pure functions as below
 (`services/editing/selftest_autoedit.py`: `check_mix`, `check_words`, `check_matte`).
 
+`autoedit_words_large` (kind `asr.transcribe`, after `tts_piper`, `needs_features=("asr-gpu", "asr-large")`) is the same words test asked for
+`model: "large-v3-turbo"`: it WAITS (no failure) while `requirements.d/asr-large.json` is still downloading the 1.6 GB model, and a quiet fall-back to the small
+model counts as a finding, not a pass (`meta.model` must name large-v3-turbo). Pass logic: `check_words_large` = `check_words` + the model check.
+
 The same checks run from the command line: `manage.py autoedit_selftest [--only render_mix,asr,matte] [--json]`
 (exit code 0 = passed, 1 = failed, 2 = waiting: no processing server online - ask again later).
 

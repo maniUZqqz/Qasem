@@ -14,6 +14,7 @@ file lookup) arrives through arguments, so the whole loop runs in tests with fak
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -90,9 +91,12 @@ def _apply_override(brief: dict, override: dict) -> None:
     for key in ("music", "captions"):
         if isinstance(o.get(key), bool):
             brief[key] = o[key]
-    if o.get("background") in ("keep", "blur", "color"):           # «پس‌زمینه»: همان / محو / رنگِ ساده (the chip beats the words)
+    if o.get("background") in ("keep", "blur", "color", "image"):  # «پس‌زمینه»: همان / محو / رنگِ ساده / عکس (the chip beats the words)
         brief["background"] = o["background"]
         brief["matched"].append("پس‌زمینه")
+        ref = str(o.get("background_ref") or "")
+        if o["background"] == "image" and re.fullmatch(r"(?:pimg|image):\d{1,12}", ref):
+            brief["background_ref"] = ref                           # which picture (a library image); without one the recipe takes an image among the picked media
 
 
 def build_variant(key: str, brief: dict, assets: list[dict], an: dict, ctx: Ctx, *, music_ref: str, rounds: int, extra_call=None, store=None,
@@ -133,7 +137,9 @@ def run(prompt: str, assets: list[dict], ctx: Ctx, *, store=None, options: Optio
         return {"error": "برای ساختنِ ویدیو دست‌کم یک ویدیو یا عکس لازم است؛ از «رسانه‌ها» انتخاب کنید.", "variants": []}
 
     # the music: the owner's pick, else an audio asset among the chosen ones, else the shop's library; it is analysed like any asset (its beats)
-    music_ref = opts.music_ref or next((a["ref"] for a in assets if a.get("kind") == "audio"), "") or (ctx.find_music("") or "")
+    # (a run that says «بدونِ موسیقی» - by the chip or in the words - never looks in the library: the library is also where the site seeds its own starter tracks)
+    no_music = (opts.override or {}).get("music") is False or parse_prompt(request, assets=assets).get("music") is False
+    music_ref = opts.music_ref or next((a["ref"] for a in assets if a.get("kind") == "audio"), "") or ("" if no_music else (ctx.find_music("") or ""))
     to_analyse = list(assets)
     if music_ref and not any(a["ref"] == music_ref for a in to_analyse):
         item = ctx.describe(music_ref)

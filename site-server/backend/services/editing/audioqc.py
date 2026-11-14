@@ -17,6 +17,7 @@ asserts the result is clean.  Nothing here changes a file.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from pathlib import Path
 
@@ -149,8 +150,15 @@ def peak_db(x: np.ndarray) -> float:
     return round(float(20 * np.log10(np.max(np.abs(x)) + 1e-9)), 1)
 
 
-def loudness_lufs(path) -> float | None:
-    """Integrated loudness (EBU R128) via ffmpeg's ebur128 — what the platforms measure."""
+_NUM = r"(-?[0-9]+(?:\.[0-9]+)?|-inf)"
+
+
+def loudness_stats(path) -> dict | None:
+    """What the platforms measure on a file, in ONE pass of ffmpeg's ebur128 (4x oversampled true peak included):
+    `{"lufs": integrated loudness or None, "tp": true peak in dBTP or None}`; None when the file cannot be measured.
+
+    The true peak is read from the DECODED file (an AAC file decodes to floats that can be above full scale), which is exactly what the
+    owner's ear and the platforms' meters see - the peak of the filter graph that fed the encoder is not."""
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-i", str(path), "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
@@ -160,60 +168,131 @@ def loudness_lufs(path) -> float | None:
     mark = text.rfind("Integrated loudness:")
     if mark < 0:
         return None
-    for line in text[mark:].splitlines()[1:4]:
-        line = line.strip()
-        if line.startswith("I:"):
-            try:
-                return round(float(line.split()[1]), 1)
-            except (IndexError, ValueError):
-                return None
-    return None
+    tail = text[mark:]
+    lufs = tp = None
+    m = re.search(r"I:\s*" + _NUM + r"\s*LUFS", tail)
+    if m and m.group(1) != "-inf":
+        lufs = round(float(m.group(1)), 1)
+    m = re.search(r"True peak:\s*Peak:\s*" + _NUM + r"\s*dBFS", tail)
+    if m:
+        tp = -120.0 if m.group(1) == "-inf" else round(float(m.group(1)), 1)
+    if lufs is None and tp is None:
+        return None
+    return {"lufs": lufs, "tp": tp}
 
 
-def settle_loudness(path, *, target: float = -14.0, tp: float = -1.0, tolerance: float = 0.8, max_rounds: int = 2) -> dict:
-    """Bring a finished mp4 to the loudness the owner asked for (-14 LUFS for the social networks).
+def loudness_lufs(path) -> float | None:
+    """Integrated loudness (EBU R128) via ffmpeg's ebur128 - what the platforms measure."""
+    stats = loudness_stats(path)
+    return stats["lufs"] if stats else None
+
+
+#: the limiter works this far BELOW the true-peak ceiling (`audiofx.AAC_HEADROOM_DB`, 1.0 dB): the AAC encoder re-quantises the signal and the decoded
+#: file overshoots the limiter by up to a dB (measured on the owner's own video: a -1.3 dBFS limiter came out of the encoder at +0.3 dBFS with clipped
+#: samples).  It is only the starting point; `settle_loudness` MEASURES the decoded result and lowers the ceiling further until the file really holds it.
+from .audiofx import AAC_HEADROOM_DB  # noqa: E402
+#: a measured true peak this far above the ceiling is fixed even when the loudness is already right
+PEAK_TRIGGER_DB = 0.25
+#: the most gain one pass may add or take away (a very quiet recording needs +20 dB; the limiter keeps the peaks under the ceiling)
+GAIN_LIMIT_DB = 24.0
+
+
+def _encode_audio(src: Path, dst: Path, gain_db: float, ceiling_db: float) -> bool:
+    """The picture copied untouched, the sound re-encoded with `gain_db` and a peak limiter at `ceiling_db` dBFS.  True when `dst` is a real file."""
+    limit = min(0.99, max(0.0625, 10 ** (float(ceiling_db) / 20)))
+    chain = (f"volume={gain_db:.2f}dB," if abs(gain_db) > 0.005 else "") + f"alimiter=limit={limit:.3f}:level=disabled:attack=3:release=40,aresample=48000"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", str(src), "-map", "0", "-c", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+           "-af", chain, "-movflags", "+faststart", str(dst)]
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        dst.unlink(missing_ok=True)
+        return False
+    if done.returncode != 0 or not dst.is_file() or dst.stat().st_size < 1024:
+        dst.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def _badness(lufs: float | None, tp: float | None, target: float | None, tp_ceiling: float) -> float:
+    """Lower is better: a peak above the ceiling costs 10x what the same distance of loudness costs (a clipped file is a defect, a file
+    0.5 LU quiet is not)."""
+    over = max(0.0, (tp if tp is not None else tp_ceiling) - tp_ceiling)
+    off = abs(target - lufs) if (target is not None and lufs is not None) else 0.0
+    return 10.0 * over + off
+
+
+def settle_loudness(path, *, target: float | None = -14.0, tp: float = -1.0, tolerance: float = 0.8, max_rounds: int = 3,
+                    peak_trigger: float | None = None) -> dict:
+    """Bring a finished mp4 to the loudness the owner asked for (-14 LUFS for the social networks) AND under the true-peak ceiling, both
+    measured on the decoded FILE.
 
     The render's one-pass `loudnorm` is dynamic: on speech with long quiet stretches it lands 1-3 LU away from the target (measured on the
-    owner's own video: −16.1 for a −14 request).  So the FILE is measured with the same meter the platforms use (EBU R128 via ebur128) and,
-    only when it is off by more than `tolerance`, its sound is re-encoded with the missing gain and a true-peak limiter — the picture stream is
-    copied untouched, so it costs seconds, never a second render.  Never raises and never leaves a half-written file:
-    `{"lufs", "target", "adjusted", "rounds", "gain_db"}`, `{}` when the file has no sound or cannot be measured."""
+    owner's own video: -16.1 for a -14 request).  So the FILE is measured with the same meter the platforms use (EBU R128 via ebur128) and,
+    when it is off by more than `tolerance` OR its true peak is above the ceiling, its sound is re-encoded with the missing gain and a peak
+    limiter - the picture stream is copied untouched, so it costs seconds, never a second render.
+
+    The limiter is not enough on its own: the AAC encoder overshoots it (see `AAC_HEADROOM_DB`).  So every candidate is DECODED and measured;
+    if it still peaks above `tp` the limiter ceiling is lowered by the overshoot and the original is encoded again (always from the original -
+    one generation of AAC, never a re-encode of a re-encode), and as a last resort the gain itself comes down.  The best candidate wins; if
+    none is better than the file as it was, the file is left as it was.
+
+    `target=None` = peaks only (a project that did not ask for loudness normalisation keeps its loudness; only a file that really clips is
+    touched, and `peak_trigger` defaults to -0.1 dBTP then).  Never raises and never leaves a half-written file:
+    `{"lufs", "target", "adjusted", "rounds", "gain_db", "before", "tp", "tp_before", "tp_ceiling"}`, `{}` when the file has no sound or cannot
+    be measured."""
     path = Path(path)
     try:
-        before = loudness_lufs(path)
-        if before is None or before < -69.0:
+        first = loudness_stats(path)
+        if not first or first["lufs"] is None or first["lufs"] < -69.0:
             return {}
-        rep: dict = {"lufs": before, "target": float(target), "adjusted": False, "rounds": 0, "gain_db": 0.0}
-        current, total = before, 0.0
-        limit = 10 ** ((float(tp) - 0.3) / 20)
-        for _ in range(max_rounds):
-            delta = float(target) - current
-            if abs(delta) <= tolerance:
+        before, tp_before = first["lufs"], first["tp"]
+        rep: dict = {"lufs": before, "target": (float(target) if target is not None else None), "adjusted": False, "rounds": 0, "gain_db": 0.0,
+                     "before": before, "tp": tp_before, "tp_before": tp_before, "tp_ceiling": float(tp)}
+        trigger = float(peak_trigger) if peak_trigger is not None else (PEAK_TRIGGER_DB + float(tp) if target is not None else -0.1)
+        loud_off = target is not None and abs(float(target) - before) > tolerance
+        peak_over = tp_before is not None and tp_before > trigger
+        if not loud_off and not peak_over:
+            return rep
+        gain = max(-GAIN_LIMIT_DB, min(GAIN_LIMIT_DB, float(target) - before)) if loud_off else 0.0
+        ceiling = float(tp) - AAC_HEADROOM_DB
+        best_score = _badness(before, tp_before, target, float(tp))
+        best: tuple[Path, dict, float] | None = None
+        tried: list[Path] = []
+        encoded = 0
+        for n in range(max(1, max_rounds)):
+            tmp = path.with_name(f"{path.stem}.loud{n}{path.suffix}")
+            tried.append(tmp)
+            if not _encode_audio(path, tmp, gain, ceiling):
                 break
-            gain = max(-12.0, min(12.0, delta))
-            tmp = path.with_name(path.stem + ".loud" + path.suffix)
-            cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", str(path), "-map", "0", "-c", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                   "-af", f"volume={gain:.2f}dB,alimiter=limit={limit:.3f}:level=disabled,aresample=48000", "-movflags", "+faststart", str(tmp)]
-            try:
-                done = subprocess.run(cmd, capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
-            except (OSError, subprocess.SubprocessError):
-                tmp.unlink(missing_ok=True)
+            encoded += 1
+            st = loudness_stats(tmp)
+            if not st or st["lufs"] is None:
                 break
-            if done.returncode != 0 or not tmp.is_file() or tmp.stat().st_size < 1024:
-                tmp.unlink(missing_ok=True)
-                break
-            after = loudness_lufs(tmp)
-            if after is None or abs(float(target) - after) >= abs(float(target) - current):
-                tmp.unlink(missing_ok=True)          # not closer (the limiter holds the peaks down): keep the file as it was
-                break
+            score = _badness(st["lufs"], st["tp"], target, float(tp))
+            if score < best_score - 1e-6:
+                best_score, best = score, (tmp, st, gain)
+            over = (st["tp"] if st["tp"] is not None else float(tp)) - float(tp)
+            short = (float(target) - st["lufs"]) if target is not None else 0.0          # > 0: still too quiet
+            if over > 0.05:
+                ceiling -= over + 0.2                            # the codec overshoot is measured, so the limiter goes under it by exactly that
+                if n >= 1:
+                    gain -= over + 0.1                           # a second miss: a plain attenuation is exact
+            elif target is not None and abs(short) > tolerance * 0.5 and n + 1 < max_rounds:
+                if over < -0.5:
+                    ceiling += -over - 0.1                       # the first guess was too careful: work closer to the ceiling
+                gain = max(-GAIN_LIMIT_DB, min(GAIN_LIMIT_DB, gain + short))      # the limiter eats part of any extra gain; the next measurement tells how much
+            else:
+                break                                            # holds the ceiling and the loudness is where it was asked: done
+        if best is not None:
+            tmp, st, used = best
             tmp.replace(path)
-            current, total = after, total + gain
-            rep["adjusted"] = True
-            rep["rounds"] += 1
-        rep["lufs"], rep["gain_db"] = current, round(total, 1)
-        rep["before"] = before
+            rep.update(adjusted=True, gain_db=round(used, 1), lufs=st["lufs"], tp=st["tp"])
+        rep["rounds"] = encoded
+        for t in tried:
+            t.unlink(missing_ok=True)
         return rep
-    except Exception as exc:  # noqa: BLE001 — a loudness touch-up must never fail a render
+    except Exception as exc:  # noqa: BLE001 - a loudness touch-up must never fail a render
         logger.info("settle_loudness failed for %s: %s", path, exc)
         return {}
 
@@ -234,7 +313,15 @@ def analyze(path, *, with_loudness: bool = False) -> dict:
     left, right = decode(path, channel=0), decode(path, channel=1)
     rep["channels"] = channel_report(left, right) if len(right) else {"corr": None, "out_of_phase": False}
     if with_loudness:
-        rep["lufs"] = loudness_lufs(path)
+        stats = loudness_stats(path) or {}
+        rep["lufs"] = stats.get("lufs")
+        if stats.get("tp") is not None:
+            # the 16 kHz mono decode above is a tool for the echo / phase tests, not a peak meter: the channel average of a centred voice reads up to 3 dB
+            # ABOVE either channel (measured on the owner's own video: -0.1 against a true peak of -1.1), which is how a clean file was once called clipping.
+            # The verdict goes by the TRUE peak of the delivered file, per channel, the way the platforms measure it.
+            rep["mono_peak_db"] = rep["peak_db"]
+            rep["peak_db"] = stats["tp"]
+            rep["true_peak_db"] = stats["tp"]
     problems = []
     if rep["echo"]["doubled"]:
         problems.append("همان گفتار دو بار و با کمی فاصله شنیده می‌شود (روی هم افتادنِ صدا)")
@@ -248,9 +335,10 @@ def analyze(path, *, with_loudness: bool = False) -> dict:
 
 
 def quick_check(path) -> dict:
-    """`analyze` for the render pipeline: swallow every error — a QC must never fail a render."""
+    """`analyze` for the render pipeline: swallow every error — a QC must never fail a render.  Includes the loudness meter (one more
+    ffmpeg pass, about a second per minute of video) so the verdict on clipping goes by the true peak of the delivered file."""
     try:
-        return analyze(Path(path))
+        return analyze(Path(path), with_loudness=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("audioqc failed for %s: %s", path, exc)
         return {"ok": False, "reason": "error"}

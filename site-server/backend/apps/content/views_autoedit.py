@@ -208,6 +208,37 @@ def _still(path, t: float, filters: list[str] | None = None) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")
 
 
+#: where the preview looks first when no moment is asked for (fractions of the video): the middle, then around it, then the edges
+LOOK_PROBES = (0.5, 0.15, 0.3, 0.7, 0.85, 0.05)
+
+
+def default_look_time(path, duration: float) -> float:
+    """The moment the light preview opens on: the first probe with a PERSON in it - the face is what the owner judges light by, and a recorded app
+    screen (what the middle of his own video was) says «نیازی به اصلاح نبود» about a video whose face part does need it - else the middle."""
+    middle = max(0.0, duration / 2)
+    try:
+        import tempfile
+        from pathlib import Path as _P
+
+        from services.video import faces
+        from services.video.ffmpeg import FFMPEG
+
+        ok, _why = faces.available()
+        if not ok or duration < 2.0:
+            return middle
+        with tempfile.TemporaryDirectory(prefix="nm-lookt-") as work:
+            for f in LOOK_PROBES:
+                t = max(0.0, min(duration - 0.3, duration * f))
+                jpg = _P(work) / f"p{int(f * 100)}.jpg"
+                subprocess.run([FFMPEG, "-nostdin", "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(path), "-frames:v", "1", "-vf", "scale=512:-2", str(jpg)],
+                               capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
+                if jpg.is_file() and faces.in_image(jpg):
+                    return round(t * 2) / 2
+    except Exception as exc:  # noqa: BLE001 - the default frame is a courtesy: the middle is always a valid answer
+        logger.info("look preview: default moment not chosen (%s)", exc)
+    return middle
+
+
 class LookPreviewView(APIView):
     """«قبل / بعد» of the automatic light and colour: the frame as shot and the same frame with the correction `auto_look` would apply to its shot.
     Nothing is saved; a correct shot comes back with `changed: false` and a sentence saying so."""
@@ -222,10 +253,12 @@ class LookPreviewView(APIView):
             if item["kind"] != "video":
                 raise tl.TimelineError("نورِ خودکار فقط برای ویدیو نشان داده می‌شود.")
             duration = float(item.get("duration") or 0.0)
+            auto_t = False
             try:
                 t = float(request.query_params.get("t"))
             except (TypeError, ValueError):
-                t = duration / 2
+                t = default_look_time(item["path"], duration)
+                auto_t = True
             t = max(0.0, min(max(0.0, duration - 0.2), t))
             ctx = store_ctx(store, asr=False)
             stats = ctx.look_stats(ref, max(0.0, t - 1.5), min(duration, t + 1.5)) or {}
@@ -242,5 +275,5 @@ class LookPreviewView(APIView):
         except (editor_project.RefError, tl.TimelineError) as exc:
             return _err("bad_ref", str(exc))
         note = autolook.summary_fa(res["report"]) if res["changed"] else (res.get("skipped") or "نور و رنگِ این نما درست است؛ دست نمی‌خورد.")
-        return Response({"ref": ref, "t": round(t, 2), "changed": bool(res["changed"]), "before": before, "after": after, "note": note,
+        return Response({"ref": ref, "t": round(t, 2), "duration": round(duration, 2), "auto_t": auto_t, "changed": bool(res["changed"]), "before": before, "after": after, "note": note,
                          "report": [{k: r.get(k) for k in ("what", "from", "to", "note")} for r in res["report"]]})

@@ -155,6 +155,25 @@ def on_cancelled(ph: ComputeJob) -> None:
         cancellation.cancel(row, reason="در صفِ پردازش لغو شد.")
 
 
+def drop_placeholder(job) -> int:
+    """The user's Job was cancelled (or finished some other way) while it waited for the node: its «در صف — منتظرِ …» row leaves the queue at once.
+    Without this the placeholder stayed QUEUED until the park sweep found it (the owner saw phantom waiting rows after cancelling).  Direct update:
+    no `on_cancelled` round trip back into the Job that is being cancelled.  Returns how many rows were dropped."""
+    ref = {"model": "jobs.Job", "id": job.pk}
+    uid = ((getattr(job, "context", None) or {}).get("node_wait") or {}).get("park")
+    n = 0
+    now = timezone.now()
+    for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED):
+        if str(ph.uid) == str(uid or "") or (ph.payload or {}).get("ref") == ref:
+            ph.state = ComputeJob.State.CANCELLED
+            ph.finished_at = now
+            ph.message = "کارِ اصلی لغو شد؛ از صف برداشته شد."
+            ph.error = ph.error or "کارِ اصلی لغو شد."
+            ph.save(update_fields=["state", "finished_at", "message", "error", "updated_at"])
+            n += 1
+    return n
+
+
 def on_expired(ph: ComputeJob) -> None:
     """سقفِ انتظار (اختیاری) تمام شد ⇒ Job ِ کاربر ناموفق شود، با پیامِ روشن."""
     if ph.kind != PARK_KIND:

@@ -345,6 +345,10 @@ REST_FRAMEWORK = {
 
 # Throttling off during automated tests (rate limits would make them flaky)
 IS_TEST = "test" in sys.argv
+
+#: «موسیقیِ زمینه» for a shop whose library has none: the site makes six starter tracks itself (services.audio.starter_music).  Off in the test runs
+#: (a minute of synthesis per shop is not what a unit test is about); the tests of that module switch it on with override_settings.
+AUTOEDIT_STARTER_MUSIC = os.getenv("AUTOEDIT_STARTER_MUSIC", "0" if IS_TEST else "1") not in ("0", "false", "False", "")
 if IS_TEST:
     REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = []
 

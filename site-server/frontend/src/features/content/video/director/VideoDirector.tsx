@@ -24,7 +24,7 @@ const DURATIONS = [0, 12, 15, 20, 30, 45, 60];
 const GROUP_FA: Record<string, string> = { structure: "ساختار", text: "متن", visual: "تصویر", audio: "صدا" };
 const KIND_ICON: Record<string, string> = { video: "🎞", image: "🖼", audio: "🎵" };
 
-type Choice = { recipe: string; platform: string; duration: number; pace: string; music: "auto" | "none" | string; background: "" | "keep" | "blur" | "color" };
+type Choice = { recipe: string; platform: string; duration: number; pace: string; music: "auto" | "none" | string; background: "" | "keep" | "blur" | "color" | "image"; backgroundRef: string };
 
 function useCatalogue(storeId: string) {
   const [cat, setCat] = useState<DirectorCatalogue | null>(null);
@@ -155,7 +155,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
   const [picked, setPicked] = useState<string[]>([]);
   const [sizesFor, setSizesFor] = useState<number | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto", background: "" });
+  const [choice, setChoice] = useState<Choice>({ recipe: "", platform: "", duration: 0, pace: "", music: "auto", background: "", backgroundRef: "" });
   // خاموش تا وقتی تنظیمِ فروشگاه برسد: اگر پیش‌فرضِ مالک «خاموش» باشد و کسی پیش از رسیدنِ کاتالوگ «ساخت» را بزند، اعتبار خرج نشود
   const [useAi, setUseAi] = useState(false);
   /** تیکِ هوش مصنوعی تا وقتی کاربر دست نزده از «پیش‌فرضِ فروشگاه» می‌آید */
@@ -237,6 +237,7 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
     if (choice.pace) override.pace = choice.pace;
     if (choice.music === "none") override.music = false;
     if (choice.background) override.background = choice.background;
+    if (choice.background === "image" && choice.backgroundRef) override.background_ref = choice.backgroundRef;
     return { use_ai: useAi, preview, music_ref: choice.music !== "auto" && choice.music !== "none" ? choice.music : "", override };
   }
 
@@ -421,8 +422,18 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
                   <option value="">همان که هست</option>
                   <option value="blur">محو (سوژه واضح بماند)</option>
                   <option value="color">رنگِ ساده</option>
+                  <option value="image">جایگزین با عکس</option>
                 </select>
               </label>
+              {choice.background === "image" && (
+                <label className="dr-field"><span>عکسِ پس‌زمینه</span>
+                  <select className="u-input" value={choice.backgroundRef} onChange={(e) => setChoice({ ...choice, backgroundRef: e.target.value })} data-testid="dr-background-image"
+                    title="یکی از عکس‌های رسانه‌هایتان؛ سوژه روی آن می‌نشیند">
+                    <option value="">{(bin?.images ?? []).length ? "یک عکس انتخاب کنید" : "عکسی در رسانه‌ها نیست؛ اول عکس آپلود کنید"}</option>
+                    {(bin?.images ?? []).map((m) => <option key={m.ref} value={m.ref}>{m.title}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div className="dr-row">
               <label className="dr-check"><input type="checkbox" checked={useAi} onChange={(e) => { aiTouched.current = true; setUseAi(e.target.checked); }} disabled={!cat?.settings} data-testid="dr-use-ai" /> هوش مصنوعی کمک کند (درکِ دقیقِ دستور، تیتر، نقد)</label>

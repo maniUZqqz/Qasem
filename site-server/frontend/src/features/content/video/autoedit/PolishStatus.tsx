@@ -99,6 +99,11 @@ export default function PolishStatus({ jobId }: { jobId: number }) {
           {job && !TERMINAL.includes(job.state) && <Spinner size={14} />}
           {job && !TERMINAL.includes(job.state) && job.current_step_label && <span style={{ color: "var(--text-2)" }}>{job.current_step_label}</span>}
         </div>
+        {job?.state === "QUEUED" && /منتظر/.test(job.current_step_label ?? "") && (
+          <p className="mt-1 text-sm" data-testid="polish-waiting">
+            کارِ شما در صفِ ماندگار است و همین‌که سرورِ پردازش (کامپیوترِ گرافیکی) روشن شود خودش شروع می‌شود؛ لازم نیست این صفحه باز بماند. اگر الان نتیجهٔ فوری می‌خواهید «⚡ تدوینِ سریع» را بزنید.
+          </p>
+        )}
         {job?.state === "COMPLETED" && !delivered && result.waiting_node && (
           <p className="mt-1 text-sm">
             {fa(result.waiting_node.steps)} مرحله (زیرنویس و …) منتظرِ سرورِ پردازش است؛ همین‌که روشن شود خودکار انجام می‌شود و بعدش ویدیو ساخته می‌شود. لازم نیست این صفحه باز بماند.

@@ -283,6 +283,77 @@ class RenderTests(SimpleTestCase):
         self.assertLess(under, open_level - 9.0, f"{under:.1f} vs {open_level:.1f}")
 
 
+class PeakCeilingTests(SimpleTestCase):
+    """«صدا به سقف رسیده و می‌شکند» on the owner's own video (1405/08/23): the loudness step lifted the file to -14.7 LUFS but the DECODED file peaked
+    at +0.27 dBFS with clipped samples - the limiter before the AAC encoder did not hold after encoding.  The delivered file must hold the
+    true-peak ceiling when it is DECODED, and the QC verdict must go by that peak."""
+
+    def setUp(self):
+        if not HAVE:
+            self.skipTest("ffmpeg is not installed")
+
+    def hot_mp4(self, name, seconds=12, push=1.8):
+        """Speech at the very top of full scale (like a loudness-lifted mix): an AAC encode of it overshoots full scale when decoded."""
+        x = np.clip(synth_speech(seconds, seed=21, amp=1.0) * push * 1.0, -1.0, 1.0)
+        return mux(TEMP / f"{name}.mp4", write_wav(TEMP / f"{name}.wav", x), seconds)
+
+    def test_the_master_limiter_has_real_headroom_for_the_aac_overshoot(self):
+        from services.editing import audiofx
+
+        self.assertGreaterEqual(audiofx.AAC_HEADROOM_DB, 1.0)
+        self.assertEqual(audioqc.AAC_HEADROOM_DB, audiofx.AAC_HEADROOM_DB)           # one number for the graph and the settle step
+
+    def test_a_file_that_clips_when_decoded_is_brought_under_the_ceiling(self):
+        path = self.hot_mp4("hot_for_ceiling")
+        before = audioqc.loudness_stats(path)
+        self.assertIsNotNone(before)
+        self.assertGreater(before["tp"], 0.0, f"the fixture must overshoot full scale like the owner's file: {before}")
+        self.assertFalse(audioqc.quick_check(path)["clean"] and before["tp"] > -0.1, "the QC must call a file over the ceiling a problem")
+        rep = audioqc.settle_loudness(path, target=-14.0, tp=-1.0)
+        after = audioqc.loudness_stats(path)
+        self.assertTrue(rep["adjusted"], rep)
+        self.assertLessEqual(after["tp"], -0.8, f"decoded true peak after settling: {after} ({rep})")
+        self.assertEqual(rep["tp"], after["tp"])
+        qc = audioqc.quick_check(path)
+        self.assertTrue(qc["clean"], qc["problems"])
+        self.assertLessEqual(qc["peak_db"], -0.8)
+
+    def test_the_quick_check_goes_by_the_true_peak_of_the_decoded_file(self):
+        path = self.hot_mp4("hot_for_qc")
+        stats = audioqc.loudness_stats(path)
+        qc = audioqc.quick_check(path)
+        self.assertAlmostEqual(qc["peak_db"], stats["tp"], delta=0.05)
+        self.assertEqual(qc["true_peak_db"], qc["peak_db"])
+        if stats["tp"] > -0.1:
+            self.assertFalse(qc["clean"])
+            self.assertIn("صدا به سقف رسیده و می‌شکند", qc["problems"])
+
+    def test_peaks_only_mode_fixes_a_clipping_file_and_leaves_a_clean_one_alone(self):
+        hot = self.hot_mp4("hot_peaks_only")
+        lufs_before = audioqc.loudness_stats(hot)["lufs"]
+        rep = audioqc.settle_loudness(hot, target=None, tp=-1.0)
+        self.assertTrue(rep["adjusted"], rep)
+        self.assertLessEqual(audioqc.loudness_stats(hot)["tp"], -0.8)
+        self.assertLessEqual(audioqc.loudness_stats(hot)["lufs"], lufs_before + 0.3)       # loudness is not asked for: it never goes UP
+        calm = mux(TEMP / "calm_peaks_only.mp4", write_wav(TEMP / "calm_peaks_only.wav", synth_speech(10, seed=5, amp=0.3)), 10)
+        stamp = calm.stat().st_mtime_ns
+        rep = audioqc.settle_loudness(calm, target=None, tp=-1.0)
+        self.assertFalse(rep.get("adjusted"), rep)
+        self.assertEqual(calm.stat().st_mtime_ns, stamp)
+
+    def test_a_render_with_the_loudness_master_holds_the_ceiling_after_settling(self):
+        """The whole chain on a real render: loud speech through the export graph (loudnorm + limiter), then the settle step on the file."""
+        wav = write_wav(TEMP / "speech_for_chain.wav", synth_speech(10, seed=31, amp=0.9))
+        files = {"v": (mux(TEMP / "speech_for_chain.mp4", wav, 10), "video", 10.0)}
+        data = project([clip("c1", "v", 0, 10)], [])
+        data["master"] = {"gain_db": 0, "limiter": True, "loudness": {"on": True, "target": -14, "tp": -1}}
+        out = render(build(data, files), "chain_ceiling.mp4")
+        audioqc.settle_loudness(out, target=-14.0, tp=-1.0)
+        qc = audioqc.quick_check(out)
+        self.assertTrue(qc["clean"], qc["problems"])
+        self.assertLessEqual(audioqc.loudness_stats(out)["tp"], -0.8)
+
+
 class LoudnessSettleTests(SimpleTestCase):
     """The delivered file really sits at the requested loudness (-14 LUFS for social), not only "the filter was asked for"."""
 

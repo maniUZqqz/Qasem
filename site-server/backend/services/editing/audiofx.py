@@ -15,6 +15,9 @@ import logging
 
 from .timeline import Clip, Track, _atempo, _f
 
+#: how far under the true-peak ceiling the master limiter works (the AAC encoder overshoots a limiter by up to about a dB; see the master section)
+AAC_HEADROOM_DB = 1.0
+
 logger = logging.getLogger(__name__)
 
 EQ_CHAINS: dict[str, list[str]] = {
@@ -428,10 +431,12 @@ def build_audio(b, final: str = "aout") -> bool:
         tp = float(loud.get("tp", -1.0))
         tail.append(f"loudnorm=I={float(loud.get('target', -14.0)):g}:TP={tp:g}:LRA=11")
         tail.append("aresample=48000")
-        # the final limiter holds the true-peak ceiling the owner asked for: 0.3 dB under it for the AAC encoder's overshoot, and with
-        # `level=disabled` (alimiter's auto-level would lift the peaks back up to the limit: measured −0.5 dBTP with the old 0.95)
+        # the final limiter holds the true-peak ceiling the owner asked for: AAC_HEADROOM_DB under it, because the AAC encoder re-quantises the
+        # signal and the DECODED file overshoots the limiter (measured on the owner's own video: a limiter at -1.3 dBFS came out at +0.3 dBFS
+        # with clipped samples - the old 0.3 dB margin was far too small).  `level=disabled`: alimiter's auto-level would lift the peaks back up
+        # to the limit (measured −0.5 dBTP with the old 0.95).  `audioqc.settle_loudness` measures the decoded file and lowers it further if needed.
         if master.get("limiter", True):
-            tail.append(f"alimiter=limit={10 ** ((tp - 0.3) / 20):.3f}:level=disabled")
+            tail.append(f"alimiter=limit={10 ** ((tp - AAC_HEADROOM_DB) / 20):.3f}:level=disabled")
     elif master.get("limiter", True):
         tail.append("alimiter=limit=0.95")
     b.parts.append(f"[{mixed}]" + (",".join(tail) if tail else "anull") + f"[{final}]")

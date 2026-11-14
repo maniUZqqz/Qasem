@@ -139,7 +139,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.18"
+VERSION = "2.19"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -1748,6 +1748,12 @@ class Capabilities:
         # agent 2.11: what the site needs to route work correctly and to show the GPU / install state
         caps["started_at"] = int(START_TIME)
         caps["kinds"] = sorted(HANDLERS)
+        try:                       # which Whisper models are really on this node, best first: the site asks for "auto" only from nodes that say so
+            import asr_jobs
+
+            caps["asr_models"] = asr_jobs.installed_models(DATA)
+        except Exception as e:  # noqa: BLE001 - an optional key must never keep the heartbeat from going out
+            warn("asr models could not be listed: %s" % e)
         caps["http_relays"] = ["comfy" if k == "comfyui" else k for k in SERVICES]       # <prefix>.http relays (h_relay) this agent can do
         caps["lanes"] = {"main": self.slots, "light": LIGHT_SLOTS, "light_kinds": list(LIGHT_KINDS)}
         info = gpu_info_cached()

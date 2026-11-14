@@ -133,6 +133,12 @@ def cancel(job: Job, *, actor=None, reason: str = "توسط کاربر لغو ش
     _release_gpu()
 
     job.mark_cancelled(reason)
+    try:                       # it was waiting for the processing server: its row in the queue goes too (no phantom «در صف» rows)
+        from apps.compute import park
+
+        park.drop_placeholder(job)
+    except Exception as exc:  # noqa: BLE001 - the queue sweep removes it later anyway
+        logger.info("park placeholder of job %s not dropped: %s", job.pk, exc)
 
     logger.info(
         "job %s cancelled: %s credits back, %s partial files removed",

@@ -285,6 +285,19 @@ WHISPER_KIND = "asr.transcribe"
 WHISPER_PAYLOAD = {"audio": "audio.wav", "language": "fa", "model": "small", "word_timestamps": True, "vad": True}
 
 
+def whisper_payload(nodes) -> dict:
+    """The `asr.transcribe` payload.  `model: "auto"` = the BEST Whisper model installed on the node (large-v3-turbo once requirements.d/asr-large.json
+    has put it there - far better Persian than `small` for the word-boundary cuts and the subtitles); sent only when EVERY node that may take the job
+    advertises `caps.asr_models` (agent 2.19+), because an older agent knows only "small" and would refuse "auto"."""
+    payload = dict(WHISPER_PAYLOAD)
+    try:
+        if nodes and all(isinstance((getattr(n, "capabilities", None) or {}).get("asr_models"), list) for n in nodes):
+            payload["model"] = "auto"
+    except Exception:  # noqa: BLE001 - the old, safe model name
+        pass
+    return payload
+
+
 def whisper_nodes(compute) -> list:
     """Online processing servers whose agent advertises `asr.transcribe`."""
     out = []
@@ -311,7 +324,7 @@ def transcribe_wav(wav, *, store=None, on_tick=None, timeout_s: int = 900) -> di
 
     if nodes or whisper:
         # the Whisper job first (when the card has it), the PersianAiKit's recogniser as the second chance
-        attempts = ([(WHISPER_KIND, dict(WHISPER_PAYLOAD))] if whisper else []) + ([("voice.asr", {"audio": "audio.wav"})] if nodes else [])
+        attempts = ([(WHISPER_KIND, whisper_payload(whisper))] if whisper else []) + ([("voice.asr", {"audio": "audio.wav"})] if nodes else [])
         last: Exception | None = None
         for kind, payload in attempts:
             try:

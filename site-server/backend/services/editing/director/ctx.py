@@ -103,13 +103,29 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
         item = describe(ref)
         return str(item["path"]) if item and item.get("path") else None
 
-    def find_music(query: str):
+    def music_rows(limit: int = 40):
+        """The shop's ready music, best-kept first.  Tracks the processing node was asked for are brought up to date first (a finished one joins
+        the library by itself); a library with NO music gets the site's own starter tracks (services.audio.starter_music) - so the very first
+        automatic edit has a bed to lay under the voice, node on or off."""
         from apps.ai.models import AudioAsset
+        from services.audio import starter_music, studio
 
-        rows = AudioAsset.objects.filter(store=store, kind=AudioAsset.Kind.MUSIC, status=AudioAsset.Status.READY).order_by("-saved", "-id")
-        row = rows.first()
-        return f"audio:{row.pk}" if row else None
+        for pending in AudioAsset.objects.filter(store=store, kind=AudioAsset.Kind.MUSIC, status__in=(AudioAsset.Status.PENDING, AudioAsset.Status.RUNNING))[:6]:
+            try:
+                studio.sync(pending)
+            except Exception as exc:  # noqa: BLE001 - a stale row must not stop the edit
+                logger.info("music row %s not synced: %s", pending.pk, exc)
+        if not music_seeded:
+            music_seeded.append(1)
+            starter_music.ensure_for_store(store)           # seeds an empty library; asks the node for real tracks while the library holds only starters (once per two weeks)
+        ready = AudioAsset.objects.filter(store=store, kind=AudioAsset.Kind.MUSIC, status=AudioAsset.Status.READY).order_by("-saved", "-id")
+        return list(ready[:limit])
 
+    def find_music(query: str):
+        rows = music_rows(1)
+        return f"audio:{rows[0].pk}" if rows else None
+
+    music_seeded: list[int] = []                    # the starter tracks are offered at most once per context (one edit)
     face_seen: dict[str, bool] = {}
     boxes: dict[str, dict] = {}
 
@@ -163,12 +179,10 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0) ->
         return stats
 
     def rank_music(target: dict, seconds: float):
-        from apps.ai.models import AudioAsset
         from services.editing import music_match
 
-        rows = AudioAsset.objects.filter(store=store, kind=AudioAsset.Kind.MUSIC, status=AudioAsset.Status.READY).order_by("-saved", "-id")[:40]
         cands = []
-        for row in rows:
+        for row in music_rows(40):
             ref = f"audio:{row.pk}"
             item = describe(ref)
             if not item:

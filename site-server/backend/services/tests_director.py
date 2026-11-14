@@ -1039,7 +1039,7 @@ class GraphTests(SimpleTestCase):
         self.assertIn("loudnorm=I=-14:TP=-1:LRA=11", graph)
         self.assertLess(graph.index("loudnorm=I=-14"), graph.index("alimiter"))
         self.assertIn("aresample=48000", graph)
-        self.assertIn("alimiter=limit=0.861:level=disabled", graph)             # −1 dB true-peak ceiling, 0.3 dB margin, no auto-level
+        self.assertIn("alimiter=limit=0.794:level=disabled", graph)             # −1 dB true-peak ceiling, 1 dB margin for the AAC overshoot (−2 dBFS), no auto-level
         data = self.project_json()
         data["master"]["limiter"] = False
         self.assertNotIn("alimiter", compose.build_graph(self.timeline(data)).graph)

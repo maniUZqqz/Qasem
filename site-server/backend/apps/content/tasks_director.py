@@ -63,6 +63,18 @@ def node_pending(variants: list[dict]) -> list[dict]:
     return out
 
 
+def _log_failure(log, what: str, job_id, exc) -> None:
+    """A run that stops because the processing server is OFF is not a failure: `Job.mark_failed` parks it in the durable queue and it goes on by
+    itself when the server is on.  It is logged as one line at INFO (not as an ERROR with a traceback) so a person watching celery.log is not
+    told the owner's run failed when it is waiting by design."""
+    from apps.compute import park
+
+    if park._flag_of(exc):
+        log.info("%s %s waits for the processing server (parked): %s", what, job_id, exc)
+    else:
+        log.exception("%s %s failed", what, job_id)
+
+
 def deliver_draft(store, spec: dict) -> dict:
     """THE OUTPUT of the automatic edit: the finished draft becomes an ordinary project and is rendered at final quality - on the processing
     node (NVENC) as soon as it is online, parked in the durable queue until then - so the owner has a video to watch, not only a draft.
@@ -268,7 +280,7 @@ def director_task(self, job_id, payload):
         job.mark_completed(final)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Director job %s failed", job_id)
+        _log_failure(logger, "Director job", job_id, exc)
         job.mark_failed(exc)
         return {"error": str(exc)}
 
@@ -317,7 +329,7 @@ def director_fill_task(self, job_id, payload):
         job.mark_completed(result)
         return {"ok": True, "filled": done}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Director fill job %s failed", job_id)
+        _log_failure(logger, "Director fill job", job_id, exc)
         job.mark_failed(exc)
         return {"error": str(exc)}
 
@@ -360,6 +372,6 @@ def director_vision_task(self, job_id, payload):
         job.mark_completed({"ok": True})
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Director vision job %s failed", job_id)
+        _log_failure(logger, "Director vision job", job_id, exc)
         job.mark_failed(exc)
         return {"error": str(exc)}

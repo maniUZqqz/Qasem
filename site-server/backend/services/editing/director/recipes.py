@@ -280,6 +280,13 @@ def _polish(ctx: dict) -> list[dict]:
             steps.append(step("remove_fillers", {"clip": "all"}, "صداهای «اِم و اوم» حذف شد"))
     if b.get("background") in ("blur", "color"):
         steps.append(step("background", {"mode": b["background"], "clip": "main"}, "سوژه با پردازشِ گرافیکی جدا شد و پس‌زمینه " + ("محو شد" if b["background"] == "blur" else "ساده شد")))
+    elif b.get("background") == "image":
+        # the picture: the panel's choice, else an IMAGE among the picked media (a video edit with one photo picked = «این عکس پشتِ من باشد»)
+        pic = str(b.get("background_ref") or "") or next((a["ref"] for a in ctx["assets"] if a.get("kind") == "image"), "")
+        if pic:
+            steps.append(step("background", {"mode": "image", "ref": pic, "clip": "main"}, "سوژه با پردازشِ گرافیکی جدا شد و پس‌زمینه با عکسِ انتخاب‌شده عوض شد"))
+        else:
+            b.setdefault("notes", []).append("برای عوض کردنِ پس‌زمینه با عکس، عکسی انتخاب نشد؛ پس‌زمینه همان ماند.")
     steps.append(step("auto_look", {"clip": "all"}, "نور و رنگ هر نما از روی اندازه‌گیری درست شد"))
     if plat["preset"] != "wide" and not boxed:
         steps.append(step("reframe", {"clip": "all", "aspect": "9:16" if plat["preset"] == "reel" else "4:5" if plat["preset"] == "feed" else "1:1", "follow": "auto",

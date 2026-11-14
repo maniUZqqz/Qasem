@@ -54,7 +54,7 @@ def parse_prompt(prompt: str, *, assets: list[dict] | None = None) -> dict:
     raw = digits(prompt or "")
     low = raw.lower()
     brief: dict = {"recipe": "", "platform": "", "duration": 0, "pace": "", "title": "", "subtitle": "", "cta": "", "discount": 0,
-                   "captions": None, "music": None, "background": "", "look": "", "hook": "", "notes": [], "matched": []}
+                   "captions": None, "music": None, "background": "", "background_ref": "", "look": "", "hook": "", "notes": [], "matched": []}
 
     for key, pattern in _PLAT_WORDS:
         if re.search(pattern, low):
@@ -105,6 +105,9 @@ def parse_prompt(prompt: str, *, assets: list[dict] | None = None) -> dict:
     # the background behind the speaker: «پس‌زمینه را محو کن» · «پس‌زمینه ساده/سفید/رنگی» · nothing said = left as it is
     if re.search(r"(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background).{0,24}(?:محو|بلر|مات|blur)|(?:محو|بلر|blur).{0,16}(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background)", low):
         brief["background"] = "blur"
+        brief["matched"].append("پس‌زمینه")
+    elif re.search(r"(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background).{0,24}(?:عکس|تصویر|photo|image|picture)|(?:عکس|تصویر|photo|image|picture).{0,16}(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background)", low):
+        brief["background"] = "image"                       # replaced with a picture (the picture itself comes from the panel's choice or from the images picked)
         brief["matched"].append("پس‌زمینه")
     elif re.search(r"(?:پس[ ‌]?زمینه|بک[ ‌]?گراند|background).{0,24}(?:ساده|سفید|تیره|رنگی|عوض|تعویض|جایگزین|plain|solid|replace)", low):
         brief["background"] = "color"

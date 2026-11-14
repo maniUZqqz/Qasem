@@ -84,3 +84,23 @@ export function mutedFor(listen: "before" | "after", side: "before" | "after"): 
 export function toggleKey(keys: string[], key: string): string[] {
   return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
 }
+
+
+/** لحظهٔ ویدیو برای برچسبِ «قبل/بعد» (۱:۲۴) */
+export function momentLabel(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** لحظه‌های پیشنهادی برای نگاه کردن به نورِ ویدیو: اول، یک‌چهارم، وسط، سه‌چهارم و آخر؛ دور از لبه‌ها (تصویرِ سیاهِ ابتدا و انتها نیاید) و روی نیم‌ثانیه */
+export function quickMoments(duration: number): { label: string; t: number }[] {
+  if (!(duration > 1)) return [];
+  const at = (f: number) => Math.round(Math.max(0.2, Math.min(duration - 0.4, duration * f)) * 2) / 2;
+  return [
+    { label: "اول", t: at(0.03) },
+    { label: "یک‌چهارم", t: at(0.25) },
+    { label: "وسط", t: at(0.5) },
+    { label: "سه‌چهارم", t: at(0.75) },
+    { label: "آخر", t: at(0.97) },
+  ];
+}

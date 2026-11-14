@@ -69,7 +69,7 @@ def build_words(ctx):
         return None
     from services.editing import captions
 
-    return Spec(captions.WHISPER_KIND, dict(captions.WHISPER_PAYLOAD), files={"audio.wav": raw}, timeout_s=1800)
+    return Spec(captions.WHISPER_KIND, captions.whisper_payload([ctx.node]), files={"audio.wav": raw}, timeout_s=1800)
 
 
 def check_words(ctx, job):
@@ -164,6 +164,39 @@ def virtual_mix(ctx) -> Verdict:
 register(SelfTest(key="autoedit_words", label="تدوینِ خودکار: کلمه‌ها با زمان (برای برش و زیرنویس)", group="video", kind="asr.transcribe", build=build_words,
                   check=check_words, available=_pipeline_available, after=("tts_piper",), order=72,
                   describe="برشِ روی مرزِ کلمه، دوباره‌گویی و زیرنویسِ خودکار روی زمانِ کلمه‌ها ایستاده است"))
+def build_words_large(ctx):
+    raw = _speech(ctx)
+    if not raw:
+        return None
+    from services.editing import captions
+
+    return Spec(captions.WHISPER_KIND, {**captions.WHISPER_PAYLOAD, "model": "large-v3-turbo"}, files={"audio.wav": raw}, timeout_s=3600)
+
+
+def check_words_large(ctx, job):
+    """The same pass check as `autoedit_words`, plus: the node really used the large model (a quiet fall-back to `small` is a finding, not a pass)."""
+    verdict = check_words(ctx, job)
+    meta = ctx.meta(job)
+    used = str(meta.get("model") or "")
+    if verdict.ok and "large-v3-turbo" not in used:
+        return Verdict.failed("مدلِ بزرگ استفاده نشد (%s): %s" % (used or "?", meta.get("model_note") or "نصب نیست"), device=meta.get("device", ""))
+    return verdict
+
+
+def _large_available(node):
+    ok, why = _pipeline_available(node)
+    if not ok:
+        return ok, why
+    models = (node.capabilities or {}).get("asr_models")
+    if not isinstance(models, list):
+        return False, "عاملِ این سرور هنوز مدل‌های Whisperِ نصب‌شده را اعلام نمی‌کند (نسخهٔ ۲٫۱۹ به بعد)"
+    return True, ""
+
+
+register(SelfTest(key="autoedit_words_large", label="تدوینِ خودکار: Whisper large-v3-turbo (فارسیِ دقیق‌تر)", group="video", kind="asr.transcribe",
+                  build=build_words_large, check=check_words_large, available=_large_available, gpu_required=True, after=("tts_piper",), order=73,
+                  needs_features=("asr-gpu", "asr-large"), wait_install_s=6 * 3600, requeue={"kinds": ("asr.transcribe",)},
+                  describe="مدلِ بزرگ خودکار دانلود می‌شود؛ تا آماده شدن آزمون منتظر می‌ماند. جوابِ مدلِ کوچک «قبول» حساب نمی‌شود."))
 register(SelfTest(key="autoedit_mix", label="تدوینِ خودکار: میکسِ گفتار و موسیقی (صدا روی هم نمی‌افتد)", group="video", virtual=virtual_mix,
                   kind="edit.render", available=_render_available, after=("edit_render",), order=56, wait_install_s=2 * 3600,
                   describe="گفتار + موسیقیِ بی‌تنظیم؛ گفتار یک بار شنیده شود، موسیقی زیرِ آن برود و بلندی نزدیکِ ‎−۱۴ LUFS باشد"))

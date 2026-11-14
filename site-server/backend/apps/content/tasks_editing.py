@@ -841,6 +841,13 @@ def render_project_task(self, job_id, project_id, quality="final", snapshot=""):
             if settled:
                 entry["loudness"] = settled
                 entry["bytes"] = dest.stat().st_size
+        elif fmt == "mp4" and not prores and not use_range:
+            # no loudness request: the loudness stays as the project made it, but a file whose decoded peak goes over full scale (the AAC encoder
+            # overshoots the master limiter) is brought back under the ceiling - measured on the file, not assumed from the filter graph
+            settled = audioqc.settle_loudness(dest, target=None, tp=-1.0)
+            if settled.get("adjusted"):
+                entry["loudness"] = settled
+                entry["bytes"] = dest.stat().st_size
         if fmt in ("mp4", "audio") and not prores:
             # listen to the file we are handing over: the same speech twice, a clipped or out-of-phase mix is reported next to the export
             qc = audioqc.quick_check(dest)

@@ -65,7 +65,7 @@ export async function startPolish(storeId: string, uploadId: number, opts: { pla
   return data;
 }
 
-export type LookPreview = { ref: string; t: number; changed: boolean; before: string; after: string; note: string; report: { what?: string; from?: number; to?: number; note?: string }[] };
+export type LookPreview = { ref: string; t: number; duration?: number; auto_t?: boolean; changed: boolean; before: string; after: string; note: string; report: { what?: string; from?: number; to?: number; note?: string }[] };
 
 /** قبل/بعدِ نور و رنگِ خودکارِ یک لحظه از ویدیو (چیزی ذخیره نمی‌شود) */
 export async function fetchLookPreview(storeId: string, ref: string, t?: number): Promise<LookPreview> {

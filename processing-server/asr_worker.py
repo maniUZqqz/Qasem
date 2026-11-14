@@ -59,16 +59,24 @@ def transcribe(args):
     want_cuda = args.device in ("auto", "cuda") and ctranslate2.get_cuda_device_count() > 0
     device, compute, reason = "cpu", "int8", ""
     model = None
+    model_dir = args.model_dir
     if want_cuda:
-        try:
-            model = WhisperModel(args.model_dir, device="cuda", compute_type="float16")
-            device, compute = "cuda", "float16"
-        except Exception as e:  # noqa: BLE001 - missing cuBLAS/cuDNN DLLs, out of memory ...
-            reason = "CUDA could not be used: %s" % str(e)[:200]
+        # float16 first; when the card is shared with Ollama (a big model resident in VRAM) the same weights in int8_float16 need about half the memory
+        for ctype in ("float16", "int8_float16"):
+            try:
+                model = WhisperModel(model_dir, device="cuda", compute_type=ctype)
+                device, compute = "cuda", ctype
+                reason = "" if ctype == "float16" else "float16 did not fit in the free VRAM; %s on the card" % ctype
+                break
+            except Exception as e:  # noqa: BLE001 - missing cuBLAS/cuDNN DLLs, out of memory ...
+                reason = "CUDA could not be used: %s" % str(e)[:200]
     elif args.device == "auto":
         reason = "CTranslate2 sees no CUDA device"
     if model is None:
-        model = WhisperModel(args.model_dir, device="cpu", compute_type="int8", cpu_threads=4)
+        if getattr(args, "cpu_model_dir", None):
+            model_dir = args.cpu_model_dir          # the big model on a CPU takes minutes per minute of speech: the small one answers
+            reason = (reason + "; " if reason else "") + "the small model ran on the CPU"
+        model = WhisperModel(model_dir, device="cpu", compute_type="int8", cpu_threads=4)
     load_s = time.time() - t0
     t1 = time.time()
     segments, info = model.transcribe(args.audio, language=args.language or None, word_timestamps=bool(int(args.word_timestamps)),
@@ -84,7 +92,7 @@ def transcribe(args):
     out = {"language": info.language, "language_probability": round(info.language_probability, 3), "duration": round(info.duration, 2),
            "device": device, "compute_type": compute, "fallback_reason": reason, "load_seconds": round(load_s, 1),
            "seconds": round(time.time() - t1, 1), "text": " ".join(s["text"] for s in segs), "segments": segs, "words": words,
-           "model": os.path.basename(args.model_dir.rstrip("/\\")), "engine": "faster-whisper"}
+           "model": os.path.basename(model_dir.rstrip("/\\")), "engine": "faster-whisper"}
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False)
     print("RESULT " + json.dumps({k: out[k] for k in ("device", "compute_type", "duration", "seconds", "load_seconds")}))
@@ -96,6 +104,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--audio")
     ap.add_argument("--model-dir")
+    ap.add_argument("--cpu-model-dir", default=None, help="a smaller model for the CPU path (used only when the card cannot be used)")
     ap.add_argument("--out")
     ap.add_argument("--language", default="fa")
     ap.add_argument("--word-timestamps", default="1")

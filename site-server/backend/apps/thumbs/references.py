@@ -436,6 +436,22 @@ def _plain(html: str) -> str:
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", html or ""))).strip()
 
 
+# پنلِ کسب‌وکار نباید پروپاگاندای نفرت (نازی/فاشیستی) یا محتوای بزرگسال را «پیشنهادِ مرجع» نشان بدهد. جست‌وجوی «sport» در کامنز بی‌فیلتر پوسترهای
+# دورهٔ نازی (Hohlwein: «Hitlerjugend»، «NSDAP»، «Reichssporttag») می‌آورد (دیده‌شده روی سایتِ زنده، ۱۴۰۵/۰۸/۲۴). فقط پیشنهادِ جست‌وجو فیلتر می‌شود؛
+# عنوان، توضیح و رده‌های (Categories) خودِ پرونده خوانده می‌شود. فهرست عمداً محافظه‌کار است: پوستری که بی‌جهت پنهان شود فقط یک نتیجهٔ کمتر است.
+_UNSAFE_WORDS = (
+    "nazi", "nsdap", "hitler", "swastika", "hakenkreuz", "third reich", "drittes reich", "wehrmacht", "waffen-ss", "waffen ss", "goebbels", "mussolini",
+    "fascis", "ku klux", "klan", "white power", "antisemit", "stürmer", "stuermer", "propaganda", "reichs", "bund deutscher", "b.d.m", "volksgemeinschaft",
+    "nude", "naked", "nackt", "erotic", "erotik", "porn", "sexy", "sexual", "topless", "striptease", "burlesque", "playboy",
+)
+_UNSAFE_RE = re.compile("|".join(re.escape(w) for w in _UNSAFE_WORDS), re.I)
+
+
+def unsafe_poster(*texts: str) -> bool:
+    """True اگر عنوان/توضیح/رده‌ها نشانهٔ پروپاگاندای نفرت یا محتوای بزرگسال دارد."""
+    return bool(_UNSAFE_RE.search(" ".join(_plain(t) for t in texts if t)))
+
+
 def license_is_free(short: str, nonfree: str = "") -> bool:
     """مجوزِ آزاد: مالکیتِ عمومی، CC0، CC BY، CC BY-SA. غیرتجاری (NC)، بدونِ اشتقاق (ND)، «استفادهٔ منصفانه» و پرونده‌های non-free رد می‌شوند."""
     s = (short or "").strip().lower()
@@ -471,6 +487,9 @@ def search_commons(query: str, *, limit: int = 12, fetch=None) -> list[dict]:
         if not ii.get("thumburl") or not license_is_free(lic, (em.get("NonFree") or {}).get("value", "")):
             continue
         if str(ii.get("mime", "")).split("/")[0] != "image" or ii.get("mime") in ("image/svg+xml", "image/gif"):
+            continue
+        if unsafe_poster(page.get("title", ""), (em.get("ImageDescription") or {}).get("value", ""), (em.get("ObjectName") or {}).get("value", ""),
+                         (em.get("Categories") or {}).get("value", "").replace("|", " ")):
             continue
         out.append({
             "id": page.get("pageid"), "title": re.sub(r"^File:", "", page.get("title", "")).rsplit(".", 1)[0][:120],

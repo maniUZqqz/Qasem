@@ -193,6 +193,25 @@ class CommonsTests(SimpleTestCase):
         self.assertEqual(rows[0]["author"], "Some Studio")
         self.assertIn("poster", ff.calls[0].lower(), "the query gets «poster» added")
 
+    def test_hate_propaganda_and_adult_posters_are_never_offered(self):
+        """«sport» in Commons returns 1930s Nazi-era posters (title, description or Categories say so): they must not reach the panel."""
+        def page(pid, title, **meta):
+            em = {"LicenseShortName": {"value": "Public domain"}}
+            em.update({k: {"value": v} for k, v in meta.items()})
+            return {"pageid": pid, "title": title, "imageinfo": [{"thumburl": "https://upload.wikimedia.org/x%d.jpg" % pid, "mime": "image/jpeg", "extmetadata": em}]}
+        data = {"query": {"pages": [
+            page(1, "File:Boat Race poster 1920.jpg"),
+            page(2, "File:Reichssporttag des B.D.M. 1934.jpg"),
+            page(3, "File:Ski poster.jpg", Categories="Posters of Germany|Nazi propaganda posters"),
+            page(4, "File:Games 1936.jpg", ImageDescription="<p>Poster of the NSDAP for the Winter Games</p>"),
+            page(5, "File:Cabaret poster.jpg", ObjectName="Nude dancer, burlesque 1910"),
+            page(6, "File:Lawn tennis poster 1916.jpg", Categories="Tennis posters|Posters of the Netherlands"),
+        ]}}
+        rows = references.search_commons("sport", fetch=FakeFetch({"https://commons.wikimedia.org/w/api.php": (json.dumps(data), "application/json")}))
+        self.assertEqual([r["id"] for r in rows], [1, 6])
+        self.assertFalse(references.unsafe_poster("Boat Race poster 1920", "A rowing race on the Thames"))
+        self.assertTrue(references.unsafe_poster("Poster", "", "", "Hitlerjugend HJ"))
+
     def test_licence_rules(self):
         free = ["Public domain", "CC0", "CC BY 4.0", "CC BY-SA 3.0", "PD-US"]
         bad = ["CC BY-NC 4.0", "CC BY-ND 2.0", "Fair use", "", "GFDL-NC", "Non-free poster"]

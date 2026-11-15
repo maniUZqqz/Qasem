@@ -65,6 +65,9 @@ TEHRAN_OFFSET = timedelta(hours=3, minutes=30)      # ایران ساعتِ تا
 #: کارهای سیستمی (آزمونِ خودکارِ پذیرش، origin «selftest…») همیشه پشتِ کارِ کاربر می‌آیند: عدد بزرگ‌تر = دیرتر (کارِ کاربر ۶۰ تا ۱۰۰ است)
 SYSTEM_PRIORITY = 150
 SYSTEM_ORIGIN_PREFIX = "selftest"
+#: کارهای پس‌زمینهٔ بی‌صاحبی که خودِ سیستم می‌سازد و تقاضای کاربر نیستند (برخلاف آزمونِ خودکار اولویتشان را خودشان پایین می‌گیرند):
+#: «looksample» = نمونه‌تصویرِ سبک‌های تصویر (۱۲ تا یک‌جا). در شمارشِ هدر / صفحهٔ صف / جای‌خالی نمی‌آیند؛ فقط وقتی فروشگاه ندارند.
+BACKGROUND_ORIGINS = ("looksample",)
 #: کارِ سیستمی که این‌قدر منتظر ماند حتی با صفِ شلوغ نوبتش می‌رسد (اما فقط یکی در هر بازه، تا مجموعهٔ آزمون‌ها جلوی کارِ کاربر را نگیرد)
 SYSTEM_AGING_S = 20 * 60
 #: بعد از پایانِ آخرین کارِ کاربر روی گره، کارِ سیستمی این‌قدر صبر می‌کند (کاربر اغلب چند کارِ پشتِ‌هم می‌فرستد)
@@ -86,20 +89,29 @@ def system_origin_q() -> Q:
     return Q(origin__startswith=SYSTEM_ORIGIN_PREFIX) | Q(origin__endswith="-" + SYSTEM_ORIGIN_PREFIX)
 
 
+def is_background_origin(origin, store_id=None) -> bool:
+    """کارِ پس‌زمینهٔ بی‌صاحبی که خودِ سیستم می‌سازد (مثلاً نمونه‌تصویرِ سبک‌ها): کسی منتظرش نیست."""
+    return str(origin or "") in BACKGROUND_ORIGINS and not store_id
+
+
+def background_origin_q() -> Q:
+    return Q(origin__in=BACKGROUND_ORIGINS, store__isnull=True)
+
+
 def is_unowned(job) -> bool:
     """کاری که هیچ فروشگاه/کارِ اصلی‌ای منتظرش نیست (فرمِ آزمایشِ پنل، دانلودِ مدل، آزمون)."""
     return not getattr(job, "store_id", None) and not getattr(job, "job_ref", None)
 
 
 def demand_excluded_q(now=None) -> Q:
-    """Q ِ کارهای «در صف» که تقاضای واقعیِ کاربر نیستند: آزمونِ خودکار + کارِ بی‌صاحبِ قدیمی (بیش از STALE_DAYS روز).
-    شمارشِ هدر، «جای خالی» ِ بیدار کردنِ کارهای منتظر و ... از این استفاده می‌کنند."""
+    """Q ِ کارهای «در صف» که تقاضای واقعیِ کاربر نیستند: آزمونِ خودکار + کارِ پس‌زمینهٔ سیستم (نمونه‌تصویرِ سبک‌ها) + کارِ بی‌صاحبِ قدیمی
+    (بیش از STALE_DAYS روز). شمارشِ هدر، شمارندهٔ «منتظر» ِ صفحهٔ صف، «جای خالی» ِ بیدار کردنِ کارهای منتظر و ... از این استفاده می‌کنند."""
     from .park import PARK_KIND               # park imports this module; a late import avoids the cycle
 
     now = now or timezone.now()
     cutoff = now - timedelta(days=STALE_DAYS)
     old = Q(queued_at__lt=cutoff) | Q(queued_at__isnull=True, created_at__lt=cutoff)
-    return system_origin_q() | (Q(store__isnull=True, job_ref__isnull=True) & old & ~Q(kind=PARK_KIND))
+    return system_origin_q() | background_origin_q() | (Q(store__isnull=True, job_ref__isnull=True) & old & ~Q(kind=PARK_KIND))
 
 
 def data_root() -> Path:

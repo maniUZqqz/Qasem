@@ -58,7 +58,11 @@
   flex-direction: column;
   min-width: 0;
   --ws-line: var(--line);
+  /* scrollIntoView (ادیتور عکس/ویدیو) قاب را زیرِ هدرِ چسبانِ پنل نبرد: هدر ۵۵px است */
+  scroll-margin-top: 76px;
 }
+/* لفافهٔ بیرونِ قابِ فضای کار که صفحه به آن اسکرول می‌شود (ادیتور ویدیو) */
+.ws-anchor { scroll-margin-top: 76px; }
 .ws-root.is-full {
   position: fixed;
   inset: 0;

@@ -13,6 +13,7 @@ import {
   PAGE_SIZE,
   TABS,
   absoluteTime,
+  backgroundNote,
   badgeCount,
   badgeView,
   buildQuery,
@@ -58,7 +59,7 @@ const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
 const node = (over: Partial<QueueNode> = {}): QueueNode => ({ id: 1, name: "gpu-1", online: false, enabled: true, last_seen: null, agent: null, ...over });
 const summary = (over: Partial<QueueSummary> = {}): QueueSummary => ({
   waiting: 0, parked: 0, running: 0, scheduled: 0, failed_24h: 0, nodes_total: 1, nodes_online: 0,
-  oldest_wait_s: null, oldest_wait_text: "", text: "صف خالی است", ...over,
+  oldest_wait_s: null, oldest_wait_text: "", text: "صف خالی است", background: 0, ...over,
 });
 const job = (over: Partial<QueueJob> = {}): QueueJob => ({
   uid: "0123456789abcdef0123456789abcdef", kind: "photo.edit", kind_label: "ویرایشِ عکس", title: "ویرایشِ عکس", state: "QUEUED", state_label: "در صف",
@@ -319,6 +320,37 @@ check("badgeView: پنهان، زرد، خنثی", () => {
   const both = badgeView(summary({ waiting: 1, running: 1, nodes_online: 0, text: "۱ کار منتظرِ سرورِ پردازش" }))!;
   assert.equal(both.tone, "warn");
   assert.ok(both.title.endsWith("۱ کار در حال پردازش"));
+});
+
+// ───────────── یک تعریف برای «منتظر» (۱۴۰۵/۰۸/۲۴: هدر ۲۱ و صفحهٔ صف ۲۳ می‌نوشت، کارِ واقعی ۹ تا بود)
+check("parseSummary: background خوانده می‌شود و پیش‌فرضش صفر است", () => {
+  assert.equal(parseSummary({ waiting: 9, running: 0, background: 14 })!.background, 14);
+  assert.equal(parseSummary({ waiting: 9, running: 0 })!.background, 0);
+  assert.equal(parseSummary({ waiting: 9, running: 0, background: -3 })!.background, 0);
+});
+
+check("badgeView: کارِ پس‌زمینه در تیترِ نشان می‌آید ولی در عدد نه", () => {
+  const v = badgeView(summary({ waiting: 9, background: 14, nodes_online: 1, text: "۹ کار در صف" }))!;
+  assert.equal(v.waiting, 9, "عددِ نشان فقط کارِ واقعی است");
+  assert.ok(v.title.includes("+ ۱۴ کارِ پس‌زمینه"), v.title);
+  assert.ok(!badgeView(summary({ waiting: 9, nodes_online: 1, text: "۹ کار در صف" }))!.title.includes("پس‌زمینه"));
+  // فقط کارِ پس‌زمینه منتظر است ⇒ نشان پنهان (هیچ کارِ واقعی‌ای نیست)
+  assert.equal(badgeView(summary({ waiting: 0, background: 14 })), null);
+});
+
+check("backgroundNote: شمارندهٔ تب با تعدادِ ردیف‌ها فرق می‌کند، یادداشت دلیلش را می‌گوید", () => {
+  const counts = { waiting: 9, running: 0, done: 0, failed: 0, cancelled: 0, all: 23, background: 14 };
+  const note = backgroundNote(counts);
+  assert.ok(note.startsWith("۹ کارِ شما منتظر است؛ ۱۴ کارِ پس‌زمینه"), note);
+  assert.equal(backgroundNote({ ...counts, background: 0 }), "");
+  assert.equal(backgroundNote({ waiting: 3 }), "");
+  assert.equal(backgroundNote(null), "");
+  assert.ok(backgroundNote({ ...counts, waiting: 0 }).startsWith("کارِ شما منتظر نیست؛ ۱۴ کارِ پس‌زمینه"));
+});
+
+check("پیش‌فرضِ تب: فقط کارِ پس‌زمینه ⇒ «همه» (نه یک تبِ «منتظر ۰» با ردیف)", () => {
+  assert.equal(defaultTab({ waiting: 0 }), "all");
+  assert.equal(defaultTab({ waiting: 9 }), "waiting");
 });
 
 check("badgeCount: سقفِ ۹۹+", () => {

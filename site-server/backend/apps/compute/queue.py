@@ -375,7 +375,8 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | Non
         "status_text": status_text(j, text), "wait_reason": reason,
         "position": pos if j.state == S.QUEUED else 0, "ahead": max(0, pos - 1) if j.state == S.QUEUED else 0,
         "waiting_s": waiting_s, "waiting_text": human_duration(waiting_s) if waiting_s is not None else "", "stale": stale,
-        "system": SV.is_system_origin(j.origin), "files_removed": files_removed_text(j),
+        "system": SV.is_system_origin(j.origin), "background": SV.is_background_origin(j.origin, j.store_id),
+        "files_removed": files_removed_text(j),
         "waited_s": j.waited_s, "run_s": j.run_s,
         "created": j.created_at, "queued_at": j.queued_at, "claimed": j.claimed_at, "finished": j.finished_at,
         "node": j.node.name if j.node else None, "node_wanted": j.node_wanted if not j.node_wanted.startswith(("~", "__")) else "",
@@ -398,9 +399,14 @@ def _nodes():
 
 
 def counts() -> dict:
+    """شمارندهٔ تب‌ها. «waiting» همان تعریفِ نشانِ هدر است (فقط تقاضای واقعی)؛ آزمونِ خودکار، نمونه‌تصویرِ سبک‌ها و کارِ بی‌صاحبِ
+    قدیمی جدا در «background» می‌آیند. «all» همهٔ کارهاست (واقعی + پس‌زمینه + بقیهٔ گروه‌ها)."""
     rows = dict(ComputeJob.objects.values_list("state").annotate(n=Count("id")))
     out = {g: sum(rows.get(s, 0) for s in states) for g, states in GROUPS.items()}
     out["all"] = sum(out.values())
+    background = ComputeJob.objects.filter(state=S.QUEUED).filter(SV.demand_excluded_q(timezone.now())).count()
+    out["waiting"] = max(0, out["waiting"] - background)
+    out["background"] = background
     return out
 
 
@@ -466,8 +472,8 @@ def summary() -> dict:
     enabled = [n for n in nodes if n.enabled]
     online = [n for n in enabled if n.online]
     queued_all = ComputeJob.objects.filter(state=S.QUEUED)
-    # نشانِ هدر فقط کارهای واقعیِ کاربر را می‌شمارد: آزمونِ خودکار و کارِ آزمایشیِ فراموش‌شده (بی‌صاحب و بیش از ۳ روز) را نه
-    # (۱۲ کارِ قدیمی نشانِ «۳۲» را یک‌سوم باد کرده بود)
+    # نشانِ هدر فقط کارهای واقعیِ کاربر را می‌شمارد: آزمونِ خودکار، نمونه‌تصویرِ سبک‌ها و کارِ آزمایشیِ فراموش‌شده (بی‌صاحب و بیش از
+    # ۳ روز) را نه (۱۲ کارِ قدیمی نشانِ «۳۲» را یک‌سوم باد کرده بود؛ ۱۲ نمونهٔ سبک «۲۱» را به‌جای «۹»). تب‌های صفحهٔ صف همین تعریف را دارند
     queued = queued_all.exclude(SV.demand_excluded_q(now))
     waiting = queued.count()
     oldest = queued.order_by("queued_at", "created_at").first()
@@ -477,7 +483,11 @@ def summary() -> dict:
     return {
         "waiting": waiting, "parked": queued.filter(kind=PARK_KIND).count(),
         "waiting_system": waiting_system,
-        "waiting_stale": queued_all.filter(SV.demand_excluded_q(now)).exclude(SV.system_origin_q()).count(),
+        "waiting_background": queued_all.filter(SV.background_origin_q()).exclude(SV.system_origin_q()).count(),
+        "waiting_stale": (queued_all.filter(SV.demand_excluded_q(now)).exclude(SV.system_origin_q())
+                          .exclude(SV.background_origin_q()).count()),
+        #: همهٔ منتظرهای غیرواقعی (آزمون + پس‌زمینه + قدیمی)؛ نشانِ هدر و تبِ «منتظر» در صفحهٔ صف فقط «waiting» را می‌شمارند
+        "background": queued_all.filter(SV.demand_excluded_q(now)).count(),
         "running": ComputeJob.objects.filter(state__in=GROUPS["running"]).count(),
         "scheduled": queued.filter(Q(not_before__gt=now) | ~Q(window="")).count(),
         "failed_24h": failed_24h,

@@ -43,6 +43,8 @@ export type QueueJob = {
   stale?: boolean;
   /** آزمونِ خودکارِ پذیرش (اولویتِ سیستمی؛ پشتِ کارِ شما) */
   system?: boolean;
+  /** کارِ پس‌زمینهٔ خودِ سیستم (نمونه‌تصویرِ سبک‌ها)؛ تقاضای شما نیست و در شمارندهٔ «منتظر» نمی‌آید */
+  background?: boolean;
   /** جملهٔ فارسی اگر فایل‌های این کار را نگه‌داریِ خودکار پاک کرده، وگرنه '' */
   files_removed?: string;
   waited_s: number | null;
@@ -120,7 +122,11 @@ export type QueueNode = {
   agent: string | null;
 };
 
-export type QueueCounts = Record<Tab, number>;
+/**
+ * شمارندهٔ تب‌ها. «waiting» همان تعریفِ نشانِ هدر است: فقط کارهای واقعیِ شما. آزمونِ خودکار، نمونه‌تصویرِ سبک‌ها و کارِ
+ * بی‌صاحبِ قدیمی که آن‌ها هم در تبِ «منتظر» فهرست می‌شوند در `background` جدا شمرده می‌شوند.
+ */
+export type QueueCounts = Record<Tab, number> & { background?: number };
 
 export type QueueListing = {
   counts: QueueCounts;
@@ -142,6 +148,8 @@ export type QueueSummary = {
   oldest_wait_s: number | null;
   oldest_wait_text: string;
   text: string;
+  /** منتظرهای غیرِ واقعی (آزمونِ خودکار، نمونه‌تصویرِ سبک‌ها، کارِ بی‌صاحبِ قدیمی)؛ در `waiting` نیامده‌اند */
+  background: number;
 };
 
 // ───────────────────────────────────────────────────────────── اعداد و زمان
@@ -563,6 +571,7 @@ export function parseSummary(raw: unknown): QueueSummary | null {
     oldest_wait_s: typeof r.oldest_wait_s === "number" ? r.oldest_wait_s : null,
     oldest_wait_text: typeof r.oldest_wait_text === "string" ? r.oldest_wait_text : "",
     text: typeof r.text === "string" ? r.text : "",
+    background: Math.max(0, num(r.background)),
   };
 }
 
@@ -582,12 +591,25 @@ export function badgeView(s: QueueSummary | null | undefined): BadgeView | null 
   const parts: string[] = [s.text || (s.waiting > 0 ? `${toFa(s.waiting)} کار در صف` : "صف خالی است")];
   if (s.waiting > 0 && s.oldest_wait_text) parts.push(`قدیمی‌ترینِ آن‌ها ${s.oldest_wait_text} منتظر مانده`);
   if (s.running > 0) parts.push(`${toFa(s.running)} کار در حال پردازش`);
+  if (s.background > 0) parts.push(`+ ${toFa(s.background)} کارِ پس‌زمینه (نمونه‌ها و آزمونِ خودکار) که شمرده نشده`);
   return {
     tone: s.waiting > 0 && s.nodes_online === 0 ? "warn" : "neutral",
     waiting: s.waiting,
     running: s.running,
     title: parts.join(" — "),
   };
+}
+
+/**
+ * یادداشتِ زیرِ تب‌های «منتظر / همه»: چرا شمارندهٔ تب از تعدادِ ردیف‌ها کمتر است. شمارندهٔ تب و نشانِ هدر هر دو فقط کارهای
+ * واقعیِ شما را می‌شمارند؛ ردیف‌های «پس‌زمینه» (نمونه‌تصویرِ سبک‌ها، آزمونِ خودکار، کارِ بی‌صاحبِ قدیمی) همیشه پشتِ کارِ شمایند.
+ */
+export function backgroundNote(counts: Pick<QueueCounts, "waiting" | "background"> | null | undefined): string {
+  const bg = counts?.background ?? 0;
+  if (!(bg > 0)) return "";
+  const real = counts?.waiting ?? 0;
+  const head = real > 0 ? `${toFa(real)} کارِ شما منتظر است` : "کارِ شما منتظر نیست";
+  return `${head}؛ ${toFa(bg)} کارِ پس‌زمینه (نمونه‌تصویرِ سبک‌ها، آزمونِ خودکار، کارِ بی‌صاحبِ قدیمی) هم در این فهرست هست و همیشه پشتِ کارهای شما می‌ماند.`;
 }
 
 /** نمایشِ شمارنده: بالای ۹۹ ⇒ «۹۹+» تا نشان روی گوشی پهن نشود */

@@ -13,6 +13,7 @@ import {
   RETRY_LABEL,
   TABS,
   absoluteTime,
+  backgroundNote,
   buildQuery,
   bulkCancelConfirm,
   bulkCancelPlan,
@@ -244,7 +245,7 @@ export default function ComputeQueuePage() {
 
   // «۲ از ۵» فقط وقتی همهٔ منتظرها بارگذاری شده‌اند و فیلتری نیست؛ وگرنه فقط شمارهٔ جایگاه
   const waitingLoaded = jobs.filter((j) => j.group === "waiting").length;
-  const completeQueue = !filtered && !stale && (tab === "waiting" || tab === "all") && counts !== undefined && waitingLoaded === counts.waiting;
+  const completeQueue = !filtered && !stale && (tab === "waiting" || tab === "all") && counts !== undefined && waitingLoaded === counts.waiting + (counts.background ?? 0);
   const capTotals = completeQueue ? capabilityTotals(jobs) : {};
 
   const total = data?.total ?? 0;
@@ -314,6 +315,12 @@ export default function ComputeQueuePage() {
               </button>
             ))}
           </nav>
+
+          {(tab === "waiting" || tab === "all") && backgroundNote(counts) && (
+            <p className="nmq-note" style={{ margin: "10px 12px 0" }} data-testid="queue-background-note">
+              {backgroundNote(counts)}
+            </p>
+          )}
 
           <div className="nmq-toolbar">
             <Select
@@ -543,6 +550,11 @@ function JobItem({
           {job.system && job.group === "waiting" && (
             <span title="آزمونِ خودکارِ سرور؛ همیشه پشتِ کارهای شما می‌آید">
               <Badge>آزمون</Badge>
+            </span>
+          )}
+          {job.background && !job.system && job.group === "waiting" && (
+            <span title="کارِ پس‌زمینهٔ خودِ سیستم (نمونه‌تصویرِ سبک‌ها)؛ در شمارندهٔ «منتظر» نمی‌آید و همیشه پشتِ کارهای شما می‌ماند">
+              <Badge>پس‌زمینه</Badge>
             </span>
           )}
           {job.group === "running" && (

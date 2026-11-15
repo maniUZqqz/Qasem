@@ -715,7 +715,7 @@ export default function PhotoEditorPage() {
       )}
 
       {detail && (
-        <div ref={detailRef} className="mt-6">
+        <div ref={detailRef} className="mt-6 pe-detail-anchor" data-testid="detail-anchor">
           <AssetDetail
             storeId={id}
             asset={detail}

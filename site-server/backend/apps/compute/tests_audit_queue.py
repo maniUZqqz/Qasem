@@ -194,6 +194,76 @@ class HeaderCountTests(_Base):
         self.assertEqual(park._free_slots("ollama", {}), 0, "a real waiting job takes the slot")
 
 
+class BackgroundJobsCountTests(_Base):
+    """۱۴۰۵/۰۸/۲۴ (بازبینیِ مستقل): نشانِ هدر «۲۱ کار منتظر» می‌نوشت ولی کارِ واقعیِ مالک ۹ تا بود — ۱۲ نمونه‌تصویرِ سبک
+    (origin «looksample»، بی‌فروشگاه) هم شمرده می‌شد؛ و صفحهٔ صف «منتظر ۲۳» می‌نوشت. حالا یک تعریف برای هر دو."""
+
+    def sample(self, n=3, kind="comfy.graph"):
+        return [self.job(kind, origin="looksample", payload={"look": i}) for i in range(n)]
+
+    def test_look_samples_are_background_not_demand(self):
+        self.assertTrue(SV.is_background_origin("looksample"))
+        self.assertFalse(SV.is_background_origin("looksample", store_id=5), "a sample somebody's store owns is real demand")
+        for origin in ("panel", "photoedit", "thumbbg", "", None, "selftest"):
+            self.assertFalse(SV.is_background_origin(origin), origin)
+        self.assertFalse(SV.is_system_origin("looksample"), "not a self-test: it keeps its own priority rules")
+        s1, s2 = self.sample(2)
+        self.assertEqual(ComputeJob.objects.filter(SV.background_origin_q()).count(), 2)
+        self.assertEqual(ComputeJob.objects.filter(SV.demand_excluded_q()).count(), 2)
+
+    def test_header_and_queue_page_use_the_same_definition(self):
+        real = [self.job("photo.edit", payload={"r": i}) for i in range(2)]
+        self.sample(3)
+        self.job("ollama.generate", origin="selftest", priority=15, payload={"t": 1})
+        stale = age(self.job("photo.edit", origin="panel", payload={"s": 1}), days=5)
+        s = QV.summary()
+        self.assertEqual(s["waiting"], 2, s)
+        self.assertEqual((s["waiting_system"], s["waiting_background"], s["waiting_stale"]), (1, 3, 1))
+        self.assertEqual(s["background"], 5, "test + samples + stale leftover")
+        self.assertIn("۲ کار", s["text"])
+        c = QV.counts()
+        self.assertEqual(c["waiting"], s["waiting"], "the «منتظر» tab and the header chip are the same number")
+        self.assertEqual(c["background"], s["background"])
+        self.assertEqual(c["all"], 7, "every job is still in «همه»")
+        listing = QV.listing(state="waiting")
+        self.assertEqual(listing["total"], 7, "the rows are all there, the counter says how many are real")
+        self.assertEqual(listing["counts"]["waiting"], 2)
+        for j in real:
+            j.refresh_from_db()
+            self.assertEqual(j.state, "QUEUED")
+        self.assertEqual(SV.summary()["queued"], 2, "the compute page card agrees too")
+
+    def test_rows_carry_the_background_flag(self):
+        samples = self.sample(1)
+        real = self.job("photo.edit", payload={"r": 1})
+        rows = {r["uid"]: r for r in QV.listing(state="waiting")["jobs"]}
+        self.assertTrue(rows[str(samples[0].uid)]["background"])
+        self.assertFalse(rows[str(samples[0].uid)]["system"])
+        self.assertFalse(rows[str(real.uid)]["background"])
+
+    def test_only_samples_waiting_means_nothing_real_is_waiting(self):
+        self.sample(4)
+        s = QV.summary()
+        self.assertEqual((s["waiting"], s["background"]), (0, 4))
+        self.assertEqual(s["text"], "صف خالی است")
+        self.assertEqual(QV.counts()["waiting"], 0)
+
+    def test_samples_do_not_eat_the_free_slots(self):
+        self.sample(3, kind="ollama.generate")
+        self.assertEqual(park._free_slots("ollama", {}), 1, "one slot, background samples are no demand")
+
+    def test_the_api_exposes_the_split(self):
+        staff = get_user_model().objects.create_user("q-staff", "q@x.io", "pw", is_staff=True)
+        c = APIClient()
+        c.force_authenticate(staff)
+        self.job("photo.edit", payload={"r": 1})
+        self.sample(2)
+        d = c.get("/api/v1/compute/queue/summary/").data
+        self.assertEqual((d["waiting"], d["background"]), (1, 2))
+        d = c.get("/api/v1/compute/queue/?state=waiting").data
+        self.assertEqual((d["counts"]["waiting"], d["counts"]["background"], d["total"]), (1, 2, 3))
+
+
 class RunnerScopeTests(_Base):
     """اجرای پس از نسخهٔ تازه: کامل فقط یک بار در روز؛ بعد «سریع»."""
 

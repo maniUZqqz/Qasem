@@ -263,7 +263,7 @@ export default function VideoEditorPage() {
       />
 
       {mode === "manual" && (
-        <div className="mb-6" ref={workspaceBox}>
+        <div className="mb-6 ws-anchor" ref={workspaceBox}>
           <VideoWorkspace storeId={id!} tools={tools} startRef={manualStart} onStartConsumed={() => setManualStart(null)} startProject={manualProject} onProjectOpened={() => setManualProject(null)} onGoDirector={() => setMode("prompt")} />
         </div>
       )}

@@ -13,13 +13,33 @@ import sys
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
-# `.env` is committed and travels between the two machines, so it cannot hold
-# anything that differs BETWEEN them — the address of Ollama and of ComfyUI
-# most of all. `.env.local` is per machine and never committed; it is read
-# last and wins. Without it, one machine's addresses kept overwriting the
-# other's on every pull.
-load_dotenv(BASE_DIR / ".env.local", override=True)
+
+# ── آزمون‌ها بسته (hermetic) اجرا می‌شوند (۱۴۰۵/۰۸/۲۳، دستهٔ nm_ops) ────────────────────────────────────────
+# زیرِ `manage.py test` فایل‌های .env / .env.local خوانده نمی‌شوند: روی سرور PUBLIC_BASE_URL، EMAIL_HOST، کلیدِ Metis و Redis از .env
+# می‌آمد و ~۱۰ آزمونِ بی‌گناه قرمز می‌شد (و آزمونی می‌توانست تماسِ واقعیِ پولی بگیرد). این مقدارها در آزمون ثابت‌اند؛ دادهٔ آزمون هم
+# اگر NM_DATA_DIR / MEDIA_ROOT صادر نشده باشد در پوشهٔ موقتِ همین اجرا می‌افتد (config/test_runner.py پاکش می‌کند)، نه در دادهٔ زنده.
+# برای دیدنِ رفتارِ .env در آزمون:  NM_TEST_USE_DOTENV=1
+_HERMETIC_TESTS = "test" in sys.argv and os.getenv("NM_TEST_USE_DOTENV") != "1"
+if not _HERMETIC_TESTS:
+    load_dotenv(BASE_DIR / ".env")
+    # `.env` is committed and travels between the two machines, so it cannot hold
+    # anything that differs BETWEEN them — the address of Ollama and of ComfyUI
+    # most of all. `.env.local` is per machine and never committed; it is read
+    # last and wins. Without it, one machine's addresses kept overwriting the
+    # other's on every pull.
+    load_dotenv(BASE_DIR / ".env.local", override=True)
+else:
+    import tempfile as _tf
+
+    _TEST_ROOT = Path(_tf.gettempdir()) / f"nm-testrun-{os.getpid()}-root"
+    # مقدارِ ثابت (حتی اگر پوسته چیز دیگری صادر کرده باشد) + حذفِ هرچه تماسِ بیرونی یا ایمیلِ واقعی می‌سازد (پیش‌فرضِ خودِ کد می‌ماند)
+    os.environ.update({"PUBLIC_BASE_URL": "http://localhost:8000", "CELERY_TASK_ALWAYS_EAGER": "true"})
+    for _name in ("EMAIL_HOST", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "AI_API_BASE_URL", "AI_API_KEY", "AI_MODE_TEXT", "AI_MODE_IMAGE",
+                  "AI_MODE_VIDEO", "MEDIA_API_TOKEN", "MEDIA_API_BASE_URL"):
+        os.environ.pop(_name, None)
+    os.environ.setdefault("NM_DATA_DIR", str(_TEST_ROOT / "data"))
+    os.environ.setdefault("MEDIA_ROOT", str(_TEST_ROOT / "media"))
+    os.environ.setdefault("NM_LOG_DIR", str(_TEST_ROOT / "logs"))
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -281,25 +301,70 @@ if not DEBUG:
     X_FRAME_OPTIONS = "DENY"
 
 # ---------------------------------------------------------------- logging
+# (۱۴۰۵/۰۸/۲۳، nm_ops) قالبِ یکدست با زمانِ UTC («…Z»)؛ نویزِ تسک‌های هر‌چند‌دقیقه‌یک‌بار کم می‌شود؛ و هر WARNING به بالا (با نشانی و شناسهٔ کاربر)
+# در logs/django-errors.log هم می‌ماند — ردِ خطاهای ۵۰۰ دیگر با journal ِ مشترک نمی‌پرد. چرخشِ بقیهٔ لاگ‌ها: deploy/nm/ops/nm-logrotate.conf
+_LOG_DIR = Path(os.getenv("NM_LOG_DIR") or (BASE_DIR.parent / "logs"))
+try:
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:  # پوشهٔ لاگ ساخته نشد (دسترسی): فقط کنسول
+    _LOG_DIR = None
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_info": {"()": "config.logging_utils.RequestInfoFilter"},
+        "quiet_periodic": {"()": "config.logging_utils.QuietPeriodicTasksFilter"},
+    },
     "formatters": {
         "verbose": {
+            "()": "config.logging_utils.UtcFormatter",
             "format": "{asctime} {levelname} [{name}] {message}",
+            "style": "{",
+        },
+        "errors": {
+            "()": "config.logging_utils.UtcFormatter",
+            "format": "{asctime} {levelname} [{name}] {message} (path={path} method={method} user={user_id})",
             "style": "{",
         },
     },
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+        **(
+            {
+                "errors_file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "filename": str(_LOG_DIR / "django-errors.log"),
+                    "maxBytes": 10 * 1024 * 1024,
+                    "backupCount": 5,
+                    "encoding": "utf-8",
+                    "delay": True,
+                    "level": "WARNING",
+                    "formatter": "errors",
+                    "filters": ["request_info"],
+                }
+            }
+            if _LOG_DIR is not None
+            else {}
+        ),
     },
-    "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+    "root": {
+        "handlers": ["console", *(["errors_file"] if _LOG_DIR is not None else [])],
+        "level": os.getenv("LOG_LEVEL", "INFO"),
+    },
     "loggers": {
         "django.request": {"level": "WARNING"},
         "services": {"level": "INFO"},
         "apps": {"level": "INFO"},
+        # «Task X received / succeeded» برای تسک‌های هر‌چند‌دقیقه‌یک‌بار و پولرها (۸۵٪ ِ celery.log)؛ WARNING و بالاتر همیشه می‌ماند
+        "celery.worker.strategy": {"filters": ["quiet_periodic"]},
+        "celery.app.trace": {"filters": ["quiet_periodic"]},
     },
 }
+
+# زمانِ لاگِ celery (worker و beat) هم UTC با «Z» (config/celery.py مبدل را روی هندلرها می‌گذارد)
+CELERY_WORKER_LOG_FORMAT = "[%(asctime)sZ: %(levelname)s/%(processName)s] %(message)s"
+CELERY_WORKER_TASK_LOG_FORMAT = "[%(asctime)sZ: %(levelname)s/%(processName)s] %(task_name)s[%(task_id)s]: %(message)s"
 
 # ---------------------------------------------------------------- DRF / auth
 REST_FRAMEWORK = {
@@ -349,6 +414,8 @@ REST_FRAMEWORK = {
 
 # Throttling off during automated tests (rate limits would make them flaky)
 IS_TEST = "test" in sys.argv
+#: رانرِ آزمون: پوشهٔ موقتِ هر اجرا + پاک‌کردنش (config/test_runner.py)
+TEST_RUNNER = "config.test_runner.NMTestRunner"
 
 #: «موسیقیِ زمینه» for a shop whose library has none: the site makes six starter tracks itself (services.audio.starter_music).  Off in the test runs
 #: (a minute of synthesis per shop is not what a unit test is about); the tests of that module switch it on with override_settings.

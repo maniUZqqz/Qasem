@@ -20,13 +20,17 @@ cd "$REPO" || exit 1
 [ -f "$SRC/deploy/nm/bump-version.sh" ] && NM_ROOT="$SRC" bash "$SRC/deploy/nm/bump-version.sh" --if-changed --quiet >/dev/null 2>&1 || true
 
 EXCL=(--exclude='.git' --exclude='venv/' --exclude='node_modules/' --exclude='node_modules' --exclude='__pycache__/' --exclude='*.pyc' --exclude='*.log'
-      --exclude='frontend/dist/' --exclude='frontend/dist.prev*' --exclude='frontend/dist.new*' --exclude='website/.next/' --exclude='backend/staticfiles/' --exclude='backend/media/'
+      --exclude='frontend/dist/' --exclude='frontend/dist.prev*' --exclude='*.bak*' --exclude='frontend/dist.new*' --exclude='website/.next/' --exclude='backend/staticfiles/' --exclude='backend/media/'
       --exclude='backend/.env' --exclude='backend/.env.local' --exclude='deploy/nm/ai.env' --exclude='website/.env.production.local'
       --exclude='website/.env.local' --exclude='data/' --exclude='logs/' --exclude='*.sqlite3' --exclude='up3d-engine/vendor/'
       --exclude='up3d-engine/data/' --exclude='processing/' --exclude='server-state/' --exclude='models/')
 rsync -a --delete "${EXCL[@]}" "$SRC/" "$REPO/site-server/"
-rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='/vendor/' --exclude='__pycache__/' \
+rsync -a --delete --exclude='work/' --exclude='logs/' --exclude='node.json' --exclude='/vendor/' --exclude='__pycache__/' --exclude='*.bak*' \
       "$SRC/processing/" "$REPO/processing-server/"
+# پشتیبان‌های کنارِ کد (*.bak-…) و ساخت‌های قدیمیِ پنل نباید در آینهٔ عمومی بمانند: rsync ِ بالا فقط نمی‌فرستدشان؛
+# آنچه پیش‌تر رفته بود را این‌جا از آینه پاک می‌کنیم (تاریخچه در /root/backups است)
+find "$REPO/site-server" "$REPO/processing-server" -name '*.bak*' -not -path '*/.git/*' -delete 2>/dev/null || true
+rm -rf "$REPO"/site-server/frontend/dist.prev* 2>/dev/null || true
 cat > "$REPO/README.md" <<'EOF'
 # Qasem — NMarketing (UpMarket)
 

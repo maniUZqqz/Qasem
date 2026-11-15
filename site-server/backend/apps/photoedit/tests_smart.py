@@ -73,7 +73,7 @@ class Routed:
             metis, task="vision:PRODUCT", kind=priority.VISION,
             no_fallback_reason="" if metis is not None else "متیس (API) تنظیم نشده است (AI_API_BASE_URL و AI_API_KEY).")
 
-    def _call_local(self, local_call, cfg):
+    def _call_local(self, local_call, cfg, has_alt=True):
         if self.local is None:
             raise routing.NodeFailed("سرورِ پردازش خاموش است.")
         return local_call(self.local, self.local.model), self.local.model
@@ -82,7 +82,9 @@ class Routed:
         self.stack = contextlib.ExitStack()
         for cm in (override_settings(AI_ROUTE_FORCE=True),
                    patch.object(routing, "node_state", lambda kind=priority.CODE: node_state(self.local is not None)),
-                   patch.object(routing._Router, "_call_local", lambda s, lc, cfg: self._call_local(lc, cfg)),
+                   # امضای واقعی: _Router._call_local(self, local_call, cfg, has_alt=True) — با امضای کوتاه‌تر ِ قبلی هر فراخوانی TypeError می‌داد
+                   # و آزمونِ «اعتبارِ متیس تمام شد ⇒ برگشت به سرورِ پردازش» هیچ‌وقت واقعاً اجرا نمی‌شد
+                   patch.object(routing._Router, "_call_local", lambda s, lc, cfg, has_alt=True: self._call_local(lc, cfg, has_alt)),
                    patch.object(smart, "_vision", lambda store: self.provider),
                    patch.object(smart, "_candidate_models", lambda: ["qwen3-vl:30b"])):
             self.stack.enter_context(cm)

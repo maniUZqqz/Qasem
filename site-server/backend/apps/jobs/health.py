@@ -69,17 +69,19 @@ def _database():
 
 
 def _queue():
-    from apps.jobs.services import broker_reachable
-
-    if broker_reachable():
-        return True, "reachable"
-    # Named rather than reported as a generic failure: in eager mode there is
-    # deliberately no broker, and confusing the two sends someone to debug a
-    # Redis that was never supposed to be running.
     from django.conf import settings
 
+    from apps.jobs.services import broker_reachable
+
+    # Eager mode first: there is deliberately no broker then, and a Redis that
+    # happens to be up on this machine must not change the answer (the test
+    # for this one failed on the server, where Redis IS up). Named rather than
+    # reported as a generic failure, because confusing the two sends someone
+    # to debug a Redis that was never supposed to be running.
     if settings.CELERY_TASK_ALWAYS_EAGER:
         return True, "eager mode — tasks run inline, no broker needed"
+    if broker_reachable():
+        return True, "reachable"
     return False, "صف پردازش (Redis) در دسترس نیست"
 
 

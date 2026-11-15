@@ -1,0 +1,63 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  nm-tmp-sweep — پاک‌کردنِ پس‌ماندهٔ آزمون‌ها و ابزارها در /tmp (روزی یک بار از cron)
+#
+#  فقط و فقط این نام‌ها، و فقط وقتی «بیش از یک روز» از آخرین تغییرشان گذشته باشد:
+#        nm-*   acestep-fake*   pip-unpack*
+#  چیزِ دیگری در /tmp (chromium، pytest-of-root، سایتِ چغر، …) دست نمی‌خورد.
+#
+#  استفاده:   nm-tmp-sweep            ⇒ پاک می‌کند
+#             nm-tmp-sweep --dry-run  ⇒ فقط می‌شمارد
+#  متغیرها:   NM_SWEEP_DIR (پیش‌فرض /tmp)   NM_SWEEP_MINUTES (پیش‌فرض 1440 = یک روز)
+#             NM_SWEEP_LOG (پیش‌فرض /var/log/nm-tmp-sweep.log)
+#  آزمون‌ها خودشان هم باید پاک کنند (config/test_runner.py)؛ این فقط تورِ ایمنی برای اجراهای نیمه‌کاره است.
+# ═══════════════════════════════════════════════════════════════════════════
+set -u
+DIR="${NM_SWEEP_DIR:-/tmp}"
+MINUTES="${NM_SWEEP_MINUTES:-1440}"
+LOG="${NM_SWEEP_LOG:-/var/log/nm-tmp-sweep.log}"
+DRY=0
+[ "${1:-}" = "--dry-run" ] && DRY=1
+
+case "$DIR" in
+  /|/root|/home|/usr|/var|/etc|"") echo "nm-tmp-sweep: refusing to sweep '$DIR'" >&2; exit 2 ;;
+esac
+[ -d "$DIR" ] || { echo "nm-tmp-sweep: no such directory: $DIR" >&2; exit 2; }
+
+before_kb=$(df -Pk "$DIR" | awk 'NR==2{print $4}')
+count=0
+kb=0
+while IFS= read -r -d '' entry; do
+  size=$(du -sk -- "$entry" 2>/dev/null | cut -f1)
+  size=${size:-0}
+  if [ "$DRY" = "1" ]; then
+    :
+  else
+    # نام را دوباره بسنج (ایمنی): فقط پیشوندهای مجاز، و هرگز یک پیوندِ نمادین به بیرون
+    base=$(basename -- "$entry")
+    case "$base" in
+      nm-*|acestep-fake*|pip-unpack*) ;;
+      *) continue ;;
+    esac
+    rm -rf --one-file-system -- "$entry" 2>/dev/null
+  fi
+  count=$((count + 1))
+  kb=$((kb + size))
+done < <(find "$DIR" -mindepth 1 -maxdepth 1 \( -name 'nm-*' -o -name 'acestep-fake*' -o -name 'pip-unpack*' \) -mmin "+$MINUTES" -print0 2>/dev/null)
+
+after_kb=$(df -Pk "$DIR" | awk 'NR==2{print $4}')
+mb=$((kb / 1024))
+if [ "$DRY" = "1" ]; then
+  msg="dry-run: $count entries / ${mb} MB would be removed from $DIR (older than ${MINUTES} min)"
+else
+  msg="removed $count entries / ${mb} MB from $DIR (older than ${MINUTES} min); free now $((after_kb / 1024)) MB (was $((before_kb / 1024)) MB)"
+fi
+echo "$msg"
+if [ -n "$LOG" ]; then
+  { echo "$(date -u '+%F %T') UTC  $msg"; } >> "$LOG" 2>/dev/null || true
+  # لاگ بزرگ نشود
+  if [ -f "$LOG" ] && [ "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+    tail -n 300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+  fi
+fi
+exit 0

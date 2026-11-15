@@ -19,6 +19,8 @@ __pycache__/
 *.pyc
 *.sqlite3
 *.log
+# پشتیبان‌های کنارِ کد (تاریخچه در /root/backups)
+*.bak*
 # 3D engine binaries (Blender, 1.6 GB) — the code (up3d/engine/assets) is committed
 up3d-engine/vendor/
 up3d-engine/data/

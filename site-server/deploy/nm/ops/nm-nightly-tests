@@ -1,0 +1,150 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  nm-nightly-tests — اجرای شبانهٔ آزمون‌ها، «هر اپ جدا و پشتِ‌هم»، با nice 10 و زیرِ قفلِ سنگین
+#  (/root/nm-heavy.lock؛ قفل برای هر اپ جدا گرفته می‌شود تا استقرارِ دیگران بینِ اپ‌ها گیر نکند)
+#
+#  خروجی: <data>/test-report.json  ← صفحهٔ «خودآزمایی» در پنل (ابزارها ⇒ سرورِ پردازش ⇒ خودآزمایی ⇒ «آزمون‌های شبانهٔ سایت»)
+#         لاگِ هر اپ: /var/log/nm-nightly-tests/<app>.log (روزِ قبل بازنویسی می‌شود)
+#
+#  آزمون‌ها داده را در پوشه‌های موقت می‌نویسند (NM_DATA_DIR/MEDIA_ROOT صادر می‌شوند)، نه در دادهٔ زندهٔ سایت.
+#  استفاده:  nm-nightly-tests                  ⇒ همهٔ اپ‌ها
+#            NM_NIGHTLY_APPS="jobs customers" nm-nightly-tests   ⇒ فقط این‌ها
+#            NM_NIGHTLY_SKIP="motion"          ⇒ این‌ها را رد کن
+#  متغیرها: NM_ROOT NM_TEST_PYTHON NM_TEST_REPORT NM_TEST_LOGDIR NM_HEAVY_LOCK NM_HEAVY_WAIT (ثانیه، پیش‌فرض ۳۶۰۰) NM_NIGHTLY_APP_TIMEOUT (ثانیه، پیش‌فرض ۳۰۰۰)
+# ═══════════════════════════════════════════════════════════════════════════
+set -u
+ROOT="${NM_ROOT:-/var/www/NM/upmarket}"
+PY="${NM_TEST_PYTHON:-$ROOT/venv/bin/python}"
+OUT="${NM_TEST_REPORT:-$ROOT/data/test-report.json}"
+LOGDIR="${NM_TEST_LOGDIR:-/var/log/nm-nightly-tests}"
+HEAVY="${NM_HEAVY_LOCK:-/root/nm-heavy.lock}"
+APP_TIMEOUT="${NM_NIGHTLY_APP_TIMEOUT:-3000}"
+HEAVY_WAIT="${NM_HEAVY_WAIT:-3600}"   # ثانیه؛ اگر قفلِ سنگین این‌قدر پر بود، آن اپ «رد شد» (قرمز نیست)
+SELF_LOCK="${NM_NIGHTLY_LOCK:-/root/nm-nightly.lock}"
+SKIP=" ${NM_NIGHTLY_SKIP:-} "
+
+exec 9>"$SELF_LOCK"
+flock -n 9 || { echo "nm-nightly-tests: another run is active"; exit 0; }
+
+mkdir -p "$LOGDIR" "$(dirname "$OUT")"
+BACKEND="$ROOT/backend"
+cd "$BACKEND" || exit 2
+START_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+RUNNING="$OUT.running"
+JSONL=$(mktemp /tmp/nm-nightly-jsonl-XXXXXX)
+trap 'rm -f "$JSONL" "$RUNNING"' EXIT
+
+# اپ‌هایی که آزمون دارند (پوشه‌های apps/* با tests*.py یا پوشهٔ tests) + services
+if [ -n "${NM_NIGHTLY_APPS:-}" ]; then
+  LABELS=$(for a in $NM_NIGHTLY_APPS; do echo "$a"; done)
+else
+  LABELS=$("$PY" - <<'PY'
+import os
+out = []
+base = "apps"
+for name in sorted(os.listdir(base)):
+    p = os.path.join(base, name)
+    if not os.path.isdir(p) or name.startswith((".", "__")):
+        continue
+    has = False
+    for r, ds, fs in os.walk(p):
+        ds[:] = [d for d in ds if d not in ("__pycache__", "node_modules", "migrations")]
+        if any(f.startswith("test") and f.endswith(".py") for f in fs):
+            has = True
+            break
+    if has:
+        out.append(name)
+if os.path.isdir("services"):
+    for r, ds, fs in os.walk("services"):
+        ds[:] = [d for d in ds if d != "__pycache__"]
+        if any(f.startswith("test") and f.endswith(".py") for f in fs):
+            out.append("services"); break
+print("\n".join(out))
+PY
+)
+fi
+
+for A in $LABELS; do
+  case "$SKIP" in *" $A "*) continue ;; esac
+  LABEL="apps.$A"; [ "$A" = "services" ] && LABEL="services"
+  LOG="$LOGDIR/$A.log"
+  T=$(mktemp -d /tmp/nm-nightly-XXXXXX)
+  echo "{\"app\":\"$A\",\"since\":\"$START_ISO\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$RUNNING"
+  T0=$(date +%s)
+  NM_DATA_DIR="$T/data" MEDIA_ROOT="$T/media" TMPDIR="$T" \
+    flock -w "$HEAVY_WAIT" -E 99 "$HEAVY" nice -n 10 ionice -c3 timeout "$APP_TIMEOUT" \
+    "$PY" -X utf8 manage.py test "$LABEL" --noinput > "$LOG" 2>&1
+  RC=$?
+  SECS=$(( $(date +%s) - T0 ))
+  rm -rf "$T"
+  "$PY" - "$A" "$LOG" "$RC" "$SECS" >> "$JSONL" <<'PY'
+import json, re, sys
+app, log, rc, secs = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+try:
+    text = open(log, encoding="utf-8", errors="replace").read()
+except OSError:
+    text = ""
+# rc 99 = «قفلِ سنگین یک ساعت پر بود و این اپ اجرا نشد» (flock -E 99): قرمز نیست، فقط «رد شد»؛ شبِ بعد دوباره امتحان می‌شود
+res = {"app": app, "seconds": secs, "tests": 0, "failures": 0, "errors": 0, "skipped": 0, "red": [], "crashed": False, "timeout": rc == 124, "lock_timeout": rc == 99}
+m = re.search(r"^Ran (\d+) tests? in", text, re.M)
+if m:
+    res["tests"] = int(m.group(1))
+f = re.search(r"^(?:FAILED|OK)\s*\(([^)]*)\)", text, re.M)
+if f:
+    for part in f.group(1).split(","):
+        k, _, v = part.strip().partition("=")
+        if k in ("failures", "errors", "skipped") and v.isdigit():
+            res[k] = int(v)
+sep = "=" * 70
+dash = "-" * 70
+blocks = text.split(sep + "\n")[1:]
+for b in blocks:
+    head, _, rest = b.partition("\n")
+    mm = re.match(r"(FAIL|ERROR): (.+)$", head.strip())
+    if not mm:
+        continue
+    body = rest
+    cut = body.find(dash + "\nRan ")
+    if cut >= 0:
+        body = body[:cut]
+    lines = [l for l in body.split("\n") if l.strip() and not l.startswith(dash)]
+    res["red"].append({"id": mm.group(2)[:240], "kind": mm.group(1).lower(), "message": (lines[-1] if lines else "")[:300]})
+res["red"] = res["red"][:100]
+if not m and not res["lock_timeout"]:
+    res["crashed"] = True
+    res["tail"] = [l[:300] for l in text.strip().split("\n")[-6:]]
+res["ok"] = res["lock_timeout"] or ((rc == 0) and not res["crashed"] and res["failures"] == 0 and res["errors"] == 0)
+print(json.dumps(res, ensure_ascii=False))
+PY
+done
+
+"$PY" - "$JSONL" "$OUT" "$START_ISO" "$ROOT" <<'PY'
+import datetime, json, os, sys
+jl, out, start, root = sys.argv[1:5]
+apps = [json.loads(l) for l in open(jl, encoding="utf-8") if l.strip()]
+version = ""
+try:
+    version = open(os.path.join(root, "VERSION"), encoding="utf-8").read().strip()
+except OSError:
+    pass
+report = {
+    "started_at": start,
+    "finished_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "version": version,
+    "apps": apps,
+    "totals": {
+        "apps": len(apps),
+        "red_apps": sum(1 for a in apps if not a["ok"]),
+        "tests": sum(a["tests"] for a in apps),
+        "failures": sum(a["failures"] for a in apps),
+        "errors": sum(a["errors"] for a in apps),
+        "skipped": sum(a["skipped"] for a in apps),
+        "lock_skipped": sum(1 for a in apps if a.get("lock_timeout")),
+    },
+}
+tmp = out + ".tmp"
+open(tmp, "w", encoding="utf-8").write(json.dumps(report, ensure_ascii=False, indent=1))
+os.replace(tmp, out)
+print("report:", out, report["totals"])
+PY
+exit 0

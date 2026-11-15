@@ -5,6 +5,7 @@ from django.urls import include, path, re_path
 from django.views.static import serve as media_serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.common.api_errors import api_not_found
 from apps.jobs.health import LiveView, MetricsView, ReadyView
 
 urlpatterns = [
@@ -47,6 +48,9 @@ urlpatterns = [
     path("3d/", include("apps.up3d.urls")),                   # پروتکلِ کارگرِ رندر + فایل‌های سه‌بعدی
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    # ⚠ همیشه آخرین مسیرِ «api/…»: هر نشانیِ ناشناختهٔ API ۴۰۴ ِ JSON فارسی بگیرد، نه صفحهٔ HTML ِ جنگو (apps.common.api_errors.api_not_found).
+    # مسیرِ تازه را قبل از این بگذارید؛ آزمونِ apps.common.tests_ops.ApiNotFoundTests ترتیب را می‌سنجد.
+    re_path(r"^api/.*$", api_not_found, name="api-not-found"),
 ]
 
 if settings.DEBUG:

@@ -1,0 +1,234 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  nm-backup — بکاپِ شبانهٔ NMarketing (هر شب ۰۳:۵۰ به وقتِ سرور از /etc/cron.d/nm-ops)
+#
+#  چه می‌گیرد (در /root/backups/nm-daily):
+#   daily/<تاریخ-ساعت>/   ۷ نسخهٔ آخر
+#       db.sqlite3, studio.sqlite3, studio-workspaces__<نام>__db.sqlite3   ← با «sqlite3 .backup» (ایمن؛ سایت در حالِ نوشتن است)
+#       data.tar.gz     داده‌های کوچکِ کاربر: audio_library, voice_clone, studio-workspaces, photoedit, mobile, up3d/uploads, up3d/asset-packs, ...
+#       config.tar.gz   backend/.env و deploy/nm/ai.env (راز؛ پوشه فقط برای root قابل‌خواندن است)
+#       manifest.json   اندازه و نتیجهٔ آزمونِ بازیابی
+#   weekly/<سال-W هفته>/   ۴ نسخه (یکشنبه‌ها؛ hard-link از daily، پس فضای اضافه نمی‌گیرد)
+#   media/<تاریخ>/         ۴ عکسِ لحظه‌ایِ هفتگی از backend/media (rsync --link-dest؛ فقط تغییرها فضا می‌گیرند؛ کش‌ها نه)
+#   status.json            «آخرین بکاپ» برای صفحهٔ گزارشِ پنل (ابزارها ⇒ سرورِ پردازش ⇒ گزارش)
+#
+#  بعد از هر بکاپ «آزمونِ بازیابی» انجام می‌شود: هر دیتابیس به یک رونوشتِ موقت برمی‌گردد، integrity_check باید ok باشد
+#  و شمارِ جدول‌ها و ردیف‌های django_migrations با خودِ دیتابیس برابر.
+#
+#  ⚠ نسخهٔ بیرونی (کپی روی کامپیوترِ دفتر) تصمیمِ مالک است و این‌جا پیکربندی نشده؛ این بکاپ‌ها روی همان دیسکِ سرورند
+#    و در برابرِ خرابیِ دیسک محافظت نمی‌کنند. (در status.json هم «offsite» همین را می‌گوید.)
+#
+#  استفاده:   nm-backup              ⇒ بکاپ کامل
+#             nm-backup --verify [پوشه]  ⇒ فقط آزمونِ بازیابیِ آخرین (یا پوشهٔ داده‌شده)
+#  متغیرها (برای آزمون): NM_ROOT NM_DATA_DIR NM_MEDIA_DIR NM_BACKUP_DIR NM_BACKUP_LOG NM_BACKUP_FORCE_WEEKLY=1 NM_BACKUP_MIN_FREE_MB
+# ═══════════════════════════════════════════════════════════════════════════
+set -u
+umask 077
+ROOT="${NM_ROOT:-/var/www/NM/upmarket}"
+DATA="${NM_DATA_DIR:-$ROOT/data}"
+MEDIA="${NM_MEDIA_DIR:-$ROOT/backend/media}"
+DEST="${NM_BACKUP_DIR:-/root/backups/nm-daily}"
+LOG="${NM_BACKUP_LOG:-/var/log/nm-backup.log}"
+LOCKFILE="${NM_BACKUP_LOCK:-/root/nm-backup.lock}"
+KEEP_DAILY="${NM_BACKUP_KEEP_DAILY:-7}"
+KEEP_WEEKLY="${NM_BACKUP_KEEP_WEEKLY:-4}"
+MIN_FREE_MB="${NM_BACKUP_MIN_FREE_MB:-1500}"
+PY="${NM_BACKUP_PYTHON:-python3}"
+
+say() { echo "$(date -u '+%F %T') UTC  $*" >> "$LOG" 2>/dev/null; echo "$*"; }
+
+# ───────────────────────── آزمونِ بازیابی (جدا قابلِ اجرا)
+verify_dir() {  # $1 = پوشهٔ یک بکاپ؛ خروجی JSON روی stdout، کد ۰ = همه ok
+  "$PY" - "$1" <<'PY'
+import json, os, shutil, sqlite3, sys, tempfile
+folder = sys.argv[1]
+out, bad = [], 0
+for name in sorted(os.listdir(folder)):
+    if not (name.endswith(".sqlite3") or name.endswith(".sqlite")):
+        continue
+    src = os.path.join(folder, name)
+    tmp = tempfile.mkdtemp(prefix="nm-restore-test-")
+    try:
+        copy = os.path.join(tmp, name)
+        shutil.copy2(src, copy)  # «بازیابی روی یک رونوشت»
+        con = sqlite3.connect(copy)
+        try:
+            integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
+            tables = con.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+            try:
+                migrations = con.execute("SELECT count(*) FROM django_migrations").fetchone()[0]
+            except sqlite3.Error:
+                migrations = None
+        finally:
+            con.close()
+        ok = integrity == "ok" and tables > 0
+        if not ok:
+            bad += 1
+        out.append({"file": name, "size_mb": round(os.path.getsize(src) / 1048576, 2), "integrity": integrity,
+                    "tables": tables, "migrations": migrations, "ok": ok})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+print(json.dumps({"databases": out, "ok": bad == 0 and bool(out)}, ensure_ascii=False))
+sys.exit(0 if bad == 0 and out else 1)
+PY
+}
+
+if [ "${1:-}" = "--verify" ]; then
+  target="${2:-}"
+  if [ -z "$target" ]; then target=$(ls -1d "$DEST"/daily/*/ 2>/dev/null | sort | tail -n 1); fi
+  [ -d "$target" ] || { echo "nm-backup --verify: no backup folder found" >&2; exit 2; }
+  verify_dir "$target"
+  exit $?
+fi
+
+# ───────────────────────── قفل: دو بکاپِ هم‌زمان نه
+exec 9>"$LOCKFILE"
+if ! flock -n 9; then say "یک بکاپِ دیگر در حالِ اجراست؛ این یکی رد شد"; exit 0; fi
+
+START=$(date +%s)
+TS=$(date -u +%Y%m%d-%H%M)
+mkdir -p "$DEST/daily" "$DEST/weekly" "$DEST/media"
+chmod 700 "$DEST" 2>/dev/null
+B="$DEST/daily/$TS"
+PART="$DEST/daily/.partial-$TS"
+rm -rf "$PART"; mkdir -p "$PART"
+ERRORS=()
+err() { ERRORS+=("$*"); say "✗ $*"; }
+say "──── بکاپ شروع شد ⇒ $B"
+
+# ───────────────────────── ۱) دیتابیس‌ها با «sqlite3 .backup»
+DBLIST=$(mktemp)
+for f in "$DATA/db.sqlite3" "$DATA/studio.sqlite3"; do [ -f "$f" ] && echo "$f" >> "$DBLIST"; done
+for f in "$DATA"/studio-workspaces/*/db.sqlite3 "$DATA"/up3d/*.sqlite3 "$DATA"/up3d/*.sqlite; do [ -f "$f" ] && echo "$f" >> "$DBLIST"; done
+while IFS= read -r f; do
+  rel="${f#$DATA/}"; name="${rel//\//__}"
+  if "$PY" - "$f" "$PART/$name" <<'PY'
+import sqlite3, sys
+src = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True, timeout=60)
+dst = sqlite3.connect(sys.argv[2])
+with dst:
+    src.backup(dst)
+dst.close(); src.close()
+PY
+  then say "دیتابیس: $rel ($(du -h "$PART/$name" | cut -f1))"; else err "دیتابیسِ $rel گرفته نشد"; fi
+done < "$DBLIST"
+rm -f "$DBLIST"
+
+# ───────────────────────── ۲) داده‌های کوچکِ کاربر
+SMALL=()
+for p in audio_library voice_clone studio-workspaces photoedit mobile up3d/uploads up3d/asset-packs model-auto.json compute-nodes.txt; do
+  [ -e "$DATA/$p" ] && SMALL+=("$p")
+done
+if [ "${#SMALL[@]}" -gt 0 ]; then
+  if nice -n 19 ionice -c3 tar -czf "$PART/data.tar.gz" -C "$DATA" --exclude='*.sqlite3' --exclude='*.sqlite3-wal' --exclude='*.sqlite3-shm' --exclude='__pycache__' --exclude='node_modules' --warning=no-file-changed "${SMALL[@]}" 2>>"$LOG"; then
+    say "داده‌ها: data.tar.gz ($(du -h "$PART/data.tar.gz" | cut -f1)) ⇐ ${SMALL[*]}"
+  else
+    rc=$?; [ "$rc" = "1" ] && say "داده‌ها: tar هشدارِ «فایلِ در حالِ تغییر» داد (قابل‌قبول)" || err "tar داده‌ها شکست خورد (کد $rc)"
+  fi
+fi
+CONF=()
+[ -f "$ROOT/backend/.env" ] && CONF+=("backend/.env")
+[ -f "$ROOT/deploy/nm/ai.env" ] && CONF+=("deploy/nm/ai.env")
+[ -f "$ROOT/backend/.env.local" ] && CONF+=("backend/.env.local")
+if [ "${#CONF[@]}" -gt 0 ]; then
+  tar -czf "$PART/config.tar.gz" -C "$ROOT" "${CONF[@]}" 2>>"$LOG" && say "پیکربندی: config.tar.gz (${CONF[*]})" || err "tar پیکربندی شکست خورد"
+fi
+
+# ───────────────────────── ۳) آزمونِ بازیابی روی رونوشت
+VERIFY_JSON=$(verify_dir "$PART") ; VRC=$?
+if [ "$VRC" = "0" ]; then say "آزمونِ بازیابی: همهٔ دیتابیس‌ها ok"; else err "آزمونِ بازیابی ناموفق: $VERIFY_JSON"; fi
+echo "$VERIFY_JSON" > "$PART/manifest.json"
+
+# ───────────────────────── ۴) نهایی‌کردنِ نسخهٔ روزانه
+if [ "$VRC" = "0" ] && [ -f "$PART/db.sqlite3" ]; then
+  rm -rf "$B"
+  mv "$PART" "$B"
+else
+  err "این نسخه سالم نیست؛ نگه داشته نمی‌شود"
+  rm -rf "$PART"
+  B=""
+fi
+
+# ───────────────────────── ۵) هفتگی (یکشنبه‌ها) + مدیا
+WEEKLY="not-today"; MEDIA_STATE="not-today"
+if [ -n "$B" ] && { [ "$(date -u +%u)" = "7" ] || [ "${NM_BACKUP_FORCE_WEEKLY:-0}" = "1" ]; }; then
+  W="$DEST/weekly/$(date -u +%G-W%V)"
+  rm -rf "$W"
+  if cp -al "$B" "$W" 2>/dev/null; then WEEKLY="ok"; say "هفتگی: $W"; else WEEKLY="failed"; err "نسخهٔ هفتگی ساخته نشد"; fi
+  FREE_MB=$(df -Pm "$DEST" | awk 'NR==2{print $4}')
+  if [ -d "$MEDIA" ] && [ "${FREE_MB:-0}" -ge "$MIN_FREE_MB" ]; then
+    PREV=$(ls -1d "$DEST"/media/*/ 2>/dev/null | sort | tail -n 1)
+    M="$DEST/media/$(date -u +%Y%m%d)"
+    LINK=(); [ -n "$PREV" ] && [ "${PREV%/}" != "$M" ] && LINK=(--link-dest="${PREV%/}")
+    if nice -n 19 ionice -c3 rsync -a "${LINK[@]}" --exclude='voice_previews/' --exclude='cache/' --exclude='tmp/' --exclude='*.part' --exclude='*.tmp' "$MEDIA"/ "$M"/ 2>>"$LOG"; then
+      MEDIA_STATE="ok"; say "مدیا: $M ($(du -sh "$M" | cut -f1) ظاهری؛ فقط تغییرها فضای تازه می‌گیرند)"
+    else
+      MEDIA_STATE="failed"; err "rsync مدیا شکست خورد"
+    fi
+  else
+    MEDIA_STATE="skipped-low-disk"; say "مدیا رد شد: فضای آزادِ دیسک ${FREE_MB:-?} مگ (کمتر از $MIN_FREE_MB)"
+  fi
+fi
+
+# ───────────────────────── ۶) چرخش
+rotate() {  # $1=پوشه $2=چند تا بماند
+  local list; list=$(ls -1d "$1"/*/ 2>/dev/null | sort)
+  local total; total=$(echo "$list" | grep -c . )
+  [ "$total" -gt "$2" ] && echo "$list" | head -n $((total - $2)) | while IFS= read -r d; do rm -rf "${d%/}"; say "چرخش: $d پاک شد"; done
+}
+rotate "$DEST/daily" "$KEEP_DAILY"
+rotate "$DEST/weekly" "$KEEP_WEEKLY"
+rotate "$DEST/media" "$KEEP_WEEKLY"
+find "$DEST/daily" -maxdepth 1 -name '.partial-*' -mmin +600 -exec rm -rf {} + 2>/dev/null
+
+# ───────────────────────── ۷) status.json برای پنل
+DUR=$(( $(date +%s) - START ))
+FREE_NOW=$(df -Pm "$DEST" | awk 'NR==2{print $4}')
+OK=1; [ "${#ERRORS[@]}" -gt 0 ] && OK=0
+ERR_JOIN=""; [ "${#ERRORS[@]}" -gt 0 ] && ERR_JOIN=$(printf '%s\n' "${ERRORS[@]}")
+"$PY" - "$DEST" "$B" "$OK" "$DUR" "$FREE_NOW" "$WEEKLY" "$MEDIA_STATE" "$ERR_JOIN" <<'PY'
+import datetime, json, os, sys
+dest, b, ok, dur, free, weekly, media, errs = sys.argv[1:9]
+def count(sub):
+    p = os.path.join(dest, sub)
+    return len([d for d in os.listdir(p) if not d.startswith(".")]) if os.path.isdir(p) else 0
+def size_mb(path):
+    total = 0
+    for r, _, fs in os.walk(path):
+        for f in fs:
+            try: total += os.path.getsize(os.path.join(r, f))
+            except OSError: pass
+    return round(total / 1048576, 1)
+manifest = {}
+if b and os.path.isfile(os.path.join(b, "manifest.json")):
+    try: manifest = json.load(open(os.path.join(b, "manifest.json"), encoding="utf-8"))
+    except Exception: pass
+prev = {}
+sp = os.path.join(dest, "status.json")
+try: prev = json.load(open(sp, encoding="utf-8"))
+except Exception: pass
+now = datetime.datetime.now(datetime.timezone.utc)
+status = {
+    "ok": ok == "1",
+    "at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "duration_s": int(dur),
+    "folder": os.path.basename(b.rstrip("/")) if b else "",
+    "size_mb": size_mb(b) if b else 0,
+    "databases": manifest.get("databases", []),
+    "restore_test_ok": bool(manifest.get("ok")),
+    "daily_kept": count("daily"), "weekly_kept": count("weekly"), "media_kept": count("media"),
+    "weekly": weekly, "media": media,
+    "disk_free_mb": int(free or 0),
+    "errors": [e for e in errs.split("\n") if e],
+    "offsite": "نسخهٔ بیرونی (کامپیوترِ دفتر) پیکربندی نشده؛ تصمیمِ مالک",
+    "last_good_at": now.strftime("%Y-%m-%dT%H:%M:%SZ") if ok == "1" else prev.get("last_good_at", ""),
+}
+tmp = sp + ".tmp"
+open(tmp, "w", encoding="utf-8").write(json.dumps(status, ensure_ascii=False, indent=1))
+os.replace(tmp, sp)
+PY
+if [ "$OK" = "1" ]; then say "✓ بکاپ تمام شد (${DUR}s) — نسخهٔ بیرونی هنوز تصمیمِ مالک است"; else say "✗ بکاپ با خطا تمام شد (${DUR}s)"; fi
+chmod 700 "$DEST" 2>/dev/null
+# لاگ بزرگ نشود
+if [ -f "$LOG" ] && [ "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then tail -n 600 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
+[ "$OK" = "1" ] && exit 0 || exit 1

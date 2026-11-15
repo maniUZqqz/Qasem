@@ -7,6 +7,8 @@ User=root
 WorkingDirectory=/var/www/NM/upmarket/backend
 Environment=PYTHONIOENCODING=utf-8
 ExecStart=/var/www/NM/upmarket/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8041 --workers 2 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile /var/www/NM/upmarket/logs/web-access.log --error-logfile /var/www/NM/upmarket/logs/web-error.log
+# reload (HUP) = کارگرهای تازه با کدِ تازه بدونِ خاموشیِ ۴ تا ۱۳ ثانیه‌ای؛ استقرار: «nm-reload» (deploy/nm/ops)، نه restart
+ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always
 RestartSec=3
 

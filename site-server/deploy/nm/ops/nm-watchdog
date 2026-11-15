@@ -1,0 +1,56 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  نگهبانِ NMarketing — هر دو دقیقه از cron (مثلِ نگهبانِ چغر)
+#
+#  /healthz ِ وب‌سرور (gunicorn روی ۸۰۴۱) را می‌سنجد. فقط بعد از «سه بارِ پشتِ‌هم» ناسالم بودن
+#  nm-web را ری‌استارت می‌کند (یک شکستِ تک = بار روی سرور یا یک ری‌استارتِ استقرار، نه خرابی).
+#  اگر قفلِ استقرار (/root/nm-deploy.lock) در دستِ یک استقرار باشد آستانه ۶ است، تا وسطِ یک استقرارِ
+#  بلند ری‌استارتِ بی‌جا نشود.
+#
+#  nginx ِ aaPanel (مشترک با چغر و سایت‌های دیگر) و هیچ سرویسِ دیگری دست نمی‌خورد.
+#  لاگ: /var/log/nm-watchdog.log      شمارنده: /run/nm-watchdog.fails      وضعیت: /run/nm-watchdog.state
+#  متغیرهای آزمون: NM_WD_URL  NM_WD_LOG  NM_WD_STATE  NM_WD_DRY=1 (ری‌استارت نمی‌کند، فقط می‌نویسد)
+# ═══════════════════════════════════════════════════════════════════════════
+URL="${NM_WD_URL:-http://127.0.0.1:8041/healthz}"
+LOG="${NM_WD_LOG:-/var/log/nm-watchdog.log}"
+FAILS_FILE="${NM_WD_STATE:-/run/nm-watchdog.fails}"
+SERVICE="${NM_WD_SERVICE:-nm-web}"
+LOCK="${NM_WD_DEPLOY_LOCK:-/root/nm-deploy.lock}"
+DRY="${NM_WD_DRY:-0}"
+
+say() { echo "$(date -u '+%F %T') UTC  $*" >> "$LOG"; }
+probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL" 2>/dev/null; }
+
+CODE=$(probe)
+if [ "$CODE" = "200" ]; then
+  [ -s "$FAILS_FILE" ] && say "سالم شد (کد 200) پس از $(cat "$FAILS_FILE") شکست"
+  rm -f "$FAILS_FILE"
+  exit 0
+fi
+
+N=$(cat "$FAILS_FILE" 2>/dev/null || echo 0)
+N=$((N + 1))
+echo "$N" > "$FAILS_FILE"
+LIMIT=3
+# قفلِ استقرار در دستِ کسی است؟ (flock -n موفق شد ⇒ آزاد است)
+if [ -e "$LOCK" ] && ! flock -n "$LOCK" true 2>/dev/null; then LIMIT=6; fi
+say "$SERVICE پاسخ نداد (کد ${CODE:-—}) — شکستِ $N از $LIMIT"
+
+if [ "$N" -ge "$LIMIT" ]; then
+  if [ "$DRY" = "1" ]; then
+    say "DRY: restart $SERVICE انجام نشد"
+  else
+    say "ری‌استارتِ $SERVICE"
+    systemctl restart "$SERVICE"
+    sleep 15
+    NEW=$(probe)
+    say "پس از ری‌استارت: ${NEW:-—}"
+  fi
+  rm -f "$FAILS_FILE"
+fi
+
+# لاگ بزرگ نشود
+if [ -f "$LOG" ] && [ "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+  tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+fi
+exit 0

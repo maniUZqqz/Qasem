@@ -48,6 +48,8 @@ def broker_host_port() -> tuple[str, int]:
 
 def broker_reachable(force: bool = False) -> bool:
     """True when a TCP connection to the Redis broker succeeds (cached ~10s)."""
+    if getattr(settings, "CELERY_MODE_SOURCE", "") == "test":
+        return False  # آزمون‌ها بسته‌اند: Redis ِ این ماشین (روی سرور روشن است) نباید نتیجه را عوض کند
     now = time.monotonic()
     if not force and now - _broker_cache["at"] < _BROKER_CACHE_SECONDS:
         return _broker_cache["up"]

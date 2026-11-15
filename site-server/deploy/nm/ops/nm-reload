@@ -1,0 +1,55 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  nm-reload — بازنشانیِ «بی‌وقفه»ی وب‌سرورِ NMarketing (به‌جای systemctl restart nm-web)
+#
+#  چرا: restart = gunicorn کاملاً خاموش و دوباره روشن می‌شود؛ ۴ تا ۱۳ ثانیه nginx پاسخِ 502/503 می‌دهد
+#       (در سه روزِ گذشته ۲۸ بار؛ ۹۰ از ۱۰۶ خطای 502/503 در ۴۵ ثانیهٔ بعد از یک restart بودند).
+#       reload = سیگنالِ HUP: کارگرهای تازه (با کدِ تازه) بالا می‌آیند و کارگرهای قدیمی کارِ در دست را تمام می‌کنند.
+#       gunicorn با preload اجرا نمی‌شود، پس کدِ پایتونِ تازه بی‌خاموشی بارگذاری می‌شود.
+#
+#  کی restart لازم است (نه reload):  عوض‌شدنِ فایلِ unit (systemd)، عوض‌شدنِ نسخهٔ پایتون/venv، نصبِ بستهٔ تازه‌ای که
+#       باید پیش از بالاآمدنِ master در دسترس باشد. در این حالت از  systemctl restart nm-web  استفاده کنید.
+#
+#  استفاده:   nm-reload            ⇒ reload و سنجشِ سلامت؛ کد خروجی ۰ = سالم
+#             nm-reload --restart   ⇒ اگر reload جواب نداد، آخرین چاره restart
+# ═══════════════════════════════════════════════════════════════════════════
+set -u
+URL="${NM_HEALTH_URL:-http://127.0.0.1:8041/healthz}"
+SERVICE="${NM_WEB_SERVICE:-nm-web}"
+FALLBACK=0
+[ "${1:-}" = "--restart" ] && FALLBACK=1
+
+code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" 2>/dev/null; }
+
+if ! systemctl is-active --quiet "$SERVICE"; then
+  echo "nm-reload: $SERVICE فعال نیست؛ start می‌کنم"
+  systemctl start "$SERVICE"
+else
+  if ! systemctl reload "$SERVICE"; then
+    echo "nm-reload: reload شکست خورد" >&2
+    if [ "$FALLBACK" = "1" ]; then
+      echo "nm-reload: restart (آخرین چاره)"
+      systemctl restart "$SERVICE"
+    else
+      exit 1
+    fi
+  fi
+fi
+
+# منتظرِ سلامت: دو پاسخِ ۲۰۰ پشتِ‌هم (حداکثر ۶۰ ثانیه)
+ok=0
+for _ in $(seq 1 30); do
+  if [ "$(code)" = "200" ]; then
+    ok=$((ok + 1))
+    [ "$ok" -ge 2 ] && break
+  else
+    ok=0
+  fi
+  sleep 2
+done
+if [ "$ok" -ge 2 ]; then
+  echo "nm-reload: $SERVICE سالم است ($(systemctl show -p MainPID --value "$SERVICE"))"
+  exit 0
+fi
+echo "nm-reload: $SERVICE پس از ۶۰ ثانیه سالم نشد" >&2
+exit 1

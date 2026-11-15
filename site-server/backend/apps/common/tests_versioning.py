@@ -6,6 +6,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -194,8 +195,11 @@ class ChangelogParserTests(SimpleTestCase):
             self.skipTest("CHANGELOG-fa.md هنوز در ریشه نیست")
         entries = versioning.parse_changelog(path.read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(entries), 1)
-        self.assertEqual(entries[0]["version"], "2.60")
-        self.assertGreaterEqual(len(entries[0]["items"]), 4)
+        # شمارهٔ نسخه از خودِ فایل خوانده می‌شود (قبلاً "2.60" ِ ثابت بود و با هر نسخهٔ تازه قرمز می‌شد)
+        first = re.search(r"(?m)^##\s*v?\s*(\d+(?:\.\d+)+)", path.read_text(encoding="utf-8-sig"))
+        self.assertIsNotNone(first, "فایل باید دست‌کم یک تیترِ «## v…» داشته باشد")
+        self.assertEqual(entries[0]["version"], first.group(1))
+        self.assertGreaterEqual(len(entries[0]["items"]), 1)
         self.assertRegex(entries[0]["date"], r"^[۰-۹]{4}/[۰-۹]{2}/[۰-۹]{2}$")
 
 

@@ -195,16 +195,26 @@ class VoiceCloneTests(TestCase):
         self.assertIn("دست‌کم", r.json()["error"]["message"])
 
         self.upload(voice_id, 4, wav_bytes(speechlike(seed=4)))
+        # the node is OFF (a registered node that has not been seen for 30 minutes): the build is not refused - it is accepted (202) and PARKED
+        # in the durable queue, and it runs by itself when the node comes back (the old expectation was a 503 «node_offline»)
         ComputeNode.objects.update(last_seen=timezone.now() - timedelta(minutes=30))
         r = self.client.post(f"{self.base}{voice_id}/build/", {"consent": True}, content_type="application/json")
-        self.assertEqual(r.status_code, 503)
-        self.assertEqual(r.json()["error"]["code"], "node_offline")
-        self.assertIn("خودش بالا می‌آید", r.json()["error"]["message"])
-
-        ComputeNode.objects.update(last_seen=timezone.now())
-        r = self.client.post(f"{self.base}{voice_id}/build/", {"consent": True}, content_type="application/json")
         self.assertEqual(r.status_code, 202, r.content)
-        job = ComputeJob.objects.get(kind="voice.clone")
+        self.assertEqual(r.json()["status"], "BUILDING")
+        job = ComputeJob.objects.get(kind="voice.clone")                  # exactly one job, parked
+        self.assertEqual(job.state, "QUEUED")
+        self.assertEqual(job.node, None)
+        # a second press while it waits is refused (no second job)
+        again = self.client.post(f"{self.base}{voice_id}/build/", {"consent": True}, content_type="application/json")
+        self.assertEqual(again.status_code, 400)
+        self.assertIn("در حالِ ساخت", again.json()["error"]["message"])
+        self.assertEqual(ComputeJob.objects.filter(kind="voice.clone").count(), 1)
+
+        ComputeNode.objects.update(last_seen=timezone.now())              # the node comes back: the SAME job is what it will take
+        job.refresh_from_db()
+        self.assertEqual(job.state, "QUEUED")
+        r = self.client.get(f"{self.base}{voice_id}/")
+        self.assertEqual(r.json()["status"], "BUILDING")
         self.assertEqual(job.node_wanted, "DESKTOP-TEST")
         self.assertTrue(job.payload["consent"]["given"])
         self.assertIn("علی رضایی", job.payload["consent"]["text"])
@@ -212,7 +222,6 @@ class VoiceCloneTests(TestCase):
         self.assertEqual([c["index"] for c in job.payload["clips"]], [1, 2, 4])
         self.assertEqual(sorted(job.inputs), ["clip_0001.wav", "clip_0002.wav", "clip_0004.wav"])
         self.assertEqual(job.payload["clips"][0]["text"], vc.script()[0]["text"])
-        self.assertEqual(r.json()["status"], "BUILDING")
         # no new clips while it builds
         self.assertEqual(self.upload(voice_id, 5, wav_bytes(speechlike())).status_code, 409)
 

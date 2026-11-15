@@ -1,0 +1,17 @@
+# NMarketing — کارهای زمان‌بندی‌شدهٔ سرور (نصب: deploy/nm/ops/install-ops.sh ⇒ /etc/cron.d/nm-ops)
+# ساعت‌ها به وقتِ سرور (UTC)؛ تهران = UTC + ۳:۳۰.
+# به‌عمد در /etc/cron.d است و نه crontab ِ root: crontab ِ root مالِ نگهبان/بکاپِ چغر و کارهای aaPanel است و دست نمی‌خورد.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# نگهبان: هر دو دقیقه /healthz ِ وب؛ بعد از سه شکستِ پشتِ‌هم nm-web را ری‌استارت می‌کند (لاگ: /var/log/nm-watchdog.log)
+*/2 * * * * root /usr/local/bin/nm-watchdog >/dev/null 2>&1
+
+# بکاپِ شبانه ۰۳:۵۰ UTC (۰۷:۲۰ تهران) — کم‌اولویت (لاگ و status.json خودش را می‌نویسد)
+50 3 * * * root nice -n 19 ionice -c3 /usr/local/bin/nm-backup >/dev/null 2>&1
+
+# پاک‌سازیِ پس‌ماندهٔ آزمون‌ها در /tmp (فقط nm-* و acestep-fake* و pip-unpack* بیش از یک روز)
+20 4 * * * root /usr/local/bin/nm-tmp-sweep >/dev/null 2>&1
+
+# آزمون‌های شبانه ۲۳:۳۰ UTC (۰۳:۰۰ تهران): هر اپ جدا، nice 10، زیرِ قفلِ سنگین؛ نتیجه در صفحهٔ «خودآزمایی» ِ پنل
+30 23 * * * root /usr/local/bin/nm-nightly-tests >/dev/null 2>&1

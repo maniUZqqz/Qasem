@@ -62,6 +62,7 @@ import {
   type TabKey,
   type Tone,
 } from "./model";
+import { BackupLine } from "../OpsStatus";
 import "./report.css";
 
 /**
@@ -326,6 +327,8 @@ export default function ComputeReportPage() {
               <Stat key={t.key} label={t.label} value={t.value} hint={t.hint || undefined} tone={t.tone} />
             ))}
           </div>
+
+          <BackupLine />
 
           <Card padded={false}>
             <nav className="u-tabs px-2" role="tablist" aria-label="بخش‌های گزارش">

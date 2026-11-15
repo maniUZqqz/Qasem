@@ -326,7 +326,7 @@ EDIT_DENOISE = {"ENHANCED": 0.45, "PRODUCT_SHOT": 0.7, "POSTER": 0.75}
 
 
 @shared_task(bind=True)
-def generate_image_task(self, job_id, product_id, kind, style="", instructions="", source_image_id=None):
+def generate_image_task(self, job_id, product_id, kind, style="", instructions="", source_image_id=None, look="", look_theme=""):
     """Image Studio (Phase 9): QwQ creative direction → FLUX via ComfyUI."""
     job = Job.objects.get(id=job_id)
     from apps.compute import park as node_park
@@ -341,6 +341,12 @@ def generate_image_task(self, job_id, product_id, kind, style="", instructions="
         if kind not in GeneratedImage.Kind.values:
             raise RuntimeError(f"نوع تصویر نامعتبر: {kind}")
         intelligence = ProductIntelligence.objects.filter(product=product).first()
+        look_ctx = None
+        if look:
+            # «سبک تصویر» (apps.looks): LookError (فارسی) اگر برای این نوعِ تصویر مجاز نیست ⇒ همین متن در کار می‌آید
+            from apps.looks import compose as looks_compose
+
+            look_ctx = looks_compose.compose(look, kind, product.store, theme_key=look_theme)
         job.total_steps = 2
         job.mark_running("در حال طراحی کانسپت تصویر")
         reasoning_models = models_for(TASK_REASONING)
@@ -355,11 +361,18 @@ def generate_image_task(self, job_id, product_id, kind, style="", instructions="
             prompt_version=image_prompts.IMAGE_PROMPT_VERSION,
             provider=provider,
             models=reasoning_models,
-            prompt=image_prompts.build_image_prompt(product, intelligence, kind, style, instructions),
+            prompt=image_prompts.build_image_prompt(product, intelligence, kind, style, instructions, look=look_ctx),
             system=image_prompts.IMAGE_SYSTEM,
             validate=image_prompts.validate_image,
             validation_message="طراحی کانسپت تصویر ناقص بود",
         )
+        look_kw = {}
+        if look_ctx:
+            # هر چه کارگردانِ هوش مصنوعی نوشته، سبکِ انتخاب‌شده (و محافظِ «همان محصول») حتماً به مدل می‌رسد؛ راهنمای گام/هدایتِ سبک هم اعمال می‌شود
+            parsed["prompt_en"] = looks_compose.ensure_in_prompt(parsed["prompt_en"], look_ctx)
+            parsed["negative_en"] = looks_compose.merge_negative(parsed["negative_en"], look_ctx)
+            hints = look_ctx["hints"]
+            look_kw = {"steps": max(20, min(32, int(hints["steps"]))), "guidance": max(2.5, min(5.0, float(hints["guidance"] or 3.5)))}
 
         source_image = None
         if source_image_id:
@@ -413,6 +426,7 @@ def generate_image_task(self, job_id, product_id, kind, style="", instructions="
                 width=width,
                 height=height,
                 filename_prefix=prefix,
+                **look_kw,
             )
             workflow_version = "flux_img_edit@v1"
         else:
@@ -426,6 +440,7 @@ def generate_image_task(self, job_id, product_id, kind, style="", instructions="
                 width=width,
                 height=height,
                 filename_prefix=prefix,
+                **look_kw,
             )
             workflow_version = "flux_txt2img@v1"
 
@@ -459,12 +474,14 @@ def generate_image_task(self, job_id, product_id, kind, style="", instructions="
             concept=parsed["concept_fa"],
             prompt_en=parsed["prompt_en"],
             negative_en=negative,
-            style=style,
+            style=style or (look_ctx["name_fa"] if look_ctx else ""),
             instructions=instructions,
             source_image=source_image if use_edit else None,
             workflow_version=workflow_version,
             source_request=request_row,
-            metadata={"seed": seed, "width": width, "height": height, **overlay_meta},
+            metadata={"seed": seed, "width": width, "height": height, **overlay_meta,
+                      **({"look": {"key": look_ctx["look"], "name_fa": look_ctx["name_fa"], "theme": look_ctx["theme"],
+                                   "scene_only": look_ctx["scene_only"]}} if look_ctx else {})},
         )
         media.store(generated.image, image_path)
         generated.save()

@@ -8,7 +8,7 @@ import json
 from .product_analysis import product_context
 
 IMAGE_PROMPT_ID = "image_studio"
-IMAGE_PROMPT_VERSION = "3"
+IMAGE_PROMPT_VERSION = "4"
 
 IMAGE_SYSTEM = (
     "You are a senior creative director for e-commerce advertising photography. "
@@ -40,7 +40,18 @@ KINDS = {
 REQUIRED_KEYS = ["concept_fa", "prompt_en", "negative_en"]
 
 
-def build_image_prompt(product, intelligence, kind, style, instructions) -> str:
+def look_part(look) -> str:
+    """بلوکِ «Look:» برای سبکِ تصویریِ انتخاب‌شده (apps.looks.compose.compose(...))؛ بدونِ سبک ⇒ خالی.
+
+    سبک فقط «ظاهر» می‌دهد: برای عکسِ محصول (PRODUCT_SHOT/ENHANCED) فقط صحنه و نور، و خودِ محصول همان می‌ماند."""
+    if not look:
+        return ""
+    from apps.looks.compose import look_block
+
+    return look_block(look) + "\n"
+
+
+def build_image_prompt(product, intelligence, kind, style, instructions, look=None) -> str:
     intelligence_part = ""
     if intelligence is not None:
         intelligence_part = "\n\nAI product intelligence:\n" + json.dumps(
@@ -59,6 +70,7 @@ def build_image_prompt(product, intelligence, kind, style, instructions) -> str:
         f"{intelligence_part}\n\n"
         f"Image type: {KINDS[kind]}\n"
         f"Requested style: {style or 'فروشگاه تصمیم نگرفته — خودت بهترین را انتخاب کن'}\n"
+        f"{look_part(look)}"
         f"Extra instructions from the store owner: {instructions or '-'}\n\n"
         "Produce a single JSON object:\n"
         '{"concept_fa": "...", "prompt_en": "...", "negative_en": "...", '

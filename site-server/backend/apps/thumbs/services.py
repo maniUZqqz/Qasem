@@ -202,7 +202,7 @@ def variation_plan(spec: dict, n: int) -> list[tuple[dict, str]]:
     base_var = int(spec["colors"].get("variation") or 0)
     seed = int(spec.get("seed", 1))
     base_mood = spec["colors"].get("mood") or STYLES[spec["style"]].mood
-    moods = MOOD_ALTS.get(base_mood, ("dark", "light", "neon"))
+    moods = (base_mood,) * 3 if palette.theme_known(base_mood) else MOOD_ALTS.get(base_mood, ("dark", "light", "neon"))     # تمِ انتخابی را نسخه‌ها عوض نمی‌کنند
     cur = spec["font"] if spec["font"] != typo.AUTO_FONT else STYLES[spec["style"]].font
 
     def font_after(k: int) -> str:
@@ -213,18 +213,18 @@ def variation_plan(spec: dict, n: int) -> list[tuple[dict, str]]:
         if i == 1:
             m = moods[0]
             plans.append((derive(colors__mood=m, colors__variation=base_var + 1, seed=seed + 7),
-                          f"حال‌وهوای «{palette.MOOD_FA.get(m, m)}»؛ رنگ‌ها جابه‌جا شد و سوژه آن‌طرف رفت"))
+                          f"حال‌وهوای «{palette.mood_title(m)}»؛ رنگ‌ها جابه‌جا شد و سوژه آن‌طرف رفت"))
         elif i in (2, 4) and alts:
             alt = alts[(0 if i == 2 else 1) % len(alts)]
             plans.append((derive(style=alt, colors__variation=(0 if i == 2 else 1) + base_var, seed=seed + i), f"سبکِ «{STYLES[alt].title}»"))
         elif i == 3:
             nxt, m = font_after(1), moods[1]
             plans.append((derive(font=nxt, colors__mood=m, colors__variation=base_var + 2, seed=seed + 13),
-                          f"فونتِ «{_font_fa(nxt)}» با حال‌وهوای «{palette.MOOD_FA.get(m, m)}»"))
+                          f"فونتِ «{_font_fa(nxt)}» با حال‌وهوای «{palette.mood_title(m)}»"))
         else:
             nxt, m = font_after(2), moods[2]
             plans.append((derive(font=nxt, colors__mood=m, seed=seed + 19 + i, colors__variation=base_var + i),
-                          f"حال‌وهوای «{palette.MOOD_FA.get(m, m)}» با فونتِ «{_font_fa(nxt)}»"))
+                          f"حال‌وهوای «{palette.mood_title(m)}» با فونتِ «{_font_fa(nxt)}»"))
     return plans
 
 
@@ -274,11 +274,12 @@ def render_thumbnail(t: Thumbnail, *, user=None) -> Thumbnail:
         if not bg.get("job"):
             try:
                 prompt, info = aibg.resolve_prompt(t.store, text=(t.notes or {}).get("ai_text", ""), preset=(t.notes or {}).get("ai_preset", ""),
-                                                   style=spec["style"], colors=brand_kit(t.store)["colors"], prompt_en=(t.notes or {}).get("ai_prompt", ""))
+                                                   style=spec["style"], colors=brand_kit(t.store)["colors"], prompt_en=(t.notes or {}).get("ai_prompt", ""),
+                                                   look=bg.get("look", ""), theme=palette.theme_key(spec["colors"].get("mood", "")))
                 req = aibg.request(t.store, user or t.created_by, prompt_en=prompt, fmt=spec["format"], seed=spec["seed"] * 7919 + 13,
-                                   meta={"thumb": t.pk})
+                                   meta={"thumb": t.pk, "look": info.get("look", ""), "theme": info.get("theme", "")}, hints=info.get("hints"))
                 bg["job"] = req["job"]
-                extra["ai"] = {"prompt": prompt, "engine": req.get("engine", ""), "note": info.get("note", "")}
+                extra["ai"] = {"prompt": prompt, "engine": req.get("engine", ""), "note": info.get("note", ""), "look": info.get("look", "")}
             except aibg.BgError as exc:
                 bg["kind"] = "auto"
                 extra["ai"] = {"error": str(exc)}

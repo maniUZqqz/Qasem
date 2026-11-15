@@ -13,6 +13,8 @@ import {
 } from "../../components/ui";
 import { useJobRunner } from "../../hooks/useJobRunner";
 import { GeneratedImageInfo, Job, Product } from "../../types";
+import type { LookKind } from "../looks/api";
+import LookPicker, { useLookCheck } from "../looks/LookPicker";
 
 const KIND_LABEL: Record<string, string> = {
   POSTER: "پوستر تبلیغاتی",
@@ -26,6 +28,10 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
   const [style, setStyle] = useState("");
   const [instructions, setInstructions] = useState(brief.slice(0, 500));   // از بانکِ ایده: توضیحِ ایده
   const [sourceImageId, setSourceImageId] = useState<number | null>(null);
+  // «سبک تصویر»: یکی از ۱۱۶ سبکِ آماده (+ تمِ رنگی)؛ روی «عکس محصول»/«بهبود عکس» فقط سبک‌های نور و صحنه مجازند
+  const [look, setLook] = useState("");
+  const [lookTheme, setLookTheme] = useState("");
+  const lookCheck = useLookCheck(look, kind as LookKind);
 
   const load = useCallback(async () => {
     try {
@@ -57,7 +63,10 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
     try {
       const { data } = await api.post<{ job_id: number; job: Job }>(
         `/products/${product.id}/image-studio/`,
-        { kind, style, instructions, source_image_id: sourceImageId ?? undefined },
+        {
+          kind, style, instructions, source_image_id: sourceImageId ?? undefined,
+          look: look || undefined, look_theme: look && lookTheme ? lookTheme : undefined,
+        },
       );
       runner.track(data.job_id, data.job);
     } catch (err) {
@@ -106,6 +115,26 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
         </Field>
       </div>
 
+      <div className="mb-3">
+        <span className="mb-1 block text-sm font-medium text-slate-700">سبک تصویر (اختیاری)</span>
+        <LookPicker
+          value={look}
+          theme={lookTheme}
+          onChange={(l, t) => {
+            setLook(l);
+            setLookTheme(t);
+          }}
+          kind={kind as LookKind}
+          storeId={product.store}
+          allowTheme
+        />
+        {!lookCheck.ok && (
+          <p className="mt-2 text-sm leading-7 text-amber-600" role="alert">
+            {lookCheck.message}
+          </p>
+        )}
+      </div>
+
       {needsSource && product.images.length > 0 && (
         <div className="mb-3">
           <span className="mb-1 block text-sm font-medium text-slate-700">
@@ -134,7 +163,7 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
 
       <Button
         onClick={generate}
-        disabled={runner.running || (kind === "ENHANCED" && product.images.length === 0)}
+        disabled={runner.running || !lookCheck.ok || (kind === "ENHANCED" && product.images.length === 0)}
       >
         {runner.running ? "در حال تولید تصویر…" : "تولید تصویر با AI"}
       </Button>
@@ -164,6 +193,7 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
               </a>
               <div className="space-y-1 p-3">
                 <Chip>{KIND_LABEL[img.kind] ?? img.kind}</Chip>
+                {img.metadata?.look && <Chip>سبک: {img.metadata.look.name_fa}</Chip>}
                 {img.concept && (
                   <p className="text-xs leading-5 text-slate-600">{img.concept}</p>
                 )}

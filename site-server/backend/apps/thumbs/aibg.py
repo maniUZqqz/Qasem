@@ -104,7 +104,7 @@ def txt2img_choice(caps) -> dict:
 
 
 def build_graph(choice: dict, prompt: str, seed: int, size: tuple[int, int], *, steps: int | None = None,
-                prefix: str = FILENAME_PREFIX) -> dict:
+                guidance: float | None = None, prefix: str = FILENAME_PREFIX) -> dict:
     """گرافِ API ِ ComfyUI برای متن‌به‌تصویرِ FLUX (فقط نودهای هستهٔ ComfyUI)."""
     g: dict = {}
     if choice["loader"] == "checkpoint":
@@ -117,7 +117,7 @@ def build_graph(choice: dict, prompt: str, seed: int, size: tuple[int, int], *, 
         model, clip, vae = ["10", 0], ["11", 0], ["12", 0]
     w, h = int(size[0]), int(size[1])
     g["20"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": clip, "text": prompt}}
-    g["21"] = {"class_type": "FluxGuidance", "inputs": {"conditioning": ["20", 0], "guidance": GUIDANCE}}
+    g["21"] = {"class_type": "FluxGuidance", "inputs": {"conditioning": ["20", 0], "guidance": float(guidance or GUIDANCE)}}
     g["22"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": clip, "text": ""}}
     g["23"] = {"class_type": "EmptyLatentImage", "inputs": {"width": w, "height": h, "batch_size": 1}}
     g["24"] = {"class_type": "KSampler", "inputs": {
@@ -184,9 +184,40 @@ def color_words(colors: list[str]) -> str:
     return " and ".join(dict.fromkeys(names))
 
 
-def resolve_prompt(store, *, text: str = "", preset: str = "", style: str = "", colors: list[str] | None = None, prompt_en: str = "") -> tuple[str, dict]:
-    """⇒ (دستورِ انگلیسیِ نهایی، {note, translated, preset, style}). ``prompt_en`` اگر داده شود (ایدهٔ هوش مصنوعی/کاربر) همان به کار می‌رود."""
-    info = {"note": "", "translated": False, "preset": preset or "", "style": style or ""}
+#: صحنهٔ بی‌طرفِ پس‌زمینه وقتی «سبک تصویر» انتخاب شده ولی کاربر نه صحنه داده نه توضیح: ظاهر را خودِ سبک می‌دهد، این فقط جا را برای تیتر خالی نگه می‌دارد
+LOOK_SCENE = "an empty abstract background composition with a calm clear area in the middle for a headline and richer detail toward the edges"
+MAX_PROMPT = 700
+MAX_PROMPT_LOOK = 960
+
+
+def look_hints(hints) -> tuple[int | None, float | None]:
+    """راهنمای گام/هدایتِ سبک ⇒ (گام، هدایت) در بازهٔ امنِ FLUX dev؛ ``(None, None)`` اگر راهنما نیست."""
+    if not isinstance(hints, dict):
+        return None, None
+    try:
+        steps = max(16, min(32, int(hints.get("steps") or 0))) if hints.get("steps") else None
+        guidance = max(2.5, min(5.0, float(hints.get("guidance") or 0))) if hints.get("guidance") else None
+    except (TypeError, ValueError):
+        return None, None
+    return steps, guidance
+
+
+def resolve_prompt(store, *, text: str = "", preset: str = "", style: str = "", colors: list[str] | None = None, prompt_en: str = "",
+                   look: str = "", theme: str = "") -> tuple[str, dict]:
+    """⇒ (دستورِ انگلیسیِ نهایی، {note, translated, preset, style, look, theme, hints}). ``prompt_en`` اگر داده شود (ایدهٔ هوش مصنوعی/کاربر) همان به کار می‌رود.
+
+    ``look``/``theme`` = «سبک تصویر» (apps.looks): تکه‌دستورِ سبک (بدونِ آدم/نوشته) جای «پسوندِ سبکِ تامنیل» می‌نشیند و پالتِ تم جای رنگ‌های برند را می‌گیرد.
+    صحنه (preset / توضیحِ فارسی / ایده) اگر داده شده باشد می‌ماند و سبک رویش اعمال می‌شود."""
+    info = {"note": "", "translated": False, "preset": preset or "", "style": style or "", "look": "", "theme": "", "hints": None}
+    look_c = None
+    if look:
+        from apps.looks import compose as looks_compose
+
+        try:
+            look_c = looks_compose.compose(look, "THUMB_BG", store, theme_key=theme)
+            info.update(look=look, theme=theme or "", hints=look_c["hints"])
+        except looks_compose.LookError as exc:
+            info["note"] = exc.message_fa
     base = ""
     if prompt_en and hooks.ASCII_PROMPT.match(prompt_en):
         base = prompt_en.strip()
@@ -205,14 +236,18 @@ def resolve_prompt(store, *, text: str = "", preset: str = "", style: str = "", 
         except Exception as exc:  # noqa: BLE001
             info["note"] = hooks.fit_text("ترجمهٔ توضیح انجام نشد (%s). پس‌زمینهٔ آمادهٔ سبک ساخته شد." % hooks.friendly_reason(translate.explain(exc), 90), 300)
     if not base:
-        base = hooks.BG_PROMPTS.get(style) or hooks.BG_PROMPTS["face_text"]
-        if not info["note"] and not text and not preset:
-            info["note"] = ""
-    words = color_words(colors or [])
+        base = LOOK_SCENE if look_c else (hooks.BG_PROMPTS.get(style) or hooks.BG_PROMPTS["face_text"])
+    if look_c:
+        base = base.rstrip(" .,") + ", " + look_c["positive"]
+    words = "" if (look_c and theme) else color_words(colors or [])
     out = base.rstrip(" .,") + (f", colour palette of {words}" if words and "colour palette" not in base else "")
-    if "no text" not in out.lower():
-        out += hooks.BG_SUFFIX
-    return out[:700], info
+    suffix = "" if "no text" in out.lower() else hooks.BG_SUFFIX
+    if look_c:                       # «بدونِ متن و آدم» هرگز بریده نشود، حتی وقتی دستورِ سبک بلند است
+        room = MAX_PROMPT_LOOK - len(suffix)
+        if len(out) > room:
+            out = out[:room].rsplit(",", 1)[0]
+        return out + suffix, info
+    return (out + suffix)[:MAX_PROMPT], info
 
 
 # ───────────────────────────── درخواست و وضعیت
@@ -223,7 +258,7 @@ def _active_count(store) -> int:
     return ComputeJob.objects.filter(origin=ORIGIN, store=store, state__in=(ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING)).count()
 
 
-def request(store, user, *, prompt_en: str, fmt: str, seed: int | None = None, meta: dict | None = None) -> dict:
+def request(store, user, *, prompt_en: str, fmt: str, seed: int | None = None, meta: dict | None = None, hints: dict | None = None) -> dict:
     """یک پس‌زمینه در صفِ سرورِ پردازش. ⇒ {job, state, message, engine, size}. BgError با متنِ فارسی اگر ممکن نبود."""
     from apps.compute import services as compute
 
@@ -237,7 +272,8 @@ def request(store, user, *, prompt_en: str, fmt: str, seed: int | None = None, m
     except ig.GraphError as exc:
         raise BgError(str(exc)) from exc
     seed = random.randint(1, 2**31 - 1) if seed is None else int(seed)
-    graph = build_graph(choice, prompt_en, seed, size)
+    steps, guidance = look_hints(hints)
+    graph = build_graph(choice, prompt_en, seed, size, steps=steps, guidance=guidance)
     caps = node_caps()
     missing = ig.check_nodes(graph, caps.get("comfy_nodes"))
     if missing:

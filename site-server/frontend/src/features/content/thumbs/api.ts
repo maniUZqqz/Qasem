@@ -51,7 +51,7 @@ export type Spec = {
   content: Content;
   colors: { mood: string; primary: string; secondary: string; accent: string; use_brand: boolean; variation: number };
   font: string;
-  background: { kind: "auto" | "gradient" | "texture" | "photo" | "ai"; asset: number | null; texture: string; darken: number; blur: number; job: string };
+  background: { kind: "auto" | "gradient" | "texture" | "photo" | "ai"; asset: number | null; texture: string; darken: number; blur: number; job: string; look?: string };
   subject: { asset: number | null; mode: "auto" | "cutout" | "photo"; side: "auto" | "left" | "right" | "center"; scale: number; outline: boolean };
   subject2: { asset: number | null };
   extra_assets: number[];
@@ -117,6 +117,8 @@ export type Overview = {
   styles: StyleInfo[];
   fonts: { key: string; title: string }[];
   moods: { key: string; title: string }[];
+  /** ۲۴ تمِ رنگیِ «سبک تصویر»؛ ``key`` همان مقدارِ ``colors.mood`` است («theme:…») */
+  themes: { key: string; title: string; palette: string[]; mood: string }[];
   brand: { colors: string[]; heading_font: string; has_logo: boolean; store_name: string };
   ai_background: AiAvailability;
   bg_presets: { key: string; title: string }[];
@@ -294,7 +296,7 @@ export function defaultSpec(format: string, style = "face_text"): Spec {
     format, style, content: { ...EMPTY_CONTENT },
     colors: { mood: "", primary: "", secondary: "", accent: "", use_brand: true, variation: 0 },
     font: "auto",
-    background: { kind: "auto", asset: null, texture: "", darken: 0, blur: 0, job: "" },
+    background: { kind: "auto", asset: null, texture: "", darken: 0, blur: 0, job: "", look: "" },
     subject: { asset: null, mode: "auto", side: "auto", scale: 1, outline: true },
     subject2: { asset: null },
     extra_assets: [],

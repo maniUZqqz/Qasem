@@ -140,6 +140,8 @@ INSTALLED_APPS += ["apps.thumbs"]
 INSTALLED_APPS += ["apps.mascot"]
 # بانکِ ایده (پنل › محتوا): ایده‌های آمادهٔ فارسی، ستاره/پنهان، ایده‌ساز با هوش مصنوعی یا فرمول، و «از این ایده شروع کن»
 INSTALLED_APPS += ["apps.ideabank"]
+# «سبک تصویر» (پنل › محتوا): کتابخانهٔ ۱۱۶ سبکِ هنری و ۲۴ تمِ رنگی (از InstAI)؛ استودیوی تصویر، پس‌زمینهٔ تامنیل و پالتِ تامنیل از آن می‌خوانند
+INSTALLED_APPS += ["apps.looks"]
 
 # استودیوی موشن (Remotion): ویدیو از روی کد؛ رندرِ نهایی روی سرورِ پردازش
 INSTALLED_APPS += ["apps.motion"]
@@ -974,6 +976,12 @@ CELERY_BEAT_SCHEDULE["compute-maintenance"] = {
 # تامنیل‌ساز: آزمونِ خودکارِ «پس‌زمینهٔ هوش مصنوعی» روی سرورِ پردازش (کار را در صفِ ماندگار می‌گذارد؛ با روشن‌شدنِ گره خودش اجرا و سنجیده می‌شود)
 CELERY_BEAT_SCHEDULE["thumbs-selftest"] = {
     "task": "apps.thumbs.tasks.selftest_when_online",
+    "schedule": 300.0,
+    "options": {"expires": 250},
+}
+# سبک تصویر: تصویرهای نمونهٔ واقعیِ ۱۱۶ سبک (دستهٔ ۱۲تایی در صفِ ماندگار، با روشن‌شدنِ سرورِ پردازش خودکار) + آزمونِ خودکارِ یک تصویر
+CELERY_BEAT_SCHEDULE["looks-samples"] = {
+    "task": "apps.looks.tasks.step",
     "schedule": 300.0,
     "options": {"expires": 250},
 }

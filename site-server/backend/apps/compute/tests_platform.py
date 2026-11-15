@@ -587,9 +587,12 @@ class SelfTestRunTests(_Base):
 
             import numpy as np
             from PIL import Image
-            h = w = int((p.get("x_thumbbg") or {}).get("size", [512])[0])
+            h = w = int((p.get("x_thumbbg") or p.get("x_looksample") or {}).get("size", [512])[0])
             yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-            arr = np.stack([60 + 150 * xx / w, 40 + 120 * yy / h, 160 - 90 * xx / w], axis=2).clip(0, 255).astype(np.uint8)
+            arr = np.stack([60 + 150 * xx / w, 40 + 120 * yy / h, 160 - 90 * xx / w], axis=2)
+            if p.get("x_looksample"):        # «سبک تصویر › تصویرِ نمونه»: عکسِ واقعی دانه دارد (PNG بزرگ‌تر از ۱۰ کیلوبایت)
+                arr = arr + np.random.RandomState(3).randint(-9, 10, size=arr.shape)
+            arr = arr.clip(0, 255).astype(np.uint8)
             b = io.BytesIO()
             Image.fromarray(arr).save(b, "PNG")
             return {"thumbbg_00001_.png": b.getvalue()}, {"primary": "thumbbg_00001_.png", "engine": "comfyui", "device": "cuda"}

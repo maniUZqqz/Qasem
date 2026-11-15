@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 
 import { api, errorMessage } from "../../../api/client";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Spinner, fa } from "../../../components/ui";
+import LookPicker, { ThemeChips } from "../../looks/LookPicker";
 import ImagePicker from "./ImagePicker";
 import IdeasPanel from "./IdeasPanel";
 import { HISTORY_PHONE_LIMIT, splitWarnings, visibleHistory } from "./historyUtil";
@@ -293,6 +294,7 @@ export default function ThumbnailMakerPage() {
     try {
       const res = await thumbsApi.bgCreate(id, {
         format: spec.format, style: spec.style, preset: bgPreset || undefined, text: bgText || undefined, count: bgCount, use_brand: spec.colors.use_brand,
+        look: spec.background.look || undefined, theme: spec.colors.mood.startsWith("theme:") ? spec.colors.mood : undefined,
       });
       setBgJobs((cur) => [...res.jobs, ...cur].slice(0, 9));
       setBgNote(res.note || null);
@@ -599,6 +601,16 @@ export default function ThumbnailMakerPage() {
                     {ov.ai_background.selftest.message}
                   </p>
                 )}
+                <div className="dz-field wide">
+                  <span>سبک تصویرِ پس‌زمینه (اختیاری)</span>
+                  <LookPicker
+                    value={spec.background.look ?? ""}
+                    onChange={(l) => set({ background: { ...spec.background, look: l } })}
+                    kind="THUMB_BG"
+                    storeId={id}
+                    hint="پس‌زمینه با این سبک ساخته می‌شود (بدونِ آدم و نوشته)؛ رنگ‌بندیِ تم را در بخشِ «رنگ، فونت و برند» انتخاب کنید."
+                  />
+                </div>
                 <div className="th-fields">
                   <label className="dz-field">
                     <span>صحنهٔ آماده</span>
@@ -679,8 +691,26 @@ export default function ThumbnailMakerPage() {
                 <Select value={spec.colors.mood} onChange={(e) => set({ colors: { ...spec.colors, mood: e.target.value } })}>
                   <option value="">پیش‌فرضِ سبک ({style.mood_fa})</option>
                   {ov.moods.map((m) => <option key={m.key} value={m.key}>{m.title}</option>)}
+                  {(ov.themes ?? []).length > 0 && (
+                    <optgroup label="تم‌های رنگی">
+                      {ov.themes.map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
+                    </optgroup>
+                  )}
                 </Select>
               </label>
+              {(ov.themes ?? []).length > 0 && (
+                <div className="dz-field wide">
+                  <span>تمِ رنگی (۲۴ پالتِ آماده)</span>
+                  <ThemeChips
+                    themes={ov.themes.map((t) => ({ key: t.key.replace("theme:", ""), name_fa: t.title, palette: t.palette, mood: t.mood }))}
+                    value={spec.colors.mood.startsWith("theme:") ? spec.colors.mood.slice(6) : ""}
+                    onChange={(k) => set({ colors: { ...spec.colors, mood: k ? `theme:${k}` : "" } })}
+                  />
+                  {spec.colors.mood.startsWith("theme:") && (
+                    <p className="dz-muted">تم رنگ‌های برند را کنار می‌گذارد و رنگ‌ها را از همین پالت می‌گیرد؛ «رنگِ تأکید» بالا هنوز کار می‌کند. نسخه‌های A/B همین تم را نگه می‌دارند.</p>
+                  )}
+                </div>
+              )}
               <label className="dz-field">
                 <span>فونتِ عنوان</span>
                 <Select value={spec.font} onChange={(e) => set({ font: e.target.value })}>

@@ -32,6 +32,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
+from apps.looks import library as looks_library
 from apps.stores import access
 
 from . import aibg, archetypes, cutout, ideation, palette, references, services, typo
@@ -93,7 +94,7 @@ class OverviewView(APIView):
         return Response({
             "formats": [f.public() for f in F.FORMATS.values()], "default_format": F.DEFAULT_FORMAT,
             "styles": styles_public(), "fonts": fonts_public(),
-            "moods": [{"key": k, "title": palette.MOOD_FA[k]} for k in palette.MOODS],
+            "moods": [{"key": k, "title": palette.MOOD_FA[k]} for k in palette.MOODS], "themes": palette.themes_public(),
             "brand": {"colors": kit["colors"], "heading_font": kit["heading_font"], "has_logo": kit["has_logo"], "store_name": store.name},
             "ai_background": aibg.availability_with_selftest(), "bg_presets": [{"key": k, "title": v[0]} for k, v in aibg.PRESETS.items()],
             "products": services.products_for_picker(store),
@@ -411,14 +412,18 @@ class BackgroundsView(APIView):
             return _err("قالبِ ناشناخته است.")
         style = d.get("style") if d.get("style") in STYLES else ""
         colors = services.brand_kit(store)["colors"] if d.get("use_brand", True) else []
+        look = looks_library.known(d.get("look"))
+        raw_theme = str(d.get("theme") or "")
+        theme = palette.theme_key(raw_theme) or raw_theme
         prompt, info = aibg.resolve_prompt(store, text=str(d.get("text") or "")[:400], preset=str(d.get("preset") or ""), style=style, colors=colors,
-                                           prompt_en=str(d.get("prompt_en") or "")[:400])
+                                           prompt_en=str(d.get("prompt_en") or "")[:400], look=look, theme=theme if theme in looks_library.THEMES else "")
         jobs, errors = [], []
         count = max(1, min(3, _int(d.get("count"), 1)))
         for i in range(count):
             try:
                 seed = int(d["seed"]) + i if str(d.get("seed") or "").strip().isdigit() else None
-                jobs.append(aibg.request(store, request.user, prompt_en=prompt, fmt=fmt, seed=seed, meta={"style": style, "preset": info["preset"]}))
+                jobs.append(aibg.request(store, request.user, prompt_en=prompt, fmt=fmt, seed=seed, hints=info.get("hints"),
+                                         meta={"style": style, "preset": info["preset"], "look": info["look"], "theme": info["theme"]}))
             except aibg.BgError as exc:
                 errors.append(str(exc))
                 break

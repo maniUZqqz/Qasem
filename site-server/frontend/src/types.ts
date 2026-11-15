@@ -263,6 +263,8 @@ export interface GeneratedImageInfo {
     text_overlay?: { headline: string; subline: string; badge: string };
     /** set when drawing the Persian text failed — the poster came out bare */
     text_overlay_error?: string;
+    /** «سبک تصویر» (apps.looks) که برای ساختنِ این تصویر انتخاب شده بود */
+    look?: { key: string; name_fa: string; theme: string; scene_only: boolean };
   } | null;
   created_at: string;
 }

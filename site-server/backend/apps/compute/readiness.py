@@ -42,6 +42,7 @@ REQUIRED = {
     "استودیوی موشن (رندرِ ۳ ثانیه‌ای)": ["motion_studio"],
     "تدوینِ خودکار": ["autoedit_words", "autoedit_mix", "autoedit_matte"],
     "تامنیل‌ساز (پس‌زمینهٔ هوش مصنوعی)": ["thumbs_bg"],
+    "سبک تصویر (تصویرِ نمونهٔ ۱۱۶ سبک)": ["looks_sample"],
     "ترندیاب اینستاگرام (آباگرام)": ["ig_health"],
     "ویدیوی سه‌بعدی (up3d)": ["up3d_stage"],
     "محتوای چغر": ["chagher_content"],

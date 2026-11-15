@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 
 from PIL import Image, ImageDraw
 
+from apps.looks import library as looks_library
+
 from . import formats as F
 from . import palette as pal_mod
 from . import primitives as P
@@ -69,7 +71,7 @@ def default_spec() -> dict:
         "content": {k: "" for k in CONTENT_LIMITS},
         "colors": {"mood": "", "primary": "", "secondary": "", "accent": "", "use_brand": True, "variation": 0},
         "font": typo.AUTO_FONT,
-        "background": {"kind": "auto", "asset": None, "texture": "", "darken": 0.0, "blur": 0, "job": ""},
+        "background": {"kind": "auto", "asset": None, "texture": "", "darken": 0.0, "blur": 0, "job": "", "look": ""},
         "subject": {"asset": None, "mode": "auto", "side": "auto", "scale": 1.0, "outline": True},
         "subject2": {"asset": None},
         "extra_assets": [],
@@ -113,7 +115,7 @@ def clean_spec(raw, styles_registry) -> dict:
         out["content"][k] = typo.clean(v if isinstance(v, (str, int, float)) and not isinstance(v, bool) else "")[:lim]
     col = d.get("colors") if isinstance(d.get("colors"), dict) else {}
     oc = out["colors"]
-    oc["mood"] = col.get("mood") if col.get("mood") in pal_mod.MOODS else ""
+    oc["mood"] = col.get("mood") if pal_mod.is_mood(col.get("mood")) else ""
     for k in ("primary", "secondary", "accent"):
         v = str(col.get(k) or "").strip().lower()
         oc[k] = v if pal_mod.colorx.is_hex(v) else ""
@@ -129,6 +131,7 @@ def clean_spec(raw, styles_registry) -> dict:
     ob["darken"] = round(_num(b.get("darken"), 0.0, 0.85, 0.0), 2)
     ob["blur"] = int(_num(b.get("blur"), 0, 40, 0))
     ob["job"] = str(b.get("job") or "")[:40]
+    ob["look"] = looks_library.known(b.get("look"))        # «سبک تصویر» برای پس‌زمینهٔ هوش مصنوعی (کتابخانهٔ apps.looks)
     s = d.get("subject") if isinstance(d.get("subject"), dict) else {}
     os_ = out["subject"]
     os_["asset"] = _int_or_none(s.get("asset"))

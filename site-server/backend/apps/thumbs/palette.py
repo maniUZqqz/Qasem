@@ -13,6 +13,43 @@ MOODS = ("vivid", "dark", "light", "cinema", "neon", "luxury", "warm", "cool")
 MOOD_FA = {"vivid": "پرانرژی", "dark": "تیره", "light": "روشن و تمیز", "cinema": "سینمایی", "neon": "نئونی",
            "luxury": "لوکس", "warm": "گرم", "cool": "سرد و مدرن"}
 
+#: «theme:<کلید>» = یکی از ۲۴ تمِ رنگیِ ``apps.looks`` (پالتِ ۶ رنگیِ ثابت). تم رنگ‌های برند را کنار می‌گذارد (انتخابِ صریحِ کاربر است)
+THEME_PREFIX = "theme:"
+
+
+def theme_key(mood) -> str:
+    m = str(mood or "")
+    return m[len(THEME_PREFIX):] if m.startswith(THEME_PREFIX) else ""
+
+
+def _themes() -> dict:
+    from apps.looks import library
+
+    return library.THEMES
+
+
+def theme_known(mood) -> bool:
+    k = theme_key(mood)
+    return bool(k) and k in _themes()
+
+
+def is_mood(mood) -> bool:
+    """حال‌وهوای معتبر: یکی از هشت حال‌وهوای ثابت یا یکی از تم‌های رنگی."""
+    return mood in MOODS or theme_known(mood)
+
+
+def mood_title(mood) -> str:
+    if mood in MOOD_FA:
+        return MOOD_FA[mood]
+    if theme_known(mood):
+        return _themes()[theme_key(mood)]["name_fa"]
+    return str(mood)
+
+
+def themes_public() -> list[dict]:
+    """برای پنل: ``key`` همان مقدارِ ``colors.mood`` است (با پیشوندِ ``theme:``)."""
+    return [{"key": f"{THEME_PREFIX}{k}", "title": t["name_fa"], "palette": t["palette"], "mood": t["mood"]} for k, t in _themes().items()]
+
 #: رنگِ پایهٔ هر حال‌وهوا وقتی فروشگاه رنگِ برند ندارد: (اصلی، دوم)
 DEFAULTS = {
     "vivid": ("#7c3aed", "#ec4899"),
@@ -88,8 +125,61 @@ def _rot(color: str, deg: float, s: float | None = None, l: float | None = None)
     return colorx.from_hsl(h + deg, ss if s is None else s, ll if l is None else l)
 
 
+def _contrasting(color: str, bg: str, minimum: float, dark: bool) -> str:
+    """رنگ را (روی زمینهٔ تیره روشن‌تر، روی زمینهٔ روشن تیره‌تر) می‌کند تا کنتراستش با ``bg`` به ``minimum`` برسد؛ فامِ رنگ می‌ماند."""
+    c = color
+    for _ in range(10):
+        if colorx.contrast(c, bg) >= minimum:
+            return c
+        h, s, lightness = _hsl(c)
+        c = colorx.from_hsl(h, s, min(0.95, lightness + 0.07) if dark else max(0.05, lightness - 0.07))
+    return c
+
+
+def _best_text(bg1: str, bg2: str, options: tuple[str, ...]) -> str:
+    """از میانِ گزینه‌ها آن‌که روی هر دو رنگِ زمینه کم‌ترین کنتراستش بیشتر است (متنِ اصلی همیشه خوانا)."""
+    return max(options, key=lambda c: min(colorx.contrast(c, bg1), colorx.contrast(c, bg2)))
+
+
+def build_theme(theme_key_: str, overrides: dict | None = None, variation: int = 0) -> Palette:
+    """پالت از روی یک تمِ رنگی. قطعی؛ ترتیبِ رنگِ تم: زمینه، اصلی، دوم، تأکید، سایه، روشن. نگهبانِ کنتراست مثلِ ``build``:
+    متن روی هر دو زمینه بهترین گزینه (رنگِ روشنِ تم یا سفید/تیره) و تأکید روی زمینه ≥ ۳ (متنِ درشت).
+    نسخهٔ B/A: ``variation`` فرد ⇒ تأکیدِ اول و دوم جابه‌جا؛ ≥ ۲ ⇒ دو رنگِ زمینه هم جابه‌جا."""
+    ov = overrides or {}
+    pal = [str(c).lower() for c in _themes()[theme_key_]["palette"]]
+    pal += [pal[-1]] * (6 - len(pal))
+    bg, pri, sec, acc, shd, hil = pal[:6]
+    dark = _hsl(bg)[2] < 0.5
+    if dark:
+        bg1 = bg if _hsl(bg)[2] <= 0.22 else colorx.mix(bg, shd, 0.5)
+        bg2 = colorx.mix(bg1, pri, 0.38)
+        ink = colorx.with_lightness(shd, min(_hsl(shd)[2], 0.08))
+        paper = hil
+        light_opts = (hil, "#ffffff", "#f8fafc")
+    else:
+        bg1 = bg
+        bg2 = colorx.mix(bg, sec, 0.3)
+        ink = colorx.with_lightness(shd, min(_hsl(shd)[2], 0.14))
+        paper = colorx.mix(hil, "#ffffff", 0.5)
+        light_opts = (ink, "#0f172a", "#05070d")
+    text = _best_text(bg1, bg2, light_opts)
+    accent = _norm(ov.get("accent")) or acc
+    accent2 = _norm(ov.get("secondary")) or (sec if sec != accent else pri)
+    primary = _norm(ov.get("primary")) or pri
+    if variation % 2 == 1:
+        accent, accent2 = accent2, accent
+    if variation >= 2:
+        bg1, bg2 = bg2, bg1
+        text = _best_text(bg1, bg2, light_opts)
+    accent = _contrasting(accent, bg1, 3.0, dark)         # کلمهٔ رنگیِ عنوان درشت است: حدِ WCAG برای متنِ درشت
+    accent2 = _contrasting(accent2, bg1, 2.0, dark)
+    return Palette(bg1=bg1, bg2=bg2, accent=accent, accent2=accent2, text=text, ink=ink, paper=paper, dark=dark, primary=primary)
+
+
 def build(mood: str, brand: list[str] | None = None, overrides: dict | None = None, variation: int = 0) -> Palette:
     """پالتِ کامل. ``variation`` (۰،۱،۲…) نسخهٔ A/B می‌سازد: جابه‌جاییِ رنگِ اصلی/دوم و چرخشِ ملایمِ فام برای رنگ‌های پیش‌فرض."""
+    if theme_known(mood):
+        return build_theme(theme_key(mood), overrides, variation)
     mood = mood if mood in MOODS else "vivid"
     brand = clean_colors(brand)
     ov = overrides or {}

@@ -234,6 +234,18 @@ class ImageStudioView(APIView):
         style = str(request.data.get("style", "") or "")
         instructions = str(request.data.get("instructions", "") or "")
         source_image_id = request.data.get("source_image_id")
+        # «سبک تصویر» (apps.looks): سبکِ تصویرسازی‌شده روی «عکس محصول»/«بهبود عکس» که محصولِ واقعی باید عیناً بماند مجاز نیست ⇒ ۴۰۰ با توضیحِ فارسی
+        look = str(request.data.get("look", "") or "")
+        look_theme = str(request.data.get("look_theme", "") or "")
+        if look:
+            from apps.looks import compose as looks_compose
+
+            try:
+                looks_compose.compose(look, kind, product.store, theme_key=look_theme)
+            except looks_compose.LookError as exc:
+                return Response(
+                    {"error": {"code": exc.code, "message": exc.message_fa}}, status=status.HTTP_400_BAD_REQUEST
+                )
         denied = guards.check(product.store, guards.IMAGES, 1)
         if denied is not None:
             return denied
@@ -241,11 +253,12 @@ class ImageStudioView(APIView):
         job = Job.objects.create(
             store=product.store,
             type=Job.Type.IMAGE_GENERATION,
-            context={"product_id": product.id, "kind": kind},
+            context={"product_id": product.id, "kind": kind, **({"look": look, "look_theme": look_theme} if look else {})},
         )
-        error = dispatch_job(
-            job, generate_image_task, job.id, product.id, kind, style, instructions, source_image_id
-        )
+        task_args = [job.id, product.id, kind, style, instructions, source_image_id]
+        if look:
+            task_args += [look, look_theme]
+        error = dispatch_job(job, generate_image_task, *task_args)
         if error is not None:
             return error
         job.refresh_from_db()

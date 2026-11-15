@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from pathlib import Path
 
 from . import catalog, components, motionlib, patch as patch_mod, specs, timeline
@@ -228,10 +229,39 @@ def key_frames(spec: dict, per_scene: int = 2) -> list:
     return out
 
 
+def frame_signature(spec: dict, t: dict, f: dict) -> str:
+    """امضای «این فریم دقیقاً همان تصویر است»: هر چیزی که پیکسل‌های یک فریمِ صحنه را می‌سازد (ویژگی‌های کلِ طرح، خودِ صحنه و شمارهٔ آن، گذارهای دو طرف،
+    شمارهٔ فریم در صحنه). دور بعد فقط فریم‌هایی که امضایشان عوض شده دوباره رندر می‌شوند (QA روی سرورِ شلوغ دقیقه‌ها طول می‌کشید)."""
+    import hashlib
+    import json
+
+    i, n = f["scene"], len(spec.get("scenes") or [])
+    glob = {k: v for k, v in spec.items() if k not in ("scenes", "audio", "total_s", "safe")}
+    tin = t["tfs"][i - 1] if i > 0 else 0
+    tout = t["tfs"][i] if i < n - 1 else 0
+    local = f["frame"] - t["starts"][i]
+    neighbours = []                                  # a frame inside a transition also shows the neighbouring scene: it belongs to the signature then
+    if tin and local <= tin + 1:
+        neighbours.append(spec["scenes"][i - 1])
+    if tout and local >= t["frames"][i] - tout - 3:
+        neighbours.append(spec["scenes"][i + 1])
+    raw = json.dumps([glob, spec["scenes"][i], i, n, tin, tout, local, neighbours], sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 # ───────────────────────────────────────────── لایهٔ ۲: از فریم‌های واقعی
 
+def vis(b: dict) -> dict:
+    """جعبهٔ دیدنیِ یک متن: اتحادِ جعبهٔ کلمه‌ها (gx..)، نه کادرِ ستونِ پدر. یک بلوکِ متن اغلب به پهنای کلِ ستون است در حالی که حروف وسطش جمع‌اند؛
+    ناحیهٔ امن/بیرون‌زدگی/هم‌پوشانی/نمونه‌گیریِ پس‌زمینه باید روی همان چیزی باشد که بیننده می‌بیند. گزارش‌های قدیمی (بدون gx) همان کادر را می‌دهند."""
+    if b.get("gw") is not None and b.get("gh") is not None and b.get("gx") is not None and b.get("gy") is not None:
+        return {"x": b["gx"], "y": b["gy"], "w": b["gw"], "h": b["gh"]}
+    return {"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"]}
+
+
 def _rect(b: dict):
-    return (b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"])
+    v = vis(b)
+    return (v["x"], v["y"], v["x"] + v["w"], v["y"] + v["h"])
 
 
 def _inter(a, b) -> float:
@@ -300,14 +330,27 @@ def geometry_findings(spec: dict, shots: list) -> list:
                 f["shot"] = {"kind": shot["kind"], "frame": shot["frame"]}
                 out.append(f)
 
-        shrink = {"op": "set", "path": f"scenes/{sc_i}/tokens/font_scale", "value": round(max(0.6, cur_fs * 0.85), 2)}
-        can_shrink = cur_fs > 0.62
+        new_fs = round(max(0.6, cur_fs * 0.85), 2)
+        shrink = {"op": "set", "path": f"scenes/{sc_i}/tokens/font_scale", "value": new_fs}
+
+        def can_shrink_text(b, new_fs=new_fs, cur_fs=cur_fs) -> bool:
+            """کوچک‌کردنِ مقیاسِ فونت فقط وقتی پیشنهاد می‌شود که متن بعدش هنوز خوانا بماند (وگرنه خودش «متنِ ریز» می‌سازد و حلقه بی‌حاصل می‌چرخد)."""
+            if new_fs >= cur_fs - 0.005 or cur_fs <= 0.62:
+                return False
+            size = float(b.get("size") or 0)
+            return not size or (size * new_fs / max(cur_fs, 0.01)) / H >= motionlib.MIN_FONT_WARN
+
+        def fallback_ops(b) -> list:
+            if can_shrink_text(b):
+                return [shrink]
+            return [{"op": "split_scene", "index": sc_i}] if _can_split(scene) else []
+
         for b in texts:
             label = (b.get("text") or "")[:24]
-            off = b["x"] < -4 or b["y"] < -4 or b["x"] + b["w"] > W + 4 or b["y"] + b["h"] > H + 4
+            v = vis(b)
+            off = v["x"] < -4 or v["y"] < -4 or v["x"] + v["w"] > W + 4 or v["y"] + v["h"] > H + 4
             if b.get("overflow") or b.get("clipped") or off:
-                ops = [shrink] if can_shrink else ([{"op": "split_scene", "index": sc_i}] if _can_split(scene) else [])
-                add(_finding("overflow", "error", sc_i, f"صحنهٔ {fa(n)}: متنِ «{label}» از قاب یا کادرش بیرون زده است.", ops, key=label, box=_slim(b)))
+                add(_finding("overflow", "error", sc_i, f"صحنهٔ {fa(n)}: متنِ «{label}» از قاب یا کادرش بیرون زده است.", fallback_ops(b), key=label, box=_slim(b)))
             size_frac = b.get("size", 0) / H if b.get("size") else 1
             if b.get("size") and size_frac < motionlib.MIN_FONT_FRAC and b.get("role") != "caption":
                 # the auto-fit already shrank this text to make it fit: only fewer items per scene helps, and only when it is really too small to read
@@ -318,13 +361,13 @@ def geometry_findings(spec: dict, shots: list) -> list:
             if any(safe.get(k, 0) > 0 for k in ("top", "right", "bottom", "left")) and b.get("overlay") != "ticker":
                 tol = 6
                 bad = []
-                if safe.get("left", 0) and b["x"] < safe["left"] - tol:
+                if safe.get("left", 0) and v["x"] < safe["left"] - tol:
                     bad.append("چپ")
-                if safe.get("right", 0) and b["x"] + b["w"] > W - safe["right"] + tol:
+                if safe.get("right", 0) and v["x"] + v["w"] > W - safe["right"] + tol:
                     bad.append("راست")
-                if safe.get("top", 0) and b["y"] < safe["top"] - tol:
+                if safe.get("top", 0) and v["y"] < safe["top"] - tol:
                     bad.append("بالا")
-                if safe.get("bottom", 0) and b["y"] + b["h"] > H - safe["bottom"] + tol:
+                if safe.get("bottom", 0) and v["y"] + v["h"] > H - safe["bottom"] + tol:
                     bad.append("پایین")
                 if bad:
                     ov_i = _overlay_index(scene, b.get("overlay"))
@@ -334,7 +377,9 @@ def geometry_findings(spec: dict, shots: list) -> list:
                               [{"op": "set", "path": f"scenes/{sc_i}/overlays/{ov_i}/anchor", "value": "center"}]
                     else:
                         usable = W - max(safe.get("left", 0), 0) - max(safe.get("right", 0), 0)
-                        ops = [shrink] if (can_shrink and b["w"] > usable * 0.98) else []        # only a text wider than the safe area gets smaller
+                        # only a text whose VISIBLE width exceeds the safe area gets smaller (and only when it stays readable): a text that hangs out of the
+                        # safe area vertically, or whose column is wide but whose glyphs are not, is not helped by a smaller font
+                        ops = [shrink] if (v["w"] > usable * 0.98 and can_shrink_text(b)) else []
                     add(_finding("safe_zone", "warn", sc_i, f"صحنهٔ {fa(n)}: متنِ «{label}» در ناحیهٔ {'، '.join(bad)} از ناحیهٔ امنِ پلتفرم بیرون است.", ops, key=label + "".join(bad), box=_slim(b)))
         # هم‌پوشانی
         for ai in range(len(texts)):
@@ -344,8 +389,9 @@ def geometry_findings(spec: dict, shots: list) -> list:
                     continue
                 if a.get("excl") and a.get("excl") == b.get("excl"):
                     continue                                    # stacked on purpose (before/after wipe)
+                va, vb = vis(a), vis(b)
                 inter = _inter(_rect(a), _rect(b))
-                small = min(a["w"] * a["h"], b["w"] * b["h"])
+                small = min(va["w"] * va["h"], vb["w"] * vb["h"])
                 if small > 0 and inter / small >= 0.18:
                     ov = a.get("overlay") or b.get("overlay")
                     ov_i = _overlay_index(scene, ov)
@@ -354,7 +400,7 @@ def geometry_findings(spec: dict, shots: list) -> list:
                         alt = {"lower": "top", "bottom": "top", "top": "bottom", "upper": "bottom", "center": "bottom"}.get(cur_anchor, "bottom")
                         ops = [{"op": "set", "path": f"scenes/{sc_i}/overlays/{ov_i}/anchor", "value": alt}]
                     else:
-                        ops = [shrink] if can_shrink else ([{"op": "split_scene", "index": sc_i}] if _can_split(scene) else [])
+                        ops = fallback_ops(a if (a.get("size") or 0) >= (b.get("size") or 0) else b)
                     add(_finding("overlap", "error" if inter / small >= 0.4 else "warn", sc_i, f"صحنهٔ {fa(n)}: «{(a.get('text') or '')[:18]}» و «{(b.get('text') or '')[:18]}» روی هم افتاده‌اند.", ops,
                                  key=f"{a['id']}-{b['id']}", box=_slim(a)))
         # کنتراست از پیکسل
@@ -371,12 +417,12 @@ def geometry_findings(spec: dict, shots: list) -> list:
                 col = parse_color(b.get("color", ""))
                 if not col or col[3] < 0.5 or b.get("opacity", 1) < 0.85 or b["w"] < 24 or b["h"] < 14:
                     continue
-                bg = sample_background(img, b, scale, col[:3])
+                bg = sample_background(img, {**b, **vis(b)}, scale, col[:3])
                 if bg is None:
                     continue
                 big = (b.get("size", 0) / H) >= 0.03
                 meas.append((b, col, bg, motionlib.MIN_CONTRAST if big else motionlib.MIN_CONTRAST_SMALL * 0.8))
-            plain_peers = [m for m in meas if not _is_accent(m[1])]
+            plain_peers = [m for m in meas if not _is_accent(m[1]) and not m[0].get("fixed")]
             calm_on = bool((scene.get("tokens") or {}).get("calm"))
             for b, col, bg, need in meas:
                 ratio = contrast(col[:3], bg)
@@ -390,6 +436,10 @@ def geometry_findings(spec: dict, shots: list) -> list:
                     hx = good[0] if good else hx
                     best = contrast(parse_color(hx), bg)
                     ops = [{"op": "set", "path": f"scenes/{sc_i}/tokens/accent", "value": hx}] if best > ratio + 0.6 else []
+                elif b.get("fixed"):
+                    # the component chose this colour itself (a button label, a badge): the scene's text token never reaches it. Recolouring the whole
+                    # scene text would only change the OTHER texts and leave this finding in place, so the surface behind it moves instead.
+                    ops = _surface_ops(spec, scene, sc_i, col, bg, need)
                 else:
                     # ordinary text shares ONE colour per scene: judge the candidates against EVERY text of the scene (a colour that only suits the
                     # worst-off label would turn the labels on a light background white). Moving decoration (blobs, stripes) behind the text is
@@ -421,6 +471,24 @@ def _accent_colours(spec: dict, scene: dict) -> list:
     return [c for c in out if c]
 
 
+def _surface_ops(spec: dict, scene: dict, sc_i: int, col, bg, need: float) -> list:
+    """متنی که خودِ قطعه رنگش را گذاشته (برچسبِ دکمه، نشان): توکنِ «رنگِ متن» به آن نمی‌رسد. اگر روی رنگِ تأکید نشسته باشد، همان رنگِ تأکید
+    (در همان صحنه) به‌اندازهٔ لازم تیره‌تر (برای برچسبِ روشن) یا روشن‌تر (برای برچسبِ تیره) می‌شود تا جفت خوانا شود؛ وگرنه اصلاحِ خودکاری نیست."""
+    cands = [parse_color(c) for c in _accent_colours(spec, scene)]
+    cands = [c for c in cands if c]
+    if not cands:
+        return []
+    near = min(cands, key=lambda c: sum((c[k] - bg[k]) ** 2 for k in range(3)))
+    if sum((near[k] - bg[k]) ** 2 for k in range(3)) > 48 ** 2:
+        return []                                           # the label does not sit on an accent surface: nothing the plan can change
+    target = (0, 0, 0) if luminance(col[:3]) > 0.4 else (255, 255, 255)
+    for i in range(1, 9):
+        c = _mix(near[:3], target, 0.1 * i)
+        if contrast(col[:3], c) >= need * 1.05:
+            return [{"op": "set", "path": f"scenes/{sc_i}/tokens/accent", "value": hexof(c)}]
+    return []
+
+
 def _overlay_index(scene: dict, kind) -> int | None:
     if not kind:
         return None
@@ -431,7 +499,7 @@ def _overlay_index(scene: dict, kind) -> int | None:
 
 
 def _slim(b: dict) -> dict:
-    return {k: (round(v, 1) if isinstance(v, float) else v) for k, v in b.items() if k in ("x", "y", "w", "h", "size", "role", "text", "overlay")}
+    return {k: (round(v, 1) if isinstance(v, float) else v) for k, v in b.items() if k in ("x", "y", "w", "h", "gx", "gy", "gw", "gh", "size", "role", "text", "overlay")}
 
 
 # ───────────────────────────────────────────── حلقهٔ بسنج ⇒ اصلاح کن ⇒ دوباره بسنج
@@ -489,15 +557,88 @@ def apply_fixes(spec: dict, findings: list, *, max_total: float = specs.MAX_TOTA
     return cur, applied, unresolved
 
 
-def run_loop(spec: dict, *, measure=None, rounds: int = 3, max_total: float = specs.MAX_TOTAL_S_NODE, on_round=None) -> dict:
-    """measure(spec) ⇒ shots (یا None). ⇒ {spec, rounds[], fixed, remaining[], geometry: bool, geometry_error?}"""
+# اصلاحی که اثری نداشته دوباره تکرار نمی‌شود، اصلاحِ مخالف (کوچک ⇄ بزرگ‌کردنِ فونت) برنمی‌گردد، و بهترین حالتِ دیده‌شده نگه داشته می‌شود:
+# حلقه فقط وقتی «اصلاح» می‌کند که سنجشِ بعدی بهتر شده باشد.
+
+def _fkey(f: dict) -> str:
+    return f"{f['code']}|{f.get('scene')}|{f.get('key', '')}"
+
+
+def _sig(f: dict) -> tuple:
+    """امضای «همان مشکلِ همان جا»: پیام + هندسهٔ جعبه (با تلرانسِ ۲ پیکسل). اگر بعد از اصلاح همین امضا برگشت، اصلاح اثری نداشته."""
+    b = f.get("box") or {}
+    return (f.get("message", ""), tuple(int(round(float(b.get(k) or 0) / 2.0)) for k in ("x", "y", "w", "h", "gx", "gy", "gw", "gh")))
+
+
+def _font_dirs(spec: dict, ops: list) -> dict:
+    """{صحنه: +1|-1} برای عملیاتِ font_scale نسبت به مقدارِ فعلیِ طرح."""
+    out: dict = {}
+    for o in ops or []:
+        m = re.match(r"^scenes/(\d+)/tokens/font_scale$", str(o.get("path", "")))
+        if not m or o.get("op") != "set":
+            continue
+        i = int(m.group(1))
+        try:
+            cur = float((((spec.get("scenes") or [])[i]).get("tokens") or {}).get("font_scale") or 1.0)
+            new = float(o.get("value"))
+        except (IndexError, TypeError, ValueError):
+            continue
+        out[i] = 1 if new > cur + 1e-6 else -1 if new < cur - 1e-6 else 0
+    return out
+
+
+def _score(findings: list) -> int:
+    return sum(10 if f["severity"] == "error" else 1 for f in findings if f["severity"] in ("error", "warn"))
+
+
+def _screen(cur: dict, findings: list, attempted: dict, font_dir: dict) -> list:
+    """یافته‌هایی که اصلاحشان قبلاً اثری نداشت یا با اصلاحِ پیشین تعارض دارد، بدونِ اصلاحِ خودکار علامت می‌خورند (گزارش می‌شوند، تکرار نمی‌شوند)."""
+    out = []
+    for f in findings:
+        why = ""
+        if f.get("ops") and f.get("auto", True):
+            k = _fkey(f)
+            if k in attempted and attempted[k] == _sig(f):
+                why = "اصلاحِ خودکار اثری نداشت"
+            else:
+                for i, d in _font_dirs(cur, f["ops"]).items():
+                    if d and font_dir.get(i) == -d:
+                        why = "اصلاحِ خودکارِ مخالفِ اصلاحِ پیشین است (بزرگ‌کردن ⇄ کوچک‌کردنِ متن)"
+        if why:
+            f = {**f, "ops": [], "auto": False, "stuck": why, "message": f["message"] + f" ({why}؛ دستی درست کنید.)"}
+        out.append(f)
+    return out
+
+
+def run_loop(spec: dict, *, measure=None, rounds: int = 3, max_total: float = specs.MAX_TOTAL_S_NODE, on_round=None, on_progress=None,
+             deadline_s: float | None = None) -> dict:
+    """measure(spec) ⇒ shots (یا None). ⇒ {spec, rounds[], fixed, remaining[], geometry: bool, geometry_error?, kept?, timed_out?}
+
+    on_progress({n, rounds, phase, message}) در مرزِ هر مرحله (برای نمایشِ پیشرفت در پنل)؛ deadline_s: پس از این مدت دورِ تازه‌ای شروع نمی‌شود."""
+    t0 = time.monotonic()
+
+    def prog(n: int, phase: str, message: str) -> None:
+        if on_progress:
+            try:
+                on_progress({"n": n, "rounds": rounds, "phase": phase, "message": message})
+            except Exception:  # noqa: BLE001 — گزارشِ پیشرفت هیچ‌وقت حلقه را نمی‌اندازد
+                pass
+
     cur = spec
     report: dict = {"rounds": [], "fixed": 0, "remaining": [], "geometry": measure is not None}
     last: list = []
+    attempted: dict = {}
+    font_dir: dict = {}
+    states: list = []                  # (score, spec, findings, fixed_so_far): the plan as it stood when it was measured
+    fixed_total = 0
     for n in range(1, rounds + 1):
+        if n > 1 and deadline_s is not None and time.monotonic() - t0 > deadline_s:
+            report["timed_out"] = True
+            break
         shots = None
         geo: list = []
         if measure is not None:
+            prog(n, "measure", f"دور {fa(n)} از {fa(rounds)}: رندر و سنجشِ فریم‌ها…")
             try:
                 shots = measure(cur)
                 geo = geometry_findings(cur, shots)
@@ -505,15 +646,19 @@ def run_loop(spec: dict, *, measure=None, rounds: int = 3, max_total: float = sp
                 report["geometry_error"] = str(exc)[:300]
                 report["geometry"] = False
                 measure = None
-        findings = _order(static_findings(cur) + geo)
+        else:
+            prog(n, "measure", f"دور {fa(n)} از {fa(rounds)}: بررسیِ قاعده‌ها…")
+        findings = _screen(cur, _order(static_findings(cur) + geo), attempted, font_dir)
         rec = {"n": n, "findings": [_slim_finding(f) for f in findings], "applied": [], "shots": [_shot_meta(s) for s in (shots or [])]}
         last = findings
+        states.append((_score(findings), cur, findings, fixed_total))
         fixable = [f for f in findings if f["severity"] in ("error", "warn") and f.get("ops") and f.get("auto", True)]
         if not fixable:
             report["rounds"].append(rec)
             if on_round:
                 on_round(rec)
             break
+        prog(n, "fix", f"دور {fa(n)} از {fa(rounds)}: {fa(len(fixable))} اصلاحِ خودکار…")
         new, applied, unresolved = apply_fixes(cur, findings, max_total=max_total)
         rec["applied"], rec["unresolved"] = applied, unresolved
         report["rounds"].append(rec)
@@ -521,19 +666,37 @@ def run_loop(spec: dict, *, measure=None, rounds: int = 3, max_total: float = sp
             on_round(rec)
         if not applied:
             break
-        report["fixed"] += len(applied)
+        by_msg = {(f["code"], f.get("scene"), f["message"]): f for f in findings}
+        for a in applied:
+            f = by_msg.get((a["code"], a["scene"], a["message"]))
+            if f is not None:
+                attempted[_fkey(f)] = _sig(f)
+            for i, d in _font_dirs(cur, a["ops"]).items():
+                if d:
+                    font_dir[i] = d
+        fixed_total += len(applied)
         cur = new
     if report["rounds"]:
-        # آخرین دور اصلاح اعمال شد ولی دوباره سنجیده نشد ⇒ یک سنجشِ نهایی
+        # آخرین دور اصلاح اعمال شد ولی دوباره سنجیده نشد ⇒ یک سنجشِ نهایی (فقط صحنه‌های عوض‌شده دوباره رندر می‌شوند)
         if report["rounds"][-1].get("applied"):
+            prog(len(report["rounds"]), "final", "سنجشِ نهایی پس از اصلاح‌ها…")
             final = static_findings(cur)
             if measure is not None:
                 try:
                     final += geometry_findings(cur, measure(cur))
                 except Exception as exc:  # noqa: BLE001
                     report["geometry_error"] = str(exc)[:300]
-            last = _order(final)
+            last = _screen(cur, _order(final), attempted, font_dir)
             report["final_check"] = [_slim_finding(f) for f in last]
+            states.append((_score(last), cur, last, fixed_total))
+        # بهترین حالت: اصلاحی که وضع را بهتر نکرد (یا بدتر کرد) نگه داشته نمی‌شود؛ تساوی ⇒ حالتِ زودتر (تغییرِ کمتر)
+        best = min(range(len(states)), key=lambda k: (states[k][0], k))
+        _, cur, last, report["fixed"] = states[best]
+        if best != len(states) - 1:
+            report["reverted"] = True
+            report["kept"] = {"state": best, "of": len(states)}
+            why = "اصلاحِ خودکار وضع را بهتر نکرد"
+            last = [{**f, "ops": [], "auto": False, "stuck": why, "message": f["message"] + f" ({why}؛ دستی درست کنید.)"} if (f.get("ops") and f["severity"] in ("error", "warn")) else f for f in last]
     report["remaining"] = [_slim_finding(f) for f in last if f["severity"] in ("error", "warn")]
     report["info"] = [_slim_finding(f) for f in last if f["severity"] == "info"]
     report["spec"] = cur
@@ -550,7 +713,12 @@ def summary_fa(report: dict) -> str:
     geo = "" if report.get("geometry") else " (بررسیِ هندسیِ کادر انجام نشد: ابزارِ رندر در دسترس نبود)"
     if not fixed and not rem:
         return "کنترلِ کیفیت: مشکلی پیدا نشد." + geo
-    return f"کنترلِ کیفیت: {fa(fixed)} مشکل خودکار اصلاح شد" + (f"؛ {fa(rem)} مورد هنوز مانده" if rem else "؛ همه رفع شد") + "." + geo
+    tail = " اصلاح‌های بعدی وضع را بهتر نمی‌کرد؛ بهترین حالت نگه داشته شد." if report.get("reverted") else ""
+    if report.get("timed_out"):
+        tail += " (زمانِ کنترل تمام شد؛ بقیه در دورِ بعدی.)"
+    if not fixed and rem and report.get("reverted"):
+        return f"کنترلِ کیفیت: {fa(rem)} مورد پیدا شد که اصلاحِ خودکارِ مطمئنی ندارد؛ طرح بدونِ تغییر ماند." + geo
+    return f"کنترلِ کیفیت: {fa(fixed)} مشکل خودکار اصلاح شد" + (f"؛ {fa(rem)} مورد هنوز مانده" if rem else "؛ همه رفع شد") + "." + tail + geo
 
 
 def open_image(path):

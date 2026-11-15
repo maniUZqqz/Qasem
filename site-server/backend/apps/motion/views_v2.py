@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from django.db.models import Count
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from django.views.decorators.http import require_GET
@@ -98,13 +99,19 @@ class PlansView(APIView):
 
     def get(self, request, store_id):
         store = _store(request, store_id, write=False)
-        rows = MotionPlan.objects.filter(store=store)[:60]
+        rows = MotionPlan.objects.filter(store=store).annotate(n_renders=Count("renders")).order_by("-updated_at")[:60]
         return Response({"plans": [{"id": p.pk, "title": p.title, "updated_at": p.updated_at.isoformat(), "rev": p.cursor, "style": p.spec.get("style"),
-                                    "scenes": len(p.spec.get("scenes") or [])} for p in rows]})
+                                    "aspect": p.spec.get("aspect"), "scenes": len(p.spec.get("scenes") or []),
+                                    "renders": p.n_renders} for p in rows]})
 
     def post(self, request, store_id):
         store = _store(request, store_id)
         try:
+            # the same untouched draft (rev 1, identical plan) is returned instead of piling up copies: every visit to the page used to leave one behind
+            clean = plans._clean(request.data.get("spec") or {})
+            for old in MotionPlan.objects.filter(store=store, user=request.user, cursor=1).order_by("-updated_at")[:25]:
+                if plans._same(old.spec, clean):
+                    return Response({"plan": plans.plan_dict(old), "reused": True}, status=status.HTTP_200_OK)
             plan = plans.create(store, request.user, request.data.get("spec") or {}, title=str(request.data.get("title") or ""),
                                 source=str(request.data.get("source") or "user"), label=str(request.data.get("label") or "نسخهٔ اول"))
         except plans.PlanError as exc:
@@ -176,10 +183,10 @@ class PlanActionView(APIView):
                 plan = plans.restore(plan, int(d.get("n") or 0))
                 return Response({"plan": plans.plan_dict(plan)})
             if action == "qa":
-                if (plan.qa or {}).get("state") == "running" and (timezone.now() - plan.updated_at).total_seconds() < 600:
+                if tasks.qa_running(plan.qa):
                     return _err("کنترلِ کیفیت همین حالا در حال اجراست؛ چند لحظه صبر کنید.", "busy", status.HTTP_409_CONFLICT)
-                plan.qa = {"state": "running", "summary": "کنترلِ کیفیت در حال اجراست…"}
-                plan.save(update_fields=["qa", "updated_at"])
+                plan.qa = tasks.qa_start_state()
+                MotionPlan.objects.filter(pk=plan.pk).update(qa=plan.qa)           # not save(): the plan's own "updated" time is the owner's edit time
                 tasks._run(tasks.qa_task, plan.pk, bool(d.get("apply", True)), bool(d.get("geometry", True)))
                 plan.refresh_from_db()
                 return Response({"plan": plans.plan_dict(plan, with_history=False)}, status=status.HTTP_202_ACCEPTED)

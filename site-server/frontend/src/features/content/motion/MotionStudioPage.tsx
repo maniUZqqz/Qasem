@@ -11,6 +11,7 @@ import {
   NodeInfo,
   Overview,
   PlanDTO,
+  PlanRow,
   QUALITY_LABELS,
   RenderRow,
   Scene,
@@ -20,6 +21,7 @@ import {
   errText,
   motionApi,
 } from "./api";
+import PlanList from "./PlanList";
 import PlayerFrame, { PlayerHandle, PlayerMeta } from "./PlayerFrame";
 import { ChatEdit, ChatLine, HistoryBar, PlanJson, QaPanel, SoundPanel } from "./PlanTools";
 import RenderHistory from "./RenderHistory";
@@ -125,6 +127,19 @@ export default function MotionStudioPage() {
   const [tab, setTab] = useState<"plan" | "json">("plan");
   const lastSaved = useRef("");
   const justApplied = useRef(false);
+  // the first spec after the page opened is the untouched sample: it is NOT saved (a plan is created by the first real edit, a chat/QA/render call, or "طرحِ تازه" + an edit)
+  const baseline = useRef<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [plansList, setPlansList] = useState<PlanRow[]>([]);
+  const planKey = `nm.motion.plan.${id}`;
+
+  const refreshPlans = useCallback(async () => {
+    try {
+      setPlansList(await motionApi.plans(id));
+    } catch {
+      /* فهرست بعداً دوباره خوانده می‌شود */
+    }
+  }, [id]);
 
   // ───────────────────────── loading
   useEffect(() => {
@@ -142,6 +157,24 @@ export default function MotionStudioPage() {
         setScenes(o.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]);
         setCode(o.code.samples[0]?.code || "");
         setPlatform("reels");
+        baseline.current = null;
+        // returning owner: the plans list, and the plan that was open last time (if it still exists)
+        motionApi
+          .plans(id)
+          .then(async (rows) => {
+            if (!live) return;
+            setPlansList(rows);
+            const last = Number(storeGet(planKey, "0"));
+            if (last && rows.some((r) => r.id === last)) {
+              try {
+                const p = await motionApi.plan(id, last);
+                if (live) applyPlan(p);
+              } catch {
+                /* طرحِ قبلی پاک شده؛ از نمونه شروع می‌شود */
+              }
+            }
+          })
+          .catch(() => undefined);
       })
       .catch((e) => live && setError(errText(e)));
     return () => {
@@ -199,6 +232,8 @@ export default function MotionStudioPage() {
   const applyPlan = useCallback((p: PlanDTO) => {
     const s = p.spec;
     justApplied.current = true;
+    setTick((t) => t + 1);                  // the effect below must run even when the form ends up unchanged (it consumes the flag)
+    storeSet(`nm.motion.plan.${id}`, String(p.id));
     setPlan(p);
     setStyleId(s.style);
     setAspect(s.aspect);
@@ -212,7 +247,7 @@ export default function MotionStudioPage() {
       setUseBrand(s.brand.use_brand_colors !== false);
       setShowLogo(s.brand.show_logo !== false);
     }
-  }, []);
+  }, [id]);
 
   // ذخیرهٔ خودکارِ طرح (هر ویرایش یک نسخه؛ ویرایش‌های پشتِ‌سرهم یکی می‌شوند)
   useEffect(() => {
@@ -223,13 +258,20 @@ export default function MotionStudioPage() {
       lastSaved.current = body;
       return;
     }
+    if (!plan && baseline.current === null) {
+      baseline.current = body;              // the sample as it was loaded: nothing to save yet
+      return;
+    }
+    if (!plan && body === baseline.current) return;
     if (body === lastSaved.current) return;
     const t = window.setTimeout(async () => {
       try {
         if (!plan) {
           const p = await motionApi.createPlan(id, spec, title);
           lastSaved.current = body;
+          storeSet(planKey, String(p.id));
           setPlan(p);
+          refreshPlans();
         } else {
           const r = await motionApi.savePlan(id, plan.id, spec, title);
           lastSaved.current = body;
@@ -241,7 +283,7 @@ export default function MotionStudioPage() {
     }, 1300);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spec, mode, ov, id]);
+  }, [spec, mode, ov, id, tick]);
 
   // نتیجهٔ کنترلِ کیفیت / نقدِ تصویری در پس‌زمینه می‌رسد
   const bgRunning = plan?.qa?.state === "running" || plan?.critique?.state === "waiting" || plan?.critique?.state === "running";
@@ -356,13 +398,66 @@ export default function MotionStudioPage() {
     if (!plan) {
       const p = await motionApi.createPlan(id, spec, title);
       lastSaved.current = body;
+      storeSet(planKey, String(p.id));
       setPlan(p);
+      refreshPlans();
       return p;
     }
     const r = await motionApi.savePlan(id, plan.id, spec, title);
     lastSaved.current = body;
     setPlan(r.plan);
     return r.plan;
+  };
+
+  const openPlan = async (r: PlanRow) => {
+    setPlanBusy(true);
+    setError(null);
+    try {
+      applyPlan(await motionApi.plan(id, r.id));
+      setChat([]);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const deletePlanRow = async (r: PlanRow) => {
+    if (!window.confirm(`طرحِ «${r.title || "بی‌نام"}» پاک شود؟ (ویدیوهای رندرشده در تاریخچه و رسانه می‌مانند.)`)) return;
+    setPlanBusy(true);
+    try {
+      await motionApi.deletePlan(id, r.id);
+      if (plan?.id === r.id) {
+        setPlan(null);
+        lastSaved.current = "";
+        storeSet(planKey, "");
+      }
+      await refreshPlans();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /** از نمونه شروع کن؛ طرحِ فعلی در فهرست می‌ماند */
+  const newPlan = () => {
+    if (!ov || !lib) return;
+    setPlan(null);
+    setChat([]);
+    lastSaved.current = "";
+    justApplied.current = false;
+    baseline.current = null;
+    storeSet(planKey, "");
+    setTitle("");
+    setScenes(ov.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]);
+    setCaptions(undefined);
+    setAudio(undefined);
+    setIntensity(1);
+    setPlatform("reels");
+    setTick((t) => t + 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const planCall = async (fn: (p: PlanDTO) => Promise<PlanDTO | void>) => {
@@ -549,6 +644,8 @@ export default function MotionStudioPage() {
             {MODES.find((m) => m.key === mode)?.help}
           </div>
 
+          {mode !== "code" ? <PlanList rows={plansList} currentId={plan?.id ?? null} busy={planBusy} onOpen={openPlan} onDelete={deletePlanRow} onNew={newPlan} /> : null}
+
           {mode !== "code" ? (
             <>
               {mode === "ai" ? (
@@ -654,6 +751,12 @@ export default function MotionStudioPage() {
                   </Card>
                 )}
               </div>
+
+              {plan?.warnings?.length ? (
+                <Alert tone="warn" title="یک نکته دربارهٔ صدا">
+                  {plan.warnings.join(" ")}
+                </Alert>
+              ) : null}
 
               <Card>
                 <SectionTitle>صدا، زیرنویس و پلتفرم</SectionTitle>

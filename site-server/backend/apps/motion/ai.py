@@ -35,6 +35,21 @@ def get_provider(store, kind: str | None = None):
     return fn(store, kind=kind) if kind else fn(store)        # kind="code": the owner's coder model (qwen3-coder) first, like the site builder
 
 
+def tidy(text: str) -> str:
+    """نقطه‌گذاریِ فارسی: «است.؛ متیس» ⇒ «است؛ متیس»، «است.. یک» ⇒ «است. یک»، فاصله‌های تکراری. سه‌نقطه (…) دست‌نخورده می‌ماند."""
+    t = str(text or "")
+    t = re.sub(r"\s*([.،؛:!؟?])\s*([؛،])", lambda m: m.group(2), t)             # «.؛» «.،» «!؛» ⇒ فقط جداکننده
+    t = re.sub(r"(?<!\.)\.{2}(?!\.)", ".", t)                   # «..» ⇒ «.»  (نه «...»)
+    t = re.sub(r"([؛،])(?:\s*\1)+", lambda m: m.group(1), t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+
+def _then(msg: str, tail: str) -> str:
+    """msg + tail بدونِ دو نقطه‌گذاریِ پشتِ‌سرهم (msg اغلب خودش با «.» تمام می‌شود)."""
+    return tidy(str(msg or "").rstrip(" .،؛:") + tail)
+
+
 def explain(exc: Exception) -> str:
     text = str(exc or "").strip()
     try:                                   # یک جملهٔ کوتاه («سرورِ پردازش خاموش است؛ متیس: …») به‌جای متنِ بلندِ تکراریِ هر دو مسیر
@@ -147,7 +162,7 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
         msg = f"{MSG_UNAVAILABLE}: {explain(exc)}" if not isinstance(exc, (ValueError, specs.SpecError)) else "پاسخِ هوش مصنوعی قابل‌استفاده نبود"
         spec = polish(specs.normalize_spec({**base, "scenes": rules_scenes(idea, lang)}))
         return {"spec": spec, "source": "rules", "title": "", "components": (kit or {}).get("ids", []), "prompt_chars": (kit or {}).get("chars", 0),
-                "message": msg + ". یک پیش‌نویسِ ساده از روی متنِ خودتان ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید."}
+                "message": _then(msg, ". یک پیش‌نویسِ ساده از روی متنِ خودتان ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید.")}
 
 
 def patch_from_chat(store, plan: dict, text: str, *, provider=None) -> dict:
@@ -174,7 +189,7 @@ def patch_from_chat(store, plan: dict, text: str, *, provider=None) -> dict:
     except Exception as exc:  # noqa: BLE001
         note = f"{MSG_UNAVAILABLE}: {explain(exc)}" if not isinstance(exc, (ValueError, patch_mod.PatchError)) else "پیشنهادِ مدل قابل‌اعمال نبود"
     res = patch_mod.rules_patch(text, plan)
-    res.update(source="rules", message=note + ("؛ با قاعده‌های ساده انجام شد." if res["ops"] else "."))
+    res.update(source="rules", message=_then(note, "؛ با قاعده‌های ساده انجام شد." if res["ops"] else "."))
     return res
 
 

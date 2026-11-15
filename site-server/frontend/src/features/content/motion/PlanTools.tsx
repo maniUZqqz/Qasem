@@ -123,6 +123,31 @@ function FindingRow({ f }: { f: Finding }) {
   );
 }
 
+const PHASE_FRAC: Record<string, number> = { start: 0, lock: 0.02, measure: 0.1, frames: 0.25, fix: 0.8, final: 0.9 };
+
+/** پیشرفتِ زندهٔ کنترلِ کیفیت: دورِ چندم، چه مرحله‌ای، چند فریم (فریمِ دورِ قبل دوباره رندر نمی‌شود) */
+function QaProgressBar({ qa }: { qa: QaReport | undefined }) {
+  const pr = qa?.progress;
+  const total = Math.max(1, pr?.rounds ?? 3);
+  const n = Math.max(1, pr?.n ?? 1);
+  const pct = Math.min(97, Math.round((((n - 1) + (PHASE_FRAC[pr?.phase ?? "start"] ?? 0)) / total) * 100));
+  const done = qa?.rounds?.length ?? 0;
+  return (
+    <div className="space-y-2" role="status" aria-live="polite">
+      <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+        <Spinner size={16} /> {pr?.message || qa?.summary || "در حالِ کنترل…"}
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }} aria-hidden="true">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--brand)", transition: "width .6s ease" }} />
+      </div>
+      <div className="text-xs leading-6" style={{ color: "var(--text-3)" }}>
+        {done ? `${fa(done)} دور تمام شد؛ نتیجهٔ دورها همین پایین دیده می‌شود. ` : ""}
+        فقط صحنه‌هایی که بعد از اصلاح عوض شده‌اند دوباره رندر می‌شوند، و دورِ تازه‌ای پس از حدودِ {fa(10)} دقیقه شروع نمی‌شود. می‌توانید از صفحه بروید؛ نتیجه روی طرح می‌ماند.
+      </div>
+    </div>
+  );
+}
+
 export function QaPanel({ qa, critique, busy, hasPlan, onQa, onCritique }: { qa: QaReport | undefined; critique: Critique | undefined; busy: boolean; hasPlan: boolean; onQa: () => void; onCritique: () => void }) {
   const running = qa?.state === "running";
   const rounds = qa?.rounds ?? [];
@@ -142,11 +167,7 @@ export function QaPanel({ qa, critique, busy, hasPlan, onQa, onCritique }: { qa:
         کنترلِ کیفیت بدونِ هوش مصنوعی و روی هر رندر خودکار اجرا می‌شود: بیرون‌زدگیِ متن، هم‌پوشانی، کنتراست، زمانِ خواندن (≈۰٫۳۲ ثانیه برای هر کلمه)، ناحیهٔ امنِ پلتفرم و اندازهٔ فونت را می‌سنجد و خودش درست می‌کند.
       </div>
 
-      {running ? (
-        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
-          <Spinner size={16} /> {qa?.summary || "در حالِ کنترل…"}
-        </div>
-      ) : null}
+      {running ? <QaProgressBar qa={qa} /> : null}
 
       {qa && qa.state !== "running" && qa.summary ? (
         <Alert tone={qa.remaining && qa.remaining.length ? "warn" : "ok"} title={qa.summary}>

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from django.conf import settings
 
-from . import qa, runner
+from . import qa, runner, timeline
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,15 @@ def rel_of(path: Path) -> str:
 
 
 def make_measure(store, *, workdir: Path, media_dir: Path | None = None, prefix: str = "r", per_scene: int = 2, scale: float = QA_SCALE,
-                 cancelled=None, frames_fn=None):
-    """⇒ measure(spec). هر بار فراخوانی = یک دورِ سنجش (نامِ فایل‌ها prefix+شمارهٔ دور). `frames_fn(spec)` اگر داده شود فریم‌ها را خودش انتخاب می‌کند."""
+                 cancelled=None, frames_fn=None, progress=None):
+    """⇒ measure(spec). هر بار فراخوانی = یک دورِ سنجش (نامِ فایل‌ها prefix+شمارهٔ دور). `frames_fn(spec)` اگر داده شود فریم‌ها را خودش انتخاب می‌کند.
+
+    سنجشِ افزایشی: فریمی که امضایش (qa.frame_signature) با فریمِ دورِ قبل یکی است دوباره رندر نمی‌شود؛ دورِ بعد از اصلاح فقط صحنه‌های عوض‌شده را می‌سنجد
+    (روی سرورِ شلوغ هر فریم ده‌ها ثانیه طول می‌کشد). `progress(dict)` شمارِ فریم‌های تازه/ازقبل‌موجود را خبر می‌دهد."""
     from . import services            # بعداً وارد می‌شود تا وابستگیِ چرخه‌ای نباشد
 
     calls = {"n": 0}
+    cache: dict = {}
 
     def measure(spec: dict) -> list:
         ok, why = available()
@@ -53,35 +57,52 @@ def make_measure(store, *, workdir: Path, media_dir: Path | None = None, prefix:
             raise runner.RenderError("کنترلِ هندسیِ کادر ممکن نیست: " + why, "setup")
         calls["n"] += 1
         n = calls["n"]
-        work = Path(workdir) / f"qa{n}"
-        shutil.rmtree(work, ignore_errors=True)
-        (work / "assets").mkdir(parents=True)
-        job_spec, files = services.materialize(store, spec)
-        for key, (data, ext) in files.items():
-            (work / "assets" / f"{key}{ext}").write_bytes(data)
         frames = (frames_fn or (lambda s: qa.key_frames(s, per_scene)))(spec)
-        names = [f"{prefix}{n}-s{f['scene']}-{f['kind']}" for f in frames]
-        job = {"props": {"spec": job_spec}, "assets_dir": str(work / "assets"), "out_dir": str(work / "out"), "scale": scale,
-               "frames": [{"name": nm, "frame": f["frame"]} for nm, f in zip(names, frames)], "timeout_ms": 90000}
-        done = runner.run_render(job, workdir=work, cancelled=cancelled, timeout=600, script="qa.mjs")
-        data = json.loads(Path(done["results"]).read_text(encoding="utf-8"))
-        by_name = {s["name"]: s for s in data["shots"]}
+        tl = timeline.compute(spec)
+        sigs = [qa.frame_signature(spec, tl, f) for f in frames]
+        todo = [k for k, sg in enumerate(sigs) if sg not in cache]
+        if progress:
+            try:
+                progress({"frames": len(frames), "fresh": len(todo), "cached": len(frames) - len(todo), "n": n})
+            except Exception:  # noqa: BLE001
+                pass
+        fresh: dict = {}
+        if todo:
+            work = Path(workdir) / f"qa{n}"
+            shutil.rmtree(work, ignore_errors=True)
+            (work / "assets").mkdir(parents=True)
+            job_spec, files = services.materialize(store, spec)
+            for key, (data, ext) in files.items():
+                (work / "assets" / f"{key}{ext}").write_bytes(data)
+            names = {k: f"{prefix}{n}-s{frames[k]['scene']}-{frames[k]['kind']}" for k in todo}
+            job = {"props": {"spec": job_spec}, "assets_dir": str(work / "assets"), "out_dir": str(work / "out"), "scale": scale,
+                   "frames": [{"name": names[k], "frame": frames[k]["frame"]} for k in todo], "timeout_ms": 90000}
+            done = runner.run_render(job, workdir=work, cancelled=cancelled, timeout=600, script="qa.mjs")
+            data = json.loads(Path(done["results"]).read_text(encoding="utf-8"))
+            by_name = {s["name"]: s for s in data["shots"]}
+            for k in todo:
+                f, nm = frames[k], names[k]
+                s = by_name.get(nm)
+                g = (s or {}).get("geometry") or {}
+                if not s or not g or g.get("error"):
+                    raise runner.RenderError(f"از فریمِ {f['frame']} هندسه‌ای نرسید ({(g or {}).get('error', 'خالی')}).", "qa")
+                img = qa.open_image(s["image"])
+                rel = ""
+                if media_dir is not None:
+                    media_dir.mkdir(parents=True, exist_ok=True)
+                    dest = media_dir / f"{nm}.jpg"
+                    shutil.copyfile(s["image"], dest)
+                    rel = rel_of(dest)
+                fresh[k] = {"scene": f["scene"], "kind": f["kind"], "frame": f["frame"], "W": g["W"], "H": g["H"], "scale": scale, "safe": g.get("safe") or {},
+                            "platform": g.get("platform", ""), "boxes": g.get("boxes") or [], "_image": img, "image_rel": rel}
+            shutil.rmtree(work, ignore_errors=True)
         shots = []
-        for nm, f in zip(names, frames):
-            s = by_name.get(nm)
-            g = (s or {}).get("geometry") or {}
-            if not s or not g or g.get("error"):
-                raise runner.RenderError(f"از فریمِ {f['frame']} هندسه‌ای نرسید ({(g or {}).get('error', 'خالی')}).", "qa")
-            img = qa.open_image(s["image"])
-            rel = ""
-            if media_dir is not None:
-                media_dir.mkdir(parents=True, exist_ok=True)
-                dest = media_dir / f"{nm}.jpg"
-                shutil.copyfile(s["image"], dest)
-                rel = rel_of(dest)
-            shots.append({"scene": f["scene"], "kind": f["kind"], "frame": f["frame"], "W": g["W"], "H": g["H"], "scale": scale, "safe": g.get("safe") or {},
-                          "platform": g.get("platform", ""), "boxes": g.get("boxes") or [], "_image": img, "image_rel": rel})
-        shutil.rmtree(work, ignore_errors=True)
+        for k, (f, sg) in enumerate(zip(frames, sigs)):
+            if k in fresh:
+                cache[sg] = fresh[k]
+                shots.append(fresh[k])
+            else:
+                shots.append({**cache[sg], "scene": f["scene"], "kind": f["kind"], "frame": f["frame"], "reused": True})
         return shots
 
     return measure

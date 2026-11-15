@@ -129,23 +129,50 @@ def narration_texts(spec: dict) -> list:
 
 # ───────────────────────────────────────────── گفتار: ساخت، برش، زمانِ کلمه‌ها
 
+def _online_voice_blocked(store, voice_id: str) -> bool:
+    """صدای Edge متن را به مایکروسافت می‌فرستد: روی فروشگاهی که سیاستِ دادهاش «فقط لوکال» است (یا سیاست خوانده نشد) ممنوع است.
+    (فهرستِ صداها هم همین را «در دسترس نیست» می‌کند؛ این‌جا همان قاعده روی خودِ ساخت اعمال می‌شود، حتی اگر شناسهٔ صدا دستی در JSON نوشته شده باشد.)"""
+    if not str(voice_id or "").startswith("edge:"):
+        return False
+    from services.audio import engines
+
+    return bool(engines.local_only(store))
+
+
+def auto_voice(store, *, local_only: bool = False) -> str:
+    """بهترین صدای در دسترس (صدای سایت زودتر)؛ local_only ⇒ هیچ صدای آنلاینی؛ نبود ⇒ AudioPending (گره روشن شود) یا SoundError."""
+    from services.audio import studio
+
+    usable = [v for v in studio.voices(store) if v.get("available") and not (local_only and str(v.get("id", "")).startswith("edge:"))]
+    usable.sort(key=lambda v: (v.get("where") != "site", v.get("name", "")))       # صدای سایت در یکی دو ثانیه جواب می‌دهد
+    if not usable:
+        from services.editing import captions
+
+        if captions.node_registered("voice"):
+            raise AudioPending("گویندهٔ فارسی روی سرورِ پردازش ساخته می‌شود؛ با روشن‌شدنش خودکار ادامه می‌یابد.")
+        raise SoundError("هیچ صدای گوینده‌ای در دسترس نیست (Piper روی سایت نصب نیست و سرورِ پردازش هم خاموش است).")
+    return usable[0]["id"]
+
+
+POLICY_NOTE = "سیاستِ دادهٔ این فروشگاه «فقط لوکال» است و صدای آنلاینِ Edge متن را به مایکروسافت می‌فرستد؛ به‌جایش صدای محلی به‌کار رفت."
+
+
 def default_synth(store, user, text: str, voice_id: str, workdir: Path, name: str, *, wait_s: float = 150.0) -> dict:
-    """از استودیوی صدای فروشگاه (Piper روی سایت؛ MOSS روی گره). ⇒ {path, engine, voice, cues?}"""
+    """از استودیوی صدای فروشگاه (Piper روی سایت؛ MOSS روی گره). ⇒ {path, engine, voice, cues?, note?}
+
+    سیاستِ داده: صدای آنلاینِ Edge روی فروشگاهِ «فقط لوکال» هرگز صدا زده نمی‌شود (متن از سایت بیرون نمی‌رود)؛ به‌جایش صدای محلی می‌آید و در گزارش می‌نویسد."""
     import time
 
     from apps.ai.models import AudioAsset
     from services.audio import node_audio, studio
 
+    note = ""
+    blocked = _online_voice_blocked(store, voice_id)
+    if blocked:
+        logger.info("motion: edge voice %s refused by the store's data policy; using a local voice", voice_id)
+        voice_id, note = "auto", POLICY_NOTE
     if not voice_id or voice_id == "auto":
-        usable = [v for v in studio.voices(store) if v.get("available")]
-        usable.sort(key=lambda v: (v.get("where") != "site", v.get("name", "")))       # صدای سایت در یکی دو ثانیه جواب می‌دهد
-        if not usable:
-            from services.editing import captions
-
-            if captions.node_registered("voice"):
-                raise AudioPending("گویندهٔ فارسی روی سرورِ پردازش ساخته می‌شود؛ با روشن‌شدنش خودکار ادامه می‌یابد.")
-            raise SoundError("هیچ صدای گوینده‌ای در دسترس نیست (Piper روی سایت نصب نیست و سرورِ پردازش هم خاموش است).")
-        voice_id = usable[0]["id"]
+        voice_id = auto_voice(store, local_only=blocked)
     if voice_id.startswith("edge:"):
         got = _edge_with_cues(voice_id.split(":", 1)[1], text, workdir / f"{name}.mp3")
         if got:
@@ -165,7 +192,10 @@ def default_synth(store, user, text: str, voice_id: str, workdir: Path, name: st
     path = studio.asset_path(asset)
     if not path:
         raise SoundError("فایلِ گفتار پیدا نشد.")
-    return {"path": Path(path), "engine": asset.engine, "voice": voice_id, "asset": asset.pk}
+    out = {"path": Path(path), "engine": asset.engine, "voice": voice_id, "asset": asset.pk}
+    if note:
+        out["note"] = note
+    return out
 
 
 def _edge_with_cues(voice: str, text: str, out: Path) -> dict | None:
@@ -589,6 +619,9 @@ def prepare(store, user, spec: dict, workdir: Path, *, synth=None, asr=None, bea
             sources.append(src)
             engines.add(got.get("engine", ""))
             info["voice"] = {"engine": ",".join(sorted(e for e in engines if e)), "voice": got.get("voice", ""), "scenes": len(clips)}
+            if got.get("note"):
+                info["voice"]["note"] = got["note"]
+                info["voice"]["requested"] = voice_cfg.get("voice_id", "")
         if sources:
             info["voice"]["cue_source"] = sources[0] if len(set(sources)) == 1 else "mixed"
     # ── ۲) موسیقی و بیت

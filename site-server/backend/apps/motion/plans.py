@@ -123,6 +123,21 @@ def can_redo(plan: MotionPlan) -> bool:
     return MotionPlanRev.objects.filter(plan=plan, n=plan.cursor + 1).exists()
 
 
+def warnings(plan: MotionPlan) -> list:
+    """هشدارهایی که طرح را باطل نمی‌کنند ولی مالک باید بداند (مثلاً صدای آنلاین روی فروشگاهِ «فقط لوکال»: رندر صدای محلی می‌گذارد)."""
+    out: list = []
+    vid = str(((plan.spec.get("audio") or {}).get("voice") or {}).get("voice_id") or "")
+    if vid.startswith("edge:"):
+        from . import sound
+
+        try:
+            if sound._online_voice_blocked(plan.store, vid):
+                out.append(sound.POLICY_NOTE)
+        except Exception:  # noqa: BLE001 — a warning must never break the page
+            pass
+    return out
+
+
 def plan_dict(plan: MotionPlan, *, with_history: bool = True) -> dict:
     from . import services
 
@@ -130,7 +145,7 @@ def plan_dict(plan: MotionPlan, *, with_history: bool = True) -> dict:
     spec["total_s"] = round(specs.total_seconds(spec), 2) if spec.get("scenes") else 0
     d = {"id": plan.pk, "title": plan.title, "spec": spec, "rev": plan.cursor, "can_undo": can_undo(plan), "can_redo": can_redo(plan),
          "qa": services.qa_public(plan.qa or {}), "critique": services.critique_public(plan.critique or {}), "updated_at": plan.updated_at.isoformat(),
-         "created_at": plan.created_at.isoformat()}
+         "created_at": plan.created_at.isoformat(), "warnings": warnings(plan)}
     if with_history:
         d["history"] = history(plan)
     return d

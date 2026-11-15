@@ -187,7 +187,9 @@ def _wait(plan, state, reason: str) -> dict:
         age = 0
     if age > GIVE_UP_HOURS:
         return _finish(plan, state, "unavailable", "مدلِ بینایی تا ۴۸ ساعت در دسترس نبود؛ دوباره درخواست بدهید.")
-    state.update(state="waiting", message="منتظرِ مدلِ بینایی (سرورِ پردازش خاموش است یا هوش مصنوعیِ ابری در دسترس نیست)؛ با آماده‌شدنش خودکار اجرا می‌شود. " + reason[:160])
+    from .ai import tidy
+
+    state.update(state="waiting", message=tidy("منتظرِ مدلِ بینایی (سرورِ پردازش خاموش است یا هوش مصنوعیِ ابری در دسترس نیست)؛ با آماده‌شدنش خودکار اجرا می‌شود. " + reason[:160]))
     state["attempts"] = int(state.get("attempts") or 0) + 1
     _save(plan, state)
     return state

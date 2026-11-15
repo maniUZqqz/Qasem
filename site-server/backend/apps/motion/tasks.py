@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from celery import shared_task
 from django.conf import settings
@@ -109,22 +109,71 @@ def critique_task(plan_id: int) -> None:
         critique_task.apply_async((plan_id,), countdown=critique.RETRY_S)
 
 
+QA_STALE_S = 900          # a "running" QA whose last sign of life is older than this is considered dead (worker killed): a new one may start
+
+
+def qa_running(qa: dict | None) -> bool:
+    """آیا یک کنترلِ کیفیتِ زنده در جریان است؟ (ضربان = آخرین رویدادِ پیشرفت)"""
+    qa = qa or {}
+    if qa.get("state") != "running":
+        return False
+    try:
+        beat = datetime.fromisoformat(qa.get("beat") or qa.get("started_at") or "")
+    except ValueError:
+        return False
+    if timezone.is_naive(beat):
+        beat = timezone.make_aware(beat)
+    return (timezone.now() - beat).total_seconds() < QA_STALE_S
+
+
+def qa_start_state() -> dict:
+    now = timezone.now().isoformat()
+    return {"state": "running", "summary": "کنترلِ کیفیت در حال اجراست…", "rounds": [], "started_at": now, "beat": now,
+            "progress": {"n": 1, "rounds": 3, "phase": "start", "message": "آماده‌سازی…"}}
+
+
 @shared_task(ignore_result=True, name="apps.motion.tasks.qa_task", time_limit=1500)
 def qa_task(plan_id: int, apply_fixes: bool = True, geometry: bool = True) -> None:
-    """کنترلِ کیفیتِ یک طرح (قاعده‌ای + هندسهٔ فریم‌ها)؛ اصلاح‌ها یک نسخهٔ قابل‌برگشت می‌شوند و گزارش روی plan.qa می‌ماند."""
+    """کنترلِ کیفیتِ یک طرح (قاعده‌ای + هندسهٔ فریم‌ها)؛ اصلاح‌ها یک نسخهٔ قابل‌برگشت می‌شوند و گزارش روی plan.qa می‌ماند.
+    در طولِ کار، plan.qa حالتِ «running» دارد با دورهای تمام‌شده و پیامِ پیشرفت (دورِ ۲ از ۳: رندرِ ۴ فریم…) تا پنل زنده نشان بدهد."""
+    import json
+
     from . import plans, specs
     from .models import MotionPlan
 
     plan = MotionPlan.objects.filter(pk=plan_id).select_related("store").first()
     if plan is None:
         return
+    live = (plan.qa if (plan.qa or {}).get("state") == "running" else None) or qa_start_state()
+
+    def push() -> None:
+        live["beat"] = timezone.now().isoformat()
+        MotionPlan.objects.filter(pk=plan_id, qa__state="running").update(qa=live)       # an edit in the meantime (qa reset) stops the updates
+
+    def on_progress(ev: dict) -> None:
+        live["progress"] = {k: ev.get(k) for k in ("n", "rounds", "phase", "message")}
+        live["summary"] = str(ev.get("message") or live.get("summary") or "")[:200]
+        push()
+
+    def on_round(rec: dict) -> None:
+        live["rounds"] = [*live.get("rounds", []), json.loads(json.dumps(rec, default=str))]
+        push()
+
     try:
-        report = pipeline.run_qa(plan.store, plan.spec, tag=f"plan{plan.pk}", max_total=specs.MAX_TOTAL_S_NODE, geometry=geometry)
+        report = pipeline.run_qa(plan.store, plan.spec, tag=f"plan{plan.pk}", max_total=specs.MAX_TOTAL_S_NODE, geometry=geometry,
+                                 on_progress=on_progress, on_round=on_round, deadline_s=pipeline.QA_DEADLINE_TASK_S)
         rep = pipeline.slim_report(report)
         rep.update(state="done", applied=bool(apply_fixes and report["fixed"]))
+        fresh = MotionPlan.objects.filter(pk=plan_id).select_related("store").first()
+        if fresh is None:
+            return
+        if not plans._same(fresh.spec, plan.spec):                        # the owner edited the plan while the check ran: its result is about an older plan
+            MotionPlan.objects.filter(pk=plan_id).update(qa={"state": "done", "summary": "طرح در حینِ کنترل ویرایش شد؛ نتیجهٔ این کنترل کنار گذاشته شد. دوباره اجرا کنید.",
+                                                          "rounds": [], "remaining": [], "applied": False})
+            return
         if apply_fixes and report["fixed"]:
-            plan = plans.commit(plan, report["spec"], label=rep["summary"][:150], source="qa")
-        MotionPlan.objects.filter(pk=plan.pk).update(qa=rep)
+            fresh = plans.commit(fresh, report["spec"], label=rep["summary"][:150], source="qa")
+        MotionPlan.objects.filter(pk=fresh.pk).update(qa=rep)
     except Exception as exc:  # noqa: BLE001
         logger.exception("motion: QA task of plan %s failed", plan_id)
         MotionPlan.objects.filter(pk=plan_id).update(qa={"state": "failed", "summary": f"کنترلِ کیفیت ناموفق بود: {exc}"[:300], "rounds": [], "remaining": []})

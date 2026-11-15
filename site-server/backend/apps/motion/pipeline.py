@@ -32,21 +32,41 @@ def mix_path(render: MotionRender) -> Path | None:
     return p if p.is_file() else None
 
 
-def run_qa(store, spec: dict, *, tag: str, max_total: float, geometry: bool = True, cancelled=None, on_round=None) -> dict:
-    """حلقهٔ QA روی یک طرح؛ مرورگرِ سایت آماده نباشد فقط قاعده‌های بدونِ مرورگر. ⇒ گزارش (با report["spec"] = طرحِ اصلاح‌شده)."""
+QA_DEADLINE_RENDER_S = 180        # QA inside the render flow must not hold the render back for long: no NEW round starts after this
+QA_DEADLINE_TASK_S = 600
+
+
+def run_qa(store, spec: dict, *, tag: str, max_total: float, geometry: bool = True, cancelled=None, on_round=None, on_progress=None, deadline_s: float | None = None) -> dict:
+    """حلقهٔ QA روی یک طرح؛ مرورگرِ سایت آماده نباشد فقط قاعده‌های بدونِ مرورگر. ⇒ گزارش (با report["spec"] = طرحِ اصلاح‌شده).
+    on_progress({n, rounds, phase, message}) پیشرفت را خبر می‌دهد (پنل «دورِ ۲ از ۳: رندرِ ۴ فریمِ تازه…» را نشان می‌دهد)."""
     ok, why = qa_browser.available() if geometry else (False, "خاموش")
     work = Path(tempfile.mkdtemp(prefix="nm-motion-qa-"))
     lock = None
+    cur = {"n": 1, "rounds": 3}
+
+    def relay(ev: dict) -> None:
+        cur.update(n=ev.get("n", cur["n"]), rounds=ev.get("rounds", cur["rounds"]))
+        if on_progress:
+            on_progress(ev)
+
+    def frames_progress(d: dict) -> None:
+        if on_progress:
+            fresh, cached = d.get("fresh", 0), d.get("cached", 0)
+            msg = f"دور {qa.fa(cur['n'])} از {qa.fa(cur['rounds'])}: رندرِ {qa.fa(fresh)} فریم" + (f" ({qa.fa(cached)} فریمِ دورِ قبل دوباره استفاده شد)" if cached else "") + "…"
+            on_progress({"n": cur["n"], "rounds": cur["rounds"], "phase": "frames", "message": msg, "frames": d})
+
     try:
         measure = None
         if ok:
             lock = runner.SiteLock()
             try:
+                if on_progress:
+                    on_progress({"n": 1, "rounds": 3, "phase": "lock", "message": "منتظرِ نوبتِ رندر روی سایت (هر بار فقط یک رندر/کنترل)…"})
                 lock.acquire(cancelled=cancelled)
-                measure = qa_browser.make_measure(store, workdir=work, media_dir=qa_browser.media_dir_for(store.pk, tag), cancelled=cancelled)
+                measure = qa_browser.make_measure(store, workdir=work, media_dir=qa_browser.media_dir_for(store.pk, tag), cancelled=cancelled, progress=frames_progress)
             except runner.RenderError as exc:
                 ok, why = False, str(exc)
-        report = qa.run_loop(spec, measure=measure, max_total=max_total, on_round=on_round)
+        report = qa.run_loop(spec, measure=measure, max_total=max_total, on_round=on_round, on_progress=relay, deadline_s=deadline_s)
         if not ok and geometry:
             report["geometry_skipped"] = why
         return report
@@ -91,7 +111,8 @@ def prepare_render(render: MotionRender, *, synth=None, asr=None, geometry: bool
     # ── ۱) کنترلِ کیفیت
     if opts.get("qa", True):
         try:
-            report = run_qa(store, spec, tag=f"render{render.pk}", max_total=cap, geometry=geo, cancelled=cancelled)
+            report = run_qa(store, spec, tag=f"render{render.pk}", max_total=cap, geometry=geo, cancelled=cancelled, deadline_s=QA_DEADLINE_RENDER_S,
+                            on_progress=lambda ev: MotionRender.objects.filter(pk=render.pk, state=MotionRender.State.PREPARING).update(message=("کنترلِ کیفیت — " + str(ev.get("message", "")))[:300]))
             spec = report["spec"]
             render.qa = slim_report(report)
         except Exception as exc:  # noqa: BLE001 — QA هیچ‌وقت رندر را نمی‌اندازد

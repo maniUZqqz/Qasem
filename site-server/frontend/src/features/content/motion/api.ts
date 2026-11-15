@@ -114,13 +114,21 @@ export type Finding = {
   auto: boolean;
   ops: unknown[];
   why?: string;
+  stuck?: string;
   shot?: { kind: string; frame: number };
 };
 export type QaShot = { scene: number; kind: string; frame: number; image_rel?: string; image_url?: string; W?: number; H?: number };
 export type QaRound = { n: number; findings: Finding[]; applied: { code: string; scene: number | null; message: string; ops: unknown[] }[]; unresolved?: Finding[]; shots: QaShot[] };
+export type QaProgress = { n?: number; rounds?: number; phase?: "start" | "lock" | "measure" | "frames" | "fix" | "final"; message?: string };
 export type QaReport = {
   state?: "running" | "done" | "failed";
   summary?: string;
+  progress?: QaProgress;
+  started_at?: string;
+  beat?: string;
+  reverted?: boolean;
+  timed_out?: boolean;
+  kept?: { state: number; of: number };
   rounds?: QaRound[];
   fixed?: number;
   remaining?: Finding[];
@@ -154,8 +162,10 @@ export type PlanDTO = {
   qa: QaReport;
   critique: Critique;
   history?: HistoryRow[];
+  warnings?: string[];
   updated_at: string;
 };
+export type PlanRow = { id: number; title: string; updated_at: string; rev: number; style?: string; aspect?: string; scenes: number; renders: number };
 export type SoundInfo = {
   voices: { id: string; name: string; where: string; available: boolean; gender?: string }[];
   music: { ref: string; title: string; duration: number; bpm?: number; license: string }[];
@@ -194,7 +204,7 @@ export type RenderRow = {
   job_uid: string;
   plan_id?: number | null;
   qa?: QaReport;
-  audio?: { has_audio?: boolean; error?: string; mux?: string; voice?: { engine?: string; cue_source?: string }; music?: { title?: string; bpm?: number }; mix?: { lufs?: number } };
+  audio?: { has_audio?: boolean; error?: string; mux?: string; voice?: { engine?: string; cue_source?: string; note?: string }; music?: { title?: string; bpm?: number }; mix?: { lufs?: number } };
   has_audio?: boolean;
 };
 
@@ -247,6 +257,8 @@ export const motionApi = {
   library: () => api.get<Library>("/motion/library/").then((r) => r.data),
   sound: (id: string | number) => api.get<SoundInfo>(`${base(id)}/sound/`).then((r) => r.data),
   createPlan: (id: string | number, spec: Spec, title = "") => api.post<{ plan: PlanDTO }>(`${base(id)}/plans/`, { spec, title }).then((r) => r.data.plan),
+  plans: (id: string | number) => api.get<{ plans: PlanRow[] }>(`${base(id)}/plans/`).then((r) => r.data.plans),
+  deletePlan: (id: string | number, pid: number) => api.delete(`${base(id)}/plans/${pid}/`).then(() => undefined),
   plan: (id: string | number, pid: number) => api.get<{ plan: PlanDTO }>(`${base(id)}/plans/${pid}/`).then((r) => r.data.plan),
   savePlan: (id: string | number, pid: number, spec: Spec, title = "") =>
     api.put<{ plan: PlanDTO; notes: string[] }>(`${base(id)}/plans/${pid}/`, { spec, title }).then((r) => r.data),

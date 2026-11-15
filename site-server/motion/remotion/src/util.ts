@@ -49,7 +49,10 @@ export function contrast(a: string, b: string): number {
 
 /** readable text colour on a background */
 export function onColor(bg: string, light = "#ffffff", dark = "#111111"): string {
-  return lum(bg) > 0.42 ? dark : light;
+  // the light colour keeps its place wherever it reads (contrast >= 3, the WCAG floor for large/bold text); on a mid-tone background (coral, amber,
+  // mid green) where the light colour would be hard to read, the dark one is used instead of a pale label that the quality check flags
+  if (lum(bg) > 0.42) return dark;
+  return contrast(light, bg) >= 3 || contrast(dark, bg) <= contrast(light, bg) ? light : dark;
 }
 
 export function shade(h: string, t: number): string {

@@ -78,6 +78,7 @@ function Row({
               {r.audio?.mix?.lufs !== undefined ? <span>{fa(Number(r.audio.mix.lufs).toFixed(1))} LUFS</span> : null}
               {r.qa?.summary ? <span>{r.qa.summary}</span> : null}
               {r.audio?.error ? <span style={{ color: "var(--warn)" }}>صدا ساخته نشد: {r.audio.error}</span> : null}
+              {r.audio?.voice?.note ? <span style={{ color: "var(--warn)" }}>{r.audio.voice.note}</span> : null}
             </div>
           ) : null}
           {r.active ? (

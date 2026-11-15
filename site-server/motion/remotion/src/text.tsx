@@ -218,7 +218,7 @@ export const T: React.FC<TProps> = (p) => {
     const n = Math.floor(Math.max(0, qf - (p.delay ?? 0)) * speed);
     const full = raw.replace(/\n/g, " ");
     return (
-      <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size}>
+      <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size} data-nm-fixed={p.color ? "1" : undefined}>
         <span style={fxCss(fx, { size, u, color, pal, qf, fps, text: style.text, fa, wi: 0, role })}>{full.slice(0, n)}</span>
         <span style={{ visibility: "hidden" }}>{full.slice(n)}</span>
         {n < full.length && <span style={{ color, opacity: Math.floor(qf / 6) % 2 ? 0 : 1 }}>▌</span>}
@@ -227,7 +227,7 @@ export const T: React.FC<TProps> = (p) => {
   }
 
   return (
-    <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size}>
+    <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size} data-nm-fixed={p.color ? "1" : undefined}>
       {lines.map((line, li) => (
         <div key={li}>
           {line.split(/[ \t]+/).filter(Boolean).map((w, k, arr) => {

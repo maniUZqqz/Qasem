@@ -118,6 +118,9 @@ class LiveView(APIView):
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    # A liveness probe must never be throttled: the anonymous limit is per client address and the watchdog, a load balancer and every deploy
+    # script all ask from 127.0.0.1 — a 429 here would read as "down" to the very thing that decides whether to restart the site.
+    throttle_classes = []
 
     def get(self, request):
         return Response({"ok": True, "at": timezone.now()})

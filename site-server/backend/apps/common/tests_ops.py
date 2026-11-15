@@ -206,6 +206,13 @@ class WatchdogTests(SimpleTestCase):
         self.assertFalse(self.state.exists())
         self.assertIn("سالم شد", self.log.read_text(encoding="utf-8"))
 
+    def test_a_429_means_alive_not_failed(self):
+        """«Too many requests» proves the web server answers; counting it would restart a healthy site."""
+        self.state.write_text("2")
+        run_script("nm-watchdog", env={**self.env, "NM_WD_URL": self._serve(429)})
+        self.assertFalse(self.state.exists())
+        self.assertNotIn("DRY: restart", self.log.read_text(encoding="utf-8"))
+
     def test_a_500_counts_as_a_failure(self):
         run_script("nm-watchdog", env={**self.env, "NM_WD_URL": self._serve(500)})
         self.assertEqual(self.state.read_text().strip(), "1")

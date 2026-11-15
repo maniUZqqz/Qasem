@@ -22,7 +22,8 @@ say() { echo "$(date -u '+%F %T') UTC  $*" >> "$LOG"; }
 probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL" 2>/dev/null; }
 
 CODE=$(probe)
-if [ "$CODE" = "200" ]; then
+# 429 = gunicorn answered but a rate limit said no: the process is alive, so it is not a reason to restart anything
+if [ "$CODE" = "200" ] || [ "$CODE" = "429" ]; then
   [ -s "$FAILS_FILE" ] && say "سالم شد (کد 200) پس از $(cat "$FAILS_FILE") شکست"
   rm -f "$FAILS_FILE"
   exit 0

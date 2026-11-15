@@ -27,6 +27,13 @@ class LivenessTests(TestCase):
         """A load balancer has no credentials."""
         self.assertEqual(self.client.get("/healthz").status_code, 200)
 
+    def test_healthz_is_never_throttled(self):
+        """The anonymous limit (30/minute per address) must not apply to the probe: the watchdog and the deploy scripts share 127.0.0.1."""
+        from apps.jobs.health import LiveView
+
+        self.assertEqual(vars(LiveView).get("throttle_classes"), [], "LiveView must opt out of the default throttles explicitly")
+        self.assertEqual(LiveView().get_throttles(), [])
+
     def test_healthz_touches_nothing(self):
         """It is asked every second. It must never be the thing that falls over
         under its own monitoring."""

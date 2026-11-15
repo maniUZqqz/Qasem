@@ -210,11 +210,11 @@ const s = spring({ frame, fps, config: { damping: 14, stiffness: 140, mass: 0.9 
 |---|---|
 | **پالت** | ۸ رنگ: زمینه، زمینهٔ دوم، جوهر (متن)، کاغذ (کارت)، سه تأکید، خاموش |
 | **تایپوگرافی** | قلمِ لاتین + قلمِ فارسی + وزن، فاصله، ارتفاعِ خط، حروف بزرگ/کوچک |
-| **پس‌زمینه** | یکی از ۴۱ نوع (با پارامتر) + زمینهٔ دوم برای صحنه‌های زوج |
+| **پس‌زمینه** | یکی از ۴۸ نوع (با پارامتر؛ ۷ نوعش از سبک‌هایِ InstAI آمد) + زمینهٔ دوم برای صحنه‌های زوج |
 | **بافت** | روی کلِ تصویر: دانه، اسکن‌لاین، دانهٔ کاغذ، گچ‌گرد، VHS، ... |
 | **افکتِ متن** | یکی از ۳۶ نوع |
 | **شکلِ کارت و دکمه** | گردیِ گوشه، قاب، سایه (نرم/سخت/درونی)، رنگِ پرکننده، برشِ گوشه |
-| **تزئین** | ۲۸ نوع لایهٔ همراه |
+| **تزئین** | ۲۹ نوع لایهٔ همراه |
 | **زبانِ حرکت** | نوعِ ورود (۲۴ نوع)، فنر، تأخیرِ پله‌ای، پله‌ایِ فریم (`stepFps`)، لرزشِ دست (`wobble`)، دوربین |
 | **گذار** | یکی از ۱۸ نوع + تعدادِ فریم |
 
@@ -379,6 +379,36 @@ export default function Video() {
 | 64 | طرحِ درخشان | `glow-sketch` | خط و طرح |  | `wipe` | `28، 120، 1` |  | `fade` | `neon-outline` | `radial` |
 | 65 | لاین‌آرت | `line-art` | خط و طرح |  | `wipe` | `32، 110، 1.1` |  | `wipe` | `plain` | `solid` |
 | 66 | سل‌شید (کارتونِ سه‌بعدی) | `cel-shading` | سه‌بعدی و عمق‌دار |  | `pop` | `13، 160، 0.85` |  | `wipe-diag` | `cel` | `bands` |
+| 67 | مانگای جوهری | `manga-ink` | کارتونی و تصویرسازی |  | `slam` | `18، 200، 0.8` | 8 | `wipe-diag` | `hard` | `halftone` |
+| 68 | برچسبِ برش‌خورده | `die-cut-sticker` | کارتونی و تصویرسازی |  | `pop` | `17، 140، 1.0` | 12 | `flip` | `sticker` | `dots` |
+| 69 | کاوایی پاستلی | `kawaii-pastel` | کارتونی و تصویرسازی |  | `swing` | `18، 200، 0.8` | 8 | `flip` | `hard` | `dots` |
+| 70 | نقاشیِ شمعیِ کودکانه | `crayon-doodle` | کارتونی و تصویرسازی |  | `pop` | `17، 140، 1.0` | 8 | `wipe` | `hand` | `paper` |
+| 71 | کارتونِ قدیمیِ دههٔ سی | `rubber-hose-1930s` | کارتونی و تصویرسازی |  | `squash` | `8، 170، 0.7` | 12 | `iris` | `hard` | `rays` |
+| 72 | رنگ‌روغنِ امپرسیونیستی | `oil-impressionist` | نقاشی و چاپِ دستی |  | `bloom` | `28، 70، 1.3` |  | `fade` | `emboss` | `hills` |
+| 73 | گواشِ کتابِ کودک | `gouache-storybook` | نقاشی و چاپِ دستی |  | `float` | `28، 70، 1.3` |  | `curtain` | `marker` | `layers` |
+| 74 | آرنوو گیاهی | `art-nouveau` | نقاشی و چاپِ دستی |  | `grow` | `28، 70، 1.3` |  | `iris` | `plain` | `ornament` |
+| 75 | چاپِ لینولئوم | `linocut-print` | نقاشی و چاپِ دستی |  | `stamp` | `18، 200، 0.8` | 8 | `wipe` | `hard` | `stripes` |
+| 76 | چاپِ چوبیِ موج‌دار | `woodblock-waves` | نقاشی و چاپِ دستی |  | `wipe` | `17، 140، 1.0` | 8 | `wipe` | `ink` | `waves` |
+| 77 | طرحِ زغال | `charcoal-sketch` | نقاشی و چاپِ دستی |  | `bloom` | `28، 70، 1.3` |  | `fade` | `ink` | `paper` |
+| 78 | آب‌مرکبِ شرقی | `sumi-ink-wash` | نقاشی و چاپِ دستی |  | `wipe` | `28، 70، 1.3` |  | `fade` | `ink` | `wash` |
+| 79 | خوشنویسیِ جوهری | `calligraphy-ink` | نقاشی و چاپِ دستی |  | `unfold` | `28، 70، 1.3` |  | `curtain` | `hard` | `parchment` |
+| 80 | نقاشیِ فانتزیِ تاریک | `dark-fantasy-art` | نقاشی و چاپِ دستی |  | `blur` | `28، 70، 1.3` |  | `dip` | `softglow` | `nightsky` |
+| 81 | پالپِ علمی‌تخیلی | `pulp-scifi` | نقاشی و چاپِ دستی |  | `swing` | `28، 70، 1.3` |  | `wipe-diag` | `hard` | `halftone` |
+| 82 | مینیاتورِ ایرانی | `persian-miniature` | نقاشی و چاپِ دستی |  | `unfold` | `17، 140، 1.0` |  | `curtain` | `plain` | `ornament` |
+| 83 | رؤیایِ سورئال | `surreal-dream` | نقاشی و چاپِ دستی |  | `float` | `28، 70، 1.3` |  | `fade` | `plain` | `clouds` |
+| 84 | پوسترِ سفرِ قدیمی | `travel-poster` | گرافیک و تایپوگرافی |  | `drop` | `20، 150، 1.0` |  | `slide` | `hard` | `rays` |
+| 85 | دوتونِ گرادیانی | `duotone-gradient` | گرافیک و تایپوگرافی |  | `slide` | `30، 190، 1.0` |  | `push` | `plain` | `linear` |
+| 86 | پوسترِ ساختن‌گرا | `constructivist-poster` | گرافیک و تایپوگرافی |  | `slide` | `30، 190، 1.0` |  | `wipe-diag` | `hard` | `stripes` |
+| 87 | مدرنِ نیمهٔ قرن | `midcentury-modern` | گرافیک و تایپوگرافی |  | `swing` | `18، 200، 0.8` | 8 | `push` | `plain` | `solid` |
+| 88 | حبابِ ایک‌دو‌کی | `y2k-bubble` | دیجیتال و رترو |  | `pop` | `30، 190، 1.0` |  | `flash` | `extrude` | `clouds` |
+| 89 | فویلِ هولوگرافیک | `holo-foil` | دیجیتال و رترو |  | `lightup` | `30، 190، 1.0` |  | `flash` | `emboss` | `holo` |
+| 90 | گلدوزی و بافتنی | `embroidery-knit` | دست‌ساز و کاغذی |  | `swing` | `24، 140، 1.0` | 8 | `slide` | `felt` | `cloth` |
+| 91 | موزاییک و کاشی | `mosaic-tiles` | دست‌ساز و کاغذی |  | `build` | `28، 70، 1.3` |  | `blocks` | `plain` | `mosaic` |
+| 92 | عروسکِ گوتیکِ شیطنت‌آمیز | `gothic-puppets` | دست‌ساز و کاغذی |  | `drop` | `24، 140، 1.0` | 12 | `dip` | `hard` | `stripes` |
+| 93 | مینیاتورِ تیلت‌شیفت | `tilt-shift` | سه‌بعدی و عمق‌دار |  | `squash` | `30، 80، 1.2` |  | `fade` | `sticker` | `tiltshift` |
+| 94 | فیگورِ وینیلی | `vinyl-toy` | سه‌بعدی و عمق‌دار |  | `squash` | `10، 130، 0.85` |  | `zoom` | `clay` | `studio` |
+| 95 | نوردهیِ دوگانه | `double-exposure` | سینمایی و حال‌وهوایی |  | `blur` | `30، 80، 1.2` |  | `dip` | `plain` | `doubleexp` |
+| 96 | فیلمِ خانگیِ ۸ میلی‌متری | `home-movie-8mm` | سینمایی و حال‌وهوایی |  | `fade` | `30، 80، 1.2` | 18 | `dip` | `retro` | `radial` |
 <!-- styles:end -->
 
 ستون‌ها: **ورود** = حرکتِ ورودِ عناصر؛ **فنر** = `[میرایی، سفتی، جرم]`؛ **پله** = فریم‌بر‌ثانیهٔ حرکتِ پله‌ای (خالی = روان)؛ **گذار** = گذارِ بینِ صحنه‌ها؛ **متن** = افکتِ متن؛ **پس‌زمینه**. هر ردیف را می‌توانید در صفحه با «تصویرِ نمونه»اش ببینید.
@@ -421,6 +451,7 @@ export default function Video() {
 ## ۱۷) افزودنِ سبک یا صحنهٔ تازه
 
 - **سبکِ تازه:** یک ردیف `S(...)` در `catalog.py` (پالت، قلم، پس‌زمینه، افکتِ متن، شکل، تزئین، بافت، حرکت، گذار)؛ `manage.py motion_build --only catalog,shell` و بعد `node motion/tools/thumbs.mjs ...` برای تصویرِ نمونه. آزمونِ کاتالوگ می‌سنجد: شناسه یکتا باشد، همهٔ مقدارها از فهرستِ شناخته‌شدهٔ موتور باشند، دو سبک فقط در رنگ فرق نکنند، متن روی زمینه خوانا باشد، قلمِ فارسی همهٔ حروفِ فارسی را داشته باشد.
+- **سبکِ تازه از کتابخانهٔ هنریِ InstAI:** سی سبکِ آماده (۹۶ سبکِ کل) و هشت نوعِ تازهٔ موتور (`motion/remotion/src/looks.tsx`) آمده است؛ چگونگیِ تبدیل، جدولِ تفاوت با ۱۱۶ سبکِ InstAI، اندازه‌گیری و دستورِ ساختِ دوباره: [`looks-from-instai-fa.md`](looks-from-instai-fa.md).
 - **نوعِ صحنهٔ تازه:** یک کامپوننت در `motion/remotion/src/scenes.tsx` + فهرستِ کلیدهای مجازش در `specs.py` (`SCENE_FIELDS`) + یک نمونهٔ متن در `SAMPLE_SCENES`؛ هوش مصنوعی و فرمِ صفحه از همان فهرست می‌خوانند.
 - **ورودِ تازه** (`enter`)، **گذارِ تازه** (`trans`)، **پس‌زمینه/تزئین/بافت/افکتِ متنِ تازه**: یک `case` در فایلِ مربوط (`anim.ts`، `bg.tsx`، `decor.tsx`، `tex.tsx`، `text.tsx`) و نامش در فهرستِ ثابتِ بالای `catalog.py`.
 
@@ -470,7 +501,8 @@ export default function Video() {
 | کدِ سرورِ پردازش | `processing/motion_jobs.py` (نوعِ کارِ `motion.render`) |
 | آزمونِ خودکارِ گره | `docs/selftests/motion.md`، `backend/apps/motion/selftest.py` |
 | آزمون‌ها | `python manage.py test apps.motion`؛ `python -m unittest tests.test_motion_jobs` (در `processing/`) |
-| ابزارهای QA | `motion/tools/thumbs.mjs` (تصویرِ نمونهٔ سبک‌ها)، `motion/tools/stills.mjs` (چندین تصویر برای وارسی) |
+| ابزارهای QA | `motion/tools/thumbs.mjs` (تصویرِ نمونهٔ سبک‌ها)، `motion/tools/stills.mjs` (چندین تصویر برای وارسی)، `backend/tools/looks_sheet.py` (ورقِ نمونهٔ سبک‌هایِ InstAI در سه نسبت) |
+| سبک‌هایِ از InstAI | `backend/tools/gen_instai_looks.py` (مولد)، `backend/tools/instai_looks/` (عکسِ ۱۱۶ سبکِ InstAI، قاعده‌هایِ تبدیل، دستورهایِ ۳۰ سبک)، `backend/apps/motion/catalog_looks.py` (خروجیِ مولد)، `motion/remotion/src/looks.tsx` (هشت نوعِ تازه)، `docs/motion/looks-from-instai-fa.md` |
 
 ## ۲۱) نسخهٔ ۲: خطِ تولید، کتابخانهٔ قطعه‌ها و کنترلِ کیفیت — «استودیو چطور بهترین نتیجه را می‌گیرد»
 

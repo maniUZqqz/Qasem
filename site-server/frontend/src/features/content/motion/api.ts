@@ -10,6 +10,8 @@ export type StyleDef = {
   group: string;
   group_label: string;
   about: string;
+  /** برای چه فروشگاهی مناسب است (فقط سبک‌هایی که دارند) */
+  fits?: string;
   tags: string[];
   palette: Record<string, string>;
   font: { latin: string; fa: string };

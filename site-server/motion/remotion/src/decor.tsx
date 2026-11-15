@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { Fill, noiseTile } from "./bg";
 import { useCtx, useQF } from "./ctx";
 import type { Any } from "./types";
+import { LOOK_DECOR } from "./looks";
 import { R, col, mix, rgba, shade } from "./util";
 
 type DProps = { d: Any };
@@ -115,7 +116,7 @@ const Shapes: React.FC<DProps> = ({ d }) => {
   const n = d.n ?? 16;
   const items = Array.from({ length: n }).map((_, i) => {
     const s = (50 + R(`ms${i}`) * 90) * u * (d.size ?? 1);
-    const x = R(`mx${i}`) * W, y = R(`my${i}`) * H + Math.sin(t * 0.8 + i) * 14 * u;
+    const [x, y] = avoidText(R(`mx${i}`) * W, R(`my${i}`) * H + Math.sin(t * 0.8 + i) * 14 * u, W, H, !!d.avoid);     // d.avoid: keep clear of the middle (the text)
     const rot = R(`mr${i}`) * 360 + t * (d.spin ?? 14) * (i % 2 ? 1 : -1);
     const c = cols[i % cols.length];
     const kind = (d.kinds ?? ["circle", "tri", "squiggle", "cross", "half", "dots", "ring"])[i % (d.kinds?.length ?? 7)];
@@ -564,6 +565,7 @@ export const DECOR: { [k: string]: React.FC<DProps> } = {
   speed: Speed, burst: Burst, rain: Rain, smoke: Smoke, gears: Gears, splats: Splats, bars: Bars, birds: Birds, petals: Petals,
   doodles: Doodles, stickman: Stickman, orbs: Orbs, cubes: Cubes, letterbox: Letterbox, flare: Flare, dust: Dust,
   particles: Particles, frame: Frame, bauhaus: Bauhaus, shine: Shine, grain: Grain,
+  ...LOOK_DECOR,     // kawaii (looks.tsx: ported from InstAI)
 };
 
 export const Decor: React.FC<{ layers: Any[]; over?: boolean }> = ({ layers, over }) => (

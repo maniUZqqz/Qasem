@@ -17,11 +17,14 @@ BG_KINDS = (
     "halftone", "mesh", "lowpoly", "stained", "isocubes", "isogrid", "studs", "hills", "clouds", "nightsky", "skyline", "sunset",
     "wood", "bricks", "blinds", "parchment", "wash", "newsprint", "arcs", "fans", "girih", "constellation", "hud", "towers",
     "studio", "spotlight", "layers", "rays", "noise",
+    # from InstAI's looks (docs/motion/looks-from-instai-fa.md): motion/remotion/src/looks.tsx
+    "mosaic", "ornament", "waves", "holo", "doubleexp", "tiltshift", "cloth",
 )
 DECOR_KINDS = (
     "confetti", "sparkles", "pixels", "corners", "bubbles", "shapes", "blobs", "speed", "burst", "rain", "smoke", "gears",
     "splats", "bars", "birds", "petals", "doodles", "stickman", "orbs", "cubes", "letterbox", "flare", "dust", "particles",
     "frame", "bauhaus", "shine", "grain",
+    "kawaii",
 )
 TEX_KINDS = (
     "grain", "halftone", "scanlines", "crosshatch", "paper", "dither", "vignette", "bloom", "chalkdust", "flicker", "scratches",
@@ -50,6 +53,7 @@ GROUPS = {
     "graphic": "گرافیک و تایپوگرافی",
     "cinematic": "سینمایی و حال‌وهوایی",
     "lines": "خط و طرح",
+    "painted": "نقاشی و چاپِ دستی",
 }
 
 PAL_KEYS = ("bg", "bg2", "ink", "paper", "accent", "accent2", "accent3", "muted")
@@ -62,7 +66,7 @@ def _pal(s: str) -> dict:
 
 
 def S(id, fa, en, group, pal, font, bg, text, *, shape=None, decor=None, tex=None, motion=None, trans=("fade", 16), fx=None,
-      bg2=None, inspired=None, about="", tags=()):
+      bg2=None, inspired=None, about="", tags=(), fits=""):
     f = {"latin": "vazirmatn", "fa": "vazirmatn", "weight": 700, "body_latin": None, "body_fa": None, "case": "none", "track": 0,
          "lh": 1.3}
     f.update(font)
@@ -72,11 +76,14 @@ def S(id, fa, en, group, pal, font, bg, text, *, shape=None, decor=None, tex=Non
     m.update(motion or {})
     if isinstance(m["spring"], tuple):
         m["spring"] = list(m["spring"])
-    return {
+    row = {
         "id": id, "name_fa": fa, "name_en": en, "inspired": inspired, "group": group, "about": about, "tags": list(tags),
         "palette": _pal(pal), "font": f, "bg": bg, "bg2": bg2, "tex": tex or [], "text": text, "shape": sh,
         "decor": decor or [], "motion": m, "trans": {"kind": trans[0], "frames": trans[1]}, "fx": fx or {},
     }
+    if fits:
+        row["fits"] = fits          # «برای چه فروشگاهی مناسب است» — فقط سبک‌هایی که دارند (سی سبکِ تازه از InstAI)
+    return row
 
 
 STYLES = [
@@ -802,6 +809,19 @@ STYLES = [
       motion={"enter": "pop", "spring": (13, 160, 0.85), "stagger": 6}, trans=("wipe-diag", 12), fx={"posterize": 6},
       about="رنگ‌های تخت با سایهٔ پله‌ای، خطِ دورِ ضخیم و نورِ لبه؛ ظاهرِ کارتونیِ بازی‌های سه‌بعدی.", tags=("کارتونی", "بازی")),
 ]
+
+
+# ───────────────────────────── سی سبکِ تازه از کتابخانهٔ هنریِ InstAI (فایلِ تولیدشده: backend/tools/gen_instai_looks.py)
+try:
+    from . import catalog_looks as _looks  # noqa: E402
+except ImportError:             # این فایل را ابزارهایِ بیرونِ بسته (motion/tools/gen_style_table.py) با مسیر بار می‌کنند، نه به‌عنوانِ بخشی از اپ
+    import importlib.util as _ilu
+
+    _spec = _ilu.spec_from_file_location("nm_motion_catalog_looks", Path(__file__).with_name("catalog_looks.py"))
+    _looks = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_looks)
+
+STYLES.extend(_looks.rows(S))
 
 
 def _validate_unique():

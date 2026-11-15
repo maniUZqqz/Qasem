@@ -2,6 +2,7 @@ import React from "react";
 import type { CSSProperties } from "react";
 import { useCtx, useQF } from "./ctx";
 import type { Any } from "./types";
+import { LOOK_BG } from "./looks";
 import { R, col, mix, rgba, shade } from "./util";
 
 export const Fill: React.FC<{ style?: CSSProperties; children?: React.ReactNode }> = ({ style, children }) => (
@@ -788,6 +789,7 @@ export const BG: { [k: string]: React.FC<BgProps> } = {
   nightsky: NightSky, skyline: Skyline, sunset: Sunset, wood: Wood, bricks: Bricks, blinds: Blinds, parchment: Parchment,
   wash: Wash, newsprint: Newsprint, arcs: Arcs, fans: Fans, girih: Girih, constellation: Constellation, hud: Hud,
   towers: Towers, studio: Studio, spotlight: Spotlight, layers: Layers, rays: Rays, noise: Noise,
+  ...LOOK_BG,        // mosaic, ornament, waves, holo, doubleexp, tiltshift, cloth (looks.tsx: ported from InstAI)
 };
 
 /** an optional soft scrim (spec.veil 0..1, colour spec.veilColor) behind the text of a busy background: the middle calms down, the edges keep the pattern */

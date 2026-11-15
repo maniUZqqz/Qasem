@@ -68,10 +68,10 @@ export function ownerLabel(s: Pick<StyleDef, "id" | "name_en">): string {
   return first && !norm(s.name_en).includes(norm(first)) ? first : "";
 }
 
-/** آیا عبارتِ جست‌وجو این سبک را پیدا می‌کند؟ (نامِ فارسی، نامِ انگلیسی، برچسب‌ها، «الهام از»، و نام‌های فهرستِ مالک؛ بی‌توجه به حروفِ بزرگ و فاصله). */
+/** آیا عبارتِ جست‌وجو این سبک را پیدا می‌کند؟ (نامِ فارسی، نامِ انگلیسی، برچسب‌ها، «الهام از»، «مناسبِ …»، و نام‌های فهرستِ مالک؛ بی‌توجه به حروفِ بزرگ و فاصله). */
 export function styleMatches(s: StyleDef, q: string): boolean {
   const needle = norm(q);
   if (!needle) return true;
-  const hay = [s.name_fa, s.name_en, s.inspired || "", ...s.tags, ...(OWNER_NAMES[s.id] || [])];
+  const hay = [s.name_fa, s.name_en, s.inspired || "", ...s.tags, ...(OWNER_NAMES[s.id] || []), s.fits || ""];      // `fits`: «مناسبِ کافه و نانوایی…» (فقط سی سبکِ تازه از InstAI)
   return hay.some((h) => norm(h).includes(needle));
 }

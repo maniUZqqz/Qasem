@@ -6202,6 +6202,3135 @@
    "fx": {
     "posterize": 6
    }
+  },
+  {
+   "id": "manga-ink",
+   "name_fa": "مانگای جوهری",
+   "name_en": "Manga Ink",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "خطِ سیاهِ ضخیم، نقطه‌چینِ چاپی و خط‌های تمرکز با یک لکهٔ قرمز؛ حسِ یک صفحهٔ مانگا.",
+   "tags": [
+    "مانگا",
+    "سیاه‌وسفید",
+    "پرانرژی"
+   ],
+   "palette": {
+    "bg": "#ffffff",
+    "bg2": "#cfcfcf",
+    "ink": "#000000",
+    "paper": "#f5f5f5",
+    "accent": "#bc2323",
+    "accent2": "#b5b5b5",
+    "accent3": "#6b6b6b",
+    "muted": "#737373"
+   },
+   "font": {
+    "latin": "staatliches",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.02,
+    "lh": 1.15
+   },
+   "bg": {
+    "kind": "halftone",
+    "base": "bg",
+    "dot": "muted",
+    "size": 24,
+    "angle": 125,
+    "maskA": 0.95,
+    "maskB": 0.04
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 6
+   },
+   "shape": {
+    "radius": 0,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 9,
+    "tilt": 0.8
+   },
+   "decor": [
+    {
+     "kind": "speed",
+     "n": 30,
+     "color": "ink",
+     "rate": 10
+    }
+   ],
+   "motion": {
+    "enter": "slam",
+    "spring": [
+     18,
+     200,
+     0.8
+    ],
+    "stagger": 6,
+    "stepFps": 8,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe-diag",
+    "frames": 10
+   },
+   "fx": {},
+   "fits": "معرفیِ محصولِ جوان‌پسند، حراجِ «فقط امروز»، کتاب و سرگرمی."
+  },
+  {
+   "id": "die-cut-sticker",
+   "name_fa": "برچسبِ برش‌خورده",
+   "name_en": "Die-cut Sticker",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "برچسب‌هایِ رنگیِ لبه‌سفید که روی صفحه می‌چسبند و کمی تکان می‌خورند؛ شاد و قابلِ اشتراک.",
+   "tags": [
+    "برچسب",
+    "شاد",
+    "جوان"
+   ],
+   "palette": {
+    "bg": "#fff5f7",
+    "bg2": "#ffd9e5",
+    "ink": "#4a4e69",
+    "paper": "#ffffff",
+    "accent": "#d41e5e",
+    "accent2": "#4d96ff",
+    "accent3": "#ffd93d",
+    "muted": "#9b99a9"
+   },
+   "font": {
+    "latin": "bungee",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.01,
+    "lh": 1.2
+   },
+   "bg": {
+    "kind": "dots",
+    "base": "bg",
+    "dot": "bg2",
+    "size": 52,
+    "r": 7,
+    "drift": 8
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "sticker",
+    "color": "ink",
+    "sticker": "paper"
+   },
+   "shape": {
+    "radius": 30,
+    "border": 8,
+    "shadow": "float",
+    "fill": "paper",
+    "bc": "paper",
+    "tilt": 2,
+    "badge": "accent"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 12,
+     "kinds": [
+      "circle",
+      "half",
+      "tri",
+      "cross",
+      "ring"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "outline": true,
+     "size": 0.9,
+     "spin": 16,
+     "avoid": true
+    },
+    {
+     "kind": "sparkles",
+     "n": 6,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     17,
+     140,
+     1.0
+    ],
+    "stagger": 8,
+    "stepFps": 12,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flip",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "محصولِ کادویی و جوان‌پسند، لوازم‌التحریر، مناسبت‌هایِ فروش و قرعه‌کشی."
+  },
+  {
+   "id": "kawaii-pastel",
+   "name_fa": "کاوایی پاستلی",
+   "name_en": "Kawaii Pastel",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "نقطه‌هایِ صورتی، قلب و ستاره و ابرِ خندان که آرام بالا می‌روند؛ نرم و بامزه.",
+   "tags": [
+    "بامزه",
+    "پاستلی",
+    "دخترانه"
+   ],
+   "palette": {
+    "bg": "#fff5f9",
+    "bg2": "#ffe8ef",
+    "ink": "#554a75",
+    "paper": "#ffffff",
+    "accent": "#d42462",
+    "accent2": "#ff94b0",
+    "accent3": "#c7ceea",
+    "muted": "#a297b0"
+   },
+   "font": {
+    "latin": "londrina-solid",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.01,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "dots",
+    "base": "bg",
+    "dot": "accent2",
+    "size": 46,
+    "r": 8,
+    "drift": 6
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.04
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent2",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 40,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "accent",
+    "sc": "accent2",
+    "offset": 6,
+    "tilt": -1,
+    "badge": "accent"
+   },
+   "decor": [
+    {
+     "kind": "kawaii",
+     "n": 14,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     18,
+     200,
+     0.8
+    ],
+    "stagger": 6,
+    "stepFps": 8,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flip",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "لوازم‌التحریر و اکسسوری، شیرینی و دسر، محصولاتِ دخترانه."
+  },
+  {
+   "id": "crayon-doodle",
+   "name_fa": "نقاشیِ شمعیِ کودکانه",
+   "name_en": "Kids' Crayon Doodle",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "خطِ شمعیِ نامرتب، دایره و فِلِش‌هایِ دست‌کشیده روی کاغذ؛ ساده و صمیمی.",
+   "tags": [
+    "کودک",
+    "شمعی",
+    "شاد"
+   ],
+   "palette": {
+    "bg": "#fffde7",
+    "bg2": "#fcdbc9",
+    "ink": "#6d4c41",
+    "paper": "#ffffff",
+    "accent": "#0a5fa8",
+    "accent2": "#42a5f5",
+    "accent3": "#ffee58",
+    "muted": "#af9c8c"
+   },
+   "font": {
+    "latin": "chelsea-market",
+    "fa": "harmattan",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.35
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.35
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    }
+   ],
+   "text": {
+    "fx": "hand",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 16,
+    "border": 5,
+    "shadow": "none",
+    "fill": "paper",
+    "bc": "accent",
+    "dash": true,
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "doodles",
+     "color": "accent2",
+     "sw": 9,
+     "arrow": true
+    },
+    {
+     "kind": "confetti",
+     "n": 12,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 1.1,
+     "speed": 0.4
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     17,
+     140,
+     1.0
+    ],
+    "stagger": 8,
+    "stepFps": 8,
+    "wobble": 4,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "محصولِ کودک، لوازم‌التحریر، مهدکودک و کلاس‌هایِ هنری."
+  },
+  {
+   "id": "rubber-hose-1930s",
+   "name_fa": "کارتونِ قدیمیِ دههٔ سی",
+   "name_en": "1930s Rubber-hose Cartoon",
+   "inspired": null,
+   "group": "cartoon",
+   "about": "پرتوهایِ پس‌زمینه، خراش و دانهٔ نوار و جهشِ کش‌دارِ حروف؛ حالوهوایِ کارتون‌هایِ اولِ سینما.",
+   "tags": [
+    "کارتونِ قدیمی",
+    "رترو",
+    "شوخ"
+   ],
+   "palette": {
+    "bg": "#f4ecd8",
+    "bg2": "#cac4b4",
+    "ink": "#000000",
+    "paper": "#ffffff",
+    "accent": "#7d2e24",
+    "accent2": "#b5483a",
+    "accent3": "#d9b44a",
+    "muted": "#6e6a61"
+   },
+   "font": {
+    "latin": "luckiest-guy",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "rays",
+    "a": "bg",
+    "b": "bg2",
+    "n": 16,
+    "speed": 4,
+    "cy": 52
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "scratches",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.2
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.1
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.4
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent2",
+    "depth": 7
+   },
+   "shape": {
+    "radius": 40,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "ink",
+    "offset": 8,
+    "tilt": 1.2
+   },
+   "decor": [
+    {
+     "kind": "bubbles",
+     "n": 6,
+     "color": "paper"
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     8,
+     170,
+     0.7
+    ],
+    "stagger": 5,
+    "stepFps": 12,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "iris",
+    "frames": 16
+   },
+   "fx": {},
+   "fits": "نانوایی و بستنی‌فروشی، برندِ خانوادگی و قدیمی."
+  },
+  {
+   "id": "oil-impressionist",
+   "name_fa": "رنگ‌روغنِ امپرسیونیستی",
+   "name_en": "Impressionist Oil",
+   "inspired": null,
+   "group": "painted",
+   "about": "لکه‌هایِ رنگِ ضخیمِ روغنی روی منظره‌ای نرم؛ نور و رنگ مهم‌تر از جزئیات است.",
+   "tags": [
+    "نقاشی",
+    "رنگ‌روغن",
+    "نرم"
+   ],
+   "palette": {
+    "bg": "#eaf3e4",
+    "bg2": "#cbdec9",
+    "ink": "#2f4858",
+    "paper": "#ffffff",
+    "accent": "#c1323e",
+    "accent2": "#d96c75",
+    "accent3": "#f0c75e",
+    "muted": "#839597"
+   },
+   "font": {
+    "latin": "dm-serif-display",
+    "fa": "amiri",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "hills",
+    "sky": [
+     "bg",
+     "bg2"
+    ],
+    "colors": [
+     "bg2",
+     "accent"
+    ],
+    "layers": 3,
+    "amp": 0.05,
+    "spread": 0.3,
+    "horizon": 0.6,
+    "parallax": 0.8,
+    "speed": 3,
+    "sun": true,
+    "sunColor": "accent3",
+    "sunY": 0.22
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    },
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.12
+    }
+   ],
+   "text": {
+    "fx": "emboss",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 22,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "rgba(255,255,255,0.8)"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 26
+    },
+    {
+     "kind": "petals",
+     "n": 9,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 26
+   },
+   "fx": {},
+   "fits": "هنر و دکور، گل و گیاه، کافه و رستوران، کالایِ دست‌ساز."
+  },
+  {
+   "id": "gouache-storybook",
+   "name_fa": "گواشِ کتابِ کودک",
+   "name_en": "Gouache Picture Book",
+   "inspired": null,
+   "group": "painted",
+   "about": "شکل‌هایِ مات و ساده با رنگ‌هایِ گرم و لایه‌لایه، مثلِ تصویرِ یک کتابِ کودک.",
+   "tags": [
+    "کودک",
+    "گرم",
+    "داستانی"
+   ],
+   "palette": {
+    "bg": "#fbf1dc",
+    "bg2": "#f7d7c0",
+    "ink": "#264653",
+    "paper": "#ffffff",
+    "accent": "#14594f",
+    "accent2": "#2a9d8f",
+    "accent3": "#e9c46a",
+    "muted": "#869391"
+   },
+   "font": {
+    "latin": "patrick-hand",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "layers",
+    "base": "bg",
+    "colors": [
+     "accent2",
+     "accent",
+     "accent3",
+     "bg2"
+    ],
+    "n": 4,
+    "veil": 0.86,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "marker",
+    "color": "ink",
+    "hi": "accent3"
+   },
+   "shape": {
+    "radius": 30,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "blobs",
+     "n": 4,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "op": 0.3,
+     "size": 1
+    },
+    {
+     "kind": "birds",
+     "n": 3,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 22
+   },
+   "fx": {},
+   "fits": "اسباب‌بازی و کتابِ کودک، لباسِ بچه، شیرینی و نانوایی."
+  },
+  {
+   "id": "art-nouveau",
+   "name_fa": "آرنوو گیاهی",
+   "name_en": "Art Nouveau Botanical",
+   "inspired": null,
+   "group": "painted",
+   "about": "ساقه و برگ و گلِ پیچان در دو لبهٔ قاب با رنگ‌هایِ خاکی و طلایی؛ ظریف و پُرکار.",
+   "tags": [
+    "گل‌وگیاه",
+    "ظریف",
+    "تزئینی"
+   ],
+   "palette": {
+    "bg": "#f1e6c8",
+    "bg2": "#d9d5b2",
+    "ink": "#2f3b2a",
+    "paper": "#fff8e1",
+    "accent": "#9d4f37",
+    "accent2": "#a8553b",
+    "accent3": "#c9a227",
+    "muted": "#868871"
+   },
+   "font": {
+    "latin": "abril-fatface",
+    "fa": "amiri",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "ornament",
+    "mode": "vine",
+    "base": "bg",
+    "line": "accent3",
+    "a": "accent2",
+    "b": "accent",
+    "sway": 0.35,
+    "veil": 0.5,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.25
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 26,
+    "border": 4,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "accent3",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "petals",
+     "n": 8,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "grow",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "iris",
+    "frames": 22
+   },
+   "fx": {},
+   "fits": "لوازمِ آرایشی و بهداشتی، عطر و گل‌فروشی، جواهر و صنایع‌دستی."
+  },
+  {
+   "id": "linocut-print",
+   "name_fa": "چاپِ لینولئوم",
+   "name_en": "Linocut Print",
+   "inspired": null,
+   "group": "painted",
+   "about": "کاغذِ کاهی، جوهرِ سیاه با یک لکهٔ قرمز و نارنجی و خط‌هایِ حکاکی؛ لبه‌هایِ زبرِ چاپِ دستی.",
+   "tags": [
+    "چاپ",
+    "دست‌ساز",
+    "اصیل"
+   ],
+   "palette": {
+    "bg": "#f4ebd9",
+    "bg2": "#c8c1b3",
+    "ink": "#000000",
+    "paper": "#ffffff",
+    "accent": "#7a1a1d",
+    "accent2": "#ca6702",
+    "accent3": "#1a1a1a",
+    "muted": "#6e6a62"
+   },
+   "font": {
+    "latin": "black-ops-one",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 14,
+    "angle": 78,
+    "move": 0
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.16
+    },
+    {
+     "kind": "crosshatch",
+     "color": "ink",
+     "opacity": 0.05
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 2,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 7,
+    "tilt": 0.5
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "stamp",
+    "spring": [
+     18,
+     200,
+     0.8
+    ],
+    "stagger": 6,
+    "stepFps": 8,
+    "wobble": 2,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "محصولِ دست‌ساز و ارگانیک، قهوه و چای، بسته‌بندیِ سنتی."
+  },
+  {
+   "id": "woodblock-waves",
+   "name_fa": "چاپِ چوبیِ موج‌دار",
+   "name_en": "Woodblock Wave Print",
+   "inspired": null,
+   "group": "painted",
+   "about": "موج‌هایِ هم‌پوشان، جوهرِ سیاه، لاجوردی و قرمزِ مُهر روی کاغذِ کاهی؛ سبکِ چاپِ چوبیِ ژاپنی.",
+   "tags": [
+    "چاپ چوبی",
+    "موج",
+    "ژاپنی"
+   ],
+   "palette": {
+    "bg": "#f1e4c8",
+    "bg2": "#c7c6b8",
+    "ink": "#1b1b1b",
+    "paper": "#ffffff",
+    "accent": "#a73225",
+    "accent2": "#c0392b",
+    "accent3": "#e3b448",
+    "muted": "#7b7569"
+   },
+   "font": {
+    "latin": "rock-salt",
+    "fa": "katibeh",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "waves",
+    "base": "bg",
+    "colors": [
+     "accent2",
+     "bg2"
+    ],
+    "line": "ink",
+    "size": 62,
+    "op": 0.85,
+    "speed": 14,
+    "soft": 0.58,
+    "veil": 0.55,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.25
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 4,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 6,
+    "extra": "band",
+    "bandColor": "accent"
+   },
+   "decor": [
+    {
+     "kind": "birds",
+     "n": 4,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     17,
+     140,
+     1.0
+    ],
+    "stagger": 8,
+    "stepFps": 8,
+    "wobble": 4,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe",
+    "frames": 16
+   },
+   "fx": {},
+   "fits": "رستورانِ دریایی و سوشی، چای و لوازمِ آشپزخانه، هنر و دکور."
+  },
+  {
+   "id": "charcoal-sketch",
+   "name_fa": "طرحِ زغال",
+   "name_en": "Charcoal Sketch",
+   "inspired": null,
+   "group": "painted",
+   "about": "خطِ زغالیِ تیره روی کاغذِ زبر با لکه و دودگرفتگی؛ دراماتیک و خام.",
+   "tags": [
+    "زغال",
+    "طراحی",
+    "دراماتیک"
+   ],
+   "palette": {
+    "bg": "#e9e4da",
+    "bg2": "#c6c2ba",
+    "ink": "#0e0e0e",
+    "paper": "#ffffff",
+    "accent": "#3d3c39",
+    "accent2": "#7a7771",
+    "accent3": "#b9b3a6",
+    "muted": "#716e6a"
+   },
+   "font": {
+    "latin": "special-elite",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "paper",
+    "base": "bg",
+    "fiber": 0.65,
+    "edge": 0.1
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "crosshatch",
+     "color": "ink",
+     "opacity": 0.07
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.14
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 3,
+    "shadow": "none",
+    "fill": "paper",
+    "bc": "ink",
+    "dash": true,
+    "filter": "url(#nm-rough)"
+   },
+   "decor": [
+    {
+     "kind": "smoke",
+     "n": 5,
+     "color": "ink",
+     "op": 0.1
+    },
+    {
+     "kind": "doodles",
+     "color": "ink",
+     "sw": 5,
+     "op": 0.5
+    }
+   ],
+   "motion": {
+    "enter": "bloom",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 24
+   },
+   "fx": {},
+   "fits": "هنر و گالری، آموزشِ طراحی، لوازم‌التحریر و دکور."
+  },
+  {
+   "id": "sumi-ink-wash",
+   "name_fa": "آب‌مرکبِ شرقی",
+   "name_en": "Ink Wash (Sumi)",
+   "inspired": null,
+   "group": "painted",
+   "about": "لکه‌هایِ مرکبِ رقیق روی کاغذِ برنج و یک مُهرِ قرمز؛ آرام و خلوت.",
+   "tags": [
+    "مرکب",
+    "آرام",
+    "شرقی"
+   ],
+   "palette": {
+    "bg": "#f4efe6",
+    "bg2": "#ccc8c1",
+    "ink": "#111111",
+    "paper": "#ffffff",
+    "accent": "#7a1313",
+    "accent2": "#6f6f6f",
+    "accent3": "#2b2b2b",
+    "muted": "#777571"
+   },
+   "font": {
+    "latin": "major-mono-display",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.35
+   },
+   "bg": {
+    "kind": "wash",
+    "base": "bg",
+    "colors": [
+     "ink",
+     "muted",
+     "accent"
+    ],
+    "n": 5,
+    "op": 0.2
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.35
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.08
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.18
+    }
+   ],
+   "text": {
+    "fx": "ink",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 14,
+    "border": 0,
+    "shadow": "soft",
+    "fill": "rgba(255,255,255,0.7)"
+   },
+   "decor": [
+    {
+     "kind": "smoke",
+     "n": 4,
+     "color": "ink",
+     "op": 0.08
+    },
+    {
+     "kind": "birds",
+     "n": 3,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "wipe",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 28
+   },
+   "fx": {},
+   "fits": "چای و دمنوش، سلامت و یوگا، فروشگاهِ آرامش‌بخش."
+  },
+  {
+   "id": "calligraphy-ink",
+   "name_fa": "خوشنویسیِ جوهری",
+   "name_en": "Calligraphic Ink",
+   "inspired": null,
+   "group": "painted",
+   "about": "کاغذِ آهارمُهره‌نما، مرکبِ سیاه با سایهٔ قرمز و قابِ طلایی؛ باشکوه و فارسی.",
+   "tags": [
+    "خوشنویسی",
+    "فارسی",
+    "باشکوه"
+   ],
+   "palette": {
+    "bg": "#efe3c8",
+    "bg2": "#c5bba6",
+    "ink": "#0a0a0a",
+    "paper": "#fff8e1",
+    "accent": "#8b1e1e",
+    "accent2": "#1c1c1c",
+    "accent3": "#c9a227",
+    "muted": "#716c60"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "katibeh",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.4
+   },
+   "bg": {
+    "kind": "parchment",
+    "base": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.25
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 4
+   },
+   "shape": {
+    "radius": 8,
+    "border": 3,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "accent3",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent3"
+    },
+    {
+     "kind": "dust",
+     "n": 22
+    }
+   ],
+   "motion": {
+    "enter": "unfold",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 24
+   },
+   "fx": {},
+   "fits": "کتاب و لوازم‌التحریر، هدیه‌هایِ فرهنگی، تبریک‌ها."
+  },
+  {
+   "id": "dark-fantasy-art",
+   "name_fa": "نقاشیِ فانتزیِ تاریک",
+   "name_en": "Dark Fantasy Painting",
+   "inspired": null,
+   "group": "painted",
+   "about": "قصرِ سیاه‌نما زیرِ ماه، مه و جرقه‌هایِ کهربایی؛ تیره و سنگین.",
+   "tags": [
+    "تاریک",
+    "فانتزی",
+    "بازی"
+   ],
+   "palette": {
+    "bg": "#12141c",
+    "bg2": "#28323e",
+    "ink": "#e8dcc8",
+    "paper": "#e8dcc8",
+    "accent": "#daa645",
+    "accent2": "#8a5a3c",
+    "accent3": "#3a4a5a",
+    "muted": "#88827b"
+   },
+   "font": {
+    "latin": "cinzel",
+    "fa": "amiri",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.04,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "nightsky",
+    "from": "bg",
+    "to": "bg2",
+    "stars": 60,
+    "castle": true,
+    "moon": true,
+    "bld": "#05060a",
+    "win": "accent"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.55
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.12,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "softglow",
+    "color": "ink",
+    "glow": "accent"
+   },
+   "shape": {
+    "radius": 6,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "bg2",
+    "bc": "muted",
+    "sc": "accent"
+   },
+   "decor": [
+    {
+     "kind": "smoke",
+     "n": 6,
+     "color": "paper",
+     "op": 0.1
+    },
+    {
+     "kind": "dust",
+     "n": 40
+    }
+   ],
+   "motion": {
+    "enter": "blur",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "dip",
+    "frames": 26
+   },
+   "fx": {},
+   "fits": "بازی و سرگرمی، کتاب و رمان، کافه‌هایِ موضوعی."
+  },
+  {
+   "id": "pulp-scifi",
+   "name_fa": "پالپِ علمی‌تخیلی",
+   "name_en": "Retro Pulp Sci-fi",
+   "inspired": null,
+   "group": "painted",
+   "about": "نقطه‌هایِ چاپی، انفجارِ زرد و رنگ‌هایِ داغِ جلدِ مجله‌هایِ قدیمی.",
+   "tags": [
+    "رترو",
+    "علمی‌تخیلی",
+    "جلد"
+   ],
+   "palette": {
+    "bg": "#f2d8a7",
+    "bg2": "#ebbb98",
+    "ink": "#2b2118",
+    "paper": "#fff4dc",
+    "accent": "#154a60",
+    "accent2": "#2e86ab",
+    "accent3": "#edae49",
+    "muted": "#857358"
+   },
+   "font": {
+    "latin": "bowlby-one",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.01,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "halftone",
+    "base": "bg",
+    "dot": "accent2",
+    "size": 30,
+    "angle": 150,
+    "maskA": 0.9,
+    "maskB": 0.08
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "halftone",
+     "color": "ink",
+     "size": 16,
+     "opacity": 0.07
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.12
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 8
+   },
+   "shape": {
+    "radius": 6,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent2",
+    "offset": 8,
+    "tilt": -1.2
+   },
+   "decor": [
+    {
+     "kind": "burst",
+     "color": "accent3",
+     "stroke": "ink",
+     "spikes": 14,
+     "r": 0.5,
+     "cy": 0.5,
+     "spin": 0.05
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "wipe-diag",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "کتاب و مجله، بازی و سرگرمی، حراجِ ویژه."
+  },
+  {
+   "id": "persian-miniature",
+   "name_fa": "مینیاتورِ ایرانی",
+   "name_en": "Persian Miniature Painting",
+   "inspired": null,
+   "group": "painted",
+   "about": "صفحهٔ تذهیب‌شده با لاجورد و زر و ترنجِ گوشه‌ها؛ زبانِ نگارگریِ ایرانی.",
+   "tags": [
+    "ایرانی",
+    "تذهیب",
+    "سنتی"
+   ],
+   "palette": {
+    "bg": "#f3e3c0",
+    "bg2": "#c8cbb1",
+    "ink": "#1e2761",
+    "paper": "#fff8e1",
+    "accent": "#b3262e",
+    "accent2": "#1b6b73",
+    "accent3": "#d4a017",
+    "muted": "#7e7c8c"
+   },
+   "font": {
+    "latin": "amiri",
+    "fa": "aref-ruqaa",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.4
+   },
+   "bg": {
+    "kind": "ornament",
+    "mode": "frame",
+    "base": "bg",
+    "line": "accent3",
+    "a": "accent2",
+    "b": "accent3",
+    "veil": 0.55,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "paper",
+     "opacity": 0.25
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.06
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 3,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "accent3",
+    "extra": "corner"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 18
+    }
+   ],
+   "motion": {
+    "enter": "unfold",
+    "spring": [
+     17,
+     140,
+     1.0
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "curtain",
+    "frames": 22
+   },
+   "fx": {},
+   "fits": "شیرینی و سوغات، صنایع‌دستی، کتاب و هدیه‌هایِ ایرانی."
+  },
+  {
+   "id": "surreal-dream",
+   "name_fa": "رؤیایِ سورئال",
+   "name_en": "Surreal Dreamscape",
+   "inspired": null,
+   "group": "painted",
+   "about": "آسمانِ هلویی با ابرِ شناور، کره‌هایِ خمیری و هندسهٔ معلق؛ فضایِ خیال.",
+   "tags": [
+    "خیال",
+    "سورئال",
+    "هنری"
+   ],
+   "palette": {
+    "bg": "#f2c9a0",
+    "bg2": "#d1b6a5",
+    "ink": "#1b1f3b",
+    "paper": "#fff1e0",
+    "accent": "#9c2737",
+    "accent2": "#d1495b",
+    "accent3": "#edae49",
+    "muted": "#7c6c68"
+   },
+   "font": {
+    "latin": "unbounded",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "clouds",
+    "sky": [
+     "bg2",
+     "bg"
+    ],
+    "cloud": "paper",
+    "shadow": "accent2",
+    "n": 7,
+    "band": 0.7,
+    "speed": 1.2
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.06,
+     "blend": "overlay"
+    },
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.14
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 40,
+    "border": 0,
+    "shadow": "float",
+    "fill": "rgba(255,255,255,0.82)"
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "clay",
+     "n": 4,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 0.9
+    },
+    {
+     "kind": "shapes",
+     "n": 6,
+     "kinds": [
+      "ring",
+      "half",
+      "tri"
+     ],
+     "colors": [
+      "accent",
+      "accent3"
+     ],
+     "outline": true,
+     "size": 1.0,
+     "spin": 6,
+     "avoid": true
+    }
+   ],
+   "motion": {
+    "enter": "float",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 7,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 24
+   },
+   "fx": {},
+   "fits": "محصولِ خلاقانه و هنری، عطر و خواب، تبلیغِ مفهومی."
+  },
+  {
+   "id": "travel-poster",
+   "name_fa": "پوسترِ سفرِ قدیمی",
+   "name_en": "Vintage Travel Poster",
+   "inspired": null,
+   "group": "graphic",
+   "about": "پرتوهایِ خورشید، قابِ پوستر و حروفِ فشرده با رنگ‌هایِ گرمِ پوسترهایِ مسافرتیِ قدیمی.",
+   "tags": [
+    "پوستر",
+    "سفر",
+    "نوستالژی"
+   ],
+   "palette": {
+    "bg": "#f5e6c8",
+    "bg2": "#eec7b2",
+    "ink": "#244a6a",
+    "paper": "#ffffff",
+    "accent": "#00525f",
+    "accent2": "#00798c",
+    "accent3": "#edae49",
+    "muted": "#829094"
+   },
+   "font": {
+    "latin": "bebas-neue",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.04,
+    "lh": 1.15
+   },
+   "bg": {
+    "kind": "rays",
+    "a": "bg",
+    "b": "bg2",
+    "n": 14,
+    "speed": 3,
+    "cy": 62
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.14
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.2
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent2",
+    "depth": 6
+   },
+   "shape": {
+    "radius": 6,
+    "border": 5,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 8,
+    "extra": "band",
+    "bandColor": "accent2"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "ink"
+    },
+    {
+     "kind": "birds",
+     "n": 4,
+     "color": "ink"
+    }
+   ],
+   "motion": {
+    "enter": "drop",
+    "spring": [
+     20,
+     150,
+     1.0
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 18
+   },
+   "fx": {},
+   "fits": "آژانسِ مسافرتی، اقامتگاه و کافه، محصولِ سوغاتی و فصلی."
+  },
+  {
+   "id": "duotone-gradient",
+   "name_fa": "دوتونِ گرادیانی",
+   "name_en": "Duotone Gradient",
+   "inspired": null,
+   "group": "graphic",
+   "about": "دو رنگِ همسایه از تیره تا روشن، بدونِ شلوغی؛ مدرن و تمیز.",
+   "tags": [
+    "مدرن",
+    "دورنگ",
+    "مینیمال"
+   ],
+   "palette": {
+    "bg": "#1b0b3a",
+    "bg2": "#501d83",
+    "ink": "#ffffff",
+    "paper": "#ffffff",
+    "accent": "#ffd0e8",
+    "accent2": "#ff6fb5",
+    "accent3": "#7b2cbf",
+    "muted": "#9891a6"
+   },
+   "font": {
+    "latin": "syncopate",
+    "fa": "kufam",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0.1,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "linear",
+    "from": "bg",
+    "mid": "bg2",
+    "to": "accent3",
+    "angle": 200,
+    "drift": 10,
+    "flip": true
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.06,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 24,
+    "border": 1,
+    "shadow": "soft",
+    "fill": "glass",
+    "bc": "rgba(255,255,255,0.3)"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 6,
+     "kinds": [
+      "ring",
+      "half"
+     ],
+     "colors": [
+      "accent",
+      "accent2"
+     ],
+     "outline": true,
+     "size": 1.3,
+     "spin": 4,
+     "avoid": true
+    },
+    {
+     "kind": "shine",
+     "speed": 0.2
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     30,
+     190,
+     1.0
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "push",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "اپلیکیشن و خدماتِ آنلاین، برندِ مینیمال، معرفیِ ویژگی‌ها."
+  },
+  {
+   "id": "constructivist-poster",
+   "name_fa": "پوسترِ ساختن‌گرا",
+   "name_en": "Constructivist Poster",
+   "inspired": null,
+   "group": "graphic",
+   "about": "مورب‌هایِ تند، قرمز و سیاه و کرم و حروفِ سنگین؛ حسِ یک پوسترِ اعلامیه‌ای.",
+   "tags": [
+    "پوستر",
+    "مورب",
+    "فوری"
+   ],
+   "palette": {
+    "bg": "#f0e6d2",
+    "bg2": "#e7c0b1",
+    "ink": "#000000",
+    "paper": "#ffffff",
+    "accent": "#9c1a20",
+    "accent2": "#1a1a1a",
+    "accent3": "#8d8d8d",
+    "muted": "#6c685e"
+   },
+   "font": {
+    "latin": "rubik-mono-one",
+    "fa": "kufam",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "upper",
+    "track": 0,
+    "lh": 1.1
+   },
+   "bg": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 150,
+    "angle": -35,
+    "move": 20
+   },
+   "bg2": {
+    "kind": "solid",
+    "c": "#ee4b43"
+   },
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.12
+    },
+    {
+     "kind": "halftone",
+     "color": "ink",
+     "size": 14,
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 7
+   },
+   "shape": {
+    "radius": 0,
+    "border": 6,
+    "shadow": "hard",
+    "fill": "paper",
+    "bc": "ink",
+    "sc": "accent",
+    "offset": 9,
+    "tilt": -1.5
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 6,
+     "kinds": [
+      "tri",
+      "circle",
+      "ring"
+     ],
+     "colors": [
+      "accent",
+      "accent3"
+     ],
+     "size": 1.5,
+     "spin": 3,
+     "avoid": true
+    },
+    {
+     "kind": "speed",
+     "mode": "h",
+     "n": 12,
+     "color": "ink",
+     "rate": 8
+    }
+   ],
+   "motion": {
+    "enter": "slide",
+    "spring": [
+     30,
+     190,
+     1.0
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "wipe-diag",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "اعلامِ حراج و قرعه‌کشی، رویداد و کارگاه، پیامِ فوری."
+  },
+  {
+   "id": "midcentury-modern",
+   "name_fa": "مدرنِ نیمهٔ قرن",
+   "name_en": "Mid-century Modern",
+   "inspired": null,
+   "group": "graphic",
+   "about": "هندسهٔ ساده، فیروزه‌ای و نارنجی و خردلی روی کرم؛ حسِ طراحیِ دهه‌هایِ ۵۰ و ۶۰ میلادی.",
+   "tags": [
+    "رترو",
+    "هندسی",
+    "دکور"
+   ],
+   "palette": {
+    "bg": "#f6e7cb",
+    "bg2": "#f2caac",
+    "ink": "#2e282a",
+    "paper": "#ffffff",
+    "accent": "#0d6c6a",
+    "accent2": "#e4572e",
+    "accent3": "#ffc914",
+    "muted": "#887e72"
+   },
+   "font": {
+    "latin": "righteous",
+    "fa": "lalezar",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.01,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "solid",
+    "c": "bg",
+    "alt": "bg2"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.1
+    },
+    {
+     "kind": "paper",
+     "opacity": 0.15
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 18,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper",
+    "extra": "band",
+    "bandColor": "accent"
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 11,
+     "kinds": [
+      "half",
+      "circle",
+      "tri",
+      "ring",
+      "cross"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 1.2,
+     "spin": 5,
+     "avoid": true
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     18,
+     200,
+     0.8
+    ],
+    "stagger": 6,
+    "stepFps": 8,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "push",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "مبلمان و دکور، لوازمِ خانگی، برندِ طراحی‌محور."
+  },
+  {
+   "id": "y2k-bubble",
+   "name_fa": "حبابِ ایک‌دو‌کی",
+   "name_en": "Y2K Bubble Gloss",
+   "inspired": null,
+   "group": "digital",
+   "about": "آسمانِ آبیِ روشن، حباب و ستاره و حروفِ سه‌بعدیِ براق؛ خوش‌بینیِ سال‌هایِ ۲۰۰۰.",
+   "tags": [
+    "براق",
+    "حباب",
+    "نوستالژی"
+   ],
+   "palette": {
+    "bg": "#cfe9ff",
+    "bg2": "#b5dbff",
+    "ink": "#1b2a5c",
+    "paper": "#ffffff",
+    "accent": "#0063cc",
+    "accent2": "#4da3ff",
+    "accent3": "#e8f1ff",
+    "muted": "#6c80a5"
+   },
+   "font": {
+    "latin": "audiowide",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "clouds",
+    "sky": [
+     "bg2",
+     "bg"
+    ],
+    "cloud": "paper",
+    "shadow": "accent2",
+    "n": 7,
+    "band": 0.6,
+    "speed": 1.6
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.2
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.03
+    }
+   ],
+   "text": {
+    "fx": "extrude",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 8
+   },
+   "shape": {
+    "radius": 36,
+    "border": 3,
+    "shadow": "float",
+    "fill": "paper",
+    "bc": "paper"
+   },
+   "decor": [
+    {
+     "kind": "bubbles",
+     "n": 14,
+     "color": "paper"
+    },
+    {
+     "kind": "sparkles",
+     "n": 10,
+     "glow": true,
+     "colors": [
+      "accent",
+      "paper"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "pop",
+    "spring": [
+     30,
+     190,
+     1.0
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flash",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "لوازمِ دیجیتال و موبایل، مد و اکسسوری، فروشِ جوان‌پسند."
+  },
+  {
+   "id": "holo-foil",
+   "name_fa": "فویلِ هولوگرافیک",
+   "name_en": "Holographic Foil",
+   "inspired": null,
+   "group": "digital",
+   "about": "فویلِ لغزانِ صورتی و فیروزه‌ای با جرقه و درخششِ عبوری؛ رؤیایی و براق.",
+   "tags": [
+    "هولوگرام",
+    "براق",
+    "رؤیایی"
+   ],
+   "palette": {
+    "bg": "#d9c2ff",
+    "bg2": "#c6c6fc",
+    "ink": "#3b2a66",
+    "paper": "#ffffff",
+    "accent": "#a4006e",
+    "accent2": "#16a0c5",
+    "accent3": "#fff1a8",
+    "muted": "#826eab"
+   },
+   "font": {
+    "latin": "russo-one",
+    "fa": "kufam",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0.02,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "holo",
+    "base": "bg",
+    "stops": [
+     "accent",
+     "accent2",
+     "accent3",
+     "paper"
+    ],
+    "angle": 115,
+    "sparkles": 16,
+    "op": 0.5
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "bloom",
+     "color": "paper",
+     "opacity": 0.18
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.04,
+     "blend": "screen",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ],
+   "text": {
+    "fx": "emboss",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 26,
+    "border": 2,
+    "shadow": "glow",
+    "fill": "paper",
+    "bc": "paper",
+    "sc": "accent"
+   },
+   "decor": [
+    {
+     "kind": "sparkles",
+     "n": 8,
+     "glow": true,
+     "colors": [
+      "paper",
+      "accent"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "lightup",
+    "spring": [
+     30,
+     190,
+     1.0
+    ],
+    "stagger": 4,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": null
+   },
+   "trans": {
+    "kind": "flash",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "لوازمِ آرایشی، کاورِ موبایل، اکسسوری و کادو."
+  },
+  {
+   "id": "embroidery-knit",
+   "name_fa": "گلدوزی و بافتنی",
+   "name_en": "Embroidery & Knit",
+   "inspired": null,
+   "group": "craft",
+   "about": "پارچهٔ بافت‌دار با نوارِ دوخت‌ضربدری و درزِ خط‌چین و حرکتِ پله‌ایِ ۸ فریم‌بر‌ثانیه.",
+   "tags": [
+    "گلدوزی",
+    "پارچه",
+    "دست‌ساز"
+   ],
+   "palette": {
+    "bg": "#f3e6d3",
+    "bg2": "#eac6b4",
+    "ink": "#283d3b",
+    "paper": "#ffffff",
+    "accent": "#176a70",
+    "accent2": "#197278",
+    "accent3": "#eddea4",
+    "muted": "#83897f"
+   },
+   "font": {
+    "latin": "comic-neue",
+    "fa": "mada",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.35
+   },
+   "bg": {
+    "kind": "cloth",
+    "base": "bg",
+    "thread": "accent",
+    "thread2": "accent2",
+    "thread3": "accent3",
+    "weave": 9,
+    "size": 18,
+    "band": 0.085
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "stitch",
+     "color": "accent"
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.08
+    }
+   ],
+   "text": {
+    "fx": "felt",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 18,
+    "border": 4,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "accent",
+    "dash": true
+   },
+   "decor": [
+    {
+     "kind": "shapes",
+     "n": 10,
+     "kinds": [
+      "cross",
+      "dots"
+     ],
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ],
+     "size": 0.8,
+     "spin": 0,
+     "avoid": true
+    }
+   ],
+   "motion": {
+    "enter": "swing",
+    "spring": [
+     24,
+     140,
+     1.0
+    ],
+    "stagger": 9,
+    "stepFps": 8,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "slide",
+    "frames": 12
+   },
+   "fx": {},
+   "fits": "پوشاک و پارچه، صنایع‌دستی، هدیه‌هایِ دست‌ساز و نوروزی."
+  },
+  {
+   "id": "mosaic-tiles",
+   "name_fa": "موزاییک و کاشی",
+   "name_en": "Mosaic Tiles",
+   "inspired": null,
+   "group": "craft",
+   "about": "تکه‌هایِ رنگیِ بندکشی‌شده با برقِ آرامِ نور؛ پُرکار و ماندگار.",
+   "tags": [
+    "کاشی",
+    "موزاییک",
+    "سنتی"
+   ],
+   "palette": {
+    "bg": "#f2e3c6",
+    "bg2": "#c5ceba",
+    "ink": "#3b2a1a",
+    "paper": "#ffffff",
+    "accent": "#1e3a8a",
+    "accent2": "#0f7c8a",
+    "accent3": "#e0a100",
+    "muted": "#8d7d67"
+   },
+   "font": {
+    "latin": "cairo",
+    "fa": "reem-kufi",
+    "weight": 900,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.25
+   },
+   "bg": {
+    "kind": "mosaic",
+    "base": "bg",
+    "grout": "ink",
+    "colors": [
+     "accent",
+     "accent2",
+     "accent3",
+     "bg2"
+    ],
+    "size": 70,
+    "gap": 5,
+    "soft": 0.5,
+    "tilt": 3,
+    "veil": 0.78,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.3
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.05
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 8,
+    "border": 5,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "ink"
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "double",
+     "color": "accent3"
+    }
+   ],
+   "motion": {
+    "enter": "build",
+    "spring": [
+     28,
+     70,
+     1.3
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.05,
+     "pan": [
+      -22,
+      -4
+     ]
+    }
+   },
+   "trans": {
+    "kind": "blocks",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "کاشی و سرامیک، مبلمان و دکور، رستورانِ سنتی."
+  },
+  {
+   "id": "gothic-puppets",
+   "name_fa": "عروسکِ گوتیکِ شیطنت‌آمیز",
+   "name_en": "Gothic Whimsy Puppets",
+   "inspired": null,
+   "group": "craft",
+   "about": "راه‌راهِ تیره، مه و خفاش با حرکتِ عروسکیِ ۱۲ فریم‌بر‌ثانیه؛ ترسناکِ بامزه.",
+   "tags": [
+    "گوتیک",
+    "عروسکی",
+    "شیطنت"
+   ],
+   "palette": {
+    "bg": "#1e2530",
+    "bg2": "#364250",
+    "ink": "#e8ecef",
+    "paper": "#e8ecef",
+    "accent": "#e0b484",
+    "accent2": "#9aa8b5",
+    "accent3": "#4a5a6a",
+    "muted": "#8d9299"
+   },
+   "font": {
+    "latin": "fredericka-the-great",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "stripes",
+    "a": "bg",
+    "b": "bg2",
+    "w": 46,
+    "angle": -18,
+    "move": 0
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.5
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.12
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.06
+    }
+   ],
+   "text": {
+    "fx": "hard",
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 5
+   },
+   "shape": {
+    "radius": 10,
+    "border": 4,
+    "shadow": "hard",
+    "fill": "bg2",
+    "bc": "accent",
+    "sc": "bg",
+    "offset": 7,
+    "tilt": 1
+   },
+   "decor": [
+    {
+     "kind": "smoke",
+     "n": 5,
+     "color": "paper",
+     "op": 0.12
+    },
+    {
+     "kind": "birds",
+     "n": 4,
+     "color": "paper"
+    }
+   ],
+   "motion": {
+    "enter": "drop",
+    "spring": [
+     24,
+     140,
+     1.0
+    ],
+    "stagger": 6,
+    "stepFps": 12,
+    "wobble": 3,
+    "cam": null
+   },
+   "trans": {
+    "kind": "dip",
+    "frames": 16
+   },
+   "fx": {},
+   "fits": "رویداد و مراسمِ شبانه، بازی و کتاب، کافه‌هایِ موضوعی."
+  },
+  {
+   "id": "tilt-shift",
+   "name_fa": "مینیاتورِ تیلت‌شیفت",
+   "name_en": "Tilt-shift Miniature",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "شهرِ اسباب‌بازیِ رنگی که بالا و پایینش محو است؛ همه‌چیز کوچک و خواستنی به‌نظر می‌رسد.",
+   "tags": [
+    "اسباب‌بازی",
+    "دیوراما",
+    "شاد"
+   ],
+   "palette": {
+    "bg": "#cfe8f7",
+    "bg2": "#b2d7ee",
+    "ink": "#26415e",
+    "paper": "#ffffff",
+    "accent": "#ae3a19",
+    "accent2": "#ff7b54",
+    "accent3": "#ffd166",
+    "muted": "#728ca3"
+   },
+   "font": {
+    "latin": "fredoka",
+    "fa": "baloo-bhaijaan-2",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.25
+   },
+   "bg": {
+    "kind": "tiltshift",
+    "sky": [
+     "bg2",
+     "bg"
+    ],
+    "ground": "accent3",
+    "colors": [
+     "accent",
+     "accent2",
+     "accent3",
+     "paper"
+    ],
+    "n": 14,
+    "band": 0.34,
+    "blur": 11,
+    "speed": 12,
+    "veil": 0.5,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.2
+    }
+   ],
+   "text": {
+    "fx": "sticker",
+    "color": "ink",
+    "sticker": "paper"
+   },
+   "shape": {
+    "radius": 26,
+    "border": 0,
+    "shadow": "float",
+    "fill": "paper"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 14
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     30,
+     80,
+     1.2
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.07
+    }
+   },
+   "trans": {
+    "kind": "fade",
+    "frames": 20
+   },
+   "fx": {},
+   "fits": "ملک و مجتمع، شهربازی و گردشگری، محصولِ خرد و کادویی."
+  },
+  {
+   "id": "vinyl-toy",
+   "name_fa": "فیگورِ وینیلی",
+   "name_en": "Designer Vinyl Toy",
+   "inspired": null,
+   "group": "dimensional",
+   "about": "کره‌هایِ براق و پف‌کرده روی پس‌زمینهٔ استودیو با جهشِ لاستیکی؛ حسِ یک فیگورِ کلکسیونی.",
+   "tags": [
+    "اسباب‌بازی",
+    "کلکسیونی",
+    "براق"
+   ],
+   "palette": {
+    "bg": "#f6e9ff",
+    "bg2": "#e4cdfa",
+    "ink": "#2b2d42",
+    "paper": "#ffffff",
+    "accent": "#853adf",
+    "accent2": "#f15bb5",
+    "accent3": "#fee440",
+    "muted": "#868297"
+   },
+   "font": {
+    "latin": "changa",
+    "fa": "changa",
+    "weight": 800,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.25
+   },
+   "bg": {
+    "kind": "studio",
+    "from": "paper",
+    "to": "bg2",
+    "horizon": 0.72
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "vignette",
+     "opacity": 0.15
+    },
+    {
+     "kind": "grain",
+     "opacity": 0.04
+    }
+   ],
+   "text": {
+    "fx": "clay",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 40,
+    "border": 0,
+    "shadow": "inner",
+    "fill": "paper",
+    "fillGradient": 160
+   },
+   "decor": [
+    {
+     "kind": "orbs",
+     "mode": "gloss",
+     "n": 5,
+     "colors": [
+      "accent",
+      "accent2",
+      "accent3"
+     ]
+    }
+   ],
+   "motion": {
+    "enter": "squash",
+    "spring": [
+     10,
+     130,
+     0.85
+    ],
+    "stagger": 6,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.04,
+     "rot": 1.0
+    }
+   },
+   "trans": {
+    "kind": "zoom",
+    "frames": 14
+   },
+   "fx": {},
+   "fits": "اسباب‌بازی و کلکسیون، هدیه و محصولِ کوچک، فروشِ جوان‌پسند."
+  },
+  {
+   "id": "double-exposure",
+   "name_fa": "نوردهیِ دوگانه",
+   "name_en": "Double Exposure",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "دو تصویر در هم: تپه‌ها و خورشید و تنهٔ درخت‌ها با خط‌هایِ ظریف؛ شاعرانه و آرام.",
+   "tags": [
+    "شاعرانه",
+    "سینمایی",
+    "آرام"
+   ],
+   "palette": {
+    "bg": "#f2efea",
+    "bg2": "#cbcbc9",
+    "ink": "#10151a",
+    "paper": "#ffffff",
+    "accent": "#2e3a46",
+    "accent2": "#7b93a4",
+    "accent3": "#e1b382",
+    "muted": "#767778"
+   },
+   "font": {
+    "latin": "playfair-display",
+    "fa": "markazi-text",
+    "weight": 700,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "doubleexp",
+    "base": "bg",
+    "a": "accent2",
+    "b": "accent3",
+    "opA": 0.55,
+    "opB": 0.5,
+    "veil": 0.45,
+    "veilColor": "bg"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.12,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.35
+    }
+   ],
+   "text": {
+    "fx": "plain",
+    "color": "ink"
+   },
+   "shape": {
+    "radius": 4,
+    "border": 1,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "muted"
+   },
+   "decor": [
+    {
+     "kind": "dust",
+     "n": 24
+    }
+   ],
+   "motion": {
+    "enter": "blur",
+    "spring": [
+     30,
+     80,
+     1.2
+    ],
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.07
+    }
+   },
+   "trans": {
+    "kind": "dip",
+    "frames": 24
+   },
+   "fx": {},
+   "fits": "برندِ سبک‌زندگی، عطر و لوازمِ دکوری، تبلیغِ احساسی."
+  },
+  {
+   "id": "home-movie-8mm",
+   "name_fa": "فیلمِ خانگیِ ۸ میلی‌متری",
+   "name_en": "8mm Home Movie",
+   "inspired": null,
+   "group": "cinematic",
+   "about": "دانهٔ فیلم، خراشِ نوار، قابِ سفید و رنگِ گرمِ کهنه؛ خاطره‌ای و صمیمی.",
+   "tags": [
+    "نوستالژی",
+    "فیلم",
+    "صمیمی"
+   ],
+   "palette": {
+    "bg": "#e7d2b0",
+    "bg2": "#ddbc93",
+    "ink": "#2a1a10",
+    "paper": "#fff4dc",
+    "accent": "#7a4b2a",
+    "accent2": "#b5651d",
+    "accent3": "#d9a441",
+    "muted": "#7f6d58"
+   },
+   "font": {
+    "latin": "lobster",
+    "fa": "jomhuria",
+    "weight": 400,
+    "body_latin": null,
+    "body_fa": null,
+    "case": "none",
+    "track": 0,
+    "lh": 1.3
+   },
+   "bg": {
+    "kind": "radial",
+    "from": "bg2",
+    "to": "bg",
+    "at": "50% 45%"
+   },
+   "bg2": null,
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.2,
+     "blend": "overlay",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    },
+    {
+     "kind": "scratches",
+     "opacity": 0.3
+    },
+    {
+     "kind": "flicker",
+     "opacity": 0.09
+    },
+    {
+     "kind": "vignette",
+     "opacity": 0.45
+    }
+   ],
+   "text": {
+    "fx": "retro",
+    "color": "ink",
+    "c2": "accent2",
+    "c3": "accent3",
+    "c4": "muted",
+    "depth": 4
+   },
+   "shape": {
+    "radius": 4,
+    "border": 8,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "paper",
+    "tilt": 1.2
+   },
+   "decor": [
+    {
+     "kind": "frame",
+     "mode": "film"
+    }
+   ],
+   "motion": {
+    "enter": "fade",
+    "spring": [
+     30,
+     80,
+     1.2
+    ],
+    "stagger": 8,
+    "stepFps": 18,
+    "wobble": 0,
+    "cam": {
+     "zoom": 0.07
+    }
+   },
+   "trans": {
+    "kind": "dip",
+    "frames": 22
+   },
+   "fx": {
+    "grade": "sepia(0.28) contrast(1.05) saturate(1.1)"
+   },
+   "fits": "کافه و نانوایی، برندِ قدیمی و خانوادگی، تبلیغِ خاطره‌انگیز."
   }
  ],
  "groups": {
@@ -6211,7 +9340,8 @@
   "dimensional": "سه‌بعدی و عمق‌دار",
   "graphic": "گرافیک و تایپوگرافی",
   "cinematic": "سینمایی و حال‌وهوایی",
-  "lines": "خط و طرح"
+  "lines": "خط و طرح",
+  "painted": "نقاشی و چاپِ دستی"
  },
  "scene_types": [
   "title",

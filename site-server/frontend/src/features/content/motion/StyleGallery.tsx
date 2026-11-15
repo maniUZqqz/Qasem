@@ -84,7 +84,7 @@ export default function StyleGallery({
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="min-w-[200px] flex-1">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی سبک (نام، برچسب…)" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی سبک (نام، برچسب، نوعِ فروشگاه…)" />
         </div>
         <button type="button" className={`u-btn u-btn-sm ${group === "" ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setGroup("")}>
           همه ({fa(catalog.styles.length)})
@@ -98,6 +98,11 @@ export default function StyleGallery({
       {current ? (
         <div className="mb-3 rounded-xl p-3 text-sm leading-7" style={{ background: "var(--surface-2)", color: "var(--text-2)" }}>
           <b style={{ color: "var(--text)" }}>{current.name_fa}</b> — {current.about}
+          {current.fits ? (
+            <div className="mt-1" style={{ color: "var(--text-3)" }}>
+              مناسبِ: {current.fits}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 120 : 150}px, 1fr))`, maxHeight: compact ? 420 : undefined, overflowY: compact ? "auto" : undefined }}>

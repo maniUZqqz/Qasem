@@ -1,0 +1,2790 @@
+{
+ "_source": "InstAI instai/styles/builtin_styles.py (BUILTIN_STYLES, 116 styles) @ 2f8aa90 (v0.14.0); fields copied unchanged except prompts/descriptions, which NM does not use",
+ "_note": "A frozen snapshot: NMarketing never imports InstAI at run time. Re-take it with backend/tools/gen_instai_looks.py --snapshot <path to InstAI json> when InstAI adds styles.",
+ "styles": [
+  {
+   "key": "cinematic_realistic",
+   "name_en": "Cinematic realistic",
+   "name_fa": "سینمایی واقع‌گرا",
+   "group": "cinematic",
+   "motif": "film",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#14181F",
+    "#3B4A5C",
+    "#B9824B",
+    "#E8C98F",
+    "#05070A",
+    "#F3E9D8"
+   ],
+   "tags": [
+    "real",
+    "film"
+   ],
+   "mood": "grounded, dramatic"
+  },
+  {
+   "key": "documentary_real",
+   "name_en": "Documentary realistic",
+   "name_fa": "مستند واقع‌گرا",
+   "group": "cinematic",
+   "motif": "photo",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#E9E6DF",
+    "#6B7A8F",
+    "#A8B5A2",
+    "#C9A66B",
+    "#2B2B2B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "real",
+    "doc"
+   ],
+   "mood": "honest, calm"
+  },
+  {
+   "key": "noir_bw",
+   "name_en": "Film noir (B/W)",
+   "name_fa": "نوآر سیاه‌وسفید",
+   "group": "cinematic",
+   "motif": "noir",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#0B0B0D",
+    "#2A2A2E",
+    "#6D6D74",
+    "#B8B8BE",
+    "#000000",
+    "#F4F4F4"
+   ],
+   "tags": [
+    "noir",
+    "bw"
+   ],
+   "mood": "tense, moody"
+  },
+  {
+   "key": "painterly_semi_real",
+   "name_en": "Semi-realistic digital painting",
+   "name_fa": "نقاشی دیجیتال نیمه‌واقع‌گرا",
+   "group": "hand_drawn",
+   "motif": "paint",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 12,
+   "palette": [
+    "#1E2A38",
+    "#496A8A",
+    "#C98B5B",
+    "#F0C987",
+    "#0C1118",
+    "#FFF1D6"
+   ],
+   "tags": [
+    "paint",
+    "concept"
+   ],
+   "mood": "epic, contemplative"
+  },
+  {
+   "key": "rotoscope_look",
+   "name_en": "Rotoscope look",
+   "name_fa": "شبیه روتوسکوپ",
+   "group": "hand_drawn",
+   "motif": "wobble",
+   "animation": "full_2d",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 12,
+   "palette": [
+    "#F1ECE0",
+    "#3F5B73",
+    "#C9694B",
+    "#E3B04B",
+    "#1A1A1A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "roto",
+    "indie"
+   ],
+   "mood": "dreamy, indie"
+  },
+  {
+   "key": "comic_ink",
+   "name_en": "Comic book & ink",
+   "name_fa": "کمیک و جوهر",
+   "group": "hand_drawn",
+   "motif": "halftone",
+   "animation": "limited_2d",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 8,
+   "palette": [
+    "#FFF6D6",
+    "#D62828",
+    "#1D4E89",
+    "#F7B32B",
+    "#111111",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "comic",
+    "ink"
+   ],
+   "mood": "punchy, heroic"
+  },
+  {
+   "key": "cyberpunk_neon",
+   "name_en": "Cyberpunk neon",
+   "name_fa": "سایبرپانک نئونی",
+   "group": "retro_digital",
+   "motif": "neoncity",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 12,
+   "palette": [
+    "#0A0F1F",
+    "#12E2D5",
+    "#FF2E97",
+    "#FFD23F",
+    "#05060F",
+    "#E6F9FF"
+   ],
+   "tags": [
+    "neon",
+    "scifi"
+   ],
+   "mood": "gritty, electric"
+  },
+  {
+   "key": "anime_realistic_drama",
+   "name_en": "Realistic-proportion anime drama",
+   "name_fa": "انیمهٔ درام با تناسب واقعی",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime_like",
+   "fps_feel": 12,
+   "palette": [
+    "#1C2430",
+    "#4F6D7A",
+    "#C0A98E",
+    "#E6B89C",
+    "#0D1117",
+    "#F5EBDD"
+   ],
+   "tags": [
+    "seinen",
+    "drama"
+   ],
+   "mood": "quiet, bittersweet"
+  },
+  {
+   "key": "anime_film_cinematic",
+   "name_en": "Cinematic feature-film anime",
+   "name_fa": "انیمهٔ سینمایی (فیلم)",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "full_2d",
+   "family": "anime",
+   "realism": "anime_like",
+   "fps_feel": 24,
+   "palette": [
+    "#122B4A",
+    "#2F80B7",
+    "#F2A65A",
+    "#FFD98E",
+    "#0A1424",
+    "#FFF4E0"
+   ],
+   "tags": [
+    "film",
+    "cinematic"
+   ],
+   "mood": "wondrous, emotional"
+  },
+  {
+   "key": "anime_dark_fantasy",
+   "name_en": "Dark fantasy anime",
+   "name_fa": "انیمهٔ فانتزی تاریک",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime_like",
+   "fps_feel": 12,
+   "palette": [
+    "#0D0D14",
+    "#3A3F5C",
+    "#7A1F2B",
+    "#C9A66B",
+    "#000000",
+    "#D9DBE8"
+   ],
+   "tags": [
+    "dark",
+    "fantasy"
+   ],
+   "mood": "grim, intense"
+  },
+  {
+   "key": "anime_noir_thriller",
+   "name_en": "Noir thriller anime",
+   "name_fa": "انیمهٔ تریلر نوآر",
+   "group": "anime_toon",
+   "motif": "noir",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime_like",
+   "fps_feel": 12,
+   "palette": [
+    "#0F1420",
+    "#2C3E50",
+    "#8E2C2C",
+    "#E1B12C",
+    "#000000",
+    "#E8ECEF"
+   ],
+   "tags": [
+    "noir",
+    "thriller"
+   ],
+   "mood": "paranoid, tense"
+  },
+  {
+   "key": "modern_tv_anime",
+   "name_en": "Modern TV anime",
+   "name_fa": "انیمهٔ تلویزیونی مدرن",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 12,
+   "palette": [
+    "#EAF2FF",
+    "#3E7BFA",
+    "#FF6F91",
+    "#FFC857",
+    "#243B6B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "tv",
+    "modern"
+   ],
+   "mood": "energetic, hopeful"
+  },
+  {
+   "key": "anime_90s_cel",
+   "name_en": "90s cel anime",
+   "name_fa": "انیمهٔ سلی دههٔ نود",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#F3E6D0",
+    "#4C6FA5",
+    "#D9534F",
+    "#F2C14E",
+    "#2B2D42",
+    "#FFFDF5"
+   ],
+   "tags": [
+    "retro",
+    "cel"
+   ],
+   "mood": "nostalgic, adventurous"
+  },
+  {
+   "key": "anime_80s_ova",
+   "name_en": "80s retro OVA anime",
+   "name_fa": "انیمهٔ رترو دههٔ هشتاد (OVA)",
+   "group": "anime_toon",
+   "motif": "synth",
+   "animation": "full_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 12,
+   "palette": [
+    "#101828",
+    "#2D6FA3",
+    "#E07A5F",
+    "#F2CC8F",
+    "#050A14",
+    "#F4F1DE"
+   ],
+   "tags": [
+    "retro",
+    "ova"
+   ],
+   "mood": "dramatic, retro-futuristic"
+  },
+  {
+   "key": "shonen_action",
+   "name_en": "Shonen action",
+   "name_fa": "شونن اکشن",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 12,
+   "palette": [
+    "#FFF1C9",
+    "#F4511E",
+    "#1E88E5",
+    "#FFD600",
+    "#1A237E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "action",
+    "battle"
+   ],
+   "mood": "fierce, determined"
+  },
+  {
+   "key": "shojo_romance",
+   "name_en": "Shojo romance",
+   "name_fa": "شوجو و عاشقانه",
+   "group": "anime_toon",
+   "motif": "kawaii",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#FFF0F5",
+    "#F48FB1",
+    "#CE93D8",
+    "#FFE082",
+    "#7E57C2",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "romance",
+    "soft"
+   ],
+   "mood": "tender, dreamy"
+  },
+  {
+   "key": "painterly_pastoral",
+   "name_en": "Painterly pastoral anime",
+   "name_fa": "انیمهٔ نقاشی‌وار و روستایی",
+   "group": "anime_toon",
+   "motif": "watercolor",
+   "animation": "painted_parallax",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 24,
+   "palette": [
+    "#DFF0D8",
+    "#5B9A5B",
+    "#7FB3D5",
+    "#F4D58D",
+    "#2F4F3E",
+    "#FFFBEA"
+   ],
+   "tags": [
+    "pastoral",
+    "nature"
+   ],
+   "mood": "serene, magical"
+  },
+  {
+   "key": "anime_slice_of_life",
+   "name_en": "Slice-of-life anime",
+   "name_fa": "انیمهٔ زندگی روزمره",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#FFF8E7",
+    "#8FBC8F",
+    "#F4A261",
+    "#E76F51",
+    "#6D597A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "cozy",
+    "daily"
+   ],
+   "mood": "cozy, relaxed"
+  },
+  {
+   "key": "anime_chibi",
+   "name_en": "Chibi / super-deformed",
+   "name_fa": "شیبی (چیبی)",
+   "group": "anime_toon",
+   "motif": "kawaii",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#FFF9C4",
+    "#FF8A65",
+    "#4FC3F7",
+    "#AED581",
+    "#6D4C41",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "chibi",
+    "comedy"
+   ],
+   "mood": "silly, cheerful"
+  },
+  {
+   "key": "anime_mecha_scifi",
+   "name_en": "Mecha sci-fi anime",
+   "name_fa": "ربات‌های غول‌پیکر و علمی‌تخیلی",
+   "group": "anime_toon",
+   "motif": "neoncity",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 12,
+   "palette": [
+    "#0B1026",
+    "#3A86FF",
+    "#FF006E",
+    "#FFBE0B",
+    "#05081A",
+    "#E0E7FF"
+   ],
+   "tags": [
+    "mecha",
+    "scifi"
+   ],
+   "mood": "epic, mechanical"
+  },
+  {
+   "key": "anime_isekai_fantasy",
+   "name_en": "Adventure fantasy anime",
+   "name_fa": "فانتزی ماجراجویانه (ایسکای)",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 12,
+   "palette": [
+    "#E3F2FD",
+    "#7C4DFF",
+    "#00BFA5",
+    "#FFAB40",
+    "#283593",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "fantasy",
+    "adventure"
+   ],
+   "mood": "adventurous, bright"
+  },
+  {
+   "key": "anime_horror_gothic",
+   "name_en": "Gothic horror anime",
+   "name_fa": "ترسناک گوتیک",
+   "group": "anime_toon",
+   "motif": "noir",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#0A0A0A",
+    "#3D3D3D",
+    "#6E1E1E",
+    "#B7B79C",
+    "#000000",
+    "#E6E6D8"
+   ],
+   "tags": [
+    "horror",
+    "dark"
+   ],
+   "mood": "dread, uneasy"
+  },
+  {
+   "key": "anime_lofi_night",
+   "name_en": "Lo-fi night anime",
+   "name_fa": "لوفای شبانه",
+   "group": "anime_toon",
+   "motif": "neoncity",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#1B1B3A",
+    "#693668",
+    "#A74482",
+    "#F84AA7",
+    "#0B0B1E",
+    "#FFD6E8"
+   ],
+   "tags": [
+    "lofi",
+    "night"
+   ],
+   "mood": "calm, nostalgic"
+  },
+  {
+   "key": "western_2d_tv",
+   "name_en": "Western 2D TV cartoon",
+   "name_fa": "کارتون تلویزیونی غربی",
+   "group": "anime_toon",
+   "motif": "flat",
+   "animation": "limited_2d",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 12,
+   "palette": [
+    "#FFF3C4",
+    "#FF6B6B",
+    "#4ECDC4",
+    "#FFE66D",
+    "#2D3047",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "tv",
+    "comedy"
+   ],
+   "mood": "comic, friendly"
+  },
+  {
+   "key": "retro_rubberhose",
+   "name_en": "Rubber-hose 1930s cartoon",
+   "name_fa": "کارتون قدیمی (دههٔ سی)",
+   "group": "anime_toon",
+   "motif": "wobble",
+   "animation": "rubber_hose",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 12,
+   "palette": [
+    "#F4ECD8",
+    "#222222",
+    "#B5483A",
+    "#D9B44A",
+    "#000000",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "vintage",
+    "bw"
+   ],
+   "mood": "playful, vintage"
+  },
+  {
+   "key": "midcentury_modern_2d",
+   "name_en": "Mid-century modern 2D",
+   "name_fa": "گرافیک مدرنِ نیمه‌ی قرن",
+   "group": "anime_toon",
+   "motif": "geometric",
+   "animation": "limited_2d",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 8,
+   "palette": [
+    "#F6E7CB",
+    "#E4572E",
+    "#17BEBB",
+    "#FFC914",
+    "#2E282A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "retro",
+    "graphic"
+   ],
+   "mood": "witty, stylish"
+  },
+  {
+   "key": "kids_crayon_doodle",
+   "name_en": "Kids' crayon doodle",
+   "name_fa": "نقاشی شمعی کودکانه",
+   "group": "hand_drawn",
+   "motif": "crayon",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "cartoon",
+   "fps_feel": 8,
+   "palette": [
+    "#FFFDE7",
+    "#EF5350",
+    "#42A5F5",
+    "#FFEE58",
+    "#6D4C41",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "kids",
+    "crayon"
+   ],
+   "mood": "joyful, naive"
+  },
+  {
+   "key": "flat_vector_motion",
+   "name_en": "Flat vector motion graphics",
+   "name_fa": "وکتور تخت و موشن‌گرافیک",
+   "group": "graphic_design",
+   "motif": "flat",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#F5F7FA",
+    "#2F6FED",
+    "#00B894",
+    "#FDCB6E",
+    "#2D3436",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "explainer",
+    "vector"
+   ],
+   "mood": "clear, friendly"
+  },
+  {
+   "key": "whiteboard_explainer",
+   "name_en": "Whiteboard sketch explainer",
+   "name_fa": "وایت‌بُرد و طرح دست‌نویس",
+   "group": "motion_type",
+   "motif": "whiteboard",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#FFFFFF",
+    "#222222",
+    "#E53935",
+    "#1E88E5",
+    "#9E9E9E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "explainer",
+    "sketch"
+   ],
+   "mood": "clear, educational"
+  },
+  {
+   "key": "chalkboard_classroom",
+   "name_en": "Chalkboard classroom",
+   "name_fa": "تخته‌سیاه کلاسی",
+   "group": "motion_type",
+   "motif": "chalk",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#1F2A2E",
+    "#F2F2F2",
+    "#F6D365",
+    "#A1D6E2",
+    "#0E1517",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "explainer",
+    "chalk"
+   ],
+   "mood": "studious, calm"
+  },
+  {
+   "key": "pixel_art_16bit",
+   "name_en": "16-bit pixel art",
+   "name_fa": "پیکسل‌آرت ۱۶ بیتی",
+   "group": "retro_digital",
+   "motif": "pixel",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 8,
+   "palette": [
+    "#1A1C2C",
+    "#5D275D",
+    "#B13E53",
+    "#EF7D57",
+    "#29366F",
+    "#F4F4F4"
+   ],
+   "tags": [
+    "retro",
+    "game"
+   ],
+   "mood": "nostalgic, playful"
+  },
+  {
+   "key": "kawaii_pastel",
+   "name_en": "Kawaii pastel",
+   "name_fa": "کاوایی پاستلی",
+   "group": "anime_toon",
+   "motif": "kawaii",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "cartoon",
+   "fps_feel": 8,
+   "palette": [
+    "#FFF5F9",
+    "#FFB3C7",
+    "#B5EAD7",
+    "#C7CEEA",
+    "#8E7CC3",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "cute",
+    "pastel"
+   ],
+   "mood": "cute, soothing"
+  },
+  {
+   "key": "paper_cutout",
+   "name_en": "Paper cut-out",
+   "name_fa": "برش کاغذی",
+   "group": "craft",
+   "motif": "paper",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#FBF1E0",
+    "#E76F51",
+    "#2A9D8F",
+    "#E9C46A",
+    "#264653",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "paper",
+    "craft"
+   ],
+   "mood": "handmade, warm"
+  },
+  {
+   "key": "watercolour_storybook",
+   "name_en": "Watercolour storybook",
+   "name_fa": "آبرنگ کتاب کودک",
+   "group": "hand_drawn",
+   "motif": "watercolor",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#FDF6EC",
+    "#8AB6D6",
+    "#E7A9B8",
+    "#F2D88F",
+    "#5B6C8F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "watercolour",
+    "kids"
+   ],
+   "mood": "tender, whimsical"
+  },
+  {
+   "key": "ukiyoe_woodblock",
+   "name_en": "Woodblock-print style",
+   "name_fa": "چاپ دستی ژاپنیِ قدیمی (اوکیوئه)",
+   "group": "hand_drawn",
+   "motif": "woodblock",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F1E4C8",
+    "#1F4E79",
+    "#C0392B",
+    "#E3B448",
+    "#1B1B1B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "print",
+    "classic"
+   ],
+   "mood": "classical, dramatic"
+  },
+  {
+   "key": "persian_miniature",
+   "name_en": "Persian miniature",
+   "name_fa": "مینیاتور ایرانی",
+   "group": "hand_drawn",
+   "motif": "miniature",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F3E3C0",
+    "#1B6B73",
+    "#B3262E",
+    "#D4A017",
+    "#1E2761",
+    "#FFF8E1"
+   ],
+   "tags": [
+    "persian",
+    "classic"
+   ],
+   "mood": "poetic, ornate"
+  },
+  {
+   "key": "islamic_geometric_graphic",
+   "name_en": "Geometric ornament graphic",
+   "name_fa": "گرافیک هندسیِ اسلیمی",
+   "group": "graphic_design",
+   "motif": "geometric",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#0F2A3A",
+    "#1B7F8C",
+    "#E0A526",
+    "#F4EBD0",
+    "#081824",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "pattern",
+    "persian"
+   ],
+   "mood": "elegant, calm"
+  },
+  {
+   "key": "cg_family_3d",
+   "name_en": "Family-film 3D CG",
+   "name_fa": "سه‌بعدی خانوادگی (CG)",
+   "group": "cg_3d",
+   "motif": "cg",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#FDEBD0",
+    "#F39C12",
+    "#3498DB",
+    "#E74C3C",
+    "#34495E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "family"
+   ],
+   "mood": "warm, heartfelt"
+  },
+  {
+   "key": "toon_shaded_3d",
+   "name_en": "Toon-shaded 3D (anime look)",
+   "name_fa": "سه‌بعدیِ سایه‌ی انیمه‌ای",
+   "group": "cg_3d",
+   "motif": "cg",
+   "animation": "toon_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#E8F4FF",
+    "#2979FF",
+    "#FF4081",
+    "#FFD740",
+    "#1A237E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "toon"
+   ],
+   "mood": "dynamic, stylish"
+  },
+  {
+   "key": "claymation_stopmotion",
+   "name_en": "Claymation stop-motion",
+   "name_fa": "پلاستیسین (کلی‌میشن)",
+   "group": "craft",
+   "motif": "clay",
+   "animation": "stop_motion",
+   "family": "stop_motion",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#F5DEB3",
+    "#C0392B",
+    "#2E86C1",
+    "#F1C40F",
+    "#4A3728",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "clay",
+    "stop"
+   ],
+   "mood": "quirky, tactile"
+  },
+  {
+   "key": "felt_plush_stopmotion",
+   "name_en": "Felt & plush stop-motion",
+   "name_fa": "نمد و عروسک پارچه‌ای",
+   "group": "craft",
+   "motif": "felt",
+   "animation": "stop_motion",
+   "family": "stop_motion",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#F9E0D0",
+    "#D1495B",
+    "#EDAE49",
+    "#00798C",
+    "#30638E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "felt",
+    "stop"
+   ],
+   "mood": "cosy, handmade"
+  },
+  {
+   "key": "low_poly_3d",
+   "name_en": "Low-poly 3D",
+   "name_fa": "سه‌بعدی کم‌چندضلعی",
+   "group": "cg_3d",
+   "motif": "lowpoly",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#E0F7FA",
+    "#26A69A",
+    "#FFA726",
+    "#EF5350",
+    "#37474F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "lowpoly"
+   ],
+   "mood": "calm, modern"
+  },
+  {
+   "key": "isometric_diorama",
+   "name_en": "Isometric diorama",
+   "name_fa": "دیوراما ایزومتریک",
+   "group": "cg_3d",
+   "motif": "iso",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#EAF6F6",
+    "#66BFBF",
+    "#FF9F68",
+    "#F8E9A1",
+    "#355C7D",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "miniature"
+   ],
+   "mood": "cute, tidy"
+  },
+  {
+   "key": "vaporwave_synth",
+   "name_en": "Retro synthwave",
+   "name_fa": "سینت‌ویوی رترو",
+   "group": "retro_digital",
+   "motif": "synth",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#1A0933",
+    "#7B2CBF",
+    "#FF3CAC",
+    "#2BD2FF",
+    "#0A0518",
+    "#FFE3FF"
+   ],
+   "tags": [
+    "retro",
+    "neon"
+   ],
+   "mood": "nostalgic, electric"
+  },
+  {
+   "key": "photoreal_cgi",
+   "name_en": "Photorealistic CGI",
+   "name_fa": "سی‌جی‌آیِ فوق‌واقعی",
+   "group": "cinematic",
+   "motif": "cg",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#10151C",
+    "#4D6B88",
+    "#C8A27C",
+    "#E9DCC9",
+    "#05080B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "cgi",
+    "realistic"
+   ],
+   "mood": "premium, polished"
+  },
+  {
+   "key": "layered_parallax_25d",
+   "name_en": "2.5D layered parallax",
+   "name_fa": "دو‌و‌نیم‌بعدی (لایه‌های پارالاکس)",
+   "group": "cinematic",
+   "motif": "parallax",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#1B2735",
+    "#3F6A8C",
+    "#D98E5F",
+    "#F4D6A0",
+    "#090E14",
+    "#FFF3DC"
+   ],
+   "tags": [
+    "parallax",
+    "depth"
+   ],
+   "mood": "deep, immersive"
+  },
+  {
+   "key": "cineview_widescreen",
+   "name_en": "Cineview widescreen",
+   "name_fa": "سینه‌ویو (عریض سینمایی)",
+   "group": "cinematic",
+   "motif": "film",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#0E1A22",
+    "#1F5C6B",
+    "#E08A3C",
+    "#F2C48A",
+    "#04090C",
+    "#F6EBDD"
+   ],
+   "tags": [
+    "film",
+    "wide"
+   ],
+   "mood": "epic, immersive"
+  },
+  {
+   "key": "super8_home_movie",
+   "name_en": "8mm home movie",
+   "name_fa": "فیلم خانگیِ هشت‌میلی‌متری",
+   "group": "cinematic",
+   "motif": "grain",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 18,
+   "palette": [
+    "#E7D2B0",
+    "#B5651D",
+    "#D9A441",
+    "#7A4B2A",
+    "#2A1A10",
+    "#FFF4DC"
+   ],
+   "tags": [
+    "vintage",
+    "film"
+   ],
+   "mood": "nostalgic, intimate"
+  },
+  {
+   "key": "tilt_shift_miniature",
+   "name_en": "Tilt-shift miniature",
+   "name_fa": "مینیاتورِ تیلت‌شیفت",
+   "group": "cinematic",
+   "motif": "tiltshift",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "semi_realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#CFE8F7",
+    "#3E92CC",
+    "#FF7B54",
+    "#FFD166",
+    "#26415E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "miniature",
+    "toy"
+   ],
+   "mood": "playful, tiny"
+  },
+  {
+   "key": "double_exposure",
+   "name_en": "Double exposure",
+   "name_fa": "نوردهیِ دوگانه",
+   "group": "cinematic",
+   "motif": "doubleexp",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "semi_realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#F2EFEA",
+    "#2E3A46",
+    "#7B93A4",
+    "#E1B382",
+    "#10151A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "blend",
+    "poetic"
+   ],
+   "mood": "reflective, poetic"
+  },
+  {
+   "key": "fairytale_feature_2d",
+   "name_en": "Classic fairytale feature 2D",
+   "name_fa": "افسانهٔ کلاسیکِ دوبعدی",
+   "group": "anime_toon",
+   "motif": "anime",
+   "animation": "full_2d",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 24,
+   "palette": [
+    "#F9E7C9",
+    "#C0392B",
+    "#2E86AB",
+    "#F4B942",
+    "#3B2A4A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "fairytale",
+    "classic"
+   ],
+   "mood": "magical, heartfelt"
+  },
+  {
+   "key": "bold_angular_tv_toon",
+   "name_en": "Bold angular TV toon",
+   "name_fa": "کارتونِ تلویزیونیِ زاویه‌دار",
+   "group": "anime_toon",
+   "motif": "flat",
+   "animation": "limited_2d",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 12,
+   "palette": [
+    "#FFF3B0",
+    "#E63946",
+    "#2A9D8F",
+    "#4361EE",
+    "#1D1D1D",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "cartoon",
+    "comedy"
+   ],
+   "mood": "zany, deadpan"
+  },
+  {
+   "key": "flat_2d_character",
+   "name_en": "Flat 2D character animation",
+   "name_fa": "کاراکترِ تخت دوبعدی",
+   "group": "anime_toon",
+   "motif": "flat",
+   "animation": "cutout",
+   "family": "western_2d",
+   "realism": "cartoon",
+   "fps_feel": 24,
+   "palette": [
+    "#FDF6E3",
+    "#FF6B6B",
+    "#4ECDC4",
+    "#FFE66D",
+    "#2D3142",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "flat",
+    "character"
+   ],
+   "mood": "friendly, clear"
+  },
+  {
+   "key": "stickman_doodle",
+   "name_en": "Stickman doodle",
+   "name_fa": "استیک‌من (آدم‌چوبی)",
+   "group": "anime_toon",
+   "motif": "stick",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#FFFFFF",
+    "#111111",
+    "#E53935",
+    "#1E88E5",
+    "#9E9E9E",
+    "#FFFDE7"
+   ],
+   "tags": [
+    "doodle",
+    "explainer"
+   ],
+   "mood": "witty, light"
+  },
+  {
+   "key": "manga_bw_ink",
+   "name_en": "Black-and-white manga ink",
+   "name_fa": "مانگای سیاه‌وسفید",
+   "group": "anime_toon",
+   "motif": "halftone",
+   "animation": "limited_2d",
+   "family": "anime",
+   "realism": "anime",
+   "fps_feel": 8,
+   "palette": [
+    "#FFFFFF",
+    "#111111",
+    "#6B6B6B",
+    "#B5B5B5",
+    "#000000",
+    "#F5F5F5"
+   ],
+   "tags": [
+    "manga",
+    "bw"
+   ],
+   "mood": "intense, dramatic"
+  },
+  {
+   "key": "cel_shading_render",
+   "name_en": "Cel-shading render",
+   "name_fa": "سلی‌شیدینگ (سایهٔ پله‌ای)",
+   "group": "anime_toon",
+   "motif": "cg",
+   "animation": "toon_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#E8F7FF",
+    "#2D9CDB",
+    "#F2994A",
+    "#EB5757",
+    "#1B2A41",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "toon"
+   ],
+   "mood": "energetic, graphic"
+  },
+  {
+   "key": "silhouette_cutout",
+   "name_en": "Silhouette cut-out",
+   "name_fa": "سیلوئت (سایه‌نما)",
+   "group": "anime_toon",
+   "motif": "silhouette",
+   "animation": "cutout",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#FF8C42",
+    "#D7263D",
+    "#3F37C9",
+    "#FFD166",
+    "#0A0A0F",
+    "#FFF1D6"
+   ],
+   "tags": [
+    "silhouette",
+    "minimal"
+   ],
+   "mood": "mysterious, poetic"
+  },
+  {
+   "key": "glow_sketch",
+   "name_en": "Glow sketch",
+   "name_fa": "اسکچِ درخشان",
+   "group": "hand_drawn",
+   "motif": "sketch",
+   "animation": "motion_graphics",
+   "family": "illustration",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#07090F",
+    "#00E5FF",
+    "#7C4DFF",
+    "#FF4081",
+    "#02040A",
+    "#E0FBFF"
+   ],
+   "tags": [
+    "neon",
+    "line"
+   ],
+   "mood": "futuristic, calm"
+  },
+  {
+   "key": "line_art_mono",
+   "name_en": "Mono line art",
+   "name_fa": "لاین‌آرتِ تک‌رنگ",
+   "group": "hand_drawn",
+   "motif": "sketch",
+   "animation": "limited_2d",
+   "family": "illustration",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#FFFFFF",
+    "#1B1B1B",
+    "#8A8A8A",
+    "#D9D9D9",
+    "#000000",
+    "#F7F7F7"
+   ],
+   "tags": [
+    "line",
+    "minimal"
+   ],
+   "mood": "elegant, calm"
+  },
+  {
+   "key": "pencil_sketchbook",
+   "name_en": "Pencil sketchbook",
+   "name_fa": "طراحی با مداد (اسکچ‌بوک)",
+   "group": "hand_drawn",
+   "motif": "sketch",
+   "animation": "limited_2d",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F3EEE3",
+    "#4A4A4A",
+    "#8B8680",
+    "#C9B79C",
+    "#1F1F1F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "pencil",
+    "sketch"
+   ],
+   "mood": "intimate, honest"
+  },
+  {
+   "key": "charcoal_drawing",
+   "name_en": "Charcoal drawing",
+   "name_fa": "نقاشی با زغال",
+   "group": "hand_drawn",
+   "motif": "ink",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#E9E4DA",
+    "#3B3B3B",
+    "#7A7771",
+    "#B9B3A6",
+    "#0E0E0E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "charcoal",
+    "drawing"
+   ],
+   "mood": "sombre, dramatic"
+  },
+  {
+   "key": "ink_wash_sumi",
+   "name_en": "Ink wash painting",
+   "name_fa": "آبرنگِ جوهری (سومی‌ای)",
+   "group": "hand_drawn",
+   "motif": "ink",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F4EFE6",
+    "#2B2B2B",
+    "#6F6F6F",
+    "#B22222",
+    "#111111",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "ink",
+    "calm"
+   ],
+   "mood": "serene, contemplative"
+  },
+  {
+   "key": "impressionist_oil",
+   "name_en": "Impressionist oil painting",
+   "name_fa": "نقاشی رنگ‌روغنِ امپرسیونیستی",
+   "group": "hand_drawn",
+   "motif": "paint",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#EAF3E4",
+    "#4F8A5B",
+    "#F0C75E",
+    "#D96C75",
+    "#2F4858",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "oil",
+    "painting"
+   ],
+   "mood": "light, airy"
+  },
+  {
+   "key": "gouache_storybook",
+   "name_en": "Gouache picture book",
+   "name_fa": "گواش کتاب کودک",
+   "group": "hand_drawn",
+   "motif": "paper",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 12,
+   "palette": [
+    "#FBF1DC",
+    "#E76F51",
+    "#2A9D8F",
+    "#E9C46A",
+    "#264653",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "gouache",
+    "kids"
+   ],
+   "mood": "warm, cosy"
+  },
+  {
+   "key": "art_nouveau_botanical",
+   "name_en": "Art nouveau botanical",
+   "name_fa": "آرنوووی گیاهی",
+   "group": "hand_drawn",
+   "motif": "nouveau",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F1E6C8",
+    "#7A8F5C",
+    "#C9A227",
+    "#A8553B",
+    "#2F3B2A",
+    "#FFF8E1"
+   ],
+   "tags": [
+    "ornate",
+    "floral"
+   ],
+   "mood": "elegant, ornate"
+  },
+  {
+   "key": "surreal_dream_collage",
+   "name_en": "Surreal dreamscape",
+   "name_fa": "رؤیاگونهٔ سورئال",
+   "group": "hand_drawn",
+   "motif": "surreal",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "stylized_art",
+   "fps_feel": 12,
+   "palette": [
+    "#F2C9A0",
+    "#4B6CB7",
+    "#D1495B",
+    "#EDAE49",
+    "#1B1F3B",
+    "#FFF1E0"
+   ],
+   "tags": [
+    "surreal",
+    "dream"
+   ],
+   "mood": "uncanny, dreamy"
+  },
+  {
+   "key": "dark_fantasy_painting",
+   "name_en": "Dark fantasy painting",
+   "name_fa": "نقاشی فانتزیِ تاریک",
+   "group": "hand_drawn",
+   "motif": "noir",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 12,
+   "palette": [
+    "#12141C",
+    "#3A4A5A",
+    "#8A5A3C",
+    "#D9A441",
+    "#050608",
+    "#E8DCC8"
+   ],
+   "tags": [
+    "dark",
+    "fantasy"
+   ],
+   "mood": "ominous, grim"
+  },
+  {
+   "key": "steampunk_brass",
+   "name_en": "Steampunk brass",
+   "name_fa": "استیم‌پانک (برنج و بخار)",
+   "group": "hand_drawn",
+   "motif": "steam",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "semi_realistic",
+   "fps_feel": 12,
+   "palette": [
+    "#2B1D14",
+    "#8C5A2B",
+    "#C98B3F",
+    "#E8C98F",
+    "#120B07",
+    "#FFF1D6"
+   ],
+   "tags": [
+    "steam",
+    "victorian"
+   ],
+   "mood": "adventurous, inventive"
+  },
+  {
+   "key": "retro_pulp_scifi",
+   "name_en": "Retro pulp sci-fi",
+   "name_fa": "تصویرسازی پالپِ علمی‌تخیلی",
+   "group": "hand_drawn",
+   "motif": "halftone",
+   "animation": "painted_parallax",
+   "family": "illustration",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F2D8A7",
+    "#D1495B",
+    "#2E86AB",
+    "#EDAE49",
+    "#2B2118",
+    "#FFF4DC"
+   ],
+   "tags": [
+    "retro",
+    "scifi"
+   ],
+   "mood": "adventurous, retro"
+  },
+  {
+   "key": "graffiti_street",
+   "name_en": "Street graffiti",
+   "name_fa": "گرافیتیِ خیابانی",
+   "group": "hand_drawn",
+   "motif": "graffiti",
+   "animation": "limited_2d",
+   "family": "illustration",
+   "realism": "stylized_art",
+   "fps_feel": 12,
+   "palette": [
+    "#2B2B2E",
+    "#FF3D81",
+    "#00D9FF",
+    "#C6FF00",
+    "#0E0E10",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "street",
+    "spray"
+   ],
+   "mood": "rebellious, loud"
+  },
+  {
+   "key": "calligraphy_ink_art",
+   "name_en": "Calligraphic ink art",
+   "name_fa": "نقاشی‌خط و جوهر",
+   "group": "hand_drawn",
+   "motif": "ink",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#EFE3C8",
+    "#1C1C1C",
+    "#8B1E1E",
+    "#C9A227",
+    "#0A0A0A",
+    "#FFF8E1"
+   ],
+   "tags": [
+    "calligraphy",
+    "persian"
+   ],
+   "mood": "spiritual, elegant"
+  },
+  {
+   "key": "early_console_3d",
+   "name_en": "Early-2000s console 3D",
+   "name_fa": "سه‌بعدیِ کنسول‌های قدیمی (اوایل ۲۰۰۰)",
+   "group": "cg_3d",
+   "motif": "console",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#7FA3B8",
+    "#4A6B3A",
+    "#B58B4F",
+    "#D8CBA8",
+    "#1C2A2F",
+    "#EEF3E8"
+   ],
+   "tags": [
+    "game",
+    "retro"
+   ],
+   "mood": "nostalgic, eerie"
+  },
+  {
+   "key": "voxel_art",
+   "name_en": "Voxel art",
+   "name_fa": "ووکسل‌آرت (مکعبی)",
+   "group": "cg_3d",
+   "motif": "voxel",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#BFE9FF",
+    "#4CAF50",
+    "#8D6E63",
+    "#FFC107",
+    "#37474F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "voxel",
+    "blocky"
+   ],
+   "mood": "playful, tidy"
+  },
+  {
+   "key": "toy_brick_3d",
+   "name_en": "Toy-brick world",
+   "name_fa": "آجرهای اسباب‌بازی (بلوک‌های پلاستیکی)",
+   "group": "cg_3d",
+   "motif": "bricks",
+   "animation": "stop_motion",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#FFE600",
+    "#E4002B",
+    "#0057B8",
+    "#00A651",
+    "#1A1A1A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "toy",
+    "bricks"
+   ],
+   "mood": "playful, tactile"
+  },
+  {
+   "key": "fast_3d_explainer",
+   "name_en": "Fast 3D explainer",
+   "name_fa": "توضیحِ سه‌بعدیِ پرسرعت",
+   "group": "cg_3d",
+   "motif": "cg",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 30,
+   "palette": [
+    "#E8F4FF",
+    "#1E88E5",
+    "#FF7043",
+    "#FFD600",
+    "#263238",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "3d",
+    "explainer"
+   ],
+   "mood": "punchy, clear"
+  },
+  {
+   "key": "cgi_motion_graphics",
+   "name_en": "CGI motion graphics",
+   "name_fa": "موشن‌گرافیکِ سی‌جی‌آی",
+   "group": "cg_3d",
+   "motif": "cg",
+   "animation": "motion_graphics",
+   "family": "cg_3d",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#0D0D2B",
+    "#5B5BFF",
+    "#FF5BC8",
+    "#2BE4DC",
+    "#04041A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "abstract",
+    "3d"
+   ],
+   "mood": "sleek, modern"
+  },
+  {
+   "key": "clay_3d_render",
+   "name_en": "3D clay render",
+   "name_fa": "خمیرِ سه‌بعدی (کلی رندر)",
+   "group": "cg_3d",
+   "motif": "clay",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#FDE8D8",
+    "#F28C8C",
+    "#7FD1B9",
+    "#FFD166",
+    "#5C4B51",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "clay",
+    "3d"
+   ],
+   "mood": "cute, tactile"
+  },
+  {
+   "key": "vinyl_toy_figure",
+   "name_en": "Designer vinyl toy",
+   "name_fa": "فیگورِ وینیلی",
+   "group": "cg_3d",
+   "motif": "cg",
+   "animation": "cg_3d",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#F6E9FF",
+    "#9B5DE5",
+    "#F15BB5",
+    "#FEE440",
+    "#2B2D42",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "toy",
+    "collectible"
+   ],
+   "mood": "cute, collectible"
+  },
+  {
+   "key": "glassmorphism_ui",
+   "name_en": "Glassmorphism",
+   "name_fa": "گلس‌مورفیسم (شیشهٔ مات)",
+   "group": "graphic_design",
+   "motif": "glass",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#6C5CE7",
+    "#00CEC9",
+    "#FD79A8",
+    "#FFEAA7",
+    "#2D3436",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "ui",
+    "glass"
+   ],
+   "mood": "modern, airy"
+  },
+  {
+   "key": "chrome_metal_type",
+   "name_en": "Chrome metal type",
+   "name_fa": "تایپِ فلزیِ کروم",
+   "group": "motion_type",
+   "motif": "chrome",
+   "animation": "motion_graphics",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 30,
+   "palette": [
+    "#0B0F1A",
+    "#C9D6E8",
+    "#7B8DA8",
+    "#FFD36B",
+    "#02040A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "chrome",
+    "type"
+   ],
+   "mood": "flashy, futuristic"
+  },
+  {
+   "key": "stop_motion_puppet",
+   "name_en": "Stop-motion puppets",
+   "name_fa": "استاپ‌موشنِ عروسکی",
+   "group": "craft",
+   "motif": "clay",
+   "animation": "stop_motion",
+   "family": "stop_motion",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#E8D5B7",
+    "#9C4A3A",
+    "#3D6B6B",
+    "#D9A441",
+    "#2A1D17",
+    "#FFF4E0"
+   ],
+   "tags": [
+    "stopmotion",
+    "puppet"
+   ],
+   "mood": "quirky, handmade"
+  },
+  {
+   "key": "papercraft_layers",
+   "name_en": "Layered papercraft",
+   "name_fa": "کاردستیِ کاغذیِ لایه‌ای",
+   "group": "craft",
+   "motif": "paper",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 12,
+   "palette": [
+    "#F4E9D8",
+    "#E07A5F",
+    "#3D405B",
+    "#81B29A",
+    "#F2CC8F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "paper",
+    "layers"
+   ],
+   "mood": "crafted, cosy"
+  },
+  {
+   "key": "origami_fold",
+   "name_en": "Origami folds",
+   "name_fa": "اوریگامی (کاغذِ تاشده)",
+   "group": "craft",
+   "motif": "origami",
+   "animation": "stop_motion",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 12,
+   "palette": [
+    "#F7F3EE",
+    "#E63946",
+    "#457B9D",
+    "#F1C453",
+    "#1D3557",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "origami",
+    "paper"
+   ],
+   "mood": "calm, precise"
+  },
+  {
+   "key": "paper_collage",
+   "name_en": "Paper collage",
+   "name_fa": "کولاژ کاغذی",
+   "group": "craft",
+   "motif": "collage",
+   "animation": "cutout",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F2E8CF",
+    "#BC4749",
+    "#386641",
+    "#F4A261",
+    "#264653",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "collage",
+    "paper"
+   ],
+   "mood": "raw, expressive"
+  },
+  {
+   "key": "stained_glass",
+   "name_en": "Stained glass",
+   "name_fa": "شیشهٔ رنگی (ویتراژ)",
+   "group": "craft",
+   "motif": "stained",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#10163A",
+    "#C1121F",
+    "#1D4ED8",
+    "#F4B400",
+    "#05071A",
+    "#E8F0FF"
+   ],
+   "tags": [
+    "glass",
+    "ornate"
+   ],
+   "mood": "sacred, luminous"
+  },
+  {
+   "key": "mosaic_tiles",
+   "name_en": "Tile mosaic",
+   "name_fa": "موزاییک و کاشی",
+   "group": "craft",
+   "motif": "mosaic",
+   "animation": "painted_parallax",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F2E3C6",
+    "#0F7C8A",
+    "#1E3A8A",
+    "#E0A100",
+    "#3B2A1A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "mosaic",
+    "tile"
+   ],
+   "mood": "ornate, timeless"
+  },
+  {
+   "key": "embroidery_textile",
+   "name_en": "Embroidery & knit textile",
+   "name_fa": "گلدوزی و بافتنی",
+   "group": "craft",
+   "motif": "stitch",
+   "animation": "stop_motion",
+   "family": "handmade",
+   "realism": "stylized_art",
+   "fps_feel": 8,
+   "palette": [
+    "#F3E6D3",
+    "#C44536",
+    "#197278",
+    "#EDDEA4",
+    "#283D3B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "textile",
+    "stitch"
+   ],
+   "mood": "cosy, handmade"
+  },
+  {
+   "key": "gothic_whimsy_puppet",
+   "name_en": "Gothic whimsy puppets",
+   "name_fa": "عروسکِ گوتیکِ شیطنت‌آمیز",
+   "group": "craft",
+   "motif": "clay",
+   "animation": "stop_motion",
+   "family": "stop_motion",
+   "realism": "cartoon_3d",
+   "fps_feel": 12,
+   "palette": [
+    "#1E2530",
+    "#4A5A6A",
+    "#9AA8B5",
+    "#E0B484",
+    "#0A0D12",
+    "#E8ECEF"
+   ],
+   "tags": [
+    "gothic",
+    "puppet"
+   ],
+   "mood": "eerie, charming"
+  },
+  {
+   "key": "pop_art_halftone",
+   "name_en": "Pop art halftone",
+   "name_fa": "پاپ‌آرت (نقطه‌های چاپی)",
+   "group": "graphic_design",
+   "motif": "halftone",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#FFF200",
+    "#E4002B",
+    "#0057B8",
+    "#00A651",
+    "#111111",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "pop",
+    "print"
+   ],
+   "mood": "loud, ironic"
+  },
+  {
+   "key": "blueprint_technical",
+   "name_en": "Technical blueprint",
+   "name_fa": "نقشهٔ فنی (بلوپرینت)",
+   "group": "graphic_design",
+   "motif": "blueprint",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#0B3D91",
+    "#E8F1FF",
+    "#7FB2FF",
+    "#FFD166",
+    "#06214F",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "technical",
+    "diagram"
+   ],
+   "mood": "precise, analytical"
+  },
+  {
+   "key": "corporate_flat_people",
+   "name_en": "Corporate flat illustration",
+   "name_fa": "تصویرسازیِ شرکتیِ تخت (ممفیس شرکتی)",
+   "group": "graphic_design",
+   "motif": "corp",
+   "animation": "cutout",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#F4F7FF",
+    "#6C63FF",
+    "#FF6584",
+    "#FFC857",
+    "#2F3061",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "flat",
+    "business"
+   ],
+   "mood": "friendly, tidy"
+  },
+  {
+   "key": "memphis_80s",
+   "name_en": "Memphis 80s pattern",
+   "name_fa": "ممفیسِ دههٔ هشتاد",
+   "group": "graphic_design",
+   "motif": "memphis",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#FFF4D6",
+    "#FF3E8A",
+    "#00C2CB",
+    "#FFD500",
+    "#1B1B3A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "pattern",
+    "retro"
+   ],
+   "mood": "playful, loud"
+  },
+  {
+   "key": "bauhaus_geometric",
+   "name_en": "Bauhaus geometry",
+   "name_fa": "باهاوس (هندسهٔ ساده)",
+   "group": "graphic_design",
+   "motif": "bauhaus",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#F2EBDD",
+    "#D62828",
+    "#1D4ED8",
+    "#F6C400",
+    "#111111",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "geometric",
+    "design"
+   ],
+   "mood": "rational, bold"
+  },
+  {
+   "key": "neo_brutalism",
+   "name_en": "Neo-brutalism",
+   "name_fa": "نئوبروتالیسم (طراحی خام)",
+   "group": "graphic_design",
+   "motif": "brutal",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#FFE14D",
+    "#FF5C8A",
+    "#5C7CFA",
+    "#2EC27E",
+    "#111111",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "ui",
+    "bold"
+   ],
+   "mood": "bold, raw"
+  },
+  {
+   "key": "risograph_print",
+   "name_en": "Risograph print",
+   "name_fa": "چاپ ریزوگراف",
+   "group": "graphic_design",
+   "motif": "riso",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 8,
+   "palette": [
+    "#F7EFD9",
+    "#FF4D6D",
+    "#2B59C3",
+    "#FFD23F",
+    "#1B1B3A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "print",
+    "indie"
+   ],
+   "mood": "indie, handmade"
+  },
+  {
+   "key": "linocut_print",
+   "name_en": "Linocut print",
+   "name_fa": "چاپ لینولئوم",
+   "group": "graphic_design",
+   "motif": "woodblock",
+   "animation": "limited_2d",
+   "family": "handmade",
+   "realism": "graphic",
+   "fps_feel": 8,
+   "palette": [
+    "#F4EBD9",
+    "#1A1A1A",
+    "#9B2226",
+    "#CA6702",
+    "#000000",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "print",
+    "folk"
+   ],
+   "mood": "folk, strong"
+  },
+  {
+   "key": "art_deco_gilded",
+   "name_en": "Gilded art deco",
+   "name_fa": "آرت‌دکوی زراندود",
+   "group": "graphic_design",
+   "motif": "deco",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#0C1B17",
+    "#C9A227",
+    "#1F6F5C",
+    "#E9D8A6",
+    "#050B09",
+    "#FFF8E1"
+   ],
+   "tags": [
+    "gold",
+    "deco"
+   ],
+   "mood": "luxurious, elegant"
+  },
+  {
+   "key": "groovy_70s",
+   "name_en": "Groovy 70s",
+   "name_fa": "هفتادیِ گرد و گرم (گروویی)",
+   "group": "graphic_design",
+   "motif": "groovy",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#F2D8A7",
+    "#D2691E",
+    "#E9A23B",
+    "#6B3E26",
+    "#2A170E",
+    "#FFF4DC"
+   ],
+   "tags": [
+    "retro",
+    "warm"
+   ],
+   "mood": "warm, laid-back"
+  },
+  {
+   "key": "constructivist_poster",
+   "name_en": "Constructivist poster",
+   "name_fa": "پوستر ساختن‌گرا (کانستراکتیویست)",
+   "group": "graphic_design",
+   "motif": "constructivist",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#F0E6D2",
+    "#C1272D",
+    "#1A1A1A",
+    "#8D8D8D",
+    "#000000",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "poster",
+    "geometric"
+   ],
+   "mood": "urgent, forceful"
+  },
+  {
+   "key": "vintage_travel_poster",
+   "name_en": "Vintage travel poster",
+   "name_fa": "پوسترِ سفرِ قدیمی",
+   "group": "graphic_design",
+   "motif": "deco",
+   "animation": "painted_parallax",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#F5E6C8",
+    "#D1495B",
+    "#00798C",
+    "#EDAE49",
+    "#30638E",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "poster",
+    "travel"
+   ],
+   "mood": "wanderlust, nostalgic"
+  },
+  {
+   "key": "duotone_gradient",
+   "name_en": "Duotone gradient",
+   "name_fa": "دوتونِ گرادیانتی",
+   "group": "graphic_design",
+   "motif": "duotone",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#1B0B3A",
+    "#7B2CBF",
+    "#FF6FB5",
+    "#FFD0E8",
+    "#0A0418",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "duotone",
+    "minimal"
+   ],
+   "mood": "moody, modern"
+  },
+  {
+   "key": "die_cut_sticker",
+   "name_en": "Die-cut sticker",
+   "name_fa": "برچسبِ خوش‌رنگ",
+   "group": "graphic_design",
+   "motif": "sticker",
+   "animation": "cutout",
+   "family": "graphic",
+   "realism": "cartoon",
+   "fps_feel": 12,
+   "palette": [
+    "#FFF5F7",
+    "#FF6B9D",
+    "#4D96FF",
+    "#FFD93D",
+    "#4A4E69",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "sticker",
+    "cute"
+   ],
+   "mood": "cute, shareable"
+  },
+  {
+   "key": "minimal_bw_essay",
+   "name_en": "Minimal black-and-white essay",
+   "name_fa": "مینیمالِ سیاه‌وسفید (مقاله‌ای)",
+   "group": "motion_type",
+   "motif": "type",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#FFFFFF",
+    "#111111",
+    "#6B6B6B",
+    "#D9D9D9",
+    "#000000",
+    "#F5F5F5"
+   ],
+   "tags": [
+    "minimal",
+    "text"
+   ],
+   "mood": "calm, thoughtful"
+  },
+  {
+   "key": "kinetic_typography",
+   "name_en": "Kinetic typography",
+   "name_fa": "تایپوگرافیِ متحرک",
+   "group": "motion_type",
+   "motif": "kinetic",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#101010",
+    "#FFE600",
+    "#FF3D00",
+    "#00E0FF",
+    "#000000",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "type",
+    "motion"
+   ],
+   "mood": "punchy, rhythmic"
+  },
+  {
+   "key": "infographic_data",
+   "name_en": "Infographic data",
+   "name_fa": "اینفوگرافیک و داده",
+   "group": "motion_type",
+   "motif": "infographic",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#F5F7FA",
+    "#2F6FED",
+    "#00B894",
+    "#FDCB6E",
+    "#2D3436",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "data",
+    "chart"
+   ],
+   "mood": "clear, trustworthy"
+  },
+  {
+   "key": "particle_field",
+   "name_en": "Particle field",
+   "name_fa": "میدانِ ذرات",
+   "group": "motion_type",
+   "motif": "particles",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#04060F",
+    "#4DA8FF",
+    "#9B5CFF",
+    "#FFB84D",
+    "#010208",
+    "#EAF4FF"
+   ],
+   "tags": [
+    "particles",
+    "abstract"
+   ],
+   "mood": "awe, scientific"
+  },
+  {
+   "key": "wireframe_hud",
+   "name_en": "Wireframe HUD",
+   "name_fa": "وایرفریم و نمایشگر آینده",
+   "group": "motion_type",
+   "motif": "wire",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 30,
+   "palette": [
+    "#03121C",
+    "#19E3FF",
+    "#2BFFB0",
+    "#FFC247",
+    "#010609",
+    "#E4FBFF"
+   ],
+   "tags": [
+    "hud",
+    "scifi"
+   ],
+   "mood": "technical, futuristic"
+  },
+  {
+   "key": "chalk_neon_board",
+   "name_en": "Neon chalk board",
+   "name_fa": "تختهٔ گچیِ رنگی",
+   "group": "motion_type",
+   "motif": "chalk",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#1B2A25",
+    "#F8F8F2",
+    "#FF6AC1",
+    "#5AF78E",
+    "#0A100D",
+    "#F3F99D"
+   ],
+   "tags": [
+    "chalk",
+    "teaching"
+   ],
+   "mood": "friendly, creative"
+  },
+  {
+   "key": "vaporwave_dream",
+   "name_en": "Vaporwave dream",
+   "name_fa": "ویپورموج (رؤیای پاستلی)",
+   "group": "retro_digital",
+   "motif": "vapor",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#FFB3E6",
+    "#8F7CFF",
+    "#00E5D1",
+    "#FFEA7A",
+    "#3A2A6B",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "vapor",
+    "retro"
+   ],
+   "mood": "dreamy, ironic"
+  },
+  {
+   "key": "glitch_datamosh",
+   "name_en": "Glitch art",
+   "name_fa": "گلیچ (خرابیِ دیجیتال)",
+   "group": "retro_digital",
+   "motif": "glitch",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#0A0A12",
+    "#FF0055",
+    "#00F0FF",
+    "#F5FF00",
+    "#000000",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "glitch",
+    "digital"
+   ],
+   "mood": "tense, digital"
+  },
+  {
+   "key": "vhs_analog",
+   "name_en": "VHS analog tape",
+   "name_fa": "ویدیوی آنالوگ (وی‌اچ‌اس)",
+   "group": "retro_digital",
+   "motif": "vhs",
+   "animation": "live_camera",
+   "family": "live_like",
+   "realism": "realistic",
+   "fps_feel": 24,
+   "palette": [
+    "#2B2D42",
+    "#8D99AE",
+    "#EF233C",
+    "#EDF2F4",
+    "#0B0C10",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "vhs",
+    "retro"
+   ],
+   "mood": "nostalgic, uneasy"
+  },
+  {
+   "key": "neon_sign_glow",
+   "name_en": "Neon sign glow",
+   "name_fa": "تابلوی نئونی",
+   "group": "retro_digital",
+   "motif": "neon",
+   "animation": "motion_graphics",
+   "family": "illustration",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#0B0A14",
+    "#FF2E97",
+    "#2EF2FF",
+    "#FFD23F",
+    "#04030A",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "neon",
+    "night"
+   ],
+   "mood": "nightlife, moody"
+  },
+  {
+   "key": "y2k_bubble_chrome",
+   "name_en": "Y2K bubble chrome",
+   "name_fa": "ایک‌دو‌کی (حباب و کروم)",
+   "group": "retro_digital",
+   "motif": "y2k",
+   "animation": "motion_graphics",
+   "family": "cg_3d",
+   "realism": "cartoon_3d",
+   "fps_feel": 24,
+   "palette": [
+    "#CFE9FF",
+    "#4DA3FF",
+    "#FF8FD6",
+    "#E8F1FF",
+    "#1B2A5C",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "y2k",
+    "glossy"
+   ],
+   "mood": "optimistic, glossy"
+  },
+  {
+   "key": "holographic_foil",
+   "name_en": "Holographic foil",
+   "name_fa": "هولوگرامِ رنگین‌کمانی",
+   "group": "retro_digital",
+   "motif": "holo",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 24,
+   "palette": [
+    "#D9C2FF",
+    "#7AD7F0",
+    "#FFB3E6",
+    "#FFF1A8",
+    "#3B2A66",
+    "#FFFFFF"
+   ],
+   "tags": [
+    "holo",
+    "shiny"
+   ],
+   "mood": "dreamy, shiny"
+  },
+  {
+   "key": "terminal_ascii",
+   "name_en": "Terminal ASCII",
+   "name_fa": "ترمینال و اسکی‌آرت",
+   "group": "retro_digital",
+   "motif": "terminal",
+   "animation": "motion_graphics",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 12,
+   "palette": [
+    "#020A04",
+    "#33FF66",
+    "#0B8A3A",
+    "#B7FFCB",
+    "#000000",
+    "#E6FFEC"
+   ],
+   "tags": [
+    "code",
+    "ascii"
+   ],
+   "mood": "hacker, geeky"
+  },
+  {
+   "key": "lowfi_cozy_pixel",
+   "name_en": "Cozy lo-fi pixel room",
+   "name_fa": "پیکسلِ دنج (لوفای)",
+   "group": "retro_digital",
+   "motif": "pixel",
+   "animation": "limited_2d",
+   "family": "graphic",
+   "realism": "graphic",
+   "fps_feel": 8,
+   "palette": [
+    "#2B2140",
+    "#7F5AA2",
+    "#F4A259",
+    "#8BB174",
+    "#140E24",
+    "#FDEBD0"
+   ],
+   "tags": [
+    "pixel",
+    "lofi"
+   ],
+   "mood": "cosy, calm"
+  }
+ ]
+}

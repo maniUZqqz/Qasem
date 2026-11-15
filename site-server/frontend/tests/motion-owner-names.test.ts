@@ -53,6 +53,14 @@ check("نامِ مالک کنارِ کارت فقط وقتی می‌آید که 
   assert.equal(ownerLabel(mk("pixel-art", "پیکسل", "Pixel Art")), "");
 });
 
+check("جست‌وجو «مناسبِ …» را هم می‌خواند (سبک‌هایِ تازه از InstAI: فروشنده نوعِ فروشگاهش را می‌نویسد)", () => {
+  const cafe = mk("home-movie-8mm", "فیلمِ خانگیِ ۸ میلی‌متری", "8mm Home Movie", { fits: "کافه و نانوایی، برندِ قدیمی و خانوادگی، تبلیغِ خاطره‌انگیز." });
+  assert.ok(styleMatches(cafe, "نانوایی"));
+  assert.ok(styleMatches(cafe, "کافه"));
+  assert.ok(!styleMatches(cafe, "کفش"));
+  assert.ok(!styleMatches(flat, "نانوایی"));               // a style without `fits` is unaffected
+});
+
 check("هر شناسهٔ فهرست در کاتالوگِ بک‌اند هست", () => {
   const cat = readFileSync(resolve(process.cwd(), "../backend/apps/motion/catalog.py"), "utf8");
   const ids = new Set([...cat.matchAll(/^\s*S\("([a-z0-9-]+)"/gm)].map((m) => m[1]));

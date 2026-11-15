@@ -34,6 +34,7 @@ urlpatterns = [
     path("api/v1/", include("apps.shoot.urls")),            # فیلم‌برداریِ هدایت‌شده
     path("api/v1/", include("apps.motion.urls")),           # استودیوی موشن (Remotion)
     path("api/v1/", include("apps.thumbs.urls")),           # تامنیل‌ساز
+    path("api/v1/", include("apps.mascot.urls")),           # ماسکوتِ برند
     path("api/v1/", include("apps.multiangle.urls")),       # چندزاویه
     path("api/v1/", include("apps.igtrends.urls")),         # ترندهای اینستاگرام (خواندن با آباگرام روی سرورِ پردازش)
     # NMarketing: ابزارهای ادغام‌شده

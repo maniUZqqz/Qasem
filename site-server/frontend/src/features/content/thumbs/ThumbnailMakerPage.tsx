@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../../api/client";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Spinner, fa } from "../../../components/ui";
@@ -44,6 +44,13 @@ async function downloadBlob(path: string, filename: string) {
 export default function ThumbnailMakerPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // «استفاده در تامنیل» از صفحهٔ ماسکوت: ?subject=<شناسهٔ عکسِ کتابخانه>&title=<متن>؛ یک بار خوانده و از نشانی پاک می‌شود
+  const [searchParams, setSearchParams] = useSearchParams();
+  const prefill = useRef<{ subject: number; title: string } | null>(null);
+  if (prefill.current === null) {
+    const s = Number(searchParams.get("subject") || 0);
+    prefill.current = { subject: s > 0 ? s : 0, title: (searchParams.get("title") || "").slice(0, 80) };
+  }
   const [ov, setOv] = useState<Overview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [spec, setSpec] = useState<Spec | null>(null);
@@ -82,8 +89,18 @@ export default function ThumbnailMakerPage() {
       setOv(o);
       setHistory(o.items);
       setSpec((cur) => cur ?? defaultSpec(o.default_format, "face_text"));
-      const lib = await thumbsApi.library(id).catch(() => [] as LibraryAsset[]);
+      const pf = prefill.current;
+      const lib = await thumbsApi.library(id, pf && pf.subject ? pf.subject : undefined).catch(() => [] as LibraryAsset[]);
       setAssets(Object.fromEntries(lib.map((a) => [a.id, a])));
+      if (pf && pf.subject) {
+        prefill.current = { subject: 0, title: "" };
+        setSpec((cur) => {
+          const base = cur ?? defaultSpec(o.default_format, "face_text");
+          return { ...base, subject: { ...base.subject, asset: pf.subject, mode: "cutout", outline: true }, content: pf.title ? { ...base.content, title: pf.title } : base.content };
+        });
+        setNotice("ماسکوت به‌عنوانِ سوژه گذاشته شد؛ پس‌زمینه‌اش شفاف است و نیازی به «حذفِ پس‌زمینه» نیست.");
+        setSearchParams({}, { replace: true });
+      }
     } catch (e) {
       setLoadError(errorMessage(e));
     }

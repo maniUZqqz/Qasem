@@ -116,6 +116,8 @@ INSTALLED_APPS += ["apps.shoot"]
 INSTALLED_APPS += ["apps.multiangle"]
 # تامنیل‌ساز (پنل › محتوا): کاورِ یوتیوب/اینستاگرام/پینترست و پوستر، با ایده‌پردازی و پس‌زمینهٔ هوش مصنوعی
 INSTALLED_APPS += ["apps.thumbs"]
+# ماسکوتِ برند (پنل › محتوا): شخصیتِ کارتونیِ ثابتِ کدمحور برای پست، استوری و تامنیل؛ بدونِ GPU و بدونِ هوش مصنوعی
+INSTALLED_APPS += ["apps.mascot"]
 
 # استودیوی موشن (Remotion): ویدیو از روی کد؛ رندرِ نهایی روی سرورِ پردازش
 INSTALLED_APPS += ["apps.motion"]

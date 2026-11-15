@@ -203,7 +203,39 @@ export type ReportData = {
   downloads: { active: DownloadActive[]; waiting: DownloadWaiting[]; history: DownloadHistory[] };
   agent_versions: { version: string; nodes: string[]; latest: boolean }[];
   logs_note: { kept_per_node: number; any_truncated: boolean };
+  /** فضای پوشهٔ کارها و مقدارِ آزادشده با نگه‌داریِ خودکار (apps.compute.retention) */
+  storage?: ReportStorage;
 };
+
+export type ReportStorage = {
+  dirs?: number | null;
+  size_mb?: number | null;
+  freed_mb?: number | null;
+  freed_last_mb?: number | null;
+  last_run?: string | null;
+  jobs_cleaned?: number;
+  orphans_removed?: number;
+  rows_removed?: number;
+  rules?: { output_days?: number; failed_days?: number; cancelled_days?: number; grace_minutes?: number };
+};
+
+/** کارتِ «فضای فایل‌های کارها»: چهار عددِ آماده + جملهٔ قاعده؛ null اگر هنوز هیچ دورِ نگه‌داری اجرا نشده */
+export function storageView(s: ReportStorage | null | undefined): { items: { label: string; value: string }[]; note: string } | null {
+  if (!s || !s.last_run) return null;
+  const n = (v: number | null | undefined) => (typeof v === "number" ? toFa(v) : "—");
+  const r = s.rules ?? {};
+  return {
+    items: [
+      { label: "فضای فایل‌های کارها", value: fmtMb(s.size_mb) },
+      { label: "پوشهٔ کار", value: n(s.dirs) },
+      { label: "آزادشده تا امروز", value: fmtMb(s.freed_mb) },
+      { label: "آزادشده در آخرین دور", value: fmtMb(s.freed_last_mb) },
+    ],
+    note:
+      `ورودی‌ها و بستهٔ کارِ تمام‌شده پس از ${toFa(r.grace_minutes ?? 60)} دقیقه پاک می‌شوند؛ خروجی‌ها پس از ${toFa(r.output_days ?? 7)} روز ` +
+      `(کارِ ناموفق ${toFa(r.failed_days ?? 14)} روز) یا زودتر اگر نتیجه به فروشگاه رفته باشد. کارِ در جریان هرگز دست نمی‌خورد.`,
+  };
+}
 
 export type LogLine = {
   id: number;

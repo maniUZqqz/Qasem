@@ -30,9 +30,9 @@ class DurableQueueTests(TestCase):
         job = SV.enqueue_durable("photo.edit", {"auto": True})
         self.assertEqual(job.state, "QUEUED")
         self.assertEqual(job.message, SV.NO_NODE_QUEUED_TEXT)
-        # ده روز می‌گذرد و هیچ‌چیز کار را نمی‌کُشد
+        # ده روز می‌گذرد و هیچ‌چیز کار را نمی‌کُشد (کارِ واقعی صاحب دارد: job_ref؛ کارِ بی‌صاحب با TTL می‌میرد — tests_audit_queue.UnownedTtlTests)
         ComputeJob.objects.filter(pk=job.pk).update(created_at=timezone.now() - timedelta(days=10),
-                                                    queued_at=timezone.now() - timedelta(days=10))
+                                                    queued_at=timezone.now() - timedelta(days=10), job_ref=4242)
         SV.requeue_stale()
         SV.expire_overdue(force=True)
         job.refresh_from_db()

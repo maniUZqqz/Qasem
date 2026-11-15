@@ -1,0 +1,11 @@
+/* «جزئیات فنی» ِ ردیفِ سرور: بسته است و فقط وقتی باز شود جا می‌گیرد؛ رنگ‌ها از توکن‌های پنل (تیره و روشن) */
+.nmc-tech { flex-basis: 100%; font-size: .74rem; color: var(--text-3); }
+.nmc-tech > summary { cursor: pointer; list-style: none; padding: 2px 0; }
+.nmc-tech > summary::-webkit-details-marker { display: none; }
+.nmc-tech > summary::after { content: " +"; }
+.nmc-tech[open] > summary::after { content: " −"; }
+.nmc-tech > summary:hover { color: var(--text); }
+.nmc-tech dl { margin: 6px 0 0; display: grid; gap: 3px; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); text-align: left; }
+.nmc-tech dl > div { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.nmc-tech dt { font-weight: 700; color: var(--text-2); flex: none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.nmc-tech dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; }

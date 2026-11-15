@@ -535,6 +535,16 @@ function JobItem({
 
         <div className="nmq-cell nmq-c-status">
           <Badge tone={tone}>{job.status_text}</Badge>
+          {job.stale && job.group === "waiting" && (
+            <span title="بیش از ۳ روز در صف مانده؛ اگر کسی منتظرش نیست خودکار لغو می‌شود">
+              <Badge tone="warn">قدیمی</Badge>
+            </span>
+          )}
+          {job.system && job.group === "waiting" && (
+            <span title="آزمونِ خودکارِ سرور؛ همیشه پشتِ کارهای شما می‌آید">
+              <Badge>آزمون</Badge>
+            </span>
+          )}
           {job.group === "running" && (
             <div className="u-meter nmq-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
               <span
@@ -634,6 +644,8 @@ function JobDetails({ job }: { job: QueueJob }) {
 
       {job.outputs && job.outputs.length > 0 ? (
         <JobOutputs outputs={job.outputs} />
+      ) : job.files_removed ? (
+        <p className="nmq-note" data-testid="files-removed">{job.files_removed}</p>
       ) : job.group === "done" ? (
         <p className="nmq-note">این کار خروجیِ فایلی نداشت (نتیجه‌اش مستقیم به همان صفحه‌ای رفت که آن را فرستاد).</p>
       ) : null}

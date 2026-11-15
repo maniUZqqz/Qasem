@@ -21,5 +21,9 @@ def maintenance():
         out["report"] = report.maintain()     # بستنِ نوبت‌های ساکت، فشرده‌سازی و پاکسازیِ آمارِ گزارش (هر ۱۰ دقیقه، کران‌دار)
     except Exception as exc:  # noqa: BLE001 — آمار نباید requeue را بخواباند
         out["report_error"] = str(exc)[:200]
+    try:
+        from . import retention
+        out["retention"] = retention.maintain()   # پاک‌کردنِ ورودی/بسته/خروجیِ کارهای تمام‌شده و پوشه‌های یتیم (کران‌دار، هر ۵ دقیقه)
+    except Exception as exc:  # noqa: BLE001 — نگه‌داریِ فایل‌ها نباید requeue را بخواباند
+        out["retention_error"] = str(exc)[:200]
     return out
-

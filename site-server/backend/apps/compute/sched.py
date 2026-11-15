@@ -131,6 +131,38 @@ def _order_band(node, band, auto, node_busy, burst, now):
     return ordered + downloads
 
 
+def system_turn(node, system, now=None, lane: str = "") -> tuple[list, list]:
+    """کارهای سیستمیِ (آزمونِ خودکارِ پذیرش) قابلِ‌دادن به این گره ⇒ (کهنه‌ها که از کارِ کاربر جلوترند, بقیه که پشتِ کارِ کاربر می‌آیند).
+
+    ۱. «کهنه»: کارِ سیستمی که بیش از SYSTEM_AGING_S منتظر مانده جلوتر از کارِ کاربر می‌رود — ولی فقط یکی، و فقط اگر در همین بازه کارِ سیستمیِ
+       دیگری روی این گره گرفته نشده؛ پس صفِ شلوغ نه آزمون‌ها را تا ابد گرسنه نگه می‌دارد و نه ده‌ها آزمونِ پشتِ‌هم جلوی کارِ کاربر می‌آیند.
+    ۲. «ساکت»: تا SYSTEM_QUIET_S ثانیه پس از پایانِ آخرین کارِ کاربر روی گره کارِ سیستمی داده نمی‌شود (کاربر معمولاً چند کار پشتِ‌هم می‌فرستد).
+    راهروی سبک (کارِ بلندی روی گره است) فقط کارهای ارزانِ بی‌کارت را می‌گیرد؛ آن‌ها مزاحمتی ندارند و این قاعده‌ها برایشان نیست."""
+    from datetime import timedelta as _td
+
+    from . import services as SV
+    from .models import ComputeJob as J
+
+    if not system:
+        return [], []
+    now = now or timezone.now()
+    if lane == "light":
+        return [], list(system)
+    aged: list = []
+    aged_cut = now - _td(seconds=SV.SYSTEM_AGING_S)
+    if not J.objects.filter(SV.system_origin_q(), node=node, claimed_at__gte=aged_cut).exists():
+        old = [j for j in system if _since(j, now) <= aged_cut]
+        if old:
+            aged = [min(old, key=lambda j: _since(j, now))]
+    rest = [j for j in system if j not in aged]
+    quiet_cut = now - _td(seconds=SV.SYSTEM_QUIET_S)
+    recent_user = (J.objects.filter(node=node, finished_at__gte=quiet_cut).exclude(SV.system_origin_q())
+                   .exclude(kind__in=DOWNLOAD_KINDS).exists())
+    if rest and recent_user:
+        rest = []
+    return aged, rest
+
+
 def after_claim(auto, job, node=None) -> None:
     """شمارنده‌های نوبت‌دهی را بعد از هر گرفتنِ کار به‌روز می‌کند."""
     if auto is None:

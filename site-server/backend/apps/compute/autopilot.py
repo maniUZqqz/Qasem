@@ -188,7 +188,7 @@ def nightly_due(node, cfg, now=None) -> str:
 
 def tick(now=None) -> dict:
     """هر دقیقه: به‌روزرسانیِ گره‌های بی‌کار، آزمونِ شبانه، و جلو بردنِ آزمون‌های در جریان."""
-    from .selftests import runner
+    from .selftests import runner, scope
 
     cfg = ComputeSettings.get()
     out = {"updates": 0, "nightly": 0, "online": 0}
@@ -212,8 +212,11 @@ def tick(now=None) -> dict:
                 auto = NodeAuto.of(node)
                 auto.last_nightly = today
                 auto.save(update_fields=["last_nightly", "updated_at"])
-                runner.start_run(node, "nightly")
-                out["nightly"] += 1
+                if scope.full_run_exists(node, scope.NIGHTLY_SKIP_H, now):
+                    out["nightly_skipped"] = out.get("nightly_skipped", 0) + 1       # سقفِ «یک اجرای کامل در روز»: امروز همین حالا کاملی بوده
+                else:
+                    runner.start_run(node, "nightly")
+                    out["nightly"] += 1
         except Exception:  # noqa: BLE001 — خطای یک گره بقیه را نمی‌خواباند
             logger.exception("autopilot: node %s failed", node.name)
     out.update(runner.advance_all())

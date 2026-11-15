@@ -28,8 +28,10 @@
 .nmr-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .nmr-tiles .u-card { padding: 12px 14px; }
 .nmr-tiles .text-2xl { font-size: 1.25rem; line-height: 1.7rem; }
+/* مقدارِ کاشی هرگز بریده نمی‌شود: «۱ ساعت و ۲۹ دقیقه» در کاشیِ ۱۶۰ پیکسلی (.u-num پیش‌فرض nowrap است) به دو خط می‌شکند */
+.nmr-tiles .u-num { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 @container nmr (min-width: 640px) { .nmr-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@container nmr (min-width: 960px) { .nmr-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .nmr-tiles .text-2xl { font-size: 1.5rem; } }
+@container nmr (min-width: 960px) { .nmr-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .nmr-tiles .text-2xl { font-size: 1.35rem; } }
 
 /* ------------------------------------------------------------- کارتِ سرور */
 .nmr-node { overflow: hidden; }
@@ -160,3 +162,10 @@
 @media (max-width: 639px) {
   .nmr-node-head, .nmr-meta, .nmr-sec, .nmr-det > summary, .nmr-det-body, .nmr-toolbar, .nmr-list > div, .nmr-groups, .nmr-foot, .nmr-dl { padding-inline: 12px; }
 }
+
+/* ------------------------------------------------------------- فضای پوشهٔ کارها (نگه‌داریِ خودکار) */
+.nmr-storage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.nmr-storage-item { display: grid; gap: 2px; font-size: .78rem; }
+.nmr-storage-item b { color: var(--text-3); font-weight: 600; }
+.nmr-storage-item span { color: var(--text); font-size: .95rem; font-weight: 700; overflow-wrap: anywhere; }
+@container nmr (min-width: 760px) { .nmr-storage { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

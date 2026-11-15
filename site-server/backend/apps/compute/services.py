@@ -62,6 +62,45 @@ LOST_NODE_TEXT = "سرورِ پردازش قطع شد؛ کار دوباره در
 MAX_LOST_FREE = int(getattr(settings, "NM_COMPUTE_MAX_LOST", 8))
 TEHRAN_OFFSET = timedelta(hours=3, minutes=30)      # ایران ساعتِ تابستانی ندارد (از ۱۴۰۱)
 
+#: کارهای سیستمی (آزمونِ خودکارِ پذیرش، origin «selftest…») همیشه پشتِ کارِ کاربر می‌آیند: عدد بزرگ‌تر = دیرتر (کارِ کاربر ۶۰ تا ۱۰۰ است)
+SYSTEM_PRIORITY = 150
+SYSTEM_ORIGIN_PREFIX = "selftest"
+#: کارِ سیستمی که این‌قدر منتظر ماند حتی با صفِ شلوغ نوبتش می‌رسد (اما فقط یکی در هر بازه، تا مجموعهٔ آزمون‌ها جلوی کارِ کاربر را نگیرد)
+SYSTEM_AGING_S = 20 * 60
+#: بعد از پایانِ آخرین کارِ کاربر روی گره، کارِ سیستمی این‌قدر صبر می‌کند (کاربر اغلب چند کارِ پشتِ‌هم می‌فرستد)
+SYSTEM_QUIET_S = 60
+#: کارِ بی‌صاحب (بی فروشگاه و بی کارِ اصلی) که این‌قدر روز در صف مانده «قدیمی» است: در شمارشِ هدر و جای‌خالی نمی‌آید و با TTL می‌میرد
+STALE_DAYS = 3
+#: عمرِ پیش‌فرضِ کارِ بی‌صاحبِ منتظر: آزمایشیِ پنل/آزمون ۲۴ ساعت، بقیه ۷ روز (پس از آن با یادداشتِ فارسی لغو می‌شود)
+UNOWNED_TTL_S = 7 * 24 * 3600
+UNOWNED_TEST_TTL_S = 24 * 3600
+
+
+def is_system_origin(origin) -> bool:
+    """آزمونِ خودکار: «selftest»، «selftest-thumbbg …» و «multiangle-selftest»."""
+    o = str(origin or "")
+    return o.startswith(SYSTEM_ORIGIN_PREFIX) or o.endswith("-" + SYSTEM_ORIGIN_PREFIX)
+
+
+def system_origin_q() -> Q:
+    return Q(origin__startswith=SYSTEM_ORIGIN_PREFIX) | Q(origin__endswith="-" + SYSTEM_ORIGIN_PREFIX)
+
+
+def is_unowned(job) -> bool:
+    """کاری که هیچ فروشگاه/کارِ اصلی‌ای منتظرش نیست (فرمِ آزمایشِ پنل، دانلودِ مدل، آزمون)."""
+    return not getattr(job, "store_id", None) and not getattr(job, "job_ref", None)
+
+
+def demand_excluded_q(now=None) -> Q:
+    """Q ِ کارهای «در صف» که تقاضای واقعیِ کاربر نیستند: آزمونِ خودکار + کارِ بی‌صاحبِ قدیمی (بیش از STALE_DAYS روز).
+    شمارشِ هدر، «جای خالی» ِ بیدار کردنِ کارهای منتظر و ... از این استفاده می‌کنند."""
+    from .park import PARK_KIND               # park imports this module; a late import avoids the cycle
+
+    now = now or timezone.now()
+    cutoff = now - timedelta(days=STALE_DAYS)
+    old = Q(queued_at__lt=cutoff) | Q(queued_at__isnull=True, created_at__lt=cutoff)
+    return system_origin_q() | (Q(store__isnull=True, job_ref__isnull=True) & old & ~Q(kind=PARK_KIND))
+
 
 def data_root() -> Path:
     return Path(getattr(settings, "NM_DATA_DIR", Path(settings.MEDIA_ROOT).parent))
@@ -229,6 +268,9 @@ def enqueue(kind: str, payload: dict | None = None, files: dict | None = None, *
     enqueue_durable را صدا بزنید که فقط وقتی هیچ گره‌ای هرگز نمی‌تواند آن را بگیرد خطا می‌دهد."""
     payload = dict(payload or {})
     files = dict(files or {})
+    if is_system_origin(origin):
+        # آزمونِ خودکار هرگز جلوتر از کارِ کاربر نیست، هر عددی که سازندهٔ آزمون داده باشد (۱۵، ۴۰ …)
+        priority = max(int(priority), SYSTEM_PRIORITY)
     capability = capability_for(kind)
     if require_online and not online_nodes(capability):
         raise ComputeUnavailable(
@@ -492,26 +534,35 @@ def claim(node: ComputeNode, lane: str = "") -> ComputeJob | None:
     windows = set(ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).exclude(window="")
                   .values_list("window", flat=True).distinct())
     open_windows = [w for w in windows if in_window(w, now)]
-    candidates = list(ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, node__isnull=True)
-                      .filter(Q(node_wanted="") | Q(node_wanted=node.name))
-                      .filter(Q(not_before__isnull=True) | Q(not_before__lte=now))
-                      .filter(Q(window="") | Q(window__in=open_windows))
-                      .filter(_kinds_q(node)).order_by("priority", "created_at")[:200])
+    base = (ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, node__isnull=True)
+            .filter(Q(node_wanted="") | Q(node_wanted=node.name))
+            .filter(Q(not_before__isnull=True) | Q(not_before__lte=now))
+            .filter(Q(window="") | Q(window__in=open_windows))
+            .filter(_kinds_q(node)))
+    # کارِ کاربر و کارِ سیستمی (آزمونِ خودکار) جدا خوانده می‌شوند: آزمون‌ها پشتِ هر کارِ کاربر می‌آیند و ۲۰۰ کارِ کاربر آن‌ها را از پرس‌وجو بیرون نمی‌اندازد
+    candidates = list(base.exclude(system_origin_q()).order_by("priority", "created_at")[:200])
+    system = list(base.filter(system_origin_q()).order_by("priority", "created_at")[:80])
     candidates = [j for j in candidates if not job_blocked(node, j)]
+    system = [j for j in system if not job_blocked(node, j)]
     from . import sched
     from .models import ComputeSettings, NodeAuto
 
     if lane == "light":
         candidates = sched.light_only(candidates)
+        system = sched.light_only(system)
     auto = None
     try:
         auto = NodeAuto.of(node)
         busy = ComputeJob.objects.filter(node=node, state__in=[ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING]) \
             .exclude(kind__in=sched.DOWNLOAD_KINDS).exists()
-        candidates = sched.order(node, candidates, auto, node_busy=busy or lane == "light",
-                                 burst=sched.burst_of(ComputeSettings.get()), now=now)
+        burst = sched.burst_of(ComputeSettings.get())
+        candidates = sched.order(node, candidates, auto, node_busy=busy or lane == "light", burst=burst, now=now)
+        aged, rest = sched.system_turn(node, system, now, lane)
+        # آزمونِ کهنه (یکی در هر بازه) جلوتر از کارِ کاربر؛ بقیه فقط وقتی کارِ کاربری نمانده و گره چند لحظه ساکت بوده
+        candidates = aged + candidates + sched.order(node, rest, auto, node_busy=busy or lane == "light", burst=burst, now=now)
     except Exception as exc:  # noqa: BLE001 — ترتیبِ ساده (اولویت، زمان) اگر نوبت‌دهی خطا بدهد
         logger.warning("compute: fair ordering failed, using plain order: %s", exc)
+        candidates = candidates + system
     for job in candidates:
         updated = _claim_row(job.pk, node, now)
         if updated == 1:
@@ -833,6 +884,53 @@ def expire_overdue(now=None, force: bool = False) -> int:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("compute: park expire hook failed: %s", exc)
             n += 1
+    n += expire_unowned(now)
+    return n
+
+
+_FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def default_ttl_s(job) -> int:
+    """عمرِ پیش‌فرضِ کارِ منتظرِ بی‌صاحب (ثانیه)؛ ۰ = این کار TTL ندارد. کارِ فروشگاه/کارِ اصلی و «کارِ منتظر» (wait.node) هرگز با TTL نمی‌میرند:
+    آن‌ها صفِ ماندگارِ واقعی‌اند. فرمِ آزمایشِ پنل و آزمونِ خودکار ۲۴ ساعت، بقیه (دانلودِ مدل، خواندنِ اینستاگرام …) ۷ روز."""
+    from .park import PARK_KIND
+
+    if job.kind == PARK_KIND or not is_unowned(job):
+        return 0
+    if is_system_origin(job.origin) or job.origin == "panel":
+        return UNOWNED_TEST_TTL_S
+    return UNOWNED_TTL_S
+
+
+def _ttl_text(seconds: int) -> str:
+    seconds = int(seconds)
+    text = ("%d ساعت" % max(1, seconds // 3600)) if seconds < 2 * 86400 else ("%d روز" % (seconds // 86400))
+    return text.translate(_FA_DIGITS)
+
+
+def expire_unowned(now=None) -> int:
+    """کارِ منتظرِ بی‌صاحب (نه فروشگاه، نه کارِ اصلی) که از عمرش گذشته با یادداشتِ فارسی لغو می‌شود، تا آزمایش‌های فراموش‌شده در
+    صف نماند و روزی که سرور روشن شد اول آن‌ها روی کارتِ مالک اجرا نشوند. دانلودِ زمان‌بندی‌شده تا وقتِ شروعش نمی‌شمارد."""
+    now = now or timezone.now()
+    n = 0
+    rows = ComputeJob.objects.filter(state=ComputeJob.State.QUEUED, store__isnull=True, job_ref__isnull=True)
+    for job in rows:
+        ttl = default_ttl_s(job)
+        if not ttl:
+            continue
+        if (job.not_before and job.not_before > now) or (job.window and not in_window(job.window, now)):
+            continue
+        since = job.queued_at or job.created_at
+        if job.not_before and job.not_before > since:
+            since = job.not_before
+        if (now - since).total_seconds() < ttl:
+            continue
+        fresh = ComputeJob.objects.filter(pk=job.pk).first()
+        if fresh is None or fresh.state != ComputeJob.State.QUEUED:
+            continue
+        cancel(fresh, "منقضی شد: بیش از %s در صفِ سرورِ پردازش ماند و کسی منتظرِ نتیجه‌اش نبود." % _ttl_text(ttl))
+        n += 1
     return n
 
 
@@ -845,5 +943,6 @@ def summary() -> dict:
             if v is True and not k.endswith("_stale") and k != "ollama_pull":  # فقط پرچم‌ها (نه «ollama_pull»: ویژگیِ عامل است)؛ slots (عدد)، comfy_nodes/ollama_models (فهرست) و gpu (متن) قابلیت نیستند
                 caps[k] = caps.get(k, 0) + 1
     return {"nodes": len(nodes), "online": len(online), "capabilities": caps,
-            "queued": ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).count(),
+            # همان شمارشِ نشانِ هدر: آزمونِ خودکار و کارِ بی‌صاحبِ قدیمی تقاضای واقعی نیستند (queue.summary)
+            "queued": ComputeJob.objects.filter(state=ComputeJob.State.QUEUED).exclude(demand_excluded_q()).count(),
             "running": ComputeJob.objects.filter(state__in=["CLAIMED", "RUNNING"]).count()}

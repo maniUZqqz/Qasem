@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import shutil
 from pathlib import Path
 
 from django.http import StreamingHttpResponse
@@ -27,7 +29,41 @@ ASSETS = "assets.json"
 READ_CHUNK = 1 << 20
 MAX_CHUNK = 16 << 20
 MAX_TOTAL = 8 << 30
+#: همهٔ خروجی‌های یک کار روی هم از این بیشتر نمی‌شود (رندرِ نهایی چند صد مگابایت است، نه چند گیگ)
+MAX_JOB_BYTES = 2 << 30
+#: پیش از اولین تکه: اگر پس از ذخیره‌شدنِ این فایل کمتر از این‌قدر جای خالی روی دیسکِ سایت بماند رد می‌شود (SQLite هم روی همین دیسک است؛
+#: پر شدنِ آن سایتِ زنده را می‌خواباند)
+DISK_RESERVE = 3 << 30
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+logger = logging.getLogger(__name__)
+
+
+def free_bytes() -> int:
+    """جای خالیِ دیسکی که پوشهٔ داده روی آن است (در آزمون‌ها با mock عوض می‌شود)."""
+    return shutil.disk_usage(SV.data_root()).free
+
+
+def _mb(n: int) -> str:
+    return ("%d" % max(0, round(n / (1 << 20)))).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
+def upload_refusal(job, final: Path, part: Path, total: int):
+    """(وضعیتِ HTTP, پیامِ فارسی) اگر این فایل نباید پذیرفته شود، وگرنه None. فقط پیش از اولین تکه صدا زده می‌شود."""
+    used = 0
+    try:
+        for p in final.parent.iterdir():
+            if p.is_file() and p.name not in (final.name, part.name):
+                used += p.stat().st_size
+    except OSError:
+        pass
+    if used + total > MAX_JOB_BYTES:
+        return 413, ("خروجی‌های این کار روی هم %s مگابایت می‌شود و از سقفِ %s مگابایتِ هر کار بیشتر است؛ ذخیره نشد. "
+                     "خروجی را کوتاه‌تر یا کم‌حجم‌تر بسازید." % (_mb(used + total), _mb(MAX_JOB_BYTES)))
+    free = free_bytes()
+    if total + DISK_RESERVE > free:
+        return 507, ("جای خالیِ دیسکِ سایت کم است (%s مگابایت خالی؛ این فایل %s مگابایت است و %s مگابایت باید برای سایت بماند)؛ نتیجه ذخیره نشد. "
+                     "پس از آزاد شدنِ فضا «پردازشِ دوباره» را بزنید." % (_mb(free), _mb(total), _mb(DISK_RESERVE)))
+    return None
 
 
 def assets_file(job) -> Path:
@@ -131,6 +167,16 @@ def output_chunks(request, uid, name):
             have = 0
         else:
             return Response({"size": have, "error": "offset"}, status=409)
+    if offset == 0:
+        refusal = upload_refusal(job, final, part, total)
+        if refusal:
+            status, why = refusal
+            logger.warning("compute: upload of %s/%s refused (%s): %s", job.uid, name, status, why)
+            try:                                        # کار با دلیلِ روشن ناموفق می‌شود، نه اینکه تا پایانِ مهلت بی‌خبر بماند
+                SV.finish(job, node, False, why, {"retryable": False}, [])
+            except Exception:  # noqa: BLE001 — رد کردنِ آپلود مهم‌تر از ثبتِ خطا
+                logger.warning("compute: could not record the refused upload on %s", job.uid, exc_info=True)
+            return Response({"size": 0, "error": why}, status=status)
     if have + len(body) > total:
         part.unlink(missing_ok=True)
         return Response({"size": 0, "error": "بیشتر از اندازهٔ اعلام‌شده"}, status=400)

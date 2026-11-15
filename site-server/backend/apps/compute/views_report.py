@@ -510,7 +510,18 @@ def build_report(rng, node_id=None, now=None) -> dict:
         "agent_versions": [{"version": v or "نامعلوم", "nodes": names, "latest": bool(v) and v == last.get("version")}
                            for v, names in sorted(versions.items())],
         "logs_note": {"kept_per_node": LOG_KEEP, "any_truncated": any(x["logs"]["truncated"] for x in nodes)},
+        "storage": _storage_section(),
     }
+
+
+def _storage_section() -> dict:
+    """فضای پوشهٔ کارها و مقدارِ آزادشده با نگه‌داریِ خودکار (retention.py)؛ خطا گزارش را نمی‌اندازد."""
+    try:
+        from . import retention
+
+        return retention.report()
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 # ───────────────────────────── نماها

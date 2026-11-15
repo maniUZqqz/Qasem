@@ -18,6 +18,11 @@
                صبر می‌شود (نه «رد»)
     needs_features  نامِ ویژگی‌های requirements.d که این آزمون به آن‌ها تکیه دارد (مثلاً "gpu-runtime")؛ تا پایانِ نصبشان صبر می‌شود
                (و تا وقتی عاملِ تازه‌بالاآمده هنوز نصبِ خودکار را گزارش نکرده)
+    heavy      (اختیاری) آزمونِ سنگین؛ تا وقتی کارِ کاربر روی گره هست ساخته نمی‌شود. پیش‌فرض: همهٔ آزمون‌های کارتی جز ارزان‌ها (scope.CHEAP)
+    files      (اختیاری) الگوی فایل‌های processing/ ِ این قابلیت؛ اجرای «سریع» پس از به‌روزرسانی فقط ارزان‌ها + قابلیت‌هایی را می‌آورد که
+               فایل‌هایشان عوض شده (scope.py)
+
+اولویت: آزمون‌ها اولویتِ سیستمی (۱۵۰) دارند، یعنی همیشه پشتِ کارِ مالک؛ نگاه کنید به selftests/scope.py.
 """
 from __future__ import annotations
 
@@ -38,7 +43,7 @@ class Spec:
     payload: dict = field(default_factory=dict)
     files: dict = field(default_factory=dict)          # {نامِ فایل: bytes}
     timeout_s: int = 600
-    priority: int = 15
+    priority: int = 150                                # = services.SYSTEM_PRIORITY: آزمون همیشه پشتِ کارِ کاربر (۶۰–۱۰۰)؛ enqueue هر عددِ کمتر را هم بالا می‌برد
 
 
 @dataclass
@@ -134,6 +139,8 @@ class SelfTest:
     describe: str = ""
     min_agent: str = ""                                 # «2.11» ⇒ عاملِ قدیمی‌تر: صبر برای به‌روزرسانی یا (اگر نمی‌آید) خطای روشن
     needs_features: tuple = ()                          # ویژگی‌های requirements.d که پیش از آزمون باید نصب شده باشند
+    heavy: bool | None = None                           # مدلِ بزرگ روی کارت؟ (None ⇒ scope.is_heavy از گروه می‌فهمد)؛ آزمونِ سنگین پشتِ کارِ کاربر می‌ماند
+    files: tuple = ()                                   # الگوی فایل‌های processing/ که فقط این قابلیت به آن‌ها تکیه دارد (اجرای «سریع» وقتی عوض شدند)
 
 
 REGISTRY: dict[str, SelfTest] = {}
@@ -150,7 +157,7 @@ def load_all(force: bool = False) -> dict:
     if _LOADED["done"] and not force:
         return REGISTRY
     for mod in pkgutil.iter_modules(__path__):
-        if mod.name.startswith("_") or mod.name in ("runner", "requeue", "docs_loader"):
+        if mod.name.startswith("_") or mod.name in ("runner", "requeue", "docs_loader", "scope"):
             continue
         try:
             importlib.import_module(f"{__name__}.{mod.name}")

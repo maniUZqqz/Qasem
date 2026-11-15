@@ -20,6 +20,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import services as SV
@@ -256,9 +257,11 @@ def _free_slots(cap: str, cache: dict) -> int:
         except (TypeError, ValueError):
             slots += 1
     active = 0
-    for kind in (ComputeJob.objects.filter(state__in=[ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED,
-                                                      ComputeJob.State.RUNNING])
-                 .exclude(kind=PARK_KIND).values_list("kind", flat=True)):
+    # آزمونِ خودکار و کارِ بی‌صاحبِ کهنه (۱۱ کارِ آزمایشیِ ۲۶ روزه) تقاضای واقعی نیستند: «در صف» بودنشان جای خالی را نمی‌خورد
+    # (آزمونی که همین الان روی گره اجراست البته گره را اشغال کرده و می‌شمارد)
+    demand = (ComputeJob.objects.filter(state__in=[ComputeJob.State.QUEUED, ComputeJob.State.CLAIMED, ComputeJob.State.RUNNING])
+              .exclude(kind=PARK_KIND).exclude(Q(state=ComputeJob.State.QUEUED) & SV.demand_excluded_q()))
+    for kind in demand.values_list("kind", flat=True):
         if capability_for(kind) == cap:
             active += 1
     cache[cap] = max(0, slots - active)

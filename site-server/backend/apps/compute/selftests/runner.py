@@ -17,12 +17,13 @@ from .. import queue as QV
 from .. import services as SV
 from ..models import ComputeJob, ComputeNode, ComputeSettings, SelfTestResult, SelfTestRun
 from . import (BOOT_BUSY, BOOT_MIN_AGENT, REGISTRY, YOUNG_AGENT_S, Ctx, Verdict, agent_age_s, agent_at_least, bootstrap_features,
-               load_all, tests)
+               load_all, scope, tests)
 from .requeue import requeue_after_pass
 
 logger = logging.getLogger(__name__)
 
-QUEUE_STALE_S = 30 * 60            # کارِ آزمون که با گرهٔ آنلاین این‌قدر در صف ماند ⇒ رد (با علت)
+QUEUE_STALE_S = 30 * 60            # کارِ آزمون که با گرهٔ آنلاین و بدونِ هیچ کارِ کاربری این‌قدر در صف ماند ⇒ رد (با علت)
+                                   # (اگر کارِ کاربر در جریان است آزمون پشتِ آن می‌ماند و «در صف ماند» حساب نمی‌شود؛ کهنگیِ services.SYSTEM_AGING_S نوبتش را می‌رساند)
 RUN_STALE_S = 45 * 60              # گره این‌قدر خاموش بماند ⇒ اجرا متوقف
 BLOCK_WAIT_S = 30 * 60             # مدلِ خاموش/نصب‌نشده: این‌قدر منتظر می‌مانیم
 S = SelfTestResult.State
@@ -85,25 +86,45 @@ def start_run(node: ComputeNode, trigger: str = "manual", by: str = "", deep: bo
         else:
             return run
     chosen = [t for t in tests(deep or trigger == "deep") if not only or t.key in set(only)]
-    if only:                                           # پیش‌نیازها هم می‌آیند
-        keys = {t.key for t in chosen}
-        grew = True
-        while grew:
-            grew = False
-            for t in list(chosen):
-                for dep in t.after:
-                    if dep not in keys and dep in REGISTRY:
-                        chosen.append(REGISTRY[dep])
-                        keys.add(dep)
-                        grew = True
-        chosen.sort(key=lambda t: (t.order, t.key))
+    files = scope.manifest_files()
+    note = ""
+    if trigger in ("version", "online") and not only and scope.version_scope(node) == "quick":
+        # سقفِ «یک اجرای کامل در روز»: در ۲۴ ساعتِ گذشته اجرای کاملی بوده ⇒ فقط ارزان‌ها + قابلیت‌هایی که فایل‌هایشان عوض شده
+        # (هم برای نسخهٔ تازه، هم برای «سرور بعد از قطعی دوباره روشن شد»: گرهی که چند بار در روز می‌آید و می‌رود مجموعهٔ سنگین را هر بار از نو نمی‌چرخاند)
+        chosen, n_cheap, n_moved = scope.quick_selection(node, chosen, files)
+        why = "با روشن‌شدنِ دوبارهٔ سرور" if trigger == "online" else "پس از به‌روزرسانی"
+        trigger = "quick"
+        note = ("آزمونِ سریعِ %s: %d بررسیِ ارزان + %d قابلیتی که فایل‌هایش عوض شده یا دفعهٔ قبل رد شده بود. آزمونِ کامل شبانه یا با دکمهٔ «آزمونِ کامل» اجرا می‌شود." % (
+            why, n_cheap, n_moved)).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    if only or trigger == "quick":                     # پیش‌نیازها هم می‌آیند
+        chosen = _with_deps(chosen)
     run = SelfTestRun.objects.create(node=node, trigger=trigger, by=by[:60], agent_version=str(caps.get("agent") or "")[:20],
-                                     code_id=node_code_id(caps))
-    SelfTestResult.objects.bulk_create([
-        SelfTestResult(run=run, key=t.key, label=t.label, group=t.group, order=i, optional=t.optional, state=S.PENDING)
-        for i, t in enumerate(chosen)])
+                                     code_id=node_code_id(caps), note=note[:300])
+    rows = []
+    for i, t in enumerate(chosen):
+        fp = scope.code_fp(t, files)
+        rows.append(SelfTestResult(run=run, key=t.key, label=t.label, group=t.group, order=i, optional=t.optional, state=S.PENDING,
+                                   extra={"code_fp": fp} if fp else {}))
+    SelfTestResult.objects.bulk_create(rows)
     advance(run)
     return run
+
+
+def _with_deps(chosen: list) -> list:
+    """پیش‌نیازهای هر آزمون هم در فهرست می‌آیند (خروجیِ آن‌ها ورودیِ این است)."""
+    chosen = list(chosen)
+    keys = {t.key for t in chosen}
+    grew = True
+    while grew:
+        grew = False
+        for t in list(chosen):
+            for dep in t.after:
+                if dep not in keys and dep in REGISTRY:
+                    chosen.append(REGISTRY[dep])
+                    keys.add(dep)
+                    grew = True
+    chosen.sort(key=lambda t: (t.order, t.key))
+    return chosen
 
 
 # ───────────────────────────── گام‌ها
@@ -193,9 +214,10 @@ def _step_queued(t, r, ctx, job) -> None:
         if r.state != S.RUNNING:
             r.state = S.RUNNING
             r.save(update_fields=["state"])
-        if age > max(job.timeout_s, 300) * 2:
+        ran = (now - (job.claimed_at or r.started_at or now)).total_seconds()      # از لحظهٔ گرفته‌شدن، نه از ورود به صف (پشتِ کارِ کاربر ساعت‌ها می‌ماند)
+        if ran > max(job.timeout_s, 300) * 2:
             SV.cancel(job, "آزمونِ خودکار: کار بیش از دو برابرِ مهلت طول کشید.")
-            _final(r, S.FAILED, "کار بیش از مهلتش طول کشید و لغو شد (%d ثانیه)" % age)
+            _final(r, S.FAILED, "کار بیش از مهلتش طول کشید و لغو شد (%d ثانیه)" % ran)
         return
     # هنوز در صف است
     if not node.online:
@@ -251,11 +273,18 @@ def _step_queued(t, r, ctx, job) -> None:
             r.detail = "منتظرِ آماده شدنِ مدل روی سرور ..."
             r.save(update_fields=["state", "detail"])
         return
+    busy = scope.user_work_reason(node)
+    if busy:                                               # آزمون پشتِ کارِ مالک است (اولویتِ سیستمی)؛ «در صف ماند» نیست
+        if r.state != S.QUEUED or r.detail != "پشتِ کارِ شما: " + busy:
+            r.state = S.QUEUED
+            r.detail = "پشتِ کارِ شما: " + busy
+            r.save(update_fields=["state", "detail"])
+        return
     if age > QUEUE_STALE_S:
         SV.cancel(job, "آزمونِ خودکار: کار در صف ماند.")
         _final(r, S.FAILED, "کار تا نیم ساعت از صف برداشته نشد (%s)" % ((job.message or "علت نامعلوم")[:200]))
         return
-    if r.state != S.QUEUED:
+    if r.state != S.QUEUED or r.detail.startswith("پشتِ کارِ شما"):
         r.state = S.QUEUED
         r.detail = ""
         r.save(update_fields=["state", "detail"])
@@ -302,6 +331,35 @@ def _install_hold(features, caps) -> str:
     if age is not None and age < YOUNG_AGENT_S:
         return "عاملِ سرور تازه بالا آمده؛ منتظرِ پایانِ بررسیِ نصب‌ها ..."
     return ""
+
+
+def _hold_for_user(t, r, ctx) -> bool:
+    """آزمونِ سنگین (مدلِ بزرگ روی کارت) تا وقتی کارِ مالک روی این گره در جریان یا در صف است ساخته نمی‌شود؛ حداکثر scope.HEAVY_HOLD_MAX_S.
+    بعد از آن می‌رود ولی با اولویتِ سیستمی (۱۵۰) پشتِ کارِ مالک می‌ماند. True ⇒ منتظر ماند."""
+    extra = dict(r.extra or {})
+    if not scope.is_heavy(t):
+        return False
+    why = scope.user_work_reason(ctx.node)
+    if not why:
+        if extra.get("busy"):                                  # راه باز شد
+            extra.pop("busy", None)
+            extra.pop("busy_since", None)
+            r.extra = extra
+        return False
+    now_ts = timezone.now().timestamp()
+    since = float(extra.get("busy_since") or now_ts)
+    if now_ts - since > scope.HEAVY_HOLD_MAX_S:
+        extra.pop("busy", None)
+        r.extra = extra
+        return False
+    detail = "منتظرِ تمام شدنِ کارهای شما (%s)؛ این آزمونِ سنگین بعد از آن‌ها اجرا می‌شود ..." % why
+    if not (extra.get("busy") and r.state == S.WAITING and r.detail == detail):
+        extra.update({"busy": True, "busy_since": since})
+        r.extra = extra
+        r.state = S.WAITING
+        r.detail = detail[:1500]
+        r.save()
+    return True
 
 
 def _gate(t, r, ctx) -> bool:
@@ -353,7 +411,7 @@ def _step_virtual(t, r, ctx) -> None:
 
 def _step(t, r, ctx) -> None:
     results = ctx.results
-    if r.state == S.PENDING or (r.state == S.WAITING and (r.extra or {}).get("gate")):
+    if r.state == S.PENDING or (r.state == S.WAITING and ((r.extra or {}).get("gate") or (r.extra or {}).get("busy"))):
         deps = [results[k] for k in t.after if k in results]
         bad = [d for d in deps if d.state in (S.FAILED, S.SKIPPED)]
         if bad:
@@ -373,6 +431,8 @@ def _step(t, r, ctx) -> None:
             return
         if t.virtual:
             _step_virtual(t, r, ctx)
+            return
+        if _hold_for_user(t, r, ctx):
             return
         spec = t.build(ctx)
         if spec is None:
@@ -488,7 +548,7 @@ def rerun(run: SelfTestRun, key: str) -> SelfTestResult | None:
         x.warning = ""
         x.seconds = None
         x.artifacts = []
-        x.extra = {}
+        x.extra = {k: v for k, v in (x.extra or {}).items() if k == "code_fp"}
         x.started_at = None
         x.finished_at = None
         x.save()

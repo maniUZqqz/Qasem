@@ -234,6 +234,18 @@ def retry_mode(j: ComputeJob, owners: dict | None = None) -> str:
     ""       — نمی‌شود (کسی منتظرِ نتیجه نیست؛ از همان صفحه‌ای که ساختید دوباره بزنید)"""
     if j.state not in (S.FAILED, S.CANCELLED) or j.kind == PARK_KIND:
         return ""
+    if inputs_gone(j):
+        # ورودی‌های این کار را نگه‌داریِ خودکار پاک کرده؛ همان کار دوباره نمی‌رود، ولی کارِ اصلیِ فروشگاه از اول دوباره ساخته می‌شود
+        ref = getattr(j, "job_ref", None)
+        if ref:
+            if owners is None:
+                owners = owners_of([j])
+            owner = owners.get(ref)
+            if owner is not None:
+                from apps.jobs import retry as JR
+
+                return "owner" if JR.can_retry(owner) else ""
+        return ""
     if j.kind.startswith(RETRYABLE_PREFIXES) or j.origin in RETRYABLE_ORIGINS:
         return "requeue"
     ref = getattr(j, "job_ref", None)
@@ -249,6 +261,12 @@ def retry_mode(j: ComputeJob, owners: dict | None = None) -> str:
     if j.origin in CONSUMER_ORIGINS:
         return "consumer"
     return ""
+
+
+def inputs_gone(j: ComputeJob) -> bool:
+    """ورودی‌های فایلیِ این کار را نگه‌داریِ خودکار (retention.py) پاک کرده؟ (کارِ بی‌فایل مثلِ دانلودِ مدل همیشه قابلِ تکرار است)"""
+    note = (j.result or {}).get("retention") or {}
+    return bool(j.inputs) and bool(note.get("inputs_removed") or note.get("outputs_removed"))
 
 
 def can_retry(j: ComputeJob, owners: dict | None = None) -> bool:
@@ -271,6 +289,8 @@ def retry_hint(j: ComputeJob, mode: str, owners: dict | None = None) -> str:
     if mode == "requeue":
         return "همین کار دوباره در صف می‌رود."
     if j.state in (S.FAILED, S.CANCELLED) and j.kind != PARK_KIND:
+        if inputs_gone(j) and not getattr(j, "job_ref", None):
+            return "فایل‌های ورودیِ این کار برای آزاد شدنِ فضا پاک شده؛ از همان صفحه‌ای که ساختید دوباره بزنید."
         if getattr(j, "job_ref", None):
             return "کارِ اصلی همین حالا دوباره در جریان است یا پاک شده."
         return "کسی منتظرِ نتیجهٔ این کار نیست؛ از همان صفحه‌ای که ساختید دوباره بزنید."
@@ -290,6 +310,14 @@ def _media_of(name: str, given: str = "") -> str:
         if low.endswith(exts):
             return media
     return "file"
+
+
+def files_removed_text(j: ComputeJob) -> str:
+    """فایل‌های ورودی/خروجیِ این کار را نگه‌داری خودکار (retention.py) پاک کرده؟ ⇒ جملهٔ فارسی، وگرنه ''."""
+    gone = ((j.result or {}).get("retention") or {})
+    if not gone.get("outputs_removed"):
+        return ""
+    return "فایل‌های این کار برای آزاد شدنِ فضا پاک شد (%s)." % gone.get("why_text", "نگه‌داریِ خودکار")
 
 
 def job_outputs(j: ComputeJob) -> list:
@@ -333,9 +361,12 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | Non
     pos = positions.get(j.pk, 0)
     reason, text = ("", "")
     waiting_s = None
+    stale = False
     if j.state == S.QUEUED:
         reason, text = _wait_reason(j, now, nodes, pos)
         waiting_s = int((now - (j.queued_at or j.created_at)).total_seconds())
+        # «قدیمی»: بیش از ۳ روز در صف؛ بدونِ صاحب هم به‌زودی با TTL لغو می‌شود
+        stale = waiting_s > SV.STALE_DAYS * 86400
     p = j.payload or {}
     mode = retry_mode(j, owners)
     return {
@@ -343,7 +374,8 @@ def job_row(j: ComputeJob, now, nodes: list, positions: dict, owners: dict | Non
         "state": j.state, "state_label": j.get_state_display(), "group": GROUP_OF.get(j.state, "waiting"),
         "status_text": status_text(j, text), "wait_reason": reason,
         "position": pos if j.state == S.QUEUED else 0, "ahead": max(0, pos - 1) if j.state == S.QUEUED else 0,
-        "waiting_s": waiting_s, "waiting_text": human_duration(waiting_s) if waiting_s is not None else "",
+        "waiting_s": waiting_s, "waiting_text": human_duration(waiting_s) if waiting_s is not None else "", "stale": stale,
+        "system": SV.is_system_origin(j.origin), "files_removed": files_removed_text(j),
         "waited_s": j.waited_s, "run_s": j.run_s,
         "created": j.created_at, "queued_at": j.queued_at, "claimed": j.claimed_at, "finished": j.finished_at,
         "node": j.node.name if j.node else None, "node_wanted": j.node_wanted if not j.node_wanted.startswith(("~", "__")) else "",
@@ -433,13 +465,19 @@ def summary() -> dict:
     nodes = _nodes()
     enabled = [n for n in nodes if n.enabled]
     online = [n for n in enabled if n.online]
-    queued = ComputeJob.objects.filter(state=S.QUEUED)
+    queued_all = ComputeJob.objects.filter(state=S.QUEUED)
+    # نشانِ هدر فقط کارهای واقعیِ کاربر را می‌شمارد: آزمونِ خودکار و کارِ آزمایشیِ فراموش‌شده (بی‌صاحب و بیش از ۳ روز) را نه
+    # (۱۲ کارِ قدیمی نشانِ «۳۲» را یک‌سوم باد کرده بود)
+    queued = queued_all.exclude(SV.demand_excluded_q(now))
     waiting = queued.count()
     oldest = queued.order_by("queued_at", "created_at").first()
     since = (now - (oldest.queued_at or oldest.created_at)).total_seconds() if oldest else None
     failed_24h = ComputeJob.objects.filter(state=S.FAILED, finished_at__gte=now - timedelta(hours=24)).count()
+    waiting_system = queued_all.filter(SV.system_origin_q()).count()
     return {
         "waiting": waiting, "parked": queued.filter(kind=PARK_KIND).count(),
+        "waiting_system": waiting_system,
+        "waiting_stale": queued_all.filter(SV.demand_excluded_q(now)).exclude(SV.system_origin_q()).count(),
         "running": ComputeJob.objects.filter(state__in=GROUPS["running"]).count(),
         "scheduled": queued.filter(Q(not_before__gt=now) | ~Q(window="")).count(),
         "failed_24h": failed_24h,

@@ -114,7 +114,9 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
          "resources": {k: caps.get(k) for k in ("ram_total_mb", "ram_free_mb", "vram_used_mb", "vram_total_mb") if caps.get(k) is not None},
          "gpu_info": caps.get("gpu_info") or {}, "bootstrap": (caps.get("bootstrap") or {}).get("summary") or {},
          "autostart": caps.get("autostart") or {}, "outbox": caps.get("outbox") or {}, "net": caps.get("net") or {},
-         "lanes": caps.get("lanes") or {}}
+         "lanes": caps.get("lanes") or {},
+         # خطای ساختنِ پاسخِ heartbeat (به‌روزرسانی/دانلود/دستور) — بی‌صدا نمی‌ماند؛ روی کارتِ گره دیده می‌شود
+         "site_errors": [str(e)[:300] for e in (caps.get("site_errors") or [])][:5]}
     from .updates import update_state
     d.update(update_state(caps))          # agent_latest / update_waiting / can_remote_update (بستهٔ کدِ روی سایت)
     if with_token:
@@ -124,25 +126,47 @@ def node_json(n: ComputeNode, with_token=False) -> dict:
 
 # ───────────────────────────── گره
 
+_CTL_LOGGED: dict = {}
+#: یک خطای تکراریِ ساختنِ پاسخ را حداکثر هر این‌قدر ثانیه در لاگ می‌نویسیم (گره هر چند ثانیه claim می‌زند)
+CTL_LOG_EVERY_S = 600
+
+
+def _ctl_error(errors: list, what: str, exc: Exception) -> None:
+    """یک بخش از پاسخِ heartbeat/claim خطا داد: بی‌صدا نمی‌ماند. در لاگِ سایت (با traceback، کم‌تکرار) و در `errors` می‌آید که
+    پاسخ آن را به گره می‌دهد و پنل روی کارتِ گره نشان می‌دهد. پاسخ به‌هرحال ۲۰۰ می‌ماند (خرابیِ یک بخش بقیه را نمی‌اندازد)."""
+    import time as _time
+
+    text = ("%s: %s" % (what, exc))[:300]
+    errors.append(text)
+    now = _time.monotonic()
+    if now - _CTL_LOGGED.get(text, -1e9) >= CTL_LOG_EVERY_S:
+        _CTL_LOGGED[text] = now
+        logger.warning("compute: heartbeat answer - %s", text, exc_info=True)
+
+
 def _control(node) -> dict:
     """خواستهٔ پنل برای سرویس‌های گره + «رندرِ سه‌بعدی» وقتی کارِ سه‌بعدی منتظرِ کارگر است و پنل برای این گره
-    دربارهٔ worker3d چیزی نگفته (سوئیچِ خودکار روشن) — گره worker-3d.bat را بالا می‌آورد (Blender را یک بار دانلود می‌کند)."""
+    دربارهٔ worker3d چیزی نگفته (سوئیچِ خودکار روشن) — گره worker-3d.bat را بالا می‌آورد (Blender را یک بار دانلود می‌کند).
+
+    هر بخش جدا try دارد تا خرابیِ یکی بقیه را نیندازد؛ ولی خطا بی‌صدا قورت داده نمی‌شود (`_ctl_error`): `control_error`/`control_errors`
+    در پاسخ می‌آید (برای به‌روزرسانیِ خودکار و دانلودِ مدل‌ها که مالک به آن‌ها تکیه دارد) و `_errors` برای ذخیره روی کارتِ گره."""
+    errors: list = []
     desired = dict(node.desired or {})
     if "worker3d" not in desired and node.auto_switch:
         try:
             from apps.up3d.services import wants_gpu_worker
             if wants_gpu_worker(node):
                 desired["worker3d"] = True
-        except Exception:  # noqa: BLE001 — بخشِ سه‌بعدی نباید سرورهای پردازش را بخواباند
-            pass
+        except Exception as exc:  # noqa: BLE001 — بخشِ سه‌بعدی نباید سرورهای پردازش را بخواباند
+            _ctl_error(errors, "خطا در ساختنِ خواستهٔ رندرِ سه‌بعدی", exc)
     out = {"desired": desired, "auto_switch": node.auto_switch, "lanes": True}      # lanes: this site understands claim {lane: light}
     try:
         from . import commands as node_commands
         cmd = node_commands.pending_for(node)
         if cmd:
             out["command"] = cmd          # «دستورها» ِ پنل (عاملِ ۲٫۱۰ به بعد؛ عاملِ قدیمی کلیدِ ناشناخته را نادیده می‌گیرد)
-    except Exception:  # noqa: BLE001 — دستورها نباید heartbeat را بیندازند
-        pass
+    except Exception as exc:  # noqa: BLE001 — دستورها نباید heartbeat را بیندازند
+        _ctl_error(errors, "خطا در ساختنِ دستورِ به‌روزرسانی/دستورهای پنل", exc)
     try:
         # اولویتِ لوکال/متیس (apps.ai.AiPriority): مدلِ لوکالِ هر نوعِ کار را به گره می‌گوییم تا «ویرایشِ هوشمندِ عکس» (کیتِ عکس)
         # همان مدلِ بینایی را اول امتحان کند. عاملِ قدیمی این کلید را نمی‌شناسد و نادیده می‌گیرد.
@@ -151,8 +175,8 @@ def _control(node) -> dict:
         out["ai"] = {"priority": cfg.priority, "vision_model": priority.local_model(priority.VISION, cfg),
                      "text_model": priority.local_model(priority.TEXT, cfg), "code_model": priority.local_model(priority.CODE, cfg),
                      "research_model": priority.local_model(priority.RESEARCH, cfg)}
-    except Exception:  # noqa: BLE001 — این راهنما نباید heartbeat را بیندازد
-        pass
+    except Exception as exc:  # noqa: BLE001 — این راهنما نباید heartbeat را بیندازد
+        _ctl_error(errors, "خطا در ساختنِ راهنمای مدل‌های هوش مصنوعی", exc)
     try:
         # زمانِ دانلودها (تنظیمِ کلی) و نسخهٔ سایت برای عامل (۲٫۶ به بعد؛ عاملِ قدیمی کلیدهای ناشناخته را نادیده می‌گیرد)
         from django.conf import settings as dj_settings
@@ -160,14 +184,18 @@ def _control(node) -> dict:
         from . import schedule
         out["downloads"] = schedule.control_block()
         out["site_version"] = getattr(dj_settings, "NM_VERSION", "") or ""
-    except Exception:  # noqa: BLE001 — این هم نباید heartbeat را بیندازد
-        pass
+    except Exception as exc:  # noqa: BLE001 — این هم نباید heartbeat را بیندازد
+        _ctl_error(errors, "خطا در ساختنِ زمانِ دانلودها", exc)
     try:
         # «دانلودِ خودکارِ مدل‌ها»: بسته‌هایی که قابلیت‌های روشنِ پنل لازم دارند؛ عاملی که model_auto.py دارد خودش تصمیم می‌گیرد کِی و جا می‌شود یا نه
         from . import auto_models
         out["models_auto"] = auto_models.control_block()
-    except Exception:  # noqa: BLE001 — نبودنِ این بلوک هیچ‌چیز را نمی‌خواباند
-        pass
+    except Exception as exc:  # noqa: BLE001 — نبودنِ این بلوک هیچ‌چیز را نمی‌خواباند
+        _ctl_error(errors, "خطا در ساختنِ دانلودِ خودکارِ مدل‌ها", exc)
+    if errors:
+        out["control_error"] = errors[0]
+        out["control_errors"] = errors
+    out["_errors"] = errors             # فقط برای خودِ سرور: view پیش از پاسخ آن را برمی‌دارد و روی کارتِ گره ذخیره می‌کند
     return out
 
 
@@ -179,6 +207,8 @@ def _store_caps(node, incoming: dict) -> None:
     if "ollama_models" not in caps and old.get("ollama_models"):
         caps["ollama_models"] = old["ollama_models"]
         caps["ollama_models_stale"] = True
+    if old.get("site_errors") and "site_errors" not in caps:
+        caps["site_errors"] = old["site_errors"]          # خطای سایت را گره نمی‌فرستد؛ نگه‌اش می‌داریم تا هر heartbeat دوباره ننویسدش
     node.capabilities = caps
     call_with_retry(node.save, update_fields=["capabilities"], _what="capabilities")
 
@@ -195,7 +225,28 @@ def heartbeat(request):
         autopilot.on_heartbeat(node)           # نسخهٔ تازهٔ عامل ⇒ آزمونِ خودکار؛ هرگز خطا نمی‌دهد
     except Exception:  # noqa: BLE001
         logger.exception("compute: autopilot.on_heartbeat failed")
-    return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **_control(node)})
+    control = _control(node)
+    _remember_site_errors(node, control.pop("_errors", []))
+    return Response({"ok": True, "name": node.name, "server_time": timezone.now(), **control})
+
+
+def _remember_site_errors(node, errors: list) -> None:
+    """خطای ساختنِ پاسخ روی کارتِ گره (`site_errors` در capabilities) تا مالک ببیند؛ فقط وقتی عوض شده بنویس (کم‌نوشتن روی SQLite)."""
+    old = list((node.capabilities or {}).get("site_errors") or [])
+    if old == errors:
+        return
+    caps = dict(node.capabilities or {})
+    if errors:
+        caps["site_errors"] = errors
+    else:
+        caps.pop("site_errors", None)
+    node.capabilities = caps
+    try:
+        call_with_retry(node.save, update_fields=["capabilities"], _what="site errors")
+    except Exception as exc:  # noqa: BLE001 — فقط نمایش است؛ heartbeatِ بعدی دوباره می‌نویسد
+        if not is_lock_error(exc):
+            raise
+        logger.warning("compute: site_errors of %s not stored (database locked)", node.name)
 
 
 @node_api("POST")
@@ -207,6 +258,7 @@ def claim(request):
     lane = str(request.data.get("lane") or "")[:12] if isinstance(request.data, dict) else ""
     job = SV.claim(node, lane=lane)
     control = _control(node)
+    control.pop("_errors", None)
     if not job:
         return Response({"job": None, **control})
     return Response({"job": {"uid": str(job.uid), "kind": job.kind, "payload": job.payload,
@@ -292,8 +344,8 @@ def finish(request, uid):
         try:        # مدلِ تازه نصب شد: «نصب نیست»ِ احتمالیِ ثبت‌شده در مسیریابِ هوش مصنوعی پاک شود
             from services.ai import model_pull
             model_pull.pull_completed(job)
-        except Exception:  # noqa: BLE001 — پاکسازیِ حافظهٔ شکست نباید پایانِ کار را بیندازد
-            pass
+        except Exception:  # noqa: BLE001 — پاکسازیِ حافظهٔ شکست نباید پایانِ کار را بیندازد؛ ولی بی‌صدا هم نیست
+            logger.warning("compute: model_pull.pull_completed failed for %s", job.uid, exc_info=True)
     if job.kind == "ig.scrape":
         try:        # خواندنِ اینستاگرام تمام شد: نتیجه همین حالا وارد ترندها شود (apps.igtrends)
             from apps.igtrends import dispatch as ig_dispatch
@@ -608,16 +660,21 @@ def _int(value, default, lo, hi):
         return default
 
 
-def _parse_dt(value):
+def _parse_dt(value, field: str = "date"):
+    """«۲۰۲۶-۱۱-۱۴» یا «۲۰۲۶-۱۱-۱۴T۱۰:۳۰»؛ متنِ بی‌ریخت نادیده گرفته می‌شود (None)، اما تاریخِ خوش‌ساختِ نامعتبر («۲۰۲۶-۱۳-۴۵»،
+    «…T99:00») ۴۰۰ با پیامِ فارسی است — نه ۵۰۰ (ValueError ِ Django بی‌دست‌خورده بالا می‌رفت)."""
     from django.utils.dateparse import parse_date, parse_datetime
     if not value:
         return None
-    dt = parse_datetime(str(value))
-    if dt is None:
-        d = parse_date(str(value))
-        if d is not None:
-            from datetime import datetime, time as _t
-            dt = datetime.combine(d, _t.min)
+    try:
+        dt = parse_datetime(str(value))
+        if dt is None:
+            d = parse_date(str(value))
+            if d is not None:
+                from datetime import datetime, time as _t
+                dt = datetime.combine(d, _t.min)
+    except ValueError:
+        raise exceptions.ValidationError({field: "تاریخ نامعتبر است؛ مثل ۲۰۲۶-۱۱-۱۴ (یا ۲۰۲۶-۱۱-۱۴T۱۰:۳۰) بنویسید."})
     if dt is not None and timezone.is_naive(dt):
         dt = timezone.make_aware(dt)
     return dt
@@ -631,7 +688,8 @@ def queue_list(request):
     return Response(QV.listing(
         state=state, kind=(qp.get("kind") or "").strip(), q=(qp.get("q") or "").strip()[:80],
         limit=_int(qp.get("limit"), 100, 1, 500), offset=_int(qp.get("offset"), 0, 0, 100000),
-        category=(qp.get("category") or "").strip(), since=_parse_dt(qp.get("since")), until=_parse_dt(qp.get("until"))))
+        category=(qp.get("category") or "").strip(), since=_parse_dt(qp.get("since"), "since"),
+        until=_parse_dt(qp.get("until"), "until")))
 
 
 @api_view(["GET"])

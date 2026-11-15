@@ -44,6 +44,7 @@ import {
   serviceChips,
   shouldPoll,
   sortNodes,
+  storageView,
   summaryTiles,
   tehranIsoDate,
   toFa,
@@ -392,6 +393,28 @@ function Overview({ data, nodes, csv }: { data: ReportData; nodes: ReportNode[];
             </span>
           ))}
         </div>
+      </Card>
+      <StorageCard storage={data.storage} />
+    </div>
+  );
+}
+
+function StorageCard({ storage }: { storage: ReportData["storage"] }) {
+  const view = storageView(storage);
+  if (!view) return null;
+  return (
+    <div data-testid="storage-card">
+      <Card>
+        <div className="nmr-sec-title" style={{ marginBottom: 8 }}>فضای فایل‌های کارها</div>
+        <div className="nmr-storage">
+          {view.items.map((it) => (
+            <div key={it.label} className="nmr-storage-item">
+              <b>{it.label}</b>
+              <span>{it.value}</span>
+            </div>
+          ))}
+        </div>
+        <p className="nmr-note" style={{ marginTop: 8 }}>{view.note}</p>
       </Card>
     </div>
   );

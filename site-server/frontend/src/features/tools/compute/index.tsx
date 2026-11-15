@@ -6,6 +6,8 @@ import { NodeAudioSection } from "../../audio/NodeAudioCard";
 import DownloadScheduleCard from "./DownloadSchedule";
 import { ModelsEntryCard } from "./ModelsPage";
 import NodeCommands from "./NodeCommands";
+import CapabilityPills from "./CapabilityPills";
+import { summaryLabel } from "./capabilities";
 import Icon, { type IconName } from "../../../components/Icon";
 import {
   Alert,
@@ -104,6 +106,8 @@ type Node = {
   update_waiting?: boolean;
   /** عاملِ ۲٫۰ به بالا: به‌روزرسانی از راهِ دور (کارِ node.update) */
   can_remote_update?: boolean;
+  /** خطای ساختنِ پاسخِ heartbeat در سایت («خطا در ساختنِ دستورِ به‌روزرسانی: …»)؛ خالی = سالم */
+  site_errors?: string[];
 };
 
 /** پاسخِ POST …/desired/ همان ردیفِ سرور است ولی بی‌توکن؛ روی ردیفِ موجود merge می‌شود */
@@ -638,11 +642,14 @@ export default function ComputePage() {
               {Object.keys(summary.capabilities).length === 0 && (
                 <span className="text-sm" style={{ color: "var(--text-3)" }}>هیچ سرویسی روشن نیست</span>
               )}
-              {Object.entries(summary.capabilities).map(([k, v]) => (
-                <Badge key={k} tone="brand">
-                  {k} ×{fa(v)}
-                </Badge>
-              ))}
+              {Object.entries(summary.capabilities).map(([k, v]) => {
+                const label = summaryLabel(k);
+                return label ? (
+                  <Badge key={k} tone="brand">
+                    {label} ×{fa(v)}
+                  </Badge>
+                ) : null;
+              })}
             </div>
             <div className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>توانایی‌های آنلاین</div>
           </Card>
@@ -700,8 +707,6 @@ export default function ComputePage() {
               </tr>
             )}
             {nodes.map((n) => {
-              // توانایی‌هایی که نه زیرِ نام نشان داده می‌شوند نه در ستونِ سرویس‌ها (مثلاً کلیدِ تازه‌ای از عاملِ جدیدتر)
-              const extras = Object.entries(n.capabilities || {}).filter(([k, v]) => v && !HIDDEN_CAPS.has(k));
               const introduced = Boolean(n.agent || n.hostname || n.gpu);
               const logOpen = openLog === n.id;
               const toggleLog = () => setOpenLog(logOpen ? null : n.id);
@@ -762,6 +767,12 @@ export default function ComputePage() {
                       )}
                       <div className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>{lastSeenText(n)}</div>
                       <ResourceMeters resources={n.resources} stale={!n.online} />
+                      {(n.site_errors ?? []).length > 0 && (
+                        <div className="mt-1 text-xs" style={{ color: "var(--warn)" }} data-testid="site-errors">
+                          <Icon name="warn" size={12} /> {(n.site_errors ?? [])[0]}
+                          <div style={{ color: "var(--text-3)" }}>سایت این بخش را برای سرور نساخت؛ بقیهٔ کارها ادامه دارد. خطای کامل در لاگِ سایت است.</div>
+                        </div>
+                      )}
                       {n.last_error && (
                         <div className="mt-1 flex items-center gap-1 text-xs" style={{ color: "var(--bad)" }}>
                           <Icon name="warn" size={12} />
@@ -784,9 +795,7 @@ export default function ComputePage() {
                             </span>
                           );
                         })}
-                        {extras.map(([k]) => (
-                          <Badge key={k} tone="brand">{k}</Badge>
-                        ))}
+                        <CapabilityPills caps={n.capabilities} hidden={HIDDEN_CAPS} />
                         <AbagramBadge caps={n.capabilities as Record<string, unknown> | undefined} />
                       </div>
                       {!n.online && introduced && (

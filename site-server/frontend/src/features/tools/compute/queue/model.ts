@@ -39,6 +39,12 @@ export type QueueJob = {
   ahead: number;
   waiting_s: number | null;
   waiting_text: string;
+  /** بیش از ۳ روز در صف («قدیمی»؛ کارِ بی‌صاحب به‌زودی با TTL لغو می‌شود) */
+  stale?: boolean;
+  /** آزمونِ خودکارِ پذیرش (اولویتِ سیستمی؛ پشتِ کارِ شما) */
+  system?: boolean;
+  /** جملهٔ فارسی اگر فایل‌های این کار را نگه‌داریِ خودکار پاک کرده، وگرنه '' */
+  files_removed?: string;
   waited_s: number | null;
   run_s: number | null;
   created: string;

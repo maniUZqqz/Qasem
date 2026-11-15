@@ -3,6 +3,7 @@ result - offsets, checksums, who may touch what."""
 import hashlib
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -18,6 +19,10 @@ TMP = tempfile.mkdtemp(prefix="nm-transfer-test-")
 @override_settings(NM_DATA_DIR=Path(TMP), IS_TEST=True)
 class TransferTests(TestCase):
     def setUp(self):
+        # جای خالیِ دیسکِ سایت را فرضِ سالم می‌گیریم؛ آزمونِ سقف/دیسکِ پر در tests_retention.UploadGuardTests است
+        patcher = mock.patch.object(transfer, "free_bytes", return_value=50 << 30)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.node = ComputeNode.objects.create(name="gpu-t", token="t-tok", capabilities={"ffmpeg": True, "edit": {"render": True}}, last_seen=timezone.now())
         self.other = ComputeNode.objects.create(name="gpu-o", token="o-tok", capabilities={"ffmpeg": True}, last_seen=timezone.now())
         self.job = SV.enqueue("edit.render", {"graph": "x"}, dedupe=False)

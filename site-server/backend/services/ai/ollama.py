@@ -348,7 +348,8 @@ class OllamaProvider:
             payload["images"] = images
 
         if format_json:
-            payload["format"] = "json"
+            # a dict is a JSON SCHEMA (structured output); anything else truthy = plain JSON mode
+            payload["format"] = format_json if isinstance(format_json, dict) else "json"
 
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive

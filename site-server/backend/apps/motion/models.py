@@ -36,6 +36,7 @@ class MotionRender(TimeStampedModel):
 
     class State(models.TextChoices):
         QUEUED = "QUEUED", "در صف"
+        PREPARING = "PREPARING", "آماده‌سازی (صدا و کنترلِ کیفیت)"
         WAITING_NODE = "WAITING_NODE", "منتظرِ سرورِ پردازش"
         RENDERING = "RENDERING", "در حال رندر"
         READY = "READY", "آماده"
@@ -46,7 +47,7 @@ class MotionRender(TimeStampedModel):
         NODE = "node", "سرورِ پردازش (GPU)"
         SITE = "site", "سایت (محدود)"
 
-    ACTIVE = ("QUEUED", "WAITING_NODE", "RENDERING")
+    ACTIVE = ("QUEUED", "PREPARING", "WAITING_NODE", "RENDERING")
 
     store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="motion_renders")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
@@ -78,6 +79,14 @@ class MotionRender(TimeStampedModel):
     #: مسیرِ تصویرِ بندانگشتیِ ویدیو نسبت به MEDIA_ROOT
     poster = models.CharField(max_length=400, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    #: طرحِ زنده‌ای که این رندر از آن ساخته شد (MotionPlan)
+    plan = models.ForeignKey("motion.MotionPlan", null=True, blank=True, on_delete=models.SET_NULL, related_name="renders")
+    #: گزارشِ کنترلِ کیفیتِ همین رندر: {rounds:[{n, findings[], applied[], shots[]}], remaining[], fixed, skipped_geometry, ...}
+    qa = models.JSONField(default=dict, blank=True)
+    #: گزارشِ صدا: {voice:{engine,voice,cue_source,seconds}, music:{...bpm,beats}, lufs, mux:"site"|"node", has_audio}
+    audio_info = models.JSONField(default=dict, blank=True)
+    #: مسیرِ فایل‌های صدای آماده (نسبت به NM_DATA_DIR/motion/audio) برای ترکیب با ویدیو
+    audio_dir = models.CharField(max_length=200, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -85,3 +94,42 @@ class MotionRender(TimeStampedModel):
 
     def __str__(self):
         return f"{self.title or self.style} #{self.pk} [{self.state}]"
+
+
+class MotionPlan(TimeStampedModel):
+    """«طرحِ صحنه»ی زنده: JSON منبعِ حقیقتِ ویدیو + تاریخچهٔ نسخه‌ها (برگشت/جلوتر) + گزارشِ کنترلِ کیفیت و نقدِ بصری."""
+
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="motion_plans")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    title = models.CharField(max_length=200, blank=True)
+    spec = models.JSONField(default=dict, blank=True)
+    #: شمارهٔ نسخهٔ فعلی در MotionPlanRev
+    cursor = models.PositiveIntegerField(default=0)
+    #: آخرین گزارشِ QA (قاعده‌ای) روی نسخهٔ فعلی
+    qa = models.JSONField(default=dict, blank=True)
+    #: نقدِ بصری: {state: idle|waiting|running|done|failed|unavailable, rounds:[{n, issues[], patch[], before[], after[]}], message}
+    critique = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [models.Index(fields=["store", "-updated_at"])]
+
+    def __str__(self):
+        return f"{self.title or 'طرح'} #{self.pk}"
+
+
+class MotionPlanRev(models.Model):
+    """یک نسخه از طرح (برای برگشت/جلوتر و دیدنِ «چه کسی چه چیزی را عوض کرد»)."""
+
+    plan = models.ForeignKey(MotionPlan, on_delete=models.CASCADE, related_name="revs")
+    n = models.PositiveIntegerField()
+    spec = models.JSONField(default=dict)
+    label = models.CharField(max_length=160, blank=True)
+    #: user | ai | chat | patch | qa | critique | audio | import
+    source = models.CharField(max_length=12, default="user")
+    ops = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["n"]
+        constraints = [models.UniqueConstraint(fields=["plan", "n"], name="motion_planrev_unique_n")]

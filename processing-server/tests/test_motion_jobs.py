@@ -451,3 +451,119 @@ class Run(MotionBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AudioMux(Run):
+    """Motion studio v2: the site builds the finished mix (voice + music + effects, -14 LUFS); the node lays it under the picture itself."""
+
+    def put_audio(self, j, name="mix.m4a", data=b"A" * 4000):
+        with open(os.path.join(j.inputs, name), "wb") as fh:
+            fh.write(data)
+
+    def test_validate_accepts_only_a_plain_audio_file_name(self):
+        ok = mj.validate_payload({"composition": "Template", "props": {}, "audio": {"file": "mix.m4a"}})
+        self.assertEqual(ok["audio"], {"file": "mix.m4a"})
+        for bad in ({"file": "../mix.m4a"}, {"file": "a/b.m4a"}, {"file": "mix.exe"}, {"file": ""}, {}, "mix.m4a", {"file": 5}, {"file": "x" * 80 + ".m4a"}):
+            with self.assertRaises(mj.MotionError) as cm:
+                mj.validate_payload({"composition": "Template", "props": {}, "audio": bad})
+            self.assertFalse(cm.exception.retryable)
+
+    def test_the_node_lays_the_mix_under_the_picture_with_the_packs_ffmpeg(self):
+        j = self.job(audio={"file": "mix.m4a"})
+        self.put_audio(j)
+        ran = []
+
+        class R:
+            returncode = 0
+            stderr = b""
+
+        def mux_run(cmd):
+            ran.append(cmd)
+            with open(cmd[-1], "wb") as fh:                 # the muxed file the real ffmpeg would write
+                fh.write(b"M" * 3000)
+            return R()
+
+        mj.HOOKS["ffmpeg"] = "ffmpeg-in-the-pack"
+        mj.HOOKS["mux_run"] = mux_run
+        meta = mj.run(j, self.agent)
+        self.assertEqual(meta["audio"], "muxed")
+        cmd = ran[0]
+        self.assertEqual(cmd[0], "ffmpeg-in-the-pack")
+        self.assertIn("-c:v", cmd)
+        self.assertEqual(cmd[cmd.index("-c:v") + 1], "copy")                  # the picture is never re-encoded
+        self.assertEqual(cmd[cmd.index("-c:a") + 1], "copy")                  # m4a stays AAC
+        self.assertIn("-shortest", cmd)
+        self.assertEqual(os.path.getsize(j.out("out.mp4")), 3000)
+        self.assertFalse(os.path.exists(j.out("out.mp4") + ".av.mp4"))
+        self.assertTrue(any("صدا" in m for _p, m in j.calls))
+
+    def test_a_node_without_ffmpeg_still_returns_the_silent_video_and_says_why(self):
+        j = self.job(audio={"file": "mix.m4a"})
+        self.put_audio(j)
+        mj.HOOKS["ffmpeg"] = ""
+        saved = mj.find_ffmpeg
+        mj.find_ffmpeg = lambda p=None: None
+        try:
+            meta = mj.run(j, self.agent)
+        finally:
+            mj.find_ffmpeg = saved
+        self.assertIn("no ffmpeg", meta["audio"])
+        self.assertEqual(os.path.getsize(j.out("out.mp4")), 2000)             # the site lays the sound under it (apps/motion/services.py)
+
+    def test_a_failing_mux_is_not_a_failed_job(self):
+        j = self.job(audio={"file": "mix.m4a"})
+        self.put_audio(j)
+
+        class R:
+            returncode = 1
+            stderr = b"Invalid data found"
+
+        mj.HOOKS["ffmpeg"] = "ffmpeg"
+        mj.HOOKS["mux_run"] = lambda cmd: R()
+        meta = mj.run(j, self.agent)
+        self.assertTrue(meta["audio"].startswith("ffmpeg failed"))
+        self.assertEqual(os.path.getsize(j.out("out.mp4")), 2000)
+
+    def test_a_missing_audio_input_is_reported(self):
+        j = self.job(audio={"file": "mix.m4a"})
+        meta = mj.run(j, self.agent)
+        self.assertIn("missing", meta["audio"])
+
+    def test_no_audio_key_means_no_mux(self):
+        j = self.job()
+        meta = mj.run(j, self.agent)
+        self.assertEqual(meta["audio"], "")
+
+    def test_the_heartbeat_advertises_the_audio_feature(self):
+        mj._AGENT["mod"] = self.agent
+        out = mj.caps(self.agent)
+        self.assertIn("audio_mux", out["motion"]["features"])
+
+    def test_ffmpeg_is_found_inside_the_pack(self):
+        p = mj.paths(self.agent)
+        d = os.path.join(p["pack_dir"], "node_modules", "@remotion", "compositor-win32-x64-msvc")
+        os.makedirs(d)
+        with open(os.path.join(d, "ffmpeg.exe"), "w") as fh:
+            fh.write("x")
+        self.assertTrue(mj.find_ffmpeg(p).endswith("ffmpeg.exe"))
+
+    def test_the_conventional_mix_file_is_laid_under_the_picture_without_any_payload_key(self):
+        j = self.job()                                    # a production job: no "audio" key (an old agent would refuse an unknown key), just the input file
+        self.put_audio(j)
+        ran = []
+
+        class R:
+            returncode = 0
+            stderr = b""
+
+        def mux_run(cmd):
+            ran.append(cmd)
+            with open(cmd[-1], "wb") as fh:
+                fh.write(b"M" * 3000)
+            return R()
+
+        mj.HOOKS["ffmpeg"] = "ffmpeg"
+        mj.HOOKS["mux_run"] = mux_run
+        meta = mj.run(j, self.agent)
+        self.assertEqual(meta["audio"], "muxed")
+        self.assertEqual(len(ran), 1)

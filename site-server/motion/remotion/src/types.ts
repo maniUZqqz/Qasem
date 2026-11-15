@@ -43,9 +43,31 @@ export type Brand = {
   show_logo?: boolean;
 };
 
+export type Cue = { w: string; s: number; e: number };      // one spoken word: start / end in SECONDS from the start of its scene
+
+export type Overlay = {
+  type: string;                  // a component that can be an overlay (lower_third, sticker, captions, social_cta, ticker, tags, rating ...)
+  at?: number;                   // seconds from the scene start (default 0)
+  dur?: number;                  // seconds shown (default: until the scene ends)
+  anchor?: string;               // top | upper | center | lower | bottom | top-start | top-end | bottom-start | bottom-end
+  dx?: number; dy?: number;      // offset as a fraction of the safe area (-0.5..0.5)
+  [k: string]: any;
+};
+
 export type Scene = {
-  type: "title" | "list" | "quote" | "stat" | "compare" | "product" | "logo" | "app" | "cta";
+  type: string;                  // component id (see COMPONENTS): title, list, quote, stat ... bar_chart, kinetic_title ...
   duration: number;              // seconds
+  enter?: string;                // enter animation (ENTER_KINDS) instead of the style's
+  exit?: string;                 // none | fade | slide | zoom | drop
+  ease?: string;                 // easing preset name (presets.ts EASES)
+  spring?: string;               // spring preset name (presets.ts SPRINGS)
+  emphasis?: string[];           // words that are drawn in the accent colour and pop
+  camera?: { move?: string; amount?: number };
+  transition?: string;           // the transition into the NEXT scene
+  tokens?: { accent?: string; text?: string; bg?: string; font_scale?: number; align?: string; calm?: boolean };
+  overlays?: Overlay[];
+  narration?: string;            // what the voice says over this scene
+  cues?: Cue[];                  // word timings of the narration (filled in by the server)
   [k: string]: any;
 };
 
@@ -61,6 +83,11 @@ export type Spec = {
   assets?: { [name: string]: string };   // name -> data: URI (filled in by the site/runner, never by the user)
   intensity?: number;                    // 0.5..1.5 motion strength
   transition?: string | null;            // override the style's transition kind
+  platform?: string;                     // reels | story | tiktok | shorts | feed | youtube : which UI bars the safe area keeps clear
+  safe?: { top: number; right: number; bottom: number; left: number };   // fractions of the frame (filled in by the server from platform)
+  captions?: { on?: boolean; position?: string };                      // a captions track over the whole video (needs cues)
+  bare?: boolean;                        // a plain black background without decoration (a clip that is laid over a picture with the screen blend)
+  qa?: boolean;                          // QA mode: the page reports the geometry of every text block (console, prefix NMQA:)
 };
 
 export const ASPECTS: { [k: string]: [number, number] } = {

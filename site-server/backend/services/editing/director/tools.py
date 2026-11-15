@@ -569,6 +569,46 @@ def _end_card(st: State, p: dict):
     return f"کارتِ پایانی ({fa(d)} ثانیه) ساخته شد."
 
 
+MOTION_KINDS = ("title_card", "stat", "list", "cta", "lower_third", "captions")
+
+
+@tool("motion", "موشن‌گرافیک (استودیوی موشن)", "text",
+      "Render a motion-graphics scene with the motion studio's ready-made components in the shop's brand (title_card = kinetic headline, stat = big counting number, "
+      "list = ticking checklist, cta = call to action, lower_third = name bar, captions = word-highlight captions) and put it on the timeline as a clip. "
+      "Use only the texts and numbers given; nothing is invented.",
+      (P("kind", "نوعِ موشن", "choice", "title_card", choices=MOTION_KINDS),
+       P("text", "متنِ اصلی", "text", "", max_len=140), P("text2", "متنِ دوم / دکمه / سمت", "text", "", max_len=140),
+       P("items", "آیتم‌ها (هر خط یکی)", "text", "", max_len=500), P("value", "عدد (برای stat)", "text", "", max_len=24), P("label", "برچسبِ عدد", "text", "", max_len=100),
+       P("style", "سبکِ موشن", "text", "", max_len=40, doc="a motion style id; empty = the studio default"),
+       P("duration", "مدت", "num", 4, 2, 12, unit="ث"), P("at", "زمان", "text", "end", doc='timeline seconds, or "end"'),
+       P("track", "جای قرارگیری", "choice", "main", choices=("main", "overlay"), doc="overlay = laid over the picture (screen blend; for lower_third / captions)")),
+      lambda p: f"یک «{ {'title_card': 'کارتِ عنوان', 'stat': 'عددِ بزرگ', 'list': 'فهرست', 'cta': 'دعوت به اقدام', 'lower_third': 'نوارِ نام', 'captions': 'زیرنویس'}.get(p['kind'], 'موشن') }»ِ موشن بساز و روی تایم‌لاین بگذار")
+def _motion(st: State, p: dict):
+    if st.ctx.make_motion is None:
+        raise StepError("ساختنِ موشن‌گرافیک اینجا در دسترس نیست.")
+    w, h = st.fmt.get("width") or 1080, st.fmt.get("height") or 1920
+    ratio = w / max(1, h)
+    aspect = min(("9:16", "4:5", "1:1", "16:9"), key=lambda a: abs(ratio - int(a.split(":")[0]) / int(a.split(":")[1])))
+    over = p["track"] == "overlay" and p["kind"] in ("lower_third", "captions")
+    res = st.ctx.make_motion({**{k: p.get(k) for k in ("kind", "text", "text2", "items", "value", "label", "style", "duration")}, "aspect": aspect, "track": "overlay" if over else "main"})
+    item = st.ctx.describe(res["ref"])
+    if not item or item.get("kind") != "video":
+        raise StepError("ویدیوی موشن در رسانهٔ فروشگاه پیدا نشد.")
+    track = ops.overlay_track(st.project) if over else ops.main_track(st.project)
+    at = _at(st, track, p.get("at"))
+    if over and p.get("at") in (None, "", "end"):
+        at = ops.end_of(track)
+    clip = ops.media_clip(st.project, item, at, start=0, end=item.get("duration"), label="موشن — " + (p.get("text") or p["kind"])[:30])
+    clip["fit"] = "cover"
+    if over:
+        clip["blend"] = "screen"
+        clip["audio_on"] = False
+        ops.place_free(st.project, "video", clip)
+    else:
+        ops.place(track, clip)
+    return f"موشن‌گرافیکِ «{(p.get('text') or p['kind'])[:30]}» ({fa(round(ops.clip_length(clip), 1))} ثانیه) در ثانیهٔ {fa(clip['at'])} روی تایم‌لاین نشست."
+
+
 # =================================================================== visual
 
 

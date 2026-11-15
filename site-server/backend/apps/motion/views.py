@@ -58,6 +58,7 @@ class StylesView(APIView):
     def get(self, request):
         return Response({"styles": catalog.public_list(), "groups": catalog.GROUPS, "templates": specs.TEMPLATES,
                          "scene_types": [{"id": k, "name": v} for k, v in specs.SCENE_LABELS_FA.items()],
+                         "schema_version": specs.SCHEMA_VERSION,
                          "aspects": [{"id": k, "name": specs.ASPECT_LABELS[k], "width": w, "height": h} for k, (w, h) in specs.ASPECTS.items()],
                          "transitions": list(catalog.TRANS_KINDS)})
 
@@ -244,7 +245,8 @@ class AiView(APIView):
         try:
             brand = specs.normalize_brand(d.get("brand") or {})
             res = ai.script_from_idea(store, str(d.get("idea") or ""), style=str(d.get("style") or ""), aspect=str(d.get("aspect") or "9:16"),
-                                      lang=str(d.get("lang") or "fa"), seconds=max(8, min(90, int(d.get("seconds") or 24))), brand=brand)
+                                      lang=str(d.get("lang") or "fa"), seconds=max(8, min(90, int(d.get("seconds") or 24))), brand=brand,
+                                      platform=str(d.get("platform") or ""), about=str(d.get("about") or ""))
         except specs.SpecError as exc:
             return _err(str(exc), "invalid")
         return Response(res)

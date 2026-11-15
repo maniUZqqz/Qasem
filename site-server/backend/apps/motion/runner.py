@@ -227,8 +227,8 @@ class SiteLock:
 
 
 def run_render(job: dict, *, workdir: Path, on_progress=None, cancelled=None, timeout: int = SITE_TIMEOUT_S,
-               site_caps: bool = True) -> dict:
-    """job (render.mjs) را اجرا می‌کند ⇒ پیامِ done. خطا ⇒ RenderError با پیامِ فارسی."""
+               site_caps: bool = True, script: str = "render.mjs") -> dict:
+    """job (render.mjs، یا qa.mjs برای فریم‌های کنترلِ کیفیت) را اجرا می‌کند ⇒ پیامِ done. خطا ⇒ RenderError با پیامِ فارسی."""
     st = site_status()
     if not st["ready"]:
         raise RenderError("رندر روی سایت الان ممکن نیست: " + "؛ ".join(st["reasons"]), "setup")
@@ -244,7 +244,7 @@ def run_render(job: dict, *, workdir: Path, on_progress=None, cancelled=None, ti
         job["concurrency"] = 1
     jf = workdir / "job.json"
     jf.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-    cmd = [st["node"], str(tools_dir() / "render.mjs"), str(jf)]
+    cmd = [st["node"], str(tools_dir() / script), str(jf)]
     if shutil.which("systemd-run") and os.geteuid() == 0 and not getattr(settings, "IS_TEST", False):
         cmd = ["systemd-run", "--scope", "--quiet", "--collect", "-p", f"MemoryMax={SITE_MEMORY_MAX}", "-p", "TasksMax=400", "-p", "CPUWeight=50", *cmd]
     cmd = ["nice", "-n", "10", *cmd]

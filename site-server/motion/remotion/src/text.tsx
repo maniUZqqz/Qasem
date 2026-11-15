@@ -171,6 +171,8 @@ export type TProps = {
   maxWidth?: number;
   lh?: number;
   upper?: boolean;
+  wordDelays?: number[];  // per-word start frame (kinetic text synced to speech); overrides delay + stagger
+  fixed?: boolean;        // do not apply the scene's font-scale token (badges, icons)
 };
 
 export const T: React.FC<TProps> = (p) => {
@@ -184,13 +186,13 @@ export const T: React.FC<TProps> = (p) => {
   const f = style.font;
   const latin = role === "display" ? f.latin : f.body_latin ?? "vazirmatn";
   const faKey = role === "display" ? f.fa : f.body_fa ?? "vazirmatn";
-  const size = p.size * u;
+  const size = p.size * u * (p.fixed ? 1 : ctx.fontScale);
   const baseColor = col(pal, p.color ?? (role === "body" || role === "label" ? style.text.body_color ?? "ink" : style.text.color ?? "ink"));
   const fx = p.fx ?? (role === "display" ? style.text.fx : style.text.body_fx ?? "plain");
   const color = tone && !p.color ? tone : role === "label" && !tone && fx === "plain" ? readableOn(baseColor, pal.bg, col(pal, "ink")) : baseColor;
-  const kind = style.motion.enter;
+  const kind = ctx.enter;
   const stag = Math.max(1, Math.round(style.motion.stagger * 0.5));
-  const align = p.align ?? "center";
+  const align = p.align ?? ctx.align;
   const lines = raw.split(/\n+/);
   let wi = 0;
   const upper = (p.upper ?? (f.case === "upper" && role !== "body")) && !fa;
@@ -204,7 +206,7 @@ export const T: React.FC<TProps> = (p) => {
     textTransform: upper ? "uppercase" : undefined,
     letterSpacing: !fa && f.track ? `${f.track}em` : undefined,
     fontStyle: !fa && f.italic ? "italic" : undefined,
-    maxWidth: p.maxWidth ? p.maxWidth * u : undefined,
+    maxWidth: p.maxWidth ? `min(${p.maxWidth * u}px, 100%)` : undefined,
     textWrap: "balance" as any,
     margin: 0,
     ...p.style,
@@ -216,7 +218,7 @@ export const T: React.FC<TProps> = (p) => {
     const n = Math.floor(Math.max(0, qf - (p.delay ?? 0)) * speed);
     const full = raw.replace(/\n/g, " ");
     return (
-      <div style={css}>
+      <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size}>
         <span style={fxCss(fx, { size, u, color, pal, qf, fps, text: style.text, fa, wi: 0, role })}>{full.slice(0, n)}</span>
         <span style={{ visibility: "hidden" }}>{full.slice(n)}</span>
         {n < full.length && <span style={{ color, opacity: Math.floor(qf / 6) % 2 ? 0 : 1 }}>▌</span>}
@@ -225,18 +227,30 @@ export const T: React.FC<TProps> = (p) => {
   }
 
   return (
-    <div style={css}>
+    <div style={css} data-nm="text" data-nm-role={role} data-nm-size={size}>
       {lines.map((line, li) => (
         <div key={li}>
           {line.split(/[ \t]+/).filter(Boolean).map((w, k, arr) => {
             const i = wi++;
-            const prog = p.noAnim ? 1 : enterProgress(ctx, qf, (p.delay ?? 0) + i * stag);
+            const prog = p.noAnim ? 1 : enterProgress(ctx, qf, p.wordDelays && p.wordDelays[i] !== undefined ? p.wordDelays[i] : (p.delay ?? 0) + i * stag);
             const anim = p.noAnim ? {} : enterCss(role === "body" && kind === "slam" ? "rise" : kind, prog, { u, rtl: ctx.rtl, i, qf, fps });
             const fxs = fxCss(fx, { size, u, color, pal, qf, fps, text: style.text, fa, wi: i, role });
             const merged: CSSProperties = { display: "inline-block", whiteSpace: "nowrap", ...fxs, ...anim };
             if (fxs.transform && anim.transform) merged.transform = `${fxs.transform} ${anim.transform}`;
             if (fxs.filter && anim.filter) merged.filter = `${fxs.filter} ${anim.filter}`;
             if (typeof fxs.opacity === "number" && typeof anim.opacity === "number") merged.opacity = (fxs.opacity as number) * (anim.opacity as number);
+            if (ctx.emphasis.length && ctx.emphasis.includes(w.replace(/[.,،؛:!؟?"“”«»()\[\]…]/g, "").toLowerCase())) {
+              const accent = col(pal, "accent");
+              const clipText = (fxs as any).WebkitTextFillColor === "transparent";
+              if (tone && !p.color) {
+                merged.backgroundImage = `linear-gradient(transparent 60%, ${rgba(accent, 0.38)} 60% 94%, transparent 94%)`;
+                merged.fontWeight = 900;
+              } else if (!clipText) {
+                merged.color = readableOn(accent, pal.bg, col(pal, "ink"));
+                merged.fontWeight = 900;
+              }
+              merged.transform = `${merged.transform ?? ""} scale(1.07)`.trim();
+            }
             return (
               <React.Fragment key={k}>
                 <span style={merged}>{w}</span>
@@ -292,7 +306,7 @@ export const Card: React.FC<CardProps> = (p) => {
   }
   const tilt = (sh.tilt ?? 0) * (((p.i ?? 0) % 2) ? -1 : 1);
   const prog = p.noAnim ? 1 : enterProgress(ctx, qf, p.delay ?? 0);
-  const ek = p.enter ?? (style.motion.enter === "type" ? "wipe" : style.motion.enter);
+  const ek = p.enter ?? (ctx.enter === "type" ? "wipe" : ctx.enter);
   const anim = p.noAnim ? {} : enterCss(ek, prog, { u, rtl: ctx.rtl, i: p.i ?? 0, qf, fps: ctx.fps });
   const css: CSSProperties = {
     position: "relative",
@@ -311,7 +325,7 @@ export const Card: React.FC<CardProps> = (p) => {
   if (anim.transform && tilt) css.transform = `rotate(${tilt}deg) ${anim.transform}`;
   const extra = sh.extra as string | undefined;
   return (
-    <div style={css}>
+    <div style={css} data-nm="box">
       {extra === "studs" && (
         <div style={{ position: "absolute", left: 0, right: 0, top: -14 * u, height: 16 * u, display: "flex", justifyContent: "space-around", padding: `0 ${16 * u}px` }}>
           {[0, 1, 2].map((k) => <div key={k} style={{ width: 30 * u, height: 16 * u, borderRadius: `${8 * u}px ${8 * u}px 0 0`, background: shade(bg, 0.12), boxShadow: `inset 0 ${-3 * u}px 0 ${rgba("#000000", 0.18)}` }} />)}

@@ -4,29 +4,33 @@ import { useParams } from "react-router-dom";
 import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Field, Input, PageHeader, SectionTitle, Select, Spinner, TextArea, fa } from "../../../components/ui";
 import {
+  AudioCfg,
   Brand,
   Catalog,
+  Library,
   NodeInfo,
   Overview,
+  PlanDTO,
   QUALITY_LABELS,
   RenderRow,
   Scene,
-  SceneType,
+  SoundInfo,
   Source,
   Spec,
   errText,
   motionApi,
 } from "./api";
 import PlayerFrame, { PlayerHandle, PlayerMeta } from "./PlayerFrame";
+import { ChatEdit, ChatLine, HistoryBar, PlanJson, QaPanel, SoundPanel } from "./PlanTools";
 import RenderHistory from "./RenderHistory";
-import SceneEditor, { DEFAULT_SCENE } from "./SceneEditor";
+import ScenePlan from "./ScenePlan";
 import StyleGallery from "./StyleGallery";
 
 type Mode = "template" | "ai" | "code";
 
 const MODES: { key: Mode; title: string; help: string; icon: "sparkle" | "bulb" | "settings" }[] = [
   { key: "template", title: "قالبی", help: "سبک + قالبِ صحنه + متنِ شما؛ بدونِ نیاز به هوش مصنوعی", icon: "sparkle" },
-  { key: "ai", title: "هوش مصنوعی", help: "ایده را به فارسی بنویسید؛ سناریوی صحنه‌ها نوشته می‌شود و می‌توانید ویرایشش کنید", icon: "bulb" },
+  { key: "ai", title: "هوش مصنوعی", help: "ایده را به فارسی بنویسید؛ سناریوی صحنه‌ها از قطعه‌های آماده ساخته می‌شود و می‌توانید ویرایشش کنید", icon: "bulb" },
   { key: "code", title: "کد (Remotion)", help: "کدِ ترکیب را ببینید و ویرایش کنید؛ پیش‌نمایشِ زنده و رندر به MP4", icon: "settings" },
 ];
 
@@ -50,7 +54,7 @@ function NodeBanner({ node, site, limits }: { node: NodeInfo; site: Overview["si
   if (node.state === "ready")
     return (
       <Alert tone="ok" title="سرورِ پردازش آماده است">
-        رندرِ نهایی روی کارتِ گرافیکِ سرورِ پردازش انجام می‌شود{d.gpu ? " (با شتاب‌دهیِ GPU)" : ""}.
+        رندرِ نهایی روی کارتِ گرافیکِ سرورِ پردازش انجام می‌شود{d.gpu ? " (با شتاب‌دهیِ GPU)" : ""}؛ نقدِ تصویری هم با مدلِ بینا روی همان سرور اجرا می‌شود.
       </Alert>
     );
   if (node.state === "installing")
@@ -67,8 +71,8 @@ function NodeBanner({ node, site, limits }: { node: NodeInfo; site: Overview["si
     );
   if (node.state === "offline" || node.state === "outdated" || node.state === "checking")
     return (
-      <Alert tone="info" title="رندرِ نهایی منتظرِ سرورِ پردازش می‌ماند">
-        {node.message} اگر عجله دارید «رندر روی سایت» را بزنید (محدود به {fa(limits.max_total_site)} ثانیه و {fa(limits.site_max_short_side)}p).
+      <Alert tone="info" title="رندرِ نهایی و نقدِ تصویری منتظرِ سرورِ پردازش می‌مانند">
+        {node.message} اگر عجله دارید «رندر روی سایت» را بزنید (محدود به {fa(limits.max_total_site)} ثانیه و {fa(limits.site_max_short_side)}p). کنترلِ کیفیتِ قاعده‌ای در هر حال خودکار اجرا می‌شود.
       </Alert>
     );
   return (
@@ -81,6 +85,8 @@ function NodeBanner({ node, site, limits }: { node: NodeInfo; site: Overview["si
 export default function MotionStudioPage() {
   const { id = "" } = useParams<{ id: string }>();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [lib, setLib] = useState<Library | null>(null);
+  const [sound, setSound] = useState<SoundInfo | null>(null);
   const [ov, setOv] = useState<Overview | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -91,10 +97,13 @@ export default function MotionStudioPage() {
   const [styleId, setStyleId] = useState(() => storeGet("nm.motion.style", "flat-vector"));
   const [aspect, setAspect] = useState(() => storeGet("nm.motion.aspect", "9:16"));
   const [lang, setLang] = useState<"fa" | "en">("fa");
-  const [scenes, setScenes] = useState<Scene[]>([{ ...DEFAULT_SCENE.title }]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
   const [useBrand, setUseBrand] = useState(true);
   const [showLogo, setShowLogo] = useState(true);
   const [intensity, setIntensity] = useState(1);
+  const [platform, setPlatform] = useState<string>("");
+  const [captions, setCaptions] = useState<Spec["captions"]>(undefined);
+  const [audio, setAudio] = useState<AudioCfg | undefined>(undefined);
   const [quality, setQuality] = useState("720");
   const [title, setTitle] = useState("");
   const [idea, setIdea] = useState("");
@@ -107,19 +116,32 @@ export default function MotionStudioPage() {
   const [total, setTotal] = useState(0);
   const player = useRef<PlayerHandle>(null);
 
+  // طرحِ زندهٔ سرور (تاریخچه، چت، کنترلِ کیفیت)
+  const [plan, setPlan] = useState<PlanDTO | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [chat, setChat] = useState<ChatLine[]>([]);
+  const [qaOnRender, setQaOnRender] = useState(true);
+  const [critiqueOnRender, setCritiqueOnRender] = useState(false);
+  const [tab, setTab] = useState<"plan" | "json">("plan");
+  const lastSaved = useRef("");
+  const justApplied = useRef(false);
+
   // ───────────────────────── loading
   useEffect(() => {
     let live = true;
-    Promise.all([motionApi.catalog(), motionApi.overview(id), motionApi.sources(id).catch(() => [] as Source[])])
-      .then(([c, o, s]) => {
+    Promise.all([motionApi.catalog(), motionApi.library(), motionApi.overview(id), motionApi.sources(id).catch(() => [] as Source[]), motionApi.sound(id).catch(() => null)])
+      .then(([c, l, o, s, snd]) => {
         if (!live) return;
         setCatalog(c);
+        setLib(l);
         setOv(o);
         setSources(s);
+        setSound(snd);
         setQuality(storeGet("nm.motion.quality", o.limits.default_quality));
         if (!c.styles.some((x) => x.id === styleId)) setStyleId(c.styles[0].id);
         setScenes(o.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]);
         setCode(o.code.samples[0]?.code || "");
+        setPlatform("reels");
       })
       .catch((e) => live && setError(errText(e)));
     return () => {
@@ -155,12 +177,92 @@ export default function MotionStudioPage() {
     }),
     [ov, useBrand, showLogo],
   );
-  const spec: Spec = useMemo(() => ({ style: styleId, aspect, fps: 30, lang, digits: "auto", brand, scenes, intensity }), [styleId, aspect, lang, brand, scenes, intensity]);
+  const spec: Spec = useMemo(
+    () => ({
+      version: 2,
+      style: styleId,
+      aspect,
+      fps: 30,
+      lang,
+      digits: "auto",
+      brand,
+      scenes,
+      intensity,
+      ...(platform ? { platform } : {}),
+      ...(captions?.on ? { captions } : {}),
+      ...(audio && Object.keys(audio).length ? { audio } : {}),
+    }),
+    [styleId, aspect, lang, brand, scenes, intensity, platform, captions, audio],
+  );
+
+  /** طرحی که از سرور آمد (برگشت، چت، کنترلِ کیفیت…) را در فرم می‌نشاند */
+  const applyPlan = useCallback((p: PlanDTO) => {
+    const s = p.spec;
+    justApplied.current = true;
+    setPlan(p);
+    setStyleId(s.style);
+    setAspect(s.aspect);
+    setLang((s.lang as "fa" | "en") || "fa");
+    setScenes((s.scenes as Scene[]).map((x) => ({ ...x })));
+    setIntensity(s.intensity ?? 1);
+    setPlatform(s.platform ?? "");
+    setCaptions(s.captions);
+    setAudio(s.audio);
+    if (s.brand) {
+      setUseBrand(s.brand.use_brand_colors !== false);
+      setShowLogo(s.brand.show_logo !== false);
+    }
+  }, []);
+
+  // ذخیرهٔ خودکارِ طرح (هر ویرایش یک نسخه؛ ویرایش‌های پشتِ‌سرهم یکی می‌شوند)
+  useEffect(() => {
+    if (!ov || mode === "code" || !scenes.length) return;
+    const body = JSON.stringify(spec);
+    if (justApplied.current) {
+      justApplied.current = false;
+      lastSaved.current = body;
+      return;
+    }
+    if (body === lastSaved.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        if (!plan) {
+          const p = await motionApi.createPlan(id, spec, title);
+          lastSaved.current = body;
+          setPlan(p);
+        } else {
+          const r = await motionApi.savePlan(id, plan.id, spec, title);
+          lastSaved.current = body;
+          setPlan(r.plan);
+        }
+      } catch {
+        /* طرحِ نامعتبر را پیش‌نمایش گزارش می‌کند */
+      }
+    }, 1300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec, mode, ov, id]);
+
+  // نتیجهٔ کنترلِ کیفیت / نقدِ تصویری در پس‌زمینه می‌رسد
+  const bgRunning = plan?.qa?.state === "running" || plan?.critique?.state === "waiting" || plan?.critique?.state === "running";
+  useEffect(() => {
+    if (!bgRunning || !plan) return;
+    const t = window.setInterval(async () => {
+      try {
+        const p = await motionApi.plan(id, plan.id);
+        setPlan((cur) => (cur ? { ...cur, qa: p.qa, critique: p.critique, history: p.history, can_undo: p.can_undo, can_redo: p.can_redo, rev: p.rev } : cur));
+        if (p.rev !== plan.rev) applyPlan(p);
+      } catch {
+        /* وارسیِ بعدی */
+      }
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [bgRunning, plan, id, applyPlan]);
 
   // live preview (debounced; stale answers are dropped)
   const seq = useRef(0);
   useEffect(() => {
-    if (!ov || mode === "code") return;
+    if (!ov || mode === "code" || !scenes.length) return;
     const n = ++seq.current;
     const t = window.setTimeout(async () => {
       try {
@@ -174,7 +276,7 @@ export default function MotionStudioPage() {
       }
     }, 550);
     return () => window.clearTimeout(t);
-  }, [spec, mode, ov, id]);
+  }, [spec, mode, ov, id, scenes.length]);
 
   // code: compile + preview inside the sandboxed player; the site also scans it (safety rules)
   useEffect(() => {
@@ -196,9 +298,9 @@ export default function MotionStudioPage() {
 
   // ───────────────────────── actions
   const loadTemplate = (tid: string) => {
-    const t = catalog?.templates.find((x) => x.id === tid);
-    if (!t) return;
-    setScenes(t.scenes.map((s) => ({ ...DEFAULT_SCENE[s as SceneType] })));
+    const t = (lib?.templates ?? catalog?.templates ?? []).find((x) => x.id === tid);
+    if (!t || !lib) return;
+    setScenes(t.scenes.map((s) => ({ ...(lib.components.find((c) => c.id === s)?.sample ?? { type: s, duration: 4 }) })) as Scene[]);
   };
 
   const upload = async (f: File) => {
@@ -217,10 +319,15 @@ export default function MotionStudioPage() {
     setError(null);
     setAiNote(null);
     try {
-      const r = await motionApi.ai(id, { idea, style: styleId, aspect, lang, brand });
+      const r = await motionApi.ai(id, { idea, style: styleId, aspect, lang, brand, platform: platform || undefined });
       setScenes(r.spec.scenes as Scene[]);
+      if (r.spec.platform) setPlatform(r.spec.platform);
       if (r.title && !title) setTitle(r.title);
-      setAiNote(r.source === "ai" ? { tone: "ok", text: "سناریو نوشته شد؛ پیش‌نمایش را ببینید و هر متنی را که می‌خواهید ویرایش کنید." } : { tone: "warn", text: r.message });
+      setAiNote(
+        r.source === "ai"
+          ? { tone: "ok", text: `سناریو نوشته شد (${fa(r.components?.length ?? 0)} قطعهٔ مرتبط به مدل داده شد)؛ پیش‌نمایش را ببینید و هر متنی را که می‌خواهید ویرایش کنید.${r.message ? " " + r.message : ""}` }
+          : { tone: "warn", text: r.message },
+      );
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -242,23 +349,82 @@ export default function MotionStudioPage() {
     }
   };
 
+  /** طرح را همین حالا روی سرور بنشان (پیش از چت، کنترلِ کیفیت یا رندر) */
+  const ensurePlan = async (): Promise<PlanDTO> => {
+    const body = JSON.stringify(spec);
+    if (plan && body === lastSaved.current) return plan;
+    if (!plan) {
+      const p = await motionApi.createPlan(id, spec, title);
+      lastSaved.current = body;
+      setPlan(p);
+      return p;
+    }
+    const r = await motionApi.savePlan(id, plan.id, spec, title);
+    lastSaved.current = body;
+    setPlan(r.plan);
+    return r.plan;
+  };
+
+  const planCall = async (fn: (p: PlanDTO) => Promise<PlanDTO | void>) => {
+    setPlanBusy(true);
+    setError(null);
+    try {
+      const p = await ensurePlan();
+      const out = await fn(p);
+      if (out) applyPlan(out);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const onChat = async (text: string) => {
+    await planCall(async (p) => {
+      const r = await motionApi.chat(id, p.id, text);
+      setChat((c) => [...c, { q: text, say: r.say, source: r.source, applied: r.applied, message: r.message, changes: r.changes }]);
+      return r.applied ? r.plan : undefined;
+    });
+  };
+
+  const applyJson = async (s: Spec): Promise<string | null> => {
+    try {
+      const p = await ensurePlan();
+      const r = await motionApi.savePlan(id, p.id, s, title);
+      applyPlan(r.plan);
+      if (r.notes?.length) setNotice(r.notes.join("؛ "));
+      return null;
+    } catch (e) {
+      return errText(e);
+    }
+  };
+
   const render = async (target: "node" | "site") => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const body: Record<string, unknown> = { mode: mode === "code" ? "code" : mode, title, quality, target };
+      storeSet("nm.motion.quality", quality);
+      let res: { render: RenderRow; node: NodeInfo };
       if (mode === "code") {
-        body.code = code;
+        const body: Record<string, unknown> = { mode: "code", title, quality, target, code };
         if (meta) {
           body.width = meta.width;
           body.height = meta.height;
         }
-      } else body.spec = spec;
-      storeSet("nm.motion.quality", quality);
-      const r = await motionApi.render(id, body);
-      setOv((o) => (o ? { ...o, node: r.node, renders: [r.render, ...o.renders.filter((x) => x.id !== r.render.id)] } : o));
-      setNotice(r.render.target === "site" ? "رندر روی سایت شروع شد." : r.render.state === "WAITING_NODE" ? "رندر در صفِ سرورِ پردازش است و با روشن شدنِ آن خودکار انجام می‌شود." : "رندر به سرورِ پردازش رفت.");
+        res = await motionApi.render(id, body);
+      } else {
+        const p = await ensurePlan();
+        res = await motionApi.renderPlan(id, p.id, { mode, title, quality, target, qa: qaOnRender, critique: critiqueOnRender });
+      }
+      setOv((o) => (o ? { ...o, node: res.node, renders: [res.render, ...o.renders.filter((x) => x.id !== res.render.id)] } : o));
+      setNotice(
+        res.render.target === "site"
+          ? "رندر روی سایت شروع شد: ابتدا کنترلِ کیفیت و (اگر خواسته باشید) صدا، بعد رندر."
+          : res.render.state === "WAITING_NODE"
+            ? "رندر در صفِ سرورِ پردازش است و با روشن شدنِ آن خودکار انجام می‌شود."
+            : "کنترلِ کیفیت و صدا انجام می‌شود، سپس رندر به سرورِ پردازش می‌رود.",
+      );
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -291,10 +457,15 @@ export default function MotionStudioPage() {
         setCode(full.code || "");
       } else if (full.spec) {
         setMode(full.mode);
+        setPlan(null);
+        lastSaved.current = "";
         setStyleId(full.spec.style);
         setAspect(full.spec.aspect);
         setLang((full.spec.lang as "fa" | "en") || "fa");
         setScenes(full.spec.scenes as Scene[]);
+        setPlatform(full.spec.platform ?? "");
+        setCaptions(full.spec.captions);
+        setAudio(full.spec.audio);
       }
       setTitle(full.title);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -312,7 +483,13 @@ export default function MotionStudioPage() {
     storeSet("nm.motion.style", s);
   };
 
-  if (!catalog || !ov) {
+  const findings = useMemo(() => {
+    const out: Record<number, { severity: "error" | "warn" | "info"; message: string }[]> = {};
+    for (const f of plan?.qa?.remaining ?? []) if (f.scene !== null && f.scene !== undefined) (out[f.scene] ||= []).push({ severity: f.severity, message: f.message });
+    return out;
+  }, [plan?.qa]);
+
+  if (!catalog || !ov || !lib) {
     return (
       <div>
         <PageHeader title="استودیوی موشن" />
@@ -336,8 +513,13 @@ export default function MotionStudioPage() {
     <div>
       <PageHeader
         title="استودیوی موشن"
-        subtitle="ویدیوی موشن‌گرافیک از روی کد (Remotion): بیش از ۶۰ سبکِ واقعاً متفاوت، رندرِ نهایی روی کارتِ گرافیک"
-        actions={<Badge tone="brand">{fa(catalog.styles.length)} سبک</Badge>}
+        subtitle="موشن‌گرافیک از روی کد (Remotion): قطعه‌های آمادهٔ فارسی، کنترلِ کیفیتِ خودکار، گویندهٔ فارسی و موسیقی، رندرِ نهایی روی کارتِ گرافیک"
+        actions={
+          <div className="flex items-center gap-2">
+            <Badge tone="brand">{fa(catalog.styles.length)} سبک</Badge>
+            <Badge tone="info">{fa(lib.components.length)} قطعه</Badge>
+          </div>
+        }
       />
       <NodeBanner node={ov.node} site={ov.site} limits={ov.limits} />
       <div className="mt-3 space-y-3">
@@ -345,7 +527,7 @@ export default function MotionStudioPage() {
         {notice ? <Alert tone="info">{notice}</Alert> : null}
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
         {/* ───────── کنترل‌ها */}
         <div className="min-w-0 space-y-5">
           <div className="flex flex-wrap gap-2" role="tablist">
@@ -380,7 +562,7 @@ export default function MotionStudioPage() {
                       <Icon name="sparkle" size={15} /> {busy ? "در حال نوشتن…" : "ساختِ سناریو"}
                     </Button>
                     <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                      هوش مصنوعی در دسترس نباشد، یک پیش‌نویسِ ساده از روی متنت ساخته می‌شود.
+                      مدل فقط قطعه‌های مرتبط را می‌بیند و خروجیِ JSON ِ مقیّد می‌دهد؛ هوش مصنوعی در دسترس نباشد، یک پیش‌نویسِ ساده از روی متنت ساخته می‌شود.
                     </span>
                   </div>
                   {aiNote ? (
@@ -393,14 +575,14 @@ export default function MotionStudioPage() {
                 <Card>
                   <SectionTitle>قالب</SectionTitle>
                   <div className="flex flex-wrap gap-2">
-                    {catalog.templates.map((t) => (
+                    {(lib.templates ?? catalog.templates).map((t) => (
                       <Button key={t.id} variant="secondary" size="sm" type="button" onClick={() => loadTemplate(t.id)}>
                         {t.name}
                       </Button>
                     ))}
                   </div>
                   <div className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-                    قالب را بزنید تا صحنه‌ها با متنِ نمونه پر شوند؛ بعد متن‌ها را عوض کنید.
+                    قالب را بزنید تا صحنه‌ها با متنِ نمونه پر شوند؛ بعد متن‌ها را عوض کنید یا از «افزودنِ صحنه» قطعهٔ دلخواه را بگذارید.
                   </div>
                 </Card>
               )}
@@ -450,9 +632,42 @@ export default function MotionStudioPage() {
               </Card>
 
               <div>
-                <SectionTitle>صحنه‌ها</SectionTitle>
-                <SceneEditor scenes={scenes} onChange={setScenes} sources={sources} onUpload={upload} maxScenes={ov.limits.max_scenes} />
+                <SectionTitle
+                  action={
+                    <div className="flex gap-1">
+                      <Button variant={tab === "plan" ? "primary" : "secondary"} size="sm" type="button" onClick={() => setTab("plan")}>
+                        کارت‌های صحنه
+                      </Button>
+                      <Button variant={tab === "json" ? "primary" : "secondary"} size="sm" type="button" onClick={() => setTab("json")}>
+                        JSON خام
+                      </Button>
+                    </div>
+                  }
+                >
+                  طرحِ صحنه‌ها
+                </SectionTitle>
+                {tab === "plan" ? (
+                  <ScenePlan scenes={scenes} onChange={setScenes} lib={lib} sources={sources} onUpload={upload} maxScenes={ov.limits.max_scenes} brandColors={ov.brand.colors} findings={findings} />
+                ) : (
+                  <Card>
+                    <PlanJson spec={spec} onApply={applyJson} />
+                  </Card>
+                )}
               </div>
+
+              <Card>
+                <SectionTitle>صدا، زیرنویس و پلتفرم</SectionTitle>
+                <SoundPanel
+                  spec={spec}
+                  lib={lib}
+                  sound={sound}
+                  onChange={(p) => {
+                    if ("audio" in p) setAudio(p.audio);
+                    if ("platform" in p) setPlatform(p.platform ?? "");
+                    if ("captions" in p) setCaptions(p.captions);
+                  }}
+                />
+              </Card>
             </>
           ) : (
             <>
@@ -512,7 +727,7 @@ export default function MotionStudioPage() {
                   </Button>
                 </div>
                 <div className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-                  کدِ نوشته‌شده همیشه از همان اسکنرِ امنیتی می‌گذرد.
+                  کدِ نوشته‌شده همیشه از همان اسکنرِ امنیتی می‌گذرد. (قطعه‌های آماده فقط در حالتِ قالبی/هوشمند هستند؛ کدِ آزاد برای جاهایی است که قطعه‌ای نیست.)
                 </div>
               </Card>
             </>
@@ -520,20 +735,43 @@ export default function MotionStudioPage() {
         </div>
 
         {/* ───────── پیش‌نمایش و رندر */}
-        <div className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">
+        <div className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
           <Card>
             <SectionTitle>پیش‌نمایشِ زنده</SectionTitle>
-            <PlayerFrame ref={player} onMeta={onMeta} onError={mode === "code" ? onPlayerError : undefined} aspect={mode === "code" && meta ? meta.width / meta.height : (aspectDef?.width ?? 9) / (aspectDef?.height ?? 16)} maxHeight={520} />
-            {previewErr && mode !== "code" ? <div className="mt-3"><ErrorBox message={previewErr} /></div> : null}
+            <PlayerFrame ref={player} onMeta={onMeta} onError={mode === "code" ? onPlayerError : undefined} aspect={mode === "code" && meta ? meta.width / meta.height : (aspectDef?.width ?? 9) / (aspectDef?.height ?? 16)} maxHeight={480} />
+            {previewErr && mode !== "code" ? (
+              <div className="mt-3">
+                <ErrorBox message={previewErr} />
+              </div>
+            ) : null}
             <div className="mt-3 text-xs leading-6" style={{ color: "var(--text-3)" }}>
               {mode === "code"
                 ? meta
                   ? `${fa(meta.width)}×${fa(meta.height)} · ${fa(meta.fps)} فریم‌بر‌ثانیه · ${fa((meta.durationInFrames / meta.fps).toFixed(1))} ثانیه`
                   : "منتظرِ کد…"
                 : `${fa(total.toFixed(1))} ثانیه (حداکثر ${fa(totalMax)})`}
-              {" "}— پیش‌نمایش با همان موتورِ رندر ساخته می‌شود؛ خروجیِ نهایی با کیفیتِ کامل است.
+              {" "}— پیش‌نمایش با همان موتورِ رندر ساخته می‌شود (بی‌صدا)؛ صدا هنگامِ رندر ساخته و ترکیب می‌شود.
             </div>
+            {mode !== "code" ? (
+              <div className="mt-3">
+                <HistoryBar
+                  plan={plan}
+                  busy={planBusy}
+                  onUndo={() => planCall(async (p) => motionApi.planStep(id, p.id, "undo"))}
+                  onRedo={() => planCall(async (p) => motionApi.planStep(id, p.id, "redo"))}
+                  onRestore={(n) => planCall(async (p) => motionApi.restore(id, p.id, n))}
+                />
+              </div>
+            ) : null}
           </Card>
+
+          {mode !== "code" ? (
+            <Card>
+              <SectionTitle>ویرایش با چت</SectionTitle>
+              <ChatEdit lines={chat} busy={planBusy} disabled={!scenes.length} onSend={onChat} />
+            </Card>
+          ) : null}
+
           <Card>
             <SectionTitle>رندر</SectionTitle>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -550,8 +788,18 @@ export default function MotionStudioPage() {
                 </Select>
               </Field>
             </div>
+            {mode !== "code" ? (
+              <div className="mt-3 space-y-1 text-sm" style={{ color: "var(--text-2)" }}>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={qaOnRender} onChange={(e) => setQaOnRender(e.target.checked)} /> کنترلِ کیفیت و اصلاحِ خودکار پیش از رندر
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={critiqueOnRender} onChange={(e) => setCritiqueOnRender(e.target.checked)} /> نقدِ تصویری با مدلِ بینا هم انجام شود (در صفِ سرورِ پردازش؛ نتیجه به طرح برمی‌گردد)
+                </label>
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="button" onClick={() => render("node")} disabled={busy || !codeOk}>
+              <Button type="button" onClick={() => render("node")} disabled={busy || !codeOk || !scenes.length}>
                 <Icon name="rocket" size={15} /> {ov.node.state === "none" ? "رندر" : "رندر روی سرورِ پردازش"}
               </Button>
               {nodeWaiting && canSite ? (
@@ -561,9 +809,23 @@ export default function MotionStudioPage() {
               ) : null}
             </div>
             <div className="mt-2 text-xs leading-6" style={{ color: "var(--text-3)" }}>
-              ویدیو بعد از پایانِ رندر در «رسانهٔ فروشگاه» و سطلِ ادیتورِ ویدیو (با نامِ «موشن — …») می‌آید.
+              ویدیو بعد از پایانِ رندر در «رسانهٔ فروشگاه» و سطلِ ادیتورِ ویدیو (با نامِ «موشن — …») می‌آید و با «باز کردن در ادیتورِ ویدیو» روی خطِ زمانِ دستی می‌نشیند.
             </div>
           </Card>
+
+          {mode !== "code" ? (
+            <Card>
+              <SectionTitle>کنترلِ کیفیت و نقدِ تصویری</SectionTitle>
+              <QaPanel
+                qa={plan?.qa}
+                critique={plan?.critique}
+                busy={planBusy}
+                hasPlan={!!scenes.length}
+                onQa={() => planCall(async (p) => (await motionApi.runQa(id, p.id, true, true)) as PlanDTO)}
+                onCritique={() => planCall(async (p) => (await motionApi.runCritique(id, p.id)) as PlanDTO)}
+              />
+            </Card>
+          ) : null}
         </div>
       </div>
 

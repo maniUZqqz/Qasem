@@ -162,6 +162,9 @@ class Ctx:
     make_matte: Callable[[str, float, float], dict] | None = None
     #: ref → `letterbox.detect()` of a video: where the real picture is inside black bars (`found`, `box`, `aspect`, `portrait`), {} when it cannot be told
     content_box: Callable[[str], dict] = lambda ref: {}
+    #: {"kind","text","text2","items","value","label","style","duration","aspect","track"} → {"ref": "video:<id>", "duration", ...}: the motion studio renders a
+    #: motion-graphics scene (title card, stat, list, CTA, lower third, captions) in the shop's brand; raises StepError («در صف …» while only the node is off)
+    make_motion: Callable[[dict], dict] | None = None
     #: the project's frame aspect etc. are read from the project itself; this is only the store (None in tests)
     store: Any = None
     #: Persian sentences about what was skipped or degraded (shown to the owner)

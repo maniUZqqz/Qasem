@@ -1,6 +1,7 @@
 """منطقِ «استودیوی موشن»: ساختنِ رندر، فرستادن به گرهٔ پردازش یا رندرِ سایت، پیگیری و ثبتِ ویدیو در رسانهٔ فروشگاه."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
@@ -14,7 +15,7 @@ from django.utils import timezone
 from apps.compute import services as CS
 from apps.compute.models import ComputeJob, ComputeNode
 
-from . import assets, catalog, runner, safety, specs
+from . import assets, catalog, pipeline, runner, safety, sound, specs
 from .models import MotionRender
 
 logger = logging.getLogger(__name__)
@@ -152,18 +153,23 @@ def build_job(render: MotionRender) -> tuple[dict, dict[str, tuple[bytes, str]]]
     spec = render.spec
     spec, files = materialize(render.store, spec)
     wh = specs.ASPECTS[spec["aspect"]]
-    return {"composition": "Template", "props": {"spec": spec}, "scale": runner.scale_for(wh, quality, site=site),
-            "max_seconds": runner.SITE_MAX_SECONDS if site else specs.MAX_TOTAL_S_NODE}, files
+    job = {"composition": "Template", "props": {"spec": spec}, "scale": runner.scale_for(wh, quality, site=site),
+           "max_seconds": runner.SITE_MAX_SECONDS if site else specs.MAX_TOTAL_S_NODE}
+    mix = pipeline.mix_path(render)
+    if mix:                      # صدای آماده (گوینده + موسیقی + افکت، -۱۴ LUFS) به‌صورتِ فایلِ ورودیِ «mix.m4a»: گرهٔ جدید آن را زیرِ تصویر می‌گذارد؛
+        files["mix"] = (mix.read_bytes(), ".m4a")        # گرهٔ قدیمی فایلِ اضافی را نمی‌بیند (کلیدِ تازه‌ای در payload نیست که ردش کند) و سایت صدا را خودش می‌نشاند
+    return job, files
 
 
 # ───────────────────────────────────────────── creating / starting
 
 def create(store, user, *, mode: str, title: str = "", spec: dict | None = None, code: str = "", quality: str = "",
-           target: str | None = None, fps: int | None = None, size: tuple[int, int] | None = None) -> MotionRender:
+           target: str | None = None, fps: int | None = None, size: tuple[int, int] | None = None, plan=None, qa: bool = True,
+           critique: bool = False, prepare: bool = True) -> MotionRender:
     target = choose_target(target)
     max_total = specs.MAX_TOTAL_S_SITE if target == MotionRender.Target.SITE else specs.MAX_TOTAL_S_NODE
     quality = quality if quality in specs.QUALITY else specs.DEFAULT_QUALITY
-    opts = {"quality": quality}
+    opts = {"quality": quality, "qa": bool(qa), "critique": bool(critique), "prepare": bool(prepare)}
     if mode == MotionRender.Mode.CODE:
         try:
             safety.scan(code)
@@ -179,7 +185,7 @@ def create(store, user, *, mode: str, title: str = "", spec: dict | None = None,
             raise MotionError(str(exc)) from exc
         clean["brand"] = brand_with_defaults(store, clean.get("brand"))
         row = MotionRender(store=store, user=user, mode=mode, title=(title or _default_title(clean))[:200], spec=clean,
-                           style=clean["style"], aspect=clean["aspect"], options=opts, target=target)
+                           style=clean["style"], aspect=clean["aspect"], options=opts, target=target, plan=plan)
     row.message = "در صف"
     row.save()
     return row
@@ -362,15 +368,16 @@ def finalize(render: MotionRender, mp4: Path, *, render_s: float = 0.0) -> Motio
     dest.parent.mkdir(parents=True, exist_ok=True)
     if Path(mp4).resolve() != dest.resolve():
         shutil.copyfile(mp4, dest)
+    voiced = _ensure_audio(render, dest)
     facts = _probe(dest)
     poster_rel = ""
     poster = dest.with_suffix(".jpg")
     if _poster(dest, poster, min(1.2, max(0.0, facts["duration"] * 0.3))):
         poster_rel = media.media_rel(poster)
     uv = UploadedVideo(store=store, title=f"موشن — {render.title}"[:200], state=UploadedVideo.State.READY,
-                       duration=facts["duration"], has_audio=False)
+                       duration=facts["duration"], has_audio=voiced)
     uv.video.name = media.media_rel(dest)
-    uv.facts = {"readable": True, "duration": facts["duration"], "has_audio": False, "width": facts["width"], "height": facts["height"],
+    uv.facts = {"readable": True, "duration": facts["duration"], "has_audio": voiced, "width": facts["width"], "height": facts["height"],
                 "fps": facts["fps"], "source": "motion", "motion_render": render.pk}
     uv.save()
     render.video_id = uv.pk
@@ -386,6 +393,31 @@ def finalize(render: MotionRender, mp4: Path, *, render_s: float = 0.0) -> Motio
     render.finished_at = timezone.now()
     render.save()
     return render
+
+
+def _ensure_audio(render: MotionRender, dest: Path) -> bool:
+    """MP4 با صدا: اگر گره صدا را ترکیب کرده بود همان؛ وگرنه سایت mix.m4a را روی ویدیوی بی‌صدا می‌نشاند. ⇒ آیا صدا دارد؟"""
+    mix = pipeline.mix_path(render)
+    try:
+        has = sound.has_audio(dest)
+    except Exception:  # noqa: BLE001
+        has = False
+    info = dict(render.audio_info or {})
+    if mix and not has:
+        tmp = dest.with_suffix(".av.mp4")
+        try:
+            sound.mux(dest, mix, tmp)
+            tmp.replace(dest)
+            has, info["mux"] = True, "site"
+        except Exception as exc:  # noqa: BLE001 — صدا نشست؟ ویدیوی بی‌صدا را نگه می‌داریم و می‌گوییم
+            logger.warning("motion: muxing the audio of render %s failed: %s", render.pk, exc)
+            info["mux_error"] = str(exc)[:200]
+            tmp.unlink(missing_ok=True)
+    elif mix and has:
+        info["mux"] = "node"
+    info["has_audio"] = has
+    render.audio_info = info
+    return has
 
 
 # ───────────────────────────────────────────── the site render (capped fallback)
@@ -477,7 +509,33 @@ def render_dict(r: MotionRender) -> dict:
         "target": r.target, "target_label": r.get_target_display(), "quality": (r.options or {}).get("quality"),
         "duration_s": round(r.duration_s, 2), "width": r.width, "height": r.height, "bytes": r.bytes, "render_s": round(r.render_s, 1),
         "video_id": r.video_id, "video_ref": f"video:{r.video_id}" if r.video_id else None, "video_url": video_url(r),
+        "plan_id": r.plan_id, "qa": qa_public(r.qa), "audio": r.audio_info or {}, "has_audio": bool((r.audio_info or {}).get("has_audio")),
         "poster_url": assets.media_url(r.poster) if r.poster else None,
         "created_at": r.created_at.isoformat(), "finished_at": r.finished_at.isoformat() if r.finished_at else None,
         "job_uid": r.job_uid,
     }
+
+
+def qa_public(report: dict) -> dict:
+    """گزارشِ QA برای پنل: مسیرِ فریم‌ها به نشانیِ قابل‌نمایش تبدیل می‌شود."""
+    if not report:
+        return {}
+    out = json.loads(json.dumps(report, default=str))
+    for rnd in out.get("rounds") or []:
+        for shot in rnd.get("shots") or []:
+            if shot.get("image_rel"):
+                shot["image_url"] = assets.media_url(shot["image_rel"])
+    return out
+
+
+def critique_public(state: dict) -> dict:
+    """نقدِ بصری برای پنل: فریم‌های «قبل/بعد» با نشانیِ قابل‌نمایش."""
+    if not state:
+        return {}
+    out = json.loads(json.dumps(state, default=str))
+    for rnd in out.get("rounds") or []:
+        for key in ("before", "after"):
+            for shot in rnd.get(key) or []:
+                if shot.get("image_rel"):
+                    shot["image_url"] = assets.media_url(shot["image_rel"])
+    return out

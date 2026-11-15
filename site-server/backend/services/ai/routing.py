@@ -608,7 +608,9 @@ def _node_kw(name, kw):
         options['num_predict'] = kw['num_predict']
     if options:
         out['options'] = options
-    if name == 'generate' and (kw.get('format_json') or kw.get('json_mode')):
+    if name == 'generate' and isinstance(kw.get('json_schema'), dict):
+        out['format_json'] = kw['json_schema']            # structured output: Ollama constrains the answer to this JSON schema
+    elif name == 'generate' and (kw.get('format_json') or kw.get('json_mode')):
         out['format_json'] = True
     if name == 'generate_json' and kw.get('repair_attempts') is not None:
         out['repair_attempts'] = kw['repair_attempts']

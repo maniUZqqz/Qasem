@@ -5,7 +5,7 @@ import { clamp, R } from "./util";
 
 /** 0..~1.2 spring progress for an element that starts at `delay` frames (uses the style's spring + stagger) */
 export function enterProgress(ctx: Ctx, qf: number, delay = 0): number {
-  const [damping, stiffness, mass] = ctx.style.motion.spring;
+  const [damping, stiffness, mass] = ctx.spring;
   const k = ctx.intensity;
   return spring({
     frame: qf - delay,
@@ -82,8 +82,35 @@ export function enterCss(kind: string, p: number, o: EnterOpts): CSSProperties {
   }
 }
 
-/** slow virtual camera of a scene (zoom / pan / roll over its length) */
-export function cameraCss(ctx: Ctx, f: number, frames: number): CSSProperties {
+/** slow virtual camera of a scene (zoom / pan / roll over its length). A scene's own  wins over the style's. */
+export function cameraCss(ctx: Ctx, f: number, frames: number, own?: { move?: string; amount?: number } | null, layer: "all" | "bg" | "mid" | "fg" = "all"): CSSProperties {
+  const move = own?.move && own.move !== "none" ? own.move : "";
+  if (move) {
+    const a = Math.max(0, Math.min(1, own?.amount ?? 0.5));
+    const t = clamp(f / Math.max(1, frames));
+    const e = Easing.inOut(Easing.quad)(t);
+    const { W, H } = ctx;
+    const k = ctx.intensity;
+    let x = 0, y = 0, z = 1;
+    switch (move) {
+      case "push-in": z = 1 + 0.18 * a * e * k; break;
+      case "pull-out": z = 1 + 0.18 * a * (1 - e) * k; break;
+      case "pan-left": z = 1 + 0.07 * a; x = -(e - 0.5) * 0.07 * W * a * 2 * k; break;
+      case "pan-right": z = 1 + 0.07 * a; x = (e - 0.5) * 0.07 * W * a * 2 * k; break;
+      case "pan-up": z = 1 + 0.07 * a; y = -(e - 0.5) * 0.06 * H * a * 2 * k; break;
+      case "pan-down": z = 1 + 0.07 * a; y = (e - 0.5) * 0.06 * H * a * 2 * k; break;
+      case "drift": z = 1 + 0.05 * a; x = Math.sin((f / ctx.fps) * 0.55) * 0.014 * W * a * k; y = Math.cos((f / ctx.fps) * 0.4) * 0.011 * H * a * k; break;
+      case "rise": z = 1 + 0.05 * a; y = (0.5 - e) * 0.07 * H * a * k; break;
+      case "parallax": {
+        const m = layer === "bg" ? 0.35 : layer === "fg" ? 1.9 : 1;
+        z = 1 + 0.05 * a * m;
+        x = (e - 0.5) * 0.06 * W * a * m * k;
+        break;
+      }
+      default: break;
+    }
+    return { transform: `translate(${x}px, ${y}px) scale(${z})` };
+  }
   const cam = ctx.style.motion.cam;
   if (!cam) return {};
   const t = clamp(f / Math.max(1, frames));
@@ -94,6 +121,18 @@ export function cameraCss(ctx: Ctx, f: number, frames: number): CSSProperties {
   const sway = cam.sway ? Math.sin((f / ctx.fps) * (cam.swayHz ?? 0.6)) * cam.sway * ctx.u : 0;
   const rot = (cam.rot ?? 0) * (t - 0.5) * k;
   return { transform: `translate(${(px * (t - 0.5) * 2 * ctx.u + sway) * k}px, ${py * (t - 0.5) * 2 * ctx.u * k}px) scale(${z}) rotate(${rot}deg)` };
+}
+
+/** how a scene's content leaves when nothing else covers the cut (p: 0..1 over the last frames of the scene) */
+export function exitCss(kind: string, p: number, dir: number): CSSProperties {
+  const c = clamp(p);
+  switch (kind) {
+    case "fade": return { opacity: 1 - c };
+    case "slide": return { transform: `translateX(${-c * 14 * dir}%)`, opacity: 1 - c };
+    case "zoom": return { transform: `scale(${1 + 0.16 * c})`, opacity: 1 - c };
+    case "drop": return { transform: `translateY(${c * 9}%)`, opacity: 1 - c };
+    default: return {};
+  }
 }
 
 // ───────────────────────────────────────────── transitions between scenes
@@ -154,6 +193,18 @@ export function transitionCss(kind: string, t: number, role: "in" | "out", o: Tr
     case "blocks":
     case "flash":
       return role === "in" ? { opacity: c >= 0.5 ? 1 : 0 } : { opacity: c < 0.5 ? 1 : 0 };
+    case "ink": {
+      // an ink drop that blooms: seeded blobs grow until they cover the frame (the incoming scene is revealed through a mask of them)
+      if (role !== "in") return {};
+      const big = Math.hypot(o.W, o.H);
+      const blobs = Array.from({ length: 7 }).map((_, k) => {
+        const x = 8 + R(`ik${o.seed}x${k}`) * 84, y = 10 + R(`ik${o.seed}y${k}`) * 80;
+        const r = Math.pow(c, 0.8) * big * (0.34 + R(`ik${o.seed}r${k}`) * 0.26);
+        return `radial-gradient(circle at ${x}% ${y}%, #000 ${r}px, rgba(0,0,0,0) ${r + big * 0.035}px)`;
+      });
+      const m = c >= 0.985 ? "none" : blobs.join(", ");
+      return { WebkitMaskImage: m, maskImage: m, opacity: c > 0.005 ? 1 : 0 } as CSSProperties;
+    }
     case "cut":
     default:
       return role === "in" ? { opacity: c > 0 ? 1 : 0 } : {};

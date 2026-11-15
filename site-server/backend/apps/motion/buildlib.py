@@ -183,6 +183,7 @@ def source_hash() -> str:
     h = hashlib.sha256()
     h.update(str(v.get("hash", "")).encode())
     h.update((runner.tools_dir() / "render.mjs").read_bytes())
+    h.update((runner.tools_dir() / "qa.mjs").read_bytes())
     h.update(REMOTION.encode())
     return h.hexdigest()[:12]
 
@@ -213,6 +214,7 @@ def step_pack() -> dict:
         say(f"pack: writing {pack_name} ...")
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             z.write(runner.tools_dir() / "render.mjs", "render.mjs")
+            z.write(runner.tools_dir() / "qa.mjs", "qa.mjs")
             z.writestr("VERSION", ver)
             z.writestr("package.json", json.dumps({"name": "nm-motion-node", "private": True, "type": "module", "version": ver}))
             for base, prefix in ((runner.bundle_dir(), "bundle"), (mods, "node_modules")):

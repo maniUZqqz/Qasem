@@ -7,6 +7,7 @@ import { RenderRow } from "./api";
 
 const TONE: Record<RenderRow["state"], "neutral" | "info" | "warn" | "ok" | "bad"> = {
   QUEUED: "info",
+  PREPARING: "info",
   WAITING_NODE: "warn",
   RENDERING: "info",
   READY: "ok",
@@ -70,6 +71,15 @@ function Row({
             {r.aspect ? ` · ${fa(r.aspect)}` : ""} · {r.target_label}
             {r.state === "READY" ? ` · ${fa(r.width)}×${fa(r.height)} · ${fa(r.duration_s.toFixed(1))} ثانیه · ${size(r.bytes)}` : ""}
           </div>
+          {r.state === "READY" || r.qa?.summary || r.audio?.error ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+              {r.state === "READY" ? <Badge tone={r.has_audio ? "ok" : "neutral"}>{r.has_audio ? "با صدا" : "بی‌صدا"}</Badge> : null}
+              {r.audio?.voice?.cue_source ? <Badge tone="info">{r.audio.voice.cue_source === "asr" ? "زمانِ کلمه‌ها: ASR" : r.audio.voice.cue_source === "tts" ? "زمانِ کلمه‌ها: از خودِ TTS" : "زمانِ کلمه‌ها: برآورد"}</Badge> : null}
+              {r.audio?.mix?.lufs !== undefined ? <span>{fa(Number(r.audio.mix.lufs).toFixed(1))} LUFS</span> : null}
+              {r.qa?.summary ? <span>{r.qa.summary}</span> : null}
+              {r.audio?.error ? <span style={{ color: "var(--warn)" }}>صدا ساخته نشد: {r.audio.error}</span> : null}
+            </div>
+          ) : null}
           {r.active ? (
             <div className="mt-2">
               <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>

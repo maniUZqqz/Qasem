@@ -252,6 +252,17 @@ def store_ctx(store, *, user=None, asr: bool = True, tts_wait: float = 150.0, la
             raise StepError("جداسازیِ پس‌زمینه انجام نشد: " + str(out.get("error") or "لغو شد")[:160])
         return {"key": out["key"], "s0": float(out.get("s0", s0)), "engine": out.get("engine", "")}
 
+    def make_motion(req: dict):
+        """The motion studio renders the scene (the node when it is ready, else the site); only the node being OFF is «در صف» (filled in later)."""
+        from apps.motion import director_bridge as bridge
+
+        try:
+            return bridge.make_clip(store, user, req)
+        except bridge.Waiting as exc:
+            raise StepError(str(exc)) from exc
+        except bridge.MotionBridgeError as exc:
+            raise StepError(str(exc)) from exc
+
     ctx = Ctx(describe=public, spans=spans, beats=beats, words=words, path_of=path_of, make_speech=make_speech, find_music=find_music, store=store,
-              look_stats=look_stats, rank_music=rank_music, make_matte=make_matte, content_box=content_box)
+              look_stats=look_stats, rank_music=rank_music, make_matte=make_matte, content_box=content_box, make_motion=make_motion)
     return ctx

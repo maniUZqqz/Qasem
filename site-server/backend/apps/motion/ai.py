@@ -10,7 +10,7 @@ import json
 import logging
 import re
 
-from . import assets, catalog, safety, specs
+from . import assets, catalog, components, motionlib, patch as patch_mod, promptkit, safety, specs
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ def get_provider(store, kind: str | None = None):
     fn = gateway.text_provider
     if getattr(settings, "IS_TEST", False) and getattr(fn, "__module__", "") == gateway.__name__:
         raise RuntimeError("زیرِ آزمون هوشِ مصنوعیِ واقعی صدا زده نمی‌شود.")
+    if kind == "vision":                                       # the owner's qwen3-vl on the node (Metis vision as the fallback)
+        return gateway.vision_provider(store)
     return fn(store, kind=kind) if kind else fn(store)        # kind="code": the owner's coder model (qwen3-coder) first, like the site builder
 
 
@@ -53,25 +55,6 @@ def explain(exc: Exception) -> str:
         return (text or exc.__class__.__name__)[:300]
 
 
-SYSTEM_SCRIPT = (
-    "You write short motion-graphics video scripts as strict JSON for a code-driven video engine. "
-    "Reply with ONE JSON object and nothing else (no markdown). Language of all on-screen text: {lang_name}. "
-    "Never invent facts, prices, statistics or testimonials: use only what the user gave you. "
-    "Schema: {{\"title\": str, \"scenes\": [scene, ...]}} with 2 to {max_scenes} scenes. A scene is one of: "
-    "{{\"type\":\"title\",\"duration\":3-5,\"kicker\":str?,\"title\":str,\"subtitle\":str?}}, "
-    "{{\"type\":\"list\",\"duration\":5-9,\"title\":str,\"items\":[2-5 short strs],\"numbered\":bool}}, "
-    "{{\"type\":\"quote\",\"duration\":4-6,\"text\":str,\"author\":str?}}, "
-    "{{\"type\":\"stat\",\"duration\":3-5,\"value\":\"number\",\"suffix\":str?,\"prefix\":str?,\"label\":str}}, "
-    "{{\"type\":\"compare\",\"duration\":5-7,\"title\":str?,\"before_label\":str,\"after_label\":str,\"before\":str,\"after\":str}}, "
-    "{{\"type\":\"product\",\"duration\":5-7,\"name\":str,\"price\":str?,\"features\":[<=4 strs],\"badge\":str?}}, "
-    "{{\"type\":\"app\",\"duration\":5-7,\"caption\":str,\"bullets\":[<=4 strs]}}, "
-    "{{\"type\":\"logo\",\"duration\":3,\"tagline\":str?}}, "
-    "{{\"type\":\"cta\",\"duration\":3-5,\"title\":str,\"button\":str,\"note\":str?}}. "
-    "Keep every text short (a title under 8 words). Start with a title or stat scene, end with a cta or logo scene. "
-    "Total length about {seconds} seconds."
-)
-
-
 def _json_from(text: str) -> dict:
     t = (text or "").strip()
     t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t, flags=re.I)
@@ -81,9 +64,59 @@ def _json_from(text: str) -> dict:
     return json.loads(m.group(0))
 
 
+def _call_json(prov, user: str, system: str, schema: dict, *, temperature: float, num_predict: int, images=None):
+    """مدل را با شمای JSON صدا می‌زند (Ollama: format=schema؛ متیس: json_mode) و JSON را برمی‌گرداند."""
+    kw = dict(system=system, temperature=temperature, num_predict=num_predict, timeout=CALL_TIMEOUT, json_schema=schema, json_mode=True)
+    if images:
+        kw["images"] = images
+    try:
+        raw = prov.generate(user, **kw)
+    except TypeError:                           # a provider that does not know structured output: the same call without the schema (the prompt still carries it)
+        raw = prov.generate(user, **{k: v for k, v in kw.items() if k not in ("json_schema", "json_mode")})
+    return _json_from(raw if isinstance(raw, str) else str(raw or ""))
+
+
+def salvage_scenes(scenes: list, base: dict) -> tuple:
+    """هر صحنه جداگانه اعتبارسنجی می‌شود؛ صحنهٔ خراب دور ریخته می‌شود نه کلِ طرح. ⇒ (spec معتبر, یادداشت‌ها)."""
+    good, notes = [], []
+    for i, sc in enumerate(scenes[: specs.MAX_SCENES]):
+        if not isinstance(sc, dict) or sc.get("type") not in components.COMPONENTS:     # an invented component name = a model that is not following the catalogue: refuse the whole answer
+            raise specs.SpecError(f"نوعِ صحنهٔ «{sc.get('type') if isinstance(sc, dict) else sc}» در کتابخانه نیست.")
+        try:
+            specs.normalize_scene(sc, i)
+            good.append(sc)
+        except specs.SpecError as exc:
+            notes.append(f"صحنهٔ {i + 1} کنار گذاشته شد: {exc}")
+    if not good:
+        raise specs.SpecError("هیچ‌کدام از صحنه‌های پیشنهادی معتبر نبود.")
+    return specs.normalize_spec({**base, "scenes": good}), notes
+
+
+def polish(spec: dict) -> dict:
+    """«صیقلِ کارگردان» روی هر طرحی (هوش مصنوعی یا قاعده‌ای): پلتفرم، حرکتِ دوربین، تأکیدِ عددها؛ فقط چیزهایی که کاربر نگذاشته."""
+    out = dict(spec)
+    if not out.get("platform") and out.get("aspect") in motionlib.DEFAULT_PLATFORM:
+        out["platform"] = motionlib.DEFAULT_PLATFORM[out["aspect"]]
+    scenes = []
+    for i, sc in enumerate(spec["scenes"]):
+        sc = dict(sc)
+        if "camera" not in sc and sc["type"] in ("title", "kinetic_title", "quote", "stat", "image_hero", "logo", "counter") and i % 2 == 0:
+            sc["camera"] = {"move": "push-in", "amount": 0.35}
+        elif "camera" not in sc and sc["type"] in ("product", "app", "price_card") and i % 2 == 1:
+            sc["camera"] = {"move": "drift", "amount": 0.4}
+        if "emphasis" not in sc and sc["type"] in ("title", "kinetic_title", "cta", "quote"):
+            text = str(sc.get("title") or sc.get("text") or "")
+            nums = re.findall(r"[\d۰-۹][\d۰-۹.,٬]*", text)
+            if nums:
+                sc["emphasis"] = nums[:2]
+        scenes.append(sc)
+    out["scenes"] = scenes
+    return specs.normalize_spec(out)
+
+
 def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang: str = "fa", seconds: int = 24,
-                     provider=None, brand: dict | None = None) -> dict:
-    """⇒ {"spec", "source": "ai"|"rules", "message", "title"}."""
+                     provider=None, brand: dict | None = None, platform: str = "", about: str = "") -> dict:
+    """⇒ {"spec", "source": "ai"|"rules", "message", "title", "components", "prompt_chars"}."""
     idea = (idea or "").strip()
     if len(idea) < 3:
         raise specs.SpecError("ایده را بنویسید (حداقل چند کلمه).")
@@ -91,7 +124,8 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
     st = catalog.get(style)
     if not st:
         raise specs.SpecError("سبک را انتخاب کنید.")
-    base = {"style": style, "aspect": aspect, "lang": lang, "fps": 30, "brand": brand or {}}
+    base = {"style": style, "aspect": aspect, "lang": lang, "fps": 30, "brand": brand or {}, "platform": platform}
+    kit = None
     try:
         prov = provider if provider is not None else get_provider(store)
         avail = getattr(prov, "availability", None)
@@ -99,22 +133,49 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
             ok, why = avail()
             if not ok:
                 raise AIUnavailable(why or MSG_UNAVAILABLE)
-        sys_prompt = SYSTEM_SCRIPT.format(lang_name="Persian (Farsi)" if lang == "fa" else "English", max_scenes=8, seconds=seconds)
-        ctx = f"Brand: {store.name}. " + (f"About: {store.description[:300]}. " if getattr(store, "description", "") else "")
-        user = f"{ctx}\nVisual style: {st['name_en']} ({st['about']}).\nIdea (Persian):\n{idea}"
-        raw = prov.generate(user, system=sys_prompt, temperature=0.5, num_predict=1800, timeout=CALL_TIMEOUT)
-        data = _json_from(raw if isinstance(raw, str) else str(raw or ""))
+        kit = promptkit.build_prompt(idea, style=style, aspect=aspect, lang=lang, seconds=seconds, brand_name=getattr(store, "name", ""),
+                                     about=about or (getattr(store, "description", "") or ""), platform=platform)
+        data = _call_json(prov, kit["user"], kit["system"], kit["schema"], temperature=0.4, num_predict=2400)
         scenes = data.get("scenes") if isinstance(data, dict) else None
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("پاسخِ هوش مصنوعی صحنه نداشت.")
-        spec = specs.normalize_spec({**base, "scenes": scenes[: specs.MAX_SCENES]})
-        return {"spec": spec, "source": "ai", "message": "", "title": str(data.get("title") or "")[:120]}
+        spec, notes = salvage_scenes(scenes, base)
+        return {"spec": polish(spec), "source": "ai", "message": "؛ ".join(notes), "title": str(data.get("title") or "")[:120],
+                "components": kit["ids"], "prompt_chars": kit["chars"]}
     except Exception as exc:  # noqa: BLE001 — هر شکستِ مسیر ⇒ پیش‌نویسِ ساده
         logger.info("motion ai: falling back to rules (%s)", exc)
         msg = f"{MSG_UNAVAILABLE}: {explain(exc)}" if not isinstance(exc, (ValueError, specs.SpecError)) else "پاسخِ هوش مصنوعی قابل‌استفاده نبود"
-        spec = specs.normalize_spec({**base, "scenes": rules_scenes(idea, lang)})
-        return {"spec": spec, "source": "rules", "title": "",
+        spec = polish(specs.normalize_spec({**base, "scenes": rules_scenes(idea, lang)}))
+        return {"spec": spec, "source": "rules", "title": "", "components": (kit or {}).get("ids", []), "prompt_chars": (kit or {}).get("chars", 0),
                 "message": msg + ". یک پیش‌نویسِ ساده از روی متنِ خودتان ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید."}
+
+
+def patch_from_chat(store, plan: dict, text: str, *, provider=None) -> dict:
+    """«تیتر بزرگ‌تر شود» ⇒ {"ops", "say", "source": "ai"|"rules", "message"}. مدل فقط patch می‌نویسد؛ هر patch پیش از برگشت روی طرح آزموده می‌شود.
+    مدل در دسترس نباشد یا patch معتبر نبود ⇒ قاعده‌های فارسیِ patch.rules_patch."""
+    text = (text or "").strip()
+    if len(text) < 2:
+        raise specs.SpecError("بنویسید چه چیزی عوض شود.")
+    note = ""
+    try:
+        prov = provider if provider is not None else get_provider(store)
+        avail = getattr(prov, "availability", None)
+        if callable(avail):
+            ok, why = avail()
+            if not ok:
+                raise AIUnavailable(why or MSG_UNAVAILABLE)
+        kit = promptkit.build_patch_prompt(plan, text)
+        data = _call_json(prov, kit["user"], kit["system"], kit["schema"], temperature=0.2, num_predict=900)
+        ops = data.get("ops") if isinstance(data, dict) else None
+        if not isinstance(ops, list) or not ops:
+            raise ValueError("مدل تغییری پیشنهاد نداد.")
+        patch_mod.apply_patch(plan, ops)                         # آزمایشی: نامعتبر ⇒ PatchError ⇒ قاعده‌ها
+        return {"ops": ops[: patch_mod.MAX_OPS], "say": str(data.get("say") or "انجام شد.")[:240], "source": "ai", "message": ""}
+    except Exception as exc:  # noqa: BLE001
+        note = f"{MSG_UNAVAILABLE}: {explain(exc)}" if not isinstance(exc, (ValueError, patch_mod.PatchError)) else "پیشنهادِ مدل قابل‌اعمال نبود"
+    res = patch_mod.rules_patch(text, plan)
+    res.update(source="rules", message=note + ("؛ با قاعده‌های ساده انجام شد." if res["ops"] else "."))
+    return res
 
 
 #: «سه مزیت: الف، ب و ج» / «چهار قدم تا اولین برنامه: …» / "three benefits: …" ⇒ عنوانِ فهرست + بدنه

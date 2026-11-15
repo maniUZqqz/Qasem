@@ -1,49 +1,13 @@
 import React from "react";
 import type { CSSProperties } from "react";
 import { Img, interpolate, Easing } from "remotion";
-import { enterCss, enterProgress } from "./anim";
 import { useAsset, useCtx, useQF } from "./ctx";
+import { Badge, Pop, Rule, Stage, area } from "./kit";
 import { Card, T, TONE } from "./text";
 import type { Scene } from "./types";
 import { clamp, col, fitSize, fmtNumber, hasArabic, onColor, rgba, shade, toEnDigits, toFaDigits } from "./util";
 
 type SC = React.FC<{ sc: Scene }>;
-
-const Stage: React.FC<{ children?: React.ReactNode; gap?: number; row?: boolean; justify?: CSSProperties["justifyContent"] }> = ({ children, gap = 36, row, justify = "center" }) => {
-  const { W, H, u, wide, rtl } = useCtx();
-  return (
-    <div style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, display: "flex", flexDirection: row ? (rtl ? "row-reverse" : "row") : "column", justifyContent: justify, alignItems: "center", padding: wide ? `${H * 0.08}px ${W * 0.09}px` : `${H * 0.07}px ${W * 0.085}px`, gap: gap * u, boxSizing: "border-box" }}>
-      {children}
-    </div>
-  );
-};
-
-/** a small element that enters with the style's motion (bars, badges, rings) */
-const Pop: React.FC<{ delay?: number; children?: React.ReactNode; style?: CSSProperties; i?: number; kind?: string }> = ({ delay = 0, children, style, i = 0, kind }) => {
-  const ctx = useCtx();
-  const qf = useQF();
-  const p = enterProgress(ctx, qf, delay);
-  return <div style={{ ...enterCss(kind ?? ctx.style.motion.enter, p, { u: ctx.u, rtl: ctx.rtl, i, qf, fps: ctx.fps }), ...style }}>{children}</div>;
-};
-
-const Rule: React.FC<{ delay?: number; w?: number }> = ({ delay = 8, w = 260 }) => {
-  const { pal, u, style } = useCtx();
-  return (
-    <Pop delay={delay} kind="wipe">
-      <div style={{ width: w * u, height: 14 * u, background: col(pal, style.shape.rule ?? "accent"), borderRadius: Math.min(7, style.shape.radius ?? 0) * u, boxShadow: style.shape.shadow === "hard" ? `${5 * u}px ${5 * u}px 0 ${col(pal, style.shape.bc ?? "ink")}` : undefined }} />
-    </Pop>
-  );
-};
-
-const Badge: React.FC<{ n: string; size?: number }> = ({ n, size = 76 }) => {
-  const { pal, u, style } = useCtx();
-  const bg = col(pal, style.shape.badge ?? "accent");
-  return (
-    <div style={{ width: size * u, height: size * u, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: style.shape.badgeRound === false ? (style.shape.radius ?? 0) * u : "50%", background: bg, border: style.shape.border ? `${Math.max(3, (style.shape.border ?? 0) * 0.7) * u}px solid ${col(pal, style.shape.bc ?? "ink")}` : undefined, boxShadow: style.shape.shadow === "hard" ? `${4 * u}px ${4 * u}px 0 ${col(pal, style.shape.bc ?? "ink")}` : undefined }}>
-      <T noAnim size={size * 0.55} color={onColor(bg)} fx="plain" style={{ lineHeight: 1 }}>{n}</T>
-    </div>
-  );
-};
 
 // ───────────────────────────────────────────── scene templates
 
@@ -263,7 +227,9 @@ const App: SC = ({ sc }) => {
   const { W, H, u, wide, style, rtl, spec } = ctx;
   const shot = useAsset(sc.screenshot);
   const bullets: string[] = (sc.bullets || []).map(String).slice(0, 4);
-  const phoneH = wide ? H * 0.8 : H * 0.5;
+  const a = area(ctx);
+  const reserve = (bullets.length * 98 + (sc.caption ? 200 : 0) + 70) * u;           // caption + bullet cards under the phone
+  const phoneH = wide ? Math.min(H * 0.8, a.h) : Math.max(H * 0.26, Math.min(H * 0.5, a.h - reserve));
   return (
     <Stage gap={34} row={wide}>
       <Pop delay={0} kind="rise"><Phone src={shot} h={phoneH} label={spec.brand?.name} /></Pop>

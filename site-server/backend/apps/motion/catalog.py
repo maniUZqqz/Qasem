@@ -38,7 +38,7 @@ ENTER_KINDS = (
 )
 TRANS_KINDS = (
     "cut", "fade", "dip", "slide", "push", "cover", "wipe", "wipe-diag", "zoom", "iris", "curtain", "flip", "spin", "whip",
-    "glitch", "roll", "blocks", "flash",
+    "glitch", "roll", "blocks", "flash", "ink",
 )
 SCENE_TYPES = ("title", "list", "quote", "stat", "compare", "product", "logo", "app", "cta")
 

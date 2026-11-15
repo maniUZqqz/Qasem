@@ -277,10 +277,22 @@ export default function VideoWorkspace({ storeId, tools, startRef, onStartConsum
   }, [storeId]);
 
   // «ویرایشِ دستی» از کارتِ یک ویدیو
+  const startRetried = useRef(false);
   useEffect(() => {
     if (!ready || !startRef || !bin) return;
     const item = media[startRef];
-    if (!item) return;
+    if (!item) {
+      // ?start=video:<id> (از «استودیوی موشن»): ویدیو تازه ساخته شده و سطلِ رسانه ممکن است قدیمی باشد ⇒ یک بار دوباره بخوان؛ باز هم نبود ⇒ بگو و رها کن
+      if (!startRetried.current) {
+        startRetried.current = true;
+        void loadBin();
+      } else {
+        setNotice("این ویدیو هنوز در سطلِ رسانه پیدا نشد؛ چند لحظه بعد دوباره از «استودیوی موشن» باز کنید.");
+        onStartConsumed?.();
+      }
+      return;
+    }
+    startRetried.current = false;
     const base = emptyProject();
     const vt = base.tracks.find((t) => t.kind === "video")!;
     let p = addMedia(base, vt.id, item, 0);

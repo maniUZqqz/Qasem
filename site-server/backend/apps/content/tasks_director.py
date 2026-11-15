@@ -49,7 +49,7 @@ def slim_critique(report: dict) -> dict:
 
 #: steps that need the processing server (speech recognition, text-to-speech). When it is only OFF the Director still builds every variant at once and
 #: these steps are filled in later (`director_fill_task`), instead of the whole job failing or the owner getting variants without captions for good.
-NODE_STEPS = ("add_captions", "remove_fillers", "remove_retakes", "background", "add_voiceover")
+NODE_STEPS = ("add_captions", "remove_fillers", "remove_retakes", "background", "add_voiceover", "motion")
 STEP_KEYS = ("id", "tool", "params", "on", "why")
 
 

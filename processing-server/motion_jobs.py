@@ -33,6 +33,7 @@ Python 3.8+ standard library only. Console text is English; text that goes to th
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,7 +42,7 @@ import threading
 import time
 import zipfile
 
-VERSION = "1.0"
+VERSION = "1.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 IS_WIN = sys.platform.startswith("win")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0
@@ -674,12 +675,14 @@ def caps(agent=None):
     keep = {k: st.get(k, "") for k in ("state", "step", "progress", "message", "error", "pack_version", "gl", "color_space", "tested_at", "gpu")}
     keep["browser"] = os.path.basename(st.get("browser") or "")
     keep["agent_module"] = VERSION
+    keep["features"] = ["audio_mux", "qa_still"]            # the site reads these: a node with "audio_mux" lays the finished mix under the picture itself
     return {"motion_render": True, "motion": keep}
 
 
 # ───────────────────────────────────────────── the job
 
-ALLOWED_KEYS = {"composition", "props", "user_js", "scale", "crf", "max_seconds", "still", "title", "style", "mode", "render_id", "selftest", "pack"}
+ALLOWED_KEYS = {"composition", "props", "user_js", "scale", "crf", "max_seconds", "still", "title", "style", "mode", "render_id", "selftest", "pack", "audio"}
+AUDIO_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,60}\.(m4a|aac|mp3|wav)$")
 
 
 def validate_payload(p):
@@ -710,6 +713,12 @@ def validate_payload(p):
     out = {"composition": comp, "props": props, "scale": scale, "crf": crf, "max_seconds": min(MAX_SECONDS, max(1.0, max_s))}
     if p.get("still") is not None:
         out["still"] = max(0, int(p["still"]))
+    au = p.get("audio")
+    if au is not None:                       # the finished mix (voice + music + effects, -14 LUFS) the SITE built: the node only lays it under the picture
+        name = au.get("file") if isinstance(au, dict) else None
+        if not isinstance(name, str) or not AUDIO_NAME.match(name):
+            raise MotionError("فایلِ صدا در درخواستِ رندر معتبر نیست", retryable=False)
+        out["audio"] = {"file": name}
     if comp == "User":
         js = p.get("user_js")
         if not isinstance(js, str) or "__NM_USER_FACTORY" not in js:
@@ -718,6 +727,48 @@ def validate_payload(p):
             raise MotionError("کدِ کاربر خیلی بزرگ است", retryable=False)
         out["user_js"] = js
     return out
+
+
+def find_ffmpeg(p=None):
+    """ffmpeg for muxing: the one that ships inside Remotion's compositor (in the pack) - no extra install - else any ffmpeg on PATH."""
+    p = p or paths()
+    base = os.path.join(p["pack_dir"], "node_modules", "@remotion")
+    try:
+        for d in sorted(os.listdir(base)):
+            if d.startswith("compositor-"):
+                for n in ("ffmpeg.exe", "ffmpeg"):
+                    f = os.path.join(base, d, n)
+                    if os.path.isfile(f):
+                        return f
+    except OSError:
+        pass
+    return shutil.which("ffmpeg")
+
+
+def mux_audio(p, video, audio):
+    """video (silent H.264) + audio file -> the same file WITH sound (video stream copied). Returns (ok, note)."""
+    ff = HOOKS.get("ffmpeg") or find_ffmpeg(p)
+    if not ff:
+        return False, "no ffmpeg on this node"
+    tmp = video + ".av.mp4"
+    cmd = [ff, "-y", "-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "copy" if audio.lower().endswith((".m4a", ".aac")) else "aac",
+           "-b:a", "192k", "-shortest", "-movflags", "+faststart", tmp]
+    try:
+        run = HOOKS.get("mux_run") or (lambda c: subprocess.run(c, capture_output=True, timeout=300, creationflags=NO_WINDOW))
+        r = run(cmd)
+        if getattr(r, "returncode", 1) != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1000:
+            tail = (getattr(r, "stderr", b"") or b"")[-200:]
+            return False, "ffmpeg failed: %s" % (tail.decode("utf-8", "replace") if isinstance(tail, bytes) else tail)
+        os.replace(tmp, video)
+        return True, "muxed"
+    except Exception as e:  # noqa: BLE001 - the silent video is still a result; the site lays the sound under it
+        return False, "mux error: %s" % e
+    finally:
+        if os.path.isfile(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def _cpu_count():
@@ -807,8 +858,19 @@ def _run_job(job, agent, payload, fail):
             raise fail(MotionError("لغو شد", retryable=False))
         if not done or not os.path.isfile(out_path):
             raise fail(MotionError("رندر ناموفق بود: %s" % (err or "خروجی ساخته نشد")[:300]))
+        audio_note = ""
+        au = payload.get("audio") or ({"file": "mix.m4a"} if os.path.isfile(os.path.join(job.inputs, "mix.m4a")) else None)     # the site's finished mix, by the conventional name
+        if au and payload.get("still") is None:
+            src = os.path.join(job.inputs, au["file"])
+            if os.path.isfile(src):
+                job.progress(0.98, "گذاشتنِ صدا زیرِ تصویر")
+                ok, audio_note = mux_audio(p, out_path, src)
+                if not ok:
+                    warn("audio mux skipped: %s" % audio_note)
+            else:
+                audio_note = "audio file missing from the job inputs"
         on_gpu = gl_used == "angle"
-        meta = {"primary": out_name, "seconds": round(time.time() - t0, 1), "gl": gl_used, "width": done.get("width"), "height": done.get("height"),
+        meta = {"primary": out_name, "audio": audio_note, "seconds": round(time.time() - t0, 1), "gl": gl_used, "width": done.get("width"), "height": done.get("height"),
                 "fps": done.get("fps"), "frames": done.get("frames"), "bytes": done.get("bytes"), "pack": st.get("pack_version"), "engine": "remotion",
                 # the node self-test reads these: "gpu" = Chromium rasterised on the video card (ANGLE/D3D11); the H.264 encode is CPU either way
                 "device": "gpu" if on_gpu else "cpu",

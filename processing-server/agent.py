@@ -99,6 +99,8 @@ size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a j
 Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
 (BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
 onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
+Agent add-on (2.26) - Motion studio v2 (motion_jobs.py): `motion.render` also takes payload.audio = {file} (the voice/music mix the site built, -14 LUFS) and muxes it under the video with the ffmpeg
+inside the Remotion pack; the heartbeat lists caps.motion.features = [audio_mux ...] (older agents are treated as 'cannot' and the site muxes the audio itself). No new job kinds.
 Agent add-on (2.25) - InstAI as a neighbour (instai_jobs.py): the owner's InstAI folder on this PC is found, an old one (a Download-ZIP whose START.bat cannot update itself,
 or a GitHub main that is newer) is updated with InstAI's own updater while InstAI is NOT running, started once when the node starts, and its own self-test report
 rides on the heartbeat (caps.instai); the site's self-test entry «instai» judges it. NM_INSTAI_SYNC=0 reports only, NM_INSTAI_START=0 never starts it. No job kinds.
@@ -142,7 +144,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.25"
+VERSION = "2.26"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:

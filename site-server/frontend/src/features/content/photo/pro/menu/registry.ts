@@ -215,6 +215,13 @@ export const TOOL_META: Record<string, { en: string; syn: string[] }> = {
 };
 
 // ───────────────────────── ساختنِ فهرست
+/**
+ * «خروجی با قالبِ دیگر/حالتِ رنگ» از همان خط‌لوله‌ی پیش‌نمایش می‌گذرد و ضلعِ بلندِ فایل از ۱۲۸۰ پیکسل بیشتر نمی‌شود (بازبینیِ ۱۴ آبان).
+ * همین جمله در یادداشت‌های پاسخِ سرور هم هست (backend photoedit/services.py: EXPORT_CAP_NOTE) — با هم عوض شوند.
+ */
+export const EXPORT_CAP_TIP = "حداکثر ۱۲۸۰ پیکسل — برای چاپ از «ساخت و ذخیره» استفاده کنید";
+export const withCap = (tip: string): string => `${tip}؛ ${EXPORT_CAP_TIP}`;
+
 export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command[] {
   const C: Command[] = [];
   const add = (c: Command) => C.push(c);
@@ -227,14 +234,14 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
   add({ id: "file.addWatermark", menu: "file", group: "افزودن به صفحه", title: "افزودنِ مهر / واترمارک", en: "Add watermark", syn: ["واترمارک", "مهر", "watermark", "stamp"], tip: "نامِ فروشگاه را کم‌رنگ و تکرارشونده روی عکس می‌گذارد", run: (h) => h.addWatermark() });
   for (const [k, fa, en, syn, tip] of [
     ["psd", "ذخیره به‌صورتِ فایلِ لایه‌دار (PSD)", "Save layered file (PSD)", ["لایه دار", "فایل لایه ای", "psd", "layered", "export layers"], "هر لایه (عکس، تصویر، نقاشی، متن، شکل) جدا در یک فایلِ PSD می‌آید تا در نرم‌افزارهای دیگر ویرایش شود؛ لایه‌های تنظیم فقط در تصویرِ ترکیبیِ فایل اثر دارند"],
-    ["tiff", "خروجی TIFF", "Export TIFF", ["تیف", "tif", "tiff", "چاپ", "کیفیت بالا", "lossless"], "فایلِ بی‌افت (با شفافیت) برای چاپ و بایگانی"],
+    ["tiff", "خروجی TIFF", "Export TIFF", ["تیف", "tif", "tiff", "چاپ", "کیفیت بالا", "lossless"], "فایلِ بی‌افت (با شفافیت) برای بایگانی و کارِ بعدی"],
     ["pdf", "خروجی PDF", "Export PDF", ["پی دی اف", "pdf", "سند", "کاتالوگ"], "عکسِ نهایی در یک صفحهٔ PDF (برای ارسال یا چاپ)"],
     ["gif", "خروجی GIF", "Export GIF", ["جیف", "gif", "۲۵۶ رنگ"], "تصویرِ ثابتِ GIF با ۲۵۶ رنگ"],
     ["bmp", "خروجی BMP", "Export BMP", ["بی ام پی", "bmp", "bitmap"], "فایلِ ساده و بی‌فشرده"],
   ] as const) {
-    add({ id: `file.export.${k}`, menu: "file", group: "خروجی با قالبِ دیگر", title: fa, en, syn: [...syn], tip, run: (h) => h.exportAs(k) });
+    add({ id: `file.export.${k}`, menu: "file", group: "خروجی با قالبِ دیگر", title: fa, en, syn: [...syn], tip: withCap(tip), run: (h) => h.exportAs(k) });
   }
-  add({ id: "file.export.svg", menu: "file", group: "خروجی با قالبِ دیگر", title: "خروجی SVG (فقط شکل‌ها)", en: "Export SVG (shapes)", syn: ["اس وی جی", "svg", "برداری", "وکتور", "vector", "لوگو برداری"], tip: "لایه‌های شکل (مستطیل، بیضی، خط، مسیر و شکل‌های آماده) به‌صورتِ فایلِ برداری؛ عکس و متن در SVG نمی‌آید", run: (h) => h.exportAs("svg") });
+  add({ id: "file.export.svg", menu: "file", group: "خروجی با قالبِ دیگر", title: "خروجی SVG (فقط شکل‌ها)", en: "Export SVG (shapes)", syn: ["اس وی جی", "svg", "برداری", "وکتور", "vector", "لوگو برداری"], tip: withCap("لایه‌های شکل (مستطیل، بیضی، خط، مسیر و شکل‌های آماده) به‌صورتِ فایلِ برداری؛ عکس و متن در SVG نمی‌آید"), run: (h) => h.exportAs("svg") });
   for (const [k, fmt, mode, fa, en, syn, tip] of [
     ["gray", "png", "gray", "خروجیِ سیاه‌وسفید (۸ بیت)", "Export grayscale", ["خاکستری", "سیاه و سفید", "grayscale", "gray", "تک کانال"], "تصویر با یک کانالِ روشنایی (PNG)؛ کم‌حجم‌تر و مناسبِ چاپِ سیاه‌وسفید"],
     ["cmyk", "tiff", "cmyk", "خروجیِ CMYK (TIFF، تبدیلِ ساده)", "Export CMYK", ["سی ام وای کی", "cmyk", "چاپخانه", "چاپ", "جوهر"], "چهار کانالِ جوهر برای چاپخانه؛ تبدیلِ ساده است (بی پروفایلِ ماشین) — اگر دقتِ رنگ مهم است همان RGB را به چاپخانه بدهید"],
@@ -242,7 +249,7 @@ export function buildCommands(tools: ToolMeta[], extra: Command[] = []): Command
     ["rgb16", "tiff", "rgb16", "خروجیِ ۱۶ بیت (TIFF)", "Export 16-bit TIFF", ["۱۶ بیت", "16 bit", "16-bit", "عمق رنگ", "tiff16", "هایبیت"], "فایلِ ۱۶ بیت در هر کانال برای نرم‌افزارهایی که می‌خواهند؛ ترکیبِ ما ۸ بیتی است و دقتِ بیشتری ساخته نمی‌شود"],
     ["lab", "tiff", "lab", "خروجیِ Lab (TIFF)", "Export Lab TIFF", ["لب", "lab", "cielab", "l*a*b"], "فضای رنگیِ CIE L*a*b* برای کارهای رنگ‌سنجی و چاپ"],
   ] as const) {
-    add({ id: `file.export.${k}`, menu: "file", group: "خروجی با حالتِ رنگ", title: fa, en, syn: [...syn], tip, run: (h) => h.exportAs(fmt, mode) });
+    add({ id: `file.export.${k}`, menu: "file", group: "خروجی با حالتِ رنگ", title: fa, en, syn: [...syn], tip: withCap(tip), run: (h) => h.exportAs(fmt, mode) });
   }
   add({ id: "file.exportInstagram", menu: "file", group: "اندازه‌های آمادهٔ خروجی", title: "اندازهٔ اینستاگرام", en: "Instagram size", syn: ["اینستا", "پست", "instagram", "square", "post"], tip: "قاب و قالبِ فایل برای پستِ اینستاگرام تنظیم می‌شود", run: (h) => h.exportPreset("insta") });
   add({ id: "file.exportStory", menu: "file", group: "اندازه‌های آمادهٔ خروجی", title: "اندازهٔ استوری", en: "Story size", syn: ["استوری", "ریلز", "story", "reels", "9:16"], tip: "قابِ عمودیِ ۹:۱۶", run: (h) => h.exportPreset("story") });

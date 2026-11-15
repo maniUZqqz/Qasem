@@ -127,6 +127,52 @@ def _small_gray(img: Image.Image, side=800) -> tuple[np.ndarray, np.ndarray, np.
     return a, g, (np.asarray(alpha, dtype=np.float32) / 255 if alpha is not None else None)
 
 
+#: اگر در ۸ پله‌ی هر کانال (بعد از بازکردنِ دامنهٔ روشنایی)، بیش از این سهمِ پیکسل‌ها در سه رنگِ پرتکرار باشد و رنگ‌ها کم باشند،
+#: تصویر «طرحِ گرافیکی» است
+GRAPHIC_TOP3 = 0.60
+GRAPHIC_MAX_MAJOR_COLORS = 10     # رنگ‌های با سهمِ بیش از ۱٪
+GRAPHIC_MAX_UNIQUE = 6000         # رنگ‌های یکتا در نسخهٔ ۲۵۶ پیکسلی؛ عکس‌ها معمولاً چندین برابرِ این دارند
+GRAPHIC_MAX_NOISE = 0.9           # طرحِ رندرشده نویزِ حسگر ندارد (اسلایدها ۰٫۳ تا ۰٫۶؛ عکسِ واقعی ۱٫۳ تا ۲٫۲)
+GRAPHIC_MIN_RANGE = 64.0          # دامنهٔ روشنایی را بیش از ×۴ باز نمی‌کنیم (زمینهٔ تقریباً تک‌رنگ را بزرگ‌نمایی نکنیم)
+
+
+def graphic_like(img: Image.Image, noise: float | None = None) -> bool:
+    """طرحِ ساخته‌شده است، نه عکس؟ (اسلایدِ طراحی با زمینهٔ تخت و متنِ درشت، زمینهٔ تک‌رنگ، لوگو، بنر)
+
+    معیار: بیش از ۶۰٪ پیکسل‌ها در سه رنگِ پرتکرار (۸ پله در هر کانال، بعد از بازکردنِ دامنهٔ روشنایی تا عکسِ تیره طرح حساب نشود)،
+    رنگ‌های اصلی کم، تعدادِ رنگ‌های یکتا کم و نویزِ حسگر نزدیکِ صفر.
+    روی تصویرهای واقعیِ فروشگاه سنجیده شد: اسلایدها و زمینه‌های تک‌رنگ ۰٫۹ تا ۱ و عکس‌ها زیرِ ۰٫۵ بودند.
+    پیکسل‌های شفاف حساب نمی‌شوند (برشِ کالا روی زمینهٔ شفاف عکس به حساب می‌آید). ``noise`` (اندازهٔ نویز از measure)
+    اگر داده شود و بالا باشد، عکسِ نویزدار (مثلاً کالا روی زمینهٔ سفیدِ استودیو) هیچ‌وقت «طرح» حساب نمی‌شود.
+    """
+    if noise is not None and noise > GRAPHIC_MAX_NOISE:
+        return False
+    t = thumbnail(img, 256)
+    rgb, alpha = _rgb(t)
+    a = np.asarray(rgb, dtype=np.float32)
+    if alpha is not None:
+        keep = np.asarray(alpha) > 127
+        if int(keep.sum()) < 64:
+            return False
+        flat = a[keep]
+    else:
+        flat = a.reshape(-1, 3)
+    # دامنهٔ روشنایی را باز می‌کنیم تا عکسِ تیره/کم‌کنتراست (که همهٔ پیکسل‌هایش در چند پله می‌افتد) «کم‌رنگ» به نظر نیاید؛
+    # فقط طرحِ واقعاً تخت بعد از بازکردنِ دامنه هم در چند رنگ می‌ماند.
+    lum = flat @ np.array([0.299, 0.587, 0.114], np.float32)
+    lo, hi = (float(x) for x in np.percentile(lum, [1, 99]))
+    stretched = np.clip((flat - lo) * (255.0 / max(hi - lo, GRAPHIC_MIN_RANGE)), 0, 255).astype(np.int32)
+    q = stretched >> 5
+    key = (q[:, 0] * 8 + q[:, 1]) * 8 + q[:, 2]
+    share = np.bincount(key, minlength=512).astype(np.float64) / max(1, len(key))
+    top3 = float(np.sort(share)[::-1][:3].sum())
+    if top3 < GRAPHIC_TOP3 or int((share >= 0.01).sum()) > GRAPHIC_MAX_MAJOR_COLORS:
+        return False
+    raw = flat.astype(np.int64)
+    unique = len(np.unique(raw[:, 0] * 65536 + raw[:, 1] * 256 + raw[:, 2]))
+    return unique <= GRAPHIC_MAX_UNIQUE
+
+
 def measure(img: Image.Image) -> dict:
     """اندازه‌هایی که پنل نشان می‌دهد و پیشنهاد از رویشان ساخته می‌شود (۰ تا ۲۵۵ مگر خلافش گفته شود)."""
     a, g, alpha = _small_gray(img)
@@ -163,14 +209,25 @@ def measure(img: Image.Image) -> dict:
         "cast_rb": round(cast_rb, 1), "cast_g": round(cast_g, 1),
         "sharpness": round(sharp, 1), "noise": round(noise, 2),
         "border_mean": round(float(border.mean()), 1), "border_std": round(float(border.std()), 1),
+        "graphic": graphic_like(img, noise),
     }
 
 
+#: هشدارهای «کیفیتِ عکس» که برای طرحِ گرافیکی معنی ندارند (زمینهٔ تیره/تخت و متنِ روشن در طرح عیب نیست)
+PHOTO_ONLY_FINDINGS = ("dark", "bright", "clipped", "flat", "cast", "blurry", "noisy", "plain_bg")
+
+
 def findings(f: dict) -> list[dict]:
-    """اندازه‌ها ⇐ جمله‌هایی که صاحبِ فروشگاه می‌فهمد (و پیشنهادِ خودکار از رویشان ساخته می‌شود)."""
+    """اندازه‌ها ⇐ جمله‌هایی که صاحبِ فروشگاه می‌فهمد (و پیشنهادِ خودکار از رویشان ساخته می‌شود).
+
+    طرحِ گرافیکی (f["graphic"]) عکس نیست: فقط هشدارِ اندازه می‌گیرد، نه تیرگی/کم‌کنتراستی/رنگ‌زدگی.
+    """
     out = []
+    graphic = bool(f.get("graphic"))
 
     def add(what, note, value):
+        if graphic and what in PHOTO_ONLY_FINDINGS:
+            return
         out.append({"what": what, "note": note, "value": value})
 
     long_edge = max(f["width"], f["height"])

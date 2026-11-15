@@ -12,13 +12,25 @@ export default function Workspace({
   actions,
   children,
   testId,
+  autoFull,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   testId?: string;
+  /** شمارنده؛ با هر بار بالا رفتن، روی گوشی (عرضِ ≤ ۷۰۰) تمام‌صفحه باز می‌شود. دکمهٔ «خروج از تمام‌صفحه» همیشه در نوارِ عنوان است. */
+  autoFull?: number;
 }) {
   const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    if (!autoFull) return;
+    try {
+      if (window.matchMedia("(max-width: 700px)").matches) setFull(true);
+    } catch {
+      /* matchMedia نیست؛ همان حالتِ معمولی */
+    }
+  }, [autoFull]);
 
   useEffect(() => {
     if (!full) return;

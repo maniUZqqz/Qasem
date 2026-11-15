@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../../api/client";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Spinner, fa } from "../../../components/ui";
 import ImagePicker from "./ImagePicker";
 import IdeasPanel from "./IdeasPanel";
+import { HISTORY_PHONE_LIMIT, splitWarnings, visibleHistory } from "./historyUtil";
 import {
   BgJob, CutoutNodeModel, Idea, LibraryAsset, Overview, Preview, Spec, ThumbItem, aspectStyle, applyIdea, defaultSpec, thumbsApi,
 } from "./api";
@@ -26,6 +27,31 @@ const LOGO_POS = [
 
 function isCancel(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { code?: string }).code === "ERR_CANCELED";
+}
+
+/** عرضِ گوشی/تبلتِ کوچک (زیرِ ۹۰۰): تاریخچه کوتاه می‌شود */
+function useNarrow(maxWidth = 899): boolean {
+  const q = `(max-width: ${maxWidth}px)`;
+  const [narrow, setNarrow] = useState(() => {
+    try {
+      return window.matchMedia(q).matches;
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    let m: MediaQueryList;
+    try {
+      m = window.matchMedia(q);
+    } catch {
+      return;
+    }
+    const on = () => setNarrow(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, [q]);
+  return narrow;
 }
 
 /** دانلود با توکنِ ورود (لینکِ ساده سرآیندِ Authorization ندارد). */
@@ -75,6 +101,8 @@ export default function ThumbnailMakerPage() {
   const [cutJob, setCutJob] = useState<{ uid: string; slot: "subject" | "subject2" } | null>(null);
   const previewTop = useRef<HTMLDivElement>(null);
   const outputTop = useRef<HTMLDivElement>(null);
+  const narrow = useNarrow();
+  const [historyAll, setHistoryAll] = useState(false);
 
   // ---------- بارگیری
   const load = useCallback(async () => {
@@ -324,7 +352,8 @@ export default function ThumbnailMakerPage() {
     }
   }
 
-  function card(it: ThumbItem, compact = false) {
+  /** own = هشدارهای ویژهٔ همین نسخه (هشدارِ مشترکِ فهرست یک بار بالای فهرست می‌آید) */
+  function card(it: ThumbItem, compact = false, own?: string[]) {
     return (
       <div key={it.id} className="th-card" data-testid="thumb-card">
         {it.urls.thumb ? <img src={it.urls.thumb} alt={it.title} loading="lazy" style={aspectStyle({ width: it.width || 16, height: it.height || 9 })} /> : <span className="dz-noimg" />}
@@ -337,7 +366,7 @@ export default function ThumbnailMakerPage() {
         </div>
         {it.variant_note && !compact && <div className="dz-muted">{it.variant_note}</div>}
         {it.message && <div className="dz-muted">{it.message}</div>}
-        {it.warnings.map((w) => <div key={w} className="dz-muted" style={{ color: "var(--warn)" }}>{w}</div>)}
+        {(own ?? it.warnings).map((w) => <div key={w} className="dz-muted" style={{ color: "var(--warn)" }}>{w}</div>)}
         {it.urls.png && (
           <div className="th-card-actions">
             <a className="u-btn u-btn-secondary u-btn-sm" href={it.urls.png} download={`thumbnail-${it.id}.png`}>PNG</a>
@@ -376,6 +405,20 @@ export default function ThumbnailMakerPage() {
 
   const isPortraitish = fmt.height > fmt.width;
   const brand = ov.brand;
+  const batchW = splitWarnings(batch);
+  const hist = visibleHistory(history, { phone: narrow, expanded: historyAll });
+  const histW = splitWarnings(hist.shown);
+  /** هشدارِ مشترکِ یک فهرست: یک بار، با شمارش */
+  const sharedWarnings = (list: { text: string; count: number }[], total: number) =>
+    list.length > 0 && (
+      <div className="th-shared-warn" data-testid="shared-warnings">
+        {list.map((w) => (
+          <div key={w.text} className="dz-muted" style={{ color: "var(--warn)" }}>
+            ⚠ {w.text} <span className="th-wrap">({w.count === total ? "روی همهٔ نسخه‌ها" : `روی ${fa(w.count)} نسخه`})</span>
+          </div>
+        ))}
+      </div>
+    );
 
   return (
     <>
@@ -652,7 +695,8 @@ export default function ThumbnailMakerPage() {
 
         {/* ───────────── پیش‌نمایش و خروجی */}
         <div className="th-preview-col">
-          <div className="th-sticky flex flex-col gap-3" ref={previewTop}>
+          <div className="th-sticky flex flex-col gap-3">
+            <div className="th-preview-card" ref={previewTop} data-testid="preview-card">
             <Card>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -687,12 +731,13 @@ export default function ThumbnailMakerPage() {
                 </div>
               )}
             </Card>
+            </div>
 
-            <Card>
+            <Card className="th-build-card">
               <h2 className="th-section-title"><i>۶</i> ساخت</h2>
               {notice && <div className="mb-2"><Alert tone="ok"><span className="text-sm">{notice}</span></Alert></div>}
               <ErrorBox message={error} />
-              <div className="mt-1 flex flex-wrap items-end gap-3">
+              <div className="mt-1 flex flex-wrap items-end gap-3 th-build-row">
                 {!editing && (
                   <label className="dz-field" style={{ minWidth: 150 }}>
                     <span>تعدادِ نسخه (A/B)</span>
@@ -703,16 +748,21 @@ export default function ThumbnailMakerPage() {
                     </Select>
                   </label>
                 )}
-                <Button onClick={() => void build()} disabled={busy || !hasText(spec)}>
+                <Button className="th-build-go" onClick={() => void build()} disabled={busy || !hasText(spec)}>
                   {busy ? "در حالِ ساخت…" : editing ? "به‌روزرسانیِ همین تامنیل" : variants > 1 ? `ساختِ ${fa(variants)} نسخه` : "ساخت"}
                 </Button>
+                <div className="th-build-sub">
                 {editing && <Button variant="ghost" onClick={() => { setEditing(null); setNotice(null); }}>ساختِ تامنیلِ تازه</Button>}
                 <Button variant="ghost" onClick={() => set({ colors: { ...spec.colors, variation: spec.colors.variation + 1 }, seed: spec.seed + 1 })}>
                   ظاهرِ دیگر
                 </Button>
+                <button type="button" className="dz-link th-jump-preview" onClick={() => previewTop.current?.scrollIntoView({ behavior: "smooth", block: "start" })} data-testid="jump-preview">
+                  دیدنِ پیش‌نمایش ↑
+                </button>
+                </div>
               </div>
               {!editing && variants > 1 && (
-                <p className="dz-muted mt-2">A همین طرح است؛ B رنگ‌ها را جابه‌جا و سوژه را آن‌طرف می‌گذارد؛ C و E سبکِ دیگرِ مناسبِ همین قالب؛ D فونتِ دیگر؛ F حال‌وهوای دیگر. با هم مقایسه کنید و بهترین را بردارید.</p>
+                <p className="dz-muted mt-2 th-ab-hint">A همین طرح است؛ B رنگ‌ها را جابه‌جا و سوژه را آن‌طرف می‌گذارد؛ C و E سبکِ دیگرِ مناسبِ همین قالب؛ D فونتِ دیگر؛ F حال‌وهوای دیگر. با هم مقایسه کنید و بهترین را بردارید.</p>
               )}
               {!hasText(spec) && <p className="dz-muted mt-2">برای ساخت دست‌کم یک متن (عنوان) بنویسید.</p>}
             </Card>
@@ -731,7 +781,8 @@ export default function ThumbnailMakerPage() {
                   </Button>
                 )}
               </div>
-              <div className="th-results">{batch.map((it) => card(it))}</div>
+              {sharedWarnings(batchW.shared, batch.length)}
+              <div className="th-results">{batch.map((it) => card(it, false, batchW.own.get(it.id)))}</div>
             </Card>
           )}
 
@@ -740,7 +791,22 @@ export default function ThumbnailMakerPage() {
             {history.length === 0 ? (
               <EmptyState icon="image" title="هنوز تامنیلی نساخته‌اید" description="یک طرح بسازید تا این‌جا بماند؛ هر کدام را می‌شود دوباره ویرایش یا در ادیتور عکس باز کرد." />
             ) : (
-              <div className="th-results">{history.map((it) => card(it, true))}</div>
+              <>
+                {sharedWarnings(histW.shared, hist.shown.length)}
+                <div className="th-results" data-testid="thumb-history">{hist.shown.map((it) => card(it, true, histW.own.get(it.id)))}</div>
+                {hist.hidden > 0 && (
+                  <div className="mt-3 text-center">
+                    <Button variant="secondary" onClick={() => setHistoryAll(true)} data-testid="history-more">
+                      نمایشِ بیشتر ({fa(hist.hidden)} مورد دیگر)
+                    </Button>
+                  </div>
+                )}
+                {narrow && historyAll && history.length > HISTORY_PHONE_LIMIT && (
+                  <div className="mt-3 text-center">
+                    <Button variant="ghost" onClick={() => setHistoryAll(false)}>فقط آخرین {fa(HISTORY_PHONE_LIMIT)} مورد</Button>
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>

@@ -6,7 +6,7 @@ import type { Asset, Edit } from "../api";
 import { DPlan, DStep, DVariant, Design, DesignerInfo, designerApi } from "./api";
 import BrandForm from "./BrandForm";
 import { Brand, emptyBrand } from "./brandApi";
-import { COPY_FIELDS, CRITERIA_FA, EXAMPLES } from "./labels";
+import { COPY_FIELDS, CRITERIA_FA, designExamples } from "./labels";
 import StepEditor from "./StepEditor";
 import "./designer.css";
 
@@ -20,6 +20,8 @@ type Props = {
   assets?: Asset[];
   /** بازکردنِ «تنظیماتِ ادیتور» (پیش‌فرضِ هوش مصنوعی و سبکِ برند) */
   onOpenSettings?: (tab: "ai" | "brand") => void;
+  /** مثال‌های دستور از خودِ فروشگاه (بی قیمت)؛ نیامده ⇒ مثال‌های عمومی */
+  examples?: string[] | null;
 };
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -57,7 +59,8 @@ function AiUsed({ ai }: { ai: Design["ai"] }) {
 
 const AI_CALLS: Record<string, string> = { fast: "fast", normal: "normal", best: "best" };
 
-export default function DesignerPanel({ storeId, asset, nodeOn, onApplied, assets = [], onOpenSettings }: Props) {
+export default function DesignerPanel({ storeId, asset, nodeOn, onApplied, assets = [], onOpenSettings, examples }: Props) {
+  const chips = useMemo(() => designExamples(examples), [examples]);
   const [info, setInfo] = useState<DesignerInfo | null>(null);
   const [infoErr, setInfoErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -254,10 +257,10 @@ export default function DesignerPanel({ storeId, asset, nodeOn, onApplied, asset
         <label className="dz-label" htmlFor="dz-prompt">چه می‌خواهید؟</label>
         <TextArea
           id="dz-prompt" rows={3} value={prompt} maxLength={600} onChange={(e) => setPrompt(e.target.value)} data-testid="designer-prompt"
-          placeholder="مثلاً: تبلیغِ کفش ورزشی با تخفیف ۳۰ درصد، رنگی و پرانرژی"
+          placeholder={`مثلاً: ${chips[0]}`}
         />
         <div className="dz-chips mt-2">
-          {EXAMPLES.map((x) => (
+          {chips.map((x) => (
             <button key={x} type="button" className="example-chip" onClick={() => setPrompt(x)}>{x}</button>
           ))}
         </div>

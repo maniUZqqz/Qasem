@@ -3144,6 +3144,7 @@ export default function ProWorkspace(props: Props) {
   return (
     <Workspace
       testId="photo-workspace"
+      autoFull={props.autoFull}
       title="فضای کارِ حرفه‌ایِ عکس"
       actions={
         <>

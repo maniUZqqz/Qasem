@@ -49,7 +49,7 @@ from rest_framework.views import APIView
 from apps.stores import access
 
 from . import brand as brand_mod
-from . import catalog, services
+from . import catalog, examples, services
 from . import blend as blendmod
 from . import layers as layers_mod
 from .models import PhotoAsset, PhotoEdit, PhotoPreset, PhotoProject
@@ -112,6 +112,7 @@ class OverviewView(APIView):
             "node": services.node_status(),
             "store_logo": services.media_url(store.logo.name) if getattr(store, "logo", None) else None,
             "limits": {"max_upload_mb": services.MAX_UPLOAD_MB, "max_batch": services.MAX_BATCH},
+            "examples": examples.for_store(store),      # مثال‌های دستور از خودِ فروشگاه، بی قیمت
             "pro": {"blend_modes": list(blendmod.BLEND_MODES), "layer_types": list(layers_mod.LAYER_TYPES),
                     "fonts": services.fonts_list(), "max_layers": layers_mod.MAX_LAYERS},
         })

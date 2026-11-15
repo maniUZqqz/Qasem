@@ -31,6 +31,8 @@ type Props = {
   onOpenVersions: () => void;
   /** ادامهٔ یک نسخهٔ قبلی: کارهایش به‌عنوانِ حالتِ آغازین */
   startFrom?: { tool: string; params: Params }[] | null;
+  /** شمارنده: با هر بار بالا رفتن، روی گوشی فضای کار تمام‌صفحه باز می‌شود (بدونِ آن هرگز خودکار باز نمی‌شود) */
+  autoFull?: number;
 };
 
 type Tab = "edit" | "presets" | "history" | "export";
@@ -663,6 +665,7 @@ export default function PhotoWorkspace(props: Props) {
   return (
     <Workspace
       testId="photo-workspace"
+      autoFull={props.autoFull}
       title="فضای کارِ دستیِ عکس"
       actions={
         <>

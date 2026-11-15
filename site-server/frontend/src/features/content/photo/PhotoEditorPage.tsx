@@ -17,6 +17,8 @@ import {
   fa,
 } from "../../../components/ui";
 import CompareSlider from "./CompareSlider";
+import { LIB_PAGE, filterAssets, findingLabel, pageAssets, primaryFinding } from "./libraryUtil";
+import { BackoffPoller, browserPollEnv, edgeKey, isWaitingOnNode, type TickResult } from "./polling";
 import BatchPanel from "./designer/BatchPanel";
 import DesignerPanel from "./designer/DesignerPanel";
 import EditorSettings from "./designer/EditorSettings";
@@ -41,6 +43,7 @@ import {
   photoApi,
   stateTone,
 } from "./api";
+import "./photopage.css";
 
 /**
  * ادیتورِ عکس — سه حالت: «خودکار» (یک کلیک)، «نیمه‌خودکار» (دستور به هوشِ مصنوعی) و «دستی» (فضای کاملِ فتوشاپ‌مانند).
@@ -50,6 +53,12 @@ import {
  * حذفِ پس‌زمینه، بزرگ‌نمایی، ترمیم، ویرایش با دستور) به سرورِ پردازش می‌رود و اگر خاموش است «منتظر» می‌ماند.
  * هر کار برچسبِ جایش را دارد تا کسی منتظرِ چیزی نماند که نمی‌داند منتظرش است.
  */
+const MODE_HINTS: Record<"auto" | "prompt" | "manual", string> = {
+  auto: "عکس را می‌سنجد و خودش ادیت می‌زند — یک کلیک",
+  prompt: "بنویسید چه می‌خواهید؛ طراحِ خودکار چند پیشنهادِ آماده با متنِ فارسی می‌سازد",
+  manual: "فضای کامل: لایه، ماسک، برش، منحنی، ترمیم، فیلتر و منوی کامل…",
+};
+
 let webgl2: boolean | null = null;
 /** ادیتورِ حرفه‌ای به WebGL2 نیاز دارد؛ مرورگرِ بی‌آن همان فضای کارِ قبلی را می‌گیرد */
 function hasWebGL2(): boolean {
@@ -104,6 +113,15 @@ export default function PhotoEditorPage() {
   };
   const fileInput = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
+  const [bannerOpen, setBannerOpen] = useState(false);
+  const [libQuery, setLibQuery] = useState("");
+  const [libLimit, setLibLimit] = useState(LIB_PAGE);
+  /** با هر انتخابِ عکس در حالتِ دستی بالا می‌رود: فضای کار را به بالای صفحه می‌آورد (و روی گوشی تمام‌صفحه باز می‌کند) */
+  const [revealTick, setRevealTick] = useState(0);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const autoRun = useRef<(() => void) | null>(null);
+  const [panelVisible, setPanelVisible] = useState(true);
 
   const tools = useMemo(() => {
     const m: Record<string, Tool> = {};
@@ -142,52 +160,102 @@ export default function PhotoEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
+  /** عکسِ خوانده‌شده را به‌عنوانِ «جزئیات» بگذار و نسخهٔ مقایسه را انتخاب کن */
+  const applyDetail = useCallback((a: Asset, focusEdit?: number) => {
+    setDetail(a);
+    const ready = a.edits?.find((e) => e.state === "READY");
+    const focus = focusEdit ? a.edits?.find((e) => e.id === focusEdit && e.state === "READY") : undefined;
+    setCompareId((cur) => (focus ? focus.id : cur && a.edits?.some((e) => e.id === cur) ? cur : ready?.id ?? null));
+  }, []);
+
   const openDetail = useCallback(
     async (assetId: number, scroll = true, focusEdit?: number) => {
       try {
         const a = await photoApi.asset(id, assetId);
-        setDetail(a);
-        const ready = a.edits?.find((e) => e.state === "READY");
-        const focus = focusEdit ? a.edits?.find((e) => e.id === focusEdit && e.state === "READY") : undefined;
-        setCompareId((cur) =>
-          focus ? focus.id : cur && a.edits?.some((e) => e.id === cur) ? cur : ready?.id ?? null,
-        );
+        applyDetail(a, focusEdit);
         if (!sources) photoApi.sources(id).then(setSources).catch(() => undefined);
         if (scroll) window.setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
       } catch (err) {
         setError(errorMessage(err));
       }
     },
-    [id, sources],
+    [id, sources, applyDetail],
   );
 
-  // نسخه‌های در حالِ کار: هر ۳ ثانیه (سرورِ سایت چند ثانیه، سرورِ پردازش ممکن است ساعت‌ها)
+  // نسخه‌های در حالِ کار. سرورِ سایت چند ثانیه می‌گیرد (۳ ثانیه یک‌بار)، سرورِ پردازش ممکن است ساعت‌ها: وقتی همه فقط منتظرِ آن‌اند
+  // فاصله ۳ ← ۱۵ ← ۶۰ ثانیه می‌شود و تبِ پنهان اصلاً چیزی نمی‌پرسد (polling.ts).
   const activeIds = tracking.filter((e) => ACTIVE_STATES.includes(e.state)).map((e) => e.id);
-  const analysisPending = detail && ["QUEUED", "CLAIMED", "RUNNING"].includes(detail.kit_analysis?.state ?? "");
+  const analysisPending = !!detail && ["QUEUED", "CLAIMED", "RUNNING"].includes(detail.kit_analysis?.state ?? "");
+  const tickRef = useRef<() => Promise<TickResult>>(async () => ({ changed: false, waitingOnly: false, stop: true }));
+  tickRef.current = async () => {
+    let changed = false;
+    let waitingOnly = true;
+    let pending = false;
+    if (activeIds.length) {
+      const res = await photoApi.edits(id, activeIds);
+      setNode((cur) => (JSON.stringify(cur) === JSON.stringify(res.node) ? cur : res.node));
+      const before = new Map(tracking.map((e) => [e.id, edgeKey(e)]));
+      const diff = res.edits.filter((e) => before.get(e.id) !== edgeKey(e));
+      if (diff.length) {
+        changed = true;
+        setTracking((cur) => cur.map((e) => diff.find((x) => x.id === e.id) ?? e));
+      }
+      const finished = res.edits.filter((e) => !e.active);
+      if (finished.length) {
+        await load();
+        const mine = detail ? finished.filter((e) => e.asset === detail.id) : [];
+        // نسخه‌ای که همین حالا آماده شد ⇐ همان در قبل/بعد
+        if (detail && mine.length) await openDetail(detail.id, false, mine[mine.length - 1].id);
+      }
+      const still = res.edits.filter((e) => e.active);
+      pending = still.length > 0;
+      waitingOnly = still.every(isWaitingOnNode);
+    }
+    if (analysisPending && detail) {
+      const a = await photoApi.asset(id, detail.id);
+      const st = a.kit_analysis?.state ?? "";
+      if (JSON.stringify(a.kit_analysis) !== JSON.stringify(detail.kit_analysis)) {
+        changed = true;
+        applyDetail(a);
+      }
+      if (["QUEUED", "CLAIMED", "RUNNING"].includes(st)) {
+        pending = true;
+        if (st !== "QUEUED") waitingOnly = false;
+      }
+    }
+    return { changed, waitingOnly, stop: !pending && !changed };
+  };
+  const pollKey = `${activeIds.join(",")}|${analysisPending ? detail?.id : ""}`;
   useEffect(() => {
     if (activeIds.length === 0 && !analysisPending) return;
-    const t = window.setInterval(async () => {
-      try {
-        if (activeIds.length) {
-          const res = await photoApi.edits(id, activeIds);
-          setNode(res.node);
-          const finished = res.edits.filter((e) => !e.active);
-          setTracking((cur) => cur.map((e) => res.edits.find((x) => x.id === e.id) ?? e));
-          if (finished.length) {
-            await load();
-            const mine = detail ? finished.filter((e) => e.asset === detail.id) : [];
-            // نسخه‌ای که همین حالا آماده شد ⇐ همان در قبل/بعد
-            if (detail && mine.length) await openDetail(detail.id, false, mine[mine.length - 1].id);
-          }
-        } else if (detail) {
-          await openDetail(detail.id, false);
-        }
-      } catch {
-        /* شبکه: دورِ بعد */
-      }
-    }, 3000);
-    return () => window.clearInterval(t);
-  }, [id, activeIds.join(","), analysisPending, detail, load, openDetail]);
+    const p = new BackoffPoller(() => tickRef.current(), browserPollEnv());
+    p.start();
+    return () => p.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollKey]);
+
+  // «برو به پنل»: پنلِ کار بالای صفحه است؛ وقتی از دیدِ کاربر رفت و عکسی انتخاب شده نوارِ چسبانِ پایین را نشان بده
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setPanelVisible(entry.isIntersecting), { threshold: 0.05 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [mode, loading, !!data]);
+
+  // انتخابِ عکس در حالتِ دستی ⇒ فضای کار را به بالای نمایشگر بیاور و فوکوس بده (زیرِ نوارِ بالا نرود)؛ روی گوشی تمام‌صفحه باز می‌شود
+  const [autoFull, setAutoFull] = useState(0);
+  useEffect(() => {
+    if (!revealTick) return;
+    setAutoFull(revealTick);
+    const t = window.setTimeout(() => {
+      const el = workspaceRef.current;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [revealTick]);
 
   async function upload(files: File[]) {
     if (!files.length) return;
@@ -274,6 +342,25 @@ export default function PhotoEditorPage() {
   const nodeOn = (node ?? data.node).online;
   const batchEdits = lastBatch ? tracking.filter((e) => e.batch === lastBatch) : [];
   const focusAsset = selected.length ? assets.find((a) => a.id === selected[0]) ?? null : null;
+  // کتابخانه: جستجو + «آخرین ۱۲» با «نمایشِ بیشتر»
+  const filteredAssets = filterAssets(assets, libQuery);
+  const { shown: shownAssets, rest: libRest } = pageAssets(filteredAssets, libLimit);
+
+  /** زدن روی کارتِ عکس. دستی: همان عکس تنها باز می‌شود و فضای کار به بالای نمایشگر می‌آید؛ بقیه: انتخاب/برداشتنِ انتخاب */
+  const choose = (assetId: number) => {
+    if (mode === "manual") {
+      setSelected([assetId]);
+      setRevealTick((n) => n + 1);
+      return;
+    }
+    setSelected((cur) => (cur.includes(assetId) ? cur.filter((x) => x !== assetId) : [...cur, assetId]));
+  };
+
+  /** دکمهٔ نوارِ چسبانِ پایین: پنل را بیاور و در حالتِ خودکار همان‌جا اجرا کن */
+  const barPrimary = () => {
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (mode === "auto") window.setTimeout(() => autoRun.current?.(), 120);
+  };
 
   /** تازه‌ترین نسخهٔ یک عکس: از نسخه‌های در حالِ پیگیری یا آخرین نسخهٔ کتابخانه */
   const latest = (assetId: number): Edit | null => {
@@ -333,40 +420,48 @@ export default function PhotoEditorPage() {
         </div>
       )}
 
-      <div className="mb-4" data-testid="node-banner">
-        {nodeOn ? (
-          <Alert tone="ok" title="سرورِ پردازش آنلاین است">
-            کارهای هوشمندِ کیت (بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) همین حالا روی{" "}
-            {(node ?? data.node).nodes.join("، ")} انجام می‌شود. «ویرایش با دستور» طبقِ ترتیبِ تنظیماتِ هوش مصنوعی یا روی سرورِ پردازش
-            یا از سرورِ سایت (متیس/لوکال) انجام می‌شود و بالای نتیجه می‌نویسیم چه کسی جواب داد.
-          </Alert>
-        ) : (
-          <Alert tone="warn" title="سرورِ پردازش خاموش است">
-            کارهای سبک — برش برای شبکه‌ها، اندازه، چرخش، متن، لوگو، واترمارک و نور و رنگِ ساده — و «ویرایش با دستور» (هوشِ مصنوعیِ بینا از
-            سرورِ سایت: لوکال یا متیس طبقِ تنظیماتِ هوش مصنوعی) همین‌جا روی سرورِ سایت انجام می‌شود. بقیهٔ کارهای هوشمندِ کیت (برچسبِ
-            «سرورِ پردازش»: بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) در صف می‌مانند تا سرورِ پردازش روشن شود؛ صفحه را می‌توانید ببندید.
-          </Alert>
-        )}
+      {/* خلاصهٔ یک‌خطی؛ توضیحِ کامل پشتِ «جزئیات» تا پنلِ کار روی گوشی هم بدونِ اسکرول دیده شود (بازبینیِ ۱۴ آبان) */}
+      <div className="mb-3" data-testid="node-banner">
+        <Alert tone={nodeOn ? "ok" : "warn"} title={nodeOn ? "سرورِ پردازش آنلاین است" : "سرورِ پردازش خاموش است"}>
+          <span className="pe-banner-line">
+            {nodeOn
+              ? `کارهای هوشمندِ کیت همین حالا روی ${(node ?? data.node).nodes.join("، ")} انجام می‌شود.`
+              : "کارهای سبک روی سرورِ سایت انجام می‌شود؛ کارهای هوشمندِ کیت در صف می‌مانند تا سرورِ پردازش روشن شود."}{" "}
+            <button type="button" className="dz-link" onClick={() => setBannerOpen((v) => !v)} aria-expanded={bannerOpen} data-testid="node-banner-more">
+              {bannerOpen ? "بستن" : "جزئیات"}
+            </button>
+          </span>
+          {bannerOpen &&
+            (nodeOn ? (
+              <p className="mt-1 text-sm" data-testid="node-banner-detail">
+                کارهای هوشمندِ کیت (بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) روی سرورِ پردازش انجام می‌شود. «ویرایش با دستور» طبقِ ترتیبِ
+                تنظیماتِ هوش مصنوعی یا روی سرورِ پردازش یا از سرورِ سایت (متیس/لوکال) انجام می‌شود و بالای نتیجه می‌نویسیم چه کسی جواب داد.
+              </p>
+            ) : (
+              <p className="mt-1 text-sm" data-testid="node-banner-detail">
+                کارهای سبک — برش برای شبکه‌ها، اندازه، چرخش، متن، لوگو، واترمارک و نور و رنگِ ساده — و «ویرایش با دستور» (هوشِ مصنوعیِ بینا از
+                سرورِ سایت: لوکال یا متیس طبقِ تنظیماتِ هوش مصنوعی) همین‌جا روی سرورِ سایت انجام می‌شود. بقیهٔ کارهای هوشمندِ کیت (برچسبِ
+                «سرورِ پردازش»: بهبودِ حرفه‌ای، حذفِ پس‌زمینه، بزرگ‌نمایی) در صف می‌مانند تا سرورِ پردازش روشن شود؛ صفحه را می‌توانید ببندید.
+              </p>
+            ))}
+        </Alert>
       </div>
 
       {batchOpen && <BatchPanel storeId={id} assets={assets} onClose={() => setBatchOpen(false)} onApplied={onDesignApplied} onOpenSettings={(t) => setSettingsTab(t)} />}
       {settingsTab && <EditorSettings storeId={id} assets={assets} initialTab={settingsTab} onClose={() => setSettingsTab(null)} />}
 
-      <ModeSwitch
-        mode={mode}
-        onChange={setMode}
-        hints={{
-          auto: "عکس را می‌سنجد و خودش ادیت می‌زند — یک کلیک",
-          prompt: "بنویسید چه می‌خواهید؛ طراحِ خودکار چند پیشنهادِ آماده با متنِ فارسی می‌سازد",
-          manual: "فضای کامل: لایه، ماسک، برش، منحنی، ترمیم، فیلتر و منوی کامل…",
-        }}
-      />
+      {/* روی گوشی سه تبِ کنارِ هم و فقط توضیحِ تبِ فعال (قبلاً سه کارتِ زیرِ هم، ۲۶۰ پیکسل) تا پنلِ کار بدونِ اسکرول دیده شود */}
+      <div className="pe-modes">
+        <ModeSwitch mode={mode} onChange={setMode} hints={MODE_HINTS} />
+        <p className="pe-mode-now" data-testid="mode-hint">{MODE_HINTS[mode]}</p>
+      </div>
 
       {mode === "manual" && focusAsset && (
-        <div className="mb-6">
+        <div className="mb-6 pe-ws-anchor" ref={workspaceRef} tabIndex={-1} data-testid="ws-anchor">
           {hasWebGL2() ? (
           <ProWorkspace
             key={`${focusAsset.id}-${manualStart?.n ?? 0}-${reloadKey}`}
+            autoFull={autoFull}
             storeId={id}
             asset={focusAsset}
             assets={assets}
@@ -394,6 +489,7 @@ export default function PhotoEditorPage() {
           ) : (
           <PhotoWorkspace
             key={focusAsset.id}
+            autoFull={autoFull}
             storeId={id}
             asset={focusAsset}
             assets={assets}
@@ -415,7 +511,44 @@ export default function PhotoEditorPage() {
         </div>
       )}
 
-      <Card>
+      {/* پنلِ کار درست زیرِ انتخابِ حالت است، نه ته‌ی صفحه بعد از کتابخانه (بازبینیِ ۱۴ آبان: ۵۰۰۰ تا ۱۰۰۰۰ پیکسل پایین بود) */}
+      {(mode === "auto" || mode === "prompt") && (
+        <div ref={panelRef} className="pe-panel-slot" data-testid="action-slot">
+          {mode === "auto" && <PhotoAutoPanel {...panelProps} runnerRef={autoRun} />}
+          {mode === "prompt" && (
+            <>
+              <div className="dz-tabs mt-4" role="tablist" aria-label="نوعِ ویرایش با دستور" data-testid="prompt-tabs">
+                <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "design"} onClick={() => setPromptTab("design")} data-ptab="design">
+                  طراحِ خودکار — متن، زمینه، برچسب و قاب
+                </button>
+                <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "quick"} onClick={() => setPromptTab("quick")} data-ptab="quick">
+                  اصلاحِ سریعِ نور و رنگ
+                </button>
+              </div>
+              {promptTab === "design" ? (
+                <DesignerPanel
+                  storeId={id}
+                  asset={focusAsset}
+                  nodeOn={nodeOn}
+                  assets={assets}
+                  examples={data.examples?.design ?? null}
+                  onOpenSettings={(t) => setSettingsTab(t)}
+                  onApplied={onDesignApplied}
+                />
+              ) : (
+                <PhotoPromptPanel {...panelProps} />
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {mode === "manual" && !focusAsset && (
+        <Card className="mt-4">
+          <EmptyState icon="image" title="یک عکس انتخاب کنید" description="از کتابخانهٔ پایینِ همین صفحه یک عکس بزنید تا فضای کارِ دستی برایش باز شود." />
+        </Card>
+      )}
+
+      <Card className="mt-6">
         <SectionTitle>عکسِ تازه</SectionTitle>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -463,24 +596,38 @@ export default function PhotoEditorPage() {
         )}
       </Card>
 
-      <div className="mt-6">
+      <div className="mt-6" data-testid="library">
         <SectionTitle>کتابخانهٔ عکس‌ها</SectionTitle>
         {assets.length > 0 && (
           <div className="-mt-1 mb-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs" style={{ color: "var(--text-3)" }}>
+            <span className="text-xs" style={{ color: "var(--text-3)" }} data-testid="library-count">
               {fa(selected.length)} از {fa(assets.length)} انتخاب شده — روی عکس بزنید تا انتخاب شود
-              {mode === "manual" ? " (در حالتِ دستی، اولین عکسِ انتخاب‌شده باز می‌شود)" : ""}
+              {mode === "manual" ? " (در حالتِ دستی با هر بار زدن، همان عکس در فضای کار باز می‌شود)" : ""}
             </span>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setSelected(assets.slice(0, data.limits.max_batch).map((a) => a.id))}
-            >
-              انتخابِ همه
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
-              هیچ‌کدام
-            </Button>
+            {mode !== "manual" && (
+              <Button size="sm" variant="secondary" onClick={() => setSelected(shownAssets.slice(0, data.limits.max_batch).map((a) => a.id))}>
+                انتخابِ همهٔ نمایش‌داده‌شده‌ها
+              </Button>
+            )}
+            {mode !== "manual" && (
+              <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+                هیچ‌کدام
+              </Button>
+            )}
+            {assets.length > LIB_PAGE && (
+              <input
+                type="search"
+                className="u-input pe-search"
+                value={libQuery}
+                onChange={(e) => {
+                  setLibQuery(e.target.value);
+                  setLibLimit(LIB_PAGE);
+                }}
+                placeholder="جستجو در نامِ عکس‌ها…"
+                aria-label="جستجو در کتابخانهٔ عکس‌ها"
+                data-testid="library-search"
+              />
+            )}
           </div>
         )}
         {assets.length === 0 ? (
@@ -492,53 +639,44 @@ export default function PhotoEditorPage() {
             />
           </Card>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="photo-library">
-            {assets.map((a) => (
-              <AssetCard
-                key={a.id}
-                asset={a}
-                live={tracking.find((e) => e.asset === a.id && e.active) ?? null}
-                checked={selected.includes(a.id)}
-                onToggle={() =>
-                  setSelected((cur) => (cur.includes(a.id) ? cur.filter((x) => x !== a.id) : [...cur, a.id]))
-                }
-                onOpen={() => void openDetail(a.id)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="pe-lib" data-testid="photo-library">
+              {shownAssets.map((a) => (
+                <AssetCard
+                  key={a.id}
+                  asset={a}
+                  live={tracking.find((e) => e.asset === a.id && e.active) ?? null}
+                  checked={selected.includes(a.id)}
+                  onToggle={() => choose(a.id)}
+                  onOpen={() => {
+                    // «باز کن» عکس را هم انتخاب می‌کند تا پنلِ کار خاکستری نماند (بازبینیِ ۱۴ آبان)
+                    setSelected((cur) => (mode === "manual" ? [a.id] : cur.includes(a.id) ? cur : [...cur, a.id]));
+                    void openDetail(a.id);
+                  }}
+                />
+              ))}
+            </div>
+            {filteredAssets.length === 0 && (
+              <p className="mt-2 text-sm" style={{ color: "var(--text-3)" }} data-testid="library-empty">عکسی با این جستجو پیدا نشد.</p>
+            )}
+            {libRest > 0 && (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <Button variant="secondary" onClick={() => setLibLimit((n) => n + LIB_PAGE)} data-testid="library-more">
+                  نمایشِ بیشتر ({fa(Math.min(LIB_PAGE, libRest))} عکسِ دیگر)
+                </Button>
+                <Button variant="ghost" onClick={() => setLibLimit(Number.MAX_SAFE_INTEGER)} data-testid="library-all">
+                  نمایشِ همهٔ {fa(filteredAssets.length)} عکس
+                </Button>
+              </div>
+            )}
+            {assets.length > LIB_PAGE && libRest === 0 && libLimit > LIB_PAGE && (
+              <div className="mt-3 text-center">
+                <Button variant="ghost" onClick={() => setLibLimit(LIB_PAGE)}>فقط آخرین {fa(LIB_PAGE)} عکس</Button>
+              </div>
+            )}
+          </>
         )}
       </div>
-
-      {mode === "auto" && <PhotoAutoPanel {...panelProps} />}
-      {mode === "prompt" && (
-        <>
-          <div className="dz-tabs mt-4" role="tablist" aria-label="نوعِ ویرایش با دستور" data-testid="prompt-tabs">
-            <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "design"} onClick={() => setPromptTab("design")} data-ptab="design">
-              طراحِ خودکار — متن، زمینه، برچسب و قاب
-            </button>
-            <button type="button" role="tab" className="dz-tab" aria-selected={promptTab === "quick"} onClick={() => setPromptTab("quick")} data-ptab="quick">
-              اصلاحِ سریعِ نور و رنگ
-            </button>
-          </div>
-          {promptTab === "design" ? (
-            <DesignerPanel
-              storeId={id}
-              asset={focusAsset}
-              nodeOn={nodeOn}
-              assets={assets}
-              onOpenSettings={(t) => setSettingsTab(t)}
-              onApplied={onDesignApplied}
-            />
-          ) : (
-            <PhotoPromptPanel {...panelProps} />
-          )}
-        </>
-      )}
-      {mode === "manual" && !focusAsset && (
-        <Card className="mt-4">
-          <EmptyState icon="image" title="یک عکس انتخاب کنید" description="از کتابخانه یک عکس بزنید تا فضای کارِ دستی برایش باز شود." />
-        </Card>
-      )}
 
       {tracking.length > 0 && (
         <div className="mt-6" data-testid="jobs">
@@ -600,6 +738,17 @@ export default function PhotoEditorPage() {
           />
         </div>
       )}
+
+      {/* نوارِ چسبانِ پایین: عکس انتخاب شده ولی پنلِ کار از دید رفته (کتابخانه پایینِ پنل است) */}
+      {(mode === "auto" || mode === "prompt") && selected.length > 0 && !panelVisible && (
+        <div className="pe-bar" role="region" aria-label="کارِ عکس‌های انتخاب‌شده" data-testid="selection-bar">
+          <span className="pe-bar-count" data-testid="selection-bar-count">{fa(selected.length)} عکس انتخاب شد</span>
+          <Button onClick={barPrimary} disabled={busy} data-testid="selection-bar-go">
+            {mode === "auto" ? "✨ ویرایشِ خودکار" : "نوشتنِ دستور ↑"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected([])}>هیچ‌کدام</Button>
+        </div>
+      )}
     </>
   );
 }
@@ -619,9 +768,10 @@ function AssetCard({
 }) {
   const last = live ?? asset.last_edit ?? null;
   const shown = last?.state === "READY" && last.urls.thumb ? last.urls.thumb : asset.thumb;
+  const badge = primaryFinding(asset);   // حداکثر یک برچسب، فقط برای عکسِ واقعی (نه طرحِ گرافیکی)
   return (
     <div
-      className="overflow-hidden rounded-xl"
+      className="pe-card overflow-hidden rounded-xl"
       style={{ border: `2px solid ${checked ? "var(--brand)" : "var(--line)"}`, background: "var(--surface)" }}
       data-asset={asset.id}
     >
@@ -648,11 +798,11 @@ function AssetCard({
         <div className="mt-1 flex flex-wrap gap-1">
           <Badge tone="neutral">{asset.source_label}</Badge>
           <Badge tone="neutral">{fa(asset.width)}×{fa(asset.height)}</Badge>
-          {asset.findings.slice(0, 2).map((f) => (
-            <Badge key={f.what} tone={f.what === "plain_bg" ? "info" : "warn"}>
-              {f.note.split(" (")[0]}
-            </Badge>
-          ))}
+          {badge && (
+            <span data-finding={badge.what}>
+              <Badge tone={badge.what === "plain_bg" ? "info" : "warn"}>{findingLabel(badge)}</Badge>
+            </span>
+          )}
         </div>
         <Button size="sm" variant="ghost" className="mt-1" onClick={onOpen}>
           باز کن{asset.edits_count ? ` (${fa(asset.edits_count)} نسخه)` : ""}

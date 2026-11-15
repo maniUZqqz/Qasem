@@ -1,0 +1,40 @@
+/* صفحهٔ ادیتورِ عکس — چیدمانِ کتابخانه، نوارِ انتخاب و لنگرِ فضای کار (بازبینیِ ۱۴ آبان). فقط توکن‌های index.css. */
+
+/* کتابخانه: شبکه روی میز، نوارِ افقیِ تک‌ردیف روی گوشی (به‌جای ۵۰ کارت زیرِ هم) */
+.pe-lib { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 640px) { .pe-lib { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .pe-lib { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 639px) {
+  .pe-lib { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .pe-lib > .pe-card { flex: 0 0 156px; scroll-snap-align: start; }
+}
+.pe-card { background: var(--surface); min-width: 0; }
+.pe-search { min-height: 36px; width: min(260px, 100%); margin-inline-start: auto; }
+
+/* خلاصهٔ یک‌خطیِ وضعِ سرورِ پردازش */
+.pe-banner-line { font-size: 13px; line-height: 1.8; }
+
+/* فضای کارِ دستی: بعد از انتخابِ عکس به همین‌جا می‌رویم؛ زیرِ نوارِ بالای صفحه گم نشود */
+.pe-ws-anchor { scroll-margin-top: 76px; outline: none; }
+
+/* نوارِ چسبانِ پایین (حالتِ خودکار/نیمه‌خودکار وقتی پنلِ کار از دید رفته) */
+.pe-bar {
+  position: sticky; bottom: 10px; z-index: 40; margin-top: 16px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px;
+  border-radius: 14px; border: 1px solid var(--line-strong);
+  background: #11172a; background: color-mix(in srgb, var(--bg) 94%, white);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+}
+:root[data-theme="light"] .pe-bar { background: #fff; box-shadow: 0 10px 30px rgba(15, 23, 42, .22); }
+.pe-bar-count { font-size: 13px; font-weight: 800; color: var(--text); margin-inline-end: auto; }
+
+/* انتخابِ حالت روی گوشی: سه تبِ فشرده کنارِ هم + توضیحِ حالتِ فعال، تا پنلِ کار بدونِ اسکرول دیده شود */
+.pe-mode-now { display: none; margin: -8px 2px 14px; font-size: 12px; line-height: 1.7; color: var(--text-3); }
+@media (max-width: 760px) {
+  .pe-modes .mode-switch { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+  .pe-modes .mode-tab { flex-direction: column; justify-content: center; gap: 4px; padding: 8px 4px; text-align: center; }
+  .pe-modes .mode-ico { width: 30px; height: 30px; }
+  .pe-modes .mode-title { font-size: 12px; line-height: 1.5; }
+  .pe-modes .mode-hint { display: none; }
+  .pe-mode-now { display: block; margin-top: 0; margin-bottom: 12px; }
+}

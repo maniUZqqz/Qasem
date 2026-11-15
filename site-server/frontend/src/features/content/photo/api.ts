@@ -191,6 +191,8 @@ export type Overview = {
   node: NodeStatus;
   store_logo: string | null;
   limits: { max_upload_mb: number; max_batch: number };
+  /** مثال‌های دستورِ «طراحِ خودکار» از خودِ فروشگاه، بی قیمت (نبودنش ⇐ مثال‌های عمومی) */
+  examples?: { design: string[] };
 };
 
 export type Sources = {

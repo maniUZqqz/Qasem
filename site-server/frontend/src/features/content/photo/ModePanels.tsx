@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 
 import { errorMessage } from "../../../api/client";
 import { Alert, Button, Card, SectionTitle, Spinner, TextArea, fa } from "../../../components/ui";
 import type { Asset, Edit, OfflineChoice, Operation, Overview, SmartDecision, Tool } from "./api";
 import { NEEDS_CHOICE, photoApi } from "./api";
+import { QUICK_EXAMPLES } from "./designer/labels";
 import OfflineChoiceDialog from "./OfflineChoiceDialog";
 import ResultCard from "./ResultCard";
 import StepList from "./StepList";
@@ -21,6 +22,8 @@ type Common = {
   asset: Asset | null;
   /** باز کردنِ مراحلِ یک نسخه در حالتِ دستی */
   openManual?: (steps: Operation[]) => void;
+  /** «ویرایشِ خودکار» را از بیرونِ پنل (نوارِ چسبانِ پایینِ صفحه) هم بشود زد؛ پنل خودش اینجا تابعِ اجرا را می‌گذارد (null = الان نمی‌شود) */
+  runnerRef?: MutableRefObject<(() => void) | null>;
 };
 
 /** یک دستور آماده (بی نیاز به متن) را مستقیم بساز؛ دستوری که متن می‌خواهد (بنر، ویرایش با دستور) اول فرمش را می‌خواهد. */
@@ -90,6 +93,7 @@ export function PhotoAutoPanel(p: Common) {
   }
 
   const last = p.asset ? p.latest(p.asset.id) : null;
+  if (p.runnerRef) p.runnerRef.current = noSel || p.busy || loading ? null : () => void go("suggest", "پیشنهادِ خودکار");
 
   return (
     <Card className="mt-2">
@@ -109,7 +113,7 @@ export function PhotoAutoPanel(p: Common) {
             اول نشانم بده، من تأیید کنم
           </label>
         </div>
-        {noSel && <p className="mt-2 text-sm" style={{ color: "var(--warn)" }}>اول از کتابخانه یک یا چند عکس انتخاب کنید.</p>}
+        {noSel && <p className="mt-2 text-sm" style={{ color: "var(--warn)" }} data-testid="auto-nosel">اول از کتابخانهٔ پایینِ همین صفحه یک یا چند عکس انتخاب کنید. <GoLibrary /></p>}
 
         <div className="mt-4">
           <div className="mb-2 text-sm font-bold" style={{ color: "var(--text)" }}>حالت‌های آماده — یک کلیک</div>
@@ -159,14 +163,6 @@ export function PhotoAutoPanel(p: Common) {
 
 // ═══════════════════════════════════════════════════════════════ نیمه‌خودکار
 
-const EXAMPLES = [
-  "گرم و روشن، مناسبِ اینستاگرامِ کافه",
-  "حرفه‌ای و تمیز برای عکسِ محصول، رنگ‌ها طبیعی",
-  "سینمایی، کمی تیره و خنک",
-  "رنگ‌ها زنده‌تر و جزئیات واضح‌تر",
-  "نرم و ملایم مثلِ عکسِ پرتره",
-  "پس‌زمینهٔ سفیدِ تمیز و کالا وسط",
-];
 
 /** «این دستور کجا انجام می‌شود» — راست و درست، از تصمیمِ سرور (smart.decide_path) یا، تا آن نیامده، از وضعِ سرورِ پردازش. */
 function SmartRoute({ decision, nodeOn }: { decision: SmartDecision | null; nodeOn: boolean }) {
@@ -281,10 +277,10 @@ export function PhotoPromptPanel(p: Common) {
         </p>
         <TextArea
           rows={3} value={goal} maxLength={300} onChange={(e) => setGoal(e.target.value)} data-testid="goal"
-          placeholder="مثلاً: گرم و روشن، مناسبِ اینستاگرامِ کافه"
+          placeholder={`مثلاً: ${QUICK_EXAMPLES[0]}`}
         />
         <div className="mt-2 flex flex-wrap gap-2">
-          {EXAMPLES.map((x) => (
+          {QUICK_EXAMPLES.map((x) => (
             <button key={x} type="button" className="example-chip" onClick={() => setGoal(x)}>{x}</button>
           ))}
         </div>
@@ -292,7 +288,7 @@ export function PhotoPromptPanel(p: Common) {
           <Button onClick={() => void ask()} disabled={noSel || p.busy || !goal.trim()} data-testid="prompt-run">
             ویرایش کن{!noSel && ` — ${fa(p.selected.length)} عکس`}
           </Button>
-          {noSel && <span className="text-sm" style={{ color: "var(--warn)" }}>اول از کتابخانه عکس انتخاب کنید.</span>}
+          {noSel && <span className="text-sm" style={{ color: "var(--warn)" }}>اول از کتابخانهٔ پایینِ همین صفحه عکس انتخاب کنید. <GoLibrary /></span>}
         </div>
         <div className="mt-3" data-testid="smart-route">
           <SmartRoute decision={decision} nodeOn={p.nodeOn} />
@@ -326,5 +322,19 @@ export function PhotoPromptPanel(p: Common) {
         )}
       </div>
     </Card>
+  );
+}
+
+/** پیوندِ «برو به کتابخانه»: پنلِ کار بالای صفحه است و کتابخانه پایینِ آن */
+function GoLibrary() {
+  return (
+    <button
+      type="button"
+      className="dz-link"
+      onClick={() => document.querySelector('[data-testid="library"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      data-testid="go-library"
+    >
+      برو به کتابخانه ↓
+    </button>
   );
 }

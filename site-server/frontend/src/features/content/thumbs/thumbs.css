@@ -1,8 +1,8 @@
 /* تامنیل‌ساز — فقط توکن‌های index.css؛ تمِ روشن/تیره خودکار. جهتِ صفحه راست‌به‌چپ است (ستونِ کنترل‌ها سمتِ راست). */
 .th-root { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .th-controls { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.th-preview-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; order: -1; }
-.th-output { display: flex; flex-direction: column; gap: 16px; min-width: 0; order: -1; }  /* روی موبایل درست زیرِ پیش‌نمایش */
+.th-preview-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.th-output { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 @media (min-width: 1100px) {
   .th-root { grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); align-items: start; }
   .th-preview-col { order: 0; align-self: stretch; }
@@ -101,3 +101,38 @@
 .th-chips { display: flex; gap: 3px; }
 .th-chips i { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); display: block; }
 .th-idea-ref { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; float: inline-end; margin-inline-start: 8px; border: 1px solid var(--line); }
+
+/* ───────── چیدمانِ گوشی/تبلتِ کوچک (زیرِ ۱۱۰۰) — بازبینیِ ۱۴ آبان
+   ترتیب: ایده‌ها ← مرحله‌های ۱ تا ۵ ← پیش‌نمایش ← «ساخت» (نوارِ چسبانِ پایین) ← نتیجه و تاریخچه.
+   قبلاً پیش‌نمایش و تاریخچه (۸۸۰۰ پیکسل) قبل از فرم می‌آمدند و مرحلهٔ «۶ ساخت» بالاتر از ۱ تا ۵ بود.
+   .th-preview-col و .th-sticky روی این عرض «display: contents» می‌شوند تا کارتِ پیش‌نمایش و کارتِ ساخت فرزندِ مستقیمِ شبکه شوند
+   و بشود با order چیدشان و کارتِ ساخت را چسبان کرد. میز (≥۱۱۰۰) دست‌نخورده است: ستونِ راستِ چسبان همان قبلی. */
+.th-jump-preview { display: none; }
+.th-shared-warn { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; padding: 6px 10px; border-radius: 10px; background: var(--warn-soft); border: 1px solid var(--line); }
+@media (max-width: 1099.98px) {
+  .th-preview-col, .th-sticky { display: contents; }
+  .th-controls { order: 0; }
+  .th-preview-card { order: 1; min-width: 0; }
+  .th-root .th-build-card {
+    order: 2; position: sticky; bottom: 8px; z-index: 6; min-width: 0; padding: 10px 12px;
+    background: #11172a; background: color-mix(in srgb, var(--bg) 94%, white);
+    -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  }
+  :root[data-theme="light"] .th-root .th-build-card { background: #fff; box-shadow: 0 10px 30px rgba(15, 23, 42, .22); }
+  .th-root .th-build-card .th-section-title { display: none; }
+  .th-ab-hint { display: none; }
+  .th-jump-preview { display: inline-block; }
+  .th-output { order: 3; }
+}
+
+/* کارتِ «ساخت» روی گوشی فشرده است (چسبان است و نباید نیمی از صفحه را بگیرد): ردیفِ اول = تعدادِ نسخه + دکمهٔ ساخت؛ ردیفِ دوم = کارهای فرعی.
+   روی میز «.th-build-sub» display: contents است و چیدمانِ قبلی همان می‌ماند. */
+.th-build-sub { display: contents; }
+@media (max-width: 1099.98px) {
+  .th-root .th-build-row { flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .th-root .th-build-row .dz-field { min-width: 0 !important; flex: 0 0 120px; }
+  .th-root .th-build-row .dz-field > span { display: none; }
+  .th-root .th-build-go { flex: 1 1 140px; }
+  .th-root .th-build-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; flex: 1 1 100%; }
+  .th-root .th-build-card p.dz-muted { margin-top: 4px; font-size: 11.5px; }
+}

@@ -93,8 +93,11 @@
 }
 
 /* نوبت ۴: پنجرهٔ تنظیمات، سبکِ برند و طراحیِ گروهی */
-.es-overlay { position: fixed; inset: 0; z-index: 110; background: rgba(4, 6, 12, .6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 12px 12px; overflow-y: auto; }
-.es-dialog { width: min(720px, 100%); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 16px; padding: 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, .55); outline: none; }
+/* --surface شیشه‌ای است (آلفای ۰٫۰۴۵ در تیره، ۰٫۷ در روشن): پنجره‌ها باید پس‌زمینهٔ «جامد» داشته باشند، وگرنه متنِ صفحه از پشتشان پیداست
+   (بازبینیِ ۱۴ آبان). همان رنگِ جامدِ بقیهٔ پنجره‌ها (--void-2 با کمی روشنایی) + محوکردنِ پشتِ پنجره. */
+.es-overlay { position: fixed; inset: 0; z-index: 110; background: rgba(4, 6, 12, .6); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 12px 12px; overflow-y: auto; }
+.es-dialog { width: min(720px, 100%); background: #11172a; background: color-mix(in srgb, var(--bg) 92%, white); color: var(--text); border: 1px solid var(--line-strong); border-radius: 16px; padding: 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, .55); outline: none; }
+:root[data-theme="light"] .es-dialog { background: #fff; box-shadow: 0 24px 64px rgba(15, 23, 42, .28); }
 .es-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 15px; }
 .es-foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .es-switch { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); font-size: 14px; cursor: pointer; }

@@ -539,6 +539,10 @@ def server_ctx(store) -> dict:
             "paint_path": paint_path, "liquify_path": liquify_path, "scale": 1.0}
 
 
+#: همان جمله‌ای که در منوی «پرونده» کنارِ هر خروجی هم نوشته می‌شود (frontend pro/menu/registry.ts: EXPORT_CAP_TIP)
+EXPORT_CAP_NOTE = "حداکثر ۱۲۸۰ پیکسل — برای چاپ از «ساخت و ذخیره» استفاده کنید"
+
+
 def export_project(project: PhotoProject, fmt: str, quality: int = 92, mode: str = "rgb") -> tuple[bytes, str, str, list[str]]:
     """پروژهٔ ویرایشگر ⇒ فایل با قالبِ خواسته ⇒ (بایت‌ها، نوعِ محتوا، نامِ فایل، یادداشت‌ها). ترکیب روی سرورِ سایت (همان خط‌لوله‌ی «ساخت»)."""
     from . import exportfmt
@@ -557,6 +561,9 @@ def export_project(project: PhotoProject, fmt: str, quality: int = 92, mode: str
     state.setdefault("layers", [])
     frame, n1 = render.render_frame(asset, state)
     notes = list(n1)
+    # «خروجی با قالبِ دیگر» از همان خط‌لوله‌ی پیش‌نمایش می‌گذرد و ضلعِ بلندش از ۱۲۸۰ پیکسل بیشتر نمی‌شود؛ صادقانه بگو
+    if max(asset.width or 0, asset.height or 0) > render.PREVIEW_SIDE:
+        notes.insert(0, EXPORT_CAP_NOTE)
     if fmt == "svg":
         try:
             data, n4 = exportfmt.svg_bytes(state["layers"], frame.width, frame.height)

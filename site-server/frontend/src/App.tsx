@@ -27,6 +27,7 @@ import VideoEditorPage from "./features/content/VideoEditorPage";
 import MotionStudioPage from "./features/content/motion/MotionStudioPage";
 import ThumbnailMakerPage from "./features/content/thumbs/ThumbnailMakerPage";
 import IdeasPage from "./features/content/ideas/IdeasPage";
+import MascotPage from "./features/content/mascot/MascotPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import MultiAnglePage from "./features/content/multiangle/MultiAnglePage";
 import GuidedShootPage from "./features/shoot/GuidedShootPage";
@@ -174,6 +175,7 @@ export default function App() {
               <Route path="/stores/:id/thumbnails" element={<PageGate k="thumbnail_maker"><ThumbnailMakerPage /></PageGate>} />
               {/* بانکِ ایده: «این هفته چه پستی بگذارم؟» — ایده‌های آمادهٔ فارسی، ایده بساز، شروع از ایده */}
               <Route path="/stores/:id/ideas" element={<PageGate k="ideas"><IdeasPage /></PageGate>} />
+              <Route path="/stores/:id/mascot" element={<PageGate k="mascot"><MascotPage /></PageGate>} />
               {/* چندزاویه: از یک فیلمِ تک‌دوربین چند زاویه + برشِ خودکار، و حرکتِ دوربینِ ۲٫۵بعدی از یک نما */}
               <Route path="/stores/:id/multiangle" element={<PageGate k="multiangle"><MultiAnglePage /></PageGate>} />
               {/* فیلم‌برداریِ هدایت‌شده: تحلیل ⇐ برنامهٔ زاویه‌ها ⇐ عکاسی/فیلم‌برداری با راهنما ⇐ تدوین ⇐ پوستر و ویدیو */}

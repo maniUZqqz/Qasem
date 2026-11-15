@@ -70,7 +70,13 @@ async function downloadBlob(path: string, filename: string) {
 export default function ThumbnailMakerPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [urlParams] = useSearchParams();       // «از این ایده شروع کن» (بانکِ ایده): ?format=&title=&subtitle=&kicker=
+  const [urlParams, setSearchParams] = useSearchParams();       // «از این ایده شروع کن» (بانکِ ایده): ?format=&title=&subtitle=&kicker=
+  // «استفاده در تامنیل» از صفحهٔ ماسکوت: ?subject=<شناسهٔ عکسِ کتابخانه> (+ ?title= که بالا خوانده می‌شود)؛ subject فقط یک بار اعمال و از نشانی پاک می‌شود
+  const [subjectParam] = useState(() => {
+    const s = Number(urlParams.get("subject") || 0);
+    return s > 0 ? s : 0;
+  });
+  const subjectApplied = useRef(false);
   const [ov, setOv] = useState<Overview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [spec, setSpec] = useState<Spec | null>(null);
@@ -118,8 +124,17 @@ export default function ThumbnailMakerPage() {
         if (!fromIdea.title) return base;
         return { ...base, content: { ...base.content, title: fromIdea.title.slice(0, 110), subtitle: (fromIdea.subtitle ?? "").slice(0, 140), kicker: (fromIdea.kicker ?? "").slice(0, 34) } };
       });
-      const lib = await thumbsApi.library(id).catch(() => [] as LibraryAsset[]);
+      const lib = await thumbsApi.library(id, subjectParam || undefined).catch(() => [] as LibraryAsset[]);
       setAssets(Object.fromEntries(lib.map((a) => [a.id, a])));
+      if (subjectParam && !subjectApplied.current) {
+        subjectApplied.current = true;
+        setSpec((cur) => {
+          const base = cur ?? defaultSpec(o.default_format, "face_text");
+          return { ...base, subject: { ...base.subject, asset: subjectParam, mode: "cutout", outline: true } };
+        });
+        setNotice("ماسکوت به‌عنوانِ سوژه گذاشته شد؛ پس‌زمینه‌اش شفاف است و نیازی به «حذفِ پس‌زمینه» نیست.");
+        setSearchParams({}, { replace: true });
+      }
     } catch (e) {
       setLoadError(errorMessage(e));
     }

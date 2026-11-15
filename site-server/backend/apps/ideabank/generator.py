@@ -27,6 +27,7 @@ LIKED_LIMIT = 6
 TITLES_LIMIT = 140
 KNOWN_PLACEHOLDERS = set(fill.FALLBACK) | {"فروشگاه"}
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️]")
+_HAS_DIGIT = re.compile("[0-9۰-۹٠-٩]")
 
 SYSTEM = (
     "You write short Persian content ideas for ONE specific small online shop (Instagram and Telegram). You answer with a single valid JSON object and "
@@ -37,7 +38,24 @@ SYSTEM = (
 
 # ───────────────────────────── واقعیت‌های فروشگاه
 
-def facts_of(store, product=None) -> dict:
+def default_product_names(store, variation: int = 0, limit: int = 6) -> list[str]:
+    """نامِ چند محصولِ خودِ فروشگاه برای وقتی که کاربر نه موضوعی نوشته نه محصولی انتخاب کرده؛ هر بار با ``variation`` چرخیده می‌شود."""
+    if not getattr(store, "pk", 0):
+        return []
+    try:
+        from apps.products.models import Product
+
+        names = [str(n).strip() for n in Product.objects.filter(store=store).order_by("pk").values_list("name", flat=True)[:40] if str(n).strip()]
+    except Exception:  # noqa: BLE001 — فهرستِ محصول فقط تزئینِ ایده‌هاست
+        return []
+    names = sorted(dict.fromkeys(names), key=lambda n: bool(_HAS_DIGIT.search(n)))     # نامِ بی‌عدد اول (عدد در نام خودش «ادعا»ی ایده می‌شود)؛ پایدار
+    if names and variation:
+        shift = variation % len(names)
+        names = names[shift:] + names[:shift]
+    return names[:limit]
+
+
+def facts_of(store, product=None, product_names: list[str] | None = None) -> dict:
     prof = getattr(store, "profile", None)
     f = {
         "store": store.name, "business": store.business_type or "", "about": (store.description or "")[:240], "audience": store.target_audience or "",
@@ -45,21 +63,23 @@ def facts_of(store, product=None) -> dict:
     }
     if product is not None:
         f["product"] = {"name": product.name, "short": (product.short_description or product.description or "")[:200], "brand": product.brand or ""}
+    elif product_names:
+        f["products"] = list(product_names)
     return f
 
 
-def source_text(store, product, topic: str, instruction: str, facts: list[str]) -> str:
+def source_text(store, product, topic: str, instruction: str, facts: list[str], product_names: list[str] | None = None) -> str:
     """متنی که خودِ کاربر/فروشگاه نوشته؛ واژه یا عددی که این‌جاست «ادعای ساختگی» حساب نمی‌شود."""
-    return " ".join([topic or "", instruction or "", *facts, json.dumps(facts_of(store, product), ensure_ascii=False)])
+    return " ".join([topic or "", instruction or "", *facts, json.dumps(facts_of(store, product, product_names), ensure_ascii=False)])
 
 
 # ───────────────────────────── پرسش از هوش مصنوعی
 
 def build_prompt(*, store, product, category: str, count: int, topic: str, instruction: str, facts: list[str], liked: list[dict],
-                 existing_titles: list[str]) -> str:
+                 existing_titles: list[str], product_names: list[str] | None = None) -> str:
     cat_line = (f"Category: {CATEGORIES[category]['fa']} — {CATEGORIES[category]['hint']}" if category else
                 "Category: mix — give each idea its own category, one of: " + ", ".join(f"{k} ({v['fa']})" for k, v in CATEGORIES.items()))
-    shop = json.dumps({k: v for k, v in facts_of(store, product).items() if v}, ensure_ascii=False)
+    shop = json.dumps({k: v for k, v in facts_of(store, product, product_names).items() if v}, ensure_ascii=False)
     ctx = {
         "owner_topic": topic or None, "owner_instruction": instruction or None, "brand_facts_verbatim": facts or None,
         "liked": [{"title": x["filled"]["title"], "logline": x["filled"]["logline"]} for x in liked[:LIKED_LIMIT]] or None,
@@ -110,6 +130,8 @@ def clean_ai_ideas(parsed, *, category: str, source: str, taken: set[str], limit
         if not (2 <= len(title.split()) <= 12) or len(title) > 100 or len(logline) < 15 or len(hook) < 4:
             continue
         joined = " ".join([title, logline, hook, shoot, cta])
+        if not (guard.is_persian(title) and guard.is_persian(logline) and guard.is_persian(hook)):
+            continue                                                 # جوابِ انگلیسی/غیرفارسیِ مدل در پنلِ فارسی ذخیره نمی‌شود
         if guard.problems(joined, source):
             continue
         if any(p not in KNOWN_PLACEHOLDERS for p in guard.PLACEHOLDER.findall(joined)):
@@ -145,7 +167,8 @@ def generate(store, *, category: str = "", count: int = 5, topic: str = "", inst
     taken = bank.existing_titles(store, ctx)
     # عنوان‌های موجودِ همین دسته (و بعد بقیه) برای اینکه مدل تکرار نکند
     titles = [r["filled"]["title"] for r in all_rows if not category or r["category"] == category] + [r["filled"]["title"] for r in all_rows if category and r["category"] != category]
-    source = source_text(store, product, topic, instruction, facts)
+    names = default_product_names(store, variation) if (product is None and not topic) else []
+    source = source_text(store, product, topic, instruction, facts, names)
 
     ai_info = {"tried": False, "ok": False, "label": "", "reason": ""}
     ideas: list[dict] = []
@@ -153,7 +176,7 @@ def generate(store, *, category: str = "", count: int = 5, topic: str = "", inst
         ai_info["tried"] = True
         try:
             prompt = build_prompt(store=store, product=product, category=category, count=count, topic=topic, instruction=instruction, facts=facts,
-                                  liked=liked, existing_titles=titles)
+                                  liked=liked, existing_titles=titles, product_names=names)
             parsed, info = (ask or ai.default_ask)(store, prompt, SYSTEM)
             ideas = clean_ai_ideas(parsed, category=category, source=source, taken=taken, limit=count)
             ai_info.update(ok=bool(ideas), label=str((info or {}).get("label") or ""))
@@ -171,12 +194,13 @@ def generate(store, *, category: str = "", count: int = 5, topic: str = "", inst
         if len(ideas) < min(3, count):
             have = set(taken) | {bank.title_key(i["title"]) for i in ideas}
             ideas += formulas.rule_ideas(ctx=ctx, topic=topic, product_name=getattr(product, "name", ""), facts=facts, category=category,
-                                         count=count - len(ideas), variation=variation, liked=liked, taken=have, source=source, today=today)
+                                         count=count - len(ideas), variation=variation, liked=liked, taken=have, source=source, today=today,
+                                         product_names=names)
             via = "mixed"
         ideas = ideas[:count]
     else:
         ideas = formulas.rule_ideas(ctx=ctx, topic=topic, product_name=getattr(product, "name", ""), facts=facts, category=category, count=count,
-                                    variation=variation, liked=liked, taken=taken, source=source, today=today)
+                                    variation=variation, liked=liked, taken=taken, source=source, today=today, product_names=names)
     if not ideas:
         raise ValueError("برای این درخواست ایدهٔ تازه‌ای نمانده؛ موضوعِ دیگری بنویسید، دستهٔ دیگری را امتحان کنید یا چند واقعیتِ برند اضافه کنید.")
 

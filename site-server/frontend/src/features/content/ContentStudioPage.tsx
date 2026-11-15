@@ -134,7 +134,7 @@ export default function ContentStudioPage() {
       {brief && (
         <div className="mb-4">
           <Alert tone="info" title="از بانکِ ایده">
-            خلاصهٔ ایده در کادرِ «هدف» گذاشته شد؛ پیش از ساخت بخوانید و با واقعیتِ فروشگاه تطبیقش بدهید. <Link to={`/stores/${id}/ideas`}>بازگشت به بانکِ ایده</Link>
+            خلاصهٔ ایده در کادرِ «{tab === "image" ? "توضیحات بیشتر" : "هدف"}» گذاشته شد؛ پیش از ساخت بخوانید و با واقعیتِ فروشگاه تطبیقش بدهید. <Link to={`/stores/${id}/ideas`}>بازگشت به بانکِ ایده</Link>
           </Alert>
         </div>
       )}

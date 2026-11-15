@@ -162,6 +162,10 @@ class StartTests(ApiBase):
         self.assertEqual(b["title"], "اگر محصول را این‌طور به کار می‌بری")                    # قلاب (تا اولین «،») عنوانِ تامنیل است
         self.assertEqual(b["subtitle"], "اشتباهِ رایج دربارهٔ محصول")                         # عنوانِ ایده زیرعنوان
         self.assertLessEqual(len(b["title"]), 100)
+        for key in BUILTIN_IDEAS:                                                             # هیچ تامنیلی عنوان و زیرعنوانِ یکسان یا عنوانِ نیمه‌کاره ندارد
+            t = self.api.post(f"{self.base}/{key}/start/", {"target": "thumbnail"}, format="json").json()
+            self.assertNotEqual(bank.title_key(t["title"]), bank.title_key(t["subtitle"]), key)
+            self.assertNotIn(t["title"].split(" ")[-1], ("از", "به", "در", "با", "را", "و", "که", "یک", "برای"), (key, t["title"]))
         c = self.api.post(f"{self.base}/tips_howto/start/", {"target": "thumbnail"}, format="json").json()
         self.assertEqual(c["format"], "ig_portrait")
         t = bank.create_idea(self.store, {"title": "خبرِ کانال", "logline": "برای کانال", "channel": "telegram", "format": "photo"})
@@ -169,17 +173,58 @@ class StartTests(ApiBase):
 
     def test_calendar_handoff_creates_a_planned_content_task(self):
         camp = Campaign.objects.create(store=self.store, product=self.product, name="کمپینِ نمونه")
-        r = self.api.post(f"{self.base}/tips_mistake/start/", {"target": "calendar", "campaign": camp.pk, "due": "2026-12-01"}, format="json")
+        day = (timezone.localdate() + dt.timedelta(days=20)).isoformat()
+        r = self.api.post(f"{self.base}/tips_mistake/start/", {"target": "calendar", "campaign": camp.pk, "due": day}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
         task = CampaignTask.objects.get(pk=r.json()["task_id"])
         self.assertEqual((task.campaign_id, task.store_id, task.kind), (camp.pk, self.store.pk, "CONTENT"))
         self.assertTrue(task.title and "قلاب" in task.detail and "چه چیزی بگیریم" in task.detail and "ریلز" in task.detail)
-        self.assertEqual(timezone.localtime(task.due_at).date().isoformat(), "2026-12-01")
+        self.assertEqual(timezone.localtime(task.due_at).date().isoformat(), day)
         self.assertEqual(timezone.localtime(task.due_at).hour, 10)
         self.assertIn("از بانکِ ایده", task.because)
         planned = self.api.get(f"/api/v1/stores/{self.store.pk}/planned/").json()                  # همان فهرستی که «تقویم انتشار» نشان می‌دهد
         self.assertEqual([p["id"] for p in planned], [task.pk])
         self.assertEqual(IdeaUse.objects.get(store=self.store, target="calendar").task_id, task.pk)
+
+    def test_calendar_refuses_a_date_in_the_past_but_accepts_today(self):
+        camp = Campaign.objects.create(store=self.store, product=self.product, name="کمپینِ نمونه")
+        url = f"{self.base}/tips_mistake/start/"
+        past = self.api.post(url, {"target": "calendar", "campaign": camp.pk, "due": "2020-01-01"}, format="json")
+        self.assertEqual(past.status_code, 400)
+        self.assertEqual(past.json()["error"]["code"], "past_due")
+        self.assertIn("گذشته", past.json()["error"]["message"])
+        yesterday = (timezone.localdate() - dt.timedelta(days=1)).isoformat()
+        self.assertEqual(self.api.post(url, {"target": "calendar", "campaign": camp.pk, "due": yesterday}, format="json").status_code, 400)
+        self.assertEqual(CampaignTask.objects.filter(store=self.store).count(), 0)                  # چیزی ساخته نشد
+        by_product = self.api.post(url, {"target": "calendar", "product": self.product.pk, "due": "2020-01-01"}, format="json")
+        self.assertEqual(by_product.status_code, 400)
+        self.assertFalse(Campaign.objects.filter(store=self.store, name__startswith="برنامهٔ محتوا").exists())   # حتی «برنامهٔ محتوا» ساخته نشد
+        today = timezone.localdate().isoformat()
+        self.assertEqual(self.api.post(url, {"target": "calendar", "campaign": camp.pk, "due": today}, format="json").status_code, 201)
+
+    def test_real_chagher_products_make_whole_titles_in_the_cards_and_the_hand_offs(self):
+        from . import fill
+        from .tests_bank import CHAGHER_PRODUCTS
+
+        products = [Product.objects.create(store=self.store, name=n, price=0) for n in CHAGHER_PRODUCTS]
+        camp = Campaign.objects.create(store=self.store, product=products[0], name="کمپینِ چغر")
+        for p in products:
+            rows = self.api.get(f"{self.base}/", {"product": p.pk}).json()["ideas"]
+            with_name = [r for r in rows if "{محصول}" in r["title"]]
+            self.assertTrue(with_name)
+            for r in with_name:
+                self.assertIn(p.name, r["filled"]["title"])
+            for r in rows:
+                self.assertTrue(fill.balanced(r["filled"]["title"]), r["filled"]["title"])
+            key = with_name[0]["key"]
+            made = self.api.post(f"{self.base}/{key}/start/", {"target": "calendar", "campaign": camp.pk, "product": p.pk}, format="json").json()
+            task = CampaignTask.objects.get(pk=made["task_id"])
+            self.assertIn(p.name, task.title)
+            self.assertTrue(fill.balanced(task.title) and fill.balanced(task.detail), task.title)
+            th = self.api.post(f"{self.base}/{key}/start/", {"target": "thumbnail", "product": p.pk}, format="json").json()
+            self.assertTrue(fill.balanced(th["title"]) and fill.balanced(th["subtitle"]), th)
+            brief = self.api.post(f"{self.base}/{key}/start/", {"target": "studio", "product": p.pk}, format="json").json()
+            self.assertTrue(fill.balanced(brief["brief"]), brief["brief"])
 
     def test_calendar_by_product_makes_one_content_plan_campaign(self):
         for key in ("tips_mistake", "tips_howto"):

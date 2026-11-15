@@ -4,10 +4,13 @@
 SOURCE: آزمون‌ها از InstAI:tests/test_idea_bank.py @ 2f8aa90 (جلوگیری از تکرارِ عنوان، پرامپتِ ایده‌ساز، ذخیره به‌عنوانِ ایدهٔ خودِ کاربر) و
 NM:apps/thumbs/tests_ideation.py (هوش مصنوعیِ ساختگی، فرمول‌های بدونِ ادعای ساختگی، متیسِ بی‌اعتبار)."""
 import datetime as dt
+import threading
+import time
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
+from apps.products.models import Product
 from apps.stores.models import Store
 
 from . import ai, bank, fill, formulas, generator, guard
@@ -118,6 +121,48 @@ class FormulaPathTests(TestCase):
         r2 = self.gen(count=8, topic="", use_ai=False)
         self.assertTrue(any("نرم‌افزار برای مربیان ورزشی" in i["title"] or "نرم‌افزار" in i["title"] for i in r2["ideas"]))
 
+    def test_no_topic_and_no_product_uses_the_stores_own_products_and_does_not_run_dry(self):
+        from .tests_bank import CHAGHER_PRODUCTS
+
+        for n in CHAGHER_PRODUCTS:
+            Product.objects.create(store=self.store, name=n, price=0)
+        names = generator.default_product_names(self.store)
+        self.assertEqual(len(names), 5)
+        self.assertEqual(names[-1], CHAGHER_PRODUCTS[0])                                      # نامِ دارای عدد آخر می‌آید
+        self.assertEqual(generator.default_product_names(self.store, variation=1)[0], names[1])      # با variation می‌چرخد
+        self.assertEqual(generator.default_product_names(type("S", (), {"pk": 0})()), [])           # فروشگاهِ ذخیره‌نشده: بی‌محصول
+        seen: set[str] = set()
+        used_products: set[str] = set()
+        for _ in range(4):
+            r = generator.generate_and_save(self.store, count=8, category="tips", use_ai=False, ctx=self.ctx, today=TODAY)
+            for i in r["ideas"]:
+                self.assertNotIn(i["title"], seen)
+                seen.add(i["title"])
+                self.assertTrue(fill.balanced(i["title"]), i["title"])
+                used_products |= {n for n in CHAGHER_PRODUCTS if n in i["title"]}
+        self.assertGreaterEqual(len(seen), 30)                                                # پیش‌تر بعد از ~۶ ایده «چیزی نمانده» بود
+        self.assertGreaterEqual(len(used_products), 3)                                        # ایده‌ها برای چند محصولِ واقعی‌اند، نه فقط «حوزه»
+
+    def test_a_domain_that_already_names_its_audience_is_not_followed_by_another_audience(self):
+        r = self.gen(count=12, topic="", use_ai=False)                                        # فروشگاهِ آزمون: «نرم‌افزار برای مربیان ورزشی»، بی‌محصول
+        for i in r["ideas"]:                                                                  # «چک‌لیستِ نرم‌افزار برای مربیان ورزشی برای مربی‌های باشگاه…» ممنوع
+            self.assertFalse("نرم‌افزار برای مربیان ورزشی" in i["title"] and "مربی‌های باشگاه" in i["title"], i["title"])
+        self.assertTrue(any("نرم‌افزار برای مربیان ورزشی" in i["title"] for i in r["ideas"]))     # حوزه کامل، نه «نرم‌افزار» به‌تنهایی
+
+    def test_slogans_never_become_facts_or_a_question_about_a_slogan(self):
+        facts = ["با چغر چغر تر شو", "تصمیمِ نهایی با مربی است"]
+        r = self.gen(count=12, topic="برنامهٔ ورزشی", facts=facts, use_ai=False)
+        by = {}
+        for i in r["ideas"]:
+            by.setdefault(i["formula"], []).append(i)
+        for key in ("fact_say", "fact_faq"):
+            for i in by.get(key, []):
+                self.assertNotIn(facts[0], i["title"] + i["logline"] + i["hook"], key)        # شعار «واقعیت» و موضوعِ «پرسش و پاسخ» نیست
+                self.assertIn("تصمیمِ نهایی", i["logline"] + i["hook"])
+        self.assertTrue(by.get("fact_slogan"), "شعار باید قالبِ خودش را داشته باشد")
+        for i in by["fact_slogan"]:
+            self.assertIn(facts[0], i["logline"])
+
     def test_repeat_clicks_give_new_ideas_until_the_formulas_run_out(self):
         seen: set[str] = set()
         for _ in range(4):
@@ -186,6 +231,61 @@ class AIPathTests(TestCase):
         self.assertEqual((first["category"], first["format"], first["channel"]), ("tips", "carousel", "both"))
         self.assertEqual(first["tags"], ["آموزش", "مربی"])
         self.assertIn("هوش مصنوعی نوشت", r["message"]) if r["via"] == "ai" else self.assertIn("تکمیل شد", r["message"])
+
+    def test_an_english_only_idea_is_dropped_but_a_latin_brand_name_is_fine(self):
+        def english(store, prompt, system):
+            return ({"ideas": [
+                {"category": "tips", "title": "Five tips for coaches today", "logline": "Five short tips that every coach can try today.", "hook": "Try this today", "format": "reel"},
+                {"category": "tips", "title": "Mixed idea with Persian hook", "logline": "An English sentence with only one Persian word سلام here.",
+                 "hook": "سلام", "format": "reel"},
+                {"category": "tips", "title": "راهنمای کوتاه برای Chagher", "logline": "نشان بدهید چطور با Chagher پیش‌نویسِ برنامه ساخته می‌شود، گام‌به‌گام.",
+                 "hook": "با Chagher شروع کن.", "format": "reel"},
+            ]}, {})
+
+        out = generator.clean_ai_ideas(english(None, "", "")[0], category="", source="", taken=set())
+        self.assertEqual([i["title"] for i in out], ["راهنمای کوتاه برای Chagher"])
+        r = generator.generate(self.store, count=3, use_ai=True, ask=english, ctx=self.ctx)
+        self.assertNotIn("Five tips", " ".join(i["title"] for i in r["ideas"]))
+        self.assertTrue(guard.is_persian("مربیِ تازه‌کار") and not guard.is_persian("Hello coach") and not guard.is_persian("۱۲۳"))
+
+    def test_a_busy_node_falls_back_to_formulas_after_the_wait_instead_of_hanging(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        release = threading.Event()
+
+        def slow_router(store, prompt, system):
+            release.wait(10)
+            return {"ideas": []}, {}
+
+        ai._inflight.clear()
+        self.addCleanup(ai._inflight.clear)
+        self.addCleanup(release.set)
+        t0 = time.monotonic()
+        with override_settings(IS_TEST=False), mock.patch.object(ai, "_ask_router", slow_router), mock.patch.object(ai, "AI_TIMEOUT", 0.2):
+            r = generator.generate(self.store, count=4, topic="قهوه", use_ai=True, ctx=self.ctx)       # ask=None ⇒ مسیرِ واقعیِ default_ask
+        self.assertLess(time.monotonic() - t0, 5)
+        self.assertEqual(r["via"], "formula")
+        self.assertEqual(len(r["ideas"]), 4)
+        self.assertIn("ثانیه جواب نداد", r["ai"]["reason"])
+        self.assertIn("هوش مصنوعی در دسترس نبود", r["message"])
+
+    def test_the_prompt_lists_the_stores_products_only_when_none_was_chosen(self):
+        from .tests_bank import CHAGHER_PRODUCTS
+
+        for n in CHAGHER_PRODUCTS[1:3]:
+            Product.objects.create(store=self.store, name=n, price=0)
+        seen = {}
+
+        def spy(store, prompt, system):
+            seen["prompt"] = prompt
+            return {"ideas": []}, {}
+
+        generator.generate(self.store, count=3, use_ai=True, ask=spy, ctx=self.ctx)
+        self.assertIn(CHAGHER_PRODUCTS[1], seen["prompt"])
+        generator.generate(self.store, count=3, topic="قهوه", use_ai=True, ask=spy, ctx=self.ctx)
+        self.assertNotIn(CHAGHER_PRODUCTS[1], seen["prompt"])                                 # با موضوعِ مشخص، فهرستِ محصول‌ها نمی‌آید
 
     def test_enough_good_ideas_means_via_ai_and_a_slot_survives(self):
         def many(store, prompt, system):
@@ -274,3 +374,49 @@ class AIPathTests(TestCase):
         before = StoreIdea.objects.count()
         generator.generate(self.store, count=3, topic="چای", use_ai=False, ctx=self.ctx)
         self.assertEqual(StoreIdea.objects.count(), before)
+
+
+class BoundedWaitTests(SimpleTestCase):
+    """«ایده بساز» هرگز بی‌پایان منتظرِ هوش مصنوعی نمی‌ماند (بازبینی ۱۴۰۵/۰۸/۲۴: AI_TIMEOUT تعریف شده بود ولی استفاده نمی‌شد)."""
+
+    def setUp(self):
+        ai._inflight.clear()
+        self.addCleanup(ai._inflight.clear)
+
+    def test_a_fast_call_returns_its_value_and_an_error_is_passed_on(self):
+        self.assertEqual(ai.run_bounded(1, lambda: ({"ideas": [1]}, {"label": "x"}), timeout=5), ({"ideas": [1]}, {"label": "x"}))
+
+        def boom():
+            raise ai.AIUnavailable("متیس: اعتبار تمام شده (۴۰۲)")
+
+        with self.assertRaises(ai.AIUnavailable) as cm:
+            ai.run_bounded(1, boom, timeout=5)
+        self.assertIn("۴۰۲", str(cm.exception))
+        with self.assertRaises(KeyError):
+            ai.run_bounded(1, lambda: {}["x"], timeout=5)
+
+    def test_a_slow_call_gives_up_with_a_persian_reason_and_a_second_click_does_not_queue_more(self):
+        release = threading.Event()
+        started = []
+
+        def slow():
+            started.append(time.monotonic())
+            release.wait(10)
+            return {"ideas": []}, {}
+
+        t0 = time.monotonic()
+        with self.assertRaises(ai.AIUnavailable) as cm:
+            ai.run_bounded(7, slow, timeout=0.2)
+        self.assertLess(time.monotonic() - t0, 3)                                            # سقف رعایت شد، نه ۹۰۰ ثانیه
+        self.assertIn("ثانیه جواب نداد", str(cm.exception))
+        with self.assertRaises(ai.AIUnavailable) as cm2:                                      # همان فروشگاه: کارِ قبلی هنوز در صف است
+            ai.run_bounded(7, slow, timeout=0.2)
+        self.assertIn("هنوز در صفِ", str(cm2.exception))
+        self.assertEqual(len(started), 1)                                                     # کارِ دوم شروع نشد
+        self.assertEqual(ai.run_bounded(8, lambda: "other store", timeout=2), "other store")   # فروشگاهِ دیگر آزاد است
+        release.set()
+        for _ in range(50):                                                                   # کارِ قبلی تمام شد ⇒ دوباره آزاد
+            if not ai._inflight[7].is_alive():
+                break
+            time.sleep(0.05)
+        self.assertEqual(ai.run_bounded(7, lambda: "again", timeout=2), "again")

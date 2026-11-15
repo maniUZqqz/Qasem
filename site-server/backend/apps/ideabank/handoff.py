@@ -56,25 +56,42 @@ def studio(idea: dict, *, product_id: int | None = None) -> dict:
             "detail": detail_text(idea), "needs_data": idea["slots"]}
 
 
+THUMB_TITLE_WORDS, THUMB_TITLE_CHARS = 12, 90
+
+
+def _whole(text: str, max_words: int, max_chars: int) -> str:
+    """عبارت را فقط وقتی برمی‌گرداند که کامل جا شود (بریدنِ نیمه‌کاره = رشتهٔ خالی)."""
+    full = fill.clip_phrase(text, 999, 9999)
+    return full if full and fill.clip_phrase(full, max_words, max_chars) == full else ""
+
+
 def hook_title(hook: str, fallback: str) -> str:
-    """قلابِ ایده ⇒ عنوانِ کوتاهِ تامنیل: اولین بندِ جمله (تا «،» یا «؛»)، حداکثر ۱۰ واژه و روی مرزِ واژه؛ «؟» می‌ماند."""
+    """قلابِ ایده ⇒ عنوانِ تامنیل: اولین بندِ جمله (تا «،» یا «؛»)، «؟» می‌ماند.
+
+    اگر بند در ۱۲ واژه و ۹۰ حرف جا نشود، به‌جای بریدنِ جمله از میانه («… دیجیتال یک چیز») عنوانِ خودِ ایده می‌آید که همیشه عبارتی کامل است."""
     h = (hook or "").strip()
     if not h:
-        return fill.clip_phrase(fallback, 10, 100)
+        return fill.clip_phrase(fallback, THUMB_TITLE_WORDS, 100)
     first = re.split(r"[،؛:]", h, maxsplit=1)[0].strip()
     if len(first.split()) < 3:
         first = h
     mark = "؟" if first.rstrip().endswith(("؟", "?")) else ""
-    clipped = fill.clip_phrase(first, 10, 100)
-    return (clipped + mark) if clipped else fill.clip_phrase(fallback, 10, 100)
+    whole = _whole(first, THUMB_TITLE_WORDS, THUMB_TITLE_CHARS)
+    if whole:
+        return whole + mark
+    return fill.clip_phrase(fallback, THUMB_TITLE_WORDS, 100) or fill.clip_phrase(first, THUMB_TITLE_WORDS, THUMB_TITLE_CHARS)
 
 
 def thumbnail(idea: dict) -> dict:
-    """تامنیل‌ساز: «قلاب» عنوانِ تامنیل می‌شود و عنوانِ ایده زیرعنوان؛ قالب از قالبِ ایده و کانال."""
+    """تامنیل‌ساز: «قلاب» عنوانِ تامنیل می‌شود و عنوانِ ایده زیرعنوان؛ قالب از قالبِ ایده و کانال. اگر عنوانِ تامنیل همان عنوانِ ایده شد، زیرعنوان
+    اولین جملهٔ کاملِ توضیحِ ایده است (یا خالی)، نه تکرارِ عنوان."""
     f = idea["filled"]
     fmt = "telegram" if idea["channel"] == "telegram" else FORMATS[idea["format"]]["thumb_format"]
-    return {"format": fmt, "title": hook_title(f["hook"], f["title"]), "subtitle": fill.clip_phrase(f["title"], 14, 120),
-            "kicker": CATEGORIES[idea["category"]]["fa"][:34], "needs_data": idea["slots"]}
+    title = hook_title(f["hook"], f["title"])
+    subtitle = fill.clip_phrase(f["title"], 14, 120)
+    if bank.title_key(subtitle) == bank.title_key(title):
+        subtitle = _whole(re.split(r"[.؛!؟?]", f["logline"], maxsplit=1)[0], 16, 120)
+    return {"format": fmt, "title": title, "subtitle": subtitle, "kicker": CATEGORIES[idea["category"]]["fa"][:34], "needs_data": idea["slots"]}
 
 
 def task_detail(idea: dict) -> str:
@@ -126,6 +143,10 @@ def plan(store, idea: dict, *, campaign_id=None, product_id=None, due=None, toda
     from apps.campaigns.tasks_board import CampaignTask
     from apps.products.models import Product
 
+    # تاریخ پیش از هر چیزِ دیگر سنجیده می‌شود تا تاریخِ نادرست هیچ کمپین یا کاری نسازد
+    due_at = _aware(due, (suggested_due(idea, today)).date()) if due not in (None, "") else suggested_due(idea, today)
+    if due not in (None, "") and timezone.localtime(due_at).date() < (today or timezone.localdate()):
+        raise bank.BankError("past_due", "تاریخِ انتشار نباید گذشته باشد؛ امروز یا روزی در آینده را انتخاب کنید.")
     campaign = None
     if campaign_id not in (None, ""):
         try:
@@ -145,7 +166,6 @@ def plan(store, idea: dict, *, campaign_id=None, product_id=None, due=None, toda
             store=store, product=product, name=CAMPAIGN_NAME, goal="برنامهٔ پست‌ها", notes="کارهایی که از بانکِ ایده به تقویم آمده‌اند.")
     else:
         raise bank.BankError("need_campaign", "یک کمپین انتخاب کنید یا محصولی بدهید تا «برنامهٔ محتوا» برایش ساخته شود.")
-    due_at = _aware(due, (suggested_due(idea, today)).date()) if due not in (None, "") else suggested_due(idea, today)
     task = CampaignTask.objects.create(
         campaign=campaign, store=store, kind=CampaignTask.Kind.CONTENT, title=idea["filled"]["title"][:200], detail=task_detail(idea),
         because=f"از بانکِ ایده: {idea['filled']['title']}"[:300], due_at=due_at, order=campaign.tasks.count())

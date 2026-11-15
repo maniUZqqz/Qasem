@@ -6,11 +6,16 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
+#: «ایده بساز» هیچ‌وقت بیش از این منتظرِ هوش مصنوعی نمی‌ماند؛ بعدش فرمول‌های آماده جواب می‌دهند. مسیریاب اگر فقط لوکال مجاز باشد تا ۹۰۰ ثانیه برای
+#: نوبتِ سرورِ پردازش و تا ۷ دقیقه برای اجرا صبر می‌کند (کارِ ویدیو و رندر هم همان‌جاست)؛ برای یک دکمهٔ تعاملی این خیلی طولانی است.
 AI_TIMEOUT = 150
 PROMPT_ID = "ideabank_ideas"
+_inflight: dict = {}
+_inflight_lock = threading.Lock()
 
 
 class AIUnavailable(RuntimeError):
@@ -43,12 +48,61 @@ def _short(text: str, limit: int = 170) -> str:
     return t.strip(" .؛")
 
 
+def run_bounded(key, fn, timeout: float | None = None):
+    """``fn()`` را با سقفِ زمان اجرا می‌کند؛ بعد از سقف ``AIUnavailable`` می‌دهد و درخواست به فرمول‌های آماده می‌رود.
+
+    کارِ مسیریاب در یک رشتهٔ جدا می‌ماند (نمی‌شود وسطش قطعش کرد) و خودش تمام یا لغو می‌شود؛ تا آن موقع درخواستِ دوباره برای همان فروشگاه
+    کارِ تازه به صف نمی‌اندازد (وگرنه چند کلیکِ پشتِ‌هم گره را با کارهایی که کسی نتیجه‌شان را نمی‌خواهد پر می‌کرد)."""
+    wait = AI_TIMEOUT if timeout is None else timeout
+    box: dict = {}
+    with _inflight_lock:
+        prev = _inflight.get(key)
+        if prev is not None and prev.is_alive():
+            raise AIUnavailable("درخواستِ قبلیِ «ایده بساز» هنوز در صفِ سرورِ پردازش است؛ چند دقیقه بعد دوباره امتحان کنید.")
+
+        def work():
+            try:
+                box["value"] = fn()
+            except BaseException as exc:  # noqa: BLE001 — به رشتهٔ درخواست پس داده می‌شود
+                box["error"] = exc
+            finally:
+                try:
+                    from django.db import connection
+
+                    connection.close()                       # هر رشته اتصالِ خودش را دارد
+                except Exception:  # noqa: BLE001
+                    pass
+
+        worker = threading.Thread(target=work, name=f"ideabank-ai-{key}", daemon=True)
+        _inflight[key] = worker
+        worker.start()
+    worker.join(wait)
+    if worker.is_alive():
+        raise AIUnavailable(f"سرورِ پردازش در {int(wait)} ثانیه جواب نداد (احتمالاً سرگرمِ کارِ دیگری است)")
+    with _inflight_lock:
+        if _inflight.get(key) is worker:
+            del _inflight[key]
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 def default_ask(store, prompt: str, system: str) -> tuple[dict, dict]:
-    """⇒ (JSON، {label}). هر شکستی ⇒ AIUnavailable(دلیلِ فارسی)."""
+    """⇒ (JSON، {label}). هر شکستی ⇒ AIUnavailable(دلیلِ فارسی). حداکثر ``AI_TIMEOUT`` ثانیه صبر می‌کند."""
     from django.conf import settings
 
     if getattr(settings, "IS_TEST", False):
         raise AIUnavailable("زیرِ آزمون هوشِ مصنوعیِ واقعی صدا زده نمی‌شود.")
+    try:
+        return run_bounded(getattr(store, "pk", 0) or 0, lambda: _ask_router(store, prompt, system))
+    except AIUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 — متیسِ بی‌اعتبار (۴۰۲)، گرهٔ خاموش، سیاستِ داده، پیکربندی…
+        raise AIUnavailable(reason_text(exc)) from exc
+
+
+def _ask_router(store, prompt: str, system: str) -> tuple[dict, dict]:
+    """همان مسیریابِ پروژه (لوکال روی گره ⇒ متیس)؛ در رشتهٔ جدا و زیرِ سقفِ ``run_bounded`` صدا زده می‌شود."""
     try:
         from apps.ai.models import AIRequest
         from apps.ai.services import recorded_json_call
@@ -64,7 +118,7 @@ def default_ask(store, prompt: str, system: str) -> tuple[dict, dict]:
             validate=lambda d: (isinstance(d, dict) and isinstance(d.get("ideas"), list) and bool(d["ideas"]), ["ideas خالی است"]),
             validation_message="ایده‌ها ناقص بود")
         info = translate._describe(provider)
-    except Exception as exc:  # noqa: BLE001 — متیسِ بی‌اعتبار (۴۰۲)، گرهٔ خاموش، سیاستِ داده، پیکربندی…
+    except Exception as exc:  # noqa: BLE001
         raise AIUnavailable(reason_text(exc)) from exc
     return parsed, (info or {})
 

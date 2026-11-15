@@ -2,6 +2,7 @@
 
 SOURCE: آزمون‌ها از InstAI:tests/test_idea_bank.py @ 2f8aa90 گرفته و برای فروشگاه بازنویسی شده (normalise، فیلتر، علامت‌ها، کپی، فقط‌خواندنیِ آماده‌ها)."""
 import datetime as dt
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
@@ -9,7 +10,7 @@ from django.test import SimpleTestCase, TestCase
 from apps.products.models import Product
 from apps.stores.models import Store, StoreProfile
 
-from . import bank, fill
+from . import bank, demo, fill
 from .models import IdeaMark, IdeaUse, StoreIdea
 from .seeds import BUILTIN_IDEAS
 
@@ -58,8 +59,74 @@ class HookTitleTests(SimpleTestCase):
         self.assertEqual(hook_title("", "اشتباهِ رایج دربارهٔ محصول"), "اشتباهِ رایج دربارهٔ محصول")
         long_hook = "این یک قلابِ خیلی خیلی خیلی خیلی خیلی خیلی خیلی خیلی بلند بدونِ هیچ ویرگول است برای آزمون"
         out = hook_title(long_hook, "عنوان")
-        self.assertLessEqual(len(out.split()), 10)
+        self.assertLessEqual(len(out.split()), 12)
         self.assertNotIn(out.split()[-1], ("از", "به", "در", "با", "را", "و", "که"))
+
+    def test_a_hook_that_does_not_fit_gives_the_idea_title_not_a_cut_sentence(self):
+        from .handoff import hook_title
+
+        hook = "این فصل دربارهٔ نرم‌افزار و خدمات دیجیتال برای مربیان ورزشی یک چیز را فراموش نکن."
+        title = "نکتهٔ این فصل دربارهٔ نرم‌افزار و خدمات دیجیتال برای مربیان ورزشی"
+        self.assertEqual(hook_title(hook, title), title)                                       # نه «… ورزشی یک چیز»
+        short = "این فصل دربارهٔ برنامهٔ ورزشی یک چیز را فراموش نکن."
+        self.assertEqual(hook_title(short, title), "این فصل دربارهٔ برنامهٔ ورزشی یک چیز را فراموش نکن")   # جا می‌شود ⇒ کامل
+        self.assertEqual(hook_title("این را دربارهٔ برنامهٔ ورزشی (فقط ورزشی یا فقط غذایی) فراموش نکن؟", "عنوان"),
+                         "این را دربارهٔ برنامهٔ ورزشی (فقط ورزشی یا فقط غذایی) فراموش نکن؟")           # پرانتزِ بسته می‌ماند
+
+
+#: نامِ واقعیِ محصول‌های چغر (فروشگاهِ ۳۴؛ از پنلِ مالک)
+CHAGHER_PRODUCTS = [
+    "بستهٔ توکنِ «عادی» — ۵۰ توکن",
+    "برنامهٔ ورزشی + غذایی با هوش مصنوعی",
+    "برنامهٔ تکی با هوش مصنوعی (فقط ورزشی یا فقط غذایی)",
+    "برنامه‌سازِ دستیِ چغر (بدونِ هوش مصنوعی)",
+    "کتابخانهٔ حرکت‌ها و اسکنِ دستگاه",
+]
+
+
+class ProductNameTests(SimpleTestCase):
+    """«{محصول}» نامِ محصولِ مالک را هیچ‌وقت نیمه‌کاره نمی‌کند (بازبینی ۱۴۰۵/۰۸/۲۴: «… با هوش مصنوعی (فقط» و «… با هوش»)."""
+
+    def test_real_chagher_product_names_are_never_cut(self):
+        for name in CHAGHER_PRODUCTS:
+            self.assertEqual(fill.product_phrase(name), name)
+            self.assertEqual(fill.context(demo.stand_in(), SimpleNamespace(name=name))["values"]["محصول"], name)
+
+    def test_every_card_filled_with_a_real_product_keeps_brackets_closed(self):
+        from .seeds import BUILTIN_IDEAS
+
+        for name in CHAGHER_PRODUCTS:
+            ctx = fill.context(demo.stand_in(), SimpleNamespace(name=name))
+            for key, idea in BUILTIN_IDEAS.items():
+                for field in bank.TEXT_FIELDS:
+                    text = fill.fill_text(idea[field], ctx)
+                    self.assertTrue(fill.balanced(text), (key, field, text))
+                    if "{محصول}" in idea[field]:
+                        self.assertIn(name, text)                                               # نام کامل، نه بریده
+
+    def test_a_long_name_is_cut_on_a_word_and_never_inside_a_bracket_or_quote(self):
+        long_note = "برنامهٔ جامعِ تمرین و تغذیه برای مربیان و ورزشکاران حرفه‌ای (فقط ورزشی یا فقط غذایی یا هر دو با هم)"
+        out = fill.product_phrase(long_note)
+        self.assertEqual(out, "برنامهٔ جامعِ تمرین و تغذیه برای مربیان و ورزشکاران حرفه‌ای")      # توضیحِ پرانتزی اول می‌افتد
+        long_quote = "بستهٔ ویژهٔ «ورزشکارانِ حرفه‌ایِ باشگاه‌های بزرگِ شهرستان‌های دورِ ایران و همهٔ مربیانِ آن‌ها»"
+        for text in (long_quote, long_note + " و باز هم ادامهٔ بسیار بلندِ نام که جا نمی‌شود", "فقط (ورزشی یا غذایی", "«باز بدونِ بسته"):
+            out = fill.product_phrase(text)
+            self.assertTrue(fill.balanced(out), out)
+            self.assertLessEqual(len(out), fill.PRODUCT_CHARS)
+            self.assertNotIn(out.split(" ")[-1], fill._DANGLING)
+        self.assertEqual(fill.clip_phrase("", 5, 40), "")
+
+    def test_the_business_phrase_keeps_the_audience_part(self):
+        self.assertEqual(fill.business_phrase("نرم‌افزار و خدمات دیجیتال برای مربیان ورزشی"), "نرم‌افزار و خدمات دیجیتال برای مربیان ورزشی")
+        out = fill.business_phrase("فروشگاهِ اینترنتیِ لوازمِ ورزشی و تجهیزاتِ باشگاهیِ خانگی و حرفه‌ای برای همهٔ شهرها")
+        self.assertLessEqual(len(out.split()), 8)
+        self.assertNotIn(out.split(" ")[-1], fill._DANGLING)
+
+    def test_slogans_are_told_apart_from_statements(self):
+        for slogan in ("با چغر چغر تر شو", "همین حالا شروع کن!", "برنامهٔ خودت را بساز"):
+            self.assertTrue(fill.is_slogan(slogan), slogan)
+        for fact in ("تصمیمِ نهایی با مربی است", "پیش‌نویسِ برنامهٔ ورزشی و غذایی در کمتر از یک دقیقه", "چغر دستیارِ مربی‌هاست"):
+            self.assertFalse(fill.is_slogan(fact), fact)
 
 
 class FillTests(TestCase):
@@ -71,7 +138,7 @@ class FillTests(TestCase):
         ctx = fill.context(store, product)
         self.assertEqual(ctx["values"]["فروشگاه"], "چغر")
         self.assertEqual(ctx["values"]["مخاطب"], "مربی‌های باشگاه و مربی‌های شخصی")
-        self.assertEqual(ctx["values"]["حوزه"], "نرم‌افزار و خدمات دیجیتال")                  # حداکثر ۵ واژه و نه روی «برای»
+        self.assertEqual(ctx["values"]["حوزه"], "نرم‌افزار و خدمات دیجیتال برای مربیان ورزشی")   # حوزه کامل می‌ماند (تا ۸ واژه)، نه نیمه
         self.assertEqual(ctx["values"]["محصول"], "برنامه‌سازِ هوشمند")
         self.assertEqual(ctx["tone"], "صمیمی ولی حرفه‌ای")
         self.assertEqual(fill.fill_text("{محصول} برای {مخاطب} از {فروشگاه}", ctx), "برنامه‌سازِ هوشمند برای مربی‌های باشگاه و مربی‌های شخصی از چغر")

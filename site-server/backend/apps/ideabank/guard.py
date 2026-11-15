@@ -20,6 +20,23 @@ _DIGITS = re.compile(r"[0-9۰-۹٠-٩]+")
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️]")
 _FOLD_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
+# حرف‌های عربی/فارسی (U+0622-U+06D3 و شکل‌های نمایشی)؛ ارقامِ فارسی (U+06F0..) و عربی (U+0660..) حرف حساب نمی‌شوند
+_PERSIAN_LETTER = re.compile(r"[آ-ٰٟ-ۓﭐ-﷿ﹰ-﻿]")
+_LATIN_LETTER = re.compile("[A-Za-z]")
+
+
+def persian_share(text: str) -> float:
+    """سهمِ حرف‌های فارسی/عربی از همهٔ حرف‌ها (فارسی + لاتین)؛ متنِ بی‌حرف = ۰. ارقام و نشانه‌ها شمرده نمی‌شوند."""
+    t = str(text or "")
+    fa, en = len(_PERSIAN_LETTER.findall(t)), len(_LATIN_LETTER.findall(t))
+    return fa / (fa + en) if (fa + en) else 0.0
+
+
+def is_persian(text: str, minimum: float = 0.5) -> bool:
+    """متن فارسی است (نامِ لاتینِ برند در جمله مجاز است («با Chagher شروع کن»)، جملهٔ انگلیسی نه)."""
+    return persian_share(text) >= minimum
+
+
 #: جای خالی که صاحبِ فروشگاه باید با دادهٔ واقعی پر کند: «[پیشنهادِ واقعیِ شما]»
 SLOT = re.compile(r"\[[^\[\]]{1,80}\]")
 #: جای‌گیرِ خودکار: «{محصول}»

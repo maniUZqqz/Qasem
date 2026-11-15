@@ -32,6 +32,7 @@ class Formula:
     needs_fact: bool = False
     long_title: str = ""      # عنوانِ جایگزین وقتی واقعیت بلند است و در عنوان جا نمی‌شود
     long_hook: str = ""
+    fact_kind: str = "any"    # "any" هر جمله | "statement" فقط جملهٔ خبری (نه شعار) | "slogan" فقط شعار/دستورِ تبلیغاتی
 
 
 FORMULAS: tuple[Formula, ...] = (
@@ -158,7 +159,7 @@ FORMULAS: tuple[Formula, ...] = (
     Formula("fact_say", "product", "reel", "both", "یک واقعیت دربارهٔ {s}",
             "این جمله را که خودتان نوشته و تأیید کرده‌اید در یک ریلِ کوتاه بگویید: «{F}».",
             "{F}", "خودتان رو به دوربین یا همان جمله به‌صورتِ متنِ بزرگِ روی تصویر؛ بدونِ اضافه‌گویی و بدونِ عددِ تازه.", "بیشتر بدانید",
-            ("واقعیتِ برند", "ریلز"), True),
+            ("واقعیتِ برند", "ریلز"), True, "", "", "statement"),
     Formula("fact_card", "tips", "photo", "both", "کارتِ یک‌جمله‌ای: {f}",
             "همان جمله‌ای که خودتان نوشته‌اید («{F}») را در یک کارتِ تمیز با رنگ‌ها و فونتِ برند بگذارید.",
             "{F}", "کارتِ ساده با فونتِ برند؛ نامِ {s} در پایین. هیچ چیزی به جمله اضافه نکنید.", "ذخیره کن",
@@ -166,10 +167,25 @@ FORMULAS: tuple[Formula, ...] = (
     Formula("fact_faq", "faq", "story", "instagram", "پرسش و پاسخ دربارهٔ «{f}»",
             "از مخاطب بخواهید دربارهٔ این جمله («{F}») هر چه می‌خواهد بپرسد و جواب‌ها را در استوری‌های بعد بدهید.",
             "دربارهٔ «{f}» چه می‌خواهی بدانی؟", "برچسبِ «پرسش» روی همان جمله؛ جواب‌ها را فقط از دانشِ واقعیِ خودتان بدهید.", "پرسشت را بفرست",
-            ("واقعیتِ برند", "پرسش‌وپاسخ"), True, "پرسش و پاسخ دربارهٔ یکی از واقعیت‌های {s}", "دربارهٔ {s} چه می‌خواهی بدانی؟"),
+            ("واقعیتِ برند", "پرسش‌وپاسخ"), True, "پرسش و پاسخ دربارهٔ یکی از واقعیت‌های {s}", "دربارهٔ {s} چه می‌خواهی بدانی؟", "statement"),
+    # شعار (جملهٔ امری/تبلیغاتی) «واقعیت» نیست: برایش قالبِ جدا داریم تا «پرسش و پاسخ دربارهٔ شعار» ساخته نشود
+    Formula("fact_slogan", "product", "reel", "both", "شعارِ {s} در یک ریلِ کوتاه",
+            "شعارِ خودتان («{F}») را در یک ریلِ کوتاه به صحنه ببرید؛ شعار را عوض نکنید و چیزی به آن اضافه نکنید.",
+            "{F}", "چند برداشتِ کوتاه از چیزی که شعار می‌گوید و نوشتهٔ بزرگِ شعار در پایانِ ریل.", "همین حالا شروع کن",
+            ("شعارِ برند", "ریلز"), True, "", "", "slogan"),
 )
 BY_KEY = {f.key: f for f in FORMULAS}
 assert len(BY_KEY) == len(FORMULAS), "کلیدِ فرمول‌ها یکتا نیست"
+
+
+TITLE_MAX = 120
+
+
+def _fact_fits(f: Formula, fact: str) -> bool:
+    """جملهٔ برند به این قالب می‌خورد؟ (شعار فقط به قالبِ شعار و کارت؛ جملهٔ خبری به «واقعیت» و «پرسش و پاسخ».)"""
+    if f.fact_kind == "any":
+        return True
+    return fill.is_slogan(fact) == (f.fact_kind == "slogan")
 
 
 def _rot(seed: str) -> int:
@@ -185,7 +201,10 @@ def _render(f: Formula, *, m: str, a: str, s: str, fact: str = "") -> dict:
     def sub(text: str) -> str:
         return text.replace("{m}", m).replace("{a}", a).replace("{s}", s).replace("{f}", short).replace("{F}", fact)
 
-    return {"category": f.category, "format": f.format, "channel": f.channel, "tags": list(f.tags), "title": sub(title)[:120], "logline": sub(f.logline)[:600],
+    title_text = sub(title)
+    if len(title_text) > TITLE_MAX:
+        return None                                              # عنوان نیمه‌کاره بریده نمی‌شود: این فرمول برای این موضوع کنار می‌رود
+    return {"category": f.category, "format": f.format, "channel": f.channel, "tags": list(f.tags), "title": title_text, "logline": sub(f.logline)[:600],
             "hook": sub(hook)[:300], "shoot": sub(f.shoot)[:600], "cta": sub(f.cta)[:80], "occasion": None, "formula": f.key}
 
 
@@ -205,16 +224,20 @@ def upcoming_occasion(today: _dt.date | None = None, within_days: int = 45) -> d
 
 
 def rule_ideas(*, ctx: dict, topic: str = "", product_name: str = "", facts: list[str] | None = None, category: str = "", count: int = 6,
-               variation: int = 0, liked: list[dict] | None = None, taken: set[str] | None = None, source: str = "", today: _dt.date | None = None) -> list[dict]:
+               variation: int = 0, liked: list[dict] | None = None, taken: set[str] | None = None, source: str = "", today: _dt.date | None = None,
+               product_names: list[str] | None = None) -> list[dict]:
     """ایده‌های فرمولی (قطعی). ⇒ فهرستِ ایده‌های normalised با کلیدِ اضافهٔ ``formula``.
 
-    ``topic``: موضوعی که کاربر نوشته؛ بی‌موضوع از محصولِ انتخاب‌شده یا حوزهٔ فروشگاه استفاده می‌شود. ``liked``: ایده‌های ستاره‌دار؛ دسته و قالبِ آن‌ها
-    در انتخابِ فرمول وزن می‌گیرد. ``taken``: عنوان‌های موجود (title_key) تا ایده‌ی تکراری ساخته نشود."""
+    ``topic``: موضوعی که کاربر نوشته؛ بی‌موضوع از محصولِ انتخاب‌شده، و اگر آن هم نبود از ``product_names`` (محصول‌های خودِ فروشگاه، هر ایده برای یکی
+    از آن‌ها) و آخرِ همه از حوزهٔ فروشگاه استفاده می‌شود. ``liked``: ایده‌های ستاره‌دار؛ دسته و قالبِ آن‌ها در انتخابِ فرمول وزن می‌گیرد.
+    ``taken``: عنوان‌های موجود (title_key) تا ایده‌ی تکراری ساخته نشود."""
     from . import bank
 
     values = ctx["values"]
-    m = fill.clip_phrase(topic, 5, 40) or fill.clip_phrase(product_name, 5, 40) or (values["محصول"] if ctx["known"]["محصول"] else "") \
-        or (values["حوزه"] if ctx["known"]["حوزه"] else "") or "کارتان"
+    chosen = fill.clip_phrase(topic, 8, 64) or fill.product_phrase(product_name)
+    ms: list[str] = [chosen] if chosen else list(dict.fromkeys(x for x in (fill.product_phrase(n) for n in (product_names or [])) if x))
+    if not ms:
+        ms = [(values["محصول"] if ctx["known"]["محصول"] else "") or (values["حوزه"] if ctx["known"]["حوزه"] else "") or "کارتان"]
     a, s = values["مخاطب"], values["فروشگاه"]
     facts = [f.strip() for f in (facts or []) if f and f.strip()][:5]
     taken = set(taken or set())
@@ -222,39 +245,48 @@ def rule_ideas(*, ctx: dict, topic: str = "", product_name: str = "", facts: lis
     liked_fmt = {x["format"] for x in (liked or [])}
     count = max(1, min(12, int(count or 6)))
 
-    pool: list[tuple[Formula, str]] = []
+    pool: list[tuple[Formula, str, str]] = []
     for f in FORMULAS:
         if category and f.category != category:
             continue
         if f.needs_fact:
-            pool += [(f, fact) for fact in facts]
+            pool += [(f, fact, ms[0]) for fact in facts if _fact_fits(f, fact)]
         else:
-            pool.append((f, ""))
+            # «{m} برای {a}» وقتی خودِ موضوع «… برای …» است («نرم‌افزار برای مربیان ورزشی») «برای» را دوبار می‌آورد
+            pool += [(f, "", m) for m in ms if not ("برای {a}" in f.title and " برای " in m)]
 
-    def score(item: tuple[Formula, str]) -> tuple:
-        f, fact = item
+    def score(item: tuple[Formula, str, str]) -> tuple:
+        f, fact, m = item
         boost = (2 if f.category in liked_cat else 0) + (1 if f.format in liked_fmt else 0) + (2 if fact else 0)
         return (-boost, _rot(f"{topic}|{m}|{variation}|{f.key}|{fact}"))
 
     ranked = sorted(pool, key=score)
     out: list[dict] = []
     seen_cat: dict[str, int] = {}
-    # بدونِ دسته: از هر دسته یکی، تا ایده‌ها گوناگون باشند؛ بعد دورِ دوم
-    for rnd in range(3):
-        for f, fact in ranked:
+    seen_key: dict[str, int] = {}
+    # بدونِ دسته: از هر دسته یکی، تا ایده‌ها گوناگون باشند؛ بعد دورِ دوم. با چند محصول هر فرمول در هر دور برای یک محصول می‌آید.
+    for rnd in range(4 if len(ms) > 1 else 3):
+        for f, fact, m in ranked:
             if len(out) >= count:
                 break
             if not category and seen_cat.get(f.category, 0) > rnd:
                 continue
+            if not fact and seen_key.get(f.key, 0) > rnd:
+                continue
+            if any(o["formula"] == f.key and o.get("_fact") == fact and o.get("_m") == m for o in out):
+                continue
             idea = _render(f, m=m, a=a, s=s, fact=fact)
+            if idea is None:
+                continue
             k = bank.title_key(idea["title"])
-            if k in taken or any(o["formula"] == f.key and o.get("_fact") == fact for o in out):
+            if k in taken:
                 continue
             if guard.problems(" ".join(idea[x] for x in ("title", "logline", "hook", "shoot", "cta")), source or topic):
                 continue
-            idea["_fact"] = fact
+            idea["_fact"], idea["_m"] = fact, m
             taken.add(k)
             seen_cat[f.category] = seen_cat.get(f.category, 0) + 1
+            seen_key[f.key] = seen_key.get(f.key, 0) + 1
             out.append(idea)
 
     # مناسبتِ پیش‌رو (فقط وقتی دسته خواسته نشده یا «مناسبت» است)
@@ -268,6 +300,7 @@ def rule_ideas(*, ctx: dict, topic: str = "", product_name: str = "", facts: lis
                 out.append(idea)
     for o in out:
         o.pop("_fact", None)
+        o.pop("_m", None)
     return out[:count]
 
 

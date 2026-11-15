@@ -1,0 +1,51 @@
+/* بانکِ ایده — فقط توکن‌های index.css؛ تمِ روشن/تیره خودکار. جهتِ صفحه راست‌به‌چپ است. */
+.ib-root { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ib-h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; font-weight: 800; color: var(--text); }
+.ib-hint { margin: 6px 0 0; font-size: 12.5px; line-height: 1.9; color: var(--text-3); }
+.ib-hint a, .ib-link { color: var(--brand-strong); text-decoration: underline; text-underline-offset: 3px; }
+
+.ib-profile-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.ib-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.ib-product { min-width: min(100%, 260px); flex: 0 1 320px; }
+
+.ib-filters { display: flex; flex-direction: column; gap: 10px; }
+.ib-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.ib-chip { padding: 6px 12px; min-height: 36px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.ib-chip span { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ib-chip:hover { border-color: var(--line-strong); }
+.ib-chip.on { border-color: var(--brand); background: var(--brand-soft); color: var(--text); box-shadow: var(--glow); }
+.ib-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.ib-row select { width: auto; min-width: 140px; max-width: 100%; }
+.ib-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.ib-count { font-size: 12px; color: var(--text-3); }
+
+.ib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px; align-items: start; }
+.ib-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); min-width: 0; }
+.ib-card.is-hidden { opacity: .6; border-style: dashed; }
+.ib-card.is-fresh { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok-soft), 0 8px 28px -14px var(--ok); }
+.ib-card.is-open { border-color: var(--line-strong); }
+.ib-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ib-badges { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.ib-badges .u-badge { display: inline-flex; align-items: center; gap: 4px; }
+.ib-star { flex: none; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; }
+.ib-star:hover { border-color: var(--line-strong); color: var(--warn); }
+.ib-star.on { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.ib-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.8; color: var(--text); overflow-wrap: anywhere; }
+.ib-logline { margin: 0; font-size: 13px; line-height: 1.95; color: var(--text-2); overflow-wrap: anywhere; }
+.ib-hook { margin: 0; font-size: 13px; line-height: 1.9; color: var(--text); padding: 6px 10px; border-inline-start: 3px solid var(--brand); background: var(--brand-soft); border-radius: 0 8px 8px 0; overflow-wrap: anywhere; }
+.ib-more { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.95; color: var(--text-2); }
+.ib-more p { margin: 0; }
+.ib-more b { color: var(--text); }
+.ib-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.ib-tags span { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); }
+.ib-actions { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+
+.ib-start { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; padding: 12px; border-radius: 12px; border: 1px dashed var(--line-strong); background: var(--surface-2); }
+.ib-start section { display: flex; flex-direction: column; gap: 6px; }
+.ib-start h4 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 800; color: var(--text); }
+
+.ib-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin-bottom: 12px; }
+.ib-form .ib-wide { grid-column: 1 / -1; }
+.ib-form-sm { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 6px; }
+@media (max-width: 560px) { .ib-form { grid-template-columns: minmax(0, 1fr); } }
+.ib-editor, .ib-gen { border-color: var(--brand); }

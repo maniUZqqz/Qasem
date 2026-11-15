@@ -26,7 +26,7 @@ import ProductionQueuePage from "./features/content/ProductionQueuePage";
 import VideoEditorPage from "./features/content/VideoEditorPage";
 import MotionStudioPage from "./features/content/motion/MotionStudioPage";
 import ThumbnailMakerPage from "./features/content/thumbs/ThumbnailMakerPage";
-import MascotPage from "./features/content/mascot/MascotPage";
+import IdeasPage from "./features/content/ideas/IdeasPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import MultiAnglePage from "./features/content/multiangle/MultiAnglePage";
 import GuidedShootPage from "./features/shoot/GuidedShootPage";
@@ -172,7 +172,8 @@ export default function App() {
               <Route path="/stores/:id/motion" element={<PageGate k="motion"><MotionStudioPage /></PageGate>} />
               <Route path="/stores/:id/photo-editor" element={<PageGate k="photo_editor"><PhotoEditorPage /></PageGate>} />
               <Route path="/stores/:id/thumbnails" element={<PageGate k="thumbnail_maker"><ThumbnailMakerPage /></PageGate>} />
-              <Route path="/stores/:id/mascot" element={<PageGate k="mascot"><MascotPage /></PageGate>} />
+              {/* بانکِ ایده: «این هفته چه پستی بگذارم؟» — ایده‌های آمادهٔ فارسی، ایده بساز، شروع از ایده */}
+              <Route path="/stores/:id/ideas" element={<PageGate k="ideas"><IdeasPage /></PageGate>} />
               {/* چندزاویه: از یک فیلمِ تک‌دوربین چند زاویه + برشِ خودکار، و حرکتِ دوربینِ ۲٫۵بعدی از یک نما */}
               <Route path="/stores/:id/multiangle" element={<PageGate k="multiangle"><MultiAnglePage /></PageGate>} />
               {/* فیلم‌برداریِ هدایت‌شده: تحلیل ⇐ برنامهٔ زاویه‌ها ⇐ عکاسی/فیلم‌برداری با راهنما ⇐ تدوین ⇐ پوستر و ویدیو */}

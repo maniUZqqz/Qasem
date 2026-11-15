@@ -20,11 +20,11 @@ const KIND_LABEL: Record<string, string> = {
   ENHANCED: "بهبود عکس محصول",
 };
 
-export default function ImageStudioPanel({ product }: { product: Product }) {
+export default function ImageStudioPanel({ product, brief = "" }: { product: Product; brief?: string }) {
   const [images, setImages] = useState<GeneratedImageInfo[]>([]);
   const [kind, setKind] = useState<string>("POSTER");
   const [style, setStyle] = useState("");
-  const [instructions, setInstructions] = useState("");
+  const [instructions, setInstructions] = useState(brief.slice(0, 500));   // از بانکِ ایده: توضیحِ ایده
   const [sourceImageId, setSourceImageId] = useState<number | null>(null);
 
   const load = useCallback(async () => {

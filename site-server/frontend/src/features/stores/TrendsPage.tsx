@@ -203,6 +203,20 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
     }
   }
 
+  /** «ذخیره در بانکِ ایده»: ایدهٔ ترند به ایده‌های فروشگاه اضافه می‌شود (تکراری نمی‌شود). */
+  async function saveToBank(idea: Idea) {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await api.post(`/stores/${id}/ideas/from-trend/`, { trend_idea: idea.id });
+      setNotice(data.message);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function dismiss(idea: Idea) {
     try {
       await api.post(`/stores/${id}/trends/ideas/${idea.id}/dismiss/`);
@@ -334,6 +348,9 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
                   <div className="flex gap-2">
                     <Button onClick={() => use(idea)} disabled={busy || idea.expired || !idea.product}>
                       بساز
+                    </Button>
+                    <Button variant="secondary" onClick={() => saveToBank(idea)} disabled={busy}>
+                      ذخیره در بانکِ ایده
                     </Button>
                     <Button variant="ghost" onClick={() => dismiss(idea)}>
                       نه

@@ -504,8 +504,7 @@ class LibraryView(APIView):
 
     def get(self, request, store_id):
         store = _store(request, store_id, write=False)
-        include = request.query_params.get("include")
-        return Response({"assets": services.library(store, include_id=int(include) if str(include or "").isdigit() else None)})
+        return Response({"assets": services.library(store)})
 
 
 class LibraryUploadView(APIView):

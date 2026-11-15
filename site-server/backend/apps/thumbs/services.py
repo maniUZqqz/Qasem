@@ -530,13 +530,8 @@ def library_row(a: PhotoAsset) -> dict:
             "height": a.height, "has_alpha": a.has_alpha, "source_kind": a.source_kind, "product": a.product_id}
 
 
-def library(store, limit: int = 80, include_id: int | None = None) -> list[dict]:
-    rows = [library_row(a) for a in PhotoAsset.objects.filter(store=store).order_by("-pk")[:limit]]
-    if include_id and all(r["id"] != include_id for r in rows):          # مثلاً استیکرِ ماسکوت که از صفحهٔ ماسکوت باز شده
-        extra = PhotoAsset.objects.filter(store=store, pk=include_id).first()
-        if extra is not None:
-            rows.append(library_row(extra))
-    return rows
+def library(store, limit: int = 80) -> list[dict]:
+    return [library_row(a) for a in PhotoAsset.objects.filter(store=store).order_by("-pk")[:limit]]
 
 
 def products_for_picker(store, limit: int = 60) -> list[dict]:

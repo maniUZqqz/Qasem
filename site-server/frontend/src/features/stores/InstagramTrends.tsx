@@ -243,6 +243,13 @@ export default function InstagramTrends({ storeId }: { storeId: string }) {
       setNotice(r.note || (r.source === "ai" ? "ایده با هوش مصنوعی ساخته شد." : "ایده‌ی قالبی ساخته شد."));
     });
 
+  /** «ذخیره در بانکِ ایده»: همین موضوعِ ترند (با ایده‌ای که ساخته شده) در بانکِ ایده‌های فروشگاه می‌ماند. */
+  const saveToBank = (c: Cluster) =>
+    run(`bank-${c.id}`, async () => {
+      const { data: r } = await api.post(`/stores/${storeId}/ideas/from-trend/`, { cluster: c.id });
+      setNotice(r.message);
+    });
+
   const build = (clusterId: number) => {
     const pack = briefs[clusterId];
     if (!pack) return;
@@ -396,6 +403,7 @@ export default function InstagramTrends({ storeId }: { storeId: string }) {
                 canEdit={data.can_edit}
                 onIdea={() => makeIdea(c)}
                 onBuild={() => build(c.id)}
+                onSave={() => saveToBank(c)}
                 onDismiss={() => dismiss(c)}
               />
             ))}
@@ -509,6 +517,7 @@ function ClusterCard({
   canEdit,
   onIdea,
   onBuild,
+  onSave,
   onDismiss,
 }: {
   cluster: Cluster;
@@ -517,6 +526,7 @@ function ClusterCard({
   canEdit: boolean;
   onIdea: () => void;
   onBuild: () => void;
+  onSave: () => void;
   onDismiss: () => void;
 }) {
   const brief = pack?.brief ?? c.brief;
@@ -583,6 +593,11 @@ function ClusterCard({
           {pack && (
             <Button variant="secondary" onClick={onBuild} disabled={busy !== null || !pack.brief.product_id}>
               بساز
+            </Button>
+          )}
+          {brief && (
+            <Button variant="secondary" onClick={onSave} disabled={busy !== null}>
+              ذخیره در بانکِ ایده
             </Button>
           )}
           <Button variant="ghost" onClick={onDismiss} disabled={busy !== null} title="این موضوع به کارم نمی‌آید؛ از فهرست پنهان شود" aria-label="این موضوع به کارم نمی‌آید؛ پنهانش کن">

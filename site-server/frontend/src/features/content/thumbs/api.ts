@@ -270,8 +270,7 @@ export const thumbsApi = {
     (await api.post<{ jobs: BgJob[]; prompt: string; note: string }>(`${P(id)}/backgrounds/`, body)).data,
   bgStatus: async (id: string, uid: string) => (await api.get<BgJob>(`${P(id)}/backgrounds/${uid}/`)).data,
   bgCancel: async (id: string, uid: string) => api.delete(`${P(id)}/backgrounds/${uid}/`),
-  library: async (id: string, include?: number) =>
-    (await api.get<{ assets: LibraryAsset[] }>(`${P(id)}/library/`, { params: include ? { include } : {} })).data.assets,
+  library: async (id: string) => (await api.get<{ assets: LibraryAsset[] }>(`${P(id)}/library/`)).data.assets,
   upload: async (id: string, files: File[]) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));

@@ -523,6 +523,16 @@ class SelfTestRunTests(_Base):
                 html = ('<section class="nb-section nbc nbc-hero-center-glow"><div class="nb-wrap"><h1>با چغر چغر تر شو</h1>'
                         '<p>دستیار هوش مصنوعیِ مربی‌ها؛ پیش‌نویسِ برنامه را می‌سازد و تصمیمِ نهایی با مربی است.</p></div></section>')
                 return {"ollama.json": json.dumps({"response": html, "eval_count": 60, "eval_duration": 2000000000}).encode()}, {"device": "cuda"}
+            if "existing_titles" in str(p.get("prompt") or "") and "Reply with ONLY this JSON" in str(p.get("prompt") or ""):
+                # آزمونِ «بانکِ ایده: ایده بساز» (selftests/ideabank.py): مدل JSONِ {"ideas": [...]} با دو ایدهٔ فارسیِ بی‌عدد و بی‌قیمت می‌دهد
+                ideas = {"ideas": [
+                    {"title": "برنامهٔ ورزشی را از کجا شروع کنیم؟", "logline": "راهنمای شروعِ برنامهٔ ورزشی برای مربیِ تازه‌کار با چند اسلایدِ ساده.",
+                     "hook": "تازه سراغِ برنامه‌نویسی برای ورزشکار آمده‌ای؟", "category": "tips", "shoot": "هر گام یک اسلاید با نوشتهٔ کوتاه.", "cta": "ذخیره کن",
+                     "format": "carousel", "channel": "both"},
+                    {"title": "پشتِ صحنهٔ نوشتنِ یک پیش‌نویس", "logline": "نشان بدهید یک پیش‌نویسِ برنامه چطور مرحله‌به‌مرحله آماده می‌شود.",
+                     "hook": "پیش‌نویس این‌طور شکل می‌گیرد.", "category": "behind", "shoot": "صفحه‌نمایش و دستِ مربی.", "cta": "نظرت را بنویس",
+                     "format": "reel", "channel": "instagram"}]}
+                return {"ollama.json": json.dumps({"response": json.dumps(ideas, ensure_ascii=False), "eval_count": 160, "eval_duration": 3000000000}).encode()}, {"device": "cuda"}
             return {"ollama.json": json.dumps({"response": "چغر، دستیارِ هوشمندِ مربی‌های ورزشی، برنامهٔ هر ورزشکار را سریع پیش‌نویس می‌کند.", "eval_count": 20, "eval_duration": 1000000000}).encode()}, {"device": "cuda"}
         if k == "comfy.profile":
             import io

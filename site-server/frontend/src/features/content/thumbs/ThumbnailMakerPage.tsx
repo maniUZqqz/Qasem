@@ -44,13 +44,7 @@ async function downloadBlob(path: string, filename: string) {
 export default function ThumbnailMakerPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  // «استفاده در تامنیل» از صفحهٔ ماسکوت: ?subject=<شناسهٔ عکسِ کتابخانه>&title=<متن>؛ یک بار خوانده و از نشانی پاک می‌شود
-  const [searchParams, setSearchParams] = useSearchParams();
-  const prefill = useRef<{ subject: number; title: string } | null>(null);
-  if (prefill.current === null) {
-    const s = Number(searchParams.get("subject") || 0);
-    prefill.current = { subject: s > 0 ? s : 0, title: (searchParams.get("title") || "").slice(0, 80) };
-  }
+  const [urlParams] = useSearchParams();       // «از این ایده شروع کن» (بانکِ ایده): ?format=&title=&subtitle=&kicker=
   const [ov, setOv] = useState<Overview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [spec, setSpec] = useState<Spec | null>(null);
@@ -88,19 +82,16 @@ export default function ThumbnailMakerPage() {
       const o = await thumbsApi.overview(id);
       setOv(o);
       setHistory(o.items);
-      setSpec((cur) => cur ?? defaultSpec(o.default_format, "face_text"));
-      const pf = prefill.current;
-      const lib = await thumbsApi.library(id, pf && pf.subject ? pf.subject : undefined).catch(() => [] as LibraryAsset[]);
+      setSpec((cur) => {
+        if (cur) return cur;
+        const wanted = urlParams.get("format") ?? "";
+        const base = defaultSpec(wanted && o.formats.some((f) => f.key === wanted) ? wanted : o.default_format, "face_text");
+        const fromIdea = { title: urlParams.get("title"), subtitle: urlParams.get("subtitle"), kicker: urlParams.get("kicker") };
+        if (!fromIdea.title) return base;
+        return { ...base, content: { ...base.content, title: fromIdea.title.slice(0, 110), subtitle: (fromIdea.subtitle ?? "").slice(0, 140), kicker: (fromIdea.kicker ?? "").slice(0, 34) } };
+      });
+      const lib = await thumbsApi.library(id).catch(() => [] as LibraryAsset[]);
       setAssets(Object.fromEntries(lib.map((a) => [a.id, a])));
-      if (pf && pf.subject) {
-        prefill.current = { subject: 0, title: "" };
-        setSpec((cur) => {
-          const base = cur ?? defaultSpec(o.default_format, "face_text");
-          return { ...base, subject: { ...base.subject, asset: pf.subject, mode: "cutout", outline: true }, content: pf.title ? { ...base.content, title: pf.title } : base.content };
-        });
-        setNotice("ماسکوت به‌عنوانِ سوژه گذاشته شد؛ پس‌زمینه‌اش شفاف است و نیازی به «حذفِ پس‌زمینه» نیست.");
-        setSearchParams({}, { replace: true });
-      }
     } catch (e) {
       setLoadError(errorMessage(e));
     }

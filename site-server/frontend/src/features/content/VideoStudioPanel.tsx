@@ -33,14 +33,17 @@ const TRANSITION_LABEL: Record<string, string> = {
 export default function VideoStudioPanel({
   productId,
   storeId,
+  brief = "",
 }: {
   productId: number;
+  /** از بانکِ ایده: خلاصهٔ ایده برای کادرِ «هدف». */
+  brief?: string;
   /** Subtitles and music hang off the store, so the panel needs it too. */
   storeId?: string | number;
 }) {
   const [script, setScript] = useState<VideoScriptInfo | null>(null);
   const [duration, setDuration] = useState("15");
-  const [objective, setObjective] = useState("");
+  const [objective, setObjective] = useState(brief.slice(0, 200));
   const [language, setLanguage] = useState<"fa" | "en">("fa");
   const [showScenes, setShowScenes] = useState(false);
   // Ambience (rain, street, café…) and moment effects (a lamp click, heels)

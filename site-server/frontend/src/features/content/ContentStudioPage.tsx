@@ -71,6 +71,8 @@ export default function ContentStudioPage() {
     tabs.find((t) => t.key === requested) ?? (tabs.length ? tabs[0] : null);
   const tab = current?.key ?? null;
   const productId = params.get("product");
+  // «از این ایده شروع کن» (بانکِ ایده): خلاصهٔ ایده در آدرس می‌آید و در کادرِ «هدف» پر می‌شود
+  const brief = params.get("brief") ?? "";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,14 +101,14 @@ export default function ContentStudioPage() {
   // else. Written into the URL rather than held in state so a refresh keeps it.
   useEffect(() => {
     if (!productId && products.length && tab) {
-      setParams({ tab, product: String(products[0].id) }, { replace: true });
+      setParams({ tab, product: String(products[0].id), ...(brief ? { brief } : {}) }, { replace: true });
     }
-  }, [productId, products, tab, setParams]);
+  }, [productId, products, tab, setParams, brief]);
 
   const go = (next: Partial<{ tab: Tab; product: string }>) => {
     const product = next.product ?? productId;
     const t = next.tab ?? tab;
-    setParams({ ...(t ? { tab: t } : {}), ...(product ? { product } : {}) });
+    setParams({ ...(t ? { tab: t } : {}), ...(product ? { product } : {}), ...(brief ? { brief } : {}) });
   };
 
   if (loading || flagsLoading) return <Spinner />;
@@ -128,6 +130,14 @@ export default function ContentStudioPage() {
       />
 
       <ErrorBox message={error} />
+
+      {brief && (
+        <div className="mb-4">
+          <Alert tone="info" title="از بانکِ ایده">
+            خلاصهٔ ایده در کادرِ «هدف» گذاشته شد؛ پیش از ساخت بخوانید و با واقعیتِ فروشگاه تطبیقش بدهید. <Link to={`/stores/${id}/ideas`}>بازگشت به بانکِ ایده</Link>
+          </Alert>
+        </div>
+      )}
 
       {/* ------------------------------------------------- انتخاب محصول */}
       {needsProduct && (
@@ -211,11 +221,11 @@ export default function ContentStudioPage() {
       ) : !product ? (
         <Alert tone="info">برای ساختن محتوا اول یک محصول انتخاب کنید.</Alert>
       ) : tab === "video" ? (
-        <VideoStudioPanel productId={product.id} storeId={id} />
+        <VideoStudioPanel productId={product.id} storeId={id} brief={brief} />
       ) : tab === "image" ? (
-        <ImageStudioPanel product={product} />
+        <ImageStudioPanel product={product} brief={brief} />
       ) : tab === "caption" ? (
-        <CaptionsPanel productId={product.id} />
+        <CaptionsPanel productId={product.id} brief={brief} />
       ) : (
         <AdvancedModePanel productId={product.id} />
       )}

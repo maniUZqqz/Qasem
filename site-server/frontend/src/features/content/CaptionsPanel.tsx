@@ -36,7 +36,7 @@ function hashtag(tag: string): string {
 
 const FIRST_SHOWN = 6;
 
-export default function CaptionsPanel({ productId }: { productId: number }) {
+export default function CaptionsPanel({ productId, brief = "" }: { productId: number; brief?: string }) {
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -48,7 +48,7 @@ export default function CaptionsPanel({ productId }: { productId: number }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [platforms, setPlatforms] = useState<string[]>(["INSTAGRAM", "TELEGRAM", "LINKEDIN"]);
   const [tone, setTone] = useState("");
-  const [objective, setObjective] = useState("");
+  const [objective, setObjective] = useState(brief.slice(0, 200));   // از بانکِ ایده: خلاصهٔ ایده
   // beter.md #11: the caption is written FOR a content item, not the bare product
   const [images, setImages] = useState<GeneratedImageInfo[]>([]);
   const [videoScript, setVideoScript] = useState<VideoScriptInfo | null>(null);

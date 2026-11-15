@@ -104,6 +104,7 @@ export const PAGES: PanelPage[] = [
 
   // --------------------------------------------------------------- محتوا
   { key: "studio", section: "content", label: "تولید محتوا", icon: "sparkle", to: (id) => `/stores/${id}/studio` },
+  { key: "ideas", section: "content", label: "بانکِ ایده", icon: "bulb", to: (id) => `/stores/${id}/ideas` },
   { key: "campaigns", section: "content", label: "کمپین‌ها", icon: "rocket", to: (id) => `/stores/${id}/campaigns`, end: true },
   { key: "calendar", section: "content", label: "تقویم انتشار", icon: "clock", to: (id) => `/stores/${id}/campaigns/calendar` },
   { key: "publish_queue", section: "content", label: "صف انتشار", icon: "upload", to: (id) => `/stores/${id}/campaigns/queue` },
@@ -113,7 +114,6 @@ export const PAGES: PanelPage[] = [
   { key: "motion", section: "content", label: "استودیوی موشن", icon: "play", to: (id) => `/stores/${id}/motion` },
   { key: "photo_editor", section: "content", label: "ادیتور عکس", icon: "image", to: (id) => `/stores/${id}/photo-editor` },
   { key: "thumbnail_maker", section: "content", label: "تامنیل‌ساز", icon: "image", to: (id) => `/stores/${id}/thumbnails` },
-  { key: "mascot", section: "content", label: "ماسکوتِ برند", icon: "users", to: (id) => `/stores/${id}/mascot` },
   { key: "multiangle", section: "content", label: "چندزاویه", icon: "camera", to: (id) => `/stores/${id}/multiangle` },
   { key: "guided_shoot", section: "content", label: "فیلم‌برداریِ هدایت‌شده", icon: "camera", to: (id) => `/stores/${id}/shoot` },
   { key: "piece_regen", section: "content", label: "بازسازیِ یک تکه", icon: "refresh", to: (id) => `/stores/${id}/regen` },

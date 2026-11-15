@@ -154,14 +154,18 @@ npm run build 2>&1 | tail -5
 step "سایتِ عمومی (Next.js) — build standalone"
 cd "$ROOT/website"
 cat > .env.production.local <<EOF
-NEXT_PUBLIC_API_BASE=http://127.0.0.1:$PORT
+# سمتِ سرورِ Next به جنگو (قیمت، وبلاگ، نسخه، /api). NEXT_PUBLIC_API_BASE عمداً خالی است: به جاوااسکریپتِ مرورگرِ بازدیدکننده می‌رود و
+# آدرسِ 127.0.0.1 آنجا یعنی «کامپیوترِ خودِ بازدیدکننده» (فرمِ تماس هیچ پیامی را نمی‌فرستاد). مرورگر آدرسِ نسبی (/api/v1/…) می‌زند.
+INTERNAL_API_BASE=http://127.0.0.1:$PORT
+NEXT_PUBLIC_API_BASE=
 NEXT_PUBLIC_PANEL_URL=http://$HOST_IP:$PORT/panel
 NEXT_PUBLIC_SITE_URL=http://$HOST_IP:$PORT
 REVALIDATE_SECRET=$(grep '^WEBSITE_REVALIDATE_SECRET=' "$BE/.env" | cut -d= -f2-)
 EOF
 npm ci --no-audit --no-fund --loglevel=error 2>/dev/null || npm install --no-audit --no-fund --loglevel=error || die "npm install website"
-npm run build 2>&1 | tail -5
+npm run build 2>&1 | tail -8   # postbuild: scripts/check-static-no-localhost.mjs
 [ -f .next/standalone/server.js ] || die "website build"
+node scripts/check-static-no-localhost.mjs || die "آدرسِ لوپ‌بک در جاوااسکریپتِ سایتِ عمومی (NEXT_PUBLIC_API_BASE باید خالی باشد)"
 # standalone به static و public نیاز دارد
 rm -rf .next/standalone/.next/static && cp -r .next/static .next/standalone/.next/static
 rm -rf .next/standalone/public && cp -r public .next/standalone/public

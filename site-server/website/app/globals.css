@@ -703,6 +703,28 @@ select {
   .site-bar .mobile-only.btn { padding: 8px 11px; }
 }
 
+/* ---- نوارِ بالا روی گوشی: هیچ دکمه‌ای دو خطی نشود و هیچ چیز از نوار بیرون نزند ----
+   در ۳۶۰ پیکسل: نام + زبان + تم + «شروع رایگان» + منو جا نمی‌شد؛ دکمه‌ی «شروع رایگان»
+   دو خط می‌شد (۶۶ پیکسل، بیرون از نوارِ ۵۹ پیکسلی) و صفحه افقی اسکرول می‌خورد.
+   ترتیبِ فشرده‌شدن: ۱) نام کوتاه می‌شود (…)، ۲) زیرِ ۴۸۰ متنِ دکمه «شروع»،
+   ۳) زیرِ ۴۰۰ از دو بخشِ تغییرِ زبان فقط زبانِ دیگر دیده می‌شود. همه‌ی کنترل‌ها ۴۴ پیکسل. */
+.site-bar .btn { white-space: nowrap; }
+.site-bar .cta-short { display: none; }
+.site-bar-actions { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .site-bar .site-brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .site-bar .btn { min-height: 44px; justify-content: center; }
+}
+@media (max-width: 479px) {
+  .site-bar .cta-long { display: none; }
+  .site-bar .cta-short { display: inline; }
+  .site-bar .site-cta { padding-inline: 14px; }
+}
+@media (max-width: 399px) {
+  /* !important: the links carry an inline display:inline-flex */
+  .site-bar .locale-toggle a[aria-current="true"] { display: none !important; }
+}
+
 /* ---------------------------------------------- هدف‌های لمسی
 
    روی ماوس، نشانگر یک پیکسل است و هر چیزی قابل زدن است. روی انگشت نه:

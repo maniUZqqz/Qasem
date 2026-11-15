@@ -63,7 +63,7 @@ def pick_product(store, cluster: IgTrendCluster, products=None):
     products = products if products is not None else list(Product.objects.filter(store=store, is_available=True).order_by("pk")[:25])
     if not products:
         return None, False
-    vocab = ai_trends.store_vocabulary(store, products)["words"]
+    vocab = ai_trends.vocabulary_for_store(store, products)["words"]
     topic_words = set(textproc.words(cluster.label)) | {w for h in (cluster.stats or {}).get("hashtags", []) for w in textproc.words(textproc.tag_phrase(h))}
     for w in sorted(topic_words):
         name = vocab.get(w)

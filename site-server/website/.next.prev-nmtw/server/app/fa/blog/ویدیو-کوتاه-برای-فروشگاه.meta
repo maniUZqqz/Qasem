@@ -1,0 +1,7 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/[locale]/layout,_N_T_/[locale]/blog/layout,_N_T_/[locale]/blog/[slug]/layout,_N_T_/[locale]/blog/[slug]/page,_N_T_/fa/blog/%D9%88%DB%8C%D8%AF%DB%8C%D9%88-%DA%A9%D9%88%D8%AA%D8%A7%D9%87-%D8%A8%D8%B1%D8%A7%DB%8C-%D9%81%D8%B1%D9%88%D8%B4%DA%AF%D8%A7%D9%87,settings,articles"
+  }
+}

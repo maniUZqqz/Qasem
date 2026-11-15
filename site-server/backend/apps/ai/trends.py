@@ -17,12 +17,14 @@ because it is the failure mode of every trend-jacking tool.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 
 from django.utils import timezone
 
 from services.research import trends as source
 
 from .trend_models import Trend, TrendIdea
+from .trend_text import contains_phrase, stem_sequence, stems
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,8 @@ LEXICON = {
         "guzellik", "sephora",
     ],
     "موبایل و دیجیتال": [
-        "موبایل", "گوشی", "لپتاپ", "هدفون", "دیجیتال", "آیفون", "سامسونگ", "شیائومی",
+        "موبایل", "گوشی", "لپتاپ", "هدفون", "کالای دیجیتال", "لوازم دیجیتال", "محصولات دیجیتال",
+        "آیفون", "سامسونگ", "شیائومی",
         "iphone", "samsung", "apple", "phone", "smartphone", "laptop", "headphones", "airpods",
         "pixel", "xiaomi", "handy", "telephone", "telefon", "ios", "android",
     ],
@@ -123,9 +126,35 @@ LEXICON = {
         "chocolate", "cake", "pastry", "restaurant", "nourriture", "recette", "essen",
         "yemek", "tarif",
     ],
-    "ورزش": [
-        "ورزش", "فوتبال", "بدنسازی", "باشگاه", "sport", "football", "soccer", "fitness",
-        "gym", "running", "fussball", "futbol", "marathon",
+    # «ورزش» شد «ورزش و تناسب اندام»: مربی‌گری، برنامهٔ تمرین/رژیم، باشگاه… (فروشگاهی مثل چغر که به مربیان می‌فروشد
+    # فقط با «ورزش» هیچ ترندِ تناسب اندامی را نمی‌شناخت). مطابقت بر پایهٔ ریشهٔ واژه است، پس «ورزشی/ورزشکاران/مربیان» هم می‌گیرد.
+    "ورزش و تناسب اندام": [
+        "ورزش", "ورزشکار", "بدنسازی", "باشگاه بدنسازی", "باشگاه ورزشی", "باشگاه تناسب اندام", "تناسب اندام",
+        "تمرین", "مربی", "مربیگری", "مربی گری", "کوچ", "رژیم غذایی", "رژیم لاغری", "رژیم کتو", "رژیم کتوژنیک",
+        "رژیم کم کالری", "تغذیه", "کاهش وزن", "کم کردن وزن", "لاغری", "چاقی", "عضله", "عضله سازی", "پروتئین",
+        "مکمل ورزشی", "مکمل بدنسازی", "یوگا", "پیلاتس", "دویدن", "کاردیو", "برنامه تمرینی", "برنامه غذایی",
+        "برنامه ورزشی",
+        "sport", "sports", "fitness", "gym", "workout", "exercise", "training", "trainer", "coach", "coaching",
+        "diet", "nutrition", "weight loss", "bodybuilding", "muscle", "protein", "yoga", "pilates", "cardio",
+        "running", "marathon", "crossfit",
+        "musculation", "entraineur", "entrainement", "regime alimentaire", "perte de poids",
+        "abnehmen", "ernahrung", "fitnessstudio", "krafttraining", "spor", "antrenman", "antrenor",
+        "diyet", "beslenme", "zayiflama",
+    ],
+    # ترندهای ورزشیِ روز (بازی، لیگ، بازیکن) ربطی به «تمرین و تناسب اندام» ندارند؛ فقط وقتی دسته می‌شوند که خودِ
+    # فروشگاه از فوتبال/لیگ/… حرف بزند (کفشِ فوتبال، پوشاکِ تیمی، …). «باشگاه» و «رژیم» تنها هم نیستند: در خبرِ ایران
+    # «باشگاهِ پرسپولیس» و «رژیمِ صهیونیستی» است، نه بدنسازی و غذا.
+    "ورزش‌های تیمی و رویدادها": [
+        "فوتبال", "والیبال", "بسکتبال", "لیگ", "جام جهانی", "المپیک", "باشگاه فوتبال",
+        "football", "soccer", "basketball", "volleyball", "league", "olympics",
+        "fussball", "futbol", "ligue", "bundesliga",
+    ],
+    "نرم‌افزار و ابزار": [
+        "نرم افزار", "اپلیکیشن", "اپ", "ابزار", "پلتفرم", "هوش مصنوعی", "اتوماسیون",
+        "داشبورد", "ربات", "چت بات", "استارتاپ", "خدمات دیجیتال", "دیجیتال مارکتینگ",
+        "app", "apps", "application", "software", "tool", "tools", "platform", "artificial intelligence",
+        "chatgpt", "openai", "saas", "automation", "dashboard", "startup", "chatbot", "logiciel",
+        "plateforme", "yazilim", "uygulama", "yapay zeka", "kunstliche intelligenz",
     ],
     "خانه و دکور": [
         "خانه", "دکور", "مبل", "آشپزخانه", "home", "decor", "furniture", "kitchen", "maison",
@@ -142,6 +171,15 @@ LEXICON = {
 }
 
 
+#: Words that sit in half of all product names and say nothing about the shop. Without
+#: this, matching on word FORMS (below) would let «فقط ...» in any headline count as
+#: a shared word with a product called «... فقط ورزشی».
+GENERIC_WORDS = {
+    "فقط", "بدون", "عادی", "هزینه", "تکی", "دستی", "ساز", "سازی", "بسته", "برنامه",
+    "خدمات", "دیگر", "نوع", "کار", "دستگاه",
+}
+
+
 def _fold(text: str) -> str:
     """normalize + strip Latin accents (café → cafe) for cross-language matching."""
     import unicodedata
@@ -154,9 +192,30 @@ def _fold(text: str) -> str:
     )
 
 
-def store_vocabulary(store, products=None) -> dict:
+@lru_cache(maxsize=4096)
+def _member_stems(member: str) -> tuple:
+    """Stem sets of a (possibly multi-word) lexicon member: «کاهش وزن» → 2 sets."""
+    return tuple(stems(token) for token in _fold(member).split())
+
+
+def detect_groups(folded_text: str) -> list[str]:
+    """Which lexicon groups a shop's text falls into — by word FORM, not whole
+    token, so «مربیان ورزشی» is «ورزش و تناسب اندام» and several groups can apply."""
+    sequence = stem_sequence(folded_text)
+    return [
+        group for group, members in LEXICON.items()
+        if any(contains_phrase(sequence, _member_stems(m)) for m in members)
+    ]
+
+
+def store_vocabulary(store, products=None, groups: list[str] | None = None) -> dict:
     """Words that describe this shop: its products, tags, brand, category, and
-    the lexicon groups those words fall into."""
+    the lexicon groups those words fall into.
+
+    ``groups`` is the owner's own choice of categories (the chips on the trends
+    page). ``None`` = detect them from the shop's text; the detected list is
+    always returned as ``detected_groups`` so the page can offer «تشخیصِ خودکار».
+    """
     from apps.products.models import Product
     from services.research.product_match import STOPWORDS
 
@@ -173,28 +232,79 @@ def store_vocabulary(store, products=None) -> dict:
         texts += parts
         for part in parts:
             for token in _fold(part).split():
-                if len(token) > 2 and token not in STOPWORDS and not token.isdigit():
+                if (len(token) > 2 and token not in STOPWORDS and token not in GENERIC_WORDS
+                        and not token.isdigit()):
                     words.setdefault(token, product.name)
-    folded_texts = " " + " ".join(_fold(t) for t in texts) + " "
-    groups = []
-    for group, members in LEXICON.items():
-        folded = [_fold(m) for m in members]
-        if any(f" {m} " in folded_texts for m in folded):
-            groups.append(group)
-            for m in folded:
-                words.setdefault(m, f"گروهِ «{group}»")
-    return {"words": words, "groups": groups}
+    folded_texts = " ".join(_fold(t) for t in texts)
+    detected = detect_groups(folded_texts)
+    chosen = detected if groups is None else [g for g in LEXICON if g in set(groups)]
+    for group in chosen:
+        for member in LEXICON[group]:
+            words.setdefault(_fold(member), f"گروهِ «{group}»")
+    return {"words": words, "groups": chosen, "detected_groups": detected}
+
+
+def vocabulary_for_store(store, products=None) -> dict:
+    """:func:`store_vocabulary` with the owner's saved category choice applied."""
+    from .trend_models import StoreTrendGroups
+
+    saved = StoreTrendGroups.objects.filter(store=store).values_list("groups", flat=True).first()
+    return store_vocabulary(store, products, groups=saved if saved is not None else None)
+
+
+def _compiled(vocabulary: dict):
+    """(single-word index, multi-word phrases) of a vocabulary, built once and kept
+    on the dict: a page ranks 200 trends against ~600 words."""
+    compiled = vocabulary.get("_compiled")
+    if compiled is None:
+        index: dict[str, set[str]] = {}
+        phrases: list[tuple[str, tuple]] = []
+        for word in vocabulary["words"]:
+            tokens = _fold(word).split()
+            if len(tokens) == 1:
+                for stem in stems(tokens[0]):
+                    index.setdefault(stem, set()).add(word)
+            elif tokens:
+                phrases.append((word, tuple(stems(t) for t in tokens)))
+        compiled = vocabulary["_compiled"] = (index, phrases)
+    return compiled
+
+
+def _matches(text: str, vocabulary: dict) -> dict[str, str]:
+    """``{shop word: the word in the text it matched}`` — one entry per shop word.
+
+    A text word counts once even if it matches several shop words of the same
+    family («ورزشی» is both «ورزش» and «ورزشی»): the exact one is kept.
+    """
+    index, phrases = _compiled(vocabulary)
+    folded = _fold(text)
+    tokens = folded.split()
+    sequence = [stems(t) for t in tokens]
+    found: dict[str, str] = {}
+    for token, stem_set in zip(tokens, sequence):
+        best = None
+        for stem in stem_set:
+            for word in index.get(stem, ()):
+                if best is None or word == token or (best != token and len(word) > len(best)):
+                    best = word
+        if best is not None:
+            found.setdefault(best, token)
+    for word, phrase in phrases:
+        if contains_phrase(sequence, list(phrase)):
+            found.setdefault(word, word)
+    return found
 
 
 def relevance(trend, vocabulary: dict) -> dict:
     """Keyword relevance of one trend to the shop: label, score, reason."""
     words = vocabulary["words"]
-    title_tokens = set(_fold(trend.title).split())
-    news_tokens = set()
+    title_hits = _matches(trend.title, vocabulary)
+    news_hits: dict[str, str] = {}
     for item in trend.news:
-        news_tokens |= set(_fold(item.get("title", "")).split())
-    in_title = sorted(w for w in title_tokens if w in words)
-    in_news = sorted(w for w in news_tokens - title_tokens if w in words)
+        for word, token in _matches(item.get("title", ""), vocabulary).items():
+            news_hits.setdefault(word, token)
+    in_title = sorted(title_hits)
+    in_news = sorted(w for w in news_hits if w not in title_hits)
     score = 2 * len(in_title) + len(in_news)
     if score >= 2:
         label, key = "مرتبط با فروشگاهِ شما", "high"
@@ -203,8 +313,16 @@ def relevance(trend, vocabulary: dict) -> dict:
     else:
         label, key = "نامرتبط", "none"
     hits = in_title + in_news
+    seen_as = {**news_hits, **title_hits}
+
+    def shown(word: str) -> str:
+        token = seen_as.get(word, word)
+        origin = words.get(word, "")
+        body = f"«{token}»" if token == word else f"«{token}» ≈ «{word}»"
+        return f"{body} ({origin})" if origin else body
+
     reason = (
-        "واژه‌های مشترک: " + "، ".join(f"«{w}» ({words[w]})" for w in hits[:4])
+        "واژه‌های مشترک: " + "، ".join(shown(w) for w in hits[:4])
         if hits else "واژه‌ی مشترکی با محصولات و دسته‌ی فروشگاه ندارد."
     )
     return {"key": key, "label": label, "score": score, "reason": reason, "words": hits[:6],
@@ -386,7 +504,7 @@ def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
 
     llm_ok, llm_note = research_llm.status(store) if trend_ids else (True, "")
     if not llm_ok and trend_ids:
-        vocabulary = store_vocabulary(store, products)
+        vocabulary = vocabulary_for_store(store, products)
         made = [i for i in (heuristic_idea(store, t, vocabulary, products) for t in trends) if i]
         TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN, trend__in=trends).delete()
         TrendIdea.objects.bulk_create(made)

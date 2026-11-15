@@ -3,9 +3,8 @@
 import { useState } from "react";
 
 import type { Locale } from "@/lib/i18n";
+import { publicApiUrl } from "@/lib/publicApi";
 import { track } from "@/lib/track";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
 /** Subject values are the backend's enum; only the labels are translated. */
 const T = {
@@ -105,7 +104,9 @@ export default function ContactForm({ locale }: { locale: Locale }) {
     };
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/leads/`, {
+      // Same-origin on purpose (lib/publicApi.ts): a loopback address here would
+      // post to the visitor's own computer and lose the lead.
+      const res = await fetch(publicApiUrl("/api/v1/leads/"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

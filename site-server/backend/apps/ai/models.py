@@ -372,7 +372,7 @@ from .competitor_models import (  # noqa: E402,F401
 # Trends and the content ideas made from them (§6). Imported here so Django
 # discovers them; they live in their own module because trends are a different
 # subject from providers and policy.
-from .trend_models import Trend, TrendIdea  # noqa: E402,F401
+from .trend_models import StoreTrendGroups, Trend, TrendIdea, TrendRefreshState  # noqa: E402,F401
 
 # Voice, ambience/effects and noise-removal engines, plus the mix levels and
 # the local sound library. Their own module: sound is a different subject from

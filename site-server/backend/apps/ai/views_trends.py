@@ -19,8 +19,9 @@ from apps.jobs.services import dispatch_job
 from apps.stores import access
 from services.research import trends as source
 
+from . import trend_refresh
 from . import trends as engine
-from .trend_models import Trend, TrendIdea
+from .trend_models import StoreTrendGroups, Trend, TrendIdea
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ class TrendListView(APIView):
         regions = [
             r for r in request.query_params.get("regions", "").split(",") if r
         ] or None
+        # Data older than half a day: queue ONE background refresh (the tab fills itself; the page polls).
+        auto = trend_refresh.ensure_fresh()
         rows = engine.current(regions, limit=200)
 
         # «جهانی»: the same search rising in several countries at once.
@@ -96,7 +99,7 @@ class TrendListView(APIView):
             t.pk: sorted(source.REGION_TITLES.get(r, r) for r in by_title.get(normalize(t.title), set()) if r != t.region)
             for t in rows
         }
-        vocabulary = engine.store_vocabulary(store)
+        vocabulary = engine.vocabulary_for_store(store)
         llm = engine.stored_llm_relevance(store)
 
         def rank(t):
@@ -152,15 +155,22 @@ class TrendListView(APIView):
             # should know we did not check, not conclude nothing is happening.
             "sources": source.available(),
             "store_groups": vocabulary["groups"],
+            "detected_groups": vocabulary.get("detected_groups", []),
+            "all_groups": list(engine.LEXICON),
+            "groups_custom": StoreTrendGroups.objects.filter(store=store).exists(),
+            "freshness": trend_refresh.freshness(auto),
             "llm": {"available": llm_ok, "note": llm_note},
         })
 
     def post(self, request, store_id):
-        """Fetch today's trends. Synchronous — it is two HTTP requests."""
+        """Fetch today's trends now (the button). Synchronous — it is a few HTTP requests.
+
+        Goes through the same path as the daily job, so the page can say when it last ran.
+        """
         access.get_store(request.user, store_id, access.CONTENT)
         regions = source.expand_regions(request.data.get("regions") or ["IR"])
         try:
-            return Response(engine.refresh(regions))
+            return Response(trend_refresh.run(regions, trigger="manual"))
         except Exception as exc:  # noqa: BLE001
             logger.info("Trend refresh failed: %s", exc)
             return Response(
@@ -213,7 +223,7 @@ class TrendRelevanceView(APIView):
         trends = engine.current(regions, limit=200)
         if not trends:
             return Response({"ranked": 0, "note": "ترندِ تازه‌ای نیست."})
-        vocabulary = engine.store_vocabulary(store)
+        vocabulary = engine.vocabulary_for_store(store)
         # The model sees the keyword-relevant ones first, then the rest.
         trends.sort(key=lambda t: -engine.relevance(t, vocabulary)["score"])
         try:
@@ -322,3 +332,45 @@ class TrendIdeaDismissView(APIView):
         idea.state = TrendIdea.State.DISMISSED
         idea.save(update_fields=["state", "updated_at"])
         return Response(TrendIdeaSerializer(idea).data)
+
+
+class TrendGroupsView(APIView):
+    """The shop's categories on the trends page, as chips the owner can edit.
+
+    ``{"groups": [...]}`` replaces the detected categories with the owner's own list;
+    ``{"reset": true}`` goes back to automatic detection. Names are the keys of
+    ``engine.LEXICON`` (also returned as ``all_groups``).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, store_id):
+        store = access.get_store(request.user, store_id, access.CONTENT)
+        if request.data.get("reset"):
+            StoreTrendGroups.objects.filter(store=store).delete()
+        else:
+            raw = request.data.get("groups")
+            if not isinstance(raw, list) or not all(isinstance(g, str) for g in raw):
+                return Response(
+                    {"error": {"code": "invalid", "message": "فهرستِ دسته‌ها را بفرستید."}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            unknown = [g for g in raw if g not in engine.LEXICON]
+            if unknown:
+                return Response(
+                    {"error": {"code": "unknown_group",
+                               "message": "دستهٔ ناشناخته: " + "، ".join(unknown)}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            StoreTrendGroups.objects.update_or_create(
+                store=store, defaults={"groups": list(dict.fromkeys(raw))},
+            )
+        vocabulary = engine.vocabulary_for_store(store)
+        return Response({
+            "store_groups": vocabulary["groups"],
+            "detected_groups": vocabulary["detected_groups"],
+            "all_groups": list(engine.LEXICON),
+            "groups_custom": StoreTrendGroups.objects.filter(store=store).exists(),
+        })
+
+    post = put

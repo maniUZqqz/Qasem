@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
+import { faDateTime } from "../../components/fmt";
 import {
   Alert,
   Badge,
@@ -11,6 +12,7 @@ import {
   ErrorBox,
   PageHeader,
   SectionTitle,
+  Select,
   Spinner,
   fa,
 } from "../../components/ui";
@@ -67,6 +69,151 @@ type Idea = {
 type Source = { key: string; title: string; live: boolean; note: string };
 type Region = { key: string; title: string };
 
+/** From the server: when the tab was last filled, whether a refresh is under way, what failed. */
+type Freshness = {
+  last_refresh_at: string | null;
+  age_hours: number | null;
+  stale: boolean;
+  refreshing: boolean;
+  last_trigger: string;
+  problems: string[];
+  /** fresh | running | started | recent | queue_off | error — what opening the page did. */
+  auto: string;
+};
+
+function agoText(hours: number | null): string {
+  if (hours === null) return "";
+  if (hours < 1) return "کمتر از یک ساعت پیش";
+  if (hours < 48) return `${fa(Math.round(hours))} ساعت پیش`;
+  return `${fa(Math.round(hours / 24))} روز پیش`;
+}
+
+/** A trend row is one sighting per DAY, so its age is a day count, not hours since a fetch. */
+function seenText(hours: number): string {
+  if (hours < 24) return "امروز";
+  if (hours < 48) return "دیروز";
+  return `${fa(Math.floor(hours / 24))} روز پیش`;
+}
+
+/** «آخرین به‌روزرسانی …» + the automatic-refresh state, so an empty tab explains itself. */
+function FreshnessBar({ f }: { f: Freshness | null }) {
+  if (!f) return null;
+  const waiting = f.refreshing || f.auto === "started" || f.auto === "running";
+  return (
+    <div
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+      style={{ color: "var(--text-2)" }}
+      data-testid="trends-freshness"
+    >
+      {waiting ? (
+        <span className="inline-flex items-center gap-2" data-testid="trends-refreshing">
+          <Spinner size={14} />
+          در حال به‌روزرسانیِ خودکارِ ترندها از منبع‌ها… تا چند دقیقهٔ دیگر خودش پر می‌شود.
+        </span>
+      ) : f.last_refresh_at ? (
+        <span>
+          آخرین به‌روزرسانی: <b>{agoText(f.age_hours)}</b> ({faDateTime(f.last_refresh_at)})
+        </span>
+      ) : (
+        <span>هنوز ترندی از منبع‌ها خوانده نشده است.</span>
+      )}
+      {!waiting && f.stale && f.last_refresh_at && <Badge tone="warn">قدیمی</Badge>}
+      <span style={{ color: "var(--text-3)" }}>ترندها هر روز دو بار خودکار به‌روز می‌شوند.</span>
+      {(f.auto === "queue_off" || f.auto === "error") && (
+        <span style={{ color: "var(--warn, var(--text-2))" }}>
+          به‌روزرسانیِ خودکار الان کار نمی‌کند؛ دکمهٔ «به‌روزرسانی از منبع» را بزنید.
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The shop's categories as chips the owner can correct: detection is a guess, the chips are the truth. */
+function GroupChips({
+  groups,
+  allGroups,
+  custom,
+  busy,
+  error,
+  onChange,
+  onReset,
+}: {
+  groups: string[];
+  allGroups: string[];
+  custom: boolean;
+  busy: boolean;
+  error: string | null;
+  onChange: (next: string[]) => void;
+  onReset: () => void;
+}) {
+  const addable = allGroups.filter((g) => !groups.includes(g));
+  return (
+    <div className="flex flex-col gap-2" data-testid="trend-groups">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium" style={{ color: "var(--text)" }}>
+          دسته‌های فروشگاهِ شما:
+        </span>
+        {groups.length === 0 && (
+          <span className="text-xs" style={{ color: "var(--text-3)" }}>
+            هیچ دسته‌ای انتخاب نشده — فقط نامِ محصولات و برچسب‌ها سنجیده می‌شود.
+          </span>
+        )}
+        {groups.map((group) => (
+          <span
+            key={group}
+            data-testid="trend-group-chip"
+            className="inline-flex items-center gap-1 rounded-full py-1 pe-1 ps-3 text-xs"
+            style={{ background: "var(--brand-soft, var(--surface-2))", color: "var(--text)", border: "1px solid var(--line)" }}
+          >
+            {group}
+            <button
+              type="button"
+              aria-label={`حذفِ دستهٔ ${group}`}
+              disabled={busy}
+              onClick={() => onChange(groups.filter((g) => g !== group))}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-base leading-none"
+              style={{ color: "var(--text-3)" }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {addable.length > 0 && (
+          <Select
+            aria-label="افزودنِ دسته"
+            value=""
+            disabled={busy}
+            style={{ width: "auto", minWidth: 150 }}
+            onChange={(e) => e.target.value && onChange([...groups, e.target.value])}
+          >
+            <option value="">＋ افزودنِ دسته…</option>
+            {addable.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </Select>
+        )}
+        {custom && (
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onReset}>
+            برگشت به تشخیصِ خودکار
+          </Button>
+        )}
+      </div>
+      <div className="text-xs" style={{ color: "var(--text-3)" }}>
+        {custom
+          ? "این دسته‌ها را خودتان انتخاب کرده‌اید؛ سنجشِ ربطِ ترندها با همین‌ها انجام می‌شود."
+          : "این دسته‌ها از نوشته‌های فروشگاهتان تشخیص داده شد؛ اگر درست نیست، با × بردارید یا دسته‌ی دیگری اضافه کنید."}
+      </div>
+      {error && (
+        <div className="text-xs" style={{ color: "var(--bad, #b91c1c)" }} role="alert">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const REL_TONE: Record<string, "ok" | "warn" | "neutral"> = {
   high: "ok",
   maybe: "warn",
@@ -95,6 +242,13 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
   const [regions, setRegions] = useState<Region[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [llm, setLlm] = useState<{ available: boolean; note: string } | null>(null);
+  const [freshness, setFreshness] = useState<Freshness | null>(null);
+  const [allGroups, setAllGroups] = useState<string[]>([]);
+  const [groupsCustom, setGroupsCustom] = useState(false);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  /** Until when to keep re-reading while the page-open refresh runs in the background. */
+  const [pollUntil, setPollUntil] = useState(0);
   const [picked, setPicked] = useState<string[]>(["IR"]);
   const [onlyRelevant, setOnlyRelevant] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -110,6 +264,13 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
       setSources(data.sources);
       setRegions(data.regions);
       setGroups(data.store_groups ?? []);
+      setAllGroups(data.all_groups ?? []);
+      setGroupsCustom(!!data.groups_custom);
+      setFreshness(data.freshness ?? null);
+      // a refresh queued by opening the page (or started in another tab): keep reading for two minutes
+      if (data.freshness?.auto === "started" || data.freshness?.refreshing) {
+        setPollUntil((until) => (until > Date.now() ? until : Date.now() + 120_000));
+      }
       setLlm(data.llm ?? null);
     } catch (err) {
       setError(errorMessage(err));
@@ -121,6 +282,31 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The tab fills itself: while the refresh queued by opening the page is running, read again every few seconds.
+  useEffect(() => {
+    if (!freshness || !(freshness.stale || freshness.refreshing) || Date.now() >= pollUntil) return;
+    const timer = window.setTimeout(() => void load(), 5000);
+    return () => window.clearTimeout(timer);
+  }, [freshness, pollUntil, load]);
+
+  async function saveGroups(next: string[] | null) {
+    setGroupBusy(true);
+    setGroupError(null);
+    try {
+      const { data } =
+        next === null
+          ? await api.put(`/stores/${id}/trends/groups/`, { reset: true })
+          : await api.put(`/stores/${id}/trends/groups/`, { groups: next });
+      setGroups(data.store_groups ?? []);
+      setGroupsCustom(!!data.groups_custom);
+      await load();
+    } catch (err) {
+      setGroupError(errorMessage(err));
+    } finally {
+      setGroupBusy(false);
+    }
+  }
 
   function toggle(key: string) {
     setPicked((current) => {
@@ -256,6 +442,19 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
           <Alert tone="ok">{notice}</Alert>
         </div>
       )}
+      <FreshnessBar f={freshness} />
+      {freshness && freshness.problems.length > 0 && (
+        <div className="mb-3" data-testid="trends-source-problems">
+          <Alert tone="warn" title="بعضی منبع‌ها جواب ندادند">
+            <ul className="list-inside list-disc break-words text-xs leading-6">
+              {freshness.problems.slice(0, 6).map((problem, index) => (
+                <li key={index}>{problem.length > 160 ? `${problem.slice(0, 160)}…` : problem}</li>
+              ))}
+            </ul>
+            ترندهای بقیهٔ منبع‌ها خوانده شد؛ دفعهٔ بعد دوباره امتحان می‌شود.
+          </Alert>
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {regions.map((region) => {
@@ -295,11 +494,23 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
 
       <div className="mb-4 flex flex-col gap-2">
         <Alert tone="info" title="ربط به فروشگاه چطور سنجیده می‌شود">
-          عنوانِ ترند و تیترِ خبرهایش با نامِ محصولات، برند، برچسب‌ها و دسته‌ی فروشگاه مقایسه
-          می‌شود؛ برای ترندهای خارجی، واژه‌های هر دسته به انگلیسی/فرانسوی/آلمانی/ترکی هم دیده
-          می‌شوند
-          {groups.length ? ` (دسته‌های فروشگاهِ شما: ${groups.join("، ")})` : ""}. بیشترِ ترندها به
-          بیشترِ فروشگاه‌ها ربطی ندارند — این طبیعی است.
+          <p>
+            عنوانِ ترند و تیترِ خبرهایش با نامِ محصولات، برند، برچسب‌ها و دسته‌های فروشگاه مقایسه
+            می‌شود. شکل‌های مختلفِ یک واژه یکی حساب می‌شود (ورزش، ورزشی، ورزشکاران)؛ برای ترندهای
+            خارجی، واژه‌های هر دسته به انگلیسی/فرانسوی/آلمانی/ترکی هم دیده می‌شوند. بیشترِ ترندها به
+            بیشترِ فروشگاه‌ها ربطی ندارند — این طبیعی است.
+          </p>
+          <div className="mt-2">
+            <GroupChips
+              groups={groups}
+              allGroups={allGroups}
+              custom={groupsCustom}
+              busy={groupBusy}
+              error={groupError}
+              onChange={(next) => void saveGroups(next)}
+              onReset={() => void saveGroups(null)}
+            />
+          </div>
         </Alert>
         {picked.includes("IG") && indirect && (
           <Alert tone="warn" title="اینستاگرام — منبعِ غیرمستقیم">
@@ -370,14 +581,22 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
         <Card>
           <EmptyState
             icon="trending"
-            title={trends.length ? "ترندِ مرتبطی نیست" : "ترند تازه‌ای نداریم"}
+            title={
+              trends.length
+                ? "ترندِ مرتبطی نیست"
+                : freshness?.refreshing || freshness?.auto === "started"
+                  ? "در حال خواندنِ ترندهای امروز…"
+                  : "ترند تازه‌ای نداریم"
+            }
             description={
               trends.length
                 ? "تیکِ «فقط مرتبط‌ها» را بردارید تا همه را ببینید."
-                : "دکمه‌ی «به‌روزرسانی از منبع» را بزنید تا ترندهای امروز خوانده شود."
+                : freshness?.refreshing || freshness?.auto === "started"
+                  ? "ترندها خودکار از منبع‌ها خوانده می‌شود و تا چند دقیقهٔ دیگر همین‌جا پر می‌شود؛ لازم نیست کاری بکنید."
+                  : "ترندها هر روز خودکار به‌روز می‌شوند. اگر الان لازم دارید، دکمه‌ی «به‌روزرسانی از منبع» را بزنید."
             }
             action={
-              trends.length ? undefined : (
+              trends.length || freshness?.refreshing || freshness?.auto === "started" ? undefined : (
                 <Button onClick={refresh} disabled={busy}>
                   به‌روزرسانی
                 </Button>
@@ -412,7 +631,7 @@ function TrendCard({ trend, busy, onIdea }: { trend: Trend; busy: boolean; onIde
         </span>
         <Badge tone="neutral">{trend.region_title}</Badge>
         {trend.traffic && <Badge tone="info">{trend.traffic} جست‌وجو</Badge>}
-        <Badge tone={trend.age_hours > 24 ? "warn" : "ok"}>دیده‌شده {fa(trend.age_hours)} ساعت پیش</Badge>
+        <Badge tone={trend.age_hours > 24 ? "warn" : "ok"}>دیده‌شده {seenText(trend.age_hours)}</Badge>
         {trend.also_in.length > 0 && <Badge tone="brand">هم‌زمان در {trend.also_in.join("، ")}</Badge>}
       </div>
 

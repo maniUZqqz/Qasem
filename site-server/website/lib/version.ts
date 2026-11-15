@@ -16,9 +16,11 @@
  * smoke test, which points the build at a staging backend); in production it is
  * unset and the usual NEXT_PUBLIC_API_BASE applies.
  */
+import { internalApiBase } from "./apiBase";
+
 export type SiteVersion = { version: string; built_at: string; commit: string };
 
-const BASE = process.env.NM_VERSION_API_BASE || process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+const BASE = process.env.NM_VERSION_API_BASE || internalApiBase();
 const VERSION_RE = /^\d{1,3}\.\d{2,3}$/;
 const COMMIT_RE = /^[0-9a-f]{4,40}$/i;
 

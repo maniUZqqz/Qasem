@@ -14,7 +14,8 @@
  * best-effort — analytics must never be why a visitor sees an error, so every
  * failure path is a silent no-op.
  */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+import { publicApiUrl } from "./publicApi";
+
 const KEY = "upmarket.sid";
 const FLUSH_MS = 3000;
 const MAX_BUFFER = 20;
@@ -91,7 +92,7 @@ function utm(): Record<string, string> {
 function send(rows: Payload[]): void {
   if (rows.length === 0) return;
   const body = JSON.stringify({ events: rows });
-  const url = `${API_BASE}/api/v1/events/`;
+  const url = publicApiUrl("/api/v1/events/");
 
   try {
     // sendBeacon survives the page being closed, which is exactly when the

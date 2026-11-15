@@ -13,7 +13,10 @@ const nextConfig = {
   // The panel and the API live on the Django side; the marketing site only
   // reads public endpoints (plans, showcase) so nothing here needs auth.
   async rewrites() {
-    const api = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+    // Server-side address of Django (see lib/apiBase.ts). In production nginx
+    // sends /api/ to Django before a request reaches Next; this rewrite only
+    // serves requests that arrive here directly (development).
+    const api = (process.env.INTERNAL_API_BASE || process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/+$/, "");
     return [{ source: "/api/:path*", destination: `${api}/api/:path*` }];
   },
   // Renamed with the rebrand (UpMarket -> NMarketing): old links, shares and

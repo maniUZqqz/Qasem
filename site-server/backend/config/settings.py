@@ -1056,3 +1056,15 @@ CELERY_BEAT_SCHEDULE["igtrends-sync"] = {"task": "apps.igtrends.tasks.sync", "sc
 
 # ویرایشگرِ ویدیو: جارویِ روزانهٔ فایل‌های بی‌صاحب (پوشهٔ کاریِ ویدیویی که دیگر نیست و فایلِ آپلودیِ بی‌ردیف؛ فقط قدیمی‌ها، با لاگ) — apps/content/media_cleanup.py
 CELERY_BEAT_SCHEDULE["editing-media-sweep"] = {"task": "apps.content.tasks_editing.sweep_editing_media", "schedule": 86400.0, "options": {"expires": 7200}}
+
+# ── Market trends fill themselves (nm_trendsweb) ────────────────────────────────────────────────────────────────────
+# «ترندهای بازار» used to be fed only by a button, so the tab was empty most days. apps.ai.tasks.refresh_market_trends reads every
+# country plus the indirect Instagram source twice a day (03:07 and 15:07 in the project's time zone); opening the tab with data
+# older than 12 hours queues one more (apps.ai.trend_refresh). No AI model is needed.
+from celery.schedules import crontab as _crontab  # noqa: E402
+
+CELERY_BEAT_SCHEDULE["market-trends-refresh"] = {
+    "task": "apps.ai.tasks.refresh_market_trends",
+    "schedule": _crontab(minute=7, hour="3,15"),
+    "options": {"expires": 3600},
+}

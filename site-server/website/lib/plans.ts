@@ -6,6 +6,8 @@
  * `/api/v1/plans/` and only falls back to a shipped snapshot when the API is
  * unreachable at build time (a preview deploy, an offline build).
  */
+import { internalApiBase } from "./apiBase";
+
 export type Plan = {
   id: number;
   slug: string;
@@ -49,7 +51,7 @@ const FALLBACK: Plan[] = [
 ];
 
 export async function getPlans(): Promise<{ plans: Plan[]; live: boolean }> {
-  const base = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+  const base = internalApiBase();
   try {
     const res = await fetch(`${base}/api/v1/plans/`, {
       // Tagged so a price change in the Django admin reaches the pricing page

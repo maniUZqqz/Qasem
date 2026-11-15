@@ -1,0 +1,421 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    },
+    {
+      "source": "/compare/upmarket-vs-marketing-agency",
+      "destination": "/compare/nmarketing-vs-marketing-agency",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/compare/upmarket-vs-marketing-agency(?:/)?$"
+    },
+    {
+      "source": "/fa/compare/upmarket-vs-marketing-agency",
+      "destination": "/compare/nmarketing-vs-marketing-agency",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/fa/compare/upmarket-vs-marketing-agency(?:/)?$"
+    },
+    {
+      "source": "/en/compare/upmarket-vs-marketing-agency",
+      "destination": "/en/compare/nmarketing-vs-marketing-agency",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/en/compare/upmarket-vs-marketing-agency(?:/)?$"
+    },
+    {
+      "source": "/compare/upmarket-vs-freelancer",
+      "destination": "/compare/nmarketing-vs-freelancer",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/compare/upmarket-vs-freelancer(?:/)?$"
+    },
+    {
+      "source": "/fa/compare/upmarket-vs-freelancer",
+      "destination": "/compare/nmarketing-vs-freelancer",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/fa/compare/upmarket-vs-freelancer(?:/)?$"
+    },
+    {
+      "source": "/en/compare/upmarket-vs-freelancer",
+      "destination": "/en/compare/nmarketing-vs-freelancer",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/en/compare/upmarket-vs-freelancer(?:/)?$"
+    },
+    {
+      "source": "/compare/upmarket-vs-doing-it-yourself",
+      "destination": "/compare/nmarketing-vs-doing-it-yourself",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/compare/upmarket-vs-doing-it-yourself(?:/)?$"
+    },
+    {
+      "source": "/fa/compare/upmarket-vs-doing-it-yourself",
+      "destination": "/compare/nmarketing-vs-doing-it-yourself",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/fa/compare/upmarket-vs-doing-it-yourself(?:/)?$"
+    },
+    {
+      "source": "/en/compare/upmarket-vs-doing-it-yourself",
+      "destination": "/en/compare/nmarketing-vs-doing-it-yourself",
+      "statusCode": 308,
+      "regex": "^(?!/_next)/en/compare/upmarket-vs-doing-it-yourself(?:/)?$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [
+      {
+        "source": "/api/:path*",
+        "destination": "http://127.0.0.1:8040/api/:path*",
+        "regex": "^/api(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      }
+    ],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/[locale]",
+      "regex": "^/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/about",
+      "regex": "^/([^/]+?)/about(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/about(?:/)?$"
+    },
+    {
+      "page": "/[locale]/acceptable-use",
+      "regex": "^/([^/]+?)/acceptable\\-use(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/acceptable\\-use(?:/)?$"
+    },
+    {
+      "page": "/[locale]/blog",
+      "regex": "^/([^/]+?)/blog(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/blog(?:/)?$"
+    },
+    {
+      "page": "/[locale]/blog/category/[slug]",
+      "regex": "^/([^/]+?)/blog/category/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/blog/category/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/blog/tag/[tag]",
+      "regex": "^/([^/]+?)/blog/tag/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPtag": "nxtPtag"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/blog/tag/(?<nxtPtag>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/blog/[slug]",
+      "regex": "^/([^/]+?)/blog/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/blog/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/blog/[slug]/opengraph-image",
+      "regex": "^/([^/]+?)/blog/([^/]+?)/opengraph\\-image(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/blog/(?<nxtPslug>[^/]+?)/opengraph\\-image(?:/)?$"
+    },
+    {
+      "page": "/[locale]/case-studies",
+      "regex": "^/([^/]+?)/case\\-studies(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/case\\-studies(?:/)?$"
+    },
+    {
+      "page": "/[locale]/case-studies/[slug]",
+      "regex": "^/([^/]+?)/case\\-studies/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/case\\-studies/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/compare",
+      "regex": "^/([^/]+?)/compare(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/compare(?:/)?$"
+    },
+    {
+      "page": "/[locale]/compare/[slug]",
+      "regex": "^/([^/]+?)/compare/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/compare/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/contact",
+      "regex": "^/([^/]+?)/contact(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/contact(?:/)?$"
+    },
+    {
+      "page": "/[locale]/cookie-policy",
+      "regex": "^/([^/]+?)/cookie\\-policy(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/cookie\\-policy(?:/)?$"
+    },
+    {
+      "page": "/[locale]/customers",
+      "regex": "^/([^/]+?)/customers(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/customers(?:/)?$"
+    },
+    {
+      "page": "/[locale]/faq",
+      "regex": "^/([^/]+?)/faq(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/faq(?:/)?$"
+    },
+    {
+      "page": "/[locale]/features",
+      "regex": "^/([^/]+?)/features(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/features(?:/)?$"
+    },
+    {
+      "page": "/[locale]/features/[slug]",
+      "regex": "^/([^/]+?)/features/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/features/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/how-it-works",
+      "regex": "^/([^/]+?)/how\\-it\\-works(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/how\\-it\\-works(?:/)?$"
+    },
+    {
+      "page": "/[locale]/opengraph-image",
+      "regex": "^/([^/]+?)/opengraph\\-image(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/opengraph\\-image(?:/)?$"
+    },
+    {
+      "page": "/[locale]/pricing",
+      "regex": "^/([^/]+?)/pricing(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/pricing(?:/)?$"
+    },
+    {
+      "page": "/[locale]/privacy-policy",
+      "regex": "^/([^/]+?)/privacy\\-policy(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/privacy\\-policy(?:/)?$"
+    },
+    {
+      "page": "/[locale]/refund-policy",
+      "regex": "^/([^/]+?)/refund\\-policy(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/refund\\-policy(?:/)?$"
+    },
+    {
+      "page": "/[locale]/resources",
+      "regex": "^/([^/]+?)/resources(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/resources(?:/)?$"
+    },
+    {
+      "page": "/[locale]/resources/[kind]",
+      "regex": "^/([^/]+?)/resources/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPkind": "nxtPkind"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/resources/(?<nxtPkind>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/showcase",
+      "regex": "^/([^/]+?)/showcase(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/showcase(?:/)?$"
+    },
+    {
+      "page": "/[locale]/solutions",
+      "regex": "^/([^/]+?)/solutions(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/solutions(?:/)?$"
+    },
+    {
+      "page": "/[locale]/solutions/[slug]",
+      "regex": "^/([^/]+?)/solutions/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/solutions/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/terms",
+      "regex": "^/([^/]+?)/terms(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/terms(?:/)?$"
+    },
+    {
+      "page": "/[locale]/testimonials",
+      "regex": "^/([^/]+?)/testimonials(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/testimonials(?:/)?$"
+    },
+    {
+      "page": "/[locale]/tools",
+      "regex": "^/([^/]+?)/tools(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/tools(?:/)?$"
+    },
+    {
+      "page": "/[locale]/tools/[slug]",
+      "regex": "^/([^/]+?)/tools/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/tools/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/use-cases",
+      "regex": "^/([^/]+?)/use\\-cases(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/use\\-cases(?:/)?$"
+    },
+    {
+      "page": "/[locale]/use-cases/[slug]",
+      "regex": "^/([^/]+?)/use\\-cases/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/use\\-cases/(?<nxtPslug>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/feed.xml",
+      "regex": "^/feed\\.xml(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/feed\\.xml(?:/)?$"
+    },
+    {
+      "page": "/icon",
+      "regex": "^/icon(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/icon(?:/)?$"
+    },
+    {
+      "page": "/manifest.webmanifest",
+      "regex": "^/manifest\\.webmanifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/manifest\\.webmanifest(?:/)?$"
+    },
+    {
+      "page": "/robots.txt",
+      "regex": "^/robots\\.txt(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/robots\\.txt(?:/)?$"
+    },
+    {
+      "page": "/sitemap.xml",
+      "regex": "^/sitemap\\.xml(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sitemap\\.xml(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "status": 404,
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/[locale]/layout,_N_T_/[locale]/blog/layout,_N_T_/[locale]/blog/tag/layout,_N_T_/[locale]/blog/tag/[tag]/layout,_N_T_/[locale]/blog/tag/[tag]/page,_N_T_/fa/blog/tag/%25D9%2588%25DB%258C%25D8%25AF%25DB%258C%25D9%2588,settings,articles"
+  }
+}

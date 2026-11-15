@@ -119,3 +119,36 @@ class TrendIdea(TimeStampedModel):
     @property
     def expired(self) -> bool:
         return self.trend.is_stale and self.state == self.State.OPEN
+
+
+class TrendRefreshState(models.Model):
+    """One row (pk=1): when the market trends were last fetched, by what trigger, and
+    what went wrong. Shared by the web process, the Celery worker and the tests, so
+    «is a refresh already running?» is an atomic UPDATE, not a lock file.
+    See ``apps.ai.trend_refresh``."""
+
+    running_since = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    #: beat | page | manual
+    last_trigger = models.CharField(max_length=12, blank=True)
+    #: {"fetched": n, "new": n, "problems": [...], "regions": [...], "at": iso}
+    last_result = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"trend refresh ({self.last_trigger or '-'})"
+
+
+class StoreTrendGroups(TimeStampedModel):
+    """The categories the owner chose for the trends page (chips), overriding the
+    automatic detection from the shop's text. No row = automatic. Names are keys of
+    ``apps.ai.trends.LEXICON``."""
+
+    store = models.OneToOneField(
+        "stores.Store", on_delete=models.CASCADE, related_name="trend_groups",
+    )
+    groups = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return f"{self.store_id}: {', '.join(self.groups)}"

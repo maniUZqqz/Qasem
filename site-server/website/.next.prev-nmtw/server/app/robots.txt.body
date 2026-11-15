@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: http://87.107.160.17:8040/sitemap.xml

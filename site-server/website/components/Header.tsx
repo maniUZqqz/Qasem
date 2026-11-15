@@ -80,8 +80,11 @@ export default function Header({ locale, name }: { locale: Locale; name?: string
           <a href={site.panelUrl} className="btn btn-ghost desktop-only">
             {locale === "fa" ? "ورود" : "Log in"}
           </a>
-          <a href={`${site.panelUrl}/register`} className="btn btn-primary">
-            {t.cta.startFree}
+          {/* روی گوشی «شروع رایگان» به‌جای دو خط، «شروع» می‌شود (CSS: .cta-long / .cta-short)؛
+              aria-label متنِ کامل را برای صفحه‌خوان نگه می‌دارد. */}
+          <a href={`${site.panelUrl}/register`} className="btn btn-primary site-cta" aria-label={t.cta.startFree}>
+            <span className="cta-long">{t.cta.startFree}</span>
+            <span className="cta-short" aria-hidden="true">{locale === "fa" ? "شروع" : "Start"}</span>
           </a>
           <button
             className="mobile-only btn btn-ghost"

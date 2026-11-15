@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "functions": {
+    "/[locale]/blog/[slug]/opengraph-image": {},
+    "/icon": {},
+    "/[locale]/opengraph-image": {}
+  }
+}

@@ -127,7 +127,10 @@ services:
       context: ./website
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
+      # server-side address of Django (pricing, blog, /api rewrite); the browser calls the same origin, so
+      # NEXT_PUBLIC_API_BASE stays empty (a loopback address there reaches every visitor's own computer)
+      INTERNAL_API_BASE: ${INTERNAL_API_BASE:-http://backend:8000}
+      NEXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-}
       NEXT_PUBLIC_PANEL_URL: ${PUBLIC_PANEL_URL:-http://127.0.0.1:5173}
       NEXT_PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://nmarketing.ir}
     expose: ["3001"]

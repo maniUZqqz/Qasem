@@ -11,7 +11,9 @@
  * with last week's FAQ beats shipping a page with no FAQ, and beats a red
  * build that ships nothing at all.
  */
-const BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+import { internalApiBase } from "./apiBase";
+
+const BASE = internalApiBase();
 
 /** Long enough to ride out a cold first query, short enough that a build does
  *  not hang on a sick backend. */

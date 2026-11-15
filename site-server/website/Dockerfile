@@ -12,10 +12,15 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # These are inlined into the bundle at build time, not read at runtime, so the
 # public URLs have to be known here.
-ARG NEXT_PUBLIC_API_BASE
+# Leave NEXT_PUBLIC_API_BASE empty (same-origin /api/...): it is sent to every visitor's browser, so a
+# loopback address here would break the contact form. The server-side address is INTERNAL_API_BASE
+# (also needed at build time for the /api rewrite and pages that are prerendered).
+ARG NEXT_PUBLIC_API_BASE=
+ARG INTERNAL_API_BASE=http://127.0.0.1:8000
 ARG NEXT_PUBLIC_PANEL_URL
 ARG NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE \
+    INTERNAL_API_BASE=$INTERNAL_API_BASE \
     NEXT_PUBLIC_PANEL_URL=$NEXT_PUBLIC_PANEL_URL \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_TELEMETRY_DISABLED=1

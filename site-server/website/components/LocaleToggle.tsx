@@ -23,6 +23,7 @@ export default function LocaleToggle({ locale }: { locale: Locale }) {
   return (
     <div
       role="group"
+      className="locale-toggle"
       aria-label={locale === "fa" ? "تغییر زبان" : "Change language"}
       style={{
         display: "inline-flex",

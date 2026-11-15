@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev --turbopack -p 3001",
     "build": "next build",
+    "postbuild": "node scripts/check-static-no-localhost.mjs",
+    "check:static": "node scripts/check-static-no-localhost.mjs",
     "start": "next start -p 3001",
     "lint": "next lint"
   },

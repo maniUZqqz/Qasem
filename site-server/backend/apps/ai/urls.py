@@ -28,6 +28,7 @@ from .views_providers import AIProviderHealthView, AIStatusView
 
 
 from .views_trends import (
+    TrendGroupsView,
     TrendIdeaDismissView,
     TrendIdeaUseView,
     TrendIdeaView,
@@ -122,6 +123,10 @@ urlpatterns = [
     path(
         "stores/<int:store_id>/trends/",
         TrendListView.as_view(), name="store-trends",
+    ),
+    path(
+        "stores/<int:store_id>/trends/groups/",
+        TrendGroupsView.as_view(), name="trend-groups",
     ),
     path(
         "stores/<int:store_id>/trends/relevance/",

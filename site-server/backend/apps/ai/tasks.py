@@ -231,3 +231,14 @@ def build_embeddings_task(self, job_id, store_id):
 
 # Registered here so the worker (autodiscovers `apps.ai.tasks`) knows it.
 from . import competitor_tasks  # noqa: E402,F401
+
+
+@shared_task(name="apps.ai.tasks.refresh_market_trends")
+def refresh_market_trends(regions=None, trigger="beat"):
+    """Fill the «ترندهای بازار» tab by itself: the daily beat entry ``market-trends-refresh``
+    and the page-open fallback (``apps.ai.trend_refresh``). Needs no AI; a source that does not
+    answer is recorded as a problem and never raises."""
+    from . import trend_refresh
+
+    result = trend_refresh.run(regions, trigger=trigger)
+    return {key: result.get(key) for key in ("fetched", "new", "problems", "skipped") if key in result}

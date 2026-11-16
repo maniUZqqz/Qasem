@@ -466,6 +466,35 @@ class UpdateTests(unittest.TestCase):
         backup = jload(os.path.join(self.data, "updates", "state.json"))["pending"]["backup"]
         self.assertTrue(os.path.isfile(os.path.join(backup, "retired", "nm_data.py")), "moved aside, not deleted")
 
+    def test_dropping_a_separate_tools_setup_file_moves_only_that_copy_aside(self):
+        """The setup file of a separate remote-access tool used to ship with the package. Once the package stops carrying
+        it, the next update moves this folder's copy into the backup (never deletes it) and leaves the tool that is
+        already installed - it lives outside the code folder (ProgramData) - and the node's data folder alone."""
+        setup = "PC" + "-Remote-Setup.bat"
+        tool = os.path.join(self.tmp, "ProgramData", "SeparateTool")
+        write(os.path.join(tool, "tunnel.cmd"), "keep me")
+        write(os.path.join(tool, "enroll_key"), "KEY")
+        older = dict(self.new)
+        older[setup] = "SETUP-BODY"
+        Site.zip_bytes, Site.manifest = build_package(older, "2.0")
+        rc, lines = self.run_update()
+        self.assertEqual(rc, 0, lines)
+        self.assertTrue(os.path.isfile(os.path.join(self.code, setup)))
+        newer = dict(self.new)
+        newer["agent.py"] = AGENT_HEAD % "2.1"
+        Site.zip_bytes, Site.manifest = build_package(newer, "2.1")
+        write_, retire = update.plan(Site.manifest, self.code)
+        self.assertEqual(retire, [setup], "only that one file is retired")
+        rc, lines = self.run_update()
+        self.assertEqual(rc, 0, lines)
+        self.assertFalse(os.path.exists(os.path.join(self.code, setup)))
+        backup = jload(os.path.join(self.data, "updates", "state.json"))["pending"]["backup"]
+        self.assertEqual(readf(os.path.join(backup, "retired", setup)), "SETUP-BODY", "moved aside, not deleted")
+        self.assertEqual(readf(os.path.join(tool, "tunnel.cmd")), "keep me")
+        self.assertEqual(readf(os.path.join(tool, "enroll_key")), "KEY")
+        self.assertEqual(readf(os.path.join(self.data, "models", "keep.bin")), "MODEL")
+        self.assertEqual(self.read("agent.py"), AGENT_HEAD % "2.1")
+
     def test_not_registered_and_unreachable_site(self):
         os.remove(os.path.join(self.data, "node.json"))
         rc, lines = self.run_update()

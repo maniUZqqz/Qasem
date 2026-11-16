@@ -5,8 +5,6 @@
 از راهِ خودِ عاملِ NMarketing روی گره: پنل دستور را این‌جا می‌گذارد، گره با heartbeat ِ بعدی (هر ۲۰ ثانیه) می‌گیرد،
 اجرا می‌کند و نتیجه را برمی‌گرداند — بی SSH، بی نصبِ جدا، بی دسترسیِ Administrator، فقط دستورهای ثابت.
 
-دسترسیِ کامل به کامپیوتر («حالتِ VPS»، برای هر پروژه‌ای مثلِ InstAI) جداست و بیرون از NMarketing است: /opt/pc-remote.
-
 ذخیره: <NM_DATA_DIR>/node-commands/<name>.json  = {"pending": {...} | null, "last": {...}}
 """
 from __future__ import annotations

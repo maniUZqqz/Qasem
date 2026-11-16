@@ -72,6 +72,16 @@ node.json
 EOF
 
 rm -rf "$REPO/chagher-server" "$REPO/prompts"
+
+# قفلِ ایمنی: این مخزن عمومی است و کلیدِ خصوصی (PEM، یا base64 ِ آن مثلِ داخلِ یک فایلِ راه‌اندازیِ دعوت) هرگز نباید در آن برود.
+# اگر چیزی پیدا شود هیچ commit و pushی انجام نمی‌شود و اسکریپت با خطا تمام می‌شود (نامِ فایل چاپ می‌شود، نه محتوایش).
+# (الگوها از تکه ساخته می‌شوند تا خودِ این اسکریپت که در آینه است جزو یافته‌ها نباشد.)
+_K1='-----BEGIN'; _K2='PRIVATE KEY'; _K3='LS0tLS1CRUdJ''Ti'
+LEAK=$(grep -rIlE -e "${_K1} [A-Z ]*${_K2}" -e "${_K3}[BC]" "$REPO/site-server" "$REPO/processing-server" 2>/dev/null | head -5)
+if [ -n "$LEAK" ]; then
+  echo "REFUSED: a private key is in the mirror (nothing committed, nothing pushed): $(echo "$LEAK" | sed "s#^$REPO/##" | tr '\n' ' ')"
+  exit 3
+fi
 git add -A >/dev/null 2>&1
 if git diff --cached --quiet; then
   echo "nothing to commit"

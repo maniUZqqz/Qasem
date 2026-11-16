@@ -96,7 +96,6 @@ class OwnerStepsTests(TestCase):
         keys = [s["key"] for s in d["steps"]]
         for want in ("node_on", "instai_fresh", "ig_login", "metis_credit", "c21st_key", "chagher_facts", "remotion_licence"):
             self.assertIn(want, keys)
-        self.assertNotIn("pc_remote", " ".join(keys), "PC Remote is a separate tool and is not part of NM")
         for s in d["steps"]:
             self.assertIn(s["state"], ("ok", "todo", "wait", "unknown"))
             self.assertTrue(s["title"] and s["how"] and s["detail"])

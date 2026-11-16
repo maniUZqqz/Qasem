@@ -144,7 +144,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.26"
+VERSION = "2.27"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -3779,7 +3779,6 @@ def h_voice_asr(job):
 # ───────────────────────────────────────────── the panel's commands (agent 2.10)
 #: Processing servers > «دستورها» in the panel: they come with the heartbeat / claim answer, are acknowledged at once
 #: and answered when done. update / restart end this process; START.bat starts it again (on the new code).
-#: (Full access to the computer itself is a separate tool, PC Remote - not part of NMarketing.)
 COMMANDS = ("status", "update", "restart", "build", "logs", "bootstrap")
 CMD = {"seen": set(), "restart": None}
 

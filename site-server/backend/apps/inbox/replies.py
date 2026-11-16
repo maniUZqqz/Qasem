@@ -29,6 +29,40 @@ from .models import CannedReply, InternalNote, MessageMeta
 
 MENTION_RE = re.compile(r"@([A-Za-z0-9_.\-]{2,150})")
 
+#: What the panel calls a customer who has not told us a name. These are labels,
+#: not names: «سلام مشتری» is worse than «سلام دوست عزیز».
+NO_NAME = {"", "مشتری", "بازدیدکنندهٔ سایت", "بازدیدکننده", "مشتری آزمایشی"}
+FRIENDLY = "دوست عزیز"
+_NAME_TOKEN = re.compile(r"\{\s*(?:name|نام)\s*\}", re.IGNORECASE)
+
+
+def first_name_of(conversation: Conversation) -> str:
+    """The customer's first name, or '' when all we know is a label or a phone number."""
+    customer = conversation.customer
+    candidates = [customer.name]
+    link = getattr(customer, "inbox_link", None)
+    if link is not None:
+        candidates.append(link.contact.name)
+    for raw in candidates:
+        name = (raw or "").strip()
+        # «۰۹۱۲…» (an SMS sender's number) is an identifier, not a name.
+        if name in NO_NAME or not re.search(r"[^\W\d_]", name):
+            continue
+        return name.split()[0]
+    return ""
+
+
+def fill_placeholders(text: str, conversation: Conversation) -> str:
+    """Replace `{name}` (and `{نام}`) with the customer's first name.
+
+    The Bot page promises canned replies may contain `{name}`; a customer must
+    never receive the braces. Same fallback as the broadcast preview, so a reply
+    and a broadcast greet an unknown customer the same way.
+    """
+    if not text or "{" not in text:
+        return text
+    return _NAME_TOKEN.sub(first_name_of(conversation) or FRIENDLY, text)
+
 
 def _target(conversation: Conversation) -> str:
     return conversation.external_id or str(conversation.customer_id)
@@ -43,7 +77,7 @@ def _deliver(conversation: Conversation, text: str) -> dict:
 
 def reply(conversation: Conversation, user: User, text: str, *, canned: CannedReply | None = None) -> dict:
     """A team member answers the customer."""
-    text = (text or "").strip()
+    text = fill_placeholders((text or "").strip(), conversation)
     outcome = _deliver(conversation, text)
     message = Message.objects.create(conversation=conversation, role=Message.Role.HUMAN, text=text)
     waited = sla.stop(conversation)
@@ -70,6 +104,7 @@ def reply(conversation: Conversation, user: User, text: str, *, canned: CannedRe
 
 def system_reply(conversation: Conversation, text: str, *, kind: str = "SYSTEM") -> dict:
     """The system writes to the customer - not a person, not the AI turn."""
+    text = fill_placeholders(text, conversation)
     outcome = _deliver(conversation, text)
     message = Message(conversation=conversation, role=Message.Role.AI, text=text)
     message._inbox_skip = True  # signals: this is a system line, not a bot answer

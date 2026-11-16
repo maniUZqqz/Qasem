@@ -52,6 +52,13 @@ MAX_RATE = 120
 PRIORITY = ["TELEGRAM", "BALE", "RUBIKA", "EITAA", "WHATSAPP", "SMS"]
 PAUSE_AFTER_FAILURES = 3
 OPT_OUT_FOOTER = "\n\nبرای لغو دریافت پیام‌ها، «لغو» را بفرستید."
+#: Why a recipient was skipped, in words the owner reads (the codes are stored in the row).
+SKIP_REASON_TITLES = {
+    "opted_out": "پیام تبلیغاتی را لغو کرده است",
+    "cancelled": "ارسال لغو شد",
+    "no_address": "راه ارسال ندارد",
+    "channel_off": "کانال خاموش است",
+}
 
 
 class BroadcastError(Exception):

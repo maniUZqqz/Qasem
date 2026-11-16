@@ -72,3 +72,21 @@ export function copy(text: string): Promise<void> {
     return Promise.reject(new Error("کلیپ‌بورد در دسترس نیست"));
   }
 }
+
+/** «۲۰۲۶-۱۱-۲۰T۰۹:۰۰» برای ورودی datetime-local: ساعتِ دیواریِ مرورگر، نه UTC (وگرنه ویرایش، زمان را جابه‌جا می‌کند). */
+export function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+const NO_NAME = new Set(["", "مشتری", "بازدیدکنندهٔ سایت", "بازدیدکننده", "مشتری آزمایشی"]);
+
+/** `{name}` / `{نام}` را با نامِ کوچکِ مشتری پر می‌کند (همان قاعدهٔ سرور؛ نامِ ناشناخته = «دوست عزیز»). */
+export function fillName(text: string, name: string | null | undefined): string {
+  const clean = (name ?? "").trim();
+  const usable = clean && !NO_NAME.has(clean) && /\p{L}/u.test(clean) ? clean.split(/\s+/)[0] : "";
+  return text.replace(/\{\s*(?:name|نام)\s*\}/gi, usable || "دوست عزیز");
+}

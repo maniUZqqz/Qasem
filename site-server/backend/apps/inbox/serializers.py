@@ -21,6 +21,24 @@ def _meta(conversation: Conversation):
     return getattr(conversation, "inbox_meta", None)
 
 
+def _waiting_minutes(conversation: Conversation, meta, last) -> int | None:
+    """How long the customer has been waiting for *us* - nothing once a person has answered.
+
+    The SLA clock (`meta.waiting_since`) is the truth while it runs. Without it
+    (a thread from before the inbox, a demo thread) the old rule «a person has
+    the thread, so the customer waits since they last wrote» would keep counting
+    after the team's reply, so a thread whose last word is the team's is not
+    waiting at all.
+    """
+    from django.utils import timezone
+
+    if meta is not None and meta.waiting_since is not None:
+        return max(0, int((timezone.now() - meta.waiting_since).total_seconds() // 60))
+    if last is not None and last.role == Message.Role.HUMAN:
+        return None
+    return conversation.waiting_minutes
+
+
 def user_json(user) -> dict | None:
     if user is None:
         return None
@@ -33,11 +51,7 @@ def conversation_row(conversation: Conversation, *, me=None) -> dict:
     last = ai_retry.last_visible_message(conversation)
     link = getattr(customer, "inbox_link", None)
     contact = link.contact if link is not None else None
-    waiting = conversation.waiting_minutes
-    if meta is not None and meta.waiting_since is not None:
-        from django.utils import timezone
-
-        waiting = max(0, int((timezone.now() - meta.waiting_since).total_seconds() // 60))
+    waiting = _waiting_minutes(conversation, meta, last)
     return {
         "id": conversation.id,
         "channel": conversation.channel,
@@ -153,8 +167,8 @@ def segment_json(row: Segment, count: int | None = None) -> dict:
             "builtin": bool(row.builtin_key), "builtin_key": row.builtin_key, "count": count}
 
 
-def broadcast_json(row: Broadcast) -> dict:
-    return {
+def broadcast_json(row: Broadcast, user=None) -> dict:
+    data = {
         "id": row.id, "name": row.name, "text": row.text, "channels": row.channels or [],
         "segment_id": row.segment_id, "segment_name": row.segment.name if row.segment_id else "همهٔ مخاطبان",
         "status": row.status, "status_title": row.get_status_display(), "dedupe": row.dedupe,
@@ -164,6 +178,15 @@ def broadcast_json(row: Broadcast) -> dict:
         "scheduled_at": row.scheduled_at, "started_at": row.started_at, "finished_at": row.finished_at,
         "stats": row.stats or {}, "created_at": row.created_at,
     }
+    if user is not None:
+        # The same rule `approve` enforces, so the button is only shown to someone it will work for
+        # (an admin who is not the owner cannot approve what they wrote themselves).
+        from . import broadcast as broadcast_rules
+
+        ok, why = broadcast_rules.can_approve(user, row)
+        data["can_approve"] = ok
+        data["cannot_approve_reason"] = "" if ok else why
+    return data
 
 
 def followup_json(row: FollowUp) -> dict:

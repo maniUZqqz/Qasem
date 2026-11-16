@@ -47,6 +47,12 @@ DEFAULT_OFFHOURS = (
     "الان خارج از ساعت کاری ما هستیم. پیامتان ثبت شد و اولین ساعت کاری، "
     "همکارانمان پاسخ می‌دهند."
 )
+#: What the customer reads the moment a person is asked for (or the bot is off):
+#: without it they would sit in silence until a human happens to look. No hours,
+#: no promise of a time - the store did not say any. The store can replace it on
+#: the Bot page (`InboxSettings.handoff_message`).
+DEFAULT_HANDOFF_NOTICE = "گفتگو را به یکی از همکاران می‌سپارم؛ به‌زودی پاسخ می‌دهند."
+DEFAULT_RECEIVED_NOTICE = "پیام شما رسید؛ یکی از همکاران پاسخ می‌دهد."
 
 
 @dataclass
@@ -73,10 +79,10 @@ def wants_human(cfg: InboxSettings, text: str) -> str:
 def decide(conversation: Conversation, text: str, now=None) -> Decision:
     cfg = team.settings_for(conversation.store)
     if not cfg.bot_enabled:
-        return Decision("handoff", "ربات برای این فروشگاه خاموش است")
+        return Decision("handoff", "ربات برای این فروشگاه خاموش است", cfg.handoff_message or DEFAULT_RECEIVED_NOTICE)
     word = wants_human(cfg, text)
     if word:
-        return Decision("handoff", f"مشتری آدم خواست («{word}»)")
+        return Decision("handoff", f"مشتری آدم خواست («{word}»)", cfg.handoff_message or DEFAULT_HANDOFF_NOTICE)
     if hours.configured(cfg.working_hours) and not hours.is_open(cfg.working_hours, now):
         if cfg.bot_offhours == InboxSettings.OffHours.MESSAGE:
             return Decision("handoff", "خارج از ساعت کاری", cfg.offhours_message or DEFAULT_OFFHOURS)
@@ -164,4 +170,4 @@ def after_turn(conversation: Conversation, turn) -> str | None:
     message = turn.message
     message.grounding = {**(message.grounding or {}), "withheld": True}
     message.save(update_fields=["grounding"])
-    return HANDOFF_TEXT
+    return team.settings_for(conversation.store).handoff_message or HANDOFF_TEXT

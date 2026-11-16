@@ -211,7 +211,8 @@ function ContactDrawer({ storeId, id, canWrite, onClose, onSaved }: { storeId: s
 }
 
 function Contacts({ storeId, canWrite }: { storeId: string; canWrite: boolean }) {
-  const [rows, setRows] = useState<{ contacts: ContactRow[]; total: number } | null>(null);
+  const [rows, setRows] = useState<{ contacts: ContactRow[]; total: number; test_total?: number } | null>(null);
+  const [tests, setTests] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [q, setQ] = useState("");
   const [segment, setSegment] = useState("");
@@ -225,12 +226,13 @@ function Contacts({ storeId, canWrite }: { storeId: string; canWrite: boolean })
       const params: Record<string, unknown> = { q, limit: 100 };
       if (segment) params.segment = segment;
       if (tag.trim()) params.tag = tag.trim();
+      if (tests) params.test = "1";
       setRows(await get(storeId, "contacts/", params));
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, [storeId, q, segment, tag]);
+  }, [storeId, q, segment, tag, tests]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), 250);
@@ -262,6 +264,12 @@ function Contacts({ storeId, canWrite }: { storeId: string; canWrite: boolean })
         </Field>
         <Field label="برچسب"><Input value={tag} onChange={(e) => setTag(e.target.value)} style={{ width: 140 }} /></Field>
         <span className="pb-2 text-sm" style={{ color: "var(--text-3)" }}>{rows ? `${faNum(rows.total)} مخاطب` : ""}</span>
+        {(rows?.test_total ?? 0) > 0 && (
+          <label className="flex items-center gap-2 pb-2 text-xs" style={{ color: "var(--text-3)" }}>
+            <input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} />
+            مخاطب‌های آزمایشی را هم نشان بده ({faNum(rows?.test_total ?? 0)})
+          </label>
+        )}
       </div>
       <ErrorBox message={error} />
       {open && <ContactDrawer storeId={storeId} id={open} canWrite={canWrite} onClose={() => setOpen(null)} onSaved={() => void load()} />}
@@ -275,7 +283,7 @@ function Contacts({ storeId, canWrite }: { storeId: string; canWrite: boolean })
               {!rows && <tr><td colSpan={7} className="p-6 text-center"><Spinner /></td></tr>}
               {rows?.contacts.map((c) => (
                 <tr key={c.id}>
-                  <td><b>{c.name || "بدون نام"}</b>{c.opt_out.ALL && <Badge tone="bad">لغو کرده</Badge>}</td>
+                  <td><b>{c.name || "بدون نام"}</b>{c.is_test && <Badge tone="warn">آزمایشی</Badge>}{c.opt_out.ALL && <Badge tone="bad">لغو کرده</Badge>}</td>
                   <td dir="ltr" className="u-num">{c.phone || "—"}</td>
                   <td>{(c.channels ?? []).map((k) => CHANNEL_TITLE[k] ?? k).join("، ") || "—"}</td>
                   <td>{c.tags.join("، ") || "—"}</td>
@@ -284,7 +292,12 @@ function Contacts({ storeId, canWrite }: { storeId: string; canWrite: boolean })
                   <td><Button size="sm" variant="ghost" onClick={() => setOpen(c.id)}>پروفایل</Button></td>
                 </tr>
               ))}
-              {rows && rows.contacts.length === 0 && <tr><td colSpan={7} className="p-6 text-center" style={{ color: "var(--text-3)" }}>مخاطبی پیدا نشد. با اولین پیام مشتری، مخاطب خودکار ساخته می‌شود.</td></tr>}
+              {rows && rows.contacts.length === 0 && (
+                <tr><td colSpan={7} className="p-6 text-center" style={{ color: "var(--text-3)" }}>
+                  مخاطبی پیدا نشد. با اولین پیام مشتری، مخاطب خودکار ساخته می‌شود.
+                  {!tests && (rows.test_total ?? 0) > 0 ? " نمونه‌های آزمایشی پنهان‌اند؛ گزینهٔ بالا را بزنید." : ""}
+                </td></tr>
+              )}
             </tbody>
           </table>
         </div>

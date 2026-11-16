@@ -24,7 +24,7 @@ from .models import (
     Broadcast, CannedReply, ChannelConnection, Contact, ConversationMeta, FollowUp, InboxSettings, MessageMeta,
 )
 
-BRAND = {"color": "#126F85", "title": "گفتگو با چغر", "subtitle": "معمولاً در چند دقیقه پاسخ می‌دهیم",
+BRAND = {"color": "#126F85", "title": "گفتگو با چغر", "subtitle": "پیامتان را بنویسید",
          "welcome": "سلام! دستیارِ چغر هستم. دربارهٔ چغر و برنامه‌سازیِ هوشمند برای مربی‌ها هر چه می‌خواهید بپرسید.",
          "position": "left", "auto_open": False}
 
@@ -35,10 +35,13 @@ CANNED = [
      "ثبت‌نام کمتر از یک دقیقه طول می‌کشد و شروعش رایگان است؛ کارت اعتباری نمی‌خواهد. از chagher.ir شروع کنید."),
     ("قیمت", "price",
      "قیمت و بسته‌های توکن در سایت chagher.ir منتشر شده است. اگر سؤال دقیق‌تری دارید یکی از همکاران پاسخ می‌دهد."),
-    ("جایگزین مربی؟", "coach",
-     "نه؛ چغر جایگزین مربی نیست. فقط پیش‌نویس برنامه را سریع می‌سازد و مربی آن را بازبینی و نهایی می‌کند."),
+    # «جایگزینِ مربی» is on the brand's never-say list (brand-facts-fa.md): say what the product
+    # does next to the coach, not what it replaces.
+    ("آیا مربی لازم است؟", "coach",
+     "بله؛ چغر کنار مربی کار می‌کند: پیش‌نویس برنامه را سریع می‌سازد و مربی آن را بازبینی و نهایی می‌کند."),
+    # Response hours are not published (brand-facts-fa.md §6.9): promise no hours.
     ("ساعت پاسخ‌گویی", "hours",
-     "همکاران ما در ساعت کاری پاسخ می‌دهند؛ پیام شما ثبت شد و در اولین فرصت جواب می‌گیرید."),
+     "پیام شما ثبت شد و یکی از همکاران ما در اولین فرصت پاسخ می‌دهد."),
 ]
 
 #: (channel, sender, name, phone, messages[(role, text)], state, tags)
@@ -65,8 +68,8 @@ CONVERSATIONS = [
       ("AI", "ثبت‌نام کمتر از یک دقیقه طول می‌کشد و شروعش رایگان است؛ کارت اعتباری نمی‌خواهد.")],
      "AI", []),
     ("EITAA", "demo-e1", "مربی نمونه ۴", "",
-     [("CUSTOMER", "نظرتون درباره جایگزین شدن مربی با هوش مصنوعی چیه؟"),
-      ("AI", "چغر جایگزین مربی نیست؛ پیش‌نویس می‌سازد و مربی بازبینی می‌کند.")],
+     [("CUSTOMER", "نظرتون درباره هوش مصنوعی برای مربی‌ها چیه؟"),
+      ("AI", "چغر کنار مربی کار می‌کند؛ پیش‌نویس می‌سازد و مربی بازبینی و نهایی می‌کند.")],
      "RESOLVED", []),
 ]
 
@@ -82,17 +85,17 @@ def seed(store, *, owner=None) -> dict:
 def _seed(store, owner) -> dict:
     made = {"conversations": 0, "canned": 0, "contacts": 0}
     cfg = team.settings_for(store)
-    cfg.assignment_mode = InboxSettings.Assignment.ROUND_ROBIN
-    cfg.working_hours = {"days": [5, 6, 0, 1, 2], "start": "09:00", "end": "18:00"}
-    cfg.sla_first_response_min = 15
-    cfg.bot_enabled = True
-    cfg.bot_min_confidence = 0.55
-    cfg.bot_offhours = InboxSettings.OffHours.MESSAGE
-    cfg.offhours_message = "الان خارج از ساعت کاری هستیم؛ پیامتان ثبت شد و صبح که برگشتیم جواب می‌دهیم."
-    cfg.greeting_message = BRAND["welcome"]
-    cfg.survey_enabled = True
-    cfg.widget = dict(BRAND)
-    cfg.save()
+    if not cfg.widget:
+        # First seed only: running it again must never overwrite what the owner changed since.
+        # No working hours and no off-hours text on purpose - the brand has not published its
+        # hours (brand-facts-fa.md §6.9), so the inbox is «always open» until the owner says otherwise.
+        cfg.assignment_mode = InboxSettings.Assignment.ROUND_ROBIN
+        cfg.bot_enabled = True
+        cfg.bot_min_confidence = 0.55
+        cfg.greeting_message = BRAND["welcome"]
+        cfg.survey_enabled = True
+        cfg.widget = dict(BRAND)
+        cfg.save()
 
     # Channels exist but stay OFF and token-less: a draft, never a live bot.
     for kind in ("TELEGRAM", "BALE", "EITAA", "RUBIKA", "WEBCHAT", "SMS", "WHATSAPP"):
@@ -124,6 +127,7 @@ def _seed(store, owner) -> dict:
         contact.save(update_fields=["tags", "updated_at"])
         made["contacts"] += 1
         stamp = now - timedelta(minutes=30 * (len(CONVERSATIONS) - index))
+        last_customer_at = stamp
         for role, text in lines:
             message = Message(conversation=conversation, role=getattr(Message.Role, role), text=text)
             message._inbox_skip = True
@@ -131,11 +135,13 @@ def _seed(store, owner) -> dict:
             Message.objects.filter(pk=message.pk).update(created_at=stamp)
             if role == "HUMAN":
                 MessageMeta.objects.create(message=message, author=owner, kind=MessageMeta.Kind.REPLY, delivered=True)
+            if role == "CUSTOMER":
+                last_customer_at = stamp  # when the customer last wrote - not after the last line
             stamp += timedelta(minutes=2)
         conversation.state = state
-        conversation.last_customer_at = stamp
+        conversation.last_customer_at = last_customer_at
         conversation.save()
-        Conversation.objects.filter(pk=conversation.pk).update(last_customer_at=stamp)
+        Conversation.objects.filter(pk=conversation.pk).update(last_customer_at=last_customer_at)
         if state == "ESCALATED":
             meta = ConversationMeta.objects.get(conversation=conversation)
             meta.handoff_reason = "مشتری آدم خواست («صحبت با»)"

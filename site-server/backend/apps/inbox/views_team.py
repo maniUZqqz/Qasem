@@ -17,7 +17,7 @@ from apps.stores import access
 
 from . import bot, dispatch, hours, surveys, team
 from .models import AgentProfile, ConversationMeta, InboxSettings
-from .views_conversations import OPEN_STATES, fail
+from .views_conversations import OPEN_STATES, OWED_BY_AI, OWED_BY_PERSON, fail
 
 CHANNEL_KEYS = ["TELEGRAM", "BALE", "EITAA", "RUBIKA", "WEBCHAT", "SMS", "INSTAGRAM", "WHATSAPP", "WEB", "API"]
 
@@ -35,6 +35,7 @@ SETTINGS_FIELDS = {
     "bot_offhours": ("choice", [c for c, _ in InboxSettings.OffHours.choices]),
     "offhours_message": ("text", 600),
     "greeting_message": ("text", 600),
+    "handoff_message": ("text", 600),
     "survey_enabled": ("bool", None),
     "survey_text": ("text", 600),
     "survey_delay_min": ("int", (0, 7 * 24 * 60)),
@@ -52,6 +53,7 @@ def settings_json(cfg: InboxSettings) -> dict:
     data = {name: getattr(cfg, name) for name in SETTINGS_FIELDS}
     data["bot_handoff_keywords_effective"] = bot.keywords_of(cfg)
     data["bot_offhours_default_message"] = bot.DEFAULT_OFFHOURS
+    data["handoff_default_message"] = bot.DEFAULT_HANDOFF_NOTICE
     data["default_working_hours"] = hours.DEFAULT_HOURS
     data["open_now"] = hours.is_open(cfg.working_hours)
     return data
@@ -162,10 +164,11 @@ class TeamView(APIView):
         return Response({
             "members": team.performance(store, days=days),
             "days": days,
+            # The number on the inbox's «بدون مسئول» tab: real threads that are owed an answer
+            # (a person's, or one the bot failed to give) and have nobody on them.
             "unassigned_open": Conversation.objects.filter(
-                store=store, assigned_to__isnull=True,
-                state__in=[Conversation.State.HUMAN, Conversation.State.ESCALATED],
-            ).count(),
+                OWED_BY_PERSON | OWED_BY_AI, store=store, assigned_to__isnull=True,
+            ).exclude(Q(inbox_meta__is_test=True) | Q(customer__channel="web-test")).count(),
         })
 
 

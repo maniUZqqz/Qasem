@@ -115,7 +115,10 @@ def facts_for(contacts: list[Contact], now: datetime | None = None) -> dict[int,
             "orders_count": c.orders_count,
             "total_spent": float(c.total_spent or 0),
             "last_purchase_days": _days_since(c.last_purchase_at, now),
-            "last_activity_days": _days_since(c.last_activity_at, now),
+            # A contact nobody has heard from yet (added by hand, imported) has been quiet
+            # since it was added - not «for ever»: otherwise a contact created a minute ago
+            # is both «تازه‌وارد» and «غیرفعال».
+            "last_activity_days": _days_since(c.last_activity_at or c.first_seen_at, now),
             "first_seen_days": _days_since(c.first_seen_at, now),
             "has_phone": bool(c.phone),
             "opted_out": bool((c.opt_out or {}).get("ALL")),

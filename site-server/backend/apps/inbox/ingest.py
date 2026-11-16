@@ -52,9 +52,14 @@ def _to_inbound(incoming: Incoming) -> webhooks.Inbound:
 
 def receive(connection: ChannelConnection, incoming: Incoming, *, is_test: bool = False) -> Received:
     """Store one inbound message and run the unified-inbox side effects."""
+    from . import signals
+
     store = connection.store
     channel_key = connection.kind
-    message = webhooks.deliver(store, channel_key, _to_inbound(incoming))
+    # This door handles «relationship» messages itself (below); the message
+    # signal must not do it a second time.
+    with signals.via_ingest():
+        message = webhooks.deliver(store, channel_key, _to_inbound(incoming))
     if message is None:
         return Received(None, None, None)
     conversation = message.conversation
@@ -77,25 +82,45 @@ def receive(connection: ChannelConnection, incoming: Incoming, *, is_test: bool 
     connection.inbound_count += 1
     connection.save(update_fields=["last_inbound_at", "inbound_count", "updated_at"])
 
-    handled = _special(connection, conversation, contact, message)
+    handled = handle_relationship(conversation, message, contact=contact)
     return Received(message, conversation, customer, handled)
 
 
-def _special(connection, conversation, contact, message) -> str:
-    """Messages that are about the relationship, not the conversation."""
+def relationship_kind(conversation: Conversation, message: Message) -> str:
+    """`survey`, `opt_out`, `opt_in` or `''` - a look at the message, no side effects.
+
+    These messages are about the relationship, not the conversation: a customer
+    answering the satisfaction survey or writing «لغو» is not a new problem on a
+    closed thread. `signals` asks this so such a message never reopens the thread,
+    never lights the team's unread counter and never reaches the bot; the handler
+    below then does the actual work.
+    """
     from . import surveys
 
-    if surveys.try_answer(conversation, message):
+    if surveys.is_answer(conversation, message):
         return "survey"
-    word = contacts.opt_word(message.text)
-    if not word:
+    return {"out": "opt_out", "in": "opt_in"}.get(contacts.opt_word(message.text), "")
+
+
+def handle_relationship(conversation: Conversation, message: Message, *, contact=None) -> str:
+    """Do what a relationship message asks. Returns the kind handled, or ''."""
+    from . import surveys
+
+    kind = relationship_kind(conversation, message)
+    if kind == "survey":
+        return "survey" if surveys.try_answer(conversation, message) else ""
+    if not kind:
         return ""
-    from . import events
+    from . import events, sla
     from .replies import system_reply
 
-    if word == "out":
+    if contact is None:
+        contact = contacts.identify(
+            conversation.customer, source=conversation.channel.lower(), is_test=sla.is_test(conversation),
+        )
+    if kind == "opt_out":
         contacts.set_opt_out(contact, "ALL", True)
-        events.emit(connection.store, "contact.opted_out", {"contact_id": contact.pk, "channel": connection.kind})
+        events.emit(conversation.store, "contact.opted_out", {"contact_id": contact.pk, "channel": conversation.channel})
         system_reply(
             conversation,
             "از لیست پیام‌های تبلیغاتی خارج شدید و دیگر پیام گروهی دریافت نمی‌کنید. "
@@ -137,7 +162,9 @@ def poll_connection(connection: ChannelConnection) -> dict:
     connection.poll_cursor = result.cursor or connection.poll_cursor
     connection.last_poll_at = now
     connection.health_ok = True
-    connection.save(update_fields=["poll_cursor", "last_poll_at", "health_ok", "updated_at"])
+    connection.last_error = ""
+    connection.last_error_at = None
+    connection.save(update_fields=["poll_cursor", "last_poll_at", "health_ok", "last_error", "last_error_at", "updated_at"])
     return {"polled": True, "received": len(result.messages), "accepted": accepted}
 
 

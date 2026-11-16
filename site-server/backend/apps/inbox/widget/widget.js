@@ -117,7 +117,7 @@
     host.style.setProperty("--c", cfg.color || "#2563eb");
     if (shadow !== host) shadow.host.style.setProperty("--c", cfg.color || "#2563eb");
     title.textContent = cfg.title || "گفتگو با ما";
-    sub.textContent = cfg.open_now ? (cfg.subtitle || "معمولاً در چند دقیقه پاسخ می‌دهیم") : (cfg.offline_subtitle || "خارج از ساعت کاری هستیم؛ پیام بگذارید");
+    sub.textContent = cfg.open_now ? (cfg.subtitle || "پیامتان را بنویسید") : (cfg.offline_subtitle || "خارج از ساعت کاری هستیم؛ پیام بگذارید");
     // «چپ/راست» همان چپ و راستِ واقعیِ صفحه است، نه ابتدا/انتهای متن (در صفحهٔ راست‌به‌چپ این دو برعکس‌اند).
     if (cfg.position === "right") { fab.style.left = "auto"; fab.style.right = "20px"; panel.style.left = "auto"; panel.style.right = "20px"; }
   }

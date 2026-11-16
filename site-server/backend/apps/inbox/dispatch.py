@@ -107,7 +107,11 @@ def send(kind: str, store, *, to: str, text: str) -> dict:
     if result.ok:
         connection.last_outbound_at = now
         connection.outbound_count += 1
-        connection.save(update_fields=["last_outbound_at", "outbound_count", "updated_at"])
+        # A send that went through ends the story of an earlier failure: the card
+        # must not keep a red «آخرین خطا» for a channel that works again.
+        connection.last_error = ""
+        connection.last_error_at = None
+        connection.save(update_fields=["last_outbound_at", "outbound_count", "last_error", "last_error_at", "updated_at"])
     else:
         connection.last_error = result.reason[:300]
         connection.last_error_at = now
@@ -134,6 +138,9 @@ def check_health(connection: ChannelConnection) -> dict:
     if not health.ok:
         connection.last_error = health.detail[:300]
         connection.last_error_at = now
+    else:
+        connection.last_error = ""
+        connection.last_error_at = None
     connection.save(update_fields=[
         "health_ok", "health_detail", "health_checked_at", "account_label",
         "last_error", "last_error_at", "updated_at",

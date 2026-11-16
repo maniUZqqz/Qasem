@@ -2,6 +2,7 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui";
 import { Canned, Member } from "./api";
+import { fillName } from "./format";
 
 type Mode = "reply" | "note";
 
@@ -19,6 +20,7 @@ export default function Composer({
   canWrite,
   canned,
   members,
+  customerName,
   draft,
   setDraft,
   onSend,
@@ -28,6 +30,7 @@ export default function Composer({
   canWrite: boolean;
   canned: Canned[];
   members: Member[];
+  customerName?: string;
   draft: string;
   setDraft: (text: string) => void;
   onSend: (text: string, mode: Mode, cannedId?: number) => Promise<void>;
@@ -48,14 +51,14 @@ export default function Composer({
       return canned
         .filter((c) => !term || c.shortcut.toLowerCase().startsWith(term) || c.title.includes(token.term))
         .slice(0, 8)
-        .map((c) => ({ key: `c${c.id}`, title: c.title, hint: c.text, insert: c.text, cannedId: c.id }));
+        .map((c) => ({ key: `c${c.id}`, title: c.title, hint: fillName(c.text, customerName), insert: fillName(c.text, customerName), cannedId: c.id }));
     }
     if (mode !== "note") return [];
     return members
       .filter((m) => !term || m.username.toLowerCase().startsWith(term) || m.name.includes(token.term))
       .slice(0, 8)
       .map((m) => ({ key: `m${m.username}`, title: m.name, hint: `@${m.username}`, insert: `@${m.username} ` }));
-  }, [token?.mark, token?.term, canned, members, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token?.mark, token?.term, canned, members, mode, customerName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => setActive(0), [token?.term, token?.mark]);
 

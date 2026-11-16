@@ -71,12 +71,12 @@ def mark_sent(conversation: Conversation, agent=None) -> SatisfactionSurvey:
     )
 
 
-def try_answer(conversation: Conversation, message: Message) -> bool:
-    """Is this message the answer to an open survey? If so, record and thank."""
+def _open_survey_for(conversation: Conversation, message: Message):
+    """(survey, score, comment) when `message` answers this thread's open survey, else None."""
     text = norm.ascii_digits((message.text or "").strip())
     found = _ANSWER.match(text)
     if not found:
-        return False
+        return None
     survey = (
         SatisfactionSurvey.objects.filter(
             conversation=conversation, answered_at__isnull=True,
@@ -84,9 +84,28 @@ def try_answer(conversation: Conversation, message: Message) -> bool:
         ).order_by("-sent_at").first()
     )
     if survey is None:
+        return None
+    return survey, int(found.group(1)), found.group(2).strip()[:500]
+
+
+def is_answer(conversation: Conversation, message: Message) -> bool:
+    """Would `try_answer` take this message? A look only - nothing is recorded.
+
+    The message signal asks this *before* it reopens a closed thread or lights up
+    the team's unread counter: a customer's «۵» is the end of a conversation,
+    not a new one.
+    """
+    return _open_survey_for(conversation, message) is not None
+
+
+def try_answer(conversation: Conversation, message: Message) -> bool:
+    """Is this message the answer to an open survey? If so, record and thank."""
+    hit = _open_survey_for(conversation, message)
+    if hit is None:
         return False
-    survey.score = int(found.group(1))
-    survey.comment = found.group(2).strip()[:500]
+    survey, score, comment = hit
+    survey.score = score
+    survey.comment = comment
     survey.answered_at = timezone.now()
     survey.save(update_fields=["score", "comment", "answered_at", "updated_at"])
     events.emit(conversation.store, "survey.answered", {

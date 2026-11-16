@@ -149,6 +149,8 @@ export type Settings = {
   bot_offhours_default_message: string;
   offhours_message: string;
   greeting_message: string;
+  handoff_message: string;
+  handoff_default_message: string;
   survey_enabled: boolean;
   survey_text: string;
   survey_delay_min: number;
@@ -167,6 +169,7 @@ export type TeamRow = {
   username: string;
   name: string;
   role: string | null;
+  role_title?: string;
   status: PresenceStatus;
   status_note: string;
   open: number;
@@ -289,7 +292,9 @@ export type BroadcastRow = {
   finished_at: string | null;
   stats: Record<string, number | Record<string, number>>;
   created_at: string;
-  recipients_sample?: { channel: string; status: string; skip_reason: string; error: string; contact__name: string; contact__phone: string }[];
+  can_approve?: boolean;
+  cannot_approve_reason?: string;
+  recipients_sample?: { channel: string; status: string; status_title?: string; skip_reason: string; skip_reason_title?: string; error: string; contact__name: string; contact__phone: string }[];
 };
 
 export type BroadcastPreview = {
@@ -372,3 +377,27 @@ export const WEEKDAYS: { n: number; label: string }[] = [
   { n: 3, label: "پنجشنبه" },
   { n: 4, label: "جمعه" },
 ];
+
+/** نقش‌ها و وضعیت‌های فنی به فارسی؛ پنل هرگز کدِ انگلیسی (OWNER، SENT، opted_out) را چاپ نمی‌کند. */
+export const ROLE_TITLE: Record<string, string> = {
+  OWNER: "مالک",
+  ADMIN: "مدیر",
+  MARKETING: "بازاریابی",
+  CONTENT: "مدیر محتوا",
+  SUPPORT: "پشتیبانی",
+  VIEWER: "بازدیدکننده",
+};
+
+export const RECIPIENT_STATUS_TITLE: Record<string, string> = {
+  QUEUED: "در صف",
+  SENT: "فرستاده شد",
+  FAILED: "ناموفق",
+  SKIPPED: "رد شد",
+};
+
+export const SKIP_REASON_TITLE: Record<string, string> = {
+  opted_out: "پیام تبلیغاتی را لغو کرده است",
+  cancelled: "ارسال لغو شد",
+  no_address: "راه ارسال ندارد",
+  channel_off: "کانال خاموش است",
+};

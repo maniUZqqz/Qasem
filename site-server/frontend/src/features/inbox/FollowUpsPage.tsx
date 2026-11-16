@@ -15,6 +15,8 @@ export default function FollowUpsPage() {
   const [kind, setKind] = useState("");
   const [mine, setMine] = useState(false);
   const [rows, setRows] = useState<FollowUp[] | null>(null);
+  const [tests, setTests] = useState(false);
+  const [testTotal, setTestTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -23,12 +25,15 @@ export default function FollowUpsPage() {
       if (status) params.status = status;
       if (kind) params.kind = kind;
       if (mine) params.mine = "1";
-      setRows((await get<{ followups: FollowUp[] }>(storeId, "followups/", params)).followups);
+      if (tests) params.test = "1";
+      const res = await get<{ followups: FollowUp[]; test_total?: number }>(storeId, "followups/", params);
+      setRows(res.followups);
+      setTestTotal(res.test_total ?? 0);
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, [storeId, status, kind, mine]);
+  }, [storeId, status, kind, mine, tests]);
 
   useEffect(() => {
     void load();
@@ -58,6 +63,12 @@ export default function FollowUpsPage() {
             <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> فقط مال من
           </label>
         )}
+        {testTotal > 0 && (
+          <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-3)" }}>
+            <input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} />
+            پیگیری‌های آزمایشی را هم نشان بده ({faNum(testTotal)})
+          </label>
+        )}
       </div>
       <ErrorBox message={error} />
       {!rows ? (
@@ -68,11 +79,15 @@ export default function FollowUpsPage() {
             <table className="u-table">
               <thead><tr><th>نوع</th><th>مشتری</th><th>متن</th><th>زمان</th><th>وضعیت</th><th>مسئول</th><th /></tr></thead>
               <tbody>
-                {rows.length === 0 && <tr><td colSpan={7} className="p-6 text-center" style={{ color: "var(--text-3)" }}>چیزی نیست.</td></tr>}
+                {rows.length === 0 && (
+                  <tr><td colSpan={7} className="p-6 text-center" style={{ color: "var(--text-3)" }}>
+                    چیزی نیست.{!tests && testTotal > 0 ? " پیگیری‌های آزمایشی پنهان‌اند؛ گزینهٔ بالا را بزنید." : ""}
+                  </td></tr>
+                )}
                 {rows.map((f) => (
                   <tr key={f.id}>
                     <td>{f.kind_title}{f.target === "AGENT" && <div className="text-xs" style={{ color: "var(--text-3)" }}>یادآوری به همکار</div>}</td>
-                    <td>{f.customer || "—"}</td>
+                    <td>{f.customer || "—"}{f.is_test && <Badge tone="warn">آزمایشی</Badge>}</td>
                     <td style={{ maxWidth: 320 }}>{f.text}</td>
                     <td className="u-num">{dateTimeText(f.due_at)}</td>
                     <td><Badge tone={TONE[f.status] ?? "neutral"}>{f.status_title}</Badge>{f.error && <div className="text-xs" style={{ color: "var(--text-3)" }}>{f.error}</div>}</td>

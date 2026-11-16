@@ -30,7 +30,7 @@ function WidgetLook({ cfg, save, canEdit }: { cfg: Settings; save: (c: Partial<S
             <Input value={String(draft.title ?? "")} placeholder="گفتگو با ما" disabled={!canEdit} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           </Field>
           <Field label="زیرعنوان (در ساعت کاری)">
-            <Input value={String(draft.subtitle ?? "")} placeholder="معمولاً در چند دقیقه پاسخ می‌دهیم" disabled={!canEdit} onChange={(e) => setDraft({ ...draft, subtitle: e.target.value })} />
+            <Input value={String(draft.subtitle ?? "")} placeholder="مثلاً: پیامتان را بنویسید" disabled={!canEdit} onChange={(e) => setDraft({ ...draft, subtitle: e.target.value })} />
           </Field>
           <Field label="پیام خوش‌آمد">
             <Input value={String(draft.welcome ?? "")} placeholder="سلام! چطور می‌توانیم کمک کنیم؟" disabled={!canEdit} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
@@ -99,7 +99,7 @@ function CannedManager({ storeId, canWrite }: { storeId: string; canWrite: boole
     <Card>
       <SectionTitle>پاسخ‌های آماده</SectionTitle>
       <p className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>
-        در پنجرهٔ پاسخ «/» بزنید تا همین‌ها پیشنهاد شود. می‌توانید <code>{"{name}"}</code> هم بگذارید.
+        در پنجرهٔ پاسخ «/» بزنید تا همین‌ها پیشنهاد شود. اگر <code>{"{name}"}</code> بگذارید، موقع ارسال با نام کوچک مشتری پر می‌شود (نامش را ندانیم: «دوست عزیز»).
       </p>
       <ErrorBox message={error} />
       <div className="grid gap-2 *:min-w-0">
@@ -193,6 +193,9 @@ export default function BotPage() {
               <Input value={keywords} disabled={!canEdit} onChange={(e) => setKeywords(e.target.value)} placeholder="اپراتور، پشتیبان، مربی" />
               <Button size="sm" variant="secondary" disabled={!canEdit} onClick={() => void save({ bot_handoff_keywords: keywords.split(/[،,\n]/).map((k) => k.trim()).filter(Boolean) })}>ذخیره</Button>
             </div>
+          </Field>
+          <Field label="پیامی که مشتری وقتی «آدم می‌خواهم» می‌گوید می‌بیند" hint={`خالی = «${cfg.handoff_default_message}». ساعت یا زمان قطعی ننویسید مگر مطمئن باشید.`}>
+            <textarea className="u-input" rows={2} defaultValue={cfg.handoff_message} disabled={!canEdit} onBlur={(e) => e.target.value !== cfg.handoff_message && void save({ handoff_message: e.target.value })} aria-label="پیام واگذاری به همکار" />
           </Field>
           <Field label="پیام خوش‌آمد (چت سایت)" hint="اولین چیزی که بازدیدکننده در ویجت می‌بیند.">
             <textarea className="u-input" rows={2} defaultValue={cfg.greeting_message} disabled={!canEdit} onBlur={(e) => e.target.value !== cfg.greeting_message && void save({ greeting_message: e.target.value })} aria-label="پیام خوش‌آمد" />

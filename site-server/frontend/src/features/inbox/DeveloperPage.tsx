@@ -117,7 +117,7 @@ function Webhooks({ storeId, events }: { storeId: string; events: Docs["events"]
               <span className="text-xs" style={{ color: "var(--text-3)" }}>{w.events.length ? `${faNum(w.events.length)} رویداد` : "همهٔ رویدادها"}</span>
               <Button size="sm" variant="ghost" onClick={() => void openDetail(w.id)}>جزئیات</Button>
             </div>
-            {w.last_status && <div className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>آخرین وضعیت: {w.last_status}{w.failure_count ? ` · ${faNum(w.failure_count)} خطای پشت‌سرهم` : ""}</div>}
+            {w.last_status && <div className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>آخرین وضعیت: {w.last_status === "OK" ? "رسید" : w.last_status}{w.failure_count ? ` · ${faNum(w.failure_count)} خطای پشت‌سرهم` : ""}</div>}
             {open === w.id && detail && (
               <div className="mt-3 grid gap-2">
                 <div className="text-xs" style={{ color: "var(--text-3)" }}>رمز امضا</div>

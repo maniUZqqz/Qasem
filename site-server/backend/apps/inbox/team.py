@@ -171,8 +171,10 @@ def performance(store, *, days: int = 30) -> list[dict]:
     """First-response and average response time per member (test threads out)."""
     since = timezone.now() - timedelta(days=days)
     rows = []
+    role_titles = dict(Membership.Role.choices)
     for user in members(store):
         profile = profile_for(store, user)
+        role = access.role_of(user, store)
         replies = MessageMeta.objects.filter(
             author=user, kind=MessageMeta.Kind.REPLY,
             message__conversation__store=store, message__created_at__gte=since,
@@ -189,7 +191,9 @@ def performance(store, *, days: int = 30) -> list[dict]:
         rows.append({
             "username": user.username,
             "name": profile.name,
-            "role": access.role_of(user, store),
+            "role": role,
+            #: «مالک / مدیر / پشتیبانی» - the panel shows this, never the code
+            "role_title": role_titles.get(role, role or ""),
             "status": profile.effective_status,
             "status_note": profile.status_note,
             "open": open_load(store, user),

@@ -123,11 +123,14 @@ class WidgetTests(InboxTestCase):
             self.assertIn(needle, source)
         self.assertNotIn("document.cookie", source)  # no cookies: CORS * is safe
 
-    def test_a_widget_session_row_is_created_per_visitor(self, _):
-        self.start()
-        self.start()
-        self.assertEqual(WidgetSession.objects.count(), 2)
+    def test_a_widget_session_row_is_created_per_visitor_when_they_first_write(self, _):
+        first, second = self.start(), self.start()
+        self.assertEqual(WidgetSession.objects.count(), 0)  # opening a session writes nothing
         self.assertEqual(Message.objects.count(), 0)
+        self.post("send", {"token": first, "text": "سلام"})
+        self.post("send", {"token": second, "text": "درود"})
+        self.assertEqual(WidgetSession.objects.count(), 2)
+        self.assertEqual(Message.objects.count(), 2)
 
 
 class SiteBuilderTests(InboxTestCase):

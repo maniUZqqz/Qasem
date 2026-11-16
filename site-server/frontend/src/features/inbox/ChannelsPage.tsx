@@ -93,7 +93,7 @@ function ChannelCard({ info, storeId, canEdit, isStaff, onChanged }: { info: Cha
             آخرین پیام دریافتی: {ago(info.last_inbound_at)} · دریافتی {faNum(info.inbound_count)} · ارسالی {faNum(info.outbound_count)}
           </span>
         )}
-        {info.last_error && <span style={{ color: "var(--bad)" }}>آخرین خطا: {info.last_error}</span>}
+        {info.last_error && <span style={{ color: "var(--bad)" }}>آخرین خطا{info.last_error_at ? ` (${ago(info.last_error_at)})` : ""}: {info.last_error}</span>}
       </div>
 
       {open && (

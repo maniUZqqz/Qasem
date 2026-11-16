@@ -120,7 +120,9 @@ class ListView(APIView):
         counts = {
             "waiting": everything.filter(owed).count(),
             "unread": everything.filter(inbox_meta__unread_count__gt=0).count(),
-            "unassigned": everything.filter(OWED_BY_PERSON, assigned_to__isnull=True).count(),
+            # The same set the «بدون مسئول» tab lists (assigned=nobody&state=waiting): a
+            # thread the bot failed to answer is owed an answer too, and it has no owner.
+            "unassigned": everything.filter(owed, assigned_to__isnull=True).count(),
             "mine": everything.filter(assigned_to=request.user, state__in=OPEN_STATES).count(),
             "breached": everything.filter(
                 inbox_meta__sla_breached_at__isnull=False, inbox_meta__waiting_since__isnull=False,

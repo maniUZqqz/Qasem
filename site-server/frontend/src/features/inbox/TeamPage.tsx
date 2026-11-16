@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../../api/client";
 import { Badge, Button, Card, ErrorBox, Field, Input, SectionTitle, Select, Spinner } from "../../components/ui";
 import {
-  ASSIGN_TITLE, CHANNEL_TITLE, PRESENCE_TITLE, Settings, Stats, TeamRow, WEEKDAYS, get, patch,
+  ASSIGN_TITLE, CHANNEL_TITLE, PRESENCE_TITLE, ROLE_TITLE, Settings, Stats, TeamRow, WEEKDAYS, get, patch,
 } from "./api";
 import { ago, duration, faNum, toInt } from "./format";
 import { useInbox } from "./InboxLayout";
@@ -178,7 +178,7 @@ export default function TeamPage() {
                     <tr key={m.username}>
                       <td>
                         <b>{m.name}</b>
-                        <div className="text-xs" style={{ color: "var(--text-3)" }}>{m.role}</div>
+                        <div className="text-xs" style={{ color: "var(--text-3)" }}>{m.role_title || (m.role ? ROLE_TITLE[m.role] ?? m.role : "")}</div>
                       </td>
                       <td>
                         <Badge tone={m.status === "ONLINE" ? "ok" : m.status === "BUSY" ? "warn" : "neutral"}>{PRESENCE_TITLE[m.status]}</Badge>

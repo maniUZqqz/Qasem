@@ -135,6 +135,9 @@ class InboxSettings(TimeStampedModel):
     bot_offhours = models.CharField(max_length=8, choices=OffHours.choices, default=OffHours.BOT)
     offhours_message = models.TextField(blank=True)
     greeting_message = models.TextField(blank=True)
+    #: Said to the customer when a person is asked for (or the bot is off) -
+    #: empty = the neutral built-in line (`bot.DEFAULT_HANDOFF_NOTICE`).
+    handoff_message = models.TextField(blank=True)
 
     # -- survey -------------------------------------------------------
     survey_enabled = models.BooleanField(default=False)

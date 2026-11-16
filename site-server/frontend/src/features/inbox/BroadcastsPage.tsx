@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { errorMessage } from "../../api/client";
 import { Alert, Badge, Button, Card, ErrorBox, Field, Input, SectionTitle, Select, Spinner } from "../../components/ui";
-import { BroadcastPreview, BroadcastRow, CHANNEL_TITLE, Segment, del, get, patch, post } from "./api";
-import { dateTimeText, faNum, toInt } from "./format";
+import {
+  BroadcastPreview, BroadcastRow, CHANNEL_TITLE, RECIPIENT_STATUS_TITLE, SKIP_REASON_TITLE, Segment, del, get, patch, post,
+} from "./api";
+import { dateTimeText, faNum, toInt, toLocalInput } from "./format";
 import { useInbox } from "./InboxLayout";
 
 const STATUS_TONE: Record<string, "neutral" | "warn" | "ok" | "bad" | "info" | "brand"> = {
@@ -42,7 +44,9 @@ function Editor({ storeId, info, segments, onDone, existing }: { storeId: string
   const [channels, setChannels] = useState<string[]>(existing?.channels ?? []);
   const [segmentId, setSegmentId] = useState<string>(existing?.segment_id ? String(existing.segment_id) : "");
   const [dedupe, setDedupe] = useState(existing?.dedupe ?? true);
-  const [when, setWhen] = useState(existing?.scheduled_at ? existing.scheduled_at.slice(0, 16) : "");
+  // The server sends UTC («…T05:30:00Z»); the box shows the browser's own clock («09:00»), and
+  // `new Date(when).toISOString()` below turns it back - so editing never shifts the time.
+  const [when, setWhen] = useState(toLocalInput(existing?.scheduled_at));
   const [saved, setSaved] = useState<BroadcastRow | null>(existing ?? null);
   const [preview, setPreview] = useState<BroadcastPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +178,7 @@ function Detail({ storeId, row, canApprove, onChanged }: { storeId: string; row:
           <summary className="cursor-pointer text-xs" style={{ color: "var(--text-3)" }}>چند گیرنده</summary>
           <ul className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
             {detail.recipients_sample.map((r, i) => (
-              <li key={i}>{r.contact__name || r.contact__phone || "—"} · {CHANNEL_TITLE[r.channel] ?? r.channel} · {r.status}{r.skip_reason ? ` (${r.skip_reason})` : ""}{r.error ? ` — ${r.error}` : ""}</li>
+              <li key={i}>{r.contact__name || r.contact__phone || "—"} · {CHANNEL_TITLE[r.channel] ?? r.channel} · {r.status_title ?? RECIPIENT_STATUS_TITLE[r.status] ?? r.status}{r.skip_reason ? ` (${r.skip_reason_title || SKIP_REASON_TITLE[r.skip_reason] || r.skip_reason})` : ""}{r.error ? ` — ${r.error}` : ""}</li>
             ))}
           </ul>
         </details>
@@ -188,7 +192,9 @@ function Detail({ storeId, row, canApprove, onChanged }: { storeId: string; row:
             <Button size="sm" variant="danger" onClick={() => void act("reject", { note })}>رد کن</Button>
           </>
         )}
-        {row.status === "PENDING" && !canApprove && <span className="text-xs" style={{ color: "var(--text-3)" }}>منتظر تأیید مالک یا مدیر.</span>}
+        {row.status === "PENDING" && !canApprove && (
+          <span className="text-xs" style={{ color: "var(--text-3)" }}>{row.cannot_approve_reason || "منتظر تأیید مالک یا مدیر."}</span>
+        )}
         {["DRAFT", "REJECTED"].includes(row.status) && <Button size="sm" onClick={() => void act("submit")}>فرستادن برای تأیید</Button>}
         {["APPROVED", "SENDING", "PENDING"].includes(row.status) && <Button size="sm" variant="ghost" onClick={() => void act("cancel")}>لغو</Button>}
         {["DRAFT", "REJECTED", "CANCELLED"].includes(row.status) && (
@@ -286,7 +292,7 @@ export default function BroadcastsPage() {
                     </td>
                   </tr>
                   {open === b.id && (
-                    <tr key={`${b.id}-d`}><td colSpan={7}><Detail storeId={storeId} row={b} canApprove={info.can_approve} onChanged={() => void load()} /></td></tr>
+                    <tr key={`${b.id}-d`}><td colSpan={7}><Detail storeId={storeId} row={b} canApprove={b.can_approve ?? info.can_approve} onChanged={() => void load()} /></td></tr>
                   )}
                 </>
               ))}

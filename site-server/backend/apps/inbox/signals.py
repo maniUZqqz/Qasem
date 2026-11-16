@@ -50,6 +50,22 @@ def _off() -> bool:
     return getattr(_local, "off", False)
 
 
+@contextmanager
+def via_ingest():
+    """`ingest.receive` is storing this message and will handle «relationship»
+    messages (survey answers, opt-out words) itself right after."""
+    previous = getattr(_local, "ingest", False)
+    _local.ingest = True
+    try:
+        yield
+    finally:
+        _local.ingest = previous
+
+
+def _via_ingest() -> bool:
+    return getattr(_local, "ingest", False)
+
+
 def _is_test(conversation: Conversation) -> bool:
     from . import sla
 
@@ -129,11 +145,31 @@ def on_message_saved(sender, instance, created, **kwargs):
 
 
 def _customer_message(message: Message) -> None:
-    from . import bot, events, sla, team
+    from . import bot, events, ingest, sla, team
 
     conversation = message.conversation
     store = conversation.store
     test = _is_test(conversation)
+
+    # A satisfaction-survey answer («۵») or an opt-out word («لغو») is about the
+    # relationship, not a new problem: it must not reopen a closed thread, light up
+    # the unread counter, restart the SLA clock, fire «message.received» or reach the
+    # bot. `ingest.receive` handles it right after storing the message; a message
+    # that came through a door that does not know the inbox (the legacy Telegram /
+    # Instagram webhook) is handled here, once the transaction is committed.
+    special = ingest.relationship_kind(conversation, message)
+    if special:
+        message._inbox_special = special
+        if not _via_ingest():
+            def run(conv=conversation, msg=message):
+                try:
+                    ingest.handle_relationship(conv, msg)
+                except Exception:  # noqa: BLE001 - never lose the message to a courtesy reply
+                    logger.exception("inbox: relationship message %s failed", msg.pk)
+
+            transaction.on_commit(run)
+        return
+
     meta = sla.meta_for(conversation)
     meta.unread_count += 1
     meta.save(update_fields=["unread_count"])

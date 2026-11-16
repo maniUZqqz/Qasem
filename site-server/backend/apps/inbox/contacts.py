@@ -69,6 +69,10 @@ def identify(
     username = norm.normalize_username(username)
     name = (name or customer.name or "").strip()
     now = timezone.now()
+    if username and (customer.metadata or {}).get("username") != username:
+        # Remember whose handle this is, so «unlink» can take it back off the contact.
+        customer.metadata = {**(customer.metadata or {}), "username": username}
+        customer.save(update_fields=["metadata"])
 
     link = ContactLink.objects.select_related("contact").filter(customer=customer).first()
     if link is not None:
@@ -167,11 +171,35 @@ def unlink(customer: Customer) -> Contact:
         link.matched_by = "manual"
         link.save(update_fields=["contact", "matched_by"])
     if old is not None:
+        _take_identity_along(old, fresh, customer)
         refresh_stats(old)
         if not old.links.exists():
             old.delete()
     refresh_stats(fresh)
     return fresh
+
+
+def _take_identity_along(old: Contact, fresh: Contact, customer: Customer) -> None:
+    """What only this identity brought (its phone, its handle) leaves the old contact with it.
+
+    A wrong merge copies the newcomer's phone and username onto the contact it
+    joined. Undoing the merge must undo that too - otherwise the original contact
+    keeps a number that belongs to someone else, and the next message from
+    that number is merged back into it.
+    """
+    rest = list(customers_of(old))
+    phone = norm.normalize_phone(customer.phone)
+    if phone and old.phone == phone and not any(norm.normalize_phone(c.phone) == phone for c in rest):
+        old.phone = ""
+        fresh.phone = phone
+    handle = norm.normalize_username((customer.metadata or {}).get("username", ""))
+    if handle and handle in (old.usernames or []) and not any(
+        norm.normalize_username((c.metadata or {}).get("username", "")) == handle for c in rest
+    ):
+        old.usernames = [h for h in old.usernames if h != handle]
+        _add_username(fresh, handle)
+    old.save()
+    fresh.save()
 
 
 def customers_of(contact: Contact):

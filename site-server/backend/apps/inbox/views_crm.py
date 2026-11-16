@@ -17,8 +17,8 @@ from apps.stores import access
 
 from . import broadcast as bc
 from . import contacts as contacts_mod
-from . import followups, norm, segments, serializers as ser
-from .models import Broadcast, Contact, FollowUp, Segment
+from . import followups, norm, segments, serializers as ser, sla
+from .models import Broadcast, BroadcastRecipient, Contact, FollowUp, Segment
 from .views_conversations import conversation_of, fail, store_of
 
 
@@ -64,7 +64,11 @@ class ContactListView(APIView):
             item = ser.contact_json(c)
             item["channels"] = sorted(facts[c.pk]["channel"])
             data.append(item)
-        return Response({"contacts": data, "total": total})
+        return Response({
+            "contacts": data, "total": total,
+            #: how many test/demo contacts exist - the page offers «show test» only when there are some
+            "test_total": Contact.objects.filter(store=store, is_test=True).count(),
+        })
 
     def post(self, request, store_id):
         """Create or update by phone - what a shop does with a list it already owns."""
@@ -169,7 +173,14 @@ class ConversationContactView(APIView):
         store = store_of(request, store_id)
         conversation = conversation_of(store, pk)
         link = getattr(conversation.customer, "inbox_link", None)
-        contact = link.contact if link else contacts_mod.identify(conversation.customer)
+        if link:
+            contact = link.contact
+        else:
+            # Looking at a test chat must not put a real-looking contact into
+            # the CRM, the segments and the «all contacts» audience.
+            contact = contacts_mod.identify(
+                conversation.customer, source=conversation.channel.lower(), is_test=sla.is_test(conversation),
+            )
         return Response(_contact_panel(contact))
 
 
@@ -295,7 +306,7 @@ class BroadcastListView(APIView):
         rows = Broadcast.objects.filter(store=store).select_related("segment", "created_by", "approved_by")[:100]
         can_approve = access.can(request.user, store, access.SETTINGS, write=True)
         return Response({
-            "broadcasts": [ser.broadcast_json(b) for b in rows],
+            "broadcasts": [ser.broadcast_json(b, request.user) for b in rows],
             "can_approve": can_approve,
             "sendable_channels": bc.sendable_channels(store),
             "rates": {c: bc.rate_for(store, c) for c in bc.PRIORITY},
@@ -319,7 +330,7 @@ class BroadcastListView(APIView):
             dedupe=bool(request.data.get("dedupe", True)), scheduled_at=scheduled,
             is_test=bool(request.data.get("is_test", False)),
         )
-        return Response(ser.broadcast_json(row), status=status.HTTP_201_CREATED)
+        return Response(ser.broadcast_json(row, request.user), status=status.HTTP_201_CREATED)
 
 
 class BroadcastDetailView(APIView):
@@ -328,11 +339,17 @@ class BroadcastDetailView(APIView):
     def get(self, request, store_id, pk):
         store = store_of(request, store_id)
         row = _broadcast_of(store, pk)
-        data = ser.broadcast_json(row)
-        data["recipients_sample"] = list(
+        data = ser.broadcast_json(row, request.user)
+        sample = list(
             row.recipients.select_related("contact").order_by("id").values(
                 "channel", "status", "skip_reason", "error", "contact__name", "contact__phone")[:30]
         )
+        # Titles travel with the codes: the panel never has to print «SENT» or «opted_out».
+        status_titles = dict(BroadcastRecipient.Status.choices)
+        for item in sample:
+            item["status_title"] = status_titles.get(item["status"], item["status"])
+            item["skip_reason_title"] = bc.SKIP_REASON_TITLES.get(item["skip_reason"], "") if item["skip_reason"] else ""
+        data["recipients_sample"] = sample
         return Response(data)
 
     def patch(self, request, store_id, pk):
@@ -355,7 +372,7 @@ class BroadcastDetailView(APIView):
                 when = timezone.make_aware(when)
             row.scheduled_at = when
         row.save()
-        return Response(ser.broadcast_json(row))
+        return Response(ser.broadcast_json(row, request.user))
 
     def delete(self, request, store_id, pk):
         store = _marketing_store(request, store_id, write=True)
@@ -400,7 +417,7 @@ class BroadcastActionView(APIView):
         except bc.BroadcastError as exc:
             return fail("broadcast_rule", str(exc), status.HTTP_409_CONFLICT)
         row.refresh_from_db()
-        return Response(ser.broadcast_json(row))
+        return Response(ser.broadcast_json(row, request.user))
 
 
 # -------------------------------------------------------------- follow-ups
@@ -422,7 +439,10 @@ class FollowUpListView(APIView):
         if qp.get("test") != "1":
             rows = rows.filter(is_test=False)
         rows = rows.order_by("due_at")[:200]
-        return Response({"followups": [ser.followup_json(r) for r in rows]})
+        return Response({
+            "followups": [ser.followup_json(r) for r in rows],
+            "test_total": FollowUp.objects.filter(store=store, is_test=True).count(),
+        })
 
 
 class FollowUpDetailView(APIView):

@@ -342,6 +342,7 @@ export default function ThreadPane({
         canWrite={canWrite}
         canned={canned}
         members={members}
+        customerName={row.customer.name}
         draft={draft}
         setDraft={setDraft}
         busy={busy}

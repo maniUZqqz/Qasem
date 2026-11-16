@@ -174,7 +174,7 @@ def default_synth(store, user, text: str, voice_id: str, workdir: Path, name: st
     if not voice_id or voice_id == "auto":
         voice_id = auto_voice(store, local_only=blocked)
     if voice_id.startswith("edge:"):
-        got = _edge_with_cues(voice_id.split(":", 1)[1], text, workdir / f"{name}.mp3")
+        got = _edge_with_cues(voice_id.split(":", 1)[1], text, workdir / f"{name}.mp3", store=store)
         if got:
             return {"path": got["path"], "engine": "edge", "voice": voice_id, "cues": got["cues"]}
     try:
@@ -198,7 +198,7 @@ def default_synth(store, user, text: str, voice_id: str, workdir: Path, name: st
     return out
 
 
-def _edge_with_cues(voice: str, text: str, out: Path) -> dict | None:
+def _edge_with_cues(voice: str, text: str, out: Path, store=None) -> dict | None:
     """Edge TTS رویدادِ WordBoundary می‌دهد (زمانِ دقیقِ کلمه‌ها)؛ بی‌اینترنت/نصب‌نبودن ⇒ None و مسیرِ عادی."""
     try:
         import asyncio
@@ -206,6 +206,17 @@ def _edge_with_cues(voice: str, text: str, out: Path) -> dict | None:
         import edge_tts
     except Exception:  # noqa: BLE001
         return None
+    # the Persian pronunciation layer - but the cues carry the words Edge heard, and the captions are matched to
+    # them one by one: a rewrite that changes the number of words (a price spelled out) would break that match,
+    # so such a text is read as written.
+    try:
+        from services.audio import pronounce
+
+        spoken = pronounce.text_for(text, "edge", store=store)
+        if len(spoken.split()) == len(text.split()):
+            text = spoken
+    except Exception:  # noqa: BLE001
+        pass
 
     async def go():
         comm = edge_tts.Communicate(text, voice, boundary="WordBoundary") if "boundary" in edge_tts.Communicate.__init__.__code__.co_varnames else edge_tts.Communicate(text, voice)

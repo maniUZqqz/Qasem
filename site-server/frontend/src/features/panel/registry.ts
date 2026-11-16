@@ -139,6 +139,7 @@ export const PAGES: PanelPage[] = [
   // ------------------------------------------------------------------ صدا
   { key: "audio_speech", section: "audio", label: "گفتار", icon: "mic", to: (id) => `/stores/${id}/audio`, end: true },
   { key: "audio_clone", section: "audio", label: "کلونِ صدا", icon: "sparkle", to: (id) => `/stores/${id}/audio/clone` },
+  { key: "audio_pronunciation", section: "audio", label: "تلفظ", icon: "bulb", to: (id) => `/stores/${id}/audio/pronunciation` },
   { key: "audio_sfx", section: "audio", label: "صدای محیط و افکت", icon: "cloud", to: (id) => `/stores/${id}/audio/sfx` },
   { key: "audio_music", section: "audio", label: "موسیقیِ زمینه", icon: "music", to: (id) => `/stores/${id}/audio/music` },
   { key: "audio_library", section: "audio", label: "کتابخانهٔ صداها", icon: "inbox", to: (id) => `/stores/${id}/audio/library` },

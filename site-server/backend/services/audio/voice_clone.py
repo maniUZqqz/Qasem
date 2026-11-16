@@ -691,6 +691,9 @@ def enqueue_tts(voice, text: str, *, seed=None, origin: str = "voice_clone", res
     """durable=True (صفِ ماندگار): سرورِ پردازش خاموش بود ⇒ کار در صف می‌ماند (برای صفحه‌هایی که خودشان وضعیت را دنبال می‌کنند)."""
     from apps.compute import services as compute
 
+    from . import pronounce
+
+    text = pronounce.text_for(text, "moss", store=voice.store)      # the Persian pronunciation layer (idempotent)
     if voice.engine == "moss-fa":
         return _enqueue_moss_tts(voice, text, seed=seed, origin=origin, durable=durable)
     node = pick_node(voice, allow_offline=durable)

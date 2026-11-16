@@ -281,7 +281,9 @@ class NodeMossProvider(BaseTTSProvider):
         out.parent.mkdir(parents=True, exist_ok=True)
         takes = self._takes.get(text, 0)
         self._takes[text] = takes + 1
-        payload = {"text": text, "engine": "moss-fa", "voice": self.voice, "out": "speech.wav", "strict": True}
+        rendered = self._pron(text, "moss")
+        spoken = rendered.text if (rendered is not None and rendered.text.strip()) else text
+        payload = {"text": spoken, "engine": "moss-fa", "voice": self.voice, "out": "speech.wav", "strict": True}
         if takes:
             payload["seed"] = 7919 * takes + len(text)      # a retake must be a different take
         try:

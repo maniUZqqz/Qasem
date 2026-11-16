@@ -81,6 +81,7 @@ import StoreVoicePage from "./features/stores/StoreVoicePage";
 import StoreVoiceClonePage from "./features/stores/StoreVoiceClonePage";
 import AudioLayout from "./features/audio/AudioLayout";
 import { AudioLibraryPage, AudioMusicPage, AudioSfxPage, AudioSpeechPage } from "./features/audio/AudioPages";
+import PronunciationPage from "./features/audio/pronunciation/PronunciationPage";
 import StoreLayout from "./features/stores/StoreLayout";
 import StoreProductsPage from "./features/stores/StoreProductsPage";
 import StoreTeamPage from "./features/stores/StoreTeamPage";
@@ -225,6 +226,7 @@ export default function App() {
               <Route path="/stores/:id/audio" element={<AudioLayout />}>
                 <Route index element={<PageGate k="audio_speech"><AudioSpeechPage /></PageGate>} />
                 <Route path="clone" element={<PageGate k="audio_clone"><StoreVoiceClonePage /></PageGate>} />
+                <Route path="pronunciation" element={<PageGate k="audio_pronunciation"><PronunciationPage /></PageGate>} />
                 <Route path="sfx" element={<PageGate k="audio_sfx"><AudioSfxPage /></PageGate>} />
                 <Route path="music" element={<PageGate k="audio_music"><AudioMusicPage /></PageGate>} />
                 <Route path="library" element={<PageGate k="audio_library"><AudioLibraryPage /></PageGate>} />

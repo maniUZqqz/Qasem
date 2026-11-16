@@ -34,6 +34,7 @@ export function useAudio() {
 const TABS: { key: string; to: string; label: string; icon: IconName; end?: boolean }[] = [
   { key: "audio_speech", to: "", label: "گفتار", icon: "mic", end: true },
   { key: "audio_clone", to: "clone", label: "کلونِ صدا", icon: "sparkle" },
+  { key: "audio_pronunciation", to: "pronunciation", label: "تلفظ", icon: "bulb" },
   { key: "audio_sfx", to: "sfx", label: "صدای محیط و افکت", icon: "cloud" },
   { key: "audio_music", to: "music", label: "موسیقیِ زمینه", icon: "music" },
   { key: "audio_library", to: "library", label: "کتابخانهٔ صداها", icon: "inbox" },

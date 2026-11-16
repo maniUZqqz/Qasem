@@ -144,7 +144,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.29"
+VERSION = "2.30"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -4317,6 +4317,13 @@ try:  # multi-angle video (multiangle_jobs.py): handlers, heartbeat keys and the
     multiangle_jobs.register(sys.modules[__name__], HANDLERS)
 except Exception as _e:  # noqa: BLE001
     print("multiangle module not loaded: %s" % _e)
+
+
+# the Persian pronunciation check: `voice.pron_eval` / `voice.pron_asr` (pron_jobs.py + requirements.d/pron.json); optional, never fatal
+try:
+    __import__("pron_jobs").install(sys.modules[__name__])
+except Exception as _e:  # noqa: BLE001
+    print("note: module pron_jobs is not available (%s)" % _e, flush=True)
 
 
 # agent 2.12: the 3D video engine (Blender 4.5, Cycles on the GPU) is the compute job up3d.render (up3d_jobs.py)

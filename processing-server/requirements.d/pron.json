@@ -1,0 +1,27 @@
+{
+  "feature": "pron",
+  "title_fa": "بررسیِ تلفظِ صدا (Piper + تشخیص گفتار) برای صفحهٔ «تلفظ»",
+  "order": 70,
+  "needs_gpu": false,
+  "platform": ["win"],
+  "requires": ["asr-gpu"],
+  "kinds": ["voice.pron_eval", "voice.pron_asr"],
+  "note": "The pronunciation check speaks a fixed set of Persian sentences (plain, and after the site's pronunciation layer) and listens to them with faster-whisper (feature asr-gpu). Piper (piper-tts 1.8.0, MIT, its own environment venvs/pron; ONNX on the CPU is faster than real time) and TWO Persian Piper voices - the same fa_IR-amir-medium and fa_IR-gyro-medium voices the site already narrates with (rhasspy/piper-voices, MIT; trained on CC0 data) - are installed here, visibly, with sizes and sha256, so the node can run the phoneme path the site uses. Nothing replaces or modifies any voice model; MOSS-TTS is used through the node's own audio service. Mirror order: hf-mirror.com, then huggingface.co.",
+  "items": [
+    {"id": "venv", "type": "venv", "name": "pron", "title": "Python environment pron"},
+    {"id": "pip", "type": "pip", "venv": "pron", "title": "piper-tts 1.8.0 (+ onnxruntime, numpy)",
+     "packages": ["piper-tts==1.8.0"], "timeout_s": 3600},
+    {"id": "voices", "type": "files", "title": "Persian Piper voices amir + gyro (2 x 63 MB)", "dest": "models/piper", "big": true,
+     "files": [
+       {"path": "fa_IR-amir-medium.onnx", "size": 63531379, "sha256": "fb815380d969ea372b0b21b0de14421f58fe481047e153e69685d079b6e1a9d1",
+        "sources": [{"hf": "rhasspy/piper-voices/resolve/main/fa/fa_IR/amir/medium/fa_IR-amir-medium.onnx"}]},
+       {"path": "fa_IR-amir-medium.onnx.json", "size": 4958, "sha256": "75f918a3bf0f57a9179abe725af529f2a5c79d6c899e2a84aec76c685d5dfb9a",
+        "sources": [{"hf": "rhasspy/piper-voices/resolve/main/fa/fa_IR/amir/medium/fa_IR-amir-medium.onnx.json"}]},
+       {"path": "fa_IR-gyro-medium.onnx", "size": 63122309, "sha256": "37dfae43c82ee38ca9e6aac4ffef76a74d6b282ccbc397b27761f35d355c99ba",
+        "sources": [{"hf": "rhasspy/piper-voices/resolve/main/fa/fa_IR/gyro/medium/fa_IR-gyro-medium.onnx"}]},
+       {"path": "fa_IR-gyro-medium.onnx.json", "size": 7210, "sha256": "4cd0ca01824b460f490224e284f9b68ecf07f91f3c654ba3bce59d4eb7646082",
+        "sources": [{"hf": "rhasspy/piper-voices/resolve/main/fa/fa_IR/gyro/medium/fa_IR-gyro-medium.onnx.json"}]}]},
+    {"id": "verify", "type": "cmd", "title": "piper-tts + onnxruntime import in venvs/pron",
+     "check": ["{VENVPY:pron}", "-c", "import piper, onnxruntime, numpy"]}
+  ]
+}

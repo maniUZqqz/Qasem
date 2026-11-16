@@ -144,6 +144,8 @@ INSTALLED_APPS += ["apps.brandchar"]
 INSTALLED_APPS += ["apps.ideabank"]
 # «سبک تصویر» (پنل › محتوا): کتابخانهٔ ۱۱۶ سبکِ هنری و ۲۴ تمِ رنگی (از InstAI)؛ استودیوی تصویر، پس‌زمینهٔ تامنیل و پالتِ تامنیل از آن می‌خوانند
 INSTALLED_APPS += ["apps.looks"]
+# «تلفظ» (پنل › صدا): لایهٔ تلفظِ فارسی پیش از هر موتورِ صدا، واژه‌نامهٔ فروشگاه، فهرستِ مشکل‌دار و سنجشِ صدا ← تشخیصِ گفتار
+INSTALLED_APPS += ["apps.pronunciation"]
 
 # استودیوی موشن (Remotion): ویدیو از روی کد؛ رندرِ نهایی روی سرورِ پردازش
 INSTALLED_APPS += ["apps.motion"]
@@ -984,6 +986,12 @@ CELERY_BEAT_SCHEDULE["thumbs-selftest"] = {
 # سبک تصویر: تصویرهای نمونهٔ واقعیِ ۱۱۶ سبک (دستهٔ ۱۲تایی در صفِ ماندگار، با روشن‌شدنِ سرورِ پردازش خودکار) + آزمونِ خودکارِ یک تصویر
 CELERY_BEAT_SCHEDULE["looks-samples"] = {
     "task": "apps.looks.tasks.step",
+    "schedule": 300.0,
+    "options": {"expires": 250},
+}
+# تلفظ: سنجش‌های «صدا ← تشخیصِ گفتار» را (کارهای ماندگارِ گره) پیش می‌برد و نتیجه را جمع می‌کند؛ گره خاموش باشد در صف می‌مانند
+CELERY_BEAT_SCHEDULE["pronunciation-step"] = {
+    "task": "apps.pronunciation.tasks.step",
     "schedule": 300.0,
     "options": {"expires": 250},
 }

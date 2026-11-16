@@ -258,7 +258,10 @@ def create_speech(store, user, *, text, voice_id, speed=1.0, title="", seed=None
         row = node_audio.preset(ref)
         if row is None:
             raise StudioError("این صدا در فهرستِ صداهای MOSS نیست.")
-        payload = {"text": spoken, "engine": "moss-fa", "voice": row["id"], "out": "speech.wav", "strict": True}
+        from . import pronounce
+
+        payload = {"text": pronounce.text_for(spoken, "moss", store=store), "engine": "moss-fa", "voice": row["id"],
+                   "out": "speech.wav", "strict": True}
         if seed is not None:
             payload["seed"] = int(seed)
         asset = _asset(store, user, AudioAsset.Kind.SPEECH, engine="moss-fa", voice_label=row["name"],
@@ -308,6 +311,7 @@ def _site_speech(store, user, engine, ref, spoken, speed, common):
     if same is not None and asset_path(same):
         return same
     provider = PiperProvider(ref) if engine == "piper" else EdgeTTSProvider(voice=ref)
+    provider.store = store          # the shop's own lexicon applies to the preview too
     asset = _asset(store, user, AudioAsset.Kind.SPEECH, engine=engine, voice_label=ref,
                    license="MIT / CC0" if engine == "piper" else "بدونِ مجوزِ تجاری",
                    commercial=engine == "piper", **common)

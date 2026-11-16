@@ -40,6 +40,7 @@ from pathlib import Path
 from django.conf import settings
 
 from . import engines as engine_registry
+from . import pronounce
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,18 @@ class BaseTTSProvider:
     processor = "نامشخص"
     #: The voice id actually used — reported with the result.
     voice = ""
+    #: Whose pronunciation lexicon applies, the language, and whether the Persian pronunciation layer
+    #: (services/audio/fa_pron) runs before this engine. Set by get_tts_provider; the settings page turns
+    #: ``use_pron`` off to let the owner hear the plain text for comparison.
+    store = None
+    language = "fa"
+    use_pron = True
+
+    def _pron(self, text: str, engine: str, **opts):
+        """What the layer hands ``engine`` for ``text``, or None to speak the text unchanged."""
+        if not self.use_pron:
+            return None
+        return pronounce.prepare(text, engine, store=self.store, language=self.language, **opts)
 
     def synthesize(self, text: str, out_path) -> Path:  # pragma: no cover - interface
         raise NotImplementedError
@@ -167,6 +180,25 @@ class PiperProvider(BaseTTSProvider):
             noise_w_scale=option("noise_w"),
         )
 
+    def _chunks(self, voice, config, text: str):
+        """Audio chunks, one per sentence.
+
+        With the pronunciation layer on, the text becomes phonemes (the alphabet this voice was trained on)
+        and goes in through Piper's phoneme input: words the lexicon knows are pronounced as the lexicon says,
+        every other word is phonemised by espeak-ng exactly as before (measured to be better than our own rules
+        for ordinary words, docs/pronunciation/engines-fa.md). Anything that goes wrong falls back to the
+        plain text path - a narration is never lost to the layer.
+        """
+        rendered = self._pron(text, "piper", native_ipa=lambda word: _native_ipa(voice, word))
+        if rendered is not None and rendered.ipa_sentences:
+            try:
+                return list(_phoneme_chunks(voice, config, rendered.ipa_sentences))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Piper phoneme input failed (%s); speaking the plain text", exc)
+        if rendered is not None and rendered.depth == "normalize" and rendered.text.strip():
+            text = rendered.text          # depth «normalize»: only the text changes, the voice's own front end reads it
+        return voice.synthesize(_normalise_persian(text), syn_config=config)
+
     def synthesize(self, text: str, out_path) -> Path:
         """Write the narration. Returns the path actually written.
 
@@ -181,10 +213,11 @@ class PiperProvider(BaseTTSProvider):
         try:
             voice = self._load()
             config = self._config(voice)
+            chunks = self._chunks(voice, config, text)
             with wave.open(str(wav), "wb") as handle:
                 first = True
                 last = None
-                for chunk in voice.synthesize(_normalise_persian(text), syn_config=config):
+                for chunk in chunks:
                     if first:
                         handle.setframerate(chunk.sample_rate)
                         handle.setsampwidth(chunk.sample_width)
@@ -214,6 +247,40 @@ class PiperProvider(BaseTTSProvider):
         except Exception as exc:  # noqa: BLE001 — anything else must still fall through the chain
             raise TTSError(f"Piper synthesis failed (voice={self.voice}): {exc}") from exc
         return _require_output(wav, "Piper")
+
+
+class _PhonemeChunk:
+    """The few fields of piper's AudioChunk that PiperProvider.synthesize reads."""
+
+    sample_width = 2
+    sample_channels = 1
+
+    def __init__(self, sample_rate: int, pcm: bytes):
+        self.sample_rate = sample_rate
+        self.audio_int16_bytes = pcm
+
+
+def _native_ipa(voice, word: str) -> str:
+    """The voice's own front end (espeak-ng) for one word, as one string of phoneme symbols."""
+    return "".join("".join(sentence) for sentence in voice.phonemize(word)).replace(" ", "")
+
+
+def _phoneme_chunks(voice, config, sentences):
+    import numpy as np
+
+    for sentence in sentences:
+        if not sentence.strip():
+            continue
+        ids = voice.phonemes_to_ids(list(sentence))
+        audio = voice.phoneme_ids_to_audio(ids, config)
+        if isinstance(audio, tuple):
+            audio = audio[0]
+        audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+        if peak > 1e-8:
+            audio = audio / peak
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+        yield _PhonemeChunk(voice.config.sample_rate, pcm)
 
 
 def _normalise_persian(text: str) -> str:
@@ -258,6 +325,9 @@ class EdgeTTSProvider(BaseTTSProvider):
             raise TTSError("edge-tts is not installed — pip install edge-tts") from exc
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+        rendered = self._pron(text, "edge")
+        if rendered is not None and rendered.text.strip():
+            text = rendered.text
         # Prosody only when the shop actually changed something: an unset
         # profile sends the same request an unset provider would, so a default
         # profile costs nothing and cannot change the output.
@@ -306,7 +376,8 @@ class AzureTTSProvider(BaseTTSProvider):
         lang = "-".join(self.voice.split("-")[:2]) or "fa-IR"
         prosody = self.profile.as_kwargs() if self.profile is not None else {}
         attrs = " ".join(f'{k}="{v}"' for k, v in prosody.items())
-        body = html.escape(text)
+        rendered = self._pron(text, "azure", mode="sub")
+        body = rendered.ssml if (rendered is not None and rendered.ssml) else html.escape(text)
         if attrs:
             body = f"<prosody {attrs}>{body}</prosody>"
         ssml = (
@@ -359,6 +430,9 @@ class OpenAITTSProvider(BaseTTSProvider):
 
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+        rendered = self._pron(text, "openai", depth="normalize")
+        if rendered is not None and rendered.text.strip():
+            text = rendered.text
         payload = {
             "model": self.engine.model_name or "gpt-4o-mini-tts",
             "input": text,
@@ -411,6 +485,9 @@ class ElevenLabsProvider(BaseTTSProvider):
         out.parent.mkdir(parents=True, exist_ok=True)
         base = (self.engine.base_url or "https://api.elevenlabs.io").rstrip("/")
         options = self.engine.options
+        rendered = self._pron(text, "elevenlabs", depth="normalize")
+        if rendered is not None and rendered.text.strip():
+            text = rendered.text
         payload = {
             "text": text,
             "model_id": self.engine.model_name or "eleven_v3",
@@ -630,6 +707,7 @@ def get_tts_provider(language: str | None = None, store=None, *, profile=None) -
         # Whether this engine has a voice of the chosen gender, or would read
         # with its other one — shown on the voice settings page.
         built.exact_voice = engine.kind == "GTTS" or engine.has_voice(language, gender)
+        built.store, built.language = store, language
         providers.append(built)
     if not providers:
         raise TTSError(f"هیچ موتوری برای زبان «{language}» صدا ندارد")

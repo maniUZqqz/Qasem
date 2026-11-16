@@ -17,6 +17,7 @@ export type SectionKey =
   | "market"
   | "sales"
   | "content"
+  | "brandchar"
   | "audio"
   | "settings"
   | "product"
@@ -57,6 +58,7 @@ export const SECTIONS: PanelSection[] = [
   { key: "market", title: "بازار", storeScoped: true },
   { key: "sales", title: "فروش و پشتیبانی", storeScoped: true },
   { key: "content", title: "محتوا", storeScoped: true },
+  { key: "brandchar", title: "شخصیتِ برند", storeScoped: true },
   { key: "audio", title: "صدا", storeScoped: true },
   { key: "settings", title: "تنظیمات", storeScoped: true },
   { key: "product", title: "صفحهٔ محصول", menu: false },
@@ -125,6 +127,14 @@ export const PAGES: PanelPage[] = [
   { key: "multiangle", section: "content", label: "چندزاویه", icon: "camera", to: (id) => `/stores/${id}/multiangle` },
   { key: "guided_shoot", section: "content", label: "فیلم‌برداریِ هدایت‌شده", icon: "camera", to: (id) => `/stores/${id}/shoot` },
   { key: "piece_regen", section: "content", label: "بازسازیِ یک تکه", icon: "refresh", to: (id) => `/stores/${id}/regen` },
+
+  // --------------------------------------------------------- شخصیتِ برند
+  { key: "brandchar", section: "brandchar", label: "نمای کلی", icon: "dashboard", to: (id) => `/stores/${id}/brand-character`, end: true },
+  { key: "brandchar_persona", section: "brandchar", label: "شخصیتِ گفتار", icon: "mic", to: (id) => `/stores/${id}/brand-character/persona` },
+  { key: "brandchar_studio", section: "brandchar", label: "استودیوی شخصیت", icon: "sparkle", to: (id) => `/stores/${id}/brand-character/studio` },
+  { key: "brandchar_scenes", section: "brandchar", label: "ژست و صحنه", icon: "image", to: (id) => `/stores/${id}/brand-character/scenes` },
+  { key: "brandchar_gallery", section: "brandchar", label: "گالری و کاربرد", icon: "rocket", to: (id) => `/stores/${id}/brand-character/gallery` },
+  { key: "brandchar_export", section: "brandchar", label: "خروجی", icon: "download", to: (id) => `/stores/${id}/brand-character/export` },
 
   // ------------------------------------------------------------------ صدا
   { key: "audio_speech", section: "audio", label: "گفتار", icon: "mic", to: (id) => `/stores/${id}/audio`, end: true },

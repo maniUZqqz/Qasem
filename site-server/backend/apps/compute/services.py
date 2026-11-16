@@ -432,7 +432,7 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
                        "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram",
-                       "motion": "motion_render"}
+                       "motion": "motion_render", "brandchar": "comfyui"}
 
 
 MOSS_ENGINES = ("moss-fa", "moss", "moss-tts")
@@ -519,12 +519,21 @@ def motion_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     return ((node.capabilities or {}).get("motion") or {}).get("state") != "ready"
 
 
+def brandchar_blocked(node: ComputeNode, job: ComputeJob) -> bool:
+    """A brandchar.render job this node must not take yet: the node says its FLUX image-edit profile is missing (caps.brandchar.ready is False;
+    processing/brandchar_jobs.py). The job waits in the durable queue instead of failing; an older agent never advertises the kind (kind_unsupported)."""
+    if job.kind != "brandchar.render":
+        return False
+    bc = (node.capabilities or {}).get("brandchar")
+    return isinstance(bc, dict) and bc.get("ready") is False
+
+
 def job_blocked(node: ComputeNode, job: ComputeJob) -> bool:
     """Every «this node cannot take it yet, keep it queued» rule in one place (audio models, matting models, unknown kinds,
     features still being installed)."""
     return (audio_blocked(node, job) or matting_blocked(node, job) or kind_unsupported(node, job)
             or bootstrap_blocked(node, job) or multiangle_blocked(node, job)
-            or motion_blocked(node, job))
+            or motion_blocked(node, job) or brandchar_blocked(node, job))
 
 
 def claim(node: ComputeNode, lane: str = "") -> ComputeJob | None:

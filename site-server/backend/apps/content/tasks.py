@@ -13,6 +13,7 @@ from django.conf import settings
 
 from apps.ai.models import AIRequest, ProductIntelligence
 from apps.ai.services import recorded_json_call
+from apps.brandchar.inject import with_persona
 from apps.jobs.models import Job
 from apps.products.models import Product
 from services import gpu
@@ -211,7 +212,7 @@ def generate_captions_task(
                 product, intelligence, requested, tone, objective, subject,
                 avoid_ctas=_recent_ctas(product.store),
             ),
-            system=caption_prompts.CAPTIONS_SYSTEM,
+            system=with_persona(product.store, caption_prompts.CAPTIONS_SYSTEM, "caption"),
             # validated inside the call: an incomplete answer moves on to the
             # next installed model instead of failing the job
             validate=_validate,

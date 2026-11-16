@@ -9,6 +9,7 @@ import { FT, prepText, textWidth, useFit } from "./fit";
 import { Badge, EMOJI_NAMES, Emoji, Icon, ICON_NAMES, IconTile, PLATFORM_ICON, Pop, Stage, accentAt, area, itemDelay, stagger, useGrow } from "./kit";
 import { Card, T } from "./text";
 import type { Scene } from "./types";
+import { BrandCharacterOverlay, BrandCharacterScene } from "./comp-brand";
 import { clamp, col, onColor, rgba } from "./util";
 
 type SC = React.FC<{ sc: Scene }>;
@@ -469,6 +470,7 @@ const StickerScene: SC = ({ sc }) => (
 export const TEXT_COMPONENTS: { [k: string]: SC } = {
   kinetic_title: KineticTitle, lower_third: LowerThirdScene, checklist: Checklist, steps: Steps, icon_grid: IconGrid, feature_cards: FeatureCards,
   testimonial: Testimonial, captions: CaptionsScene, sticker: StickerScene, social_cta: SocialCta, tags: Tags, ticker: TickerScene, image_hero: ImageHero,
+  brand_character: BrandCharacterScene,
 };
 /** a compact social handle (an overlay: icon + @handle) */
 const SocialBug: SC = ({ sc }) => {
@@ -487,6 +489,6 @@ const SocialBug: SC = ({ sc }) => {
 };
 
 /** the overlay forms (no Stage: they are placed by the overlay layer) */
-export const OVERLAY_BODIES: { [k: string]: SC } = { lower_third: LowerThird, sticker: Sticker, captions: Captions, ticker: Ticker, social_cta: SocialBug };
+export const OVERLAY_BODIES: { [k: string]: SC } = { lower_third: LowerThird, sticker: Sticker, captions: Captions, ticker: Ticker, social_cta: SocialBug, brand_character: BrandCharacterOverlay };
 void useFit;
 void ({} as CSSProperties);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { errorMessage } from "../../../api/client";
 import { Badge, Button, EmptyState, ErrorBox, Spinner, fa } from "../../../components/ui";
+import BrandPickButton from "../../brandchar/BrandPickButton";
 import { LibraryAsset, ProductRow, thumbsApi } from "./api";
 
 /**
@@ -75,6 +76,15 @@ export default function ImagePicker({
           <button type="button" className="dz-tab" aria-selected={tab === "library"} onClick={() => setTab("library")}>کتابخانهٔ عکس‌ها</button>
           <button type="button" className="dz-tab" aria-selected={tab === "products"} onClick={() => setTab("products")}>عکسِ محصول‌ها</button>
           <span className="flex-1" />
+          <BrandPickButton
+            storeId={storeId}
+            onError={(m) => setError(m)}
+            resolve={async (assetId) => {
+              const lib = await thumbsApi.library(storeId, assetId);
+              const a = lib.find((x) => x.id === assetId);
+              if (a) onPick(a);
+            }}
+          />
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => void upload(Array.from(e.target.files ?? []))} />
           <Button size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
             {busy ? "در حالِ بارگذاری…" : "آپلودِ عکسِ تازه"}

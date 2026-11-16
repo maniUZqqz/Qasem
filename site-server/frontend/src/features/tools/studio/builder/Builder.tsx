@@ -14,6 +14,7 @@ import { BarAction, CanvasCtl, CanvasPayload } from "./canvas";
 import * as D from "./doc";
 import type { Block, Device, Doc, DropTarget, Rec } from "./doc";
 import { DEVICE_LABEL, FieldInput, FormEnv, StyleForm, Svg } from "./fields";
+import BrandHeroFill from "../../../brandchar/BrandHeroFill";
 import { LibraryPanel, MediaPanel, MenuPanel, Modal, OutlinePanel, StarterGrid, ThemePanel, VersionsPanel } from "./panels";
 import HostingPanel from "../hosting/HostingPanel";
 import { PublishCheckDialog } from "./PublishCheck";
@@ -880,6 +881,9 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
         {settingsTab === "content" ? (
           <>
             {selSpec.hint && <p className="nbe-note">{selSpec.hint}</p>}
+            {selBlock.type === "brand_hero" && (
+              <BrandHeroFill slug={slug} onApply={(p) => { const { image, ...rest } = p; setProp("image", image, rest as Rec); }} />
+            )}
             {selSpec.fields.map((f) => (
               <FieldInput key={f.key} f={f} value={selBlock.props[f.key]} env={env} block={selBlock} device={device} onChange={(v, extra) => setProp(f.key, v, extra)} />
             ))}

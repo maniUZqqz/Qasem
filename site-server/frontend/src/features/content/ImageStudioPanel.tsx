@@ -15,6 +15,7 @@ import { useJobRunner } from "../../hooks/useJobRunner";
 import { GeneratedImageInfo, Job, Product } from "../../types";
 import type { LookKind } from "../looks/api";
 import LookPicker, { useLookCheck } from "../looks/LookPicker";
+import BrandTemplatesCard from "../brandchar/BrandTemplatesCard";
 
 const KIND_LABEL: Record<string, string> = {
   POSTER: "پوستر تبلیغاتی",
@@ -81,6 +82,7 @@ export default function ImageStudioPanel({ product, brief = "" }: { product: Pro
     <Card>
       <SectionTitle>🎨 استودیوی تصویر (FLUX)</SectionTitle>
       <ErrorBox message={runner.error} />
+      <BrandTemplatesCard storeId={String(product.store)} />
 
       <div className="mb-3 flex flex-wrap gap-2">
         {Object.keys(KIND_LABEL).map((k) => (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { AgentAvatar, AgentVoiceBanner, useBrandAgent } from "../brandchar/AgentVoice";
 
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
@@ -76,6 +77,7 @@ const STATE_LABEL: Record<string, string> = {
  */
 export default function InboxPage() {
   const { id } = useParams<{ id: string }>();
+  const brandAgent = useBrandAgent(id);
   // «?c=<شناسه>» — اعلانِ زنگوله مستقیم به همین گفتگو می‌آورد.
   const [params] = useSearchParams();
   const focusId = Number(params.get("c")) || null;
@@ -224,6 +226,7 @@ export default function InboxPage() {
       />
 
       <ErrorBox message={error} />
+      <AgentVoiceBanner card={brandAgent} storeId={String(id)} />
       {notice && (
         <div className="mb-4">
           <Alert tone={notice.includes("تحویل نشد") ? "warn" : "ok"}>{notice}</Alert>
@@ -296,6 +299,7 @@ export default function InboxPage() {
                     <span className="font-bold" style={{ color: "var(--text)" }}>
                       {conversation.customer_name || "مشتری"}
                     </span>
+                    {conversation.state === "AI" ? <AgentAvatar card={brandAgent} size={22} /> : null}
                     <Badge tone="neutral">{conversation.channel_title}</Badge>
                     {conversation.ai_failed ? (
                       <Badge tone="bad">AI جواب نداد</Badge>

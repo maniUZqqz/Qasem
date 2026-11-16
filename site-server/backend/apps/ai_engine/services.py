@@ -221,10 +221,23 @@ def _note_route(provider, proposal):
     proposal.save(update_fields=['answered_by', 'answered_via', 'fallback_note'])
 
 
+def _with_site_persona(proposal, system):
+    """متنِ سایت (ساختِ فرانت و ویرایشِ صفحه) با لحنِ شخصیتِ برندِ فروشگاهِ بسته‌شده به این پروژه نوشته شود (apps.brandchar.inject)؛ بقیهٔ کارها (CSS، مدل) بی‌تغییر."""
+    if getattr(proposal, 'task', '') not in ('generate_frontend', 'edit_page'):
+        return system
+    try:
+        from apps.brandchar import inject
+        store = inject.store_of_project(proposal.project)
+        return inject.with_persona(store, system, 'site') if store is not None else system
+    except Exception:  # noqa — لحن هرگز ساختِ سایت را نمی‌شکند
+        return system
+
+
 def _call(provider, proposal, system, payload):
     """یک فراخوانی: JSON می‌فرستد، JSON می‌گیرد، شمارنده را بالا می‌برد."""
     proposal.calls += 1
     proposal.save(update_fields=['calls'])
+    system = _with_site_persona(proposal, system)
     try:
         raw = provider.complete(system, json.dumps(payload, ensure_ascii=False))
     except Exception as exc:  # noqa — AI «در دسترس نیست» (۴۰۲، گرهٔ خاموش، مهلت…) ⇒ پیامِ فارسی و پارک؛ بقیه مثلِ قبل

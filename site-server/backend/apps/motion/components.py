@@ -190,6 +190,12 @@ _add("image_hero", "تصویرِ تمام‌صفحه با عنوان", "text", {
      {"type": "image_hero", "duration": 4, "kicker": "ویژه", "caption": "عنوانِ روی تصویر"},
      need=("caption",), read=("kicker", "caption"), use="عکس تمام صفحه تصویر محصول hero image full photo", about="full-bleed image with caption; needs an uploaded image for best result", dur=(3, 4, 6))
 
+_add("brand_character", "شخصیتِ برند", "text",
+     {"name": S(40), "text": S(160), "image_a": REF, "image_b": REF, "action": E("wave", "point", "thumbs", "explain", "think"), "arrive": E("left", "right", "bottom"), "side": E("left", "right"), "bubble": B},
+     {"type": "brand_character", "duration": 6, "name": "شخصیتِ برند", "text": "سلام! بریم سراغِ نکتهٔ امروز", "action": "wave", "arrive": "left", "side": "right", "bubble": True},
+     read=("name", "text"), overlay=True, use="شخصیت برند ماسکوت کاراکتر مربی سلام اشاره حباب گفتار brand character mascot waves points speech bubble",
+     about="the brand character (two transparent pose stickers made in the brand-character section) enters, waves / points / thumbs-up and shows a speech bubble whose words appear when they are spoken; overlay or scene", dur=(3, 6, 10))
+
 SCENE_IDS = tuple(COMPONENTS)
 CLASSIC = ("title", "list", "quote", "stat", "compare", "product", "logo", "app", "cta")
 OVERLAY_IDS = tuple(k for k, c in COMPONENTS.items() if c["overlay"])

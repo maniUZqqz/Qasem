@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from apps.ai.models import AIRequest
 from apps.ai.services import recorded_json_call
+from apps.brandchar.inject import with_persona
 from services.ai.embeddings import semantic_product_ids
 from services.ai import gateway
 from services.ai.gateway import text_provider
@@ -229,7 +230,7 @@ def run_sales_agent(conversation: Conversation, customer_text: str) -> dict:
                 store, profile, catalog, history_text(conversation), customer_text,
                 open_orders, rules=settings.as_prompt_rules(),
             ),
-            system=prompts.SALES_SYSTEM,
+            system=with_persona(store, prompts.SALES_SYSTEM, "sales"),
             # a half-formed reply falls through to the next installed model rather
             # than leaving the customer with an error
             validate=check,

@@ -821,6 +821,27 @@ def _overlay_image(st: State, p: dict):
     return "لوگو گذاشته شد."
 
 
+@tool("brand_character", "شخصیتِ برند", "visual",
+      "Pin the store's brand character (a transparent cartoon pose sticker made in the brand-character section) in a corner for a while: it greets (intro), points, explains, gives a thumbs-up (ok) or waves goodbye (outro).",
+      (P("action", "کار", "choice", "intro", choices=("intro", "point", "explain", "ok", "outro")), P("corner", "گوشه", "choice", "br", choices=("br", "bl", "tr", "tl")),
+       P("size", "اندازه", "num", 0.34, 0.12, 0.7), P("at", "زمان", "num", 0, 0, 86400, unit="ث"), P("duration", "مدت", "text", "4", doc='seconds or "all" (to the end)')),
+      lambda p: "شخصیتِ برند را در گوشه بگذار")
+def _brand_character(st: State, p: dict):
+    store = getattr(st.ctx, "store", None)
+    if store is None:
+        raise StepError("فروشگاه معلوم نیست؛ شخصیتِ برند را نمی‌شود گذاشت.")
+    try:
+        from apps.brandchar import usage as brand_usage
+
+        ref = brand_usage.director_ref(store, str(p.get("action") or "intro"))
+    except Exception:  # noqa: BLE001 — شخصیت نساخت ⇒ پیامِ فارسیِ روشن، نه خطای فنی
+        ref = None
+    if not ref:
+        raise StepError("هنوز شخصیتِ برندی ساخته نشده؛ از بخشِ «شخصیتِ برند» یکی بسازید.")
+    _overlay_image(st, {**p, "ref": ref})
+    return "شخصیتِ برند گذاشته شد."
+
+
 # =================================================================== audio
 
 

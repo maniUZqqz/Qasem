@@ -15,6 +15,8 @@ import json
 import logging
 import re
 
+from apps.brandchar.inject import with_persona
+
 from . import archetypes, hooks, palette, phrases, typo
 from .render import CONTENT_LIMITS
 from .styles import STYLES
@@ -97,7 +99,7 @@ def _default_ask(store, prompt: str) -> tuple[dict, dict]:
         provider = gateway.text_provider(store, kind=TEXT)
         parsed, _row = recorded_json_call(
             store=store, task_type=AIRequest.TaskType.REASONING, prompt_id="thumb_ideas", prompt_version="1", provider=provider,
-            models=models_for(TASK_REASONING), prompt=prompt, system="You output strict JSON only.",
+            models=models_for(TASK_REASONING), prompt=prompt, system=with_persona(store, "You output strict JSON only.", "thumbnail"),
             validate=lambda d: (isinstance(d, dict) and isinstance(d.get("ideas"), list) and bool(d["ideas"]), ["ideas خالی است"]),
             validation_message="ایده‌ها ناقص بود")
         info = translate._describe(provider)

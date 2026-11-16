@@ -53,7 +53,7 @@ const BrandBadge: React.FC = () => {
 function overlayBox(ctx: Ctx, ov: Overlay): React.CSSProperties {
   const a = area(ctx, ov.type === "captions");            // the captions track sits in its own band below / above the content area
   const { W, H, rtl, safe } = ctx;
-  let anchor = String(ov.anchor || (ov.type === "lower_third" ? "lower" : ov.type === "captions" ? "lower" : ov.type === "ticker" ? "bottom" : ov.type === "sticker" ? "top-end" : "lower"));
+  let anchor = String(ov.anchor || (ov.type === "lower_third" ? "lower" : ov.type === "captions" ? "lower" : ov.type === "ticker" ? "bottom" : ov.type === "sticker" ? "top-end" : ov.type === "brand_character" ? "bottom" : "lower"));
   if (ov.type === "captions") anchor = anchor === "lower" ? "bottom" : anchor === "upper" ? "top" : anchor;
   const dx = (Number(ov.dx) || 0) * a.w, dy = (Number(ov.dy) || 0) * a.h;
   const full = ov.type === "ticker";

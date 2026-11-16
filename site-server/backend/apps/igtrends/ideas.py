@@ -15,6 +15,7 @@ from collections import Counter
 from django.utils import timezone
 
 from apps.ai import research_llm, trends as ai_trends
+from apps.brandchar.inject import with_persona
 from apps.ai.trend_models import Trend, TrendIdea
 
 from . import textproc
@@ -137,7 +138,7 @@ def _valid(parsed) -> tuple[bool, list[str]]:
 
 
 def ai_brief(store, cluster: IgTrendCluster, products, product) -> dict:
-    parsed = research_llm.ask_json(store, prompt_id="ig_trend_brief", prompt=build_prompt(store, cluster, products, product), system=SYSTEM, validate=_valid)
+    parsed = research_llm.ask_json(store, prompt_id="ig_trend_brief", prompt=build_prompt(store, cluster, products, product), system=with_persona(store, SYSTEM, "ideas"), validate=_valid)
     kind = str(parsed.get("kind", "")).upper()
     fmt = cluster.fmt if cluster.fmt in OUTLINES else "reel"
     return {"source": "ai", "format": fmt, "kind": kind if kind in TrendIdea.Kind.values else KIND_FOR_FORMAT.get(fmt, TrendIdea.Kind.VIDEO),

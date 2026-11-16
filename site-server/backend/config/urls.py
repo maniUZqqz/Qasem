@@ -37,6 +37,7 @@ urlpatterns = [
     path("api/v1/", include("apps.thumbs.urls")),           # تامنیل‌ساز
     path("api/v1/", include("apps.ideabank.urls")),         # بانکِ ایده
     path("api/v1/", include("apps.mascot.urls")),           # ماسکوتِ برند
+    path("api/v1/", include("apps.brandchar.urls")),        # شخصیتِ برند (لحن + شخصیتِ دیداری)
     path("api/v1/", include("apps.looks.urls")),            # سبک تصویر (۱۱۶ سبک + ۲۴ تم)
     path("api/v1/", include("apps.multiangle.urls")),       # چندزاویه
     path("api/v1/", include("apps.igtrends.urls")),         # ترندهای اینستاگرام (خواندن با آباگرام روی سرورِ پردازش)

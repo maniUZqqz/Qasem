@@ -28,6 +28,13 @@ import MotionStudioPage from "./features/content/motion/MotionStudioPage";
 import ThumbnailMakerPage from "./features/content/thumbs/ThumbnailMakerPage";
 import IdeasPage from "./features/content/ideas/IdeasPage";
 import MascotPage from "./features/content/mascot/MascotPage";
+import BrandCharLayout from "./features/brandchar/BrandCharLayout";
+import BrandCharOverview from "./features/brandchar/OverviewPage";
+import BrandCharPersona from "./features/brandchar/PersonaPage";
+import BrandCharStudio from "./features/brandchar/StudioPage";
+import BrandCharScenes from "./features/brandchar/ScenesPage";
+import BrandCharGallery from "./features/brandchar/GalleryPage";
+import BrandCharExport from "./features/brandchar/ExportPage";
 import PieceRegenPage from "./features/content/regen/PieceRegenPage";
 import MultiAnglePage from "./features/content/multiangle/MultiAnglePage";
 import GuidedShootPage from "./features/shoot/GuidedShootPage";
@@ -194,6 +201,15 @@ export default function App() {
               {/* بانکِ ایده: «این هفته چه پستی بگذارم؟» — ایده‌های آمادهٔ فارسی، ایده بساز، شروع از ایده */}
               <Route path="/stores/:id/ideas" element={<PageGate k="ideas"><IdeasPage /></PageGate>} />
               <Route path="/stores/:id/mascot" element={<PageGate k="mascot"><MascotPage /></PageGate>} />
+              {/* شخصیتِ برند: لحنِ گفتار + شخصیتِ دیداری (ادیتورِ برداری، خلقِ هوشمند، استفاده در همه‌جا) */}
+              <Route path="/stores/:id/brand-character" element={<BrandCharLayout />}>
+                <Route index element={<PageGate k="brandchar"><BrandCharOverview /></PageGate>} />
+                <Route path="persona" element={<PageGate k="brandchar_persona"><BrandCharPersona /></PageGate>} />
+                <Route path="studio" element={<PageGate k="brandchar_studio"><BrandCharStudio /></PageGate>} />
+                <Route path="scenes" element={<PageGate k="brandchar_scenes"><BrandCharScenes /></PageGate>} />
+                <Route path="gallery" element={<PageGate k="brandchar_gallery"><BrandCharGallery /></PageGate>} />
+                <Route path="export" element={<PageGate k="brandchar_export"><BrandCharExport /></PageGate>} />
+              </Route>
               {/* چندزاویه: از یک فیلمِ تک‌دوربین چند زاویه + برشِ خودکار، و حرکتِ دوربینِ ۲٫۵بعدی از یک نما */}
               <Route path="/stores/:id/multiangle" element={<PageGate k="multiangle"><MultiAnglePage /></PageGate>} />
               {/* فیلم‌برداریِ هدایت‌شده: تحلیل ⇐ برنامهٔ زاویه‌ها ⇐ عکاسی/فیلم‌برداری با راهنما ⇐ تدوین ⇐ پوستر و ویدیو */}

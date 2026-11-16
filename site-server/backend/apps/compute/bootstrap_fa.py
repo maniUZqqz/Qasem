@@ -11,6 +11,7 @@ import re
 _DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
 TITLES = {
+    "FLUX image-edit profile + checkpoint are present for ComfyUI": "پروفایلِ ویرایشِ تصویرِ FLUX و فایلِ مدلِ آن برای ComfyUI آماده است",
     "Python packages of Abagram (FastAPI, Playwright ...)": "بسته‌های پایتونِ آباگرام (FastAPI، Playwright …)",
     "Browser for Abagram (Microsoft Edge / Chrome)": "مرورگرِ آباگرام (Edge یا Chrome)",
     "Python environment asr": "محیطِ پایتونِ تشخیصِ گفتار",

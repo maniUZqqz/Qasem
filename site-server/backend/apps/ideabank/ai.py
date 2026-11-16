@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from apps.brandchar.inject import with_persona
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def _ask_router(store, prompt: str, system: str) -> tuple[dict, dict]:
         provider = gateway.text_provider(store, kind=TEXT)
         parsed, _row = recorded_json_call(
             store=store, task_type=AIRequest.TaskType.REASONING, prompt_id=PROMPT_ID, prompt_version="1", provider=provider,
-            models=models_for(TASK_REASONING), prompt=prompt, system=system,
+            models=models_for(TASK_REASONING), prompt=prompt, system=with_persona(store, system, "ideas"),
             validate=lambda d: (isinstance(d, dict) and isinstance(d.get("ideas"), list) and bool(d["ideas"]), ["ideas خالی است"]),
             validation_message="ایده‌ها ناقص بود")
         info = translate._describe(provider)

@@ -10,6 +10,8 @@ import json
 import logging
 import re
 
+from apps.brandchar.inject import with_persona
+
 from . import assets, catalog, components, motionlib, patch as patch_mod, promptkit, safety, specs
 
 logger = logging.getLogger(__name__)
@@ -150,7 +152,7 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
                 raise AIUnavailable(why or MSG_UNAVAILABLE)
         kit = promptkit.build_prompt(idea, style=style, aspect=aspect, lang=lang, seconds=seconds, brand_name=getattr(store, "name", ""),
                                      about=about or (getattr(store, "description", "") or ""), platform=platform)
-        data = _call_json(prov, kit["user"], kit["system"], kit["schema"], temperature=0.4, num_predict=2400)
+        data = _call_json(prov, kit["user"], with_persona(store, kit["system"], "motion"), kit["schema"], temperature=0.4, num_predict=2400)
         scenes = data.get("scenes") if isinstance(data, dict) else None
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("پاسخِ هوش مصنوعی صحنه نداشت.")

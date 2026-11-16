@@ -542,6 +542,23 @@ class Renderer:
             inner = '<div class="nb-hero-copy is-center">%s</div>%s' % (copy, '<div class="nb-hero-media">%s</div>' % media if media else '')
         return self.shell(b, 'nb-hero', inner)
 
+    def r_brand_hero(self, b):
+        p = b['props']
+        self.headings.append((1, b))
+        actions = self.btn(p.get('btn1'), p.get('btn1_link'), 'nb-btn is-filled is-lg', 'btn1')
+        copy = ''.join(x for x in (self.txt(b, 'eyebrow', 'span', 'nb-eyebrow'), self.txt(b, 'title', 'h1', 'nb-hero-title'),
+                                   self.txt(b, 'subtitle', 'p', 'nb-sub', multi=True),
+                                   '<div class="nb-actions">%s</div>' % actions if actions else '') if x)
+        media = ''
+        if p.get('image') or self.ctx.canvas:
+            if p.get('image') and not p.get('image_alt') and not (self.asset(p['image']) and self.asset(p['image']).alt):
+                self.warn(b, 'برای تصویرِ شخصیت توضیح بنویس.', 'alt')
+            bubble = self.txt(b, 'bubble', 'div', 'nb-bubble')
+            media = '<div class="nb-hero-media nb-brandchar">%s%s</div>' % (bubble, self.img(p.get('image'), p.get('image_alt'), sizes='(max-width:800px) 60vw, 420px', lazy=False))
+        side = ' is-start' if p.get('side') == 'start' else ''
+        inner = '<div class="nb-hero-split%s"><div class="nb-hero-copy">%s</div>%s</div>' % (side, copy, media)
+        return self.shell(b, 'nb-hero nb-hero-brand', inner)
+
     def r_features(self, b):
         p = b['props']
         self.cols_css(b, 'nb-grid')

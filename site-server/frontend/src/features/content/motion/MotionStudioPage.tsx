@@ -1,3 +1,4 @@
+import { takeBrandScene } from "../../brandchar/motionBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
@@ -154,7 +155,12 @@ export default function MotionStudioPage() {
         setSound(snd);
         setQuality(storeGet("nm.motion.quality", o.limits.default_quality));
         if (!c.styles.some((x) => x.id === styleId)) setStyleId(c.styles[0].id);
-        setScenes(o.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]);
+        const bcScene = takeBrandScene(id);
+        setScenes([...(o.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]), ...(bcScene ? [bcScene as Scene] : [])]);
+        if (bcScene) {
+          setMode("template");
+          setNotice("قطعهٔ «شخصیتِ برند» به صحنه‌ها اضافه شد؛ متنِ گویندهٔ همین صحنه را هم‌متنِ حباب بگذارید تا کلمه‌به‌کلمه هماهنگ شود.");
+        }
         setCode(o.code.samples[0]?.code || "");
         setPlatform("reels");
         baseline.current = null;

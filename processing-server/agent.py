@@ -144,7 +144,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.28"
+VERSION = "2.29"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -4393,6 +4393,12 @@ try:                       # InstAI (the owner's studio) as a neighbour: found, 
     import instai_jobs; instai_jobs.register(sys.modules[__name__])
 except Exception as e:  # noqa: BLE001 - a broken optional module must never stop the agent
     print("note: the InstAI neighbour (instai_jobs.py) is not available: %s" % e, flush=True)
+
+
+try:                       # brand character studio (brandchar_jobs.py): brandchar.render = an AI-illustrated variant of the owner's character on ComfyUI/FLUX
+    import brandchar_jobs; brandchar_jobs.register(sys.modules[__name__], HANDLERS)
+except Exception as e:  # noqa: BLE001 - a broken optional module must never stop the agent
+    print("note: the brand character module (brandchar_jobs.py) is not available: %s" % e, flush=True)
 
 
 def run_job(site, data):

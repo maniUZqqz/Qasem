@@ -541,6 +541,21 @@ export default function VideoDirector({ storeId, onOpenProject }: { storeId: str
               <b>مرحله‌های این نسخه</b>
               <span className="dr-hint">{fa((plans[variant.key] ?? variant.plan).length)} مرحله — هر مرحله یک کارِ همان ابزارهای ادیتورِ دستی است</span>
             </div>
+            <div className="dr-row" data-testid="dr-brand-character">
+              <button
+                type="button"
+                className="ws-btn"
+                title="شخصیتِ برند در ابتدای ویدیو سلام می‌کند و در پایان تأیید می‌دهد (از بخشِ «شخصیتِ برند»)"
+                onClick={() => {
+                  const len = Math.max(0, Number((variant as { length?: number }).length ?? 0));
+                  const mk = (action: string, at: number, title: string): PlanStep => ({ id: `bc-${action}-${Date.now()}`, tool: "brand_character", title, text: "شخصیتِ برند را در گوشهٔ تصویر می‌گذارد", params: { action, corner: "br", size: 0.34, at, duration: "3.5" }, on: true });
+                  setPlans((cur) => ({ ...cur, [variant.key]: [...(cur[variant.key] ?? variant.plan), mk("intro", 0, "شخصیتِ برند: سلام"), mk("ok", len > 5 ? Math.max(0, len - 4) : 0, "شخصیتِ برند: تأیید")] }));
+                  setDirty((cur) => ({ ...cur, [variant.key]: true }));
+                }}
+              >
+                افزودنِ شخصیتِ برند (سلام در ابتدا، تأیید در پایان)
+              </button>
+            </div>
             <ol className="dr-steps" data-testid="dr-steps">
               {(plans[variant.key] ?? variant.plan).map((s, i) => (
                 <StepRow key={`${s.id}-${i}`} step={s} spec={specOf(s.tool)}

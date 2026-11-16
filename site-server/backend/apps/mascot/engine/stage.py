@@ -109,9 +109,16 @@ def _barbell(layer: Image.Image, left: tuple[float, float], right: tuple[float, 
     _blit(layer, reg, x0, y0)
 
 
+#: سبک‌های دیگرِ کشیدن (برداری: apps.brandchar) که با کلیدِ spec["style"] ثبت می‌شوند؛ آدمک‌چوبی همین مسیرِ پایین است
+STYLE_RENDERERS: dict = {}
+
+
 def render_actor(actor: dict, w: int, h: int, *, logo: Image.Image | None = None, shadow: bool | None = None, inside: float | None = None) -> ActorShot:
     """یک شخصیت را روی یک بومِ شفافِ w×h می‌کشد. actor: {spec، pose، expression، x، y، height، flip، talk، prop، shadow}.
     ``inside`` (کسری از کوچک‌ترین بُعد): اگر شخصیت (مثلاً ژستِ «روی زمین») از کادر بیرون بزند، به‌اندازهٔ لازم جابه‌جا می‌شود تا درونِ کادر با این حاشیه بماند."""
+    spec_in = actor.get("spec")
+    if isinstance(spec_in, dict) and spec_in.get("style") in STYLE_RENDERERS:
+        return STYLE_RENDERERS[spec_in["style"]](actor, w, h, logo=logo, shadow=shadow, inside=inside)
     s = S.normalize(actor["spec"])
     expression = actor.get("expression") if actor.get("expression") in parts._EXPR else "neutral"
     pose = pose_of(actor.get("pose"))

@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 
 import Icon from "../../../components/Icon";
 import { Badge, Button, Card, Field, Input, Select, TextArea, fa } from "../../../components/ui";
 import { COMPONENT_THUMB, Comp, Library, Scene, Source } from "./api";
 import FieldsForm from "./FieldsForm";
+import { bcApi } from "../../brandchar/api";
 
 const SWATCHES = ["#e63946", "#f77f00", "#ffbe0b", "#2a9d5c", "#126f85", "#1d6fd1", "#7b2cbf", "#ef476f"];
 const SCENE_KEYS_PLAIN = new Set(["type", "duration", "enter", "exit", "ease", "spring", "emphasis", "camera", "transition", "tokens", "overlays", "narration", "cues", "sfx"]);
@@ -358,6 +360,7 @@ function SceneCard({ sc, i, n, props, onChange, onMove, onDup, onDel }: { sc: Sc
 
 export default function ScenePlan(props: Props) {
   const { scenes, onChange, lib } = props;
+  const { id: storeId = "" } = useParams<{ id: string }>();
   const [picking, setPicking] = useState(false);
   const move = (i: number, d: number) => {
     const j = i + d;
@@ -394,6 +397,15 @@ export default function ScenePlan(props: Props) {
           <ComponentPicker
             lib={lib}
             onPick={(c) => {
+              if (c.id === "brand_character" && storeId) {
+                // «شخصیتِ برند»: تصویرِ ژست‌ها از شخصیتِ اصلیِ فروشگاه (اگر شخصیتی نباشد همان نمونه می‌آید)
+                void bcApi
+                  .useMotion(storeId, { action: "wave", text: "" })
+                  .then((sc) => onChange([...scenes, sc as Scene]))
+                  .catch(() => onChange([...scenes, { ...c.sample }]))
+                  .finally(() => setPicking(false));
+                return;
+              }
               onChange([...scenes, { ...c.sample }]);
               setPicking(false);
             }}

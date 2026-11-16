@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { AgentAvatar, AgentVoiceBanner, useBrandAgent } from "../brandchar/AgentVoice";
 
 import Icon from "../../components/Icon";
 import { api, errorMessage, fetchAllPages } from "../../api/client";
@@ -38,6 +39,7 @@ const STATE_LABEL: Record<ConversationState, string> = {
 
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>();
+  const brandAgent = useBrandAgent(id);
   const [store, setStore] = useState<Store | null>(null);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(null);
@@ -351,8 +353,15 @@ export default function ChatPage() {
         </Card>
       )}
 
+      <AgentVoiceBanner card={brandAgent} storeId={String(id)} />
       <Card className="flex h-[60vh] flex-col">
         <div className="flex-1 space-y-3 overflow-y-auto p-1">
+          {bubbles.length === 0 && brandAgent?.greeting && (
+            <div className="flex items-end gap-2" data-testid="agent-greeting">
+              <AgentAvatar card={brandAgent} size={40} />
+              <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-6 bg-slate-100 text-slate-800">{brandAgent.greeting}</div>
+            </div>
+          )}
           {bubbles.length === 0 && (
             <p className="py-10 text-center text-sm text-slate-400">
               مثلاً بپرسید: «{store?.name ?? "این فروشگاه"} دقیقاً چه کاری انجام می‌دهد؟» یا «هزینه‌اش چقدر است و چطور شروع کنم؟»
@@ -363,14 +372,17 @@ export default function ChatPage() {
               {bubble.role === "SYSTEM" ? (
                 <p className="text-center text-xs text-amber-600">{bubble.text}</p>
               ) : (
-                <div
-                  className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-6 ${
-                    bubble.role === "CUSTOMER"
-                      ? "mr-auto bg-violet-600 text-white"
-                      : "ml-auto bg-slate-100 text-slate-800"
-                  }`}
-                >
-                  {bubble.text}
+                <div className={bubble.role === "CUSTOMER" ? "" : "flex items-end gap-2"}>
+                  {bubble.role !== "CUSTOMER" ? <AgentAvatar card={brandAgent} size={34} /> : null}
+                  <div
+                    className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-6 ${
+                      bubble.role === "CUSTOMER"
+                        ? "mr-auto bg-violet-600 text-white"
+                        : "ml-auto bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    {bubble.text}
+                  </div>
                 </div>
               )}
               {bubble.role === "AI" && bubble.answer && (

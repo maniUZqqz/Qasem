@@ -1050,6 +1050,18 @@ GROWTH_ENGINE = {
 # --- NM-Mobile (برنامهٔ همراهِ اندروید): گوشی‌ها، دروازهٔ پیامک، تماس‌ها، قیمتِ پایین، شناساییِ تماس‌گیرنده
 INSTALLED_APPS += ["apps.mobile"]
 
+# --- صندوقِ یکپارچهٔ شبکه‌های اجتماعی (apps.inbox): کانال‌ها، تیم، ربات، ارسال گروهی، CRM، API و وب‌هوک
+INSTALLED_APPS += ["apps.inbox"]
+#: Test / on-premise override of a platform's API root, e.g. {"BALE": "http://127.0.0.1:9001"}.
+#: Only settings can set it - a store owner must never be able to point the poller at an address.
+INBOX_API_BASES = {}
+CELERY_BEAT_SCHEDULE["inbox-poll-channels"] = {"task": "inbox.poll_channels", "schedule": 30.0, "options": {"expires": 25}}
+CELERY_BEAT_SCHEDULE["inbox-sla-tick"] = {"task": "inbox.sla_tick", "schedule": 60.0, "options": {"expires": 50}}
+CELERY_BEAT_SCHEDULE["inbox-followups-tick"] = {"task": "inbox.followups_tick", "schedule": 60.0, "options": {"expires": 50}}
+CELERY_BEAT_SCHEDULE["inbox-broadcast-tick"] = {"task": "inbox.broadcast_tick", "schedule": 60.0, "options": {"expires": 50}}
+CELERY_BEAT_SCHEDULE["inbox-deliver-webhooks"] = {"task": "inbox.deliver_webhooks", "schedule": 60.0, "options": {"expires": 50}}
+CELERY_BEAT_SCHEDULE["inbox-health-sweep"] = {"task": "inbox.health_sweep", "schedule": 600.0, "options": {"expires": 500}}
+
 
 # --- نسخهٔ نرم‌افزار: فایل VERSION کنار ریشه (apps/common/versioning.py؛ نشانِ «v2.60» در پنل، ادمین و سایت)
 from apps.common.versioning import read_version as _nm_read_version  # noqa: E402

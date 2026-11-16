@@ -41,6 +41,10 @@ class Channel:
     note: str = ""
     #: Per-message character ceiling, where one exists.
     max_chars: int | None = None
+    #: Owned by `apps.inbox` (its adapters, its connect page, its health): sending
+    #: and "is it configured" are delegated there, so one `send()` still delivers
+    #: on every channel and nothing upstream learned a new platform.
+    managed: bool = False
 
 
 WEBSITE = Channel(
@@ -88,18 +92,38 @@ WHATSAPP = Channel(
     title="واتساپ",
     can_receive=True,
     can_send=True,
-    requires=("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID"),
-    note="نیازمند حساب WhatsApp Business و تأیید شماره.",
+    max_chars=4096,
+    managed=True,
+    note="نیازمند حساب رسمی WhatsApp Business؛ به‌طور پیش‌فرض خاموش است.",
 )
 
 SMS = Channel(
     key="SMS",
     title="پیامک",
-    can_receive=False,
+    # Two-way through the owner's paired phones (apps.mobile): the phone sends
+    # from its SIM and forwards what it receives. Managed by the unified inbox.
+    can_receive=True,
     can_send=True,
-    requires=("SMS_API_KEY",),
     max_chars=480,
-    note="یک‌طرفه: برای اطلاع‌رسانی سفارش، نه گفتگو.",
+    note="با گوشی‌های متصل به سرویس پیامک؛ گفتگوی کوتاه است و هزینهٔ سیم‌کارت دارد.",
+    managed=True,
+)
+
+BALE = Channel(
+    key="BALE", title="بله", can_receive=True, can_send=True, max_chars=4096, managed=True,
+    note="ربات بله؛ توکن را در صفحهٔ «کانال‌ها» وارد کنید.",
+)
+EITAA = Channel(
+    key="EITAA", title="ایتا", can_receive=True, can_send=True, max_chars=4096, managed=True,
+    note="ربات ایتایار؛ ارسال همیشه، دریافت اگر برای ربات فعال باشد.",
+)
+RUBIKA = Channel(
+    key="RUBIKA", title="روبیکا", can_receive=True, can_send=True, max_chars=4096, managed=True,
+    note="ربات روبیکا؛ توکن را در صفحهٔ «کانال‌ها» وارد کنید.",
+)
+WEBCHAT = Channel(
+    key="WEBCHAT", title="چت سایت", can_receive=True, can_send=True, max_chars=4000, managed=True,
+    note="ویجت گفتگو روی سایت شما؛ یک تکه کد.",
 )
 
 API = Channel(
@@ -110,7 +134,7 @@ API = Channel(
     note="وقتی سیستم خودتان پیام‌ها را به آپ‌مارکت می‌دهد.",
 )
 
-CHANNELS = [WEBSITE, INSTAGRAM, TELEGRAM, WHATSAPP, SMS, API]
+CHANNELS = [WEBSITE, INSTAGRAM, TELEGRAM, BALE, EITAA, RUBIKA, WEBCHAT, WHATSAPP, SMS, API]
 BY_KEY = {c.key: c for c in CHANNELS}
 
 
@@ -180,6 +204,11 @@ def configured(channel: Channel, store) -> bool:
     Per-store settings win over the shared `.env` values, because a shop with
     its own NovinHub account should not be sharing ours.
     """
+    if channel.managed:
+        from apps.inbox import dispatch
+
+        return dispatch.configured(channel.key, store)
+
     if not channel.requires:
         return True
 
@@ -236,7 +265,9 @@ def status_for(store) -> list[dict]:
         receives_missing = describe_missing(inbound_missing) if ready else []
 
         reason = ""
-        if not ready:
+        if not ready and channel.managed:
+            reason = "هنوز وصل نشده: از صفحهٔ «کانال‌ها» در صندوق پیام وصلش کنید."
+        elif not ready:
             reason = "تنظیم نشده: " + _missing_sentence(missing)
         elif inbound_missing:
             reason = "فقط ارسال — برای دریافت لازم است: " + _missing_sentence(receives_missing)
@@ -268,6 +299,10 @@ def send(channel_key: str, store, *, to: str, text: str) -> dict:
 
     if not channel.can_send:
         return {"sent": False, "reason": f"{channel.title} ارسال پیام ندارد."}
+    if channel.managed:
+        from apps.inbox import dispatch
+
+        return dispatch.send(channel.key, store, to=to, text=text)
     if not configured(channel, store):
         return {
             "sent": False,

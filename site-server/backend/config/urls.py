@@ -40,6 +40,7 @@ urlpatterns = [
     path("api/v1/", include("apps.looks.urls")),            # سبک تصویر (۱۱۶ سبک + ۲۴ تم)
     path("api/v1/", include("apps.multiangle.urls")),       # چندزاویه
     path("api/v1/", include("apps.igtrends.urls")),         # ترندهای اینستاگرام (خواندن با آباگرام روی سرورِ پردازش)
+    path("api/v1/", include("apps.inbox.urls")),            # صندوقِ یکپارچه: کانال‌ها، تیم، ربات، ارسال گروهی، CRM، API
     # NMarketing: ابزارهای ادغام‌شده
     path("api/v1/compute/", include("apps.compute.urls")),   # سرورهای پردازش (گره‌ها + پنل)
     path("api/v1/panel/", include("apps.panel.urls")),       # دفترِ صفحه‌ها/قابلیت‌های پنل (خاموش/روشن از ادمین)

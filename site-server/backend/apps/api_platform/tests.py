@@ -183,7 +183,7 @@ class KeyManagementTests(TestCase):
         scopes = {e["scope"] for e in body["endpoints"]}
         self.assertEqual(
             scopes,
-            {"sales_agent", "caption", "video", "poster", "showcase", "job_status"},
+            {"sales_agent", "caption", "video", "poster", "showcase", "job_status", "inbox_read", "inbox_write"},
         )
         self.assertEqual(body["header"], "X-Api-Key")
 

@@ -56,7 +56,15 @@ import DashboardPage from "./features/stores/DashboardPage";
 import ApiKeysPage from "./features/stores/ApiKeysPage";
 import CompetitorsPage from "./features/stores/CompetitorsPage";
 import ConnectionsPage from "./features/stores/ConnectionsPage";
-import InboxPage from "./features/stores/InboxPage";
+import InboxLayout from "./features/inbox/InboxLayout";
+import InboxPage from "./features/inbox/InboxPage";
+const ChannelsPage = lazyPage(() => import("./features/inbox/ChannelsPage"), "در حالِ بارگیریِ کانال‌ها…");
+const InboxTeamPage = lazyPage(() => import("./features/inbox/TeamPage"), "در حالِ بارگیریِ تیم…");
+const InboxBotPage = lazyPage(() => import("./features/inbox/BotPage"), "در حالِ بارگیریِ تنظیمات…");
+const InboxCrmPage = lazyPage(() => import("./features/inbox/CrmPage"), "در حالِ بارگیریِ مشتریان…");
+const InboxBroadcastsPage = lazyPage(() => import("./features/inbox/BroadcastsPage"), "در حالِ بارگیریِ ارسال گروهی…");
+const InboxFollowUpsPage = lazyPage(() => import("./features/inbox/FollowUpsPage"), "در حالِ بارگیریِ پیگیری‌ها…");
+const InboxDeveloperPage = lazyPage(() => import("./features/inbox/DeveloperPage"), "در حالِ بارگیریِ توسعه‌دهندگان…");
 import OpportunitiesPage from "./features/stores/OpportunitiesPage";
 import TrendsPage from "./features/stores/TrendsPage";
 import StoreAgentPage from "./features/stores/StoreAgentPage";
@@ -164,7 +172,17 @@ export default function App() {
               <Route path="/stores/:id/plan" element={<PageGate k="plan"><PlanPage /></PageGate>} />
               <Route path="/stores/:id/competitors" element={<PageGate k="competitors"><CompetitorsPage /></PageGate>} />
               <Route path="/stores/:id/opportunities" element={<PageGate k="opportunities"><OpportunitiesPage /></PageGate>} />
-              <Route path="/stores/:id/inbox" element={<PageGate k="inbox"><InboxPage /></PageGate>} />
+              {/* صندوقِ یکپارچه (نیم‌چت‌مانند): گفتگوها، کانال‌ها، تیم، ربات، مشتریان، ارسال گروهی، پیگیری‌ها، توسعه‌دهندگان */}
+              <Route path="/stores/:id/inbox" element={<InboxLayout />}>
+                <Route index element={<PageGate k="inbox"><InboxPage /></PageGate>} />
+                <Route path="channels" element={<PageGate k="inbox_channels"><ChannelsPage /></PageGate>} />
+                <Route path="team" element={<PageGate k="inbox_team"><InboxTeamPage /></PageGate>} />
+                <Route path="bot" element={<PageGate k="inbox_bot"><InboxBotPage /></PageGate>} />
+                <Route path="crm" element={<PageGate k="inbox_crm"><InboxCrmPage /></PageGate>} />
+                <Route path="broadcasts" element={<PageGate k="inbox_broadcasts"><InboxBroadcastsPage /></PageGate>} />
+                <Route path="followups" element={<PageGate k="inbox_followups"><InboxFollowUpsPage /></PageGate>} />
+                <Route path="developers" element={<PageGate k="inbox_dev"><InboxDeveloperPage /></PageGate>} />
+              </Route>
               {/* صفحه ۷ — بازاریابی تلفنی. خودِ فهرست ساخته شد؛ جست‌وجوی
                   شماره و ضبط تماس عمداً نه — صفحه خودش می‌گوید چرا. */}
               <Route path="/stores/:id/outreach" element={<PageGate k="outreach"><OutreachPage /></PageGate>} />

@@ -106,16 +106,17 @@ class ChannelTests(TestCase):
         is a red herring."""
         outcome = channels.send("SMS", self.store, to="0912", text="سلام")
         self.assertFalse(outcome["sent"])
-        self.assertIn("سرویس پیامک", outcome["reason"])
+        # SMS goes through the store's own paired phones now (apps.inbox): until the
+        # channel is connected the reason says so, in words - never a settings key.
+        self.assertIn("پیامک", outcome["reason"])
+        self.assertIn("وصل نشده", outcome["reason"])
         self.assertNotIn("SMS_API_KEY", outcome["reason"])
 
     def test_a_message_over_the_channel_limit_is_refused(self):
-        from django.conf import settings
-        from django.test import override_settings
+        from apps.inbox.models import ChannelConnection
 
-        merged = {**settings.UPMARKET_AI, "SMS_API_KEY": "configured"}
-        with override_settings(UPMARKET_AI=merged):
-            outcome = channels.send("SMS", self.store, to="0912", text="x" * 600)
+        ChannelConnection.objects.create(store=self.store, kind="SMS", enabled=True)
+        outcome = channels.send("SMS", self.store, to="0912", text="x" * 600)
 
         self.assertFalse(outcome["sent"])
         self.assertIn("کاراکتر", outcome["reason"])

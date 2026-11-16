@@ -46,6 +46,7 @@ def fetch(store, descriptor: dict) -> tuple[bytes, str] | None:
 
     from services.publishing import channels
 
+    headers: dict = {}
     try:
         if descriptor.get("kind") == "telegram_file":
             token = channels.telegram_token(store)
@@ -65,9 +66,17 @@ def fetch(store, descriptor: dict) -> tuple[bytes, str] | None:
         elif descriptor.get("kind") == "url":
             url = descriptor["url"]
         else:
-            return None
+            # A photo from Bale / Rubika / WhatsApp: that platform's own API turns the
+            # file id into a download address (apps.inbox.files); anything it cannot
+            # resolve is the same "download failed, open the chat" as before.
+            from apps.inbox import files as inbox_files
 
-        response = requests.get(url, timeout=30, stream=True)
+            resolved = inbox_files.resolve(store, descriptor)
+            if resolved is None:
+                return None
+            url, headers = resolved
+
+        response = requests.get(url, timeout=30, stream=True, headers=headers)
         if response.status_code >= 400:
             logger.warning("Could not download the image: HTTP %s", response.status_code)
             return None

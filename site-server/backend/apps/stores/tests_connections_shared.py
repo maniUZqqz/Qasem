@@ -70,10 +70,14 @@ class NothingSharedTests(_Base):
     def test_what_only_the_administrator_can_fix_says_so_and_has_no_input_to_link_to(self):
         body = self.body()
         for key in ("WHATSAPP", "SMS"):
+            # connected per store from the inbox's «کانال‌ها» page now - and the row
+            # says where, instead of pointing at an administrator who cannot do it
             row = self.channel(body, key)
-            self.assertIn("راه‌اندازی‌اش با مدیر سرویس است", row["reason"])
-            self.assertTrue(row["missing"])
-            self.assertTrue(all(item["input"] == "" for item in row["missing"]))
+            self.assertIn("صفحهٔ «کانال‌ها»", row["reason"])
+            self.assertEqual(row["missing"], [])
+        # Meta's approval of the app is still the administrator's, not the store's
+        instagram = self.channel(body, "INSTAGRAM")
+        self.assertTrue(all(item["input"] == "" for item in instagram["receives_missing"]))
 
     def test_no_environment_variable_name_reaches_a_person(self):
         body = self.body()

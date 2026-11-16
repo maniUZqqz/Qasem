@@ -168,7 +168,18 @@ def run_agent_for(
         _record_failure(conversation, exc, retry)
         return "failed"
 
-    _send(conversation, turn.reply)
+    reply = turn.reply
+    try:
+        # The unified inbox may swap a low-confidence answer for a handoff line
+        # (it never sends a guess); it can never stop an answer from going out.
+        from apps.inbox import bot as inbox_bot
+
+        override = inbox_bot.after_turn(conversation, turn)
+        if override:
+            reply = override
+    except Exception:  # noqa: BLE001
+        logger.exception("inbox after_turn failed for conversation %s", conversation.pk)
+    _send(conversation, reply)
     return "answered"
 
 

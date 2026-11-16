@@ -95,6 +95,7 @@ import MobilePage from "./features/mobile/MobilePage";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
 
+const DesignRoutes = lazyPage(() => import("./features/design/routes"), "در حالِ بارگیریِ استودیوی طراحی…");
 // ۱۴۰۵/۰۸/۲۳: ویرایشگرِ عکس (~۱ مگابایتِ کد) فقط وقتی صفحه‌اش باز شد بار می‌شود؛ ورودِ اولِ پنل و ویرایشگرِ ویدیو سبک‌تر می‌شود
 const PhotoEditorPage = lazyPage(() => import("./features/content/photo/PhotoEditorPage"), "در حالِ بارگیریِ ویرایشگرِ عکس…");
 
@@ -202,6 +203,8 @@ export default function App() {
               {/* بانکِ ایده: «این هفته چه پستی بگذارم؟» — ایده‌های آمادهٔ فارسی، ایده بساز، شروع از ایده */}
               <Route path="/stores/:id/ideas" element={<PageGate k="ideas"><IdeasPage /></PageGate>} />
               <Route path="/stores/:id/mascot" element={<PageGate k="mascot"><MascotPage /></PageGate>} />
+              {/* استودیوی طراحی: کاتالوگ، ارائه و طراحیِ UI/UX پیش از سایت‌ساز */}
+              <Route path="/stores/:id/design/*" element={<DesignRoutes />} />
               {/* شخصیتِ برند: لحنِ گفتار + شخصیتِ دیداری (ادیتورِ برداری، خلقِ هوشمند، استفاده در همه‌جا) */}
               <Route path="/stores/:id/brand-character" element={<BrandCharLayout />}>
                 <Route index element={<PageGate k="brandchar"><BrandCharOverview /></PageGate>} />

@@ -18,6 +18,7 @@ export type SectionKey =
   | "sales"
   | "content"
   | "brandchar"
+  | "design"
   | "audio"
   | "settings"
   | "product"
@@ -59,6 +60,7 @@ export const SECTIONS: PanelSection[] = [
   { key: "sales", title: "فروش و پشتیبانی", storeScoped: true },
   { key: "content", title: "محتوا", storeScoped: true },
   { key: "brandchar", title: "شخصیتِ برند", storeScoped: true },
+  { key: "design", title: "استودیوی طراحی", storeScoped: true },
   { key: "audio", title: "صدا", storeScoped: true },
   { key: "settings", title: "تنظیمات", storeScoped: true },
   { key: "product", title: "صفحهٔ محصول", menu: false },
@@ -135,6 +137,13 @@ export const PAGES: PanelPage[] = [
   { key: "brandchar_scenes", section: "brandchar", label: "ژست و صحنه", icon: "image", to: (id) => `/stores/${id}/brand-character/scenes` },
   { key: "brandchar_gallery", section: "brandchar", label: "گالری و کاربرد", icon: "rocket", to: (id) => `/stores/${id}/brand-character/gallery` },
   { key: "brandchar_export", section: "brandchar", label: "خروجی", icon: "download", to: (id) => `/stores/${id}/brand-character/export` },
+
+  // ------------------------------------------------------- استودیوی طراحی
+  { key: "design_home", section: "design", label: "خانهٔ استودیو", icon: "sparkle", to: (id) => `/stores/${id}/design`, end: true },
+  { key: "design_catalog", section: "design", label: "کاتالوگ محصولات", icon: "file", to: (id) => `/stores/${id}/design/catalog` },
+  { key: "design_deck", section: "design", label: "ارائه (اسلاید)", icon: "play", to: (id) => `/stores/${id}/design/deck` },
+  { key: "design_ui", section: "design", label: "طراحی UI/UX", icon: "edit", to: (id) => `/stores/${id}/design/ui` },
+  { key: "design_guide", section: "design", label: "راهنمای فایل‌ها", icon: "bulb", to: (id) => `/stores/${id}/design/guide` },
 
   // ------------------------------------------------------------------ صدا
   { key: "audio_speech", section: "audio", label: "گفتار", icon: "mic", to: (id) => `/stores/${id}/audio`, end: true },

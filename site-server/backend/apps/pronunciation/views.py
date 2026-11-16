@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -81,7 +82,7 @@ class OverviewView(APIView):
         except Exception as exc:  # noqa: BLE001
             logger.debug("pronunciation advance: %s", exc)
         local = engine_registry.local_only(store)
-        runs = list(EvalRun.objects.filter(store__in=[store, None]).order_by("-created_at")[:12])
+        runs = list(EvalRun.objects.filter(Q(store=store) | Q(store__isnull=True)).order_by("-created_at")[:12])
         latest: dict[str, dict] = {}
         for r in runs:
             if r.state == EvalRun.State.DONE and r.engine not in latest:
@@ -366,7 +367,7 @@ class EvalListView(APIView):
         store = _store(request, store_id, write=False)
         svc.seed_baseline()
         evalrun.advance(limit=3)
-        qs = EvalRun.objects.filter(store__in=[store, None]).order_by("-created_at")[:30]
+        qs = EvalRun.objects.filter(Q(store=store) | Q(store__isnull=True)).order_by("-created_at")[:30]
         return Response({"runs": [svc.run_dict(r) for r in qs], "tags": fa_pron.eval_set.TAGS})
 
     def post(self, request, store_id):
@@ -387,7 +388,7 @@ class EvalItemView(APIView):
 
     def get(self, request, store_id, pk):
         store = _store(request, store_id, write=False)
-        run = EvalRun.objects.filter(pk=pk, store__in=[store, None]).first()
+        run = EvalRun.objects.filter(Q(store=store) | Q(store__isnull=True), pk=pk).first()
         if run is None:
             raise Http404
         evalrun.advance_run(run)

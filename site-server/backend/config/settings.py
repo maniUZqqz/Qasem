@@ -149,6 +149,8 @@ INSTALLED_APPS += ["apps.pronunciation"]
 
 # استودیوی موشن (Remotion): ویدیو از روی کد؛ رندرِ نهایی روی سرورِ پردازش
 INSTALLED_APPS += ["apps.motion"]
+# استودیوی طراحی: کاتالوگ، ارائه و طراحیِ UI/UX
+INSTALLED_APPS += ["apps.design_studio"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

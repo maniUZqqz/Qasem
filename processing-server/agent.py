@@ -99,6 +99,8 @@ size_mb, progress}} and caps.matting_runtime {ok, providers}; the site holds a j
 Models: packages matting-u2netp / matting-isnet (downloads/matting.json, mirrored on the site) and photo-background
 (BiRefNet-lite, shared with the photo kit); the runtime package matting-runtime is only needed when no Python here has
 onnxruntime. `python photo_matting.py test` / Test-Matting.bat times every installed model.
+Agent add-on - Design studio (design_jobs.py): the new job kind `edit.slides_mp4` turns a deck's slide pictures into one MP4 with cross-fades (ffmpeg, h264_nvenc on the card, libx264 only as a fallback; the answer says
+which one ran). Nothing to install: it uses the ffmpeg of the video editor. The kind is listed in caps['kinds']; older agents never see it (the job waits in the durable queue).
 Agent add-on (2.26) - Motion studio v2 (motion_jobs.py): `motion.render` also takes payload.audio = {file} (the voice/music mix the site built, -14 LUFS) and muxes it under the video with the ffmpeg
 inside the Remotion pack; the heartbeat lists caps.motion.features = [audio_mux ...] (older agents are treated as 'cannot' and the site muxes the audio itself). No new job kinds.
 Agent add-on (2.25) - InstAI as a neighbour (instai_jobs.py): the owner's InstAI folder on this PC is found, an old one (a Download-ZIP whose START.bat cannot update itself,
@@ -144,7 +146,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.30"
+VERSION = "2.31"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -4344,6 +4346,14 @@ try:                               # motion studio: `motion.render` (code-driven
     motion_jobs.register(HANDLERS, sys.modules[__name__])
 except Exception as _e:  # noqa: BLE001
     print("[!] motion studio is not available: %s" % _e, flush=True)
+
+
+try:                               # Design studio: `edit.slides_mp4` (a deck's slide pictures -> MP4 on this GPU); an optional module, never fatal
+    import design_jobs
+
+    design_jobs.register(HANDLERS, sys.modules[__name__])
+except Exception as _e:  # noqa: BLE001
+    print("[!] design studio video is not available: %s" % _e, flush=True)
 
 
 def finish_result(job, ok, err="", meta=None, say=None):

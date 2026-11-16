@@ -142,3 +142,21 @@ class SiteVoiceTests(Base):
             r = self.api.post(f"{self.base}/listen/", {"text": "سلام", "engine": "piper", "variant": "after"}, format="json")
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(used, ["fa_IR-gyro-medium"])
+
+
+class BaselineVisibleTests(Base):
+    """The measurement that ships with the version belongs to no store (store NULL, baseline=True): every store must see it."""
+
+    def test_the_shipped_baseline_shows_for_every_store(self):
+        ov = self.api.get(f"{self.base}/").json()
+        self.assertTrue(ov["latest"], "the shipped measurement is in the overview table")
+        self.assertTrue(all(r["baseline"] for r in ov["latest"].values()))
+        self.assertIn("piper", ov["latest"])
+        runs = self.api.get(f"{self.base}/eval/").json()["runs"]
+        self.assertTrue(runs and all(r["baseline"] for r in runs), "the shipped measurement is in the history list")
+        self.assertEqual(self.api.get(f"{self.base}/eval/{runs[0]['id']}/").status_code, 200, "and it can be opened")
+
+    def test_a_baseline_cannot_be_deleted_from_a_store(self):
+        runs = self.api.get(f"{self.base}/eval/").json()["runs"]
+        self.assertEqual(self.api.delete(f"{self.base}/eval/{runs[0]['id']}/").status_code, 204)
+        self.assertTrue(self.api.get(f"{self.base}/eval/").json()["runs"], "still there")

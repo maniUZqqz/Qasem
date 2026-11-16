@@ -533,6 +533,15 @@ class SelfTestRunTests(_Base):
                      "hook": "پیش‌نویس این‌طور شکل می‌گیرد.", "category": "behind", "shoot": "صفحه‌نمایش و دستِ مربی.", "cta": "نظرت را بنویس",
                      "format": "reel", "channel": "instagram"}]}
                 return {"ollama.json": json.dumps({"response": json.dumps(ideas, ensure_ascii=False), "eval_count": 160, "eval_duration": 3000000000}).encode()}, {"device": "cuda"}
+            if '{"slides":[{"type":"title"' in str(p.get("prompt") or ""):        # آزمونِ «استودیوی طراحی: پیش‌نویسِ ارائه» (selftests/design_studio.py): مدل JSONِ {"slides": [...]} می‌دهد (فارسی، بی‌عددِ ساختگی، محصولِ ثبت‌شده)
+                deck = {"slides": [
+                    {"type": "title", "title": "با چغر، چغرتر شو", "subtitle": "دستیارِ هوش مصنوعیِ مربی‌ها", "notes": "با معرفیِ کوتاهِ چغر شروع می‌کنیم."},
+                    {"type": "agenda", "items": ["چغر چیست", "بسته‌ها و ابزارها", "چطور شروع کنیم"], "notes": "سه بخشِ کوتاه داریم."},
+                    {"type": "text", "title": "چغر چه کاری می‌کند", "bullets": ["پیش‌نویسِ برنامهٔ ورزشی و غذایی را می‌سازد", "تصمیمِ نهایی همیشه با مربی است", "وقتِ مربی صرفِ مربیگری می‌شود"],
+                     "notes": "کارِ تکراری را برمی‌دارد."},
+                    {"type": "product", "product": 17, "text": "پیش‌نویسِ کاملِ برنامهٔ ورزشی و غذاییِ اختصاصیِ یک ورزشکار", "points": ["برنامهٔ ورزشی", "برنامهٔ غذایی"], "notes": "بستهٔ اصلی."},
+                    {"type": "cta", "title": "همین حالا شروع کنید", "text": "ثبت‌نام ساده است و شروع رایگان.", "button": "ثبت‌نام", "notes": "پایان."}]}
+                return {"ollama.json": json.dumps({"response": json.dumps(deck, ensure_ascii=False), "eval_count": 200, "eval_duration": 4000000000}).encode()}, {"device": "cuda"}
             return {"ollama.json": json.dumps({"response": "چغر، دستیارِ هوشمندِ مربی‌های ورزشی، برنامهٔ هر ورزشکار را سریع پیش‌نویس می‌کند.", "eval_count": 20, "eval_duration": 1000000000}).encode()}, {"device": "cuda"}
         if k == "comfy.profile":
             import io

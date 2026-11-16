@@ -40,7 +40,7 @@ MAX_CODE_CHARS = 60_000
 EXCERPT_CHARS = 900
 MAX_AI_REFS = 3
 DAILY_LIMIT_DEFAULT = 2                  # حسابِ رایگانِ 21st.dev
-PERMISSIVE = {"mit", "apache-2.0", "apache 2.0", "bsd", "bsd-2-clause", "bsd-3-clause", "isc", "0bsd", "unlicense", "cc0", "cc0-1.0"}
+PERMISSIVE = {"mit", "mit-0", "apache-2.0", "apache 2.0", "bsd", "bsd-2-clause", "bsd-3-clause", "isc", "0bsd", "unlicense", "cc0", "cc0-1.0"}
 
 #: دسته‌های 21st.dev (از llms.txt) ⇒ (برچسبِ فارسی، دسته‌ی نزدیک در قطعه‌های خودمان یا '')؛ ترتیب = اولویتِ خزش برای سایتِ فروشگاهی
 CATEGORIES: dict[str, tuple[str, str]] = {
@@ -261,7 +261,7 @@ def _words(text: str) -> set[str]:
     return {w for w in re.split(r"[^\w؀-ۿ]+", (text or "").lower()) if len(w) > 1}
 
 
-def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1, size: int = 24) -> dict:
+def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1, size: int = 24, insertable_only: bool = False) -> dict:
     rows = load()
     words = _words(q)
     scored = []
@@ -270,27 +270,38 @@ def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1,
             continue
         if usable_only and not r.get("usable"):
             continue
+        if insertable_only and not insertable(r):
+            continue
         s = 0
         if words:
             hay = _words(" ".join([r.get("title", ""), r.get("description", ""), " ".join(r.get("tags", [])), r.get("library", ""), r.get("author_name", ""), " ".join(r.get("cats", []))]))
             s = 3 * len(words & _words(r.get("title", ""))) + len(words & hay)
             if s == 0:
                 continue
-        scored.append((s, 1 if r.get("detail") else 0, r))
+        scored.append((s, (2 if insertable(r) else 0) + (1 if r.get("preview") else 0), r))
     scored.sort(key=lambda x: (-x[0], -x[1], x[2]["id"]))
     size = max(1, min(60, size))
     page = max(1, page)
     items = [public(r) for _s, _d, r in scored[(page - 1) * size: page * size]]
     cats = [{"key": k, "label": v[0], "count": sum(1 for r in rows if k in r.get("cats", []))} for k, v in CATEGORIES.items()]
-    return {"total": len(scored), "page": page, "size": size, "items": items, "categories": [c for c in cats if c["count"]], "catalog_size": len(rows)}
+    return {"total": len(scored), "page": page, "size": size, "items": items, "categories": [c for c in cats if c["count"]], "catalog_size": len(rows),
+            "insertable": sum(1 for r in rows if insertable(r)), "with_preview": sum(1 for r in rows if r.get("preview"))}
+
+
+def insertable(r: dict) -> bool:
+    """قطعه‌ای که تبدیل شده و می‌شود در صفحه گذاشت (مجوزِ آزاد + رکوردِ تبدیل + سنجشِ RTL رد نشده)."""
+    conv = r.get("conv") or {}
+    return bool(r.get("usable") and conv.get("state") == "ok" and conv.get("key") and conv.get("rtl") != "fail")
 
 
 def public(r: dict) -> dict:
     code = (root() / "code" / (safe_name(r["id"]) + ".tsx")).is_file()
+    conv = r.get("conv") or {}
     return {"id": r["id"], "title": r.get("title", ""), "description": r.get("description", ""), "author": r.get("author_name", ""), "library": r.get("library", ""),
             "license": r.get("license", "") or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
             "deps": r.get("deps", []), "cats": r.get("cats", []), "url": r.get("url") or f"{BASE}/@{r['id'].split('/')[0]}/components/{'/'.join(r['id'].split('/')[1:])}",
-            "has_code": code, "nearest": nearest_components(r)}
+            "has_code": code, "nearest": nearest_components(r), "preview": bool(r.get("preview")), "insertable": insertable(r), "conv_key": conv.get("key", "") if insertable(r) else "",
+            "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "src": r.get("src", ""), "library_id": r.get("library_id", "")}
 
 
 def safe_name(cid: str) -> str:

@@ -22,6 +22,7 @@ const STUDIO_NAV: { to: string; label: string; icon: IconName; end?: boolean }[]
   { to: `${BASE}/new`, label: "پروژهٔ تازه", icon: "plus" },
   { to: `${BASE}/import`, label: "واردکردنِ پروژهٔ جنگو", icon: "upload" },
   { to: `${BASE}/ai/settings`, label: "تنظیماتِ هوشِ مصنوعی", icon: "sparkle" },
+  { to: `${BASE}/design-sources`, label: "منبع‌های طراحی", icon: "image" },
 ];
 
 export default function StudioShell() {

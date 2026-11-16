@@ -144,7 +144,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = "2.27"
+VERSION = "2.28"
 START_TIME = time.time()                                          # this process started now (the panel checks the agent really restarted)
 HERE = os.path.dirname(os.path.abspath(__file__))                 # the code (replaced by every update)
 if HERE not in sys.path:
@@ -4324,6 +4324,11 @@ try:
     __import__("up3d_jobs").install(sys.modules[__name__])
 except Exception as _e:  # noqa: BLE001
     print("note: module up3d_jobs is not available (%s)" % _e, flush=True)
+
+try:  # the 21st.dev crawler (crawl21_jobs.py): `crawl21.run` with a headless browser + its automatic install (requirements.d/crawl21.json); an optional module never stops the agent
+    __import__("crawl21_jobs").install(sys.modules[__name__])
+except Exception as _e:  # noqa: BLE001
+    print("note: module crawl21_jobs is not available (%s)" % _e, flush=True)
 
 
 try:                               # motion studio: `motion.render` (code-driven video on this GPU) + its automatic installer; an optional module, never fatal

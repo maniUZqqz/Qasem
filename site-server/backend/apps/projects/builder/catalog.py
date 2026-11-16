@@ -294,6 +294,15 @@ for _bt in _variants.VARIANTS:
             F('variant', 'چیدمانِ بخش', 'select', options=_variants.options(_bt), help='ظاهرِ همین بخش را عوض می‌کند؛ متن‌ها و تنظیمات همان می‌مانند.')]
 _components.register(BLOCKS, G_SECTION)        # ۴۹ قطعهٔ آماده: بلوک‌هایی با نوعِ c_<کلید>
 
+# «قطعهٔ 21st»: یک قطعهٔ React/Tailwind که خودکار به HTMLِ امنِ ساکن تبدیل شده (c21_convert/c21_embed). ردیف‌ها «ثابت»‌اند: افزودن و حذف نمی‌شود؛ هر متن را عوض کن.
+BLOCKS['c21'] = dict(
+    label='قطعهٔ 21st', group='components', icon='layout', root=True, hint='قطعه‌ای از کاتالوگِ 21st.dev (فقط مجوزِ آزاد) که به HTMLِ امن تبدیل شده؛ متن‌ها و تصویرها را عوض کن.',
+    fields=[F('ref', 'شناسهٔ قطعه (دست نزنید)', 'text', help='کلیدِ قطعه در کاتالوگ؛ عوض‌کردنش قطعه را از کار می‌اندازد.'),
+            F('texts', 'متن‌ها', 'items', fields=[F('v', 'متن', 'textarea')], item_label='v', fixed=True),
+            F('images', 'تصویرها', 'items', fields=[F('src', 'تصویر', 'image'), F('alt', 'توضیحِ تصویر')], item_label='alt', fixed=True),
+            F('links', 'پیوندها', 'items', fields=[F('u', 'نشانی', 'link')], item_label='u', fixed=True)],
+    defaults={'ref': '', 'texts': [], 'images': [], 'links': []}, style=G_SECTION, scope=['page'], hidden=True)
+
 CONTAINERS = {k for k, v in BLOCKS.items() if v.get('container')}
 ROOT_ONLY = {k for k, v in BLOCKS.items() if v.get('root')}
 # بلوک‌هایی که در سند می‌مانند ولی در فهرستِ افزودن نیستند یا فقط جای خاصی می‌آیند

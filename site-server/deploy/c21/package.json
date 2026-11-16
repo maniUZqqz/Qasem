@@ -1,0 +1,33 @@
+{
+  "name": "nm-c21-toolchain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NM: React/Tailwind component to static HTML+CSS converter (server side, kept out of the panel node_modules). See deploy/c21/README.md",
+  "type": "module",
+  "dependencies": {
+    "@tailwindcss/node": "4.1.14",
+    "tailwindcss": "4.1.14",
+    "esbuild": "0.25.10",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "postcss": "8.5.6",
+    "lucide-react": "0.544.0",
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.3.1",
+    "class-variance-authority": "0.7.1",
+    "@radix-ui/react-slot": "1.2.3",
+    "@radix-ui/react-accordion": "1.2.12",
+    "@radix-ui/react-tabs": "1.1.13",
+    "@radix-ui/react-avatar": "1.1.10",
+    "@radix-ui/react-separator": "1.1.7",
+    "@radix-ui/react-label": "2.1.7",
+    "@radix-ui/react-switch": "1.2.6",
+    "@radix-ui/react-checkbox": "1.3.3",
+    "@radix-ui/react-progress": "1.1.7",
+    "@radix-ui/react-collapsible": "1.1.12",
+    "@radix-ui/react-icons": "1.3.2",
+    "@radix-ui/react-scroll-area": "1.2.10",
+    "radix-ui": "1.8.1",
+    "@base-ui/react": "1.9.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "feature": "crawl21",
+  "title_fa": "خزندهٔ 21st.dev با مرورگرِ بی‌سر (Playwright + Edge) برای سایت‌ساز",
+  "order": 75,
+  "platform": ["win"],
+  "requires": [],
+  "kinds": ["crawl21.run"],
+  "note": "Playwright 1.49.1 (Apache-2.0) in its own environment venvs/crawl21 - nothing of the owner's Python is touched. The browser is the Microsoft Edge that Windows 11 already has (channel msedge), then Chrome; if neither starts, `crawl21_jobs.py --check` runs `playwright install chromium` (the default CDN first, then the npmmirror mirrors). The job `crawl21.run` opens only PUBLIC 21st.dev pages, obeys robots.txt (every request the page makes is checked too), waits 1.5 s between pages and sends back the .md text and the usage demo code; the site parses and stores it (apps/projects/builder/c21_node.py). `kinds` makes the site keep the job in its durable queue until this is installed.",
+  "items": [
+    {"id": "venv", "type": "venv", "name": "crawl21", "title": "Python environment venvs/crawl21"},
+    {"id": "pip", "type": "pip", "venv": "crawl21", "title": "Playwright for Python", "packages": ["playwright==1.49.1"], "timeout_s": 3600},
+    {"id": "browser", "type": "cmd", "title": "a headless browser starts (Edge, Chrome or Playwright's Chromium)",
+     "check": ["{VENVPY:crawl21}", "{HERE}/crawl21_jobs.py", "--check"], "check_timeout_s": 180,
+     "install": ["{VENVPY:crawl21}", "{HERE}/crawl21_jobs.py", "--install-browser"], "timeout_s": 3600}
+  ]
+}

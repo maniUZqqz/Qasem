@@ -6,6 +6,7 @@ import { Loading } from "./common";
 import AiHomePage from "./AiHomePage";
 import AiProposalPage from "./AiProposalPage";
 import AiSettingsPage from "./AiSettingsPage";
+import DesignSourcesPage from "./DesignSourcesPage";
 import AppDetailPage from "./AppDetailPage";
 import BackendPage from "./BackendPage";
 import FieldEditPage from "./FieldEditPage";
@@ -48,6 +49,7 @@ export default function StudioRoutes() {
         <Route path="new" element={<ProjectCreatePage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="ai/settings" element={<AiSettingsPage />} />
+        <Route path="design-sources" element={<DesignSourcesPage />} />
         <Route path="p/:slug" element={<ProjectShell />}>
           <Route index element={<ProjectDetailPage />} />
           <Route path="settings" element={<SettingsPage />} />

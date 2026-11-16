@@ -1,0 +1,96 @@
+# -*- coding: utf-8 -*-
+"""API ِ قطعه‌های 21st در سایت‌ساز (فقط مدیر): پیش‌نمایشِ تصویری، پیش‌نمایشِ زنده با پوستهٔ پروژه، گرفتنِ بلوکِ آمادهٔ درج، و فرمانِ تبدیل.
+
+    GET  c21st/image/<شناسه>/                          ⇒ تصویرِ پیش‌نمایش (webp؛ از کارتِ اشتراکِ عمومیِ 21st.dev)
+    GET  projects/<slug>/builder/c21/<کلید>/preview/   ⇒ {html, base_css, page_css, …}: همان قطعه با پوستهٔ همین پروژه (و در صورت خواستن یک سبک)
+    GET  projects/<slug>/builder/c21/<کلید>/block/     ⇒ {block}: بلوکِ c21 با متن‌های نمونه؛ پنل درونِ صفحه می‌گذارد
+    POST c21st/convert/                                ⇒ نوبتِ تبدیل در صفِ Celery (۲۰۲)
+    GET  c21st/pipeline/                               ⇒ وضعیتِ خزش، تبدیل و کارِ گره
+"""
+import re
+
+from django.http import FileResponse, Http404
+from rest_framework.response import Response
+
+from .api import bad, studio_api
+from .builder import api as vb, c21_convert as CV, c21_crawl, c21_embed as EM, c21_node, c21_pipeline, c21st, canvas, styles as styles_mod, theme as theme_mod
+from .builder.clean import new_block
+
+_ID = re.compile(r"^[A-Za-z0-9._-]{1,60}/[A-Za-z0-9._-]{1,120}$")
+
+
+@studio_api("GET")
+def c21_image(request, cid):
+    if not _ID.match(cid or ""):
+        raise Http404
+    p = c21_crawl.preview_path(cid)
+    if not p.is_file():
+        raise Http404
+    resp = FileResponse(open(p, "rb"), content_type="image/webp")
+    resp["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+def _rec(key):
+    rec = CV.get_record(key)
+    if rec is None:
+        raise Http404
+    return rec
+
+
+@studio_api("GET")
+def c21_preview(request, slug, key):
+    """یک قطعهٔ 21st به‌تنهایی با پوستهٔ همین پروژه (و یک سبکِ دلخواه) برای نمایش در کتابخانه."""
+    p = vb._project(slug)
+    g = vb._guard(p)
+    if g:
+        return g
+    rec = _rec(key)
+    theme, menu = vb._theme_json(p)
+    style = request.query_params.get("style") or ""
+    if style in styles_mod.STYLES:
+        theme = theme_mod.clean_theme(styles_mod.apply_to_theme(theme, style), p)
+    doc = {"v": 1, "blocks": [new_block(EM.TYPE, **EM.default_props(rec))]}
+    data = canvas.render_canvas(p, "page", None, doc, theme, vb._clean_menu(menu, p))
+    return Response({"key": key, "id": rec["id"], "html": "".join(x["html"] for x in data["parts"]), "base_css": data["base_css"], "page_css": data["page_css"],
+                     "title": rec.get("title", ""), "license": rec.get("license", ""), "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""),
+                     "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", []))})
+
+
+@studio_api("GET")
+def c21_block(request, slug, key):
+    p = vb._project(slug)
+    g = vb._guard(p)
+    if g:
+        return g
+    rec = _rec(key)
+    if (rec.get("rtl") or {}).get("status") == "fail":
+        return bad("این قطعه در راست‌به‌چپ/موبایل سرریز می‌کند و برای درج بسته شده است.", code=409)
+    return Response({"block": new_block(EM.TYPE, **EM.default_props(rec))})
+
+
+@studio_api("POST")
+def c21_convert_start(request):
+    from .tasks import c21_convert
+
+    if not CV.toolchain_ready():
+        return bad("جعبه‌ابزارِ تبدیل روی سرور نصب نیست (deploy/c21/install.sh).", code=409)
+    c21_convert.delay(force=True)
+    return Response({"ok": True, "message": "تبدیلِ قطعه‌ها در صف گذاشته شد؛ هر نوبت چند دقیقه طول می‌کشد.", "pipeline": pipeline_json()}, status=202)
+
+
+def pipeline_json() -> dict:
+    st = c21_pipeline.pipeline_state()
+    rows = c21st.load()
+    node = c21_node.state()
+    return {"toolchain": CV.toolchain_ready(), "converted": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "ok"),
+            "failed": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "failed"), "no_source": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "no-source"),
+            "license_blocked": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "license"), "last": {k: st.get(k) for k in ("converted", "failed", "libs_done", "remaining_libs", "finished_at")},
+            "errors": (st.get("errors") or [])[-3:], "node": {"pending": len(node.get("pending", [])), "jobs": node.get("jobs", 0), "ingested": node.get("ingested", 0)}}
+
+
+@studio_api("GET")
+def c21_pipeline_status(request):
+    from .c21st_api import _crawl_json
+
+    return Response({"crawl": _crawl_json(), "pipeline": pipeline_json()})

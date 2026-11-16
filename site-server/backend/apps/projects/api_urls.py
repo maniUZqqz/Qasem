@@ -6,7 +6,7 @@ from django.urls import path
 
 from apps.ai_engine import api as ai
 from apps.project_importer import api as imp
-from . import api, c21st_api
+from . import api, c21_api, c21st_api, design_sources_api
 from .builder import api as vb
 from .hosting import api as hosting
 from .hosting import api as hosting
@@ -112,7 +112,18 @@ urlpatterns = [
     path('ai/route/pull/', ai.ai_route_pull),                                 # POST دانلودِ مدل روی گره
     path('ai/settings/test/', ai.ai_settings_test),                           # POST
     path('ai/design-options/', ai.design_options),                            # GET سبک‌ها و قطعه‌های قابلِ انتخاب در حالتِ AI
-    path('c21st/', c21st_api.c21st_list),                                     # GET کاتالوگِ 21st.dev (جست‌وجو)
+    path('design-sources/', design_sources_api.sources_index),                # GET کلِ دادهٔ ui-ux-pro-max: خلاصه
+    path('design-sources/docs/read/', design_sources_api.sources_doc),        # GET متنِ کاملِ یک مستند
+    path('design-sources/tokens/', design_sources_api.sources_tokens),        # GET توکن‌های همهٔ سبک‌ها (برای استودیوی طراحی)
+    path('design-sources/tokens/<str:key>/', design_sources_api.sources_tokens),   # GET توکن‌های کاملِ یک سبک
+    path('design-sources/recommend/', design_sources_api.sources_recommend),  # GET همان «guidance» که به AI می‌رسد
+    path('design-sources/<slug:kind>/', design_sources_api.sources_kind),     # GET جست‌وجو در یک نوعِ داده
+    path('c21st/', c21st_api.c21st_list),
+    path('c21st/pipeline/', c21_api.c21_pipeline_status),                     # GET وضعیتِ خزش، تبدیل و کارِ گره
+    path('c21st/convert/', c21_api.c21_convert_start),                        # POST شروعِ تبدیلِ قطعه‌ها (صفِ Celery)
+    path('c21st/image/<path:cid>/', c21_api.c21_image),                       # GET تصویرِ پیش‌نمایشِ یک قطعه
+    path('projects/<slug:slug>/builder/c21/<str:key>/preview/', c21_api.c21_preview),   # GET پیش‌نمایشِ زندهٔ قطعه با پوستهٔ پروژه
+    path('projects/<slug:slug>/builder/c21/<str:key>/block/', c21_api.c21_block),       # GET بلوکِ آمادهٔ درج                                     # GET کاتالوگِ 21st.dev (جست‌وجو)
     path('c21st/crawl/', c21st_api.c21st_crawl),                              # POST به‌روزرسانیِ کاتالوگ (صفِ Celery)
     path('c21st/key/', c21st_api.c21st_key),                                  # POST · DELETE کلیدِ API ِ مالک
     path('c21st/code/', c21st_api.c21st_code),                                # POST گرفتنِ کدِ یک قطعه (با کلید)

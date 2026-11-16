@@ -301,6 +301,17 @@ STYLES = {
     },
 }
 
-ORDER = ['glassmorphism', 'claymorphism', 'neumorphism', 'neo-brutalism', 'bento-grid', 'minimalism', 'aurora', 'dark-luxury',
-         'soft-pastel', 'corporate-clean', 'editorial', 'retro-y2k', 'swiss', 'organic']
+HAND_ORDER = ['glassmorphism', 'claymorphism', 'neumorphism', 'neo-brutalism', 'bento-grid', 'minimalism', 'aurora', 'dark-luxury',
+              'soft-pastel', 'corporate-clean', 'editorial', 'retro-y2k', 'swiss', 'organic']
+assert set(STYLES) == set(HAND_ORDER)
+for _st in STYLES.values():
+    _st.setdefault('source', 'hand')                 # دست‌ساز؛ سبک‌های خودکار از generated.py می‌آیند
+    _st.setdefault('group', 'عمومی')
+
+# ── همهٔ سبک‌های دیگرِ مخزنِ ui-ux-pro-max (۷۵ سبک) به‌صورتِ خودکار؛ هر کدام تباینِ WCAG، قلمِ فارسی‌پذیر و CSSِ راست‌به‌چپ دارد ──
+from . import generated as _generated  # noqa: E402
+
+_GEN = _generated.build_all(STYLES)
+STYLES.update(_GEN)
+ORDER = HAND_ORDER + [k for g in _generated.GROUP_ORDER for k in _GEN if _GEN[k]['group'] == g]
 assert list(STYLES) == ORDER or set(STYLES) == set(ORDER)

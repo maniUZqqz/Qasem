@@ -1,5 +1,41 @@
 {
  "fonts": {
+  "alexandria": {
+   "family": "Alexandria",
+   "files": [
+    {
+     "file": "alexandria-arabic-wght-normal.woff2",
+     "sha256": "e8d8ca61d4da1a1a38b9454dbae92be589185efc7af0af6046f6a11c60476e99"
+    },
+    {
+     "file": "alexandria-latin-wght-normal.woff2",
+     "sha256": "98ccec0bc3c456332f8fd0fcaf81d26a4e010b7fc093f9781938f976df9ffbc4"
+    }
+   ],
+   "missing": ""
+  },
+  "almarai": {
+   "family": "Almarai",
+   "files": [
+    {
+     "file": "almarai-arabic-400-normal.woff2",
+     "sha256": "530903c9168cfc13d3ef363b71c042d5c887476c4454a91223309465ae89c87f"
+    },
+    {
+     "file": "almarai-latin-400-normal.woff2",
+     "sha256": "6f289856f002502ea9cc6aa85c2fd509f8aa6c3a17b5adf08f2ccc148cfeea4f"
+    },
+    {
+     "file": "almarai-arabic-700-normal.woff2",
+     "sha256": "006fba6fe32a900c60f154cc9e2e142bf075078dc97a94715dd9f1f5d4e4421e"
+    },
+    {
+     "file": "almarai-latin-700-normal.woff2",
+     "sha256": "53706a39de7c9d9b74032b0af6549cf9809e3f98b343ea5b054a25e10b1c2e7a"
+    }
+   ],
+   "missing": ""
+  },
   "amiri": {
    "family": "Amiri",
    "files": [
@@ -18,6 +54,28 @@
     {
      "file": "amiri-latin-700-normal.woff2",
      "sha256": "f53eb332acb23ec7e09e2487909c56cf841d649c970084d6a74d82aa9534f737"
+    }
+   ],
+   "missing": ""
+  },
+  "aref": {
+   "family": "Aref Ruqaa",
+   "files": [
+    {
+     "file": "aref-ruqaa-arabic-400-normal.woff2",
+     "sha256": "98156c60a0838ddb66303b31b3a048d46692e5e5fcafb04c17d44dac122b65f6"
+    },
+    {
+     "file": "aref-ruqaa-latin-400-normal.woff2",
+     "sha256": "76fa53c03565ea3dc5452dc5c93ad0d065fe05cb2a146f6c22b00d1912a43965"
+    },
+    {
+     "file": "aref-ruqaa-arabic-700-normal.woff2",
+     "sha256": "a2d18c431048642fd695211a9466364a3d7287942d701b4f21bce8969ed491ac"
+    },
+    {
+     "file": "aref-ruqaa-latin-700-normal.woff2",
+     "sha256": "da291d8fd9d3404719a6a110fdb6d988c0fea3b10246934edd206bcef8741998"
     }
    ],
    "missing": ""
@@ -50,6 +108,20 @@
    ],
    "missing": ""
   },
+  "changa": {
+   "family": "Changa",
+   "files": [
+    {
+     "file": "changa-arabic-wght-normal.woff2",
+     "sha256": "19d8649a87ff19b7e69bf406122424c37e002a3a4cb9085e404132a7b9cb6bdf"
+    },
+    {
+     "file": "changa-latin-wght-normal.woff2",
+     "sha256": "94ad0d2ec52cffbf72d65868475d87c68e4362c2e5b96c7a5304acf113c5709f"
+    }
+   ],
+   "missing": ""
+  },
   "estedad": {
    "family": "Estedad",
    "files": [
@@ -60,6 +132,48 @@
     {
      "file": "estedad-latin-wght-normal.woff2",
      "sha256": "e593cc01586f3fb22e30ac9c4be8f1071a879ac195ab3a71813d717eee3b2eaf"
+    }
+   ],
+   "missing": ""
+  },
+  "jomhuria": {
+   "family": "Jomhuria",
+   "files": [
+    {
+     "file": "jomhuria-arabic-400-normal.woff2",
+     "sha256": "80484073125a4e993d6b75d4ce0b3c30a9ff9bcf1da1ac41351b73dc84085cd0"
+    },
+    {
+     "file": "jomhuria-latin-400-normal.woff2",
+     "sha256": "37c1d3bb42d2dbbe6a2a6f763aa9fb4ca6b079275b9bae063621d92f11690bdd"
+    }
+   ],
+   "missing": ""
+  },
+  "katibeh": {
+   "family": "Katibeh",
+   "files": [
+    {
+     "file": "katibeh-arabic-400-normal.woff2",
+     "sha256": "b22f602af5deb2560359db7cc8401e1bf2e006ef87d3c83f0411699b05e63393"
+    },
+    {
+     "file": "katibeh-latin-400-normal.woff2",
+     "sha256": "bf5ca8a8c2854361c5d125551016861e241ee9db7e539e13c5ab5f04f8d2794f"
+    }
+   ],
+   "missing": ""
+  },
+  "kufam": {
+   "family": "Kufam",
+   "files": [
+    {
+     "file": "kufam-arabic-wght-normal.woff2",
+     "sha256": "70d76d8da8205c1028add3cd34c4aa92b215061e8c46358fb2b37a1e7b0c68dd"
+    },
+    {
+     "file": "kufam-latin-wght-normal.woff2",
+     "sha256": "7073ba7cb202cf6f68a2f207ccc5b9791b6d304169acdfe1c5f206210c3729eb"
     }
    ],
    "missing": ""
@@ -92,6 +206,112 @@
    ],
    "missing": ""
   },
+  "lateef": {
+   "family": "Lateef",
+   "files": [
+    {
+     "file": "lateef-arabic-400-normal.woff2",
+     "sha256": "37556c8b09bc29040b8d373958b7390822f6fd2dfa69f03fd6f9b60f09df35fd"
+    },
+    {
+     "file": "lateef-latin-400-normal.woff2",
+     "sha256": "2a4752592455dbc9a30ad5f407bde4fda4e9c0daa0e62c3bca2a68a86277475f"
+    }
+   ],
+   "missing": ""
+  },
+  "lemonada": {
+   "family": "Lemonada",
+   "files": [
+    {
+     "file": "lemonada-arabic-wght-normal.woff2",
+     "sha256": "d0848697c17716c7e0bef6f0856989f01500c88f24dca66d67c1c5c6547e6413"
+    },
+    {
+     "file": "lemonada-latin-wght-normal.woff2",
+     "sha256": "2256e26d6b5c6a584290fdcd7b45e8a430bcbe9afb29e9b4ca9a366e595bf0c7"
+    }
+   ],
+   "missing": ""
+  },
+  "mada": {
+   "family": "Mada",
+   "files": [
+    {
+     "file": "mada-arabic-wght-normal.woff2",
+     "sha256": "06aa73f5ccbc45df0b5b57522cac8172a44ddcc81031d2a15d3e365048f878be"
+    },
+    {
+     "file": "mada-latin-wght-normal.woff2",
+     "sha256": "bfbd2fbdba6867b3902e1af2eef002e5262e0e593e22ef1300592b317ca1471a"
+    }
+   ],
+   "missing": ""
+  },
+  "marhey": {
+   "family": "Marhey",
+   "files": [
+    {
+     "file": "marhey-arabic-wght-normal.woff2",
+     "sha256": "20389b17106ed2ca92ef4f36e785e521a617dc13865d7c6e63a47c7ad37afff3"
+    },
+    {
+     "file": "marhey-latin-wght-normal.woff2",
+     "sha256": "f4c8220f2e0fd44efbe16535b9d9f62645b6f4311123ff9f01811d7394d58cc8"
+    }
+   ],
+   "missing": ""
+  },
+  "markazi": {
+   "family": "Markazi Text",
+   "files": [
+    {
+     "file": "markazi-text-arabic-wght-normal.woff2",
+     "sha256": "5e875d6141dfb250334d127d3ac6ea8d412e301f3265474e80d1cffe4fe4da13"
+    },
+    {
+     "file": "markazi-text-latin-wght-normal.woff2",
+     "sha256": "d2bf11fc30d9789ea87bf1b46e776adc3099700d19096a3caadc1ad292d10268"
+    }
+   ],
+   "missing": ""
+  },
+  "messiri": {
+   "family": "El Messiri",
+   "files": [
+    {
+     "file": "el-messiri-arabic-wght-normal.woff2",
+     "sha256": "970b721e9b094fe85c6b9049e0e53ee27cd27ec6d3b7b324c8e731a574343132"
+    },
+    {
+     "file": "el-messiri-latin-wght-normal.woff2",
+     "sha256": "1a859701b2de3899c0a4bd329cdae9555e2d3548ef389277ec8a55a8c2680c4b"
+    }
+   ],
+   "missing": ""
+  },
+  "mirza": {
+   "family": "Mirza",
+   "files": [
+    {
+     "file": "mirza-arabic-400-normal.woff2",
+     "sha256": "81be8ab327c8ef9185bc4c058490e9cea403e1e3e1d39e6ae3dcf71b903276d4"
+    },
+    {
+     "file": "mirza-latin-400-normal.woff2",
+     "sha256": "1269b4c600de5d81199c74b77a5ceade3cd1277c8b95c49a3c95e3fb11561cb1"
+    },
+    {
+     "file": "mirza-arabic-700-normal.woff2",
+     "sha256": "94473de52973c917c36d3cd8ff776a762b29ce87f29657d4c1bb8f209841bfe6"
+    },
+    {
+     "file": "mirza-latin-700-normal.woff2",
+     "sha256": "5d2d27578756eab95ed8e9128e1f3420d001c91c8655ef390092731463a0fdba"
+    }
+   ],
+   "missing": ""
+  },
   "naskh": {
    "family": "Noto Naskh Arabic",
    "files": [
@@ -102,6 +322,34 @@
     {
      "file": "noto-naskh-arabic-latin-wght-normal.woff2",
      "sha256": "2a30d48ddf0a75254b40b236fcfe789aed180526224ccb5089fd0b49999e0ec0"
+    }
+   ],
+   "missing": ""
+  },
+  "notosans": {
+   "family": "Noto Sans Arabic",
+   "files": [
+    {
+     "file": "noto-sans-arabic-arabic-wght-normal.woff2",
+     "sha256": "ce85091f020920b65762b387b194ef59457ea5b25b760f2dcc35240a94bb8669"
+    },
+    {
+     "file": "noto-sans-arabic-latin-wght-normal.woff2",
+     "sha256": "fed070abc960c5f214fcb02b7b178cdab751ef7facd79a899f571bc21d38b8f8"
+    }
+   ],
+   "missing": ""
+  },
+  "parastoo": {
+   "family": "Parastoo",
+   "files": [
+    {
+     "file": "parastoo-arabic-wght-normal.woff2",
+     "sha256": "cb5998901cc4c6137d1bf45373dbe3084da2646b3d8a61ec822577dd2cfec730"
+    },
+    {
+     "file": "parastoo-latin-wght-normal.woff2",
+     "sha256": "ae608f034232eb49923dfac4a2dcf9ed8fd87d56932e28ea003fbcf7f72c516b"
     }
    ],
    "missing": ""
@@ -128,6 +376,70 @@
    ],
    "missing": ""
   },
+  "rakkas": {
+   "family": "Rakkas",
+   "files": [
+    {
+     "file": "rakkas-arabic-400-normal.woff2",
+     "sha256": "01ac7bf284ff135d9df19312dfdead024b3b27ddb7452ef6471f6cfcf9994e51"
+    },
+    {
+     "file": "rakkas-latin-400-normal.woff2",
+     "sha256": "74ec677ee65208a44c54118ff40710119b542a469d9c1ea0a376fdde7f9307f9"
+    }
+   ],
+   "missing": ""
+  },
+  "reem": {
+   "family": "Reem Kufi",
+   "files": [
+    {
+     "file": "reem-kufi-arabic-wght-normal.woff2",
+     "sha256": "9eccd028ae6abe71116f7ae42cb227bc64e465d56099ffd1275f12fdce597486"
+    },
+    {
+     "file": "reem-kufi-latin-wght-normal.woff2",
+     "sha256": "99554d5210754377fe095595168cd44ea16fa84c6c21b3a37157f58a5fd66e8a"
+    }
+   ],
+   "missing": ""
+  },
+  "rubik": {
+   "family": "Rubik",
+   "files": [
+    {
+     "file": "rubik-arabic-wght-normal.woff2",
+     "sha256": "f5052e4870bf211fc22df5b85e791a292a77b9baef8cef1dc5a8e62a783ea1e0"
+    },
+    {
+     "file": "rubik-latin-wght-normal.woff2",
+     "sha256": "691cd1d9b4c0cdf31a1dcf04259c86f92c85e69f6622abab7964d81e36890691"
+    }
+   ],
+   "missing": ""
+  },
+  "scheherazade": {
+   "family": "Scheherazade New",
+   "files": [
+    {
+     "file": "scheherazade-new-arabic-400-normal.woff2",
+     "sha256": "667b988ea3f67429917d481657ee0b0eec5370e74cad85366833a6cdbc0a9139"
+    },
+    {
+     "file": "scheherazade-new-latin-400-normal.woff2",
+     "sha256": "24e1e2226a8d454c13b4f585030e6ab869247f0aadac69ecaeccab4a4c83bd88"
+    },
+    {
+     "file": "scheherazade-new-arabic-700-normal.woff2",
+     "sha256": "1418369ec004197250742571c2664ca324b42f977fa82c98ab9fd239a3977e31"
+    },
+    {
+     "file": "scheherazade-new-latin-700-normal.woff2",
+     "sha256": "1549b0ed51c192e64315de08e4a4a1beac505449d0c4da083fd06bc36003b5aa"
+    }
+   ],
+   "missing": ""
+  },
   "vazirmatn": {
    "family": "Vazirmatn",
    "files": [
@@ -138,6 +450,42 @@
     {
      "file": "vazirmatn-latin-wght-normal.woff2",
      "sha256": "d29c041cd4294af893cf3c01dfab6d47202c667ab55d702f68782599918c651d"
+    }
+   ],
+   "missing": ""
+  },
+  "vibes": {
+   "family": "Vibes",
+   "files": [
+    {
+     "file": "vibes-arabic-400-normal.woff2",
+     "sha256": "8f102b355c3fc34557625d8a28d535dcf54ca528ad002d3e506cc5a5364508f6"
+    },
+    {
+     "file": "vibes-latin-400-normal.woff2",
+     "sha256": "cebbbd38c8cf7e917d0149de420bebb85816ce167f353b642faf947dd5e4d6ea"
+    }
+   ],
+   "missing": ""
+  },
+  "zain": {
+   "family": "Zain",
+   "files": [
+    {
+     "file": "zain-arabic-400-normal.woff2",
+     "sha256": "c88c951eaccee149f1c77627871c072abd928db76e1867213ed58c8d4e197ea7"
+    },
+    {
+     "file": "zain-latin-400-normal.woff2",
+     "sha256": "639db307264be456e9cd2bec14141fca234a2d41f8384de25591759cce1e4839"
+    },
+    {
+     "file": "zain-arabic-700-normal.woff2",
+     "sha256": "223acac06d8d59c10a2bbd71a42cf7d70917875122b88f2ca7395773fe42ba54"
+    },
+    {
+     "file": "zain-latin-700-normal.woff2",
+     "sha256": "ffb9144e4a5424f00c55a3146d384ed5d81e71593d0d2c24cd4c8eb41aa5f510"
     }
    ],
    "missing": ""

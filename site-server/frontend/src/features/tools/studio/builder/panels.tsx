@@ -17,6 +17,7 @@ export function LibraryPanel({
   sections,
   onAdd,
   onDragStart,
+  onAddC21,
   onAddSaved,
   onDragSaved,
   onDeleteSaved,
@@ -28,6 +29,7 @@ export function LibraryPanel({
   sections: SectionT[];
   onAdd: (type: string) => void;
   onDragStart: (type: string, x: number, y: number) => void;
+  onAddC21?: (key: string) => void | Promise<void>;
   onAddSaved: (s: SectionT) => void;
   onDragSaved: (s: SectionT, x: number, y: number) => void;
   onDeleteSaved: (s: SectionT) => void;
@@ -52,7 +54,7 @@ export function LibraryPanel({
     return (
       <div className="nbe-pane" data-testid="library">
         {modeBar}
-        <ComponentsPanel catalog={catalog} target={target} theme={theme} slug={slug} onAdd={onAdd} onDragStart={onDragStart} />
+        <ComponentsPanel catalog={catalog} target={target} theme={theme} slug={slug} onAdd={onAdd} onDragStart={onDragStart} onAddC21={onAddC21} />
       </div>
     );
   }

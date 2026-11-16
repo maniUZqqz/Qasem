@@ -28,6 +28,9 @@ TITLES = {
     "numpy, Pillow, OpenCV, onnxruntime-directml": "numpy، Pillow، OpenCV و onnxruntime-directml",
     "onnxruntime offers a GPU provider": "onnxruntime روی کارتِ گرافیک کار می‌کند",
     "Node.js 20.18.0 (win-x64)": "Node.js 20.18.0 (ویندوز)",
+    "Python environment venvs/crawl21": "محیطِ پایتونِ خزندهٔ 21st.dev (venvs/crawl21)",
+    "Playwright for Python": "Playwright برای پایتون",
+    "a headless browser starts (Edge, Chrome or Playwright's Chromium)": "یک مرورگرِ بی‌سر بالا می‌آید (Edge، Chrome یا Chromiumِ خودِ Playwright)",
 }
 
 #: نوعِ گام ⇐ عنوانِ فارسیِ عمومی، وقتی ویژگی عنوانِ خودش را نداده است

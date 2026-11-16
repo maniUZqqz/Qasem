@@ -1015,6 +1015,17 @@ CELERY_BEAT_SCHEDULE["c21st-catalog-refresh"] = {
     "schedule": 21600.0,
     "options": {"expires": 3600},
 }
+# 21st.dev: قطعه‌های با مجوزِ آزاد ⇒ قطعهٔ قابلِ درج (نوبتی؛ تمام‌شده‌ها دوباره کار نمی‌شوند) و جمع‌کردنِ نتیجهٔ کارِ گره (crawl21.run)
+CELERY_BEAT_SCHEDULE["c21-convert"] = {
+    "task": "apps.projects.tasks.c21_convert",
+    "schedule": 21600.0,
+    "options": {"expires": 3600},
+}
+CELERY_BEAT_SCHEDULE["c21-node-collect"] = {
+    "task": "apps.projects.tasks.c21_node_collect",
+    "schedule": 600.0,
+    "options": {"expires": 300},
+}
 CELERY_BEAT_SCHEDULE["published-sites-daily"] = {
     "task": "apps.projects.tasks.published_sites_daily",
     "schedule": 86400.0,

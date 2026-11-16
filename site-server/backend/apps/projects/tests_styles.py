@@ -36,8 +36,9 @@ class StyleDataTests(Base):
         names = ' | '.join(st['en'] for st in S.STYLES.values()).lower()
         for want in REQUESTED:
             self.assertIn(want.lower(), names, want)
-        self.assertEqual(len(S.ORDER), 14)
+        self.assertGreaterEqual(len(S.ORDER), 14)                                  # ۱۴ دست‌ساز + سبک‌های خودکارِ کلِ ui-ux-pro-max (tests_styles_full.py)
         self.assertEqual(set(S.ORDER), set(S.STYLES))
+        self.assertEqual(len([k for k in S.ORDER if S.STYLES[k]['source'] == 'hand']), 14)
 
     def test_every_style_is_complete(self):
         for key, st in S.STYLES.items():
@@ -480,6 +481,7 @@ class ComponentTests(Base):
     def test_catalog_lists_components_with_forms(self):
         cat = catalog_json()
         comps = [b for b in cat['blocks'] if b['group'] == 'components']
+        comps = [b for b in comps if not b.get('hidden')]                                    # «قطعهٔ 21st» ِ تبدیل‌شده در فهرستِ افزودن نیست
         self.assertEqual(len(comps), len(C.COMPONENTS))
         self.assertIn('components', [g['value'] for g in cat['groups']])
         self.assertEqual(len(cat['components']['items']), len(C.COMPONENTS))
@@ -587,7 +589,7 @@ class AiContextTests(Base):
         for c in payload['components']:
             self.assertIn(c['class'], c['html'])
             self.assertLessEqual(len(c['html']), ai_context.MAX_COMPONENT_HTML + 40)
-        self.assertEqual(set(payload), {'howto', 'style', 'components', 'stats'})
+        self.assertEqual(set(payload) - {'guidance', 'c21'}, {'howto', 'style', 'components', 'stats'})      # + رهنمودهای کوچکِ ui-ux-pro-max و (اگر هست) قطعهٔ 21st
 
     def test_pinned_components_come_first_and_are_capped(self):
         keys = ['price_three_tier', 'hero_video_thumb']
@@ -783,10 +785,12 @@ class ChagherDraftTests(Base):
             c = parts['theme']['colors']
             self.assertGreaterEqual(R.contrast(c['primary'], c['bg']), 4.5, style)             # متنِ کوچکِ رنگِ برند روی زمینهٔ هر سبک خوانا است
             self.assertGreaterEqual(R.contrast(c['on_primary'], c['primary']), 4.5, style)     # و متنِ روی دکمهٔ پُر
-            if style not in ('aurora', 'dark-luxury'):
-                self.assertEqual(c['primary'], '#126f85', style)           # روی زمینهٔ روشن رنگِ برند دقیقاً همان است
-            else:                                                          # روی زمینهٔ تیره: همان فیروزه ولی روشن‌تر (هر کانال دست‌کم برابرِ رنگِ برند)
+            if R.contrast('#126f85', c['bg']) >= 4.5:
+                self.assertEqual(c['primary'], '#126f85', style)           # روی زمینه‌ای که رنگِ برند روی آن خوانا است همان رنگِ دقیقِ برند می‌ماند
+            elif S.lum(c['bg']) < 0.4:                                     # زمینهٔ تیره: همان فیروزه ولی روشن‌تر (هر کانال دست‌کم برابرِ رنگِ برند)
                 self.assertTrue(all(int(c['primary'][i:i + 2], 16) >= int('126f85'[i - 1:i + 1], 16) for i in (1, 3, 5)), (style, c['primary']))
+            else:                                                          # زمینهٔ روشنِ کم‌تباین: همان فیروزه ولی تیره‌تر
+                self.assertTrue(all(int(c['primary'][i:i + 2], 16) <= int('126f85'[i - 1:i + 1], 16) for i in (1, 3, 5)), (style, c['primary']))
             self.assertEqual(parts['theme']['font_head'], 'vazirmatn')
             for target in ('header', 'page', 'footer'):
                 out = R.render_doc(parts[target], R.Ctx(target=target, theme=parts['theme']['colors']))
@@ -939,6 +943,6 @@ class RepoLayoutTests(SimpleTestCase):
         self.assertEqual(bad, [], 'این پوشه‌ها به مخزن نمی‌روند؛ اسمشان را عوض کن')
 
     def test_license_and_data_files_exist_where_the_code_reads_them(self):
-        for rel in ('styles/dataset/uiux_pro_max.json', 'styles/dataset/LICENSE-ui-ux-pro-max-skill.txt',
+        for rel in ('styles/dataset/uiux/index.json', 'styles/dataset/uiux/styles.json', 'styles/dataset/LICENSE-ui-ux-pro-max-skill.txt',
                     'components/dataset/sources_checked.json', 'components/dataset/LICENSE-magicui.txt'):
             self.assertTrue(os.path.isfile(os.path.join(HERE, 'builder', rel)), rel)

@@ -132,6 +132,7 @@ class Renderer:
         self.uses_form = False
         self.used_variants = []       # [(نوعِ بلوک، کلیدِ چیدمان)] برای نوشتنِ CSSِ فقط همان‌ها
         self.used_components = []     # کلیدِ قطعه‌های آماده‌ای که در این سند هستند
+        self.used_c21 = []            # کلیدِ قطعه‌های 21st (تبدیل‌شده) که در این سند هستند
 
     def use_variant(self, btype, key):
         if (btype, key) not in self.used_variants:
@@ -140,6 +141,10 @@ class Renderer:
     def use_component(self, key):
         if key not in self.used_components:
             self.used_components.append(key)
+
+    def use_c21(self, key):
+        if key not in self.used_c21:
+            self.used_c21.append(key)
 
     # ── ابزارها ──
     def attrs(self, b, cls):
@@ -335,6 +340,9 @@ class Renderer:
         css = comps.css_for(self.used_components)
         if css:
             parts.append(css)
+        if self.used_c21:
+            from . import c21_embed
+            parts.append(c21_embed.css_for(self.used_c21))
         return '\n'.join(p for p in parts if p)
 
     # ── درخت ──
@@ -350,6 +358,9 @@ class Renderer:
         self.style_css(b)
         if comps.key_of(b['type']):
             return comps.render(self, b)
+        if b['type'] == 'c21':
+            from . import c21_embed
+            return c21_embed.render(self, b)
         fn = getattr(self, 'r_' + b['type'])
         return fn(b)
 

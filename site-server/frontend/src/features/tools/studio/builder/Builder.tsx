@@ -582,6 +582,20 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     },
     [catalog, commit],
   );
+  /** قطعهٔ 21st (تبدیل‌شده): بلوکِ آماده را از سرور می‌گیرد و مثلِ «بخشِ ذخیره‌شده» در صفحه می‌گذارد. */
+  const addC21 = useCallback(
+    async (key: string) => {
+      const { data } = await api.get<{ block: Block }>(`/studio/projects/${slug}/builder/c21/${key}/block/`);
+      const b = D.refreshIds(JSON.parse(JSON.stringify(data.block)) as Block);
+      const t = D.clickTarget(docRef.current, catalog, b.type, selectedRef.current);
+      const r = D.insertBlock(docRef.current, catalog, b, t);
+      commit(r.doc);
+      setSelected(r.id);
+      setSheet("none");
+      window.setTimeout(() => ctlRef.current?.select(r.id, true), 450);
+    },
+    [slug, catalog, commit],
+  );
   const loadSaved = useCallback(
     async (s: SectionT) => {
       const { data } = await api.get<{ block: Block }>(`/studio/projects/${slug}/builder/sections/${s.id}/`);
@@ -803,6 +817,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           theme={theme}
           sections={sections}
           onAdd={addBlock}
+          onAddC21={addC21}
           onDragStart={(type, x, y) => {
             const spec = D.specOf(catalog, type);
             startDrag({ create: () => D.makeBlock(catalog, type) }, !!spec?.root, spec?.label ?? "", x, y);

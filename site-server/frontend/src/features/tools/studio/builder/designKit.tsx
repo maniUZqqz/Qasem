@@ -88,6 +88,10 @@ export function StylePicker({
   onApply: (theme: ThemeT, doc: Doc | null) => void;
 }) {
   const styles = options.styles ?? [];
+  const [q, setQ] = useState("");
+  const [group, setGroup] = useState("");
+  const [tone, setTone] = useState<"" | "light" | "dark">("");
+  const [limit, setLimit] = useState(24);
   const [pick, setPick] = useState<string>(theme.style ?? "");
   const [keepBrand, setKeepBrand] = useState(false);
   const [layout, setLayout] = useState(true);
@@ -99,6 +103,16 @@ export function StylePicker({
   const docAfter = useRef<string>("");
   const cur = styles.find((s) => s.key === pick);
   const fontName = (k: string) => options.fonts.find((f) => f.value === k)?.label ?? k;
+  const groups = useMemo(() => Array.from(new Set(styles.map((s) => s.group ?? "عمومی"))), [styles]);
+  const shown = useMemo(() => {
+    const w = q.trim().toLowerCase();
+    return styles.filter(
+      (s) =>
+        (!group || (s.group ?? "عمومی") === group) &&
+        (!tone || (tone === "dark") === Boolean(s.dark)) &&
+        (!w || [s.label, s.en, s.mood, s.desc, ...s.tags].some((x) => x.toLowerCase().includes(w))),
+    );
+  }, [styles, q, group, tone]);
 
   async function apply(style: string) {
     setBusy(true);
@@ -159,8 +173,38 @@ export function StylePicker({
     <section className="nbe-styles" data-testid="styles">
       <h4 className="nbe-h">سبکِ طراحی</h4>
       <p className="nbe-note">یک حس‌وحالِ آماده برای کلِ سایت: رنگ، قلم، گردی، سایه و چیدمانِ بخش‌ها. بعدش هر چیز را خودت هم عوض می‌کنی.</p>
+      <input
+        className="nbe-input"
+        placeholder={`جست‌وجوی ${styles.length.toLocaleString("fa-IR")} سبک (شیشه‌ای، تیره، نئون، داشبورد…)`}
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setLimit(24);
+        }}
+        aria-label="جست‌وجوی سبک"
+        data-testid="style-search"
+      />
+      <div className="nbe-chips" role="tablist" data-testid="style-groups">
+        <button type="button" className={!group ? "on" : ""} onClick={() => { setGroup(""); setLimit(24); }}>
+          همه
+        </button>
+        {groups.map((g) => (
+          <button key={g} type="button" className={group === g ? "on" : ""} data-group={g} onClick={() => { setGroup(g); setLimit(24); }}>
+            {g}
+          </button>
+        ))}
+        <button type="button" className={tone === "light" ? "on" : ""} onClick={() => setTone(tone === "light" ? "" : "light")}>
+          روشن
+        </button>
+        <button type="button" className={tone === "dark" ? "on" : ""} onClick={() => setTone(tone === "dark" ? "" : "dark")}>
+          تیره
+        </button>
+      </div>
+      <p className="nbe-note" data-testid="style-count">
+        {shown.length.toLocaleString("fa-IR")} سبک{shown.length > limit ? ` (${limit.toLocaleString("fa-IR")} تای اول)` : ""}
+      </p>
       <div className="nbe-style-grid">
-        {styles.map((s) => (
+        {shown.slice(0, limit).map((s) => (
           <button
             key={s.key}
             type="button"
@@ -172,9 +216,16 @@ export function StylePicker({
             <StyleThumb s={s} />
             <b>{s.label}</b>
             <small dir="ltr">{s.en}</small>
+            {(s.status === "deprecated" || s.rtl === "caveats") && <em className="nbe-badge">{s.status === "deprecated" ? "الگوی قدیمی" : "راست‌به‌چپ: با احتیاط"}</em>}
           </button>
         ))}
       </div>
+      {shown.length > limit && (
+        <button type="button" className="nbe-add" onClick={() => setLimit(limit + 24)}>
+          نمایشِ بیشتر
+        </button>
+      )}
+      {!shown.length && <p className="nbe-note">سبکی با این جست‌وجو پیدا نشد.</p>}
       {cur && (
         <div className="nbe-style-detail" data-testid="style-detail">
           <p className="nbe-note">
@@ -182,6 +233,9 @@ export function StylePicker({
           </p>
           <p className="nbe-note">
             قلمِ تیتر: {fontName(cur.theme.font_head)} · قلمِ متن: {fontName(cur.theme.font_body)}
+          </p>
+          <p className="nbe-note" data-testid="style-source">
+            {cur.source === "generated" ? "ساخته‌شده خودکار از ردیفِ" : "نوشتهٔ دست از ردیفِ"} «{cur.uiux.style_id}» در ui-ux-pro-max · جفتِ قلمِ لاتین: {cur.uiux.font_pairing ?? "—"} · پالت: {cur.uiux.palette ?? "—"}
           </p>
           <label className="nbe-toggle">
             <input type="checkbox" checked={layout} onChange={(e) => setLayout(e.target.checked)} />
@@ -211,7 +265,7 @@ export function StylePicker({
       {error && <p className="nbe-warn">{error}</p>}
       {done && <p className="nbe-note">{done}</p>}
       <p className="nbe-note nbe-attrib">
-        تعریفِ سبک‌ها (توکن، پالت و جفتِ قلم) با کمک از داده‌های ui-ux-pro-max-skill (مجوز MIT، Next Level Builder) نوشته شده؛ قلم‌ها همه فارسی‌پذیر و آزادند.
+        همهٔ سبک‌ها از کلِ داده‌های ui-ux-pro-max-skill (مجوز MIT، Next Level Builder) ساخته یا الهام گرفته‌اند؛ تباینِ رنگ، قلمِ فارسی‌پذیر و راست‌به‌چپ برای هرکدام آزموده شده. همهٔ داده‌ها را در «سایت‌ساز ⇐ منبع‌های طراحی» ببین.
       </p>
     </section>
   );
@@ -231,6 +285,7 @@ export function ComponentsPanel({
   slug,
   onAdd,
   onDragStart,
+  onAddC21,
 }: {
   catalog: Catalog;
   target: string;
@@ -238,6 +293,7 @@ export function ComponentsPanel({
   slug: string;
   onAdd: (type: string) => void;
   onDragStart: (type: string, x: number, y: number) => void;
+  onAddC21?: (key: string) => void | Promise<void>;
 }) {
   const meta = catalog.components;
   const [q, setQ] = useState("");
@@ -281,7 +337,7 @@ export function ComponentsPanel({
           <button type="button" onClick={() => setSrc("own")}>قطعه‌های ما</button>
           <button type="button" className="on" data-testid="src-c21">کاتالوگِ 21st.dev</button>
         </div>
-        <C21stBrowser mode="manual" onAddNearest={onAdd} />
+        <C21stBrowser mode="manual" slug={slug} theme={theme} onAddNearest={onAdd} onAddC21={onAddC21} />
       </div>
     );
   }

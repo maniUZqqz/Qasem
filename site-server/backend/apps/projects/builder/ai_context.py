@@ -11,7 +11,7 @@
 import json
 import re
 
-from . import components as comps, styles as styles_mod
+from . import c21_convert, c21_embed, components as comps, styles as styles_mod
 from .styles.css import DEFAULTS, tokens_of
 
 MAX_CHARS = 9000
@@ -109,11 +109,149 @@ def style_brief(key):
         out['avoid'] = srow['avoid'][:160]
     if frow.get('mood'):
         out['font_mood'] = frow['mood'][:120]
+    if srow.get('checklist'):
+        out['checklist'] = _cut(srow['checklist'], 200)
+    if srow.get('rtl') and srow['rtl'] != 'full':
+        out['rtl_level'] = srow['rtl']
     return out
 
 
 def _size(payload):
     return len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+
+
+# ───────────────────────────── ردیف‌های مرتبط از کلِ دادهٔ ui-ux-pro-max (کوچک و محدود)
+
+GUIDE_MAX_CHARS = 1500
+GUIDE_FIELD = 150
+GUIDE_HOWTO_FA = ('«guidance» فقط چند قاعدهٔ کمکیِ مرتبط است (رهنمودِ UX، الگوی صفحه، پالتِ پیشنهادی، نکتهٔ راست‌به‌چپ، یادداشتِ HTML)؛ اگر با محتوای کاربر در تضاد بود محتوا برنده است.')
+KIND_UX_QUERY = {'home': 'hero navigation accessibility contrast mobile', 'landing': 'cta conversion accessibility contrast forms', 'static': 'readability typography accessibility',
+                 'about': 'content readability trust accessibility', 'contact': 'forms validation accessibility touch', 'product_list': 'cards images responsive navigation',
+                 'header': 'navigation touch responsive keyboard', 'footer': 'navigation accessibility links'}
+CHART_WORDS = ('chart', 'graph', 'dashboard', 'analytics', 'نمودار', 'داشبورد', 'آمار', 'گزارش')
+
+
+#: واژه‌های فارسیِ رایجِ درخواست ⇒ معادلِ انگلیسی (دادهٔ ui-ux-pro-max انگلیسی است)
+FA_EN = (('فروشگاه', 'e-commerce shop store'), ('ورزش', 'fitness sports gym'), ('آموزش', 'education course learning'), ('رستوران', 'restaurant food'),
+         ('کافه', 'cafe bakery'), ('پزشک', 'medical clinic'), ('کلینیک', 'medical clinic'), ('سلامت', 'health wellness'), ('املاک', 'real estate property'),
+         ('موسیقی', 'music'), ('سفر', 'travel tourism'), ('گردشگری', 'travel tourism'), ('حقوقی', 'legal'), ('وکیل', 'legal'), ('بانک', 'banking finance'),
+         ('مالی', 'finance'), ('داشبورد', 'dashboard analytics'), ('نمودار', 'chart'), ('آمار', 'analytics'), ('کودک', 'kids education'), ('زیبایی', 'beauty spa'),
+         ('سالن', 'beauty salon'), ('خبر', 'news media'), ('بازی', 'gaming'), ('نمایشگاه', 'gallery museum'), ('گالری', 'gallery'), ('هوش مصنوعی', 'ai chatbot'),
+         ('عروسی', 'wedding event'), ('نمونه‌کار', 'portfolio'), ('پرتفولیو', 'portfolio'), ('نرم‌افزار', 'saas software'), ('استارتاپ', 'startup saas'),
+         ('مشاور', 'consulting service'), ('خدمات', 'service'), ('مد ', 'fashion'), ('لباس', 'fashion'), ('گل', 'florist plant'), ('دندان', 'dental'),
+         ('حیوان', 'pet veterinary'), ('ساختمان', 'construction architecture'), ('معماری', 'architecture interior'), ('بیمه', 'insurance'),
+         ('حمل', 'logistics delivery'), ('مجله', 'magazine blog'), ('وبلاگ', 'blog'), ('رمزارز', 'crypto'), ('خیریه', 'non-profit charity'))
+
+
+def en_words(brief):
+    """متنِ فارسی ⇒ همان متن + معادل‌های انگلیسیِ واژه‌های رایج (برای جست‌وجو در دادهٔ انگلیسی)."""
+    extra = ' '.join(en for fa, en in FA_EN if fa in (brief or ''))
+    return ((brief or '') + ' ' + extra).strip()
+
+
+def _cut(text, n=GUIDE_FIELD):
+    text = re.sub(r'\s+', ' ', str(text or '')).strip()
+    return text if len(text) <= n else text[:n - 1].rstrip() + '…'
+
+
+def uiux_hints(brief='', kind='home', style_key='', max_chars=GUIDE_MAX_CHARS):
+    """⇒ {'ux': […], 'pattern': {…}, 'product': {…}, 'chart': {…}, 'rtl': {…}} با «فقط ردیف‌های مرتبط» از کلِ دادهٔ ui-ux-pro-max؛ کوچک و محدود (≤ max_chars).
+    نه کلِ هزاران ردیف: چند رهنمودِ UX، یک الگوی صفحه، یک ردیفِ محصول/استدلال، (اگر درخواست داده/نمودار است) یک نمودار و یک نکتهٔ راست‌به‌چپ."""
+    uiux = styles_mod.uiux
+    brief = en_words(brief)
+    out = {}
+    ux = []
+    seen = set()
+    for r in uiux.search('ux', brief or '', limit=3) + uiux.search('ux', KIND_UX_QUERY.get(kind, 'accessibility contrast'), limit=6):
+        key = r.get('issue')
+        if key in seen or r.get('platform') in ('Mobile', 'VisionOS'):
+            continue
+        seen.add(key)
+        ux.append({'rule': _cut(r.get('issue'), 70), 'do': _cut(r.get('do'), 110), 'dont': _cut(r.get('dont'), 90), 'severity': r.get('severity', '')})
+        if len(ux) >= 4:
+            break
+    if ux:
+        out['ux'] = ux
+    pat = (uiux.search('landing', brief, limit=1) if brief else []) or uiux.search('landing', 'hero features cta', limit=1)
+    if pat:
+        p = pat[0]
+        out['pattern'] = {'name': _cut(p.get('name'), 60), 'sections': _cut(p.get('sections'), 170), 'cta': _cut(p.get('cta'), 60), 'colors': _cut(p.get('color_strategy'), 110)}
+    prod = uiux.search('products', brief, limit=1) if brief else []
+    if prod:
+        p = prod[0]
+        out['product'] = {'type': _cut(p.get('product'), 50), 'style': _cut(p.get('primary_style'), 70), 'landing': _cut(p.get('landing'), 60), 'notes': _cut(p.get('notes'), 120)}
+        rs = uiux.search('reasoning', p.get('product', ''), limit=1)
+        if rs:
+            out['product']['avoid'] = _cut(rs[0].get('anti'), 100)
+        pal = uiux.by_id('colors', 'product', p.get('product', ''))
+        if pal:                                                   # پالتِ پیشنهادیِ همین نوعِ محصول (فقط رنگ‌ها؛ برند اگر رنگ دارد برنده است)
+            out['palette'] = {k: pal[k] for k in ('primary', 'accent', 'background', 'foreground', 'muted', 'border') if pal.get(k)}
+    if any(w in (brief or '').lower() for w in CHART_WORDS):
+        ch = uiux.search('charts', brief, limit=1) or uiux.search('charts', 'trend comparison', limit=1)
+        if ch:
+            c = ch[0]
+            out['chart'] = {'data': _cut(c.get('data_type'), 50), 'use': _cut(c.get('best'), 60), 'not_when': _cut(c.get('when_not'), 90), 'a11y': _cut(c.get('a11y_fallback'), 90)}
+    # یادداشتِ پشتهٔ html-tailwind (HTMLِ معنادار، دسترس‌پذیری، تصویر، فرم، واکنش‌گرایی): ۲ ردیفِ مهم، نزدیک به درخواست
+    cands = [r for r in uiux.search('stacks', brief, limit=40, where={'stack': 'html-tailwind'}) + uiux.search('stacks', 'accessibility semantic images forms responsive', limit=40, where={'stack': 'html-tailwind'})
+             if r.get('category') in ('Accessibility', 'Images', 'Forms', 'Responsive', 'Layout', 'Buttons') and r.get('severity') in ('High', 'Critical', 'Medium')]
+    cands.sort(key=lambda r: (0 if r.get('category') == 'Accessibility' else 1, {'Critical': 0, 'High': 1}.get(r.get('severity'), 2)))
+    if cands:
+        out['stack'] = [{'rule': _cut(r.get('guideline'), 70), 'do': _cut(r.get('do'), 100)} for r in cands[:2]]
+    rtl = uiux.search('ux', 'rtl right-to-left bidirectional mirror', limit=1)
+    blob = json.dumps(rtl[0], ensure_ascii=False).lower() if rtl else ''
+    if rtl and ('rtl' in blob or 'right-to-left' in blob):
+        out['rtl'] = {'rule': _cut(rtl[0].get('issue'), 70), 'do': _cut(rtl[0].get('do'), 110)}
+    while _size(out) > max_chars and out:                 # سقفِ سخت: از آخر کوتاه می‌شود
+        if len(out.get('ux', [])) > 1:
+            out['ux'].pop()
+        else:
+            for k in ('chart', 'stack', 'palette', 'rtl', 'product', 'ux', 'pattern'):
+                if k in out:
+                    out.pop(k)
+                    break
+    return out
+
+
+# ───────────────────────────── قطعه‌های تبدیل‌شدهٔ 21st.dev (فقط چند تای مرتبط؛ نه کلِ کتابخانه)
+
+MAX_C21 = 2
+MIN_C21_HTML = 300
+C21_HOWTO_FA = ('«c21» HTMLِ آمادهٔ چند قطعهٔ تبدیل‌شده از 21st.dev است (مجوزِ آزاد): اگر به صفحه می‌خورد عیناً با همان کلاسِ nbc21-… در بدنه بگذار و فقط متن‌ها را عوض کن؛ '
+                'CSSِ آن را خودمان اضافه می‌کنیم. اگر نمی‌خورد کنارش بگذار.')
+_CAT_OF_PLAN = {'hero': ('hero',), 'features': ('features', 'tabs'), 'testimonials': ('testimonials', 'marquee', 'avatar'), 'pricing': ('pricing-section',), 'cta': ('cta', 'button'),
+                'faq': ('accordion',), 'steps': ('landing-page',), 'cards': ('card',), 'gallery': ('marquee', 'carousel'), 'navbar': ('navigation',), 'footer': ('footer',)}
+
+
+def c21_suggest(brief='', kind='home', pinned=(), limit=MAX_C21):
+    """⇒ حداکثر `limit` قطعهٔ تبدیل‌شده (سنجاق‌شده‌ها اول؛ بعد امتیازِ کلمه‌های مشترک + جورِ بودنِ دسته با نوعِ صفحه)؛ هر کدام {id, class, cat, title, html}."""
+    idx = c21_convert.load_index()
+    if not idx:
+        return []
+    chosen = [i for i in dict.fromkeys(pinned or ()) if i in idx][:limit]
+    if len(chosen) < limit:
+        words = _words(en_words(brief))
+        want = set()
+        for cat in PAGE_PLANS.get(kind) or DEFAULT_PLAN:
+            want.update(_CAT_OF_PLAN.get(cat, ()))
+        scored = []
+        for cid, e in idx.items():
+            if cid in chosen or e.get('rtl') == 'fail':
+                continue
+            hay = _words(' '.join([e.get('title', ''), ' '.join(e.get('cats', [])), e.get('library', '')]))
+            fit = len(want & set(e.get('cats', [])))
+            s = 2 * len(words & hay) + 3 * fit
+            if s:
+                scored.append((s, e.get('bytes', 0), cid))
+        scored.sort(key=lambda x: (-x[0], x[1], x[2]))                  # امتیاز بالا، بعد کوچک‌تر (کم‌هزینه برای پرامپت)
+        chosen += [cid for _s, _b, cid in scored[:limit - len(chosen)]]
+    out = []
+    for cid in chosen:
+        e = idx[cid]
+        html = c21_embed.skeleton(e['key'])
+        if html:
+            out.append({'id': cid, 'class': c21_convert.scope_for(e['key']), 'title': e.get('title', '')[:70], 'license': e.get('license', ''), 'cat': (e.get('cats') or [''])[0], 'html': html})
+    return out
+
 
 
 INSPIRATION_HOWTO_FA = ('«inspiration» فقط الهام است (قطعه‌هایی از کاتالوگِ 21st.dev با مجوزِ خودشان): ساختار و حسِ آن‌ها را بگیر ولی با HTML و CSSِ ساده و '
@@ -132,19 +270,53 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
         c = comps.COMPONENTS[k]
         rows.append({'key': k, 'class': comps.class_of(k), 'cat': c['cat'], 'purpose': '%s — %s' % (c['label'], c['desc']), 'html': skeleton(k)})
     payload['components'] = rows
+    guide = uiux_hints(brief, kind, style_key if style_key in styles_mod.STYLES else '')
+    if guide:
+        payload['guidance'] = guide
+        payload['howto'] += ' ' + GUIDE_HOWTO_FA
+    idx21 = c21_convert.load_index()
+    conv_refs = [i for i in dict.fromkeys(refs21 or ()) if i in idx21]
+    c21rows = c21_suggest(brief, kind, conv_refs)
+    if c21rows:
+        payload['c21'] = c21rows
+        payload['howto'] += ' ' + C21_HOWTO_FA
     insp = []
+    refs21 = [i for i in (refs21 or ()) if i not in conv_refs]
     if refs21:
         from . import c21st
         insp = c21st.inspiration_for(refs21)
         if insp:
             payload['inspiration'] = insp
-            payload['howto'] = HOWTO_FA + ' ' + INSPIRATION_HOWTO_FA
-    payload['stats'] = {'components': len(rows), 'chars': 0, 'limit': max_chars, 'inspiration': len(insp)}
+            payload['howto'] = payload['howto'] + ' ' + INSPIRATION_HOWTO_FA
+    payload['stats'] = {'components': len(rows), 'chars': 0, 'limit': max_chars, 'inspiration': len(insp), 'guidance': len(guide or {}), 'c21': len(c21rows)}
     # سقفِ سخت (با خودِ stats): اول برشِ کدِ الهام‌ها، بعد HTMLها را کوتاه کن، بعد الهام‌ها و قطعه‌های آخر را بینداز
     guard = 0
     trimmed = set()
-    while _size(payload) > max_chars and guard < 60:
+    while _size(payload) > max_chars and guard < 90:
         guard += 1
+        if payload.get('guidance'):                       # اول رهنمودها کوتاه می‌شوند (کم‌اهمیت‌تر از قطعه‌ها)
+            g = payload['guidance']
+            if len(g.get('ux', [])) > 1:
+                g['ux'].pop()
+            else:
+                for k in ('chart', 'stack', 'palette', 'rtl', 'product', 'ux', 'pattern'):
+                    if k in g:
+                        g.pop(k)
+                        break
+            if not g:
+                payload.pop('guidance')
+            continue
+        if payload.get('c21'):                            # بعد قطعه‌های 21st: اول کوتاه، بعد از آخر حذف
+            big = max((x for x in payload['c21'] if len(x['html']) > MIN_C21_HTML and id(x) not in trimmed), key=lambda x: len(x['html']), default=None)
+            if big is not None:
+                big['html'] = big['html'][:max(MIN_C21_HTML, int(len(big['html']) * 0.7))].rsplit('<', 1)[0] + '<!-- … -->'
+                trimmed.add(id(big))
+            else:
+                payload['c21'].pop()
+                if not payload['c21']:
+                    payload.pop('c21')
+                    payload['howto'] = payload['howto'].replace(' ' + C21_HOWTO_FA, '')
+            continue
         longest_ex = max((x for x in insp if x.get('code_excerpt')), key=lambda x: len(x['code_excerpt']), default=None)
         if longest_ex is not None:
             if len(longest_ex['code_excerpt']) > 200:
@@ -161,7 +333,7 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
             insp.pop()
             if not insp:
                 payload.pop('inspiration', None)
-                payload['howto'] = HOWTO_FA
+                payload['howto'] = payload['howto'].replace(' ' + INSPIRATION_HOWTO_FA, '')
         elif len(rows) > 1:
             rows.pop()
         else:
@@ -175,13 +347,18 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
 
 def attach_css(html, css=''):
     """بعد از پاسخِ AI: CSSِ قطعه‌هایی که در بدنه به‌کار رفته‌اند را به CSSِ صفحه می‌چسباند (یک بار)."""
+    css = css or ''
     keys = comps.used_in_html(html)
-    if not keys:
-        return css or ''
-    block = comps.css_for(keys)
-    if block and block not in (css or ''):
-        return ((css or '').rstrip() + '\n\n' + block).strip() + '\n'
-    return css or ''
+    if keys:
+        block = comps.css_for(keys)
+        if block and block not in css:
+            css = (css.rstrip() + '\n\n' + block).strip() + '\n'
+    k21 = c21_embed.used_in_html(html)
+    if k21:
+        block = c21_embed.css_for(k21)
+        if block and block not in css:
+            css = (css.rstrip() + '\n\n' + block).strip() + '\n'
+    return css
 
 
 def styled_base(base_css, style_key):
@@ -195,8 +372,8 @@ def styled_base(base_css, style_key):
 
 def options_json():
     """فهرستِ سبک‌ها و قطعه‌ها برای انتخابگرِ «حالتِ AI» (فقط نام و دسته؛ کوچک)."""
-    return {'styles': [{'key': k, 'label': st['label'], 'en': st['en'], 'mood': st['mood'],
-                        'colors': {x: st['theme']['colors'][x] for x in ('primary', 'bg', 'text')}} for k, st in styles_mod.STYLES.items()],
+    return {'styles': [{'key': k, 'label': st['label'], 'en': st['en'], 'mood': st['mood'], 'group': st.get('group', 'عمومی'), 'source': st.get('source', 'hand'),
+                        'colors': {x: st['theme']['colors'][x] for x in ('primary', 'bg', 'text')}} for k in styles_mod.ORDER for st in [styles_mod.STYLES[k]]],
             'components': [{'key': k, 'label': comps.COMPONENTS[k]['label'], 'cat': comps.COMPONENTS[k]['cat'], 'cat_label': comps.CAT_LABEL[comps.COMPONENTS[k]['cat']]}
                            for k in comps.ORDER if comps.COMPONENTS[k]['root'] == 'section'],
             'max_components': MAX_COMPONENTS}

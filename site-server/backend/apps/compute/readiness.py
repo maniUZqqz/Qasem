@@ -47,6 +47,7 @@ REQUIRED = {
     "ویدیوی سه‌بعدی (up3d)": ["up3d_stage"],
     "محتوای چغر": ["chagher_content"],
     "سایت‌ساز (سبک‌ها و قطعه‌ها)": ["site_styles_ai", "site_styles_render"],
+    "سایت‌ساز: خزندهٔ 21st.dev با مرورگر": ["crawl21"],
     "دانلودِ مدل‌ها": ["model_catalog", "model_catalog_download"],
     "نصبِ خودکار و به‌روزرسانی": ["bootstrap", "update_flow"],
 }

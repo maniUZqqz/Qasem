@@ -42,6 +42,8 @@ FONTS = {
     'baloo': {'label': 'بالو (گرد و بازیگوش)', 'family': 'Baloo Bhaijaan 2', 'weight': '400 800',
               'files': [('baloo-bhaijaan-2-arabic-wght-normal.woff2', AR), ('baloo-bhaijaan-2-latin-wght-normal.woff2', LA)]},
 }
+from .fonts_extra import EXTRA_FONTS  # noqa: E402 — ۲۲ قلمِ فارسی‌پذیرِ دیگر برای سبک‌های تازه (OFL)
+FONTS.update(EXTRA_FONTS)
 FONT_FILES = {e[0] for v in FONTS.values() for e in v['files']}
 FALLBACK = '"Segoe UI",Tahoma,sans-serif'
 

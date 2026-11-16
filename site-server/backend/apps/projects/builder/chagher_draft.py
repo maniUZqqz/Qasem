@@ -84,13 +84,15 @@ def _lighten(hexv, k):
 def readable_colors(colors):
     """رنگِ برند روی زمینهٔ تیره (شفق، لوکسِ تیره) تباینِ ۳٫۳ می‌داد و متنِ کوچکِ آن (برچسبِ بالای تیتر، دکمهٔ دوم) خوانده نمی‌شد.
     برندِ فیروزه‌ای همان خانواده می‌ماند ولی آن‌قدر روشن می‌شود که روی زمینه دست‌کم ۴٫۵ باشد؛ متنِ روی دکمهٔ پُر هم تیره می‌شود.
-    روی زمینهٔ روشن هیچ‌چیز عوض نمی‌شود (رنگِ برند همان است)."""
+    روی زمینهٔ روشنی که برند روی آن خوانا است هیچ‌چیز عوض نمی‌شود (رنگِ برند همان است)؛ روی زمینهٔ روشنِ کم‌تباین (مثلاً بژِ «شبیه‌واقعی») همان فیروزه‌ای ولی تیره‌تر می‌شود."""
     from .render import contrast
     out = dict(colors)
     if contrast(out['primary'], out['bg']) >= 4.5:
         return out
+    from .styles.gen_core import lum, shade
+    light_bg = lum(out['bg']) > 0.4
     for step in range(1, 41):
-        cand = _lighten(BRAND['primary'], step * 0.015)
+        cand = shade(BRAND['primary'], step * 0.02) if light_bg else _lighten(BRAND['primary'], step * 0.015)
         if contrast(cand, out['bg']) >= 4.5:
             out['primary'] = cand
             break

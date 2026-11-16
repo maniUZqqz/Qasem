@@ -24,6 +24,12 @@ export type StyleT = {
   tokens: Record<string, string>;
   sections: Record<string, string>;
   uiux: { style_id?: string; font_pairing?: string; palette?: string };
+  /** hand = دست‌ساز؛ generated = خودکار از دادهٔ ui-ux-pro-max */
+  source?: "hand" | "generated";
+  group?: string;
+  status?: string;
+  rtl?: string;
+  dark?: boolean;
 };
 export type MenuRow = { id: string; page?: number; url?: string; label: string; children?: MenuRow[] };
 export type AssetT = { id: number; ref: string; kind: string; name: string; alt: string; width: number; height: number; size: number; url: string; thumb: string };

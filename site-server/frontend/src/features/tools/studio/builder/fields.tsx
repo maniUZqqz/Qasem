@@ -212,9 +212,13 @@ function ItemsField({ f, value, onChange, env }: { f: FieldSpec; value: Rec[]; o
               <button type="button" className="nbe-item-title" onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i}>
                 {labelOf(r, i)}
               </button>
-              <button type="button" title="بالاتر" aria-label="بالاتر" disabled={i === 0} onClick={() => { const n = [...rows]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; onChange(n); }}>↑</button>
-              <button type="button" title="پایین‌تر" aria-label="پایین‌تر" disabled={i === rows.length - 1} onClick={() => { const n = [...rows]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; onChange(n); }}>↓</button>
-              <button type="button" title="حذف" aria-label="حذف" onClick={() => { onChange(rows.filter((_, j) => j !== i)); setOpen(null); }}>×</button>
+              {!f.fixed && (
+                <>
+                  <button type="button" title="بالاتر" aria-label="بالاتر" disabled={i === 0} onClick={() => { const n = [...rows]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; onChange(n); }}>↑</button>
+                  <button type="button" title="پایین‌تر" aria-label="پایین‌تر" disabled={i === rows.length - 1} onClick={() => { const n = [...rows]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; onChange(n); }}>↓</button>
+                  <button type="button" title="حذف" aria-label="حذف" onClick={() => { onChange(rows.filter((_, j) => j !== i)); setOpen(null); }}>×</button>
+                </>
+              )}
             </div>
             {open === i && (
               <div className="nbe-item-b">
@@ -226,9 +230,12 @@ function ItemsField({ f, value, onChange, env }: { f: FieldSpec; value: Rec[]; o
           </div>
         ))}
       </div>
-      <button type="button" className="nbe-add" onClick={() => { onChange([...rows, empty()]); setOpen(rows.length); }}>
-        + {f.add_label ?? "افزودن"}
-      </button>
+      {!f.fixed && (
+        <button type="button" className="nbe-add" onClick={() => { onChange([...rows, empty()]); setOpen(rows.length); }}>
+          + {f.add_label ?? "افزودن"}
+        </button>
+      )}
+      {f.fixed && rows.length === 0 && <p className="nbe-note">این قطعه در این بخش چیزی برای ویرایش ندارد.</p>}
     </div>
   );
 }

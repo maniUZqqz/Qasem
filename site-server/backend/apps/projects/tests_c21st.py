@@ -364,7 +364,7 @@ class ApiTests(Base):
         from apps.projects import tasks
 
         self.assertEqual(tasks.c21st_refresh(), {"skipped": "fresh"})
-        with mock.patch("apps.projects.builder.c21st.crawl", return_value={"finished": False, "total": 5, "remaining": 3}), \
+        with mock.patch("apps.projects.builder.c21_crawl.run_turn", return_value={"finished": False, "total": 5, "remaining": 3}), \
                 mock.patch.object(tasks.c21st_refresh, "apply_async") as again:
             out = tasks.c21st_refresh(force=True)
         self.assertFalse(out["finished"])

@@ -6,7 +6,7 @@ import { Check, Help } from "./common";
 
 export type DesignValue = { style: string; components: string[]; refs21?: string[] };
 type Opts = {
-  styles: { key: string; label: string; en: string; mood: string; colors: { primary: string; bg: string; text: string } }[];
+  styles: { key: string; label: string; en: string; mood: string; group?: string; source?: string; colors: { primary: string; bg: string; text: string } }[];
   components: { key: string; label: string; cat: string; cat_label: string }[];
   max_components: number;
 };
@@ -18,6 +18,7 @@ type Opts = {
 export default function DesignPicker({ value, onChange }: { value: DesignValue; onChange: (v: DesignValue) => void }) {
   const [opts, setOpts] = useState<Opts | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [find, setFind] = useState("");
 
   function load() {
     if (opts) return;
@@ -42,13 +43,29 @@ export default function DesignPicker({ value, onChange }: { value: DesignValue; 
               <span className="mb-1.5 block text-sm font-medium" style={{ color: "var(--text-2)" }}>
                 سبکِ طراحی
               </span>
+              <input
+                className="mb-1.5 w-full rounded-lg px-3 py-2 text-sm"
+                style={{ background: "var(--surface-2, transparent)", border: "1px solid var(--line)", color: "var(--text)" }}
+                placeholder={`جست‌وجو در ${opts.styles.length.toLocaleString("fa-IR")} سبک…`}
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+                aria-label="جست‌وجوی سبک"
+                data-testid="design-style-search"
+              />
               <select className="w-full rounded-lg px-3 py-2 text-sm" style={{ background: "var(--surface-2, transparent)", border: "1px solid var(--line)", color: "var(--text)" }} value={value.style} onChange={(e) => onChange({ ...value, style: e.target.value })} data-testid="design-style">
                 <option value="">بدونِ سبک (همان ظاهرِ فعلی)</option>
-                {opts.styles.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label} — {s.mood}
-                  </option>
-                ))}
+                {Array.from(new Set(opts.styles.map((s) => s.group ?? "عمومی"))).map((g) => {
+                  const rows = opts.styles.filter((s) => (s.group ?? "عمومی") === g && (!find.trim() || s.key === value.style || [s.label, s.en, s.mood].some((x) => x.toLowerCase().includes(find.trim().toLowerCase()))));
+                  return rows.length ? (
+                    <optgroup key={g} label={g}>
+                      {rows.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.label} — {s.mood}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null;
+                })}
               </select>
             </label>
             <div>
@@ -90,7 +107,7 @@ export default function DesignPicker({ value, onChange }: { value: DesignValue; 
                 <C21stBrowser mode="ai" picked={value.refs21 ?? []} onPick={(ids) => onChange({ ...value, refs21: ids })} />
               </div>
             </details>
-            <Help>به هوشِ مصنوعی فقط همین سبک و چند قطعهٔ مرتبط داده می‌شود، نه کلِ کتابخانه؛ همین باعث می‌شود نتیجه بهتر و حرفه‌ای‌تر شود.</Help>
+            <Help>به هوشِ مصنوعی فقط همین سبک، چند رهنمودِ مرتبط از ui-ux-pro-max و چند قطعهٔ مرتبط (از جمله قطعه‌های تبدیل‌شدهٔ 21st.dev) داده می‌شود، نه کلِ کتابخانه؛ همین باعث می‌شود نتیجه بهتر و حرفه‌ای‌تر شود.</Help>
           </>
         )}
       </div>

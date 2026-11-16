@@ -18,6 +18,8 @@ export type FieldSpec = {
   fields?: FieldSpec[];
   add_label?: string;
   item_label?: string;
+  /** ردیف‌ها ثابت‌اند: افزودن/حذف/جابه‌جایی نیست (قطعهٔ 21st) */
+  fixed?: boolean;
   inline?: boolean;
   help?: string;
   dir?: string;

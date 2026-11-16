@@ -1,0 +1,27 @@
+/* Animations that library components usually add to tailwind.config.js (we have none of theirs): the common ones, defined once. */
+@theme {
+  --animate-marquee: marquee var(--duration, 40s) linear infinite;
+  --animate-marquee-vertical: marquee-vertical var(--duration, 40s) linear infinite;
+  --animate-fade-in: fade-in .6s ease-out both;
+  --animate-fade-up: fade-up .7s ease-out both;
+  --animate-accordion-down: accordion-down .2s ease-out;
+  --animate-accordion-up: accordion-up .2s ease-out;
+  --animate-gradient: gradient 8s linear infinite;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-aurora: aurora 60s linear infinite;
+  --animate-shine: shine 4s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-spin-slow: spin 6s linear infinite;
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(calc(-100% - var(--gap, 1rem))); } }
+  @keyframes marquee-vertical { from { transform: translateY(0); } to { transform: translateY(calc(-100% - var(--gap, 1rem))); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  @keyframes accordion-down { from { height: 0; } to { height: var(--radix-accordion-content-height); } }
+  @keyframes accordion-up { from { height: var(--radix-accordion-content-height); } to { height: 0; } }
+  @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes aurora { from { background-position: 50% 50%, 50% 50%; } to { background-position: 350% 50%, 350% 50%; } }
+  @keyframes shine { from { background-position: 0% 0%; } to { background-position: 200% 0%; } }
+  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }

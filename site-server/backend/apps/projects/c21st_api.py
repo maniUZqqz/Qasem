@@ -16,7 +16,8 @@ def _crawl_json() -> dict:
     st = c21st.crawl_state()
     return {"running": c21st.is_running(st), "finished": bool(st.get("finished")), "total": st.get("total", len(c21st.load())), "remaining": st.get("remaining"),
             "details_done": st.get("details_done", 0), "updated_at": st.get("updated_at", ""), "errors": (st.get("errors") or [])[-3:],
-            "cats_done": len(st.get("cats_done") or []), "cats_total": len(c21st.CATEGORIES)}
+            "cats_done": len(st.get("cats_done") or []), "cats_total": len(c21st.CATEGORIES), "blocked": bool(st.get("blocked")), "libraries": st.get("libraries", 0),
+            "usable": st.get("usable", 0), "previews": st.get("previews", 0), "robots_ok": st.get("robots_ok", True), "requests": st.get("requests", 0)}
 
 
 def _int(v, d):
@@ -29,12 +30,15 @@ def _int(v, d):
 @studio_api("GET")
 def c21st_list(request):
     q = request.query_params
-    out = c21st.search(q.get("q", "")[:80], q.get("cat", ""), q.get("usable") == "1", _int(q.get("page"), 1), _int(q.get("size"), 24))
+    out = c21st.search(q.get("q", "")[:80], q.get("cat", ""), q.get("usable") == "1", _int(q.get("page"), 1), _int(q.get("size"), 24), q.get("insertable") == "1")
     out["crawl"] = _crawl_json()
     out["key"] = c21st.key_status()
     out["max_ai_refs"] = c21st.MAX_AI_REFS
-    out["note"] = ("فهرست از صفحه‌های عمومیِ .md ِ 21st.dev خزیده شده (آن‌جا برای عامل‌ها باز است؛ آموزشِ مدل ممنوع است و نمی‌کنیم). "
-                   "به هوشِ مصنوعی فقط تا ۳ قطعه به‌عنوان الهام می‌رسد. هر قطعه مجوزِ خودش را دارد.")
+    out["note"] = ("فهرست از نقشهٔ سایت و صفحه‌های عمومیِ 21st.dev با رعایتِ robots.txt خزیده شده (آموزشِ مدل ممنوع است و نمی‌کنیم). "
+                   "فقط قطعه‌های با مجوزِ آزادی که کدشان در مخزنِ عمومیِ خودِ کتابخانه هست به «قطعهٔ قابلِ درج» تبدیل می‌شوند؛ بقیه فقط برای دیدن‌اند. "
+                   "به هوشِ مصنوعی فقط چند قطعهٔ مرتبط می‌رسد.")
+    from .c21_api import pipeline_json
+    out["pipeline"] = pipeline_json()
     return Response(out)
 
 

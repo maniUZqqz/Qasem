@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+"""قلم‌های فارسی‌پذیرِ افزوده (همه OFL از fontsource؛ پ چ ژ گ ک ی و رقم‌های فارسی در فایلِ هر قلم هست و آزمون با fontTools می‌سنجد).
+
+این فایل را ابزارِ یک‌باره‌ای از بسته‌های npm ساخته (ببینید docs/site-styles-and-components.md ⇒ «قلم‌ها»)؛ theme.py آن را به FONTS می‌افزاید."""
+AR = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0898-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC'
+LA = 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD'
+
+EXTRA_FONTS = {
+    'rubik': {'label': 'روبیک (دوستانه و گرد)', 'family': 'Rubik', 'weight': '300 900',
+          'files': [('rubik-arabic-wght-normal.woff2', AR), ('rubik-latin-wght-normal.woff2', LA)]},
+    'mada': {'label': 'مادا (انسانی و ساده)', 'family': 'Mada', 'weight': '200 900',
+          'files': [('mada-arabic-wght-normal.woff2', AR), ('mada-latin-wght-normal.woff2', LA)]},
+    'changa': {'label': 'چنگا (هندسی و پرقدرت)', 'family': 'Changa', 'weight': '200 800',
+          'files': [('changa-arabic-wght-normal.woff2', AR), ('changa-latin-wght-normal.woff2', LA)]},
+    'alexandria': {'label': 'اسکندریه (هندسیِ امروزی)', 'family': 'Alexandria', 'weight': '100 900',
+          'files': [('alexandria-arabic-wght-normal.woff2', AR), ('alexandria-latin-wght-normal.woff2', LA)]},
+    'notosans': {'label': 'نوتو سنس (خنثی و خوانا)', 'family': 'Noto Sans Arabic', 'weight': '100 900',
+          'files': [('noto-sans-arabic-arabic-wght-normal.woff2', AR), ('noto-sans-arabic-latin-wght-normal.woff2', LA)]},
+    'parastoo': {'label': 'پرستو (فارسیِ رسمی و تمیز)', 'family': 'Parastoo', 'weight': '400 700',
+          'files': [('parastoo-arabic-wght-normal.woff2', AR), ('parastoo-latin-wght-normal.woff2', LA)]},
+    'marhey': {'label': 'مرحی (شاد و بازیگوش)', 'family': 'Marhey', 'weight': '300 700',
+          'files': [('marhey-arabic-wght-normal.woff2', AR), ('marhey-latin-wght-normal.woff2', LA)]},
+    'lemonada': {'label': 'لیموناد (نرم و دوستانه)', 'family': 'Lemonada', 'weight': '300 700',
+          'files': [('lemonada-arabic-wght-normal.woff2', AR), ('lemonada-latin-wght-normal.woff2', LA)]},
+    'rakkas': {'label': 'رکاس (تیترِ پرنقش)', 'family': 'Rakkas', 'weight': '400',
+          'files': [('rakkas-arabic-400-normal.woff2', AR, '400'), ('rakkas-latin-400-normal.woff2', LA, '400')]},
+    'jomhuria': {'label': 'جمهوریه (تیترِ باریک و بلند)', 'family': 'Jomhuria', 'weight': '400',
+          'files': [('jomhuria-arabic-400-normal.woff2', AR, '400'), ('jomhuria-latin-400-normal.woff2', LA, '400')]},
+    'katibeh': {'label': 'کاتبه (خوشنویسیِ تزئینی)', 'family': 'Katibeh', 'weight': '400',
+          'files': [('katibeh-arabic-400-normal.woff2', AR, '400'), ('katibeh-latin-400-normal.woff2', LA, '400')]},
+    'aref': {'label': 'عارف رقعه (خوشنویسیِ رقعه)', 'family': 'Aref Ruqaa', 'weight': '400 700',
+          'files': [('aref-ruqaa-arabic-400-normal.woff2', AR, '400'), ('aref-ruqaa-latin-400-normal.woff2', LA, '400'), ('aref-ruqaa-arabic-700-normal.woff2', AR, '700'), ('aref-ruqaa-latin-700-normal.woff2', LA, '700')]},
+    'reem': {'label': 'ریم کوفی (کوفیِ ساده)', 'family': 'Reem Kufi', 'weight': '400 700',
+          'files': [('reem-kufi-arabic-wght-normal.woff2', AR), ('reem-kufi-latin-wght-normal.woff2', LA)]},
+    'messiri': {'label': 'المسیری (باوقار و گرم)', 'family': 'El Messiri', 'weight': '400 700',
+          'files': [('el-messiri-arabic-wght-normal.woff2', AR), ('el-messiri-latin-wght-normal.woff2', LA)]},
+    'kufam': {'label': 'کوفام (کوفیِ پرانرژی)', 'family': 'Kufam', 'weight': '400 900',
+          'files': [('kufam-arabic-wght-normal.woff2', AR), ('kufam-latin-wght-normal.woff2', LA)]},
+    'markazi': {'label': 'مرکزی (کتابیِ مدرن)', 'family': 'Markazi Text', 'weight': '400 700',
+          'files': [('markazi-text-arabic-wght-normal.woff2', AR), ('markazi-text-latin-wght-normal.woff2', LA)]},
+    'mirza': {'label': 'میرزا (کتابیِ زیبا)', 'family': 'Mirza', 'weight': '400 700',
+          'files': [('mirza-arabic-400-normal.woff2', AR, '400'), ('mirza-latin-400-normal.woff2', LA, '400'), ('mirza-arabic-700-normal.woff2', AR, '700'), ('mirza-latin-700-normal.woff2', LA, '700')]},
+    'lateef': {'label': 'لطیف (نسخِ دست\u200cنویس)', 'family': 'Lateef', 'weight': '400',
+          'files': [('lateef-arabic-400-normal.woff2', AR, '400'), ('lateef-latin-400-normal.woff2', LA, '400')]},
+    'scheherazade': {'label': 'شهرزاد (نسخِ کلاسیک)', 'family': 'Scheherazade New', 'weight': '400 700',
+          'files': [('scheherazade-new-arabic-400-normal.woff2', AR, '400'), ('scheherazade-new-latin-400-normal.woff2', LA, '400'), ('scheherazade-new-arabic-700-normal.woff2', AR, '700'), ('scheherazade-new-latin-700-normal.woff2', LA, '700')]},
+    'zain': {'label': 'زین (مدرنِ باریک)', 'family': 'Zain', 'weight': '400 700',
+          'files': [('zain-arabic-400-normal.woff2', AR, '400'), ('zain-latin-400-normal.woff2', LA, '400'), ('zain-arabic-700-normal.woff2', AR, '700'), ('zain-latin-700-normal.woff2', LA, '700')]},
+    'almarai': {'label': 'الماراعی (تمیز و خبری)', 'family': 'Almarai', 'weight': '400 700',
+          'files': [('almarai-arabic-400-normal.woff2', AR, '400'), ('almarai-latin-400-normal.woff2', LA, '400'), ('almarai-arabic-700-normal.woff2', AR, '700'), ('almarai-latin-700-normal.woff2', LA, '700')]},
+    'vibes': {'label': 'ویبز (تزئینیِ دست\u200cنویس)', 'family': 'Vibes', 'weight': '400',
+          'files': [('vibes-arabic-400-normal.woff2', AR, '400'), ('vibes-latin-400-normal.woff2', LA, '400')]},
+}

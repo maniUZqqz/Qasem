@@ -415,6 +415,7 @@ def _kinds_q(node: ComputeNode) -> Q:
     q = Q(kind__startswith="echo") | Q(kind__startswith="node.")   # node.* always names its node (node_wanted)
     q |= Q(kind__startswith="selftest.") | Q(kind__startswith="asr.")      # agent 2.11: only nodes that advertise them (kind_unsupported)
     q |= Q(kind__startswith="up3d.")                                       # agent 2.12: the 3D video engine (up3d_jobs.py), same rule
+    q |= Q(kind__startswith="crawl21.")                                    # the 21st.dev crawler (processing/crawl21_jobs.py), same rule: only nodes that advertise it
     for prefix, capability in CAPABILITY_PREFIXES.items():
         if node.has(capability):
             fam = Q(kind__startswith=prefix)

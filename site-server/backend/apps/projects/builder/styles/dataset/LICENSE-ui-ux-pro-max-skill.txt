@@ -1,4 +1,4 @@
-Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill (commit 6ae86f61f520d6ca229d2f40e070410638c908c5)
+Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill (commit e59ff376a41f7ca47b7541ad5c116495cbade3ee)
 
 MIT License
 

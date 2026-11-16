@@ -13,6 +13,7 @@ import re
 
 from .. import variants
 from .css import style_css, tokens_of
+from .gen_core import lum
 from .data import ORDER, STYLES
 from . import uiux
 
@@ -132,15 +133,40 @@ def clear_doc(doc):
     return out
 
 
+#: توکن‌هایی که کارتِ کوچکِ سبک در پنل می‌خواهد (بقیه را «design-sources/tokens/<سبک>/» می‌دهد؛ ۸۹ سبکِ کامل هر بار به پنل نمی‌رود)
+THUMB_TOKENS = ('page_bg', 'card_bg', 'card_bd', 'card_sh', 'card_r', 'bf', 'btn_sh')
+
+
 def public_json():
-    """فهرستِ سبک‌ها برای پنل: نام، توضیح، پالت، قلم‌ها، توکن‌های قابلِ نمایش و چیدمانِ پیش‌فرضِ بخش‌ها."""
+    """فهرستِ سبک‌ها برای پنل: نام، توضیح، پالت، قلم‌ها، توکن‌های کارتِ نمایشی و چیدمانِ پیش‌فرضِ بخش‌ها؛ منبع (دست‌ساز/خودکار)، گروه، وضعیت و سطحِ راست‌به‌چپ."""
     rows = []
     for key in ORDER:
         st = STYLES[key]
+        toks = tokens_of(key)
         rows.append({'key': key, 'label': st['label'], 'en': st['en'], 'mood': st['mood'], 'desc': st['desc'], 'tags': st['tags'],
-                     'theme': st['theme'], 'sections': st.get('sections') or {}, 'tokens': tokens_of(key),
-                     'uiux': st.get('uiux') or {}})
+                     'theme': st['theme'], 'sections': st.get('sections') or {}, 'tokens': {k: toks[k] for k in THUMB_TOKENS},
+                     'uiux': st.get('uiux') or {}, 'source': st.get('source', 'hand'), 'group': st.get('group', 'عمومی'),
+                     'status': st.get('status', 'active'), 'rtl': st.get('rtl', 'full'), 'dark': lum(st['theme']['colors']['bg']) < 0.18})
     return rows
+
+
+def style_key_for(style_id):
+    """شناسهٔ سبک در ui-ux-pro-max (مثلاً «brutalism») ⇒ کلیدِ سبکِ سایت‌ساز («ux-brutalism» یا سبکِ دست‌سازِ هم‌ارزش)؛ ناشناخته ⇒ ''."""
+    for key, st in STYLES.items():
+        if (st.get('uiux') or {}).get('style_id') == style_id:
+            return key
+    return ''
+
+
+def groups():
+    """گروه‌های سبک به ترتیبِ نمایش با شمارش."""
+    from .generated import GROUP_ORDER
+    out = []
+    for g in GROUP_ORDER:
+        n = sum(1 for k in ORDER if STYLES[k].get('group', 'عمومی') == g)
+        if n:
+            out.append({'label': g, 'count': n})
+    return out
 
 
 def find_by_text(text, limit=3):
@@ -157,4 +183,4 @@ def find_by_text(text, limit=3):
     return [k for _s, k in scored[:limit]]
 
 
-__all__ = ['STYLES', 'ORDER', 'get', 'style_css', 'tokens_of', 'apply_to_theme', 'restore_theme', 'brand_of', 'snapshot', 'apply_to_doc', 'clear_doc', 'public_json', 'find_by_text', 'uiux']
+__all__ = ['STYLES', 'ORDER', 'get', 'style_css', 'tokens_of', 'apply_to_theme', 'restore_theme', 'brand_of', 'snapshot', 'apply_to_doc', 'clear_doc', 'public_json', 'find_by_text', 'uiux', 'style_key_for', 'groups', 'THUMB_TOKENS']

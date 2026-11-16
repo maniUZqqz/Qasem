@@ -19,6 +19,13 @@ class SourceProvider(models.TextChoices):
     OSM_OVERPASS = "osm_overpass", "نقشهٔ آزاد (OpenStreetMap)"
     BRAVE_SEARCH = "brave_search", "جست‌وجوی Brave (API)"
     GOOGLE_CSE = "google_cse", "جست‌وجوی گوگل (Programmable Search API)"
+    # the customer finder (apps.growth_engine.crawler)
+    CRAWL_OSM = "crawl_osm", "مشتری‌یاب ‹ نقشهٔ آزاد"
+    CRAWL_SEARCH = "crawl_search", "مشتری‌یاب ‹ جست‌وجوی وب"
+    CRAWL_DIRECTORY = "crawl_directory", "مشتری‌یاب ‹ فهرستِ عمومی"
+    CRAWL_SITE = "crawl_site", "مشتری‌یاب ‹ سایتِ کسب‌وکار"
+    CRAWL_INSTAGRAM = "crawl_instagram", "مشتری‌یاب ‹ اینستاگرام"
+    CRAWL_NESHAN = "crawl_neshan", "مشتری‌یاب ‹ نشان"
 
 
 class LeadSource(models.Model):

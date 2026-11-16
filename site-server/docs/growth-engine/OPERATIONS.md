@@ -150,3 +150,12 @@ cd /var/www/NM/upmarket/backend && ../venv/bin/python manage.py check
 ### بازگشتِ دورِ دوم
 
 `/root/backups/nm-growth-r2-20261104/` (`code.tgz`، `db.sqlite3`، `rollback.sh`، `ROLLBACK.txt`). `rollback.sh`: جدول‌های دورِ دوم را به‌ترتیب برمی‌گرداند (`migrate growth_knowledge zero`، `growth_outreach 0001`، `growth_discovery 0001`، `growth_leads 0001`، `growth_sources 0001`)، کدِ پیش از دورِ دوم را از `code.tgz` بازمی‌گرداند، فرانتِ قبلی را برمی‌گذارد و فقط `nm-web` و `nm-celery` را ری‌استارت می‌کند. دورِ اول دست‌نخورده می‌ماند. تست‌ها در این استقرار: ۸۷۵ تستِ بک‌اند، همه OK (دورِ اول ۶۴۶ بود).
+
+## ۱۰. مشتری‌یاب (خزنده)
+
+- **بدونِ مرحلهٔ جدیدِ نصب:** `python manage.py migrate` (دو مایگریشن: `growth_crawler 0001` و `growth_sources 0003`) + بیلدِ فرانت. وابستگیِ تازه‌ای در پایتون یا npm نیست (از `httpx`، `beautifulsoup4`، `celery` موجود). برای زمان‌بندی و بیدارکردنِ اجراها **`nm-celery-beat` باید روشن باشد** (ردیفِ `growth-crawler-tick`، هر ۵ دقیقه)؛ اجرای دستیِ مأموریت فقط به `nm-celery` نیاز دارد.
+- **حافظهٔ صفحه‌ها:** `<NM_DATA_DIR>/crawl_cache` (gzip، سقفِ ۳۰۰ مگابایت؛ شبانه ساعت ۰۳ پاک‌سازی). حجمِ مصرفیِ هر اجرا در پنل دیده می‌شود.
+- **اجرا از خط فرمان:** `python manage.py crawl_run --preset chagher_gyms_tehran` (یا `--mission <id>`، `--resume-run <id>`؛ `--max-seconds`، `--max-sites`). لاگ را چاپ می‌کند؛ هیچ پیامی نمی‌فرستد.
+- **سرورِ پردازش:** هیچ کاری لازم نیست. با نخستین شروعِ گرهٔ به‌روزشده `requirements.d/crawl.json` Playwright و مرورگر را خودش نصب می‌کند، `crawl.selftest` خودش اجرا می‌شود و کارهای منتظر (سایت‌های جاوااسکریپتی، اینستاگرام) خودکار صف می‌شوند. اگر پس از به‌روزرسانی چیزی نصب نشد: پنلِ سرورِ پردازش ← «نصب‌ها» ← «تلاش دوباره»، یا روی گره `python crawl_jobs.py status` / `python crawl_jobs.py selftest`.
+- **ارسال:** مشتری‌یاب هرگز نمی‌فرستد. پیش‌نویس‌ها فقط با «تأییدِ متن» و «بگذار در کمپین» به کمپین می‌روند و ارسال همان نگهبان‌های قبلی را دارد (کلیدِ «ارسالِ خودکار» خاموش، هویتِ فرستنده، سقف، تماس نگیر).
+- **بازگشت:** `migrate growth_crawler zero` (و `growth_sources 0002`)، برداشتنِ `apps.growth_engine.crawler` از `INSTALLED_APPS` و ردیفِ beat؛ لیدهای ساخته‌شده می‌مانند (فقط برچسب‌شان «مشتری‌یاب» است).

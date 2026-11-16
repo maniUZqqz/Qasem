@@ -431,7 +431,7 @@ def _kinds_q(node: ComputeNode) -> Q:
 
 
 CAPABILITY_PREFIXES = {"comfy": "comfyui", "photo": "photo", "video": "video", "voice": "voice", "ollama": "ollama",
-                       "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram",
+                       "edit": "ffmpeg", "multiangle": "multiangle", "ig": "instagram", "crawl": "crawl",
                        "motion": "motion_render", "brandchar": "comfyui"}
 
 

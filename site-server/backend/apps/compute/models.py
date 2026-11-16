@@ -30,6 +30,7 @@ CAPABILITY_FOR_KIND = {
     "echo": "any",           # آزمونِ اتصال
     "edit": "ffmpeg",        # ویرایشگرِ ویدیو: رندرِ نهایی (edit.render)، ردیابی (edit.track)، حذفِ پس‌زمینه (edit.matte)
     "multiangle": "multiangle",   # چندزاویه: زاویه‌های مجازی از یک دوربین، حرکتِ دوربینِ ۲٫۵بعدی، آزمونِ خودکار (processing/multiangle_jobs.py)
+    "crawl": "crawl",        # مشتری‌یاب: خواندنِ سایت‌ها و رندرِ صفحه‌های جاوااسکریپتی (processing/crawl_jobs.py) - گره با caps["crawl"] اعلام می‌کند
     "ig": "instagram",       # خواننده‌ی اینستاگرام (آباگرام) روی گره: ig.scrape، ig.health — گره با caps["instagram"] اعلام می‌کند
     "brandchar": "comfyui",     # شخصیتِ برند: brandchar.render = FLUX روی ComfyUIِ گره (processing/brandchar_jobs.py)
     "motion": "motion_render",   # استودیوی موشن: Remotion + مرورگرِ بی‌سر روی کارتِ گرافیک (processing/motion_jobs.py)

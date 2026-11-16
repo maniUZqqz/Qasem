@@ -48,6 +48,7 @@ REQUIRED = {
     "محتوای چغر": ["chagher_content"],
     "سایت‌ساز (سبک‌ها و قطعه‌ها)": ["site_styles_ai", "site_styles_render"],
     "سایت‌ساز: خزندهٔ 21st.dev با مرورگر": ["crawl21"],
+    "مشتری‌یاب (خزشِ سایت‌ها و رندرِ صفحهٔ جاوااسکریپتی)": ["crawler", "crawler_render"],
     "دانلودِ مدل‌ها": ["model_catalog", "model_catalog_download"],
     "نصبِ خودکار و به‌روزرسانی": ["bootstrap", "update_flow"],
 }

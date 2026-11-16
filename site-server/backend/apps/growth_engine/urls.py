@@ -16,6 +16,6 @@ urlpatterns = [
     path("discovery/", include("apps.growth_engine.discovery.urls")),
 ]
 
-for _module in ("extraction", "compliance", "outreach", "knowledge"):
+for _module in ("extraction", "compliance", "outreach", "knowledge", "crawler"):
     if apps.is_installed(f"apps.growth_engine.{_module}"):
         urlpatterns.append(path("", include(f"apps.growth_engine.{_module}.urls")))

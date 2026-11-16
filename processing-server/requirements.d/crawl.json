@@ -1,0 +1,18 @@
+{
+  "feature": "crawl",
+  "title_fa": "مشتری‌یاب: خزندهٔ سایت‌ها و رندرِ صفحه‌های جاوااسکریپتی (محیطِ پایتون + مرورگر)",
+  "order": 65,
+  "platform": ["win"],
+  "kinds": ["crawl.render", "crawl.selftest"],
+  "note": "The customer finder hands the heavy half of a crawl to this node: crawl.run reads many business sites politely (robots.txt, per-host delay, SSRF guard) and crawl.render renders the sites that are only a JavaScript shell in a headless browser. Reading static pages needs nothing but the agent's own Python; only rendering needs Playwright, which goes into its own environment <data>/venvs/crawl (pinned; PyPI first, then the mirrors reachable from Iran - the same pin Abagram uses, so the wheels are the same files). The browser is the Microsoft Edge every Windows 11 has (Playwright channel msedge, no download), else Chrome, else the Chromium pack Abagram installs from the site's downloads (abagram_jobs.py install-browser is idempotent). `kinds` lists the two kinds that need the browser: they WAIT in the site's queue until this feature is ready; crawl.run is not blocked (it reads static pages without it and reports render_unavailable for the JavaScript ones). crawl.selftest starts a tiny web server on 127.0.0.1 with a static and a JavaScript-only page and checks both are read: it is the site's automatic acceptance test for this feature. Licenses: Playwright (Apache-2.0), greenlet (MIT/PSF), pyee (MIT).",
+  "items": [
+    {"id": "venv", "type": "venv", "name": "crawl", "title": "Python environment (venvs/crawl)"},
+    {"id": "pip", "type": "pip", "venv": "crawl", "title": "Playwright (headless browser driver)",
+     "packages": ["greenlet==3.2.4", "pyee==13.0.1", "playwright==1.58.0"]},
+    {"id": "browser", "type": "cmd", "title": "Browser (Microsoft Edge / Chrome / the site's Chromium pack)",
+     "check": ["{PY}", "{HERE}/crawl_jobs.py", "check-browser"],
+     "install": ["{PY}", "{HERE}/abagram_jobs.py", "install-browser"], "timeout_s": 3600},
+    {"id": "verify", "type": "cmd", "title": "Playwright is importable in venvs/crawl",
+     "check": ["{VENVPY:crawl}", "-c", "import playwright.sync_api"]}
+  ]
+}

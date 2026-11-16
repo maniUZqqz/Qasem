@@ -167,3 +167,12 @@ ControlNet و IP-Adapter و عمق (Depth-Anything-V2-Small) یک‌جا؛ با 
 - `worker-3d.bat` دیگر خودکار اجرا نمی‌شود (برای اجرای دستی هست؛ `NM_UP3D_LEGACY_WORKER=1` رفتارِ قدیم).
 - فقط یک پیش‌نیازِ بیرون از برنامه: درایورِ NVIDIA ۵۲۷ یا بالاتر. اگر Cycles کارت را نبیند، پنل همین را می‌گوید.
 - جزئیات: `docs/up3d-engine-1.3-fa.md`.
+
+## مشتری‌یاب — خزندهٔ سایت‌ها و رندرِ صفحه‌های جاوااسکریپتی (۱۴۰۵/۰۸/۲۶)
+
+- کارهای تازه: `crawl.run` (خواندنِ انبوهِ سایت‌های کسب‌وکار)، `crawl.render` (رندر در مرورگر)، `crawl.selftest`؛ ماژول `crawl_jobs.py` (یک خط در `agent.py`). کارِ اینستاگرام همان `ig.scrape`ِ آباگرام است.
+- نصبِ خودکار: `requirements.d/crawl.json` ← `venvs/crawl` با Playwright (پین‌شده) + مرورگر (Edge ویندوز ۱۱، یا Chrome، یا بستهٔ Chromiumِ آباگرام). دکمهٔ «تلاش دوباره»ی پنل کارِ همین فایل را دوباره می‌کند.
+- گره `caps["crawl"]` و `caps["crawl_ready"]` را در هر heartbeat می‌گوید؛ سایت این نوع‌ها را فقط به گره‌ای می‌دهد که اعلام کرده؛ تا آماده‌شدنِ مرورگر `crawl.render` و `crawl.selftest` در صف می‌مانند.
+- نگهبان‌ها: robots.txt، فاصلهٔ هر سایت (≥ ۱ ثانیه)، آدرسِ خصوصی/داخلی رد می‌شود، فقط GET، فقط تغییرِ مسیرِ هم‌سایت، بدونِ ورود/فرم/کپچا؛ مرورگر حقِ رفتن به سایتِ دیگر را ندارد.
+- دستیِ روی همین کامپیوتر: `python crawl_jobs.py status` (وضعیتِ مرورگر) · `python crawl_jobs.py selftest` (دو سایتِ آزمایشی محلی؛ باید `ok` بدهد) · `python crawl_jobs.py check-browser`.
+- جزئیات: `docs/growth-engine/modules/crawler.md`.

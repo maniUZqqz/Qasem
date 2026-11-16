@@ -12,6 +12,7 @@ import { MetaProvider } from "./MetaContext";
  */
 const TABS: { key: string; to: string; label: string; icon: IconName; end?: boolean }[] = [
   { key: "growth_dashboard", to: "/growth", label: "داشبورد", icon: "chart", end: true },
+  { key: "growth_finder", to: "/growth/finder", label: "مشتری‌یاب", icon: "target" },
   { key: "growth_discovery", to: "/growth/discovery", label: "کشف مشتری", icon: "search" },
   { key: "growth_leads", to: "/growth/leads", label: "دیتابیس لیدها", icon: "users" },
   { key: "growth_outreach", to: "/growth/outreach", label: "پیام‌رسانی", icon: "send" },

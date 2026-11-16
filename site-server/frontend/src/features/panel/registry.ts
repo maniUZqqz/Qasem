@@ -168,6 +168,10 @@ export const PAGES: PanelPage[] = [
 
   // ------------------------------------------------------------ جذب مشتری
   { key: "growth_dashboard", section: "growth", label: "داشبورد جذب مشتری", icon: "chart", to: "/growth", end: true, staffOnly: true },
+  { key: "growth_finder", section: "growth", label: "مشتری‌یاب", icon: "target", to: "/growth/finder", staffOnly: true },
+  { key: "growth_finder_results", section: "growth", label: "نتایجِ مشتری‌یاب", icon: "search", to: "/growth/finder/results", staffOnly: true, menu: false },
+  { key: "growth_finder_pipeline", section: "growth", label: "پایپ‌لاینِ فروش", icon: "trending", to: "/growth/finder/pipeline", staffOnly: true, menu: false },
+  { key: "growth_finder_drafts", section: "growth", label: "پیش‌نویسِ پیام‌ها", icon: "send", to: "/growth/finder/drafts", staffOnly: true, menu: false },
   { key: "growth_discovery", section: "growth", label: "کشف مشتری", icon: "search", to: "/growth/discovery", staffOnly: true },
   { key: "growth_leads", section: "growth", label: "دیتابیس لیدها", icon: "users", to: "/growth/leads", staffOnly: true },
   { key: "growth_lead", section: "growth", label: "جزئیات لید", icon: "users", to: "/growth/leads", staffOnly: true, menu: false },

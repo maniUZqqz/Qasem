@@ -95,7 +95,7 @@ def _actor(actor):
 
 
 #: discovery providers (M3) all file their leads under one origin; the exact provider stays on the LeadSource row
-SEARCH_PROVIDERS = ("osm_overpass", "brave_search", "google_cse")
+SEARCH_PROVIDERS = ("osm_overpass", "brave_search", "google_cse", "crawl_osm", "crawl_search", "crawl_directory", "crawl_site", "crawl_instagram", "crawl_neshan")
 
 
 def _origin_for(provider: str) -> str:

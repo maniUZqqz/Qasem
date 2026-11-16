@@ -5,6 +5,7 @@ import GrowthLayout from "./GrowthLayout";
 import CampaignPage from "./pages/CampaignPage";
 import ChannelsPage from "./pages/ChannelsPage";
 import DashboardPage from "./pages/DashboardPage";
+import FinderRoutes from "./finder";
 import DiscoveryPage from "./pages/DiscoveryPage";
 import KnowledgePage from "./pages/KnowledgePage";
 import LeadDetailPage from "./pages/LeadDetailPage";
@@ -23,6 +24,7 @@ export default function GrowthRoutes() {
     <Routes>
       <Route element={<GrowthLayout />}>
         <Route index element={<PageGate k="growth_dashboard"><DashboardPage /></PageGate>} />
+        <Route path="finder/*" element={<FinderRoutes />} />
         <Route path="discovery" element={<PageGate k="growth_discovery"><DiscoveryPage /></PageGate>} />
         <Route path="leads" element={<PageGate k="growth_leads"><LeadsPage /></PageGate>} />
         <Route path="leads/:id" element={<PageGate k="growth_lead"><LeadDetailPage /></PageGate>} />

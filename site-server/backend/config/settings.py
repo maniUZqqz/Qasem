@@ -1053,7 +1053,7 @@ CELERY_BEAT_SCHEDULE["audio-retry-stale-failed"] = {
 
 # ── Growth Engine (جذب مشتری) ──────────────────────────────────────────────────────────
 # ابزارِ داخلیِ جذبِ مشتری (فقط کارکنان). معماری و مستندات: docs/growth-engine/
-INSTALLED_APPS += ["apps.growth_engine.sources", "apps.growth_engine.leads", "apps.growth_engine.discovery", "apps.growth_engine.extraction", "apps.growth_engine.compliance", "apps.growth_engine.outreach", "apps.growth_engine.knowledge"]
+INSTALLED_APPS += ["apps.growth_engine.sources", "apps.growth_engine.leads", "apps.growth_engine.discovery", "apps.growth_engine.extraction", "apps.growth_engine.compliance", "apps.growth_engine.outreach", "apps.growth_engine.knowledge", "apps.growth_engine.crawler"]
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update(
     {
         "growth_upload": os.getenv("THROTTLE_GROWTH_UPLOAD", "30/hour"),
@@ -1061,6 +1061,8 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update(
         "growth_bulk": os.getenv("THROTTLE_GROWTH_BULK", "60/minute"),
     }
 )
+# مشتری‌یاب: تیکِ ۵ دقیقه‌ای (زمان‌بندیِ مأموریت‌ها، بیدارکردنِ اجراهای خواب، سپردنِ کار به سرورِ پردازش و گرفتنِ جواب)
+CELERY_BEAT_SCHEDULE["growth-crawler-tick"] = {"task": "apps.growth_engine.crawler.tasks.tick", "schedule": 300.0, "options": {"expires": 240}}
 # هر کلید اختیاری است؛ پیش‌فرض‌ها در apps/growth_engine/core/conf.py هستند.
 GROWTH_ENGINE = {
     "CSV_MAX_BYTES": int(os.getenv("GROWTH_CSV_MAX_MB", "5")) * 1024 * 1024,

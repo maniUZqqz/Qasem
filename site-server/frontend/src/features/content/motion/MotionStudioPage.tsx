@@ -19,6 +19,9 @@ import {
   SoundInfo,
   Source,
   Spec,
+  StyleDef,
+  StyleSchema,
+  customApi,
   errText,
   motionApi,
 } from "./api";
@@ -27,6 +30,7 @@ import PlayerFrame, { PlayerHandle, PlayerMeta } from "./PlayerFrame";
 import { ChatEdit, ChatLine, HistoryBar, PlanJson, QaPanel, SoundPanel } from "./PlanTools";
 import RenderHistory from "./RenderHistory";
 import ScenePlan from "./ScenePlan";
+import StyleEditor from "./StyleEditor";
 import StyleGallery from "./StyleGallery";
 
 type Mode = "template" | "ai" | "code";
@@ -95,6 +99,11 @@ export default function MotionStudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // «سبکِ تازه»: سبک‌های ساخته‌شدهٔ کاربر + ویرایشگر
+  const [customStyles, setCustomStyles] = useState<StyleDef[]>([]);
+  const [canGlobal, setCanGlobal] = useState(false);
+  const [styleSchema, setStyleSchema] = useState<StyleSchema | null>(null);
+  const [editor, setEditor] = useState<{ editing: StyleDef | null; startFrom: StyleDef | null } | null>(null);
 
   const [mode, setMode] = useState<Mode>(() => (storeGet("nm.motion.mode", "template") as Mode) || "template");
   const [styleId, setStyleId] = useState(() => storeGet("nm.motion.style", "flat-vector"));
@@ -145,16 +154,18 @@ export default function MotionStudioPage() {
   // ───────────────────────── loading
   useEffect(() => {
     let live = true;
-    Promise.all([motionApi.catalog(), motionApi.library(), motionApi.overview(id), motionApi.sources(id).catch(() => [] as Source[]), motionApi.sound(id).catch(() => null)])
-      .then(([c, l, o, s, snd]) => {
+    Promise.all([motionApi.catalog(), motionApi.library(), motionApi.overview(id), motionApi.sources(id).catch(() => [] as Source[]), motionApi.sound(id).catch(() => null), customApi.list(id).catch(() => null)])
+      .then(([c, l, o, s, snd, cs]) => {
         if (!live) return;
         setCatalog(c);
+        setCustomStyles(cs?.styles ?? []);
+        setCanGlobal(!!cs?.can_global);
         setLib(l);
         setOv(o);
         setSources(s);
         setSound(snd);
         setQuality(storeGet("nm.motion.quality", o.limits.default_quality));
-        if (!c.styles.some((x) => x.id === styleId)) setStyleId(c.styles[0].id);
+        if (!c.styles.some((x) => x.id === styleId) && !(cs?.styles ?? []).some((x) => x.id === styleId)) setStyleId(c.styles[0].id);
         const bcScene = takeBrandScene(id);
         setScenes([...(o.sample_spec.scenes.map((x) => ({ ...x })) as Scene[]), ...(bcScene ? [bcScene as Scene] : [])]);
         if (bcScene) {
@@ -584,6 +595,49 @@ export default function MotionStudioPage() {
     storeSet("nm.motion.style", s);
   };
 
+  // ───────────────────────── «سبکِ تازه»
+  const mergedCatalog = useMemo(() => (catalog ? { ...catalog, styles: [...customStyles, ...catalog.styles] } : null), [catalog, customStyles]);
+  const reloadCustom = useCallback(async () => {
+    try {
+      const r = await customApi.list(id);
+      setCustomStyles(r.styles);
+      setCanGlobal(r.can_global);
+    } catch {
+      /* فهرست بعداً دوباره خوانده می‌شود */
+    }
+  }, [id]);
+  const openEditor = async (editing: StyleDef | null, startFrom: StyleDef | null) => {
+    try {
+      if (!styleSchema) setStyleSchema(await customApi.schema());
+      setEditor({ editing, startFrom });
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+  const deleteCustom = async (s: StyleDef) => {
+    if (!s.pk || !window.confirm(`سبکِ «${s.name_fa}» حذف شود؟`)) return;
+    try {
+      await customApi.remove(id, s.pk);
+      await reloadCustom();
+      if (styleId === s.id && catalog) pickStyle(catalog.styles[0].id);
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+  const exportCustom = async (s: StyleDef) => {
+    if (!s.pk) return;
+    try {
+      const data = await customApi.exportJson(id, s.pk);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      a.download = `${s.id}.nm-style.json`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+
   const findings = useMemo(() => {
     const out: Record<number, { severity: "error" | "warn" | "info"; message: string }[]> = {};
     for (const f of plan?.qa?.remaining ?? []) if (f.scene !== null && f.scene !== undefined) (out[f.scene] ||= []).push({ severity: f.severity, message: f.message });
@@ -617,12 +671,19 @@ export default function MotionStudioPage() {
         subtitle="موشن‌گرافیک از روی کد (Remotion): قطعه‌های آمادهٔ فارسی، کنترلِ کیفیتِ خودکار، گویندهٔ فارسی و موسیقی، رندرِ نهایی روی کارتِ گرافیک"
         actions={
           <div className="flex items-center gap-2">
-            <Badge tone="brand">{fa(catalog.styles.length)} سبک</Badge>
+            <Badge tone="brand">{fa(catalog.styles.length + customStyles.length)} سبک</Badge>
             <Badge tone="info">{fa(lib.components.length)} قطعه</Badge>
           </div>
         }
       />
       <NodeBanner node={ov.node} site={ov.site} limits={ov.limits} />
+      {customStyles.some((x) => x.id === styleId) && ov.node.state !== "none" && ov.node.style_def === false ? (
+        <div className="mt-3">
+          <Alert tone="info" title="بستهٔ موشنِ سرورِ پردازش هنوز سبک‌های شخصی را نمی‌شناسد">
+            رندرِ سبکِ «{customStyles.find((x) => x.id === styleId)?.name_fa}» بعد از به‌روزرسانیِ خودکارِ بستهٔ موشن روی سرورِ پردازش انجام می‌شود (کاری لازم نیست)؛ اگر عجله دارید «رندر روی سایت» را بزنید.
+          </Alert>
+        </div>
+      ) : null}
       <div className="mt-3 space-y-3">
         <ErrorBox message={error} />
         {notice ? <Alert tone="info">{notice}</Alert> : null}
@@ -692,7 +753,20 @@ export default function MotionStudioPage() {
 
               <Card>
                 <SectionTitle>سبک</SectionTitle>
-                <StyleGallery catalog={catalog} value={styleId} onChange={pickStyle} compact />
+                <StyleGallery
+                  catalog={mergedCatalog ?? catalog}
+                  value={styleId}
+                  onChange={pickStyle}
+                  compact
+                  custom={{
+                    onNew: () => openEditor(null, null),
+                    onEdit: (st) => openEditor(st, null),
+                    onDuplicate: (st) => openEditor(null, st),
+                    onDelete: deleteCustom,
+                    onExport: exportCustom,
+                    canGlobal,
+                  }}
+                />
               </Card>
 
               <Card>
@@ -942,6 +1016,26 @@ export default function MotionStudioPage() {
         <SectionTitle>تاریخچه</SectionTitle>
         <RenderHistory renders={ov.renders} storeId={id} onAct={act} onDelete={del} onReuse={reuse} nodeWaiting={nodeWaiting} />
       </div>
+
+      {editor && styleSchema ? (
+        <StyleEditor
+          storeId={id}
+          schema={styleSchema}
+          catalog={catalog}
+          customStyles={customStyles}
+          editing={editor.editing}
+          startFrom={editor.startFrom}
+          canGlobal={canGlobal}
+          brandColors={ov.brand.colors}
+          onClose={() => setEditor(null)}
+          onSaved={async (st) => {
+            setEditor(null);
+            await reloadCustom();
+            pickStyle(st.id);
+            setNotice(`سبکِ «${st.name_fa}» ذخیره شد و انتخاب شد.`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -38,6 +38,8 @@ CHROME_LINUX_URLS = [
 PACK_PREFIX = "nm-motion-pack-"
 MANIFEST_NAME = "nm-motion-pack.json"
 REMOTION = "4.0.543"
+#: what the engine in this bundle can do beyond the base catalogue (motion/remotion/src/style-def.ts ENGINE_FEATURES); written into the pack as FEATURES so the node can refuse a job it cannot draw
+ENGINE_FEATURES = ("style_def",)
 
 
 def say(msg: str) -> None:
@@ -185,6 +187,7 @@ def source_hash() -> str:
     h.update((runner.tools_dir() / "render.mjs").read_bytes())
     h.update((runner.tools_dir() / "qa.mjs").read_bytes())
     h.update(REMOTION.encode())
+    h.update(",".join(ENGINE_FEATURES).encode())
     return h.hexdigest()[:12]
 
 
@@ -216,6 +219,7 @@ def step_pack() -> dict:
             z.write(runner.tools_dir() / "render.mjs", "render.mjs")
             z.write(runner.tools_dir() / "qa.mjs", "qa.mjs")
             z.writestr("VERSION", ver)
+            z.writestr("FEATURES", "\n".join(ENGINE_FEATURES) + "\n")
             z.writestr("package.json", json.dumps({"name": "nm-motion-node", "private": True, "type": "module", "version": ver}))
             for base, prefix in ((runner.bundle_dir(), "bundle"), (mods, "node_modules")):
                 for p in sorted(base.rglob("*")):
@@ -226,7 +230,7 @@ def step_pack() -> dict:
         if old.name != pack_name and old.stat().st_mtime < pack_path.stat().st_mtime - 3600:
             old.unlink(missing_ok=True)
     manifest = {
-        "version": ver, "built_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "remotion": REMOTION,
+        "version": ver, "built_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "remotion": REMOTION, "features": list(ENGINE_FEATURES),
         "pack": {"name": pack_name, "size": pack_path.stat().st_size, "sha256": sha256_file(pack_path)},
         "node": {"name": NODE_ZIP, "version": NODE_VERSION, "size": node_zip.stat().st_size, "sha256": sha256_file(node_zip),
                  "license": "MIT (Node.js)", "source": NODE_URLS[0]},

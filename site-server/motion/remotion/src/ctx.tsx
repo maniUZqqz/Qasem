@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useRef, useState } from "r
 import { continueRender, delayRender, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Brand, Cue, Pal, Spec, StyleDef } from "./types";
 import { easeOf, springOf } from "./presets";
-import { contrast, hasArabic, hex2rgb, lum, mix, shade } from "./util";
+import { brandPalette } from "./brand";
+import { hasArabic, hex2rgb, mix } from "./util";
 import FONTS from "./fonts.generated.json";
 
 export type Ctx = {
@@ -49,21 +50,7 @@ export function useQF(): number {
 
 // ───────────────────────────────────────────── brand colours on top of the style palette
 
-export function brandPalette(pal: Pal, brand?: Brand): Pal {
-  if (!brand || brand.use_brand_colors === false) return pal;
-  const cols = (brand.colors || []).filter((c) => /^#?[0-9a-fA-F]{6}$/.test((c || "").trim())).map((c) => (c.startsWith("#") ? c : "#" + c));
-  if (!cols.length) return pal;
-  const out = { ...pal };
-  const fit = (c: string) => {
-    // keep the accent readable on this style's background
-    if (contrast(c, pal.bg) >= 2.2) return c;
-    return lum(pal.bg) > 0.4 ? shade(c, -0.45) : shade(c, 0.45);
-  };
-  out.accent = fit(cols[0]);
-  if (cols[1]) out.accent2 = fit(cols[1]);
-  if (cols[2]) out.accent3 = fit(cols[2]);
-  return out;
-}
+export { brandPalette, fitOn } from "./brand";
 
 // ───────────────────────────────────────────── fonts
 
@@ -215,7 +202,7 @@ export function sceneCtx(base: Omit<Ctx, "scene">, sc: any, frames: number, inde
     scene: { index, frames, count },
     enter: typeof sc?.enter === "string" && sc.enter ? sc.enter : base.style.motion.enter,
     spring: springOf(sc?.spring) ?? base.style.motion.spring,
-    easeName: typeof sc?.ease === "string" && sc.ease ? sc.ease : "out-expo",
+    easeName: typeof sc?.ease === "string" && sc.ease ? sc.ease : (typeof base.style.motion.ease === "string" && base.style.motion.ease ? base.style.motion.ease : "out-expo"),
     align: t.align === "start" || t.align === "end" ? t.align : "center",
     capBand: captionBand(base, sc, cues.length),
   };

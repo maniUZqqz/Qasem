@@ -30,6 +30,7 @@ export type StyleDef = {
   motion: {
     enter: string; spring: [number, number, number]; stagger: number;
     stepFps?: number | null; wobble?: number; cam?: Any; hold?: number;
+    ease?: string;            // the style's default easing preset name (presets.ts EASES); a scene's own `ease` wins
   };
   trans: { kind: string; frames: number };
   fx?: Any;

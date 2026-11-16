@@ -179,6 +179,18 @@ def qa_task(plan_id: int, apply_fixes: bool = True, geometry: bool = True) -> No
         MotionPlan.objects.filter(pk=plan_id).update(qa={"state": "failed", "summary": f"کنترلِ کیفیت ناموفق بود: {exc}"[:300], "rounds": [], "remaining": []})
 
 
+@shared_task(ignore_result=True, name="apps.motion.tasks.style_check_task", time_limit=900)
+def style_check_task(check_id: int) -> None:
+    """کنترلِ کیفیتِ یک «سبکِ تازه» (رندرِ واقعیِ فریم‌ها با متنِ فروشگاه)؛ نتیجه روی MotionStyleCheck می‌ماند."""
+    from . import stylecheck
+
+    stylecheck.run(check_id)
+
+
+def dispatch_style_check(check_id: int) -> None:
+    _run(style_check_task, check_id)
+
+
 def schedule_critique(plan) -> dict:
     from . import critique
 

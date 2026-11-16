@@ -79,6 +79,13 @@ export function toEnDigits(s: string): string {
   return String(s).replace(/[۰-۹]/g, (d) => String(FA_DIGITS.indexOf(d))).replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660));
 }
 
+/** Persian digits for Persian text, but never inside a Latin token: «PS2», «3D», «4K», «Chrome 22K», «2.5D» keep their Latin digits
+ *  (a Persian ۲ glued to Latin letters is the mixed-digit bug). `en`: force Latin digits everywhere. */
+export function fixDigits(s: string, fa: boolean, en: boolean): string {
+  if (fa) return String(s).replace(/\S+/g, (tok) => (/[A-Za-z]/.test(tok) ? tok : toFaDigits(tok)));
+  return en ? toEnDigits(s) : s;
+}
+
 export function fmtNumber(n: number, fa: boolean, decimals = 0): string {
   const fixed = n.toFixed(decimals);
   const [ip, dp] = fixed.split(".");

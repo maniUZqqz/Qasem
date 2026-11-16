@@ -15,7 +15,7 @@ from django.utils import timezone
 from apps.compute import services as CS
 from apps.compute.models import ComputeJob, ComputeNode
 
-from . import assets, catalog, pipeline, runner, safety, sound, specs
+from . import assets, catalog, custom, pipeline, runner, safety, sound, specs
 from .models import MotionRender
 
 logger = logging.getLogger(__name__)
@@ -58,10 +58,12 @@ def node_status() -> dict:
         state, message = "offline", "سرورِ پردازش خاموش است؛ رندر در صف می‌ماند تا روشن شود."
     else:
         state, message = "outdated", "سرورِ پردازش ثبت است ولی نسخه‌اش هنوز موشن را نمی‌شناسد؛ با روشن شدن و به‌روزرسانی، رندر در صف انجام می‌شود."
+    # does an online node's installed pack draw the user's own styles («سبکِ تازه»)? Without nodes the site renders with its own (always current) bundle.
+    style_def = (not nodes) or any("style_def" in ((n.capabilities or {}).get("motion") or {}).get("features", []) for n in online_capable)
     return {
         "registered": len(nodes), "capable": len(capable), "online": len([n for n in nodes if n.online]),
         "capable_online": len(online_capable), "state": state, "message": message, "detail": info,
-        "names": [n.name for n in nodes][:5],
+        "names": [n.name for n in nodes][:5], "style_def": bool(style_def),
     }
 
 
@@ -79,6 +81,22 @@ def choose_target(requested: str | None) -> str:
 def _slug(s: str) -> str:
     s = re.sub(r"[^\w؀-ۿ-]+", "-", s or "").strip("-")
     return (s or "motion")[:40]
+
+
+def attach_style(store, spec: dict) -> dict:
+    """سبکِ شخصی («سبکِ تازه») را همراهِ خودِ طرح می‌برد (`spec.style_def`): بستهٔ رندرِ گره و پخش‌کننده نیازی به دانستنِ آن در کاتالوگِ خودشان ندارند.
+    سبکِ فروشگاهِ دیگر یا حذف‌شده ⇒ MotionError. سبکِ کاتالوگ بی‌تغییر می‌ماند."""
+    sid = str(spec.get("style") or "")
+    spec.pop("style_def", None)
+    if not custom.parse_id(sid):
+        return spec
+    if not custom.usable_by(sid, store.pk):
+        raise MotionError("این سبک مالِ فروشگاهِ دیگری است و برای این فروشگاه در دسترس نیست.")
+    st = catalog.get(sid)
+    if not st:
+        raise MotionError("سبکِ شخصیِ انتخاب‌شده پیدا نشد (شاید حذف شده است). سبکِ دیگری انتخاب کنید.")
+    spec["style_def"] = custom.render_def(st)
+    return spec
 
 
 def materialize(store, spec: dict) -> tuple[dict, dict[str, tuple[bytes, str]]]:
@@ -107,6 +125,7 @@ def materialize(store, spec: dict) -> tuple[dict, dict[str, tuple[bytes, str]]]:
                 sc[k] = sub(sc[k])
     out["assets"] = {k: f"@file:{k}{files[k][1]}" for k in files}
     out.pop("total_s", None)
+    attach_style(store, out)
     return out, files
 
 
@@ -134,6 +153,7 @@ def preview_payload(store, spec: dict) -> dict:
             if sc.get(k) in mapping:
                 sc[k] = f"asset:{mapping[sc[k]]}"
     out.pop("total_s", None)
+    attach_style(store, out)
     return out
 
 
@@ -183,6 +203,7 @@ def create(store, user, *, mode: str, title: str = "", spec: dict | None = None,
             clean = specs.normalize_spec(spec or {}, max_total=max_total)
         except specs.SpecError as exc:
             raise MotionError(str(exc)) from exc
+        attach_style(store, dict(clean))                      # a style of another store (or a deleted one) stops here, with a clear message
         clean["brand"] = brand_with_defaults(store, clean.get("brand"))
         row = MotionRender(store=store, user=user, mode=mode, title=(title or _default_title(clean))[:200], spec=clean,
                            style=clean["style"], aspect=clean["aspect"], options=opts, target=target, plan=plan)

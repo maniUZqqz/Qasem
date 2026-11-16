@@ -15,6 +15,87 @@ export type StyleDef = {
   tags: string[];
   palette: Record<string, string>;
   font: { latin: string; fa: string };
+  /** «سبکِ تازه»: سبکی که کاربر ساخته (فروشگاهی یا همگانی) */
+  custom?: boolean;
+  pk?: number;
+  scope?: "store" | "global";
+  thumb_url?: string;
+  store_id?: number | null;
+  base_style?: string;
+  qa?: { state?: string; summary?: string; geometry?: boolean; at?: string };
+};
+
+/** یک توکنِ پارامتردار: `{kind: "grid", size: 44, ...}` */
+export type Tok = { kind?: string; fx?: string; [k: string]: unknown };
+
+/** سبک به شکلی که ویرایشگر می‌خواند و می‌نویسد (backend/apps/motion/custom.py: sanitize) */
+export type StyleDoc = {
+  name_fa: string;
+  name_en: string;
+  about: string;
+  tags: string[];
+  group: string;
+  palette: Record<string, string>;
+  font: { latin: string; fa: string; weight: number; body_latin: string | null; body_fa: string | null; case: "none" | "upper"; track: number; lh: number };
+  bg: Tok;
+  bg2: Tok | null;
+  tex: Tok[];
+  decor: Tok[];
+  text: Tok;
+  shape: Record<string, unknown>;
+  motion: { enter: string; spring: [number, number, number]; ease: string; stagger: number; stepFps: number | null; wobble: number; cam: { zoom?: number; pan?: [number, number]; rot?: number; sway?: number } | null };
+  trans: { kind: string; frames: number };
+  fx: Record<string, unknown>;
+};
+
+export type ParamSpec = {
+  t: "num" | "bool" | "color" | "colors" | "enum" | "enumlist" | "pos" | "rgb" | "palmap" | "fill";
+  label: string;
+  min?: number;
+  max?: number;
+  int?: boolean;
+  default?: number;
+  choices?: string[];
+};
+export type KindDef = { id: string; label: string; params: Record<string, ParamSpec> };
+export type StyleSchema = {
+  version: number;
+  roles: string[];
+  role_labels: Record<string, string>;
+  fonts: { key: string; family: string; license: string; fa: boolean; weights: number[] }[];
+  bg: KindDef[];
+  decor: KindDef[];
+  tex: KindDef[];
+  text: KindDef[];
+  enters: { id: string; label: string }[];
+  transitions: { id: string; label: string }[];
+  eases: { id: string; label: string }[];
+  springs: { id: string; label: string; value: [number, number, number] }[];
+  personalities: { id: string; name: string; motion: StyleDoc["motion"]; trans: [string, number] }[];
+  shape: Record<string, ParamSpec>;
+  fx: Record<string, [number, number]>;
+  guard: { fg: string; bg: string; need: number; severity: string; what: string }[];
+  groups: Record<string, string>;
+  limits: { per_store: number; global: number; tex: number; decor: number };
+  blank: StyleDoc;
+};
+export type ContrastCheck = { fg: string; bg: string; ratio: number; need: number; severity: "ok" | "warn" | "error"; ok: boolean; message: string };
+export type ContrastReport = { ok: boolean; checks: ContrastCheck[]; errors: string[]; warnings: string[] };
+export type StyleFinding = { code: string; label: string; scene?: number | null; message: string; aspect?: string };
+export type StyleCheck = {
+  id: number;
+  state: "running" | "pass" | "fail" | "error";
+  hash: string;
+  summary: string;
+  progress: number;
+  errors: StyleFinding[];
+  warnings: StyleFinding[];
+  geometry: boolean;
+  frames: number;
+  contrast?: ContrastReport | null;
+  shots: { aspect: string; scene: number; kind: string; image_url?: string }[];
+  thumb_url: string;
+  at: string;
 };
 
 export type SceneType = string;
@@ -217,6 +298,8 @@ export type NodeInfo = {
   message: string;
   detail: { state?: string; progress?: number; message?: string; error?: string; gl?: string; gpu?: boolean };
   names: string[];
+  /** بستهٔ موشنِ گره سبک‌های شخصی را می‌کشد؟ (بدونِ گره = رندرِ سایت = همیشه) */
+  style_def?: boolean;
 };
 
 export type Overview = {
@@ -285,6 +368,30 @@ export const motionApi = {
   act: (id: string | number, rid: number, action: "cancel" | "site" | "retry") =>
     api.post<{ render: RenderRow }>(`${base(id)}/renders/${rid}/${action}/`, {}).then((r) => r.data.render),
   remove: (id: string | number, rid: number) => api.delete(`${base(id)}/renders/${rid}/`),
+};
+
+export const customApi = {
+  schema: () => api.get<StyleSchema>("/motion/style-schema/").then((r) => r.data),
+  list: (id: string | number) => api.get<{ styles: StyleDef[]; can_global: boolean; limits: { per_store: number; global: number } }>(`${base(id)}/custom-styles/`).then((r) => r.data),
+  get: (id: string | number, pk: number) => api.get<{ style: StyleDef & StyleDoc }>(`${base(id)}/custom-styles/${pk}/`).then((r) => r.data.style),
+  save: (id: string | number, body: { style: StyleDoc; scope: "store" | "global"; base_style?: string }) =>
+    api.post<{ style: StyleDef }>(`${base(id)}/custom-styles/`, body).then((r) => r.data.style),
+  update: (id: string | number, pk: number, style: StyleDoc) => api.put<{ style: StyleDef }>(`${base(id)}/custom-styles/${pk}/`, { style }).then((r) => r.data.style),
+  remove: (id: string | number, pk: number) => api.delete(`${base(id)}/custom-styles/${pk}/`).then(() => undefined),
+  exportJson: (id: string | number, pk: number) => api.get<{ nm_motion_style: number; style: StyleDoc }>(`${base(id)}/custom-styles/${pk}/export/`).then((r) => r.data),
+  importJson: (id: string | number, json: unknown) =>
+    api.post<{ style: StyleDoc; notes: string[]; contrast: ContrastReport }>(`${base(id)}/custom-styles/import/`, { json }).then((r) => r.data),
+  validate: (id: string | number, style: StyleDoc) =>
+    api.post<{ style: StyleDoc; notes: string[]; contrast: ContrastReport; hash: string; fixed_palette?: Record<string, string> }>(`${base(id)}/custom-styles/validate/`, { style }).then((r) => r.data),
+  describe: (id: string | number, text: string, baseStyle?: string) =>
+    api.post<{ style: StyleDoc; source: "ai" | "rules"; message: string; contrast: ContrastReport }>(`${base(id)}/custom-styles/describe/`, { text, base_style: baseStyle }).then((r) => r.data),
+  palette: (id: string | number, colors?: string[], dark?: boolean) =>
+    api.post<{ palette: Record<string, string>; from: string[] }>(`${base(id)}/custom-styles/palette/`, { colors, dark }).then((r) => r.data),
+  preview: (id: string | number, style: StyleDoc, aspect: string, scenes = 2) =>
+    api.post<{ spec: Spec }>(`${base(id)}/custom-styles/preview/`, { style, aspect, scenes }).then((r) => r.data.spec),
+  check: (id: string | number, style: StyleDoc) =>
+    api.post<{ check: StyleCheck; fixed_palette: Record<string, string> | null }>(`${base(id)}/custom-styles/check/`, { style }).then((r) => r.data),
+  checkGet: (id: string | number, cid: number) => api.get<{ check: StyleCheck }>(`${base(id)}/custom-styles/check/${cid}/`).then((r) => r.data.check),
 };
 
 export const thumbUrl = (styleId: string) => `/api/v1/motion/styles/${styleId}/thumb/`;

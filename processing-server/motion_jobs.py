@@ -119,6 +119,50 @@ def paths(agent=None):
             "downloads": os.path.join(d, "downloads"), "state": os.path.join(d, "state.json"), "jobs": os.path.join(d, "jobs")}
 
 
+# ───────────────────────────────────────────── what the installed pack can do (a render may need more than an old pack has)
+
+FEATURES_FILE = "FEATURES"                  # written into the pack zip by the site (buildlib.step_pack): one engine feature per line
+
+
+def pack_features(p=None):
+    """The engine features of the INSTALLED pack (set of names). An old pack has no FEATURES file => an empty set."""
+    p = p or paths()
+    try:
+        with open(os.path.join(p["pack_dir"], FEATURES_FILE), "r", encoding="utf-8") as fh:
+            return {ln.strip() for ln in fh.read().splitlines() if ln.strip()}
+    except OSError:
+        return set()
+
+
+def needed_features(payload):
+    """Features a job needs from the engine. `style_def`: the spec carries the user's OWN style («سبکِ تازه»); an engine without it would silently
+    draw the default style - a "successful" render with the wrong look - so such a job must never run on an old pack."""
+    need = set()
+    props = (payload or {}).get("props")
+    spec = props.get("spec") if isinstance(props, dict) else None
+    if isinstance(spec, dict) and spec.get("style_def"):
+        need.add("style_def")
+    return need
+
+
+def _refresh_pack(agent):
+    """Try ONCE to get the site's newest pack (the job that needs it is waiting, so no download window). Never swaps files under another running render."""
+    if _JOBS["n"] > 1:
+        return False
+    p = paths(agent)
+    try:
+        m = load_manifest(agent)
+        if _marker(os.path.join(p["pack_dir"], "VERSION")) == m["version"] and pack_features(p):
+            return False                                # already the newest the site has
+        ensure_pack(m, p)
+        _set(pack_version=m["version"], step="", message="ابزارِ موشن آماده است", progress=1.0)
+        log("pack refreshed for a job that needs engine features: %s" % m["version"])
+        return True
+    except Exception as e:  # noqa: BLE001 - a failed refresh only means the job waits and is retried
+        warn("pack refresh failed: %s" % e)
+        return False
+
+
 # ───────────────────────────────────────────── state (what the panel sees)
 
 def _set(**kw):
@@ -675,7 +719,7 @@ def caps(agent=None):
     keep = {k: st.get(k, "") for k in ("state", "step", "progress", "message", "error", "pack_version", "gl", "color_space", "tested_at", "gpu")}
     keep["browser"] = os.path.basename(st.get("browser") or "")
     keep["agent_module"] = VERSION
-    keep["features"] = ["audio_mux", "qa_still"]            # the site reads these: a node with "audio_mux" lays the finished mix under the picture itself
+    keep["features"] = ["audio_mux", "qa_still"] + sorted(pack_features(paths(agent)))      # the site reads these: "audio_mux" = lays the finished mix under the picture itself; pack features (style_def) = the engine in the installed pack
     return {"motion_render": True, "motion": keep}
 
 
@@ -807,6 +851,15 @@ def _run_job(job, agent, payload, fail):
         if st.get("state") != "ready":
             raise fail(MotionError("ابزارِ موشن روی این کامپیوتر آماده نشد: %s" % (st.get("error") or st.get("message") or "؟")))
     p = paths(agent)
+    need = needed_features(payload)
+    if need and not need <= pack_features(p):
+        job.progress(0.04, "به‌روزرسانیِ بستهٔ رندرِ موشن (سبکِ شخصی)")
+        _refresh_pack(agent)
+        st = snapshot()                                         # the pack version may have changed: the job's meta must name the pack it really used
+        missing = need - pack_features(p)
+        if missing:
+            raise fail(MotionError("بستهٔ رندرِ موشن روی این کامپیوتر (%s) هنوز %s را نمی‌شناسد؛ سایت بستهٔ تازه را که بسازد (manage.py motion_build) این کار خودش دوباره انجام می‌شود"
+                                   % (st.get("pack_version") or "؟", "، ".join(sorted(missing)))))
     work = os.path.join(p["jobs"], job.uid)
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work, exist_ok=True)
@@ -871,7 +924,7 @@ def _run_job(job, agent, payload, fail):
                 audio_note = "audio file missing from the job inputs"
         on_gpu = gl_used == "angle"
         meta = {"primary": out_name, "audio": audio_note, "seconds": round(time.time() - t0, 1), "gl": gl_used, "width": done.get("width"), "height": done.get("height"),
-                "fps": done.get("fps"), "frames": done.get("frames"), "bytes": done.get("bytes"), "pack": st.get("pack_version"), "engine": "remotion",
+                "fps": done.get("fps"), "frames": done.get("frames"), "bytes": done.get("bytes"), "pack": st.get("pack_version"), "engine": "remotion", "pack_features": sorted(pack_features(p)),
                 # the node self-test reads these: "gpu" = Chromium rasterised on the video card (ANGLE/D3D11); the H.264 encode is CPU either way
                 "device": "gpu" if on_gpu else "cpu",
                 "device_note": ("Chromium ANGLE/D3D11 on the video card; H.264 encode on the CPU" if on_gpu

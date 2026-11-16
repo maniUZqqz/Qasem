@@ -7,6 +7,7 @@ import { CtxC, buildCtx, fontKeysOf, sceneCtx, useAsset, useCtx, useFonts } from
 import type { Ctx } from "./ctx";
 import { area } from "./kit";
 import { computeTimeline } from "./timeline";
+import { ENGINE_FEATURES, resolveStyle } from "./style-def";
 import type { Timeline } from "./timeline";
 import { QaProbe } from "./qa";
 import { COMPONENTS, OVERLAYS } from "./registry";
@@ -31,7 +32,7 @@ export { computeTimeline };
 export function calcMetadata(spec: Spec) {
   const [width, height] = ASPECTS[spec.aspect] ?? ASPECTS["9:16"];
   const fps = Math.max(10, Math.min(60, Number(spec.fps) || 30));
-  const tl = computeTimeline(spec, getStyle(spec.style), fps);
+  const tl = computeTimeline(spec, resolveStyle(spec, getStyle), fps);
   return { width, height, fps, durationInFrames: tl.total };
 }
 
@@ -171,7 +172,7 @@ const CutOverlay: React.FC<{ kind: string; base: Omit<Ctx, "scene"> }> = ({ kind
 
 export const Template: React.FC<{ spec: Spec }> = ({ spec }) => {
   const { width, height, fps } = useVideoConfig();
-  const style = getStyle(spec.style);
+  const style = resolveStyle(spec, getStyle);
   const base = buildCtx(style, spec, width, height, fps);
   const tl = computeTimeline(spec, style, fps);
   const fonts = useFonts(fontKeysOf(style));
@@ -179,7 +180,7 @@ export const Template: React.FC<{ spec: Spec }> = ({ spec }) => {
   const dip = tl.kinds.includes("dip");
   return (
     <CtxC.Provider value={rootCtx}>
-      <AbsoluteFill style={{ background: dip || spec.bare ? "#000000" : base.pal.bg }}>
+      <AbsoluteFill style={{ background: dip || spec.bare ? "#000000" : base.pal.bg }} data-nm-style-def={(spec as any).style_def ? style.id : undefined}>
         <SvgDefs />
         {spec.scenes.map((sc, i) => (
           <Sequence key={i} from={tl.starts[i]} durationInFrames={tl.frames[i]} layout="none">
@@ -202,4 +203,4 @@ export const Template: React.FC<{ spec: Spec }> = ({ spec }) => {
   );
 };
 
-export { OVERLAY_KINDS };
+export { OVERLAY_KINDS, ENGINE_FEATURES };

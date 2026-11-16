@@ -133,3 +133,71 @@ class MotionPlanRev(models.Model):
     class Meta:
         ordering = ["n"]
         constraints = [models.UniqueConstraint(fields=["plan", "n"], name="motion_planrev_unique_n")]
+
+
+class MotionCustomStyle(TimeStampedModel):
+    """«سبکِ تازه»: سبکی که کاربر ساخته (فروشگاهی یا همگانیِ مدیر). `data` همان ردیفِ سبک است (custom.sanitize)، بدونِ شناسه."""
+
+    #: خالی = همگانی (فقط مدیر می‌سازد؛ همهٔ فروشگاه‌ها می‌بینند)
+    store = models.ForeignKey("stores.Store", null=True, blank=True, on_delete=models.CASCADE, related_name="motion_custom_styles")
+    style_id = models.CharField(max_length=60, unique=True)
+    name_fa = models.CharField(max_length=60)
+    name_en = models.CharField(max_length=60, blank=True)
+    data = models.JSONField(default=dict)
+    #: سبکی که از رویش ساخته شد (کپی) یا خالی = از صفر
+    base_style = models.CharField(max_length=60, blank=True)
+    #: گزارشِ کنترلِ کیفیتی که این نسخه را پذیرفت + امضای محتوایی که سنجیده شد
+    qa = models.JSONField(default=dict, blank=True)
+    qa_hash = models.CharField(max_length=40, blank=True)
+    #: بندانگشتی (نسبت به MEDIA_ROOT)
+    thumb = models.CharField(max_length=400, blank=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [models.Index(fields=["store", "-updated_at"])]
+
+    def __str__(self):
+        return f"{self.name_fa} ({self.style_id})"
+
+    @property
+    def scope(self) -> str:
+        return "global" if self.store_id is None else "store"
+
+    def as_styledef(self) -> dict:
+        from . import custom
+
+        d = custom.to_styledef(self.style_id, self.data, scope=self.scope)
+        d["name_fa"], d["name_en"] = self.name_fa, self.name_en or d.get("name_en", "")
+        d["pk"] = self.pk
+        d["store_id"] = self.store_id
+        d["base_style"] = self.base_style
+        d["updated_at"] = self.updated_at.isoformat() if self.updated_at else ""
+        if self.thumb:
+            from django.conf import settings as dj
+
+            d["thumb_url"] = (getattr(dj, "MEDIA_URL", "/media/") or "/media/").rstrip("/") + "/" + self.thumb.lstrip("/")
+        d["qa"] = {k: (self.qa or {}).get(k) for k in ("state", "summary", "geometry", "at") if k in (self.qa or {})}
+        return d
+
+
+class MotionStyleCheck(TimeStampedModel):
+    """کنترلِ کیفیتِ یک سبکِ پیش‌نویس (پیش از ذخیره): رندرِ واقعیِ فریم‌ها با متنِ فروشگاه + نگهبانِ کنتراست. ذخیره فقط با یک check ِ «قبول» با همان امضا ممکن است."""
+
+    class State(models.TextChoices):
+        RUNNING = "running", "در حال اجرا"
+        PASS = "pass", "قبول"
+        FAIL = "fail", "رد"
+        ERROR = "error", "خطا"
+
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="motion_style_checks")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    style_hash = models.CharField(max_length=40, db_index=True)
+    style = models.JSONField(default=dict)
+    state = models.CharField(max_length=8, choices=State.choices, default=State.RUNNING, db_index=True)
+    report = models.JSONField(default=dict, blank=True)
+    thumb = models.CharField(max_length=400, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["store", "-created_at"])]

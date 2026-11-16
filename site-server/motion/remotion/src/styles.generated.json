@@ -463,8 +463,10 @@
     "floor": "grid",
     "line": "accent2",
     "floorBase": "bg",
-    "horizon": 0.6,
-    "speed": 90
+    "horizon": 0.66,
+    "speed": 90,
+    "veil": 0.62,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -571,7 +573,9 @@
     "fa": "accent",
     "fb": "accent2",
     "horizon": 0.6,
-    "speed": 70
+    "speed": 70,
+    "veil": 0.8,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -588,9 +592,9 @@
    ],
    "text": {
     "fx": "hard",
-    "color": "paper",
-    "shadow": "accent3",
-    "depth": 7
+    "color": "ink",
+    "shadow": "accent",
+    "depth": 5
    },
    "shape": {
     "radius": 0,
@@ -1179,10 +1183,10 @@
    ],
    "text": {
     "fx": "outline-hard",
-    "color": "paper",
-    "stroke_c": "ink",
+    "color": "ink",
+    "stroke_c": "paper",
     "sw": 7,
-    "depth": 9
+    "depth": 8
    },
    "shape": {
     "radius": 0,
@@ -1202,7 +1206,7 @@
     },
     {
      "kind": "burst",
-     "color": "accent",
+     "color": "paper",
      "stroke": "ink",
      "spikes": 16,
      "r": 0.5,
@@ -1277,10 +1281,10 @@
    ],
    "text": {
     "fx": "outline-hard",
-    "color": "paper",
-    "stroke_c": "ink",
-    "sw": 8,
-    "depth": 10
+    "color": "ink",
+    "stroke_c": "paper",
+    "sw": 7,
+    "depth": 8
    },
    "shape": {
     "radius": 0,
@@ -1384,7 +1388,7 @@
       "accent3",
       "accent"
      ],
-     "op": 0.55,
+     "op": 0.32,
      "size": 1
     }
    ],
@@ -1551,7 +1555,7 @@
       "accent2",
       "accent3"
      ],
-     "op": 0.7,
+     "op": 0.3,
      "size": 1.1
     },
     {
@@ -1792,7 +1796,7 @@
    "palette": {
     "bg": "#4aa8ff",
     "bg2": "#bfe6ff",
-    "ink": "#ffffff",
+    "ink": "#12294d",
     "paper": "#ffffff",
     "accent": "#ff5e8a",
     "accent2": "#ffd93d",
@@ -1837,10 +1841,10 @@
    ],
    "text": {
     "fx": "outline-hard",
-    "color": "paper",
-    "stroke_c": "muted",
+    "color": "ink",
+    "stroke_c": "paper",
     "sw": 7,
-    "depth": 7
+    "depth": 6
    },
    "shape": {
     "radius": 20,
@@ -2116,7 +2120,7 @@
    "name_en": "Stickman",
    "inspired": null,
    "group": "cartoon",
-   "about": "دفترچهٔ خط‌دار با آدمِ چوبیِ در حالِ راه‌رفتن و خطِ لرزانِ ماژیک؛ توضیحِ ساده.",
+   "about": "دفترچهٔ خط‌دار با آدمِ چوبیِ در حالِ راه‌رفتن و خطِ لرزانِ ماژیک؛ حرکتِ فریم‌به‌فریمِ کارتونیِ ساده.",
    "tags": [
     "توضیحی",
     "ساده"
@@ -2170,19 +2174,19 @@
     }
    ],
    "motion": {
-    "enter": "wipe",
+    "enter": "pop",
     "spring": [
-     30,
-     150,
-     1
+     16,
+     180,
+     0.9
     ],
     "stagger": 9,
-    "stepFps": 10,
-    "wobble": 4,
+    "stepFps": 8,
+    "wobble": 5,
     "cam": null
    },
    "trans": {
-    "kind": "wipe",
+    "kind": "slide",
     "frames": 14
    },
    "fx": {}
@@ -2273,7 +2277,7 @@
    "name_en": "Whiteboard",
    "inspired": null,
    "group": "craft",
-   "about": "ماژیکِ آبی و قرمز روی وایت‌بردِ قاب‌دار؛ خطِ لرزان و نوشتنِ تدریجی.",
+   "about": "ماژیکِ آبی روی وایت‌بردِ قاب‌دار با هایلایتِ زرد؛ کارت‌های سفید که روان می‌لغزند؛ مثلِ ارائه‌ٔ جلسه.",
    "tags": [
     "آموزشی",
     "ارائه"
@@ -2286,10 +2290,10 @@
     "accent": "#e5383b",
     "accent2": "#2a9d4a",
     "accent3": "#111111",
-    "muted": "#7b8794"
+    "muted": "#5f6b7a"
    },
    "font": {
-    "latin": "caveat",
+    "latin": "patrick-hand",
     "fa": "lemonada",
     "weight": 700,
     "body_latin": null,
@@ -2303,18 +2307,23 @@
     "base": "paper"
    },
    "bg2": null,
-   "tex": [],
+   "tex": [
+    {
+     "kind": "grain",
+     "opacity": 0.04
+    }
+   ],
    "text": {
-    "fx": "hand",
-    "color": "ink"
+    "fx": "marker",
+    "color": "ink",
+    "hi": "#ffe066"
    },
    "shape": {
-    "radius": 0,
-    "border": 4,
-    "shadow": "none",
-    "fill": "none",
-    "bc": "ink",
-    "filter": "url(#nm-rough)"
+    "radius": 10,
+    "border": 3,
+    "shadow": "soft",
+    "fill": "paper",
+    "bc": "muted"
    },
    "decor": [
     {
@@ -2325,20 +2334,20 @@
     }
    ],
    "motion": {
-    "enter": "wipe",
+    "enter": "slide",
     "spring": [
-     30,
-     150,
-     1
+     22,
+     170,
+     1.0
     ],
-    "stagger": 9,
-    "stepFps": 12,
-    "wobble": 4,
+    "stagger": 8,
+    "stepFps": null,
+    "wobble": 2,
     "cam": null
    },
    "trans": {
-    "kind": "wipe",
-    "frames": 14
+    "kind": "push",
+    "frames": 16
    },
    "fx": {}
   },
@@ -2568,7 +2577,9 @@
      "accent2",
      "muted"
     ],
-    "n": 5
+    "n": 5,
+    "veil": 0.7,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -2929,7 +2940,9 @@
      "#9bc995"
     ],
     "n": 8,
-    "op": 0.45
+    "op": 0.45,
+    "veil": 0.6,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -3379,7 +3392,9 @@
     "light": "paper",
     "at": "50% 20%",
     "op": 0.5,
-    "bokehColor": "accent"
+    "bokehColor": "accent",
+    "veil": 0.5,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -3484,7 +3499,9 @@
     "contrast": 0.22,
     "seed": 2,
     "gx": 0.2,
-    "gy": 0.9
+    "gy": 0.9,
+    "veil": 0.55,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -3580,7 +3597,9 @@
     "left": "accent2",
     "right": "#6b3f1a",
     "size": 70,
-    "bob": true
+    "bob": true,
+    "veil": 0.62,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [],
@@ -3826,9 +3845,11 @@
     "parallax": 2.4,
     "speed": 14,
     "amp": 0.09,
-    "spread": 0.42,
+    "spread": 0.32,
     "sun": true,
-    "sunColor": "accent3"
+    "sunColor": "accent3",
+    "veil": 0.62,
+    "veilColor": "bg2"
    },
    "bg2": null,
    "tex": [
@@ -3843,9 +3864,9 @@
    ],
    "text": {
     "fx": "hard",
-    "color": "paper",
-    "shadow": "ink",
-    "depth": 5
+    "color": "ink",
+    "shadow": "paper",
+    "depth": 4
    },
    "shape": {
     "radius": 20,
@@ -4795,7 +4816,9 @@
      "#4a2410"
     ],
     "n": 9,
-    "cy": 0.85
+    "cy": 0.85,
+    "veil": 0.62,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -4810,10 +4833,10 @@
    ],
    "text": {
     "fx": "retro",
-    "color": "paper",
-    "c2": "accent2",
-    "c3": "accent",
-    "c4": "ink",
+    "color": "ink",
+    "c2": "paper",
+    "c3": "accent2",
+    "c4": "accent",
     "depth": 5
    },
    "shape": {
@@ -5388,7 +5411,7 @@
     "layers": 4,
     "sun": true,
     "sunColor": "paper",
-    "horizon": 0.56,
+    "horizon": 0.78,
     "speed": 10,
     "parallax": 1
    },
@@ -5478,7 +5501,9 @@
    },
    "bg": {
     "kind": "parchment",
-    "base": "bg2"
+    "base": "bg2",
+    "veil": 0.5,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [
@@ -5582,7 +5607,9 @@
     ],
     "cell": 240,
     "lead": "#0b0614",
-    "leadw": 12
+    "leadw": 12,
+    "veil": 0.9,
+    "veilColor": "bg"
    },
    "bg2": null,
    "tex": [

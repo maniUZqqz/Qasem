@@ -137,7 +137,7 @@ STYLES = [
     S("synthwave", "سینت‌ویو", "Synthwave", "digital",
       "#1a0536 #3d0e6b #ffe9ff #ffe9ff #ff3ea5 #00e5ff #ff9a3c #b58ae0",
       {"latin": "righteous", "fa": "lalezar", "weight": 400, "case": "upper", "track": 0.03},
-      {"kind": "sunset", "sky": ["bg", "bg2", "accent"], "sun": ["accent3", "accent"], "floor": "grid", "line": "accent2", "floorBase": "bg", "horizon": 0.6, "speed": 90},
+      {"kind": "sunset", "sky": ["bg", "bg2", "accent"], "sun": ["accent3", "accent"], "floor": "grid", "line": "accent2", "floorBase": "bg", "horizon": 0.66, "speed": 90, "veil": 0.62, "veilColor": "bg"},
       {"fx": "chrome", "edge": "bg"},
       shape={"radius": 14, "border": 3, "bc": "accent2", "shadow": "glow", "sc": "accent", "fill": "bg"},
       decor=[{"kind": "sparkles", "n": 10, "colors": ["paper", "accent2"]}],
@@ -148,8 +148,8 @@ STYLES = [
     S("vaporwave", "ویپورویو", "Vaporwave", "digital",
       "#f6c9ff #7fe9e0 #2b1460 #fff4fe #ff71ce #01cdfe #b967ff #8a6bd1",
       {"latin": "vt323", "fa": "vazirmatn", "weight": 700, "track": 0.03},
-      {"kind": "sunset", "sky": ["accent3", "accent", "bg"], "sun": ["accent2", "paper"], "floor": "checker", "fa": "accent", "fb": "accent2", "horizon": 0.6, "speed": 70},
-      {"fx": "hard", "color": "paper", "shadow": "accent3", "depth": 7},
+      {"kind": "sunset", "sky": ["accent3", "accent", "bg"], "sun": ["accent2", "paper"], "floor": "checker", "fa": "accent", "fb": "accent2", "horizon": 0.6, "speed": 70, "veil": 0.8, "veilColor": "bg"},
+      {"fx": "hard", "color": "ink", "shadow": "accent", "depth": 5},
       shape={"radius": 0, "border": 4, "bc": "ink", "shadow": "hard", "sc": "accent2", "offset": 9, "fill": "paper", "extra": "titlebar", "bar": "accent3"},
       decor=[{"kind": "shapes", "n": 10, "kinds": ["tri", "ring", "cross", "half"], "colors": ["accent2", "accent3", "accent", "ink"], "spin": 10}],
       tex=[{"kind": "grain", "opacity": 0.08, "blend": "overlay"}, {"kind": "scanlines", "gap": 4, "opacity": 0.06}],
@@ -216,9 +216,9 @@ STYLES = [
       "#ffe94d #ffd21a #111111 #ffffff #e63946 #1d6fe0 #ffffff #444444",
       {"latin": "bangers", "fa": "lalezar", "weight": 400, "case": "upper", "track": 0.03},
       {"kind": "halftone", "base": "bg", "dot": "#ffb300", "size": 30},
-      {"fx": "outline-hard", "color": "paper", "stroke_c": "ink", "sw": 7, "depth": 9},
+      {"fx": "outline-hard", "color": "ink", "stroke_c": "paper", "sw": 7, "depth": 8},
       shape={"radius": 0, "border": 7, "bc": "ink", "shadow": "hard", "sc": "ink", "offset": 10, "fill": "paper", "tilt": 1.2},
-      decor=[{"kind": "speed", "n": 30, "color": "paper"}, {"kind": "burst", "color": "accent", "stroke": "ink", "spikes": 16, "r": 0.5, "cy": 0.46}],
+      decor=[{"kind": "speed", "n": 30, "color": "paper"}, {"kind": "burst", "color": "paper", "stroke": "ink", "spikes": 16, "r": 0.5, "cy": 0.46}],
       tex=[{"kind": "halftone", "color": "ink", "size": 18, "opacity": 0.06}, {"kind": "grain", "opacity": 0.05}],
       motion={"enter": "pop", "spring": (9, 190, 0.7), "stagger": 5}, trans=("wipe-diag", 12),
       about="نقطه‌چینِ چاپی، خطِ ضخیمِ سیاه، انفجارهای زرد و حبابِ کلمات.", tags=("کمیک", "کارتون")),
@@ -227,7 +227,7 @@ STYLES = [
       "#ffffff #ffe000 #111111 #ffffff #ff1f6d #00a6ff #ffe000 #444444",
       {"latin": "luckiest-guy", "fa": "lalezar", "weight": 400, "track": 0.02},
       {"kind": "halftone", "base": "bg2", "dot": "accent", "size": 40, "maskA": 1, "maskB": 0.85},
-      {"fx": "outline-hard", "color": "paper", "stroke_c": "ink", "sw": 8, "depth": 10},
+      {"fx": "outline-hard", "color": "ink", "stroke_c": "paper", "sw": 7, "depth": 8},        # dark letters with a white edge on the yellow dots (white letters on yellow measured 1.3:1)
       shape={"radius": 0, "border": 8, "bc": "ink", "shadow": "hard", "sc": "accent", "offset": 10, "fill": "paper", "tilt": 1.5},
       decor=[{"kind": "shapes", "n": 8, "kinds": ["circle", "tri", "cross"], "colors": ["accent", "accent2", "ink"], "outline": True, "size": 1.2}],
       tex=[{"kind": "halftone", "color": "accent2", "size": 26, "opacity": 0.1}],
@@ -240,7 +240,7 @@ STYLES = [
       {"kind": "solid", "c": "bg", "alt": "bg2"},
       {"fx": "plain"},
       shape={"radius": 28, "shadow": "none", "fill": "paper"},
-      decor=[{"kind": "blobs", "n": 5, "colors": ["accent2", "accent3", "accent"], "op": 0.55, "size": 1}],
+      decor=[{"kind": "blobs", "n": 5, "colors": ["accent2", "accent3", "accent"], "op": 0.32, "size": 1}],
       motion={"enter": "pop", "spring": (13, 150, 0.9), "stagger": 6}, trans=("slide", 16),
       about="شکل‌های ساده، رنگ‌های تختِ گرم و لبه‌های گرد؛ خوانا و دوستانه.", tags=("ساده", "مدرن")),
 
@@ -260,7 +260,7 @@ STYLES = [
       {"kind": "linear", "from": "bg", "to": "bg2", "angle": 200},
       {"fx": "plain"},
       shape={"radius": 34, "shadow": "soft", "fill": "paper"},
-      decor=[{"kind": "blobs", "n": 6, "colors": ["accent", "accent2", "accent3"], "op": 0.7, "size": 1.1},
+      decor=[{"kind": "blobs", "n": 6, "colors": ["accent", "accent2", "accent3"], "op": 0.3, "size": 1.1},
              {"kind": "shapes", "n": 8, "kinds": ["ring", "cross", "dots", "squiggle"], "colors": ["ink"], "size": 0.8, "spin": 6}],
       motion={"enter": "pop", "spring": (16, 130, 0.95), "stagger": 7}, trans=("slide", 18),
       inspired="سبکِ تصویرسازیِ شرکت‌های فناوری", about="لکه‌های رنگیِ بزرگ و فرم‌های ارگانیک؛ همان حالوهوای تصویرسازیِ سایت‌های شرکتی.", tags=("شرکتی", "ملایم")),
@@ -287,10 +287,10 @@ STYLES = [
       inspired="کارتونِ تلویزیونیِ مدرن", about="خطِ یکنواختِ ضخیم، رنگ‌های اشباع، شکل‌های بامزه و فشرده‌شدن/کشیده‌شدنِ حرکت.", tags=("کارتون", "شاد")),
 
     S("anime-inspired", "انیمه", "Anime", "cartoon",
-      "#4aa8ff #bfe6ff #ffffff #ffffff #ff5e8a #ffd93d #7c5cff #1c3b6b",
+      "#4aa8ff #bfe6ff #12294d #ffffff #ff5e8a #ffd93d #7c5cff #1c3b6b",
       {"latin": "londrina-solid", "fa": "lalezar", "weight": 900, "track": 0.01},
       {"kind": "clouds", "sky": ["bg", "bg2"], "cloud": "paper", "shadow": "#a8d4f5", "crisp": True, "n": 8, "band": 0.6, "speed": 1.4},
-      {"fx": "outline-hard", "color": "paper", "stroke_c": "muted", "sw": 7, "depth": 7},
+      {"fx": "outline-hard", "color": "ink", "stroke_c": "paper", "sw": 7, "depth": 6},
       shape={"radius": 20, "border": 5, "bc": "muted", "shadow": "hard", "sc": "muted", "fill": "paper", "tilt": -1},
       decor=[{"kind": "speed", "n": 26, "color": "paper", "rate": 12}, {"kind": "petals", "n": 16, "colors": ["#ffc2d9", "paper"]},
              {"kind": "sparkles", "n": 10, "glow": True, "colors": ["accent2", "paper"]}],
@@ -327,8 +327,8 @@ STYLES = [
       {"fx": "hand", "color": "ink"},
       shape={"radius": 0, "border": 4, "bc": "ink", "shadow": "none", "fill": "none", "filter": "url(#nm-rough)"},
       decor=[{"kind": "stickman", "color": "ink", "mode": "walk", "size": 1}],
-      motion={"enter": "wipe", "spring": (30, 150, 1), "stagger": 9, "stepFps": 10, "wobble": 4}, trans=("wipe", 14),
-      about="دفترچهٔ خط‌دار با آدمِ چوبیِ در حالِ راه‌رفتن و خطِ لرزانِ ماژیک؛ توضیحِ ساده.", tags=("توضیحی", "ساده")),
+      motion={"enter": "pop", "spring": (16, 180, 0.9), "stagger": 9, "stepFps": 8, "wobble": 5}, trans=("slide", 14),
+      about="دفترچهٔ خط‌دار با آدمِ چوبیِ در حالِ راه‌رفتن و خطِ لرزانِ ماژیک؛ حرکتِ فریم‌به‌فریمِ کارتونیِ ساده.", tags=("توضیحی", "ساده")),
 
     # ───────────────────────────── دست‌ساز و کاغذی
     S("chalkboard", "تختهٔ گچی", "ChalkBoard", "craft",
@@ -343,14 +343,15 @@ STYLES = [
       about="تختهٔ سبزِ کلاس با قابِ چوبی، نوشتهٔ گچیِ ناهموار و پاک‌کردنِ دست‌ساز.", tags=("آموزشی", "کلاس")),
 
     S("whiteboard", "وایت‌برد", "Whiteboard", "craft",
-      "#f4f6f8 #e6eaee #1d3fa6 #ffffff #e5383b #2a9d4a #111111 #7b8794",
-      {"latin": "caveat", "fa": "lemonada", "weight": 700},
+      "#f4f6f8 #e6eaee #1d3fa6 #ffffff #e5383b #2a9d4a #111111 #5f6b7a",
+      {"latin": "patrick-hand", "fa": "lemonada", "weight": 700},
       {"kind": "whiteboard", "base": "paper"},
-      {"fx": "hand", "color": "ink"},
-      shape={"radius": 0, "border": 4, "bc": "ink", "shadow": "none", "fill": "none", "filter": "url(#nm-rough)"},
+      {"fx": "marker", "color": "ink", "hi": "#ffe066"},
+      shape={"radius": 10, "border": 3, "bc": "muted", "shadow": "soft", "fill": "paper"},
       decor=[{"kind": "doodles", "color": "accent", "sw": 6, "arrow": True}],
-      motion={"enter": "wipe", "spring": (30, 150, 1), "stagger": 9, "stepFps": 12, "wobble": 4}, trans=("wipe", 14),
-      about="ماژیکِ آبی و قرمز روی وایت‌بردِ قاب‌دار؛ خطِ لرزان و نوشتنِ تدریجی.", tags=("آموزشی", "ارائه")),
+      tex=[{"kind": "grain", "opacity": 0.04}],
+      motion={"enter": "slide", "spring": (22, 170, 1.0), "stagger": 8, "wobble": 2}, trans=("push", 16),
+      about="ماژیکِ آبی روی وایت‌بردِ قاب‌دار با هایلایتِ زرد؛ کارت‌های سفید که روان می‌لغزند؛ مثلِ ارائه‌ٔ جلسه.", tags=("آموزشی", "ارائه")),
 
     S("pencil-sketch", "طرحِ مداد", "Pencil Sketch", "craft",
       "#f5f2ea #e9e4d6 #3a3a3a #fffdf7 #6b6b6b #9a9a9a #c9a66b #8c8c8c",
@@ -377,7 +378,7 @@ STYLES = [
     S("papercraft", "کاغذبُری لایه‌ای", "Papercraft", "craft",
       "#fdf0d5 #c6d8d3 #2b2d42 #ffffff #f4978e #84a98c #f6bd60 #8d99ae",
       {"latin": "fredoka", "fa": "baloo-bhaijaan-2", "weight": 700},
-      {"kind": "layers", "base": "bg", "colors": ["accent3", "accent", "accent2", "muted"], "n": 5},
+      {"kind": "layers", "base": "bg", "colors": ["accent3", "accent", "accent2", "muted"], "n": 5, "veil": 0.7, "veilColor": "bg"},
       {"fx": "emboss", "color": "ink"},
       shape={"radius": 22, "shadow": "float", "fill": "paper"},
       decor=[{"kind": "dust", "n": 20, "color": "paper"}],
@@ -420,7 +421,7 @@ STYLES = [
     S("watercolor", "آبرنگ", "Watercolor", "craft",
       "#fbf8f1 #f1ebe0 #2c3e50 #fffdf8 #e07a9a #5fa8d3 #f2c14e #8a97a8",
       {"latin": "caveat", "fa": "mirza", "weight": 700},
-      {"kind": "wash", "base": "bg", "colors": ["accent", "accent2", "accent3", "#9bc995"], "n": 8, "op": 0.45},
+      {"kind": "wash", "base": "bg", "colors": ["accent", "accent2", "accent3", "#9bc995"], "n": 8, "op": 0.45, "veil": 0.6, "veilColor": "bg"},
       {"fx": "ink", "color": "ink"},
       shape={"radius": 30, "shadow": "soft", "fill": "rgba(255,253,248,0.8)"},
       decor=[{"kind": "blobs", "n": 4, "colors": ["accent", "accent2", "accent3"], "op": 0.2, "size": 1.3}],
@@ -475,7 +476,7 @@ STYLES = [
     S("photoreal-cgi", "نورپردازیِ فیلمی (شبه‌واقعی)", "Photoreal-lit", "dimensional",
       "#07080b #1b1f2b #f3efe6 #e6e1d6 #e0b36a #8fb4d9 #c9784a #8a8f9c",
       {"latin": "playfair-display", "fa": "markazi-text", "weight": 700},
-      {"kind": "spotlight", "base": "bg", "light": "paper", "at": "50% 20%", "op": 0.5, "bokehColor": "accent"},
+      {"kind": "spotlight", "base": "bg", "light": "paper", "at": "50% 20%", "op": 0.5, "bokehColor": "accent", "veil": 0.5, "veilColor": "bg"},
       {"fx": "emboss", "color": "ink"},
       shape={"radius": 14, "border": 1, "bc": "muted", "shadow": "soft", "fill": "bg2"},
       decor=[{"kind": "dust", "n": 60}, {"kind": "flare", "color": "accent2", "y": 0.5}],
@@ -486,7 +487,7 @@ STYLES = [
     S("low-poly", "لو‌پلی", "Low Poly", "dimensional",
       "#2b1055 #ff7e5f #ffffff #fff5ec #ffd166 #06d6a0 #ef476f #cbb8e8",
       {"latin": "inter", "fa": "vazirmatn", "weight": 900},
-      {"kind": "lowpoly", "a": "bg", "b": "bg2", "cell": 190, "jitter": 0.7, "contrast": 0.22, "seed": 2, "gx": 0.2, "gy": 0.9},
+      {"kind": "lowpoly", "a": "bg", "b": "bg2", "cell": 190, "jitter": 0.7, "contrast": 0.22, "seed": 2, "gx": 0.2, "gy": 0.9, "veil": 0.55, "veilColor": "bg"},
       {"fx": "hard", "color": "ink", "shadow": "bg", "depth": 4},
       shape={"radius": 0, "shadow": "soft", "fill": "bg"},
       decor=[{"kind": "shapes", "n": 12, "kinds": ["tri"], "colors": ["accent", "accent2", "accent3"], "spin": 10}],
@@ -497,7 +498,7 @@ STYLES = [
     S("voxel-art", "ووکسل‌آرت", "Voxel Art", "dimensional",
       "#8ed1fc #4aa3df #1b1b2f #ffffff #7bc043 #8d5524 #f6c945 #5b6c8a",
       {"latin": "silkscreen", "fa": "vazirmatn", "weight": 900},
-      {"kind": "isocubes", "base": "bg", "top": "accent", "left": "accent2", "right": "#6b3f1a", "size": 70, "bob": True},
+      {"kind": "isocubes", "base": "bg", "top": "accent", "left": "accent2", "right": "#6b3f1a", "size": 70, "bob": True, "veil": 0.62, "veilColor": "bg"},
       {"fx": "extrude", "shadow": "accent2", "color": "paper", "depth": 10},
       shape={"radius": 0, "border": 5, "bc": "ink", "shadow": "hard", "sc": "accent2", "offset": 8, "fill": "paper", "clip": "notch"},
       decor=[{"kind": "cubes", "n": 5, "top": "accent3", "left": "accent2", "right": "#6b3f1a"}],
@@ -526,8 +527,8 @@ STYLES = [
     S("parallax-2-5d", "پارالاکسِ ۲٫۵ بعدی", "2.5D Parallax", "dimensional",
       "#7ec8e3 #fdf6e3 #12213a #fffdf7 #ff7f50 #2f855a #ffd166 #5b7a99",
       {"latin": "playfair-display", "fa": "markazi-text", "weight": 900},
-      {"kind": "hills", "sky": ["bg", "bg2"], "colors": ["muted", "accent2", "ink"], "layers": 5, "parallax": 2.4, "speed": 14, "amp": 0.09, "spread": 0.42, "sun": True, "sunColor": "accent3"},
-      {"fx": "hard", "color": "paper", "shadow": "ink", "depth": 5},
+      {"kind": "hills", "sky": ["bg", "bg2"], "colors": ["muted", "accent2", "ink"], "layers": 5, "parallax": 2.4, "speed": 14, "amp": 0.09, "spread": 0.32, "sun": True, "sunColor": "accent3", "veil": 0.62, "veilColor": "bg2"},
+      {"fx": "hard", "color": "ink", "shadow": "paper", "depth": 4},
       shape={"radius": 20, "shadow": "float", "fill": "paper"},
       decor=[{"kind": "birds", "n": 4, "color": "ink"}],
       tex=[{"kind": "vignette", "opacity": 0.3}, {"kind": "grain", "opacity": 0.05}],
@@ -645,8 +646,8 @@ STYLES = [
     S("retro-70s", "دههٔ ۷۰ میلادی", "Retro 70s", "graphic",
       "#f2d3a0 #e08e45 #4a2410 #fff1d6 #d9534f #e8a33d #6a994e #a0643a",
       {"latin": "shrikhand", "fa": "lalezar", "weight": 400},
-      {"kind": "arcs", "base": "bg", "colors": ["#d9534f", "#e8a33d", "#f2d3a0", "#6a994e", "#4a2410"], "n": 9, "cy": 0.85},
-      {"fx": "retro", "color": "paper", "c2": "accent2", "c3": "accent", "c4": "ink", "depth": 5},
+      {"kind": "arcs", "base": "bg", "colors": ["#d9534f", "#e8a33d", "#f2d3a0", "#6a994e", "#4a2410"], "n": 9, "cy": 0.85, "veil": 0.62, "veilColor": "bg"},
+      {"fx": "retro", "color": "ink", "c2": "paper", "c3": "accent2", "c4": "accent", "depth": 5},
       shape={"radius": 30, "border": 5, "bc": "ink", "shadow": "hard", "sc": "accent", "offset": 8, "fill": "paper"},
       tex=[{"kind": "grain", "opacity": 0.14}, {"kind": "vignette", "opacity": 0.25}],
       motion={"enter": "swing", "spring": (14, 130, 1), "stagger": 8, "cam": {"zoom": 0.04}}, trans=("wipe", 18),
@@ -714,7 +715,7 @@ STYLES = [
     S("silhouette", "سیلوئت", "Silhouette", "cinematic",
       "#ff9a5c #ffd9a0 #16101f #fff1dc #16101f #5b2a4e #ffcf70 #7d4a5c",
       {"latin": "playfair-display", "fa": "markazi-text", "weight": 900},
-      {"kind": "hills", "sky": ["bg", "bg2"], "colors": ["accent2", "ink"], "layers": 4, "sun": True, "sunColor": "paper", "horizon": 0.56, "speed": 10, "parallax": 1},
+      {"kind": "hills", "sky": ["bg", "bg2"], "colors": ["accent2", "ink"], "layers": 4, "sun": True, "sunColor": "paper", "horizon": 0.78, "speed": 10, "parallax": 1},
       {"fx": "plain", "color": "ink"},
       shape={"radius": 4, "shadow": "none", "fill": "ink", "badge": "accent3"},
       decor=[{"kind": "birds", "n": 5, "color": "ink"}],
@@ -725,7 +726,7 @@ STYLES = [
     S("steampunk", "استیم‌پانک", "Steampunk", "cinematic",
       "#2b1d12 #4a3320 #f3dcae #ead2a0 #c88a3c #8fa89b #b5443a #9b7b4b",
       {"latin": "fredericka-the-great", "fa": "aref-ruqaa", "weight": 700},
-      {"kind": "parchment", "base": "bg2"},
+      {"kind": "parchment", "base": "bg2", "veil": 0.5, "veilColor": "bg"},
       {"fx": "engrave"},
       shape={"radius": 10, "border": 5, "bc": "accent", "shadow": "inner", "fill": "paper", "extra": "rivets"},
       decor=[{"kind": "gears", "n": 5, "colors": ["accent", "muted", "accent2"], "op": 0.55}, {"kind": "smoke", "n": 4, "color": "paper", "op": 0.1}],
@@ -736,7 +737,7 @@ STYLES = [
     S("stained-glass", "شیشهٔ رنگی", "Stained Glass", "cinematic",
       "#120a1f #3a1c5c #fff6e0 #fff6e0 #e63946 #2a9d8f #f4a261 #6a4c93",
       {"latin": "cinzel", "fa": "aref-ruqaa", "weight": 900},
-      {"kind": "stained", "base": "bg", "colors": ["accent", "accent2", "accent3", "#457b9d", "#8338ec", "#ffbe0b"], "cell": 240, "lead": "#0b0614", "leadw": 12},
+      {"kind": "stained", "base": "bg", "colors": ["accent", "accent2", "accent3", "#457b9d", "#8338ec", "#ffbe0b"], "cell": 240, "lead": "#0b0614", "leadw": 12, "veil": 0.9, "veilColor": "bg"},
       {"fx": "hard", "color": "paper", "shadow": "#0b0614", "depth": 5},
       shape={"radius": 4, "border": 6, "bc": "#0b0614", "shadow": "glow", "sc": "accent3", "fill": "bg"},
       decor=[{"kind": "sparkles", "n": 10, "glow": True, "colors": ["paper", "accent3"]}],
@@ -837,7 +838,15 @@ def styles() -> list[dict]:
 
 
 def get(style_id: str) -> dict | None:
-    return next((s for s in STYLES if s["id"] == style_id), None)
+    st = next((s for s in STYLES if s["id"] == style_id), None)
+    if st is None and style_id and style_id[0] in "ug" and "-" in style_id:
+        # a style the user made (u<store>-name / g-name): custom.py asks the database. Outside Django (tools that load this file by path) there is none.
+        try:
+            from . import custom
+        except ImportError:
+            return None
+        return custom.lookup(style_id)
+    return st
 
 
 def public_list() -> list[dict]:

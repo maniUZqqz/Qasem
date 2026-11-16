@@ -76,9 +76,12 @@ class Site:
         self.fail = set()
         self.publish(version)
 
-    def publish(self, version):
+    def publish(self, version, features=None):
         make_zip(os.path.join(self.root, "node.zip"), {"node-v20-win-x64/node.exe": "NODE", "node-v20-win-x64/LICENSE": "MIT"})
-        make_zip(os.path.join(self.root, "pack-%s.zip" % version), {"render.mjs": "// render " + version, "bundle/index.html": "<html>", "node_modules/x/index.js": "1"})
+        pack = {"render.mjs": "// render " + version, "bundle/index.html": "<html>", "node_modules/x/index.js": "1"}
+        if features is not None:
+            pack["FEATURES"] = "\n".join(features) + "\n"
+        make_zip(os.path.join(self.root, "pack-%s.zip" % version), pack)
         make_zip(os.path.join(self.root, "chrome.zip"), {"chrome-headless-shell-win64/chrome-headless-shell.exe": "CHROME"})
         m = {"version": version,
              "pack": {"name": "pack-%s.zip" % version, "size": 1, "sha256": "x"},
@@ -449,10 +452,6 @@ class Run(MotionBase):
         self.assertEqual(meta["primary"], "out.png")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AudioMux(Run):
     """Motion studio v2: the site builds the finished mix (voice + music + effects, -14 LUFS); the node lays it under the picture itself."""
 
@@ -567,3 +566,86 @@ class AudioMux(Run):
         meta = mj.run(j, self.agent)
         self.assertEqual(meta["audio"], "muxed")
         self.assertEqual(len(ran), 1)
+
+
+class StyleDefGuard(Run):
+    """The user's own styles («سبکِ تازه») ride inside the spec as `style_def`. A pack whose engine predates that would silently draw the default
+    style (a "successful" render with the wrong look), so the node refuses such a job, fetches the newest pack once, and only then renders."""
+
+    STYLE_SPEC = {"style": "u1-mine", "style_def": {"id": "u1-mine", "palette": {}}, "scenes": []}
+
+    def job_with_style(self):
+        return self.job(props={"spec": dict(self.STYLE_SPEC)})
+
+    def test_needed_features_reads_only_the_spec(self):
+        self.assertEqual(mj.needed_features({"props": {"spec": {"style": "flat-vector"}}}), set())
+        self.assertEqual(mj.needed_features({"props": {"spec": dict(self.STYLE_SPEC)}}), {"style_def"})
+        self.assertEqual(mj.needed_features({"props": {}}), set())
+        self.assertEqual(mj.needed_features({"props": {"spec": "x"}}), set())
+        self.assertEqual(mj.needed_features(None), set())
+        self.assertEqual(mj.needed_features({"props": {"spec": {"style_def": {}}}}), set())            # an empty definition is no definition
+
+    def test_pack_features_come_from_the_file_in_the_installed_pack(self):
+        mj.install(self.agent)
+        self.assertEqual(mj.pack_features(mj.paths(self.agent)), set())                                   # the v1 pack has no FEATURES: an old engine
+        self.site.publish("v2", features=["style_def", "other"])
+        mj._STATE.update({"state": "checking", "pack_version": ""})
+        mj.install(self.agent)
+        self.assertEqual(mj.pack_features(mj.paths(self.agent)), {"style_def", "other"})
+
+    def test_the_heartbeat_advertises_the_engine_features(self):
+        self.site.publish("v1", features=["style_def"])
+        mj.install(self.agent)
+        c = mj.caps(self.agent)
+        self.assertIn("style_def", c["motion"]["features"])
+        self.assertIn("audio_mux", c["motion"]["features"])
+
+    def test_an_old_pack_refuses_a_custom_style_job_with_a_retryable_reason(self):
+        mj.install(self.agent)                                                                             # v1 without FEATURES; the site has nothing newer
+        self.renders.clear()
+        with self.assertRaises(JobError) as cm:
+            mj.run(self.job_with_style(), self.agent)
+        self.assertTrue(cm.exception.retryable)
+        self.assertIn("style_def", str(cm.exception))
+        self.assertEqual(self.renders, [], "nothing may be drawn with an engine that ignores the style")
+
+    def test_the_node_fetches_the_newer_pack_once_for_the_waiting_job_and_then_renders(self):
+        mj.install(self.agent)
+        self.site.publish("v2", features=["style_def"])
+        self.site.calls.clear()
+        self.renders.clear()
+        j = self.job_with_style()
+        meta = mj.run(j, self.agent)
+        self.assertEqual(meta["primary"], "out.mp4")
+        self.assertIn("pack-v2.zip", self.site.calls)
+        self.assertEqual(self.site.calls.count("pack-v2.zip"), 1)
+        self.assertEqual(meta["pack"], "v2")
+        self.assertEqual(meta["pack_features"], ["style_def"])
+        self.assertEqual(self.renders[-1]["props"]["spec"]["style_def"]["id"], "u1-mine")
+        self.assertEqual(mj.snapshot()["state"], "ready")
+
+    def test_an_up_to_date_pack_renders_without_any_download(self):
+        self.site.publish("v1", features=["style_def"])
+        mj.install(self.agent)
+        self.site.calls.clear()
+        mj.run(self.job_with_style(), self.agent)
+        self.assertEqual(self.site.calls, [])
+
+    def test_a_catalogue_style_never_waits_for_a_new_pack(self):
+        mj.install(self.agent)                                                                             # an old pack is fine for the 96 built-in styles
+        self.site.publish("v2", features=["style_def"])
+        self.site.calls.clear()
+        meta = mj.run(self.job(), self.agent)
+        self.assertEqual(meta["pack"], "v1")
+        self.assertEqual(self.site.calls, [])
+
+    def test_never_swaps_the_pack_under_another_running_render(self):
+        mj.install(self.agent)
+        self.site.publish("v2", features=["style_def"])
+        mj._JOBS["n"] = 2                                                                                  # this job + one more: the second render runs from the same files
+        self.assertFalse(mj._refresh_pack(self.agent))
+        self.assertEqual(mj.snapshot()["pack_version"], "v1")
+
+
+if __name__ == "__main__":
+    unittest.main()

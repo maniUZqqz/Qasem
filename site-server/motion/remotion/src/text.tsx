@@ -3,14 +3,10 @@ import type { CSSProperties } from "react";
 import { cameraCss, enterCss, enterProgress } from "./anim";
 import { fontStack, useCtx, useQF } from "./ctx";
 import type { Pal } from "./types";
-import { R, bestText, clamp, col, contrast, hasArabic, lum, mix, onColor, rgba, shade, toEnDigits, toFaDigits } from "./util";
+import { LABEL_CONTRAST, haloCss, readableOn } from "./brand";
+import { R, bestText, clamp, col, contrast, fixDigits, hasArabic, lum, mix, onColor, rgba, shade } from "./util";
 
-/** a plain small text (kicker, author ...) on the style's background: when its colour would nearly vanish, darken/lighten it, else fall back to the best of ink / white / black */
-export function readableOn(c: string, bg: string, ink: string): string {
-  if (!/^#|^rgb/.test(c) || contrast(c, bg) >= 3) return c;
-  const d = shade(c, lum(bg) > 0.4 ? -0.55 : 0.55);
-  return contrast(d, bg) >= 3 ? d : bestText(bg, [ink, "#ffffff", "#111111"]);
-}
+export { LABEL_CONTRAST, haloCss, readableOn };
 
 /** text colour a card puts on its children (contrast with its fill) */
 export const TONE = createContext<string | null>(null);
@@ -117,8 +113,14 @@ export function fxCss(fx: string, o: FxOpts): CSSProperties {
       const c2 = col(pal, text.c2 ?? "accent2"), c3 = col(pal, text.c3 ?? "accent3"), c4 = col(pal, text.c4 ?? "ink");
       return { color, textShadow: `${d}px ${d}px 0 ${c2}, ${d * 2}px ${d * 2}px 0 ${c3}, ${d * 3}px ${d * 3}px 0 ${c4}` };
     }
-    case "engrave":
-      return { backgroundImage: "linear-gradient(180deg, #f3d28a, #b5792e 55%, #7a4a14)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: `drop-shadow(${1.5 * u}px ${2 * u}px 0 rgba(30,10,0,0.7))` } as CSSProperties;
+    case "engrave": {
+      // engraved metal: a gold ramp that always reads on its background (the old fixed brown ramp vanished on dark parchment); a dark edge on a light
+      // background, a pale gold glow on a dark one
+      const darkBg = lum(pal.bg) < 0.28 || lum(col(pal, text.base ?? "bg2")) < 0.28;
+      const ramp = darkBg ? "linear-gradient(180deg, #fff3c4, #f0c35a 52%, #c58a2c)" : "linear-gradient(180deg, #8a5a14, #5c3a0a 55%, #2f1c04)";
+      const edge = darkBg ? "rgba(255,230,160,0.25)" : "rgba(255,240,200,0.55)";
+      return { backgroundImage: ramp, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: `drop-shadow(${1.5 * u}px ${2 * u}px 0 ${darkBg ? "rgba(20,8,0,0.85)" : edge})` } as CSSProperties;
+    }
     case "phosphor": {
       const fl = 0.9 + 0.1 * Math.sin(qf * 1.3) + (R(`ph${qf}`) > 0.94 ? -0.2 : 0);
       return { color, opacity: fl, textShadow: `0 0 ${size * 0.05}px ${color}, 0 0 ${size * 0.18}px ${rgba(color, 0.7)}` };
@@ -154,8 +156,6 @@ export function fxCss(fx: string, o: FxOpts): CSSProperties {
   }
 }
 
-const fixDigits = (s: string, fa: boolean, en: boolean): string => (fa ? toFaDigits(s) : en ? toEnDigits(s) : s);
-
 export type TProps = {
   children: string;
   role?: "display" | "body" | "label";
@@ -189,13 +189,16 @@ export const T: React.FC<TProps> = (p) => {
   const size = p.size * u * (p.fixed ? 1 : ctx.fontScale);
   const baseColor = col(pal, p.color ?? (role === "body" || role === "label" ? style.text.body_color ?? "ink" : style.text.color ?? "ink"));
   const fx = p.fx ?? (role === "display" ? style.text.fx : style.text.body_fx ?? "plain");
-  const color = tone && !p.color ? tone : role === "label" && !tone && fx === "plain" ? readableOn(baseColor, pal.bg, col(pal, "ink")) : baseColor;
+  const color = tone && !p.color ? tone : role === "label" && !tone && fx === "plain" ? readableOn(baseColor, pal.bg, col(pal, "ink"), LABEL_CONTRAST) : baseColor;
   const kind = ctx.enter;
   const stag = Math.max(1, Math.round(style.motion.stagger * 0.5));
   const align = p.align ?? ctx.align;
   const lines = raw.split(/\n+/);
   let wi = 0;
   const upper = (p.upper ?? (f.case === "upper" && role !== "body")) && !fa;
+  // only text that sits straight on the page: not inside a card (tone) and not on a chip (a chip's text gets an explicit hex colour computed from the chip)
+  const onPage = !tone && (!p.color || !/^#|^rgb/.test(p.color));
+  const halo = onPage && (role !== "display" || !!p.color) ? haloCss(col(pal, "bg"), size) : undefined;
   const css: CSSProperties = {
     fontFamily: fontStack(latin, faKey),
     fontWeight: p.weight ?? (role === "display" ? f.weight : role === "label" ? 700 : 500),
@@ -236,6 +239,7 @@ export const T: React.FC<TProps> = (p) => {
             const anim = p.noAnim ? {} : enterCss(role === "body" && kind === "slam" ? "rise" : kind, prog, { u, rtl: ctx.rtl, i, qf, fps });
             const fxs = fxCss(fx, { size, u, color, pal, qf, fps, text: style.text, fa, wi: i, role });
             const merged: CSSProperties = { display: "inline-block", whiteSpace: "nowrap", ...fxs, ...anim };
+            if (halo && !merged.textShadow && (fxs as any).WebkitTextFillColor !== "transparent") merged.textShadow = halo;
             if (fxs.transform && anim.transform) merged.transform = `${fxs.transform} ${anim.transform}`;
             if (fxs.filter && anim.filter) merged.filter = `${fxs.filter} ${anim.filter}`;
             if (typeof fxs.opacity === "number" && typeof anim.opacity === "number") merged.opacity = (fxs.opacity as number) * (anim.opacity as number);
@@ -315,6 +319,7 @@ export const Card: React.FC<CardProps> = (p) => {
     border: bw ? `${bw}px ${sh.dash ? "dashed" : "solid"} ${bc}` : undefined,
     boxShadow: shadow,
     padding: (p.pad ?? 28) * u,
+    paddingTop: sh.extra === "titlebar" ? ((p.pad ?? 28) + 44) * u : undefined,        // the title bar (44 px) is drawn over the card's top edge: the content starts below it
     backdropFilter: fillName === "glass" ? `blur(${22 * u}px) saturate(1.4)` : undefined,
     WebkitBackdropFilter: fillName === "glass" ? `blur(${22 * u}px) saturate(1.4)` : undefined,
     clipPath: sh.clip === "notch" ? `polygon(${10 * u}px 0, calc(100% - ${10 * u}px) 0, calc(100% - ${10 * u}px) ${10 * u}px, 100% ${10 * u}px, 100% calc(100% - ${10 * u}px), calc(100% - ${10 * u}px) calc(100% - ${10 * u}px), calc(100% - ${10 * u}px) 100%, ${10 * u}px 100%, ${10 * u}px calc(100% - ${10 * u}px), 0 calc(100% - ${10 * u}px), 0 ${10 * u}px, ${10 * u}px ${10 * u}px)` : sh.clip === "torn" ? "polygon(0 2%, 8% 0, 22% 3%, 40% 0, 58% 2%, 76% 0, 100% 3%, 99% 40%, 100% 70%, 98% 100%, 80% 98%, 60% 100%, 38% 97%, 20% 100%, 0 98%, 2% 60%)" : undefined,

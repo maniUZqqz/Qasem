@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from apps.customers.models import Conversation, Notification
@@ -90,3 +91,18 @@ class TickTests(InboxTestCase):
         app.loader.import_default_modules()
         for name in names:
             self.assertIn(name, app.tasks, name)
+
+
+class FreshConnectionTests(SimpleTestCase):
+    """A Celery worker is never inside a transaction, but every TestCase is - so the helper's real branch
+    must be driven by hand (it once called itself instead of close_old_connections: RecursionError on every task)."""
+
+    def test_outside_a_transaction_it_really_closes_stale_connections(self):
+        with patch.object(tasks, "connection", SimpleNamespace(in_atomic_block=False)), patch.object(tasks, "close_old_connections") as closer:
+            tasks._fresh_connection()
+        closer.assert_called_once_with()
+
+    def test_inside_a_transaction_it_leaves_the_connection_alone(self):
+        with patch.object(tasks, "connection", SimpleNamespace(in_atomic_block=True)), patch.object(tasks, "close_old_connections") as closer:
+            tasks._fresh_connection()
+        closer.assert_not_called()

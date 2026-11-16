@@ -29,7 +29,7 @@ def _fresh_connection() -> None:
     (the same rule `views_webhook.run_agent_for` keeps).
     """
     if not connection.in_atomic_block:
-        _fresh_connection()
+        close_old_connections()
 
 
 #: A poll claim older than this is a crashed worker, not a running one.

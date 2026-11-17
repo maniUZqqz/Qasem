@@ -254,7 +254,7 @@ class FontMappingTests(SimpleTestCase):
 
     def test_unknown_fonts_fall_back_by_category(self):
         self.assertEqual(fonts_fa.persian_font('Brand New Serif', 'Serif'), 'markazi')
-        self.assertEqual(fonts_fa.persian_font('Brand New Mono', 'Monospace'), 'plex')
+        self.assertEqual(fonts_fa.persian_font('Brand New Mono', 'Monospace'), 'plexmono')
         self.assertEqual(fonts_fa.persian_font('???'), 'vazirmatn')
 
     def test_generated_styles_use_their_pairings_mapped_fonts(self):

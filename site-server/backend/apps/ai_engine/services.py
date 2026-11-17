@@ -372,7 +372,7 @@ def _design_css(design, body_html, css):
     if not design:
         return css
     from apps.projects.builder import ai_context
-    return ai_context.attach_css(body_html or '', css)
+    return ai_context.attach_css(body_html or '', css, _design_style(design))
 
 
 def _rules_for(css, keywords, limit=9000):

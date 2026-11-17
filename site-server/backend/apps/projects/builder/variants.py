@@ -32,6 +32,20 @@ VARIANTS = {
                     '.nb-hero.nbv-minimal{background:transparent;color:var(--ink);padding-block:clamp(72px,11vw,150px)}'
                     '.nb-hero.nbv-minimal .nb-btn.is-filled{background:var(--brand);color:var(--brand-ink,#fff)}'
                     '.nb-hero.nbv-minimal .nb-btn.is-ghost{color:var(--ink)}.nb-hero.nbv-minimal .nb-eyebrow{color:var(--ink-2)}'),
+        'orb': ('ابتدای‌خط با هالهٔ تزئینی',
+                '.nb-hero.nbv-orb{position:relative;overflow:hidden}'
+                '.nb-hero.nbv-orb .nb-hero-copy.is-center{text-align:start;margin-inline:0;max-width:680px;position:relative;z-index:1}'
+                '.nb-hero.nbv-orb .nb-hero-copy.is-center .nb-actions{justify-content:flex-start}'
+                '.nb-hero.nbv-orb::after{content:"";position:absolute;inset-block:14%;inset-inline-end:5%;width:min(32vw,360px);aspect-ratio:1;border-radius:50%;'
+                'background:radial-gradient(circle at 32% 30%,rgba(255,255,255,.34),rgba(255,255,255,.06) 62%,transparent 72%);border:1px solid rgba(255,255,255,.3);pointer-events:none}'
+                '@media (max-width:860px){.nb-hero.nbv-orb::after{display:none}}'),
+        'card': ('کارتِ روشن روی زمینهٔ هیرو',
+                 '.nb-hero.nbv-card .nb-hero-copy.is-center{background:var(--card,#fff);color:var(--ink,#111827);border-radius:calc(var(--r,16px) + 8px);'
+                 'padding:clamp(24px,5vw,56px);box-shadow:0 30px 70px -34px rgba(0,0,0,.55);max-width:820px}'
+                 '.nb-hero.nbv-card .nb-hero-title{color:var(--ink,#111827)}.nb-hero.nbv-card .nb-sub{color:var(--ink-2,#374151)}'
+                 '.nb-hero.nbv-card .nb-eyebrow{color:var(--brand-fg,var(--brand))}'
+                 '.nb-hero.nbv-card .nb-btn.is-filled{background:var(--brand);color:var(--brand-ink,#fff);box-shadow:none}'
+                 '.nb-hero.nbv-card .nb-btn.is-ghost{color:var(--ink,#111827);border-color:var(--line,#e5e7eb)}'),
     }),
     'features': ('nb-features', {
         'bento': ('بنتو (کاشیِ نامساوی)',

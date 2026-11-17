@@ -103,7 +103,7 @@ function Card({ kind, row, open, onToggle }: { kind: string; row: Row; open: boo
       )}
       {kind === "fonts" && fa2 && (
         <p className="ds-site" data-testid="ds-fa">
-          معادلِ فارسیِ مجوزدار: <b>{fa2.heading.label}</b> (تیتر) + <b>{fa2.body.label}</b> (متن)
+          قلم‌های لاتینِ مخزن: <bdi dir="ltr" style={{ whiteSpace: "nowrap" }} data-testid="ds-latin">{str(row.heading)} + {str(row.body)}</bdi> ⇐ معادلِ فارسیِ مجوزدار: <b>{fa2.heading.label}</b> (تیتر) + <b>{fa2.body.label}</b> (متن)
         </p>
       )}
       <dl className="ds-fields">
@@ -156,7 +156,9 @@ function C21Tab() {
         <div><dt>با مجوزِ آزاد</dt><dd>{fa(Number(c.usable ?? 0))}</dd></div>
         <div><dt>پیش‌نمایشِ تصویری</dt><dd>{fa(Number(c.previews ?? 0))}</dd></div>
         <div><dt>کتابخانه‌ها</dt><dd>{fa(Number(c.libraries ?? 0))}</dd></div>
-        <div><dt>قطعهٔ قابلِ درج</dt><dd data-testid="ds-converted">{fa(Number(p.converted ?? 0))}</dd></div>
+        <div><dt>قطعهٔ قابلِ درج</dt><dd data-testid="ds-converted">{fa(Number(p.insertable ?? p.converted ?? 0))}</dd></div>
+        <div><dt>تبدیل‌شده (همه)</dt><dd data-testid="ds-converted-all">{fa(Number(p.converted ?? 0))}</dd></div>
+        <div><dt>بسته‌شده پس از سنجش</dt><dd data-testid="ds-blocked" title="خالیِ ایستا، متنِ نخوانا (تباین زیرِ ۳:۱ روی هر دو پوستهٔ روشن و تیره)، سرریز، متنِ رویِ‌هم‌افتاده یا بی‌متن">{fa(Number(p.blocked ?? 0))}</dd></div>
         <div><dt>بدونِ کدِ عمومی</dt><dd>{fa(Number(p.no_source ?? 0))}</dd></div>
         <div><dt>در انتظارِ تبدیل</dt><dd>{fa(Number(p.waiting ?? 0))}</dd></div>
         <div><dt>مجوزِ مخزن آزاد نبود</dt><dd>{fa(Number(p.license_blocked ?? 0))}</dd></div>
@@ -224,7 +226,7 @@ export default function DesignSourcesPage() {
     <div className="ds" data-testid="design-sources">
       <SectionHead title="منبع‌های طراحی" hint={`کلِ مخزنِ ui-ux-pro-max-skill · MIT · ${src.copyright}`} />
       <p className="ds-note" data-testid="ds-note">
-        {index.note} · نسخه <bdi dir="ltr">{src.commit.slice(0, 8)}</bdi> · تاریخِ نسخه <bdi dir="ltr">{src.commit_date.slice(0, 10)}</bdi> ·{" "}
+        {index.note} · نسخه <bdi dir="ltr" style={{ whiteSpace: "nowrap" }}>{src.commit.slice(0, 8)}</bdi> · تاریخِ نسخه <bdi dir="ltr" style={{ whiteSpace: "nowrap" }} data-testid="ds-date">{src.commit_date.slice(0, 10)}</bdi> ·{" "}
         <a href={src.source} target="_blank" rel="noopener noreferrer" dir="ltr">{src.source.replace("https://", "")}</a>
       </p>
       <p className="ds-note">

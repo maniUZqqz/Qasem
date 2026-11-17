@@ -9,7 +9,7 @@ import "../tools/studio/c21st.css";
  * پیش‌نمایش در iframe ِ بی‌اسکریپت (srcdoc) با پوستهٔ خنثی؛ «افزودن» یک بلوکِ c21 در فریمِ فعلی می‌گذارد؛ «ساختِ سایت از طرح» همان را با
  * ظاهرِ کاملش در سایت‌ساز می‌آورد (مجوز و مبدأ همراهِ قطعه می‌ماند).
  */
-type Item = { id: string; title: string; library: string; author: string; license: string; cats: string[]; conv_key: string; description: string; preview: boolean };
+type Item = { id: string; title: string; library: string; author: string; license: string; cats: string[]; conv_key: string; description: string; preview: boolean; kind?: string };
 type Cat = { key: string; label: string; count: number };
 type Listing = { items: Item[]; total: number; categories: Cat[]; insertable: number };
 
@@ -66,7 +66,7 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
   return (
     <div className="ds-c21" data-testid="ds-c21">
       <div className="c21-filters">
-        <input className="c21-input" type="search" placeholder="جست‌وجو (مثلاً pricing، faq، hero)" aria-label="جست‌وجوی قطعه‌های 21st.dev" value={q}
+        <input className="c21-input" type="search" placeholder="جست‌وجو (قیمت، پرسش‌های متداول، منو، فوتر … یا pricing، faq، hero)" aria-label="جست‌وجوی قطعه‌های 21st.dev" value={q}
                onChange={(e) => { setQ(e.target.value); setPage(1); }} data-testid="ds-c21-q" />
         <select className="c21-input" aria-label="دسته" value={cat} onChange={(e) => { setCat(e.target.value); setPage(1); }}>
           <option value="">همهٔ دسته‌ها</option>
@@ -84,6 +84,7 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
             <span className="c21-badge ok">{it.license}</span>
           </div>
           <small className="c21-note" dir="ltr">{it.author}{it.library ? ` · ${it.library}` : ""}</small>
+          {it.kind ? <small className="c21-note">{it.kind === "section" ? "بخشِ صفحه" : "ابزارک"}</small> : null}
           <div className="c21-actions">
             <button type="button" className="c21-link" onClick={() => void togglePreview(it.conv_key)} data-testid="ds-c21-preview">{open === it.conv_key ? "بستنِ پیش‌نمایش" : "پیش‌نمایش"}</button>
             <button type="button" className="c21-btn" disabled={busy !== null} onClick={() => void add(it)} data-testid="ds-c21-add">افزودن به طرح</button>

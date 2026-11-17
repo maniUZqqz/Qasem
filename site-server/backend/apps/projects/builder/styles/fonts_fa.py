@@ -17,11 +17,11 @@ PERSIAN_OF = {
     'Roboto': 'notosans', 'Open Sans': 'notosans', 'Source Sans 3': 'notosans', 'Noto Sans': 'notosans', 'Noto Sans Arabic': 'notosans', 'Fira Sans': 'notosans',
     'Noto Sans KR': 'notosans', 'Noto Sans SC': 'notosans', 'Noto Sans TC': 'notosans', 'Noto Sans JP': 'notosans', 'Noto Sans Thai': 'notosans',
     'Noto Sans Hebrew': 'notosans',
-    'IBM Plex Sans': 'plex', 'JetBrains Mono': 'plex', 'Space Mono': 'plex', 'Fira Code': 'plex', 'Roboto Mono': 'plex', 'Share Tech Mono': 'plex', 'VT323': 'plex',
+    'IBM Plex Sans': 'plex', 'JetBrains Mono': 'plexmono', 'Space Mono': 'plexmono', 'Fira Code': 'plexmono', 'Roboto Mono': 'plexmono', 'Share Tech Mono': 'plexmono', 'VT323': 'plexmono',
     'Nunito': 'rubik', 'Nunito Sans': 'rubik', 'Rubik': 'rubik', 'Varela Round': 'rubik',
     'Quicksand': 'lemonada', 'Fredoka': 'baloo', 'Baloo 2': 'baloo', 'Comic Neue': 'marhey', 'Patrick Hand': 'marhey',
     'Orbitron': 'changa', 'Exo': 'changa', 'Exo 2': 'changa', 'Russo One': 'changa', 'Chakra Petch': 'changa', 'Syne': 'changa', 'Syncopate': 'changa',
-    'Press Start 2P': 'changa',
+    'Press Start 2P': 'pixelfa',
     'Josefin Sans': 'zain', 'Poiret One': 'zain', 'Didact Gothic': 'almarai', 'Archivo': 'almarai', 'Barlow': 'almarai',
     'Playfair Display': 'markazi', 'Playfair Display SC': 'markazi', 'Lora': 'markazi', 'Libre Bodoni': 'markazi', 'Bodoni Moda': 'markazi',
     'Cormorant Garamond': 'mirza', 'Cormorant': 'mirza', 'Cormorant Infant': 'mirza', 'Cinzel': 'mirza',
@@ -33,11 +33,11 @@ PERSIAN_OF = {
 }
 
 # قلم‌های تزئینی/دست‌نویس که برای متنِ بلند نیستند
-DECORATIVE = {'lalezar', 'rakkas', 'jomhuria', 'katibeh', 'aref', 'vibes', 'marhey', 'lemonada', 'baloo', 'changa', 'reem', 'kufam', 'messiri', 'scheherazade', 'lateef', 'mirza'}
+DECORATIVE = {'pixelfa', 'lalezar', 'rakkas', 'jomhuria', 'katibeh', 'aref', 'vibes', 'marhey', 'lemonada', 'baloo', 'changa', 'reem', 'kufam', 'messiri', 'scheherazade', 'lateef', 'mirza'}
 BODY_FALLBACK = 'vazirmatn'
 
 # اگر قلمِ تازه‌ای در دادهٔ مخزن آمد که این‌جا نیست: از دستهٔ گوگل‌فونتس حدس بزن
-CATEGORY_GUESS = {'sans serif': 'vazirmatn', 'serif': 'markazi', 'display': 'rakkas', 'handwriting': 'aref', 'monospace': 'plex'}
+CATEGORY_GUESS = {'sans serif': 'vazirmatn', 'serif': 'markazi', 'display': 'rakkas', 'handwriting': 'aref', 'monospace': 'plexmono'}
 
 
 def persian_font(latin: str, category: str = '') -> str:

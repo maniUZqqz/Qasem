@@ -206,6 +206,19 @@ def _palette_for(spec: dict, crow: dict):
     return make_palette(acc, dark=dark, bg=bg, text=text, acc2=acc2, **kw)
 
 
+#: بازبینیِ ۱۱/۱۷: ۳۷ از ۷۵ سبکِ خودکار هیرویِ وسط‌چینِ یکسان داشتند. هر سبک یک «چیدمانِ هیرو» می‌گیرد (variants.py ⇒ hero): «card» (کارتِ روشن روی گرادیان)، «orb» (ابتدای‌خط با هالهٔ تزئینی)،
+#: «start» (تیترِ درشتِ ابتدای‌خط)، «minimal». فقط سبک‌هایی که الگوشان خودش هیرو تعیین نکرده (''). سبکِ «هیرو‌محور» عمداً وسط‌چین می‌ماند.
+HERO_OF = {
+    'card': ('skeuomorphism', 'micro-interactions', 'feature-rich-showcase', 'social-proof-focused', 'material-you-md3-mobile', 'flat-design-mobile-touch-first', 'fluent-2',
+             'shopify-polaris', 'spectrum-design-system', 'spectrum-2', 'enterprise-saas-mobile', 'trust-and-authority', 'conversion-optimized'),
+    'orb': ('3d-and-hyperrealism', 'retro-futurism', 'liquid-glass', 'vaporwave', 'spatial-ui-visionos', 'gradient-mesh-aurora-evolved', 'biomimetic-organic-2-0', 'bitcoin-defi-mobile',
+            'modern-dark-cinema-mobile', 'saas-mobile-high-tech-boutique', 'interactive-product-demo', 'dimensional-layering'),
+    'start': ('cyberpunk-ui', 'hud-sci-fi-fui', 'terminal-cli-mobile', 'cyberpunk-mobile-hud', 'chromatic-aberration-rgb-split', 'kinetic-brutalism-mobile', 'neo-brutalism-mobile', 'bauhaus'),
+    'minimal': ('minimal-and-direct', 'bento-grids', 'interactive-cursor-design'),
+}
+HERO_BY_STYLE = {sid: variant for variant, sids in HERO_OF.items() for sid in sids}
+
+
 def build_all(hand: dict) -> dict:
     """⇒ {کلیدِ سبک: تعریف} برای هر ردیفِ دادهٔ ui-ux-pro-max که سبکِ دست‌ساز ندارد. hand = سبک‌های دست‌ساز (برای فهمیدنِ ردیف‌های پوشش‌داده‌شده)."""
     covered = {(st.get('uiux') or {}).get('style_id') for st in hand.values()}
@@ -219,6 +232,8 @@ def build_all(hand: dict) -> dict:
         frow = uiux.by_id('fonts', 'name', spec['pair']) or {}
         P = _palette_for(spec, crow)
         built = gen_archetypes.build(spec['arch'], P, spec)
+        if sid in HERO_BY_STYLE and not (built['sections'] or {}).get('hero'):
+            built['sections'] = dict(built['sections'], hero=HERO_BY_STYLE[sid])
         head, body = fonts_fa.persian_pair(frow.get('heading', ''), frow.get('body', ''))
         grp = GROUPS_FA.get(srow.get('type', ''), 'عمومی')
         if head in TALL_MARK_FONTS:

@@ -293,7 +293,7 @@ export function ComponentsPanel({
   slug: string;
   onAdd: (type: string) => void;
   onDragStart: (type: string, x: number, y: number) => void;
-  onAddC21?: (key: string) => void | Promise<void>;
+  onAddC21?: (key: string, withAi?: boolean) => void | string | Promise<void | string>;
 }) {
   const meta = catalog.components;
   const [q, setQ] = useState("");

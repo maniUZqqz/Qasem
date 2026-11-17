@@ -342,7 +342,7 @@ class Renderer:
             parts.append(css)
         if self.used_c21:
             from . import c21_embed
-            parts.append(c21_embed.css_for(self.used_c21))
+            parts.append(c21_embed.css_for(self.used_c21, self.ctx.theme))
         return '\n'.join(p for p in parts if p)
 
     # ── درخت ──

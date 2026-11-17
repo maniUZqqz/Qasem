@@ -48,6 +48,8 @@ def c21_preview(request, slug, key):
     if g:
         return g
     rec = _rec(key)
+    if (rec.get("rtl") or {}).get("status") == "fail":                      # پیش‌نمایشِ قطعهٔ خالی/روی‌هم‌افتاده/نخوانا هم همان ۴۰۹ ِ درج را می‌گیرد (پیش‌تر ۲۰۰ می‌داد)
+        return bad(_blocked_message(rec), code=409)
     theme, menu = vb._theme_json(p)
     style = request.query_params.get("style") or ""
     if style in styles_mod.STYLES:
@@ -59,16 +61,43 @@ def c21_preview(request, slug, key):
                      "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", []))})
 
 
-@studio_api("GET")
+def _blocked_message(rec: dict) -> str:
+    why = ((rec.get("rtl") or {}).get("why") or "").strip()
+    return "این قطعه برای درج بسته شده است: %s" % (why or "در راست‌به‌چپ/موبایل سرریز می‌کند.")
+
+
+def _block_for(rec: dict, fa: bool, ai: bool) -> dict:
+    """بلوکِ c21 با متن‌های نمونه؛ fa ⇒ فرهنگ‌لغتِ رابط، ai ⇒ بقیه با AI (اختیاری؛ شکستش درج را خراب نمی‌کند). ⇒ {block, translated, ai?}"""
+    from .builder import c21_translate as TR
+
+    props = EM.default_props(rec)
+    out = {"translated": 0}
+    if fa or ai:
+        texts = [t.get("v", "") for t in props["texts"]]
+        new, n = TR.apply_dictionary(texts)
+        out["translated"] = n
+        if ai:
+            new, info = TR.ai_translate(new)
+            out["ai"] = info
+            out["translated"] += info.get("translated", 0)
+        props["texts"] = [{"v": v} for v in new]
+    out["block"] = new_block(EM.TYPE, **props)
+    return out
+
+
+@studio_api("GET", "POST")
 def c21_block(request, slug, key):
+    """GET ?fa=1 ⇒ بلوکِ آماده (فرهنگ‌لغتِ فارسی)؛ POST {ai: true} ⇒ همان + ترجمهٔ بقیهٔ متن‌ها با AI (متیس بی‌اعتبار ⇒ پیامِ فارسی در ``ai`` و بلوکِ فرهنگ‌لغت)."""
     p = vb._project(slug)
     g = vb._guard(p)
     if g:
         return g
     rec = _rec(key)
     if (rec.get("rtl") or {}).get("status") == "fail":
-        return bad("این قطعه در راست‌به‌چپ/موبایل سرریز می‌کند و برای درج بسته شده است.", code=409)
-    return Response({"block": new_block(EM.TYPE, **EM.default_props(rec))})
+        return bad(_blocked_message(rec), code=409)
+    if request.method == "POST":
+        return Response(_block_for(rec, True, bool(request.data.get("ai"))))
+    return Response(_block_for(rec, request.query_params.get("fa") == "1", False))
 
 
 @studio_api("GET")
@@ -78,7 +107,7 @@ def c21_preview_free(request, key):
 
     rec = _rec(key)
     if (rec.get("rtl") or {}).get("status") == "fail":
-        return bad("این قطعه برای درج بسته شده است (سرریز یا خالیِ ایستا).", code=409)
+        return bad(_blocked_message(rec), code=409)
     pv = EM.preview_page(key)
     if not pv:
         raise Http404
@@ -91,8 +120,8 @@ def c21_preview_free(request, key):
 def c21_block_free(request, key):
     rec = _rec(key)
     if (rec.get("rtl") or {}).get("status") == "fail":
-        return bad("این قطعه برای درج بسته شده است (سرریز یا خالیِ ایستا).", code=409)
-    return Response({"block": new_block(EM.TYPE, **EM.default_props(rec)), "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""),
+        return bad(_blocked_message(rec), code=409)
+    return Response({**_block_for(rec, request.query_params.get("fa") != "0", False), "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""),
                      "library": rec.get("library", "")})
 
 
@@ -123,7 +152,13 @@ def pipeline_json() -> dict:
                 waiting += 1
             else:
                 no_source += 1
-    return {"toolchain": CV.toolchain_ready(), "converted": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "ok"),
+    converted = sum(1 for r in rows if (r.get("conv") or {}).get("state") == "ok")
+    insertable = sum(1 for r in rows if c21st.insertable(r))             # تبدیل‌شده ≠ قابلِ درج: «خالیِ ایستا»، سرریز، متنِ نخوانا، رویِ‌هم‌افتاده یا بی‌متن بسته می‌شود
+    kinds = {"section": 0, "widget": 0}
+    for e in CV.load_index().values():
+        if e.get("rtl") != "fail" and e.get("kind") in kinds:
+            kinds[e["kind"]] += 1
+    return {"toolchain": CV.toolchain_ready(), "converted": converted, "insertable": insertable, "blocked": max(0, converted - insertable), "kinds": kinds,
             "failed": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "failed"), "no_source": no_source, "waiting": waiting,
             "license_blocked": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "license"), "last": {k: st.get(k) for k in ("converted", "failed", "libs_done", "remaining_libs", "finished_at")},
             "errors": (st.get("errors") or [])[-3:], "node": {"pending": len(node.get("pending", [])), "jobs": node.get("jobs", 0), "ingested": node.get("ingested", 0)}}

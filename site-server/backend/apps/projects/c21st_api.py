@@ -30,7 +30,8 @@ def _int(v, d):
 @studio_api("GET")
 def c21st_list(request):
     q = request.query_params
-    out = c21st.search(q.get("q", "")[:80], q.get("cat", ""), q.get("usable") == "1", _int(q.get("page"), 1), _int(q.get("size"), 24), q.get("insertable") == "1")
+    out = c21st.search(q.get("q", "")[:80], q.get("cat", ""), q.get("usable") == "1", _int(q.get("page"), 1), _int(q.get("size"), 24), q.get("insertable") == "1",
+                       kind=q.get("kind", "") if q.get("kind", "") in ("section", "widget") else "")
     out["crawl"] = _crawl_json()
     out["key"] = c21st.key_status()
     out["max_ai_refs"] = c21st.MAX_AI_REFS

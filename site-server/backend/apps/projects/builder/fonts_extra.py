@@ -50,4 +50,11 @@ EXTRA_FONTS = {
           'files': [('almarai-arabic-400-normal.woff2', AR, '400'), ('almarai-latin-400-normal.woff2', LA, '400'), ('almarai-arabic-700-normal.woff2', AR, '700'), ('almarai-latin-700-normal.woff2', LA, '700')]},
     'vibes': {'label': 'ویبز (تزئینیِ دست\u200cنویس)', 'family': 'Vibes', 'weight': '400',
           'files': [('vibes-arabic-400-normal.woff2', AR, '400'), ('vibes-latin-400-normal.woff2', LA, '400')]},
+    # ── قلم‌های «ترکیبی» (۱۱/۱۷): حروفِ فارسی از یک قلمِ فارسیِ خوانا، حروفِ لاتین و رقمِ لاتین از یک قلمِ تک‌فاصله یا پیکسلی ⇒ «ترمینال/CLI» و «پیکسلی» در متنِ
+    # دوزبانه (واژه‌های لاتین، کد، رقم) هم دیده می‌شوند؛ هر دو OFL از fontsource (JetBrains Mono و Press Start 2P).
+    'plexmono': {'label': 'پلکس + تک‌فاصله (ترمینال و کد)', 'family': 'Plex Mono NM', 'weight': '400 700',
+          'files': [('ibm-plex-sans-arabic-arabic-400-normal.woff2', AR, '400'), ('ibm-plex-sans-arabic-arabic-700-normal.woff2', AR, '700'),
+                    ('jetbrains-mono-latin-400-normal.woff2', LA, '400'), ('jetbrains-mono-latin-700-normal.woff2', LA, '700')]},
+    'pixelfa': {'label': 'چنگا + پیکسلی (بازی و رترو)', 'family': 'Pixel Changa NM', 'weight': '400',
+          'files': [('changa-arabic-wght-normal.woff2', AR, '200 800'), ('press-start-2p-latin-400-normal.woff2', LA, '400')]},
 }

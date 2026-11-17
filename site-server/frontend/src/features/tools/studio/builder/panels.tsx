@@ -29,7 +29,7 @@ export function LibraryPanel({
   sections: SectionT[];
   onAdd: (type: string) => void;
   onDragStart: (type: string, x: number, y: number) => void;
-  onAddC21?: (key: string) => void | Promise<void>;
+  onAddC21?: (key: string, withAi?: boolean) => void | string | Promise<void | string>;
   onAddSaved: (s: SectionT) => void;
   onDragSaved: (s: SectionT, x: number, y: number) => void;
   onDeleteSaved: (s: SectionT) => void;

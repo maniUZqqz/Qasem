@@ -585,8 +585,12 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
   );
   /** قطعهٔ 21st (تبدیل‌شده): بلوکِ آماده را از سرور می‌گیرد و مثلِ «بخشِ ذخیره‌شده» در صفحه می‌گذارد. */
   const addC21 = useCallback(
-    async (key: string) => {
-      const { data } = await api.get<{ block: Block }>(`/studio/projects/${slug}/builder/c21/${key}/block/`);
+    async (key: string, withAi?: boolean): Promise<string | void> => {
+      // متن‌های نمونهٔ قطعه انگلیسی‌اند: عبارت‌های رایج (دکمه، منو، قیمت …) همیشه با فرهنگ‌لغت فارسی می‌شوند؛ «با AI» بقیه را هم ترجمه می‌کند (متیس بی‌اعتبار ⇒ پیامِ فارسی، قطعه باز هم اضافه می‌شود)
+      const url = `/studio/projects/${slug}/builder/c21/${key}/block/`;
+      const { data } = withAi
+        ? await api.post<{ block: Block; ai?: { ok: boolean; message: string } }>(url, { ai: true })
+        : await api.get<{ block: Block; ai?: { ok: boolean; message: string } }>(url, { params: { fa: 1 } });
       const b = D.refreshIds(JSON.parse(JSON.stringify(data.block)) as Block);
       const t = D.clickTarget(docRef.current, catalog, b.type, selectedRef.current);
       const r = D.insertBlock(docRef.current, catalog, b, t);
@@ -594,6 +598,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       setSelected(r.id);
       setSheet("none");
       window.setTimeout(() => ctlRef.current?.select(r.id, true), 450);
+      return data.ai?.message;
     },
     [slug, catalog, commit],
   );

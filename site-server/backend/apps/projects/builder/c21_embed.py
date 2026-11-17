@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from . import c21_convert as CV
+from . import c21_contrast as CC, c21_convert as CV
 from .clean import esc, safe_url
 
 TYPE = "c21"
@@ -94,14 +94,34 @@ def render(r, b) -> str:
 HOST_CSS = ".nbc21-host{display:block;width:100%;max-width:100%;overflow-x:clip}"
 
 
-def css_for(keys) -> str:
-    """CSSِ قطعه‌های 21st که در سند هستند: یک بار هرکدام، ترتیبِ ثابت."""
+#: کلاس‌های عمومیِ CSSِ پایهٔ سایت که با نامِ ابزارهای Tailwind یکی‌اند و درون قطعه نشت می‌کردند: ``.grid`` (gap + ستون‌های خودکار) ستون‌بندیِ ۷۹ قطعه را به‌هم می‌ریخت
+#: (مثلاً دایرهٔ تیکِ ۲۲ پیکسلی ۲۲۰ پیکسل ستون می‌گرفت و تیک کنارِ متن می‌افتاد)؛ th/td/h1..h6 هم ترازِ راست و ارتفاعِ سطرِ سایت را می‌بردند.
+#: بالاتر از CSSِ سایت و پایین‌تر از ابزارهای خودِ قطعه (هم‌وزن و دیرتر ⇒ قطعه برنده).
+LEAK_CSS = ('[class*="nbc21-x"] .grid{grid-template-columns:none;gap:normal}'
+            '[class*="nbc21-x"] th,[class*="nbc21-x"] td{text-align:inherit}'
+            '[class*="nbc21-x"] th{background:transparent;color:inherit;font-size:inherit}'          # `th{background:#f9fafb;color:var(--ink-3)}` ِ پایهٔ سایت: سرستونِ روشن با متنِ روشن روی پوستهٔ تیره (۲٫۷:۱)
+            '[class*="nbc21-x"] h1,[class*="nbc21-x"] h2,[class*="nbc21-x"] h3,[class*="nbc21-x"] h4,[class*="nbc21-x"] h5,[class*="nbc21-x"] h6{line-height:inherit}')
+
+
+def css_one(rec: dict, colors=None, mode: str = "") -> str:
+    """CSSِ یک قطعه برای پوستهٔ داده‌شده: حالتِ نمایش (theme | light | dark) از سنجشِ مرورگر می‌آید (c21_contrast.plan_for) مگر این‌که ``mode`` بدهند؛
+    پوستهٔ تیره و جزیرهٔ تیره ⇒ ``dark:`` ِ خودِ قطعه روشن؛ جزیره ⇒ زمینه و رنگ‌های ثابتِ خوانا."""
+    pol = CC.polarity(colors)
+    mode = mode if mode in CC.MODES else CC.plan_for(rec, pol)
+    css = CC.dark_variants(rec.get("css", ""), mode == "dark" or (mode == "theme" and pol == "dark"))
+    if mode in ("light", "dark"):
+        css += "\n" + CC.island_css(rec["scope"], mode, CC.page_colors(colors, pol))
+    return css
+
+
+def css_for(keys, colors=None, modes=None) -> str:
+    """CSSِ قطعه‌های 21st که در سند هستند: یک بار هرکدام، ترتیبِ ثابت. ``colors`` = رنگ‌های پوستهٔ همین سند (برای انتخابِ روشن/تیره)؛ ``modes`` = {کلید: حالت} (سنجش)."""
     out = []
     for k in sorted(dict.fromkeys(keys or [])):
         rec = CV.get_record(k)
         if rec and rec.get("css"):
-            out.append("/* قطعهٔ 21st: %s (%s) */\n%s" % (rec.get("title", k).replace("*/", ""), rec.get("license", ""), rec["css"]))
-    return ("/* قطعه‌های 21st */\n" + HOST_CSS + "\n" + "\n".join(out)) if out else ""
+            out.append("/* قطعهٔ 21st: %s (%s) */\n%s" % (rec.get("title", k).replace("*/", ""), rec.get("license", ""), css_one(rec, colors, (modes or {}).get(k, ""))))
+    return ("/* قطعه‌های 21st */\n" + HOST_CSS + "\n" + LEAK_CSS + "\n" + "\n".join(out)) if out else ""
 
 
 def used_in_html(html: str) -> list:
@@ -129,7 +149,7 @@ def skeleton(key: str, limit: int = 1100) -> str:
     return html
 
 
-def preview_page(key: str, base_css: str = "", dir_: str = "rtl") -> dict:
+def preview_page(key: str, base_css: str = "", dir_: str = "rtl", colors=None, mode: str = "") -> dict:
     """پیش‌نمایشِ مستقل (برای پنل و آزمونِ مرورگر): {html, css, title, license, …} یا None."""
     rec = CV.get_record(key)
     if not rec:
@@ -139,5 +159,5 @@ def preview_page(key: str, base_css: str = "", dir_: str = "rtl") -> dict:
     html = _RE_NBT.sub("", html)
     html = _RE_T.sub(lambda m: esc(rec["texts"][int(m.group(1))]) if int(m.group(1)) < len(rec["texts"]) else "", html)
     return {"key": key, "id": rec["id"], "title": rec.get("title", ""), "html": '<div class="nbc21-host"><div class="%s" dir="auto">%s</div></div>' % (rec["scope"], html),
-            "css": css_for([key]), "license": rec.get("license", ""), "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""),
+            "css": css_for([key], colors, {key: mode} if mode else None), "license": rec.get("license", ""), "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""),
             "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", []))}

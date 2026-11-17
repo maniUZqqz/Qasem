@@ -30,6 +30,7 @@ export type C21Item = {
   conv_key: string;
   conv_state: string;
   conv_error: string;
+  kind?: string;
 };
 type KeyState = { has_key: boolean; limit: number; used_today: number; left_today: number; how: string };
 type Crawl = {
@@ -46,7 +47,7 @@ type Crawl = {
   usable?: number;
   previews?: number;
 };
-type Pipeline = { toolchain: boolean; converted: number; failed: number; no_source: number; waiting?: number; license_blocked: number; node: { pending: number; jobs: number; ingested: number } };
+type Pipeline = { toolchain: boolean; converted: number; insertable?: number; blocked?: number; failed: number; no_source: number; waiting?: number; license_blocked: number; node: { pending: number; jobs: number; ingested: number } };
 type Listing = {
   total: number;
   page: number;
@@ -55,6 +56,8 @@ type Listing = {
   categories: { key: string; label: string; count: number }[];
   catalog_size: number;
   insertable?: number;
+  insertable_sections?: number;
+  query_en?: string;
   with_preview?: number;
   crawl: Crawl;
   pipeline?: Pipeline;
@@ -118,7 +121,7 @@ export default function C21stBrowser({
   picked?: string[];
   onPick?: (ids: string[]) => void;
   onAddNearest?: (type: string) => void;
-  onAddC21?: (key: string) => void | Promise<void>;
+  onAddC21?: (key: string, withAi?: boolean) => void | string | Promise<void | string>;
   slug?: string;
   theme?: ThemeT;
 }) {
@@ -126,6 +129,7 @@ export default function C21stBrowser({
   const [cat, setCat] = useState("");
   const [usable, setUsable] = useState(mode === "ai");               // الهام برای AI فقط از قطعه‌های با مجوزِ آزاد؛ بقیه فقط کاتالوگ‌اند
   const [insertable, setInsertable] = useState(mode === "manual");
+  const [kind, setKind] = useState<"" | "section" | "widget">("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Listing | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,13 +142,13 @@ export default function C21stBrowser({
 
   const load = useCallback(() => {
     api
-      .get<Listing>("/studio/c21st/", { params: { q, cat, usable: usable ? 1 : 0, insertable: insertable ? 1 : 0, page, size: 12 } })
+      .get<Listing>("/studio/c21st/", { params: { q, cat, usable: usable ? 1 : 0, insertable: insertable ? 1 : 0, kind: insertable ? kind : "", page, size: 12 } })
       .then((r) => {
         setData(r.data);
         setError(null);
       })
       .catch((e) => setError(studioError(e)));
-  }, [q, cat, usable, insertable, page]);
+  }, [q, cat, usable, insertable, kind, page]);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -172,7 +176,7 @@ export default function C21stBrowser({
     api
       .get<Live>(`/studio/projects/${slug}/builder/c21/${open}/preview/`, { params: theme?.style ? { style: theme.style } : {} })
       .then((r) => ok && setLive(r.data))
-      .catch((e) => ok && setMsg(studioError(e)));
+      .catch((e) => { if (ok) { setMsg(studioError(e)); setOpen(null); } });
     return () => {
       ok = false;
     };
@@ -209,7 +213,7 @@ export default function C21stBrowser({
 
       <div className="c21-bar">
         <span className="c21-note" data-testid="c21st-stats">
-          {empty ? "کاتالوگ هنوز خالی است." : `${fa(data.catalog_size)} قطعه در کاتالوگ · ${fa(data.crawl.usable ?? 0)} با مجوزِ آزاد · ${fa(data.insertable ?? 0)} قابلِ درج`}
+          {empty ? "کاتالوگ هنوز خالی است." : `${fa(data.catalog_size)} قطعه در کاتالوگ · ${fa(data.crawl.usable ?? 0)} با مجوزِ آزاد · ${fa(data.insertable ?? 0)} قابلِ درج (${fa(data.insertable_sections ?? 0)} بخشِ صفحه)`}
           {data.crawl.running ? " · در حالِ به‌روزرسانی…" : data.crawl.remaining ? ` · ${fa(data.crawl.remaining)} مورد مانده` : ""}
         </span>
         <span className="c21-actions">
@@ -226,7 +230,7 @@ export default function C21stBrowser({
       {data.crawl.blocked && <p className="c21-warn">سرور از 21st.dev ۴۰۳ گرفت؛ خزش به کارِ «crawl21.run» روی سرورِ گرافیکی سپرده می‌شود و با روشن‌شدنِ آن خودکار ادامه پیدا می‌کند.</p>}
       {conv && (
         <p className="c21-note" data-testid="c21st-pipeline">
-          تبدیل: {fa(conv.converted)} قطعه آماده · {fa(conv.no_source)} بدونِ کدِ عمومی{conv.waiting ? ` · ${fa(conv.waiting)} در انتظارِ تبدیل` : ""} · {fa(conv.license_blocked)} مجوزِ مخزن آزاد نبود · {fa(conv.failed)} ناموفق
+          تبدیل: {fa(conv.insertable ?? conv.converted)} قطعهٔ قابلِ درج از {fa(conv.converted)} تبدیل‌شده{conv.blocked ? ` (${fa(conv.blocked)} بسته: خالی، نخوانا، سرریز یا رویِ‌هم‌افتاده)` : ""} · {fa(conv.no_source)} بدونِ کدِ عمومی{conv.waiting ? ` · ${fa(conv.waiting)} در انتظارِ تبدیل` : ""} · {fa(conv.license_blocked)} مجوزِ مخزن آزاد نبود · {fa(conv.failed)} ناموفق
           {conv.node.pending ? ` · ${fa(conv.node.pending)} کارِ خزشِ سرورِ گرافیکی در انتظار` : ""}
         </p>
       )}
@@ -235,12 +239,19 @@ export default function C21stBrowser({
       {!empty && (
         <>
           <div className="c21-filters">
-            <input className="c21-input" placeholder="جست‌وجو (hero، pricing، gradient، marquee …)" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label="جست‌وجو در کاتالوگ" />
+            <input className="c21-input" placeholder="جست‌وجو (قیمت، پرسش‌های متداول، منو، فوتر، دکمه … یا hero، pricing)" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label="جست‌وجو در کاتالوگ" data-testid="c21st-search" />
             <select className="c21-input" value={cat} onChange={(e) => { setCat(e.target.value); setPage(1); }} aria-label="دسته">
               <option value="">همهٔ دسته‌ها</option>
               {data.categories.map((c) => <option key={c.key} value={c.key}>{c.label} ({fa(c.count)})</option>)}
             </select>
             <label className="c21-check"><input type="checkbox" checked={insertable} onChange={(e) => { setInsertable(e.target.checked); setPage(1); }} data-testid="c21st-insertable" /> فقط قابلِ درج</label>
+            {insertable && (
+              <select className="c21-input" value={kind} onChange={(e) => { setKind(e.target.value as "" | "section" | "widget"); setPage(1); }} aria-label="نوعِ قطعه" data-testid="c21st-kind">
+                <option value="">بخش و ابزارک</option>
+                <option value="section">فقط بخش‌های صفحه</option>
+                <option value="widget">فقط ابزارک‌ها (دکمه، کارت کوچک …)</option>
+              </select>
+            )}
             <label className="c21-check"><input type="checkbox" checked={usable} onChange={(e) => { setUsable(e.target.checked); setPage(1); }} /> فقط مجوزِ آزاد</label>
           </div>
 
@@ -263,7 +274,7 @@ export default function C21stBrowser({
                   <small className="c21-note" dir="ltr">{it.author}{it.library ? ` · ${it.library}` : ""}</small>
                   {it.description && <p className="c21-desc" dir="ltr">{it.description}</p>}
                   {it.tags.length > 0 && <div className="c21-tags">{it.tags.slice(0, 5).map((t) => <span key={t} dir="ltr">{t}</span>)}</div>}
-                  {it.insertable && <span className="c21-badge ok" data-testid="c21-insertable">قابلِ درج</span>}
+                  {it.insertable && <span className="c21-badge ok" data-testid="c21-insertable">قابلِ درج{it.kind === "section" ? " · بخشِ صفحه" : it.kind === "widget" ? " · ابزارک" : ""}</span>}
                   {!it.insertable && it.conv_state === "failed" && <small className="c21-note" title={it.conv_error}>تبدیل نشد</small>}
                   <div className="c21-actions">
                     <a className="c21-link" href={it.url} target="_blank" rel="noopener noreferrer" dir="ltr">21st.dev</a>
@@ -274,8 +285,14 @@ export default function C21stBrowser({
                     )}
                     {mode === "manual" && it.insertable && onAddC21 && (
                       <button type="button" className="c21-btn" disabled={busy !== null} data-testid="c21-add"
-                              onClick={() => void act(`add:${it.id}`, async () => { await onAddC21(it.conv_key); return `«${it.title}» به صفحه اضافه شد؛ متن‌ها و تصویرها را روی بوم ویرایش کنید.`; })}>
+                              onClick={() => void act(`add:${it.id}`, async () => { const extra = await onAddC21(it.conv_key); return `«${it.title}» به صفحه اضافه شد؛ متن‌ها (عبارت‌های رایج فارسی شده‌اند) و تصویرها را روی بوم ویرایش کنید.${extra ? " " + extra : ""}`; })}>
                         افزودن به صفحه
+                      </button>
+                    )}
+                    {mode === "manual" && it.insertable && onAddC21 && (
+                      <button type="button" className="c21-btn" disabled={busy !== null} data-testid="c21-add-ai" title="بقیهٔ متن‌های انگلیسیِ قطعه را با هوش مصنوعی فارسی می‌کند؛ اگر هوش مصنوعی در دسترس نباشد قطعه با ترجمهٔ عبارت‌های رایج اضافه می‌شود و دلیل نوشته می‌شود"
+                              onClick={() => void act(`addai:${it.id}`, async () => { const extra = await onAddC21(it.conv_key, true); return `«${it.title}» به صفحه اضافه شد.${extra ? " " + extra : ""}`; })}>
+                        افزودن + فارسی‌سازیِ متن با AI
                       </button>
                     )}
                     {mode === "ai" && (

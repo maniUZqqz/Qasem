@@ -354,6 +354,20 @@
    ],
    "missing": ""
   },
+  "pixelfa": {
+   "family": "Pixel Changa NM",
+   "files": [
+    {
+     "file": "changa-arabic-wght-normal.woff2",
+     "sha256": "19d8649a87ff19b7e69bf406122424c37e002a3a4cb9085e404132a7b9cb6bdf"
+    },
+    {
+     "file": "press-start-2p-latin-400-normal.woff2",
+     "sha256": "afec86997fdaf54af1f59358fa2c1e2a0f1d04146edad18e5cd141d0384a7548"
+    }
+   ],
+   "missing": ""
+  },
   "plex": {
    "family": "IBM Plex Sans Arabic",
    "files": [
@@ -372,6 +386,28 @@
     {
      "file": "ibm-plex-sans-arabic-latin-700-normal.woff2",
      "sha256": "ae2d59f91ecf9f7ed279e4a1fc1a9da8170fb0ce5b9152917a8f759033f5777c"
+    }
+   ],
+   "missing": ""
+  },
+  "plexmono": {
+   "family": "Plex Mono NM",
+   "files": [
+    {
+     "file": "ibm-plex-sans-arabic-arabic-400-normal.woff2",
+     "sha256": "6010e7fd0dce5d527583951750728cbe3c895efbd16aa0f809ab8c824878c9d8"
+    },
+    {
+     "file": "ibm-plex-sans-arabic-arabic-700-normal.woff2",
+     "sha256": "04c730b4292731ccedadd5bd80756124364ae4923895145d9cd7b1f28e443de1"
+    },
+    {
+     "file": "jetbrains-mono-latin-400-normal.woff2",
+     "sha256": "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb"
+    },
+    {
+     "file": "jetbrains-mono-latin-700-normal.woff2",
+     "sha256": "d0d4e818808f2a0ba39b2b09d1989366f63494e295f003c7ef436697378507e8"
     }
    ],
    "missing": ""

@@ -370,6 +370,28 @@ def sanitize(markup: str, scope: str) -> dict:
     return {"template": body, "texts": slots.texts, "links": slots.links, "images": slots.images, "warnings": slots.warnings}
 
 
+def repair_nested(css: str, scope: str) -> str:
+    """Tailwind v4 تغییردهنده‌ها (hover، focus، dark، before، after، group-hover …) را تودرتو می‌نویسد (`.x{&:hover{…}}`). نسخهٔ اولِ تبدیل، سلکتورِ فرزند را جدا «دامنه‌دار» می‌کرد
+    و پس از ساده‌سازی ``.S .x .S :hover`` می‌ماند (هرگز نمی‌خورد؛ ۳٬۴۰۰ قاعده در ۲۷۸ قطعه: hover/focus/dark/before/after همه بی‌اثر بودند). این‌جا به ``.S .x:hover`` برمی‌گردد.
+    بی‌اثر روی CSSِ درست (idempotent)."""
+    sep = " ." + scope + " "
+    if not scope or sep not in css:
+        return css
+    return re.sub(r"(?<=[^\s,{;}]) \.%s (?=[:\[.])" % re.escape(scope), "", css)
+
+
+def fix_css(css: str, scope: str = "") -> str:
+    """ترمیمِ CSSِ ذخیره‌شده (بی‌اثر روی CSSِ درست): (۱) سلکتورِ تودرتو، (۲) «وسط‌چینِ left:50%» که در RTL نباید منطقی شود (``left-1/2 -translate-x-1/2``)،
+    (۳) ``--card:var(--card,…)`` که خودارجاع بود و ``bg-card`` را شفاف می‌کرد."""
+    if not css:
+        return css
+    css = repair_nested(css, scope)
+    css = re.sub(r"inset-inline-start:(50%|calc\(1/2\*100%\))", r"left:\1", css)
+    css = re.sub(r"inset-inline-end:(50%|calc\(1/2\*100%\))", r"right:\1", css)
+    css = re.sub(r"--card:var\(--card,#fff\);?", "", css)
+    return css
+
+
 def check_css(css: str) -> str:
     if len(css) > MAX_CSS:
         raise ConvertError("CSS خیلی بزرگ است (%d نویسه)" % len(css))
@@ -396,9 +418,21 @@ def load_record(key: str) -> dict | None:
     if not re.fullmatch(r"x[0-9a-f]{9}", key or ""):
         return None
     try:
-        return json.loads(record_path(key).read_text(encoding="utf-8"))
+        rec = json.loads(record_path(key).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    return normalize_record(rec)
+
+
+def normalize_record(rec: dict) -> dict:
+    """رکورد ⇒ همان رکورد با CSSِ ترمیم‌شده و نامِ کتابخانه/نویسنده به‌صورتِ متنِ ساده (پیش‌تر «[Spectrum UI](https://21st.dev/…)» نمایش داده می‌شد)."""
+    if not isinstance(rec, dict):
+        return rec
+    rec["css"] = fix_css(rec.get("css", ""), rec.get("scope", ""))
+    for k in ("library", "author"):
+        if isinstance(rec.get(k), str) and "](" in rec[k]:
+            rec[k] = c21st.link_text(rec[k])
+    return rec
 
 
 def load_index() -> dict:
@@ -412,7 +446,7 @@ def save_record(rec: dict) -> None:
     c21st._atomic(record_path(rec["key"]), json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
     idx = load_index()
     idx[rec["id"]] = {"key": rec["key"], "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""), "author": rec.get("author", ""),
-                      "library": rec.get("library", ""), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", [])), "rtl": (rec.get("rtl") or {}).get("status", ""),
+                      "library": rec.get("library", ""), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", [])), "rtl": (rec.get("rtl") or {}).get("status", ""), "kind": (rec.get("rtl") or {}).get("kind", ""),
                       "bytes": len(rec.get("css", "")) + len(rec.get("template", "")), "converted_at": rec.get("converted_at", "")}
     c21st._atomic(converted_dir() / "index.json", json.dumps(idx, ensure_ascii=False, separators=(",", ":")))
     _CACHE.pop(rec["key"], None)
@@ -498,11 +532,11 @@ def convert_bundle(cid: str, bundle: dict, *, meta: dict | None = None, runner=s
     if not res.get("ok"):
         raise ConvertError(res.get("error") or "تبدیل ناموفق")
     sl = sanitize(res["html"], scope)
-    css = check_css(res["css"])
+    css = fix_css(check_css(res["css"]), scope)
     if not sl["template"].strip():
         raise ConvertError("خروجی خالی است")
     rec = {"id": cid, "key": key, "scope": scope, "title": meta.get("title", ""), "description": meta.get("description", ""), "cats": meta.get("cats", []),
-           "license": meta.get("license", ""), "author": meta.get("author", ""), "library": meta.get("library", ""), "url": meta.get("url", ""),
+           "license": meta.get("license", ""), "author": c21st.link_text(meta.get("author", "")), "library": c21st.link_text(meta.get("library", "")), "url": meta.get("url", ""),
            "source": bundle.get("source") or {}, "template": sl["template"], "css": css, "texts": sl["texts"], "links": sl["links"], "images": sl["images"],
            "warnings": (res.get("warnings") or []) + sl["warnings"], "stats": res.get("stats") or {}, "rtl": {"status": "unchecked"},
            "converted_at": c21st._now() if hasattr(c21st, "_now") else time.strftime("%Y-%m-%dT%H:%M:%S")}

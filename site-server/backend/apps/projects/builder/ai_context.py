@@ -145,7 +145,15 @@ FA_EN = (('فروشگاه', 'e-commerce shop store'), ('خرید', 'e-commerce s
          ('نمونه کار', 'portfolio'), ('پرتفولیو', 'portfolio'), ('نرم افزار', 'saas software'), ('اپلیکیشن', 'mobile app'), ('استارتاپ', 'startup saas'),
          ('مشاور', 'consulting service'), ('خدمات', 'service'), ('مد', 'fashion'), ('لباس', 'fashion'), ('گل', 'florist plant'), ('دندان', 'dental'),
          ('حیوان', 'pet veterinary'), ('ساختمان', 'construction architecture'), ('معماری', 'architecture interior'), ('بیمه', 'insurance'), ('حمل', 'logistics delivery'),
-         ('مجله', 'magazine blog'), ('وبلاگ', 'blog'), ('رمزارز', 'crypto'), ('خیریه', 'non-profit charity'), ('مدرسه', 'education school'), ('دانشگاه', 'education university'))
+         ('مجله', 'magazine blog'), ('وبلاگ', 'blog'), ('رمزارز', 'crypto'), ('خیریه', 'non-profit charity'), ('مدرسه', 'education school'), ('دانشگاه', 'education university'),
+         # بازبینیِ ۱۱/۱۷: «آژانس مسافرتی» و «عکاسی» نوعِ محصول نمی‌گرفتند (واژه‌ها در فهرست نبود)
+         ('آژانس مسافرتی', 'travel tourism agency'), ('مسافرتی', 'travel tourism agency'), ('مسافرت', 'travel tourism agency'), ('تور', 'travel tourism agency'), ('گردشگر', 'travel tourism agency'),
+         ('عکاسی', 'photography studio'), ('عکاس', 'photography studio'), ('آتلیه', 'photography studio'), ('فیلمبردار', 'video production studio'), ('فیلمسازی', 'video production studio'),
+         ('رویداد', 'event management'), ('همایش', 'event management'), ('پادکست', 'podcast platform'), ('یوگا', 'yoga wellness'), ('تغذیه', 'nutrition health'), ('مربی', 'fitness coach gym'),
+         ('تناسب اندام', 'fitness gym'), ('نانوایی', 'bakery cafe'), ('قنادی', 'bakery cafe'), ('خودرو', 'automotive car dealership'), ('تعمیرگاه', 'automotive repair service'),
+         ('دکوراسیون', 'interior design decoration'), ('طراحی داخلی', 'interior design decoration'), ('تبلیغات', 'marketing agency'), ('آژانس تبلیغاتی', 'marketing agency'),
+         ('طراحی سایت', 'creative agency web design'), ('رزومه', 'portfolio personal'), ('کتابفروشی', 'bookstore books'), ('اسباب بازی', 'kids toys'), ('داروخانه', 'pharmacy healthcare'),
+         ('آرایشی', 'beauty cosmetics'), ('استخر', 'pool sports fitness'))
 
 #: «بخشِ صفحه»ای که متن می‌خواهد (قیمت، پرسش، منو …) ⇒ دستهٔ قطعه‌های ما (PAGE_PLANS) + واژه‌های انگلیسی برای جست‌وجو. ترتیبِ وقوع در متن = ترتیبِ اولویت.
 SECTION_INTENTS = (
@@ -178,6 +186,12 @@ DOMAIN_SECTIONS = {
     'news media': ('cards', 'gallery'), 'magazine blog': ('cards', 'gallery'), 'blog': ('cards',), 'wedding event': ('gallery', 'steps', 'contact'),
     'kids education': ('features', 'gallery', 'contact'), 'non-profit charity': ('cta', 'steps', 'testimonials'), 'construction architecture': ('gallery', 'steps', 'contact'),
     'architecture interior': ('gallery', 'features', 'contact'), 'logistics delivery': ('steps', 'features', 'contact'), 'pet veterinary': ('features', 'testimonials', 'contact'),
+    'travel tourism agency': ('gallery', 'pricing', 'cta'), 'photography studio': ('gallery', 'features', 'contact'), 'video production studio': ('gallery', 'features', 'contact'),
+    'event management': ('gallery', 'steps', 'contact'), 'podcast platform': ('cards', 'cta'), 'yoga wellness': ('features', 'pricing', 'steps'), 'nutrition health': ('features', 'faq', 'testimonials'),
+    'fitness coach gym': ('pricing', 'testimonials', 'steps'), 'automotive car dealership': ('cards', 'gallery', 'contact'), 'automotive repair service': ('features', 'steps', 'contact'),
+    'interior design decoration': ('gallery', 'features', 'contact'), 'marketing agency': ('features', 'testimonials', 'contact'), 'creative agency web design': ('gallery', 'features', 'contact'),
+    'portfolio personal': ('gallery', 'features', 'contact'), 'bookstore books': ('cards', 'cta'), 'kids toys': ('cards', 'gallery', 'cta'), 'pharmacy healthcare': ('cards', 'faq', 'contact'),
+    'beauty cosmetics': ('cards', 'gallery', 'testimonials'), 'pool sports fitness': ('pricing', 'gallery', 'contact'),
 }
 #: دستهٔ «بخشِ صفحه» ⇒ دسته‌های کاتالوگِ 21st.dev که به آن می‌خورند
 _C21_OF_INTENT = {'contact': ('form',), 'steps': ('landing-page', 'tabs'), 'dashboard': ('dashboard', 'chart', 'table', 'sidebar'), 'cards': ('card',)}
@@ -483,8 +497,18 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
     return payload
 
 
-def attach_css(html, css=''):
-    """بعد از پاسخِ AI: CSSِ قطعه‌هایی که در بدنه به‌کار رفته‌اند را به CSSِ صفحه می‌چسباند (یک بار)."""
+def _style_colors(style_key, css=''):
+    """رنگ‌های پوسته برای انتخابِ روشن/تیرهٔ قطعه‌های 21st: از سبکِ پروژه، وگرنه از متغیرهای رنگیِ CSSِ داده‌شده؛ نبود ⇒ None (روشن)."""
+    st = styles_mod.STYLES.get(style_key or '')
+    if st:
+        return dict(st['theme']['colors'])
+    from . import theme as theme_mod
+    eff = theme_mod.effective_colors(css or '')
+    return eff if eff.get('bg') and eff.get('text') else None
+
+
+def attach_css(html, css='', style_key=''):
+    """بعد از پاسخِ AI: CSSِ قطعه‌هایی که در بدنه به‌کار رفته‌اند را به CSSِ صفحه می‌چسباند (یک بار). style_key = سبکِ پروژه (رنگ‌هایش قطبیتِ روشن/تیره و جزیرهٔ قطعه‌های 21st را تعیین می‌کند)."""
     css = css or ''
     keys = comps.used_in_html(html)
     if keys:
@@ -493,7 +517,7 @@ def attach_css(html, css=''):
             css = (css.rstrip() + '\n\n' + block).strip() + '\n'
     k21 = c21_embed.used_in_html(html)
     if k21:
-        block = c21_embed.css_for(k21)
+        block = c21_embed.css_for(k21, _style_colors(style_key, css))
         if block and block not in css:
             css = (css.rstrip() + '\n\n' + block).strip() + '\n'
     return css

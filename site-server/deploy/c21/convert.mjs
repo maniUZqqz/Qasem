@@ -117,7 +117,7 @@ try {
 const classes = new Set();
 for (const m of html.matchAll(/class="([^"]*)"/g)) for (const c of m[1].split(/\s+/)) if (c) classes.add(c);
 const themeVars = `
-  --background: var(--bg, #ffffff); --foreground: var(--ink, #111827); --card: var(--card, #ffffff); --card-foreground: var(--ink, #111827);
+  --background: var(--bg, #ffffff); --foreground: var(--ink, #111827); --card-foreground: var(--ink, #111827);
   --popover: var(--card, #ffffff); --popover-foreground: var(--ink, #111827); --primary: var(--brand, #126f85); --primary-foreground: var(--brand-ink, #ffffff);
   --secondary: color-mix(in srgb, var(--ink, #111827) 6%, var(--bg, #ffffff)); --secondary-foreground: var(--ink, #111827);
   --muted: color-mix(in srgb, var(--ink, #111827) 6%, var(--bg, #ffffff)); --muted-foreground: var(--ink-3, #6b7280);
@@ -131,7 +131,7 @@ const input = `
 @import "tailwindcss/utilities.css" layer(utilities);
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {
-  --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card, #ffffff); --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --color-destructive: var(--destructive); --color-destructive-foreground: var(--destructive-foreground);
@@ -182,14 +182,18 @@ const scopeSel = (sel) => {
   if (sel === '*' || sel === '::before' || sel === '::after' || sel === '::file-selector-button') return '.' + SCOPE + ' ' + sel;
   return '.' + SCOPE + ' ' + sel.replace(/^&\s*/, '');
 };
+const insideRule = (n) => { for (let p = n.parent; p; p = p.parent) if (p.type === 'rule') return true; return false; };
 root.walkRules((rule) => {
   if (rule.parent && rule.parent.type === 'atrule' && /keyframes$/.test(rule.parent.name)) return;
+  if (insideRule(rule)) return;      // Tailwind v4 variants are nested (`.x { &:hover { @media (hover:hover) {...} } }`): the outer rule is scoped, the inner ones keep their `&`
   const sels = rule.selectors.map(scopeSel).filter(Boolean);
   if (!sels.length) { rule.remove(); return; }
   rule.selectors = sels;
 });
 root.walkDecls((d) => {
-  if (PHYS[d.prop]) d.prop = PHYS[d.prop];
+  // `left-1/2 -translate-x-1/2` (centring) must stay physical: with logical insets the translate pushes the box the wrong way in RTL.
+  if ((d.prop === 'left' || d.prop === 'right') && /^(50%|calc\(\s*1\s*\/\s*2\s*\*\s*100%\s*\))$/.test(d.value.trim())) { /* keep */ }
+  else if (PHYS[d.prop]) d.prop = PHYS[d.prop];
   else if (d.prop === 'text-align' && /^(left|right)$/.test(d.value)) d.value = d.value === 'left' ? 'start' : 'end';
   else if (d.prop === 'float' && /^(left|right)$/.test(d.value)) d.value = d.value === 'left' ? 'inline-start' : 'inline-end';
   else if (d.prop === 'clear' && /^(left|right)$/.test(d.value)) d.value = d.value === 'left' ? 'inline-start' : 'inline-end';

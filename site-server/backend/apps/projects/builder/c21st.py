@@ -268,9 +268,42 @@ def _words(text: str) -> set[str]:
     return {w for w in re.split(r"[^\w؀-ۿ]+", (text or "").lower()) if len(w) > 1}
 
 
-def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1, size: int = 24, insertable_only: bool = False) -> dict:
+#: واژه‌های فارسیِ رایجِ «چه قطعه‌ای می‌خواهم» ⇒ معادلِ انگلیسی (دادهٔ کاتالوگ انگلیسی است؛ بازبینیِ ۱۱/۱۷: جست‌وجوی «قیمت» چیزی نمی‌یافت). دسته‌های کاتالوگ (CATEGORIES) هم با برچسبِ فارسی‌شان می‌آیند.
+UI_FA_EN = (('دکمه', 'button'), ('کلید', 'button toggle switch'), ('کارت', 'card'), ('منو', 'menu navigation navbar'), ('ناوبری', 'navigation navbar'), ('فرم', 'form input'),
+            ('ورود', 'login sign in'), ('ثبت نام', 'sign up register'), ('جدول', 'table'), ('نمودار', 'chart graph'), ('داشبورد', 'dashboard'), ('متحرک', 'animated animation'),
+            ('انیمیشن', 'animation animated'), ('پس زمینه', 'background'), ('اسلایدر', 'carousel slider'), ('تب', 'tabs'), ('نشان', 'badge'), ('جست وجو', 'search'),
+            ('اعلان', 'notification toast'), ('پنجره', 'dialog modal popover'), ('نوار کناری', 'sidebar'), ('تصویر', 'image gallery'), ('گالری', 'gallery'), ('ویدیو', 'video'),
+            ('ساعت', 'clock timer'), ('شمارنده', 'counter number'), ('پیشرفت', 'progress'), ('امتیاز', 'rating stars review'), ('نظر', 'testimonial review'), ('سوال', 'faq question'),
+            ('پرسش', 'faq question accordion'), ('آکاردئون', 'accordion'), ('تماس', 'contact'), ('خبرنامه', 'newsletter'), ('هدر', 'header navbar'), ('فوتر', 'footer'),
+            ('پابرگ', 'footer'), ('قیمت', 'pricing price plans'), ('تعرفه', 'pricing plans'), ('پلن', 'pricing plans'), ('سربرگ', 'hero header'), ('هیرو', 'hero'), ('ویژگی', 'features'),
+            ('امکانات', 'features'), ('تیم', 'team'), ('متن', 'text'), ('درباره', 'about'), ('لیست', 'list'), ('چت', 'chat'), ('هوش مصنوعی', 'ai chat'), ('تاریک', 'dark'),
+            ('گرادیان', 'gradient'), ('شیشه', 'glass'), ('سه بعدی', '3d'), ('نوار', 'bar'), ('لودینگ', 'loader loading'), ('بارگذاری', 'loader loading upload'), ('آواتار', 'avatar'),
+            ('پروفایل', 'profile avatar'), ('خرید', 'shop cart checkout'), ('فروشگاه', 'shop store product'), ('محصول', 'product card'), ('سبد', 'cart'), ('ورزش', 'fitness'),
+            ('مراحل', 'steps timeline'), ('گام', 'steps'), ('تقویم', 'calendar'), ('تاریخ', 'calendar date'), ('کد', 'code'), ('ورودی', 'input'), ('انتخاب', 'select dropdown'),
+            ('منوی کشویی', 'dropdown menu'), ('کشویی', 'dropdown accordion'), ('نقشه', 'map'), ('لوگو', 'logo'), ('تایپ', 'typing text animation'), ('ذره', 'particles sparkles'))
+_FA_RE = re.compile(r"[؀-ۿ]")
+
+
+def expand_query(q: str) -> str:
+    """جست‌وجوی فارسی ⇒ همان متن + معادلِ انگلیسیِ واژه‌ها (آغازِ توکن؛ «قیمت‌ها» ⇒ pricing). متنِ بی‌حرفِ فارسی دست نمی‌خورد."""
+    if not _FA_RE.search(q or ""):
+        return q or ""
+    from . import ai_context as AC
+
+    text = AC._norm(q)
+    extra = [AC.en_words(q)]
+    for fa, en in UI_FA_EN:
+        if AC._find(text, fa) >= 0:
+            extra.append(en)
+    for key, (label, _near) in CATEGORIES.items():                    # «پرسش‌های پرتکرار» ⇒ accordion، «منوی بالا» ⇒ navigation
+        if AC._norm(label) and AC._find(text, label) >= 0:
+            extra.append(key.replace("-", " "))
+    return " ".join(extra)
+
+
+def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1, size: int = 24, insertable_only: bool = False, kind: str = "") -> dict:
     rows = load()
-    words = _words(q)
+    words = _words(expand_query(q))
     scored = []
     for r in rows:
         if cat and cat not in r.get("cats", []):
@@ -279,23 +312,26 @@ def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1,
             continue
         if insertable_only and not insertable(r):
             continue
+        if kind and (not insertable(r) or kind_of(r) != kind):
+            continue
         s = 0
         if words:
             hay = _words(" ".join([r.get("title", ""), r.get("description", ""), " ".join(r.get("tags", [])), r.get("library", ""), r.get("author_name", ""), " ".join(r.get("cats", []))]))
             s = 3 * len(words & _words(r.get("title", ""))) + len(words & hay)
             if s == 0:
                 continue
-        scored.append((s, (2 if insertable(r) else 0) + (1 if r.get("preview") else 0), r))
+        scored.append((s, (4 if kind_of(r) == "section" else 0) + (2 if insertable(r) else 0) + (1 if r.get("preview") else 0), r))
     scored.sort(key=lambda x: (-x[0], -x[1], x[2]["id"]))
     size = max(1, min(60, size))
     page = max(1, page)
     items = [public(r) for _s, _d, r in scored[(page - 1) * size: page * size]]
     cats = [{"key": k, "label": v[0], "count": sum(1 for r in rows if k in r.get("cats", []))} for k, v in CATEGORIES.items()]
+    ins = [r for r in rows if insertable(r)]
     return {"total": len(scored), "page": page, "size": size, "items": items, "categories": [c for c in cats if c["count"]], "catalog_size": len(rows),
-            "insertable": sum(1 for r in rows if insertable(r)), "with_preview": sum(1 for r in rows if r.get("preview"))}
+            "insertable": len(ins), "insertable_sections": sum(1 for r in ins if kind_of(r) == "section"), "with_preview": sum(1 for r in rows if r.get("preview")), "query_en": " ".join(sorted(words)) if _FA_RE.search(q or "") else ""}
 
 
-_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}}
+_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}, "kind": {}}
 
 
 def _rtl_index() -> dict:
@@ -309,10 +345,16 @@ def _rtl_index() -> dict:
     if _rtl_cache["mtime"] != m or _rtl_cache["path"] != str(p):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
-            _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()})
+            _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()}, kind={k: (v or {}).get("kind", "") for k, v in data.items()})
         except (OSError, ValueError):
             return {}
     return _rtl_cache["map"]
+
+
+def kind_of(r: dict) -> str:
+    """بخشِ صفحه (section) یا ابزارک (widget) ⇒ از سنجشِ مرورگر (c21_rtl.classify)؛ نسنجیده ⇒ ''."""
+    _rtl_index()
+    return _rtl_cache["kind"].get(r.get("id")) or (r.get("conv") or {}).get("kind", "")
 
 
 def insertable(r: dict) -> bool:
@@ -328,7 +370,7 @@ def public(r: dict) -> dict:
             "license": r.get("license", "") or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
             "deps": r.get("deps", []), "cats": r.get("cats", []), "url": r.get("url") or f"{BASE}/@{r['id'].split('/')[0]}/components/{'/'.join(r['id'].split('/')[1:])}",
             "has_code": code, "nearest": nearest_components(r), "preview": bool(r.get("preview")), "insertable": insertable(r), "conv_key": conv.get("key", "") if insertable(r) else "",
-            "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "src": r.get("src", ""), "library_id": r.get("library_id", "")}
+            "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "kind": kind_of(r) if insertable(r) else "", "src": r.get("src", ""), "library_id": r.get("library_id", "")}
 
 
 def safe_name(cid: str) -> str:

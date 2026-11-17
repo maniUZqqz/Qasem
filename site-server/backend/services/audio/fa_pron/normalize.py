@@ -28,7 +28,7 @@ _LETTER_FIX = {
     ord("ي"): "ی", ord("ى"): "ی", ord("ې"): "ی", ord("ێ"): "ی", ord("ك"): "ک",
     ord("ڪ"): "ک", ord("ہ"): "ه", ord("ھ"): "ه", ord("ۀ"): "هٔ", ord("ة"): "ه",
     ord("ۃ"): "ه", ord("ٱ"): "ا", ord("ؤ"): "ؤ", ord("ڵ"): "ل", ord("ڕ"): "ر",
-    ord("ݘ"): "ی",
+    ord("ݘ"): "ی", ord("ە"): "ه",
 }
 _INVISIBLE = dict.fromkeys(map(ord, [
     "​", "‍", "‎", "‏", "‪", "‫", "‬", "‭",
@@ -65,6 +65,43 @@ def fix_half_spaces(text: str) -> str:
     text = re.sub(r"([آ-ی])[ ]+(تر|ترین)(?![آ-ی])",
                   lambda m: m.group(1) + ZWNJ + m.group(2), text)
     return text
+
+
+_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>|<!--.*?-->", re.S)
+
+
+def strip_markup(text: str) -> str:
+    """HTML tags («<b>», «<br/>») are not speech: «<b>سلام</b>» must not be read as «بی سلام».
+
+    ``<br>`` and ``</p>`` become a line break, every other tag a space.
+    """
+    text = re.sub(r"<br\s*/?>|</p\s*>|</li\s*>|</h[1-6]\s*>", "\n", text, flags=re.I)
+    return _TAG.sub(" ", text)
+
+
+# a digit glued to a Persian word («۳جلسه», «۲۰تومان», «جلسه۳»): read as two words. The ordinal endings («۱۲ام», «۳م»,
+# «۱۰مین») are left alone, spell_numbers turns them into «دوازدهم».
+_FA = "آ-يپچژکگی"      # Persian letters without the Arabic-Indic digits and the decimal / thousands marks that sit in between
+_DIGIT_THEN_WORD = re.compile(r"(\d)(?=[" + _FA + "])(?!(?:‌?ام(?:ین)?|م(?:ین)?)(?![" + _FA + "]))")
+_WORD_THEN_DIGIT = re.compile(r"(?<=[" + _FA + "]{2})(?=\d)")
+
+
+def split_glued_digits(text: str) -> str:
+    text = _DIGIT_THEN_WORD.sub(r"\1 ", text)
+    return _WORD_THEN_DIGIT.sub(" ", text)
+
+
+#: «۴۵۰.۰۰۰ تومان»: a dot between a digit and exactly three digits is the thousands separator when it repeats («۱.۲۵۰.۰۰۰»)
+#: or when a price / count word follows («۲.۵۰۰ تومان»); otherwise it is a decimal point («۳.۱۴۱»).
+_DOT_THOUSANDS_MULTI = re.compile(r"(?<![\d.,/])(\d{1,3}(?:\.\d{3}){2,})(?![\d])(?!\.\d)")
+_DOT_THOUSANDS_ONE = re.compile(
+    r"(?<![\d.,/])([1-9]\d{0,2}\.\d{3})(?![\d])(?=\s*(?:تومان|تومن|ریال|دلار|یورو|پوند|درهم|نفر|عدد|فالوور|دنبال‌کننده|بازدید|لایک|"
+    r"کالری|کیلوکالری|گام|قدم|بار|جلسه|دقیقه|ثانیه|کلمه|واژه))")
+
+
+def fix_dot_thousands(text: str) -> str:
+    text = _DOT_THOUSANDS_MULTI.sub(lambda m: m.group(1).replace(".", ","), text)
+    return _DOT_THOUSANDS_ONE.sub(lambda m: m.group(1).replace(".", ","), text)
 
 
 # ------------------------------------------------------------------ names
@@ -230,7 +267,7 @@ def spell_abbreviations(text: str) -> str:
 
 
 _NUM = r"\d+(?:[.,٬]\d+)*"
-_ORD_FA = re.compile(r"(?<![\d.])(\d+)(?:‌?ام|م)(?![آ-یA-Za-z\d])")
+_ORD_FA = re.compile(r"(?<![\d.])(\d+)(?:‌?ام(?:ین)?|م(?:ین)?|[ ]مین|[ ]امین)(?![آ-یA-Za-z\d])")
 _ORD_EN = re.compile(r"(?<![\d.])(\d+)(?:st|nd|rd|th)\b", re.I)
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|٪)|(?:%|٪)\s*(\d+(?:\.\d+)?)")
 _RANGE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*[\-–—]\s*(\d+(?:\.\d+)?)(?![\d])")
@@ -255,8 +292,31 @@ def _num_to_words(s: str) -> str:
     return cardinal(int(s))
 
 
+#: «۹۹۰/۰۰۰ تومان» (a slash as the thousands separator): only when the last group is «000» or a price word follows.
+_SLASH_THOUSANDS = re.compile(
+    r"(?<![\d/])(\d{1,3})/(\d{3})(?![\d/])(?=(?<=000)|\s*(?:تومان|تومن|ریال|دلار|یورو))")
+#: «-۵ کیلو»: a minus sign in front of a number (not a range «۵-۱۰», not a dash between words «برنامه - ۵ روز»).
+_MINUS = re.compile(r"(?<![\w)\]])[-−](?=\d)")
+#: «4G», «5G» (mobile network) and «4K» (picture size) are letter names, not grams / thousands.
+_NETWORK_G = re.compile(r"(?<![\d.\w])([3-6])\s?G(?![A-Za-z0-9])")
+_PICTURE_K = re.compile(r"(?<![\d.\w])([248])\s?[kK](?![A-Za-z0-9])")
+#: «۲٫۵ میلیون» -> «دو و نیم میلیون» (and «۰٫۵ ساعت» -> «نیم ساعت»): a half before a quantity word is said «N و نیم».
+_QUANT_FA = ("میلیون|میلیارد|هزار|ساعت|دقیقه|ثانیه|روز|هفته|ماه|سال|کیلو|کیلوگرم|گرم|متر|سانتی‌متر|لیتر|میلی‌لیتر|تومان|ریال|دلار|"
+             "یورو|درصد|ست|تکرار|عدد|نفر|بار|جلسه|وعده|لیوان|قاشق|کالری|کیلوکالری|کیلومتر|مایل|قدم|گام")
+_HALF_FA = re.compile(rf"(?<![\d.])(\d+)\.5(?!\d)(?=\s+(?:{_QUANT_FA})(?![آ-ی]))")
+_HALF_UNIT = re.compile(rf"(?<![\d.])(\d+)\.5(?!\d)\s?(°C|℃|°F|km²|m²|m2|{_UNIT_RE})(?![A-Za-z0-9])", re.I)
+
+
+def _half(n: str) -> str:
+    return "نیم" if int(n) == 0 else f"{cardinal(int(n))} و نیم"
+
+
 def spell_numbers(text: str) -> str:
     """Prices, units, ordinals, percentages, ranges, fractions, decimals and plain numbers."""
+    text = _NETWORK_G.sub(lambda m: f"{cardinal(int(m.group(1)))} جی ", text)
+    text = _PICTURE_K.sub(lambda m: f"{cardinal(int(m.group(1)))} کی ", text)
+    text = _SLASH_THOUSANDS.sub(lambda m: f"{m.group(1)},{m.group(2)}", text)
+    text = _MINUS.sub("منفی ", text)
     text = _CURR_BEFORE.sub(lambda m: f"{_num_to_words(m.group(2))} {CURRENCY_BEFORE[m.group(1)]}", text)
     text = _CURR_AFTER.sub(lambda m: f"{_num_to_words(m.group(1))} {CURRENCY_BEFORE[m.group(2)]}", text)
     text = _PERCENT.sub(lambda m: f"{_num_to_words(m.group(1) or m.group(2))} درصد", text)
@@ -271,6 +331,8 @@ def spell_numbers(text: str) -> str:
         return cardinal(val)
 
     text = _KMB.sub(kmb, text)
+    text = _HALF_UNIT.sub(lambda m: f"{_half(m.group(1))} {SYMBOL_UNITS.get(m.group(2)) or SYMBOL_UNITS.get(m.group(2).replace('2', '²')) or UNITS_EN.get(m.group(2).lower(), m.group(2))}", text)
+    text = _HALF_FA.sub(lambda m: _half(m.group(1)), text)
 
     def unit(m):
         n, u = m.group(1), m.group(2)
@@ -279,7 +341,7 @@ def spell_numbers(text: str) -> str:
 
     text = _UNIT_AFTER.sub(unit, text)
     text = _ORD_EN.sub(lambda m: ordinal(int(m.group(1))), text)
-    text = _ORD_FA.sub(lambda m: ordinal(int(m.group(1))), text)
+    text = _ORD_FA.sub(lambda m: ordinal(int(m.group(1))) + ("ین" if m.group(0).endswith("ین") else ""), text)
     text = _TIMES.sub(lambda m: f"{cardinal(int(m.group(1)))} در {cardinal(int(m.group(2)))}", text)
     text = _RANGE.sub(lambda m: f"{_num_to_words(m.group(1))} تا {_num_to_words(m.group(2))}", text)
     text = _PLUS_AFTER.sub(lambda m: f"{cardinal(int(m.group(1)))} به بالا", text)
@@ -408,10 +470,13 @@ def normalize(text: str, *, collect: bool = True) -> NormResult:
     notes = NormNotes()
     text = text or ""
     text = unify_letters(text)
+    text = strip_markup(text)
     text = strip_emoji(text)
     text = text.replace("ة", "ه")
     # digits -> ASCII once, here
     text = to_ascii_digits(text)
+    text = split_glued_digits(text)
+    text = fix_dot_thousands(text)          # before «٫» (the real decimal separator) is turned into a plain dot
     text = text.replace("٫", ".").replace("٬", ",")
     text = spell_web(text)
     text = spell_abbreviations(text)

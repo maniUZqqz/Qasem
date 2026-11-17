@@ -72,7 +72,7 @@ export function SpeechStudio({ storeId, overview, setError, onCreated, compact }
     <div className="flex flex-col gap-4">
       {!compact && <EngineStatus overview={overview} keys={["moss"]} />}
       <Field label={`متن (حداکثر ${fa(overview.limits.speech_chars)} نویسه)`}
-        hint="عددها و اسمِ برندها همان‌طور خوانده می‌شوند که در «صدا و گوینده › تلفظ‌ها» نوشته‌اید.">
+        hint="عددها و اسمِ برندها همان‌طور خوانده می‌شوند که در «صدا و گوینده › تلفظ اسم‌ها» یا در «صدا › تلفظ» (واژه‌نامهٔ کامل و آزمونِ شنیداری) نوشته‌اید.">
         <TextArea rows={compact ? 3 : 5} maxLength={overview.limits.speech_chars} value={text}
           onChange={(e) => setText(e.target.value)} placeholder="مثلاً: کفش‌های تابستانی رسید؛ تا جمعه با ارسال رایگان." />
       </Field>

@@ -18,6 +18,7 @@ from .normalize import normalize
 
 _PUNCT = re.compile(r"[،,.؟?!؛;:«»\"'()\[\]{}…\-–—_*#]")
 _MARKS = re.compile("[ً-ْٰٔ]")
+_EZAFE_YE = re.compile("(?<=ه)‌ی(?![آ-ی])")
 
 #: Spoken variants that a recogniser writes the colloquial way; both sides are folded
 #: so the metric does not punish a recogniser for being colloquial.
@@ -31,6 +32,7 @@ def fold(text: str) -> list[str]:
     """Words of ``text`` in a comparable form (numbers spelled, no punctuation or marks)."""
     t = normalize(text, collect=False).text
     t = _MARKS.sub("", t)
+    t = _EZAFE_YE.sub("", t)          # «برنامه‌ی» is the word «برنامه» (the ی is the ezafe, not a word): a recogniser writes it without
     t = _PUNCT.sub(" ", t)
     t = t.replace("‌", " ").replace("ي", "ی").replace("ك", "ک")
     words = [w for w in t.split() if w]

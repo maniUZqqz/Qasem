@@ -82,11 +82,19 @@ class OverviewView(APIView):
         except Exception as exc:  # noqa: BLE001
             logger.debug("pronunciation advance: %s", exc)
         local = engine_registry.local_only(store)
-        runs = list(EvalRun.objects.filter(Q(store=store) | Q(store__isnull=True)).order_by("-created_at")[:12])
+        runs = list(EvalRun.objects.filter(Q(store=store) | Q(store__isnull=True)).order_by("-created_at")[:40])
+        site_voices = svc.site_piper_voices()
         latest: dict[str, dict] = {}
         for r in runs:
-            if r.state == EvalRun.State.DONE and r.engine not in latest:
-                latest[r.engine] = svc.run_dict(r)
+            if r.state != EvalRun.State.DONE:
+                continue
+            # a real measurement beats the one that shipped with the version; a voice this site really has beats one it does not
+            rank = (not r.baseline, r.engine != "piper" or r.voice.removesuffix(".onnx") in site_voices,
+                    r.depth == svc.effective_default(r.engine), r.created_at)
+            if r.engine not in latest or rank > latest[r.engine]["_rank"]:
+                latest[r.engine] = {**svc.run_dict(r), "_rank": rank}
+        for v in latest.values():
+            v.pop("_rank", None)
         engines = []
         for key, meta in svc.ENGINES.items():
             engines.append({"key": key, **meta, "blocked": bool(local and not meta["local"]),
@@ -94,11 +102,12 @@ class OverviewView(APIView):
                             "default_depth": svc.effective_default(key), "static_default": fa_pron.DEFAULT_DEPTH[key]})
         return Response({
             "settings": s, "engines": engines, "depths": svc.DEPTH_LABELS, "local_only": local, "node": _node_state(),
+            "site_voices": site_voices, "layer_version": fa_pron.VERSION,
             "counts": {"store": LexiconEntry.objects.filter(store=store).count(),
                        "global": LexiconEntry.objects.filter(store__isnull=True).count(),
                        "shared": len(fa_pron.dictionary.shared()),
                        "problems": ProblemWord.objects.filter(store=store, status="open").count(),
-                       "sentences": len(fa_pron.eval_set.SENTENCES)},
+                       "sentences": len(fa_pron.eval_set.SENTENCES), "quick": len(evalrun.sentences("quick"))},
             "tags": fa_pron.eval_set.TAGS, "latest": latest, "runs": [svc.run_dict(r) for r in runs],
             "is_staff": bool(request.user.is_staff),
         })
@@ -110,7 +119,10 @@ class SettingsView(APIView):
     def patch(self, request, store_id):
         store = _store(request, store_id)
         d = _body(request)
-        return Response(svc.save_settings(store, enabled=d.get("enabled"), ezafe=d.get("ezafe"), depth=d.get("depth")))
+        try:
+            return Response(svc.save_settings(store, enabled=d.get("enabled"), ezafe=d.get("ezafe"), depth=d.get("depth")))
+        except svc.PronError as exc:
+            return _err(str(exc))
 
 
 class PreviewView(APIView):
@@ -120,7 +132,8 @@ class PreviewView(APIView):
         store = _store(request, store_id, write=False)
         d = _body(request)
         try:
-            return Response(svc.preview(store, str(d.get("text") or ""), d.get("engines") if isinstance(d.get("engines"), list) else None))
+            return Response(svc.preview(store, str(d.get("text") or ""), d.get("engines") if isinstance(d.get("engines"), list) else None,
+                                        depth=str(d.get("depth")) if d.get("depth") else None))
         except svc.PronError as exc:
             return _err(str(exc))
 
@@ -153,12 +166,15 @@ class ListenView(APIView):
             return _err("متنی بنویسید.")
         if engine not in svc.ENGINES:
             return _err("موتورِ نامعتبر.")
+        depth = str(d.get("depth") or "") or None            # «try another depth»: this one recording only
+        if depth is not None and depth not in fa_pron.DEPTHS:
+            return _err("عمقِ نامعتبر.")
         from services.audio import tts
 
         if engine == "edge" and engine_registry.local_only(store):
             return _err("سیاستِ دادهٔ این فروشگاه «فقط لوکال» است و Edge متن را به مایکروسافت می‌فرستد.", "policy", status.HTTP_409_CONFLICT)
         if engine == "moss":
-            return self._moss(request, store, text, variant)
+            return self._moss(request, store, text, variant, depth)
         name = f"{uuid.uuid4().hex[:12]}.wav" if engine == "piper" else f"{uuid.uuid4().hex[:12]}.mp3"
         out = _audio_dir(store) / name
         try:
@@ -167,19 +183,24 @@ class ListenView(APIView):
             else:
                 provider = tts.EdgeTTSProvider(voice=str(d.get("voice") or "fa-IR-DilaraNeural"))
             provider.store, provider.language, provider.use_pron = store, "fa", variant == "after"
+            provider.depth_override = depth
             path = Path(provider.synthesize(text, out))
         except tts.TTSError as exc:
             return _err(str(exc), "tts", status.HTTP_502_BAD_GATEWAY)
+        try:
+            svc.cleanup_store_audio(store.pk)             # every click makes a file: keep only the recent ones
+        except OSError:
+            pass
         return Response({"state": "ready", "url": f"/stores/{store.pk}/pronunciation/audio/{path.name}",
                          "engine": engine, "variant": variant})
 
-    def _moss(self, request, store, text, variant):
+    def _moss(self, request, store, text, variant, depth=None):
         from apps.compute import services as compute
         from services.audio import node_audio, pronounce
 
         spoken = text
         if variant == "after":
-            spoken = pronounce.text_for(text, "moss", store=store)
+            spoken = pronounce.text_for(text, "moss", store=store, depth=depth)
         try:
             job = node_audio.enqueue("moss", "voice.tts", {"text": spoken, "engine": "moss-fa", "voice": node_audio.default_preset("male"),
                                                            "out": "speech.wav", "strict": True},
@@ -198,7 +219,11 @@ class ListenResultView(APIView):
         from apps.compute import services as compute
         from apps.compute.models import ComputeJob
 
-        job = ComputeJob.objects.filter(uid=token, origin="pron_listen").first()
+        try:
+            uid = uuid.UUID(str(token))
+        except ValueError:
+            raise Http404 from None                   # not a job token at all: 404, not a database error
+        job = ComputeJob.objects.filter(uid=uid, origin="pron_listen").first()
         if job is None or (job.store_id and job.store_id != store.pk):
             raise Http404
         if job.state == ComputeJob.State.FAILED:
@@ -211,6 +236,10 @@ class ListenResultView(APIView):
         name = f"{uuid.uuid4().hex[:12]}.wav"
         dst = _audio_dir(store) / name
         dst.write_bytes(src.read_bytes())
+        try:
+            svc.cleanup_store_audio(store.pk)
+        except OSError:
+            pass
         return Response({"state": "ready", "url": f"/stores/{store.pk}/pronunciation/audio/{name}"})
 
 
@@ -375,7 +404,7 @@ class EvalListView(APIView):
         d = _body(request)
         sample = "full" if d.get("sample") == "full" else "quick"
         if sample == "full" and not request.user.is_staff:
-            return _err("سنجشِ کامل (۲۳۰ جمله) فقط برای کارمندِ سایت است؛ سنجشِ سریع را بزنید.", "forbidden", status.HTTP_403_FORBIDDEN)
+            return _err("سنجشِ کامل (همهٔ جمله‌های آزمون) فقط برای کارمندِ سایت است؛ سنجشِ سریع را بزنید.", "forbidden", status.HTTP_403_FORBIDDEN)
         try:
             run = evalrun.start(request.user, store, str(d.get("engine") or ""), voice=str(d.get("voice") or ""), sample=sample)
         except evalrun.EvalError as exc:
@@ -397,7 +426,9 @@ class EvalItemView(APIView):
 
     def delete(self, request, store_id, pk):
         store = _store(request, store_id)
-        EvalRun.objects.filter(pk=pk, store=store, baseline=False).delete()
+        for run in EvalRun.objects.filter(pk=pk, store=store, baseline=False):
+            svc.remove_run_files(run.pk)                  # the run's audio files go with it
+            run.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

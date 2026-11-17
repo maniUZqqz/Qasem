@@ -1219,6 +1219,106 @@ SHARED_TEXT = r"""
 ولت volt N
 آمپر Ampr N
 بار bAr N
+## نام‌های پرکاربرد
+محمد mohammad
+فاطمه fAteme
+حسین hoseyn
+حسن hasan
+زهرا zahrA
+مریم maryam
+رضا rezA
+مهدی mahdi
+امیر amir
+سارا sArA
+نگار negAr
+نرگس narges
+سمیه somayye
+ابراهیم ebrAhim
+اسماعیل esmA'il
+یوسف yusef
+موسی musA
+عیسی 'isA
+مجید majid
+حمید hamid
+سعید sa'id
+احمد ahmad
+محسن mohsen
+مصطفی mostafA
+ناصر nAser
+نادر nAder
+بهرام bahrAm
+بهزاد behzAd
+پرویز parviz
+فرهاد farhAd
+شهرام SahrAm
+کامران kAmrAn
+کیوان keyvAn
+سپیده sepide
+ندا nedA
+نازنین nAzanin
+الهام elhAm
+الناز elnAz
+مینا minA
+لیلا leylA
+پریسا parisA
+مهسا mahsA
+شیما SimA
+ساناز sAnAz
+ماهان mAhAn
+آرش AraS
+آرمان ArmAn
+پوریا puryA
+مرتضی mortezA
+علیرضا 'alirezA
+محمدرضا mohammadrezA
+امیرعلی amir'ali
+امیرحسین amirhosein
+حسام hesAm
+اکبر akbar
+اصغر asqar
+جعفر ja'far
+کاظم kAzem
+عباس 'abbAs
+سجاد sajjAd
+ایمان imAn
+وحید vahid
+فرزاد farzAd
+داریوش dAriyuS
+تهران tehrAn N
+## فعل‌ها و واژه‌های پرکاربرد
+شو So V
+بشو beSo V
+دیده dide N
+مردند mordand V
+مردن mordan N
+مردم mardom N
+گرفت gereft V
+گرفتن gereftan N
+گرفتم gereftam V
+گرفتی gerefti V
+گرفتند gereftand V
+گرفته gerefte N
+می_گیرد migirad V
+می_گیرم migiram V
+می_گیری migiri V
+می_گیریم migirim V
+می_گیرید migirid V
+می_گیرند migirand V
+نمی_گیرد nemigirad V
+بگیرد begirad V
+بگیرید begirid V
+نگیر negir V
+کشتی_گیر kuStigir N
+کشتی_گیری kuStigiri N
+کشتی_گیران kuStigirAn N
+کتاب ketAb N
+جلسه jalase N
+بزرگ bozorg N
+سنگین sangin N
+## واژه‌های آمیخته‌ی حرف و واژه
+چت_جی_پی_تی Catjipiti
+اوپن_ای_آی owpeneyAy
+ان_ام_مارکتینگ enemmArketing
 """
 
 #: Multi-word expressions that are read differently from their parts.
@@ -1262,4 +1362,15 @@ PHRASES_TEXT = r"""
 سه بار se bAr
 چه کسی Ce kasi
 چه چیزی Ce Cizi
+جی پی اس jipies
+پی دی اف pidief
+اچ دی eCdi
+کیو آر kiyuAr
+وی آی پی viAypi
+بی ام آی biemAy
+تی وی tivi
+ویتامین دی vitAmin di
+ویتامین سی vitAmin si
+ویتامین بی vitAmin bi
+ویتامین ای vitAmin i
 """

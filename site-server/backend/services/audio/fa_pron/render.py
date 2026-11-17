@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 from xml.sax.saxutils import escape
 
-from . import phones as P
+from . import latin, phones as P
 from .pipeline import Prepared, Token
 
 ZWNJ = "‌"
@@ -52,7 +52,7 @@ def respell_token(tok: Token, *, sukun: bool = False) -> str:
     if not tok.pn or not tok.apply:
         return _surface_with_ezafe(tok)
     toks = P.parse(tok.pn)
-    base = P.to_respelling(toks, sukun=sukun)
+    base = P.to_respelling(toks, sukun=sukun, q_letter=P.q_letter_for(tok.text))
     if not tok.ezafe:
         return base
     last = toks[-1] if toks else ""
@@ -70,7 +70,9 @@ def _surface_with_ezafe(tok: Token) -> str:
     if not tok.ezafe:
         return text
     last = text.rstrip(ZWNJ)[-1:] if text else ""
-    if last in "اآوی":
+    if last == "ی":
+        return text + KASRA               # «اختصاصی» -> «اختصاصیِ» (the ی already carries the glide)
+    if last in "اآو":
         return text + "ی" + KASRA
     if last == "ه":
         return text + ZWNJ + "ی" + KASRA
@@ -159,6 +161,38 @@ def render_edge(prep: Prepared, *, mode: str = "sub", glottal: str = "keep", **_
                     subs=_subs(prep, glottal=glottal), notes={"mode": mode})
 
 
+def _reconciled(t: Token, native_ipa: Callable[[str], str], glottal: str, geminate: str) -> str | None:
+    """A lexicon word, written for the voice WITHOUT harming what the voice already reads right.
+
+    The voice's own front end phonemises the word too; when its segments equal ours the voice's string is used as it is
+    (the lexicon agrees: nothing to change), otherwise our segments are used with the voice's own stress (``phones.reconcile_ipa``).
+    The ezafe is appended after. With a deferred native (the node worker phonemises later) a ``{{word|ours}}`` piece is
+    written and the worker does the same reconciliation. None => the caller falls back to our own stress rule."""
+    if t.source in ("letters", "rule", "conj"):      # letter names and the conjunction «و» (/o/ after a consonant, /vo/ after a vowel) are ours alone
+        return None
+    base = P.parse(t.pn)
+    ours = P.to_ipa(P.strip_stress(base), glottal=glottal, geminate=geminate)
+    if not ours:
+        return None
+    ez = ""
+    if t.ezafe:
+        ez = P.to_ipa(["y", "e"] if base and base[-1] in P.VOWELS else ["e"])
+    try:
+        native = native_ipa(t.text)
+    except Exception:  # noqa: BLE001 - the voice's front end failing must never stop the narration
+        native = ""
+    if not native:
+        return None
+    if native.startswith("{{") and native.endswith("}}"):
+        return "{{%s|%s}}" % (t.text, ours) + ez
+    return P.reconcile_ipa(ours, native) + ez
+
+
+def _is_letters(t: Token) -> bool:
+    """A spelled-out acronym (letter names joined by half-spaces) that no store word overrides."""
+    return t.kind == "word" and (t.source == "letters" or not t.pn) and latin.letters_ipa(t.text) is not None
+
+
 def render_piper(prep: Prepared, *, native_ipa: Callable[[str], str] | None = None,
                  glottal: str = "medial", stress: str = "last",
                  geminate: str = "double") -> Rendered:
@@ -169,11 +203,17 @@ def render_piper(prep: Prepared, *, native_ipa: Callable[[str], str] | None = No
     layer overrides only what it knows. Without it, those words fall back to the
     letter rules (depth ``full`` guarantees every word has some PN).
     """
-    if prep.depth == "normalize":      # nothing of ours to say: the voice reads the normalised text with its own front end
-        return Rendered(engine="piper", depth=prep.depth, text=prep.normalized, notes={"native_words": 0, "rule_words": 0})
+    if prep.depth == "normalize":
+        # nothing of ours to say: the voice reads the normalised text with its own front end ... except (1) a spelled-out acronym
+        # («پی‌دی‌اف»): that front end reads the Persian spelling as the words «پی» and «دی» (pˈej dˈej), and (2) a word the OWNER
+        # wrote in the store's own lexicon (only such words carry a pronunciation at this depth). Such a text goes in as phonemes:
+        # those words are ours, every other word is phonemised by the voice itself (word by word)
+        if native_ipa is None or not any(t.kind == "word" and (t.pn or _is_letters(t)) for t in prep.tokens):
+            return Rendered(engine="piper", depth=prep.depth, text=prep.normalized, notes={"native_words": 0, "rule_words": 0})
     sentences: list[str] = []
     cur: list[str] = []
     native_used = 0
+    reconciled = 0
     rule_used = 0
 
     def flush():
@@ -181,7 +221,12 @@ def render_piper(prep: Prepared, *, native_ipa: Callable[[str], str] | None = No
             sentences.append(" ".join(cur).strip())
             cur.clear()
 
+    letters_used = 0
     for t in prep.tokens:
+        if _is_letters(t):
+            cur.append(latin.letters_ipa(t.text))
+            letters_used += 1
+            continue
         if t.kind == "pause":
             mark = {"short": ",", "long": ".", "para": "."}[t.pause]
             if t.text == "؟":
@@ -194,12 +239,18 @@ def render_piper(prep: Prepared, *, native_ipa: Callable[[str], str] | None = No
                 flush()
             continue
         if t.pn:
-            toks = t.tokens(stress=stress != "none", stress_position=stress if stress != "none" else "last")
-            cur.append(P.to_ipa(toks, glottal=glottal, geminate=geminate))
+            word_ipa = _reconciled(t, native_ipa, glottal, geminate) if (native_ipa is not None and stress != "none") else None
+            if word_ipa is None:
+                toks = t.tokens(stress=stress != "none", stress_position=stress if stress != "none" else "last")
+                word_ipa = P.to_ipa(toks, glottal=glottal, geminate=geminate)
+            else:
+                reconciled += 1
+            cur.append(word_ipa)
             if t.source == "rule":
                 rule_used += 1
         elif native_ipa is not None:
-            ipa = native_ipa(t.text)
+            # a word the writer marked with an ezafe is handed over WITH the mark: the voice's own front end reads «هٔ» / «ِ» right
+            ipa = native_ipa(_surface_with_ezafe(t) if t.written_ezafe else t.text)
             if ipa:
                 cur.append(ipa)
                 native_used += 1
@@ -208,7 +259,8 @@ def render_piper(prep: Prepared, *, native_ipa: Callable[[str], str] | None = No
     flush()
     return Rendered(engine="piper", depth=prep.depth, text=prep.normalized, ipa=" ".join(sentences),
                     ipa_sentences=sentences, subs=_subs(prep, glottal=glottal),
-                    notes={"native_words": native_used, "rule_words": rule_used})
+                    notes={"native_words": native_used, "rule_words": rule_used, "reconciled_words": reconciled,
+                           "letter_words": letters_used})
 
 
 def render(prep: Prepared, engine: str, **opts) -> Rendered:

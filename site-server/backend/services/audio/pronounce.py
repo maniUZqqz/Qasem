@@ -82,9 +82,20 @@ def _record(store, prep, engine: str) -> None:
         logger.debug("could not record pronunciation problems: %s", exc)
 
 
-def text_for(text: str, engine: str, *, store=None, language: str = "fa") -> str:
+def text_for(text: str, engine: str, *, store=None, language: str = "fa", depth: str | None = None) -> str:
     """The string a text-only engine should read (falls back to the input)."""
-    rendered = prepare(text, engine, store=store, language=language)
+    rendered = prepare(text, engine, store=store, language=language, depth=depth)
     if rendered is None or not rendered.text.strip():
         return text
     return rendered.text
+
+
+def fingerprint(store, engine: str) -> str:
+    """Key of what the layer does for this store and engine right now (see ``apps.pronunciation.services.fingerprint``);
+    the studio puts it in the cache key of a finished take."""
+    try:
+        from apps.pronunciation import services as svc
+
+        return svc.fingerprint(store, engine)
+    except Exception:  # noqa: BLE001
+        return fa_pron.VERSION

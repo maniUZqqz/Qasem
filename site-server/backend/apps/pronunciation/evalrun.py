@@ -59,7 +59,12 @@ def _after_for(engine: str, text: str, dictionary, ezafe: bool, depth: str):
     """What the layer hands this engine for ``text`` (pure; used by the run and by the node self-test)."""
     prep = fa_pron.prepare(text, depth=depth, dictionary=dictionary, ezafe=ezafe)
     if depth == "normalize":
-        return {"text": prep.normalized}, prep.normalized          # only the text changes; the engine reads it as it always did
+        if engine == "piper":
+            # only the text changes (the voice reads it as it always did) - except a spelled-out acronym, whose letter names go in as phonemes
+            rend = fa_pron.render_prepared(prep, "piper", native_ipa=lambda w: "{{%s}}" % w)
+            if rend.ipa_sentences:
+                return {"ipa": rend.ipa_sentences}, rend.ipa
+        return {"text": prep.normalized}, prep.normalized
     if engine == "piper":
         rend = fa_pron.render_prepared(prep, "piper", native_ipa=lambda w: "{{%s}}" % w if depth != "full" else "")
         return {"ipa": rend.ipa_sentences}, rend.ipa
@@ -87,6 +92,13 @@ def start(user, store, engine: str, *, voice: str = "", sample: str = "quick", d
         raise EvalError("نمونهٔ نامعتبر (quick یا full).")
     if depth and depth not in fa_pron.DEPTHS:
         raise EvalError("عمقِ نامعتبر.")
+    if engine == "edge":
+        # Edge sends text to Microsoft: a store whose data policy is «فقط لوکال» never starts such a run (even though only
+        # the fixed public test sentences would leave); the panel says the same, so the two must agree
+        from services.audio import engines as engine_registry
+
+        if engine_registry.local_only(store) or engine_registry.local_only(None):
+            raise EvalError("سیاستِ دادهٔ این فروشگاه «فقط لوکال» است؛ سنجشِ Edge متن را به مایکروسافت می‌فرستد و انجام نمی‌شود.")
     s = svc.settings_for(store)
     depth = depth or s["depth"].get(engine) or svc.effective_default(engine)
     if EvalRun.objects.filter(engine=engine, depth=depth, state__in=[EvalRun.State.WAITING, EvalRun.State.RUNNING],
@@ -133,8 +145,8 @@ def _edge_dir(run: EvalRun) -> Path:
 def _start_edge(run: EvalRun, rows, store, depth: str = "") -> None:
     from services.audio import engines as engine_registry
 
-    if engine_registry.local_only(None):
-        raise EvalError("سیاستِ پیش‌فرضِ سکو «فقط لوکال» است؛ سنجشِ Edge متن را به مایکروسافت می‌فرستد.")
+    if engine_registry.local_only(store) or engine_registry.local_only(None):
+        raise EvalError("سیاستِ دادهٔ «فقط لوکال» است؛ سنجشِ Edge متن را به مایکروسافت می‌فرستد.")
     items, shown = build_items("edge", rows, store, depth)
     for r in run.rows:
         r["after_input"] = shown.get(r["id"], "")

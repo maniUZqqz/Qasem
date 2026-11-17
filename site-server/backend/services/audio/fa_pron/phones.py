@@ -165,7 +165,13 @@ FATHA, KASRA, DAMMA, SUKUN, SHADDA = "َ", "ِ", "ُ", "ْ", "ّ"
 _SHORT = {"a": FATHA, "e": KASRA, "o": DAMMA}
 
 
-def to_respelling(tokens: list[str], *, sukun: bool = False, final_he: bool = True) -> str:
+def q_letter_for(*written: str) -> str:
+    """«q» is one sound for two letters: «غ» (چغر) and «ق» (قیمت). When a word is shown back to the owner it keeps the letter he wrote."""
+    text = "".join(written)
+    return "غ" if "غ" in text and "ق" not in text else "ق"
+
+
+def to_respelling(tokens: list[str], *, sukun: bool = False, final_he: bool = True, q_letter: str = "ق") -> str:
     """PN tokens -> Persian script with the short vowels written out.
 
     «ma'ni» -> «مَعنی», «xAne» -> «خانه», «kitAb» -> «کیتاب» is avoided: «i» is the
@@ -180,7 +186,7 @@ def to_respelling(tokens: list[str], *, sukun: bool = False, final_he: bool = Tr
         prev_is_cons = i > 0 and toks[i - 1] in CONSONANTS
         nxt = toks[i + 1] if i + 1 < n else None
         if t in CONSONANTS:
-            letter = _LETTER[t]
+            letter = q_letter if t == "q" else _LETTER[t]
             if nxt == t:  # geminate: one letter + shadda
                 out.append(letter + SHADDA)
                 i += 2
@@ -223,3 +229,52 @@ def pn_to_syllables(tokens: list[str]) -> list[list[str]]:
         bounds.append(a + 1 + max(0, between - 1))
     bounds.append(len(toks))
     return [toks[bounds[k]:bounds[k + 1]] for k in range(len(bounds) - 1)]
+
+
+# ---------------------------------------------------------------- «do no harm»: reconcile with the voice's own front end
+
+#: The vowel letters of espeak-flavoured IPA (a long vowel is the letter plus «ː»; a hiatus counts as two vowels).
+_IPA_VOWELS = "aeiouɑ"
+
+
+def ipa_skeleton(ipa: str) -> str:
+    """The segments of an IPA string without stress and length marks: what two spellings must share to count as the same word."""
+    return ipa.replace("ˈ", "").replace("ˌ", "").replace("ː", "")
+
+
+def ipa_stress_index(ipa: str) -> tuple[int, int]:
+    """(index of the syllable with the primary stress mark, number of syllables); (-1, n) when there is no mark."""
+    n = sum(c in _IPA_VOWELS for c in ipa)
+    i = ipa.find("ˈ")
+    return (sum(c in _IPA_VOWELS for c in ipa[:i]) if i >= 0 else -1), n
+
+
+def with_stress_like(ours: str, native: str) -> str:
+    """``ours`` (no stress marks) with the primary stress where the voice's own front end (espeak) puts it for the same word.
+
+    The Piper voices were trained on espeak's phonemes, stress marks included, and espeak does not stress Persian words
+    the way a grammar book does (mostly the syllable before the last): a lexicon word keeps its own SEGMENTS (that is what
+    it exists for) but takes espeak's stress, so it stays inside what the voice has heard."""
+    k, n = ipa_stress_index(native)
+    m = sum(c in _IPA_VOWELS for c in ours)
+    if k < 0 or m == 0:
+        return ours
+    target = k if n == m else m - 1 - (n - 1 - k)          # the same distance from the end when the syllable counts differ
+    target = min(max(target, 0), m - 1)
+    seen = -1
+    for idx, c in enumerate(ours):
+        if c in _IPA_VOWELS:
+            seen += 1
+            if seen == target:
+                return ours[:idx] + "ˈ" + ours[idx:]
+    return ours
+
+
+def reconcile_ipa(ours: str, native: str) -> str:
+    """One word: our IPA (no stress marks) and the voice's own (``native``). Same segments => the voice's own string, untouched
+    (the lexicon agrees with espeak, so nothing may be changed); different segments => ours with espeak's stress."""
+    if not native:
+        return ours
+    if ipa_skeleton(native) == ipa_skeleton(ours):
+        return native
+    return with_stress_like(ours, native)

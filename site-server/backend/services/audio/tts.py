@@ -63,11 +63,15 @@ class BaseTTSProvider:
     store = None
     language = "fa"
     use_pron = True
+    #: Set only by the pronunciation test box («try another depth»): one depth for this one recording.
+    depth_override = None
 
     def _pron(self, text: str, engine: str, **opts):
         """What the layer hands ``engine`` for ``text``, or None to speak the text unchanged."""
         if not self.use_pron:
             return None
+        if self.depth_override and "depth" not in opts:
+            opts["depth"] = self.depth_override
         return pronounce.prepare(text, engine, store=self.store, language=self.language, **opts)
 
     def synthesize(self, text: str, out_path) -> Path:  # pragma: no cover - interface

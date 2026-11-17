@@ -48,7 +48,7 @@ LATIN_WORDS: dict[str, str] = {
     "channel": "کانال", "group": "گروه", "chat": "چت", "message": "مسیج", "video": "ویدیو",
     "audio": "آدیو", "photo": "عکس", "image": "ایمیج", "story": "استوری",
     "ok": "اوکی", "okay": "اوکی", "wifi": "وای‌فای", "wi-fi": "وای‌فای", "bluetooth": "بلوتوث",
-    "internet": "اینترنت", "network": "نتورک", "server": "سرور", "code": "کد", "qr": "کیوآر",
+    "internet": "اینترنت", "network": "نتورک", "server": "سرور", "code": "کد", "qr": "کیو‌آر",
     "pdf": "پی‌دی‌اف", "ai": "هوش مصنوعی", "id": "آیدی", "vip": "وی‌آی‌پی", "pro": "پرو",
     "plus": "پلاس", "premium": "پریمیوم", "free": "فری", "gift": "گیفت", "sale": "سیل",
     "off": "آف", "new": "نیو", "best": "بست", "top": "تاپ", "mini": "مینی", "max": "مکس",
@@ -93,18 +93,63 @@ LETTER_NAMES = {
     "v": "وی", "w": "دبلیو", "x": "ایکس", "y": "وای", "z": "زد",
 }
 
+#: How each letter name is SAID (PN). The written names collide with real words («پی» = footprint, «دی» = the month
+#: Dey, «او» = he/she, «وی» = he/she): a spelled-out acronym is written with a half-space between the letter names
+#: («پی‌دی‌اف») and the pipeline reads such a word with this table instead of the lexicon (``letters_pn``).
+LETTER_PN = {
+    "ای": "ey", "بی": "bi", "سی": "si", "دی": "di", "اف": "ef", "جی": "ji", "اچ": "eC", "آی": "Ay",
+    "کی": "ki", "ال": "el", "ام": "em", "ان": "en", "او": "ow", "پی": "pi", "کیو": "kiyu", "آر": "Ar",
+    "اس": "es", "تی": "ti", "یو": "yu", "وی": "vi", "دبلیو": "dAbliyu", "ایکس": "iks", "وای": "vAy",
+    "زد": "zed",
+}
+
+ZWNJ = "‌"
+
+#: How each letter name sounds to Piper: IPA in the voice's own (espeak) alphabet, one stressed syllable per letter. A spelled-out
+#: acronym is spoken letter by letter («پی‌دی‌اف» = pˈiː dˈiː ˈɛf), never as one word; the voice's own front end would read the
+#: Persian spelling as the words «پی» (footprint, pˈej) and «دی» (the month, dˈej), which is the regression this table prevents.
+LETTER_IPA = {
+    "ای": "ˈiː", "بی": "bˈiː", "سی": "sˈiː", "دی": "dˈiː", "اف": "ˈɛf", "جی": "dʒˈiː", "اچ": "ˈeɪtʃ", "آی": "ˈɑj",
+    "کی": "kˈeɪ", "ال": "ˈɛl", "ام": "ˈɛm", "ان": "ˈɛn", "او": "ˈoː", "پی": "pˈiː", "کیو": "kjˈuː", "آر": "ˈɑr",
+    "اس": "ˈɛs", "تی": "tˈiː", "یو": "jˈuː", "وی": "vˈiː", "دبلیو": "dˈɑbeljˌuː", "ایکس": "ˈɛks", "وای": "vˈɑj",
+    "زد": "zˈɛd",
+}
+
+#: Acronyms people also type in lower case («pdf», «gps»): read as letter names. (Not «it», «id», «am», «pm»: real words.)
+ACRONYMS = {"pdf", "jpg", "jpeg", "png", "gif", "gps", "sms", "usb", "url", "api", "seo", "cpu", "gpu", "ssd", "atm",
+            "hd", "uhd", "led", "lcd", "tv", "dvd", "nfc", "bmi", "tdee", "faq", "ui", "ux", "vr", "html", "css", "sim"}
+
 _VOWELS_EN = set("aeiouy")
 
 
 def spell_letters(token: str) -> str:
-    """«GPS» -> «جی پی اس»; digits inside stay for the number pass."""
+    """«GPS» -> «جی‌پی‌اس» (letter names joined by a half-space, read by ``letters_pn``); digits inside stay for the number pass."""
     out = []
     for ch in token:
         if ch.lower() in LETTER_NAMES:
             out.append(LETTER_NAMES[ch.lower()])
         elif ch.isdigit():
             out.append(ch)
-    return " ".join(out)
+    return ZWNJ.join(out) if all(not p.isdigit() for p in out) else " ".join(out)
+
+
+def letters_pn(word: str) -> str | None:
+    """PN of a spelled-out acronym (letter names joined by half-spaces: «پی‌دی‌اف»), else None.
+
+    At least two letter names are required: a single «پی» or «دی» is an ordinary word (Dey, the month).
+    """
+    parts = [p for p in (word or "").split(ZWNJ) if p]
+    if len(parts) < 2 or any(p not in LETTER_PN for p in parts):
+        return None
+    return "".join(LETTER_PN[p] for p in parts)
+
+
+def letters_ipa(word: str) -> str | None:
+    """Piper IPA of a spelled-out acronym (one stressed syllable per letter name, separated by spaces), else None."""
+    parts = [p for p in (word or "").split(ZWNJ) if p]
+    if len(parts) < 2 or any(p not in LETTER_IPA for p in parts):
+        return None
+    return " ".join(LETTER_IPA[p] for p in parts)
 
 
 # ------------------------------------------------------------- transliteration
@@ -209,6 +254,8 @@ def speak_latin(token: str) -> tuple[str, bool]:
         parts = [speak_latin(p) for p in low.split("-") if p]
         return " ".join(p[0] for p in parts), any(p[1] for p in parts)
     letters = re.sub(r"[^A-Za-z]", "", raw)
+    if low in ACRONYMS:
+        return spell_letters(low), False
     has_digit = any(c.isdigit() for c in raw)
     if has_digit and letters:
         # model numbers: A52, S23, 4K, 5G -> letter names + number

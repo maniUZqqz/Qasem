@@ -56,7 +56,7 @@ class LexiconServices(Base):
     def test_convert_respelling(self):
         out = svc.convert("چَغَر")
         self.assertEqual(out["pn"], "Caqar")
-        self.assertEqual(out["respelling"], "چَقَر")
+        self.assertEqual(out["respelling"], "چَغَر")      # the letter the owner wrote (غ), not a lookalike
         self.assertEqual(out["syllables"], 2)
         self.assertEqual(svc.convert("Caqar")["pn"], "Caqar")
 
@@ -110,11 +110,15 @@ class LexiconServices(Base):
 
     def test_settings_roundtrip(self):
         self.assertEqual(svc.settings_for(self.store), {"enabled": True, "ezafe": True, "depth": {}})
-        out = svc.save_settings(self.store, enabled=False, ezafe=False, depth={"piper": "full", "bogus": "full", "edge": "nope"})
+        out = svc.save_settings(self.store, enabled=False, ezafe=False, depth={"piper": "full"})
         self.assertEqual(out, {"enabled": False, "ezafe": False, "depth": {"piper": "full"}})
+        # a wrong engine or depth is an error now (it used to silently reset the owner's whole map)
+        with self.assertRaises(svc.PronError):
+            svc.save_settings(self.store, depth={"piper": "full", "bogus": "full", "edge": "nope"})
+        self.assertEqual(svc.settings_for(self.store)["depth"], {"piper": "full"})
 
     def test_preview_explains_each_engine(self):
-        self.use_lexicon("moss")
+        self.use_lexicon("moss", "piper")
         out = svc.preview(self.store, "معنی ۲۵۰,۰۰۰ تومان")
         self.assertIn("دویست و پنجاه هزار", out["normalized"])
         self.assertIn("ipa", out["engines"]["piper"])
@@ -172,7 +176,7 @@ class Api(Base):
         r = self.api.post(f"{self.base}/lexicon/", {"word": "چغر", "respelling": "چِغِر", "note": "برند"}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
         pk = r.json()["id"]
-        self.assertEqual(r.json()["heard_as"], "چِقِر")
+        self.assertEqual(r.json()["heard_as"], "چِغِر")      # the letter the owner wrote, not a lookalike
         rows = self.api.get(f"{self.base}/lexicon/").json()["rows"]
         self.assertEqual([x["word"] for x in rows], ["چغر"])
         r = self.api.patch(f"{self.base}/lexicon/{pk}/", {"respelling": "چُغُر"}, format="json")
@@ -312,7 +316,11 @@ class FakeVoice:
 
 
 class ProviderHooks(Base):
-    def piper(self, voice, use=True):
+    def piper(self, voice, use=True, depth="lexicon"):
+        """A Piper provider on a fake voice. The built-in depth for Piper is «normalize» (measured, see fa_pron.DEFAULT_DEPTH), so the tests
+        of the lexicon path say so; ``depth=None`` keeps the built-in one (tests_round2.NormalizeIsTheDefaultForPiper)."""
+        if depth:
+            self.use_lexicon("piper") if depth == "lexicon" else svc.save_settings(self.store, depth={"piper": depth})
         p = tts.PiperProvider("fa_IR-amir-medium")
         p.store, p.language, p.use_pron = self.store, "fa", use
         patcher = mock.patch.object(tts.PiperProvider, "_load", lambda self_: voice)
@@ -351,7 +359,9 @@ class ProviderHooks(Base):
         svc.save_entry(self.store, "چغر", "چُغُر")
         v = FakeVoice()
         self.piper(v).synthesize("چغر", self.media / "e.wav")
-        self.assertIn("tʃoq1ˈor", "".join("".join(c) for c in v.id_calls))
+        heard = "".join("".join(c) for c in v.id_calls)
+        self.assertIn("tʃoq1", heard)          # the shop's own word (چُغُر), not what the voice would have made of «چغر»
+        self.assertIn("or", heard)
 
     def test_english_is_never_touched(self):
         p = tts.PiperProvider("fa_IR-amir-medium")
@@ -484,9 +494,10 @@ class MotionCues(Base):
             sound._edge_with_cues("fa-IR-DilaraNeural", "معنی ورزش", self.media / "c.mp3", store=self.store)
             self.assertEqual(len(captured["text"].split()), 2)
             self.assertIn("مَعنی", captured["text"])
-            # a price spelled out would change the word count: such a text is read as written
+            # a price spelled out changes the word count: Edge now gets the SPOKEN text (the number as words) and the cues are
+            # regrouped onto the written words afterwards (``sound.regroup_cues``; see tests_round2)
             sound._edge_with_cues("fa-IR-DilaraNeural", "قیمت ۲۵۰۰۰۰ تومان", self.media / "c2.mp3", store=self.store)
-            self.assertEqual(captured["text"], "قیمت ۲۵۰۰۰۰ تومان")
+            self.assertIn("دویست و پنجاه هزار", captured["text"])
 
 
 # ───────────────────────────────────────────────────────────── the audio check against fake node jobs
@@ -538,7 +549,7 @@ class EvalFlow(Base):
 
     def test_build_items_piper_and_text(self):
         rows = evalrun.sentences("quick")[:3]
-        items, shown = evalrun.build_items("piper", rows)
+        items, shown = evalrun.build_items("piper", rows, depth="lexicon")
         self.assertEqual(len(items), 6)
         before = [i for i in items if i["variant"] == "before"]
         after = [i for i in items if i["variant"] == "after"]
@@ -551,8 +562,10 @@ class EvalFlow(Base):
     def test_node_run_waits_then_collects(self):
         run = evalrun.start(self.owner, self.store, "piper", sample="quick")
         self.assertEqual(run.state, EvalRun.State.WAITING)
-        self.assertEqual(len(run.jobs), 2)            # 32 sentences, 16 per job
-        self.assertEqual(ComputeJob.objects.filter(kind="voice.pron_eval", origin="pron_eval").count(), 2)
+        jobs = -(-len(evalrun.sentences("quick")) // evalrun.CHUNK)        # 2 sentences per category, 16 per job
+        self.assertGreaterEqual(jobs, 2)
+        self.assertEqual(len(run.jobs), jobs)
+        self.assertEqual(ComputeJob.objects.filter(kind="voice.pron_eval", origin="pron_eval").count(), jobs)
         self.assertEqual(evalrun.advance_run(run), "waiting")
         self._finish_jobs(run)
         self.assertEqual(evalrun.advance_run(run), "done")
@@ -605,9 +618,10 @@ class EvalFlow(Base):
 
     def test_edge_is_refused_on_a_local_only_platform(self):
         with mock.patch("services.audio.engines.local_only", return_value=True):
-            run = evalrun.start(self.owner, self.store, "edge", sample="quick")
-        self.assertEqual(run.state, EvalRun.State.FAILED)
-        self.assertIn("فقط لوکال", run.message)
+            with self.assertRaises(evalrun.EvalError) as cm:
+                evalrun.start(self.owner, self.store, "edge", sample="quick")
+        self.assertIn("فقط لوکال", str(cm.exception))
+        self.assertFalse(EvalRun.objects.filter(engine="edge", baseline=False).exists(), "nothing is started, nothing is sent")
 
     def test_ensure_full_runs_is_idempotent(self):
         with mock.patch("services.audio.engines.local_only", return_value=True), \

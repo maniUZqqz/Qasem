@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { errorMessage } from "../../../api/client";
 import Icon from "../../../components/Icon";
@@ -26,6 +27,7 @@ const SAMPLE = "سلام. با چغر، چغرتر شو. معنی عادت خو�
 const SOURCE_FA: Record<string, string> = {
   store: "واژه‌نامهٔ فروشگاه", global: "واژه‌نامهٔ سکو", shared: "واژه‌نامهٔ مشترک", homograph: "هم‌نویسه (بر پایهٔ جمله)",
   phrase: "عبارت", morph: "ساخته‌شده از ریشه", rule: "قاعدهٔ حرف‌به‌حرف", conj: "حرفِ ربطِ «و»",
+  letters: "نامِ حرف‌ها (سرواژه)",
 };
 
 const TAB_LABELS = [
@@ -44,6 +46,10 @@ export default function PronunciationPage() {
   const { storeId, setError } = useAudio();
   const [ov, setOv] = useState<Overview | null>(null);
   const [tab, setTab] = useState<Tab>("test");
+  // آزمونِ تلفظ متن و نتیجه‌اش را نگه می‌دارد، حتی وقتی به زبانهٔ دیگر می‌روید و برمی‌گردید
+  const [testText, setTestText] = useState(SAMPLE);
+  const [testRes, setTestRes] = useState<Preview | null>(null);
+  const [testDepth, setTestDepth] = useState<Depth | "">("");
 
   const reload = useCallback(async () => {
     try {
@@ -84,7 +90,7 @@ export default function PronunciationPage() {
           </button>
         ))}
       </nav>
-      {tab === "test" && <TestTab {...ctx} />}
+      {tab === "test" && <TestTab {...ctx} text={testText} setText={setTestText} res={testRes} setRes={setTestRes} depth={testDepth} setDepth={setTestDepth} />}
       {tab === "lexicon" && <LexiconTab {...ctx} />}
       {tab === "problems" && <ProblemsTab {...ctx} />}
       {tab === "eval" && <EvalTab {...ctx} />}
@@ -153,8 +159,8 @@ function Header({ storeId, ov, reload, setError }: Ctx) {
 
 type Playing = { state: "idle" | "loading" | "queued" | "error"; msg?: string };
 
-function ListenButton({ storeId, text, engine, variant, disabled }: {
-  storeId: string; text: string; engine: EngineKey; variant: "before" | "after"; disabled?: boolean;
+function ListenButton({ storeId, text, engine, variant, disabled, depth }: {
+  storeId: string; text: string; engine: EngineKey; variant: "before" | "after"; disabled?: boolean; depth?: Depth | "";
 }) {
   const audio = useAuthAudio();
   const [st, setSt] = useState<Playing>({ state: "idle" });
@@ -180,7 +186,7 @@ function ListenButton({ storeId, text, engine, variant, disabled }: {
   const go = async () => {
     setSt({ state: "loading" });
     try {
-      const r = await listen(storeId, text, engine, variant);
+      const r = await listen(storeId, text, engine, variant, depth);
       if (r.state === "ready") {
         setSt({ state: "idle" });
         await audio.play(r.url);
@@ -231,24 +237,27 @@ function WordFix({ storeId, row, onSaved, setError }: { storeId: string; row: Wo
   );
 }
 
-function TestTab({ storeId, ov, reload, setError }: Ctx) {
-  const [text, setText] = useState(SAMPLE);
-  const [res, setRes] = useState<Preview | null>(null);
+type TestState = {
+  text: string; setText: (v: string) => void; res: Preview | null; setRes: (v: Preview | null) => void;
+  depth: Depth | ""; setDepth: (v: Depth | "") => void;
+};
+
+function TestTab({ storeId, ov, reload, setError, text, setText, res, setRes, depth, setDepth }: Ctx & TestState) {
   const [busy, setBusy] = useState(false);
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (d: Depth | "" = depth) => {
     setBusy(true);
     setError(null);
     try {
-      setRes(await preview(storeId, text));
+      setRes(await preview(storeId, text, d));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [storeId, text, setError]);
+  }, [storeId, text, depth, setError, setRes]);
 
-  useEffect(() => { void run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!res) void run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const known = res?.words.filter((w) => w.pn && w.applied) ?? [];
   return (
@@ -260,6 +269,13 @@ function TestTab({ storeId, ov, reload, setError }: Ctx) {
           <Button onClick={() => void run()} disabled={busy || !text.trim()}>
             {busy ? "در حالِ بررسی ..." : "بررسی کن"}
           </Button>
+          <label className="flex items-center gap-2 text-sm" title="فقط برای همین آزمون؛ تنظیمِ فروشگاه عوض نمی‌شود">
+            <span style={{ color: "var(--text-2)" }}>عمقِ لایه در این آزمون</span>
+            <Select value={depth} onChange={(ev) => { const d = ev.target.value as Depth | ""; setDepth(d); void run(d); }}>
+              <option value="">طبقِ تنظیمِ فروشگاه</option>
+              {(Object.keys(ov.depths) as Depth[]).map((d) => (<option key={d} value={d}>{ov.depths[d]}</option>))}
+            </Select>
+          </label>
           <span className="text-xs" style={{ color: "var(--text-3)" }}>
             زیرِ هر موتور دو دکمه هست: همان متن بدونِ لایه، و پس از لایه؛ پشتِ‌سرِ‌هم بشنوید.
           </span>
@@ -293,13 +309,18 @@ function TestTab({ storeId, ov, reload, setError }: Ctx) {
             <SectionTitle>موتورها: پیش و پس</SectionTitle>
             <div className="grid gap-4 lg:grid-cols-3">
               {ov.engines.map((e) => (
-                <EngineCard key={e.key} engine={e} storeId={storeId} text={text} res={res} />
+                <EngineCard key={e.key} engine={e} storeId={storeId} text={text} res={res} depth={depth} />
               ))}
             </div>
           </Card>
 
           <Card>
             <SectionTitle>چه واژه‌هایی عوض شد و چرا</SectionTitle>
+            <p className="mb-3 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+              این جدول همهٔ واژه‌هایی است که لایه می‌شناسد (عمقِ «واژه‌های شناخته‌شده»). هر موتور فقط در عمقِ خودش از آن‌ها استفاده می‌کند: در عمقِ پیش‌فرض
+              (فقط نرمال‌سازی) تنها سرواژه‌ها و واژه‌های واژه‌نامهٔ خودِ فروشگاه عوض می‌شوند؛ برای شنیدنِ بقیه «عمقِ لایه در این آزمون» را روی
+              «واژه‌های شناخته‌شده» بگذارید.
+            </p>
             {known.length === 0 ? (
               <EmptyState icon="info" title="در این متن واژه‌ای نبود که لایه باید عوضش کند"
                 action={<span className="text-sm" style={{ color: "var(--text-3)" }}>عدد و تاریخ و … هم بالا در «متنی که موتور می‌گیرد» دیده می‌شود.</span>} />
@@ -347,9 +368,9 @@ function TestTab({ storeId, ov, reload, setError }: Ctx) {
   );
 }
 
-function EngineCard({ engine, storeId, text, res }: { engine: EngineInfo; storeId: string; text: string; res: Preview }) {
+function EngineCard({ engine, storeId, text, res, depth }: { engine: EngineInfo; storeId: string; text: string; res: Preview; depth: Depth | "" }) {
   const info = res.engines[engine.key];
-  const after = engine.key === "piper" ? info?.ipa : info?.text;
+  const after = info?.ipa || info?.text;
   return (
     <div className="rounded-xl p-3" style={{ border: "1px solid var(--line)" }}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -362,14 +383,19 @@ function EngineCard({ engine, storeId, text, res }: { engine: EngineInfo; storeI
         <Alert tone="warn">سیاستِ دادهٔ این فروشگاه «فقط لوکال» است؛ این موتور متن را بیرون می‌فرستد.</Alert>
       ) : (
         <>
-          <div className="mb-1 text-xs" style={{ color: "var(--text-3)" }}>{engine.key === "piper" ? "آوایی که به Piper می‌دهیم (IPA)" : "متنی که به موتور می‌دهیم"}</div>
-          <div className="mb-3 max-h-40 overflow-auto rounded-lg p-2 text-sm leading-7" dir={engine.key === "piper" ? "ltr" : "rtl"}
-            style={{ background: "var(--surface-2)", fontFamily: engine.key === "piper" ? "monospace" : undefined }}>
+          <div className="mb-1 text-xs" style={{ color: "var(--text-3)" }}>{info?.ipa ? "آوایی که به Piper می‌دهیم (IPA)" : "متنی که به موتور می‌دهیم"}</div>
+          <div className="mb-3 max-h-40 overflow-auto rounded-lg p-2 text-sm leading-7" dir={info?.ipa ? "ltr" : "rtl"}
+            style={{ background: "var(--surface-2)", fontFamily: info?.ipa ? "monospace" : undefined }}>
             {after || "—"}
           </div>
+          {engine.key === "piper" && (info?.engine_words ?? 0) > 0 && (
+            <div className="mb-2 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+              واژه‌های میانِ ‹ › را لایه نمی‌شناسد؛ خودِ صدا (espeak) هنگامِ ساخت می‌خواندشان ({fa(info?.engine_words ?? 0)} واژه).
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <ListenButton storeId={storeId} text={text} engine={engine.key} variant="before" />
-            <ListenButton storeId={storeId} text={text} engine={engine.key} variant="after" />
+            <ListenButton storeId={storeId} text={text} engine={engine.key} variant="before" depth={depth} />
+            <ListenButton storeId={storeId} text={text} engine={engine.key} variant="after" depth={depth} />
           </div>
         </>
       )}
@@ -427,6 +453,11 @@ function LexiconTab({ storeId, ov, reload, setError }: Ctx) {
           واژه را همان‌طور که در متن می‌آید بنویسید و زیرش بنویسید چطور خوانده شود، با فارسیِ ساده: کوتاه‌صداها را با
           ـَ (زبر) ـِ (زیر) ـُ (پیش) بگذارید و ع را همان ع بنویسید؛ مثلاً «چغر» ← «چَغَر»، «معنی» ← «مَعنی». حروفِ لاتینِ ساده
           (مثلاً <span dir="ltr">Caqar</span>) هم پذیرفته می‌شود. واژه‌نامهٔ فروشگاه بر واژه‌نامهٔ مشترک مقدم است.
+        </p>
+        <p className="mb-3 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+          فهرستِ سادهٔ «تلفظ اسم‌ها» در <Link to={`/stores/${storeId}/voice`} style={{ color: "var(--brand)" }}>صدا و گوینده</Link> هم
+          کار می‌کند (نامِ برندِ لاتین را «همان‌طور که می‌گویید» جایگزین می‌کند) و پیش از این واژه‌نامه اعمال می‌شود؛ برای واژه‌هایی که
+          ع، ه، او، ی یا اضافه دارند همین‌جا بنویسید.
         </p>
         <div className="grid gap-3 md:grid-cols-3">
           <Field label="واژه (همان‌طور که نوشته می‌شود)"><Input value={word} onChange={(e) => setWord(e.target.value)} dir="rtl" maxLength={80} /></Field>
@@ -654,7 +685,7 @@ function EvalTab({ storeId, ov, reload, setError }: Ctx) {
         <SectionTitle>آخرین نتیجه برای هر موتور</SectionTitle>
         <Table>
           <thead>
-            <tr><th>موتور</th><th>خطا پیش</th><th>خطا پس</th><th>تغییر</th><th>جمله</th><th>تشخیصِ گفتار</th><th>اجرا</th><th /></tr>
+            <tr><th>موتور</th><th>صدا</th><th>عمقِ لایه</th><th>خطا پیش</th><th>خطا پس</th><th>تغییر</th><th>جمله</th><th>تشخیصِ گفتار</th><th>اجرا</th><th /></tr>
           </thead>
           <tbody>
             {ov.engines.map((e) => {
@@ -663,6 +694,13 @@ function EvalTab({ storeId, ov, reload, setError }: Ctx) {
               return (
                 <tr key={e.key}>
                   <td><b>{e.label}</b>{r?.baseline && <> <Badge>اولیه</Badge></>}</td>
+                  <td className="text-xs">
+                    <span dir="ltr">{r?.voice || "—"}</span>
+                    {r && e.key === "piper" && r.voice && !ov.site_voices.includes(r.voice.replace(/\.onnx$/, "")) && (
+                      <> <Badge tone="warn">روی این سایت نصب نیست</Badge></>
+                    )}
+                  </td>
+                  <td className="text-xs">{r?.depth ? ov.depths[r.depth as Depth] ?? r.depth : "—"}</td>
                   <td>{pct(o?.before)}</td>
                   <td><b>{pct(o?.after)}</b></td>
                   <td><Delta d={o?.delta} /></td>
@@ -685,8 +723,12 @@ function EvalTab({ storeId, ov, reload, setError }: Ctx) {
           </tbody>
         </Table>
         <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-          «سریع» ۲ جمله از هر دسته (۳۲ جمله) است؛ «کامل» همهٔ جمله‌ها (فقط کارمند). Edge متن را به مایکروسافت می‌فرستد (جمله‌های آزمون عمومی‌اند) و روی
-          فروشگاهِ «فقط لوکال» کار نمی‌کند.
+          «سریع» ۲ جمله از هر دسته ({fa(ov.counts.quick)} جمله) است؛ «کامل» همهٔ جمله‌ها (فقط کارمند). Edge متن را به مایکروسافت می‌فرستد (جمله‌های
+          آزمون عمومی‌اند) و روی فروشگاهِ «فقط لوکال» کار نمی‌کند (دکمه‌اش خاموش است و سرور هم نمی‌پذیرد).
+        </p>
+        <p className="mt-1 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+          هر عدد برای <b>یک صدا و یک عمقِ لایه</b> است؛ عددِ یک صدا را به صدای دیگر نسبت ندهید. صداهای Piperِ نصب‌شده روی این سایت: <span dir="ltr">{ov.site_voices.join("، ") || "—"}</span>.
+          نتیجهٔ «اولیه» با تشخیصِ گفتارِ کوچکِ Vosk روی سایت اندازه‌گیری شده؛ جدولِ Whisper روی کارتِ گره، با روشن شدنش، جایش را می‌گیرد.
         </p>
       </Card>
 
@@ -697,7 +739,7 @@ function EvalTab({ storeId, ov, reload, setError }: Ctx) {
             {ov.runs.map((r) => (
               <button key={r.id} type="button" onClick={() => void show(r)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-right"
                 style={{ background: "var(--surface-2)" }}>
-                <span className="text-sm"><b>{ov.engines.find((e) => e.key === r.engine)?.label ?? r.engine}</b> · {r.sample === "full" ? "کامل" : "سریع"} · {fa(r.n)} جمله {r.baseline && <Badge>اولیه</Badge>}</span>
+                <span className="text-sm"><b>{ov.engines.find((e) => e.key === r.engine)?.label ?? r.engine}</b>{r.voice && <> · <span dir="ltr">{r.voice}</span></>} · {r.depth ? (ov.depths[r.depth as Depth] ?? r.depth) : ""} · {r.sample === "full" ? "کامل" : "سریع"} · {fa(r.n)} جمله {r.baseline && <Badge>اولیه</Badge>}</span>
                 <span className="flex items-center gap-2">
                   {r.state === "done" ? <span className="text-sm">{pct(r.summary.overall?.before)} ← <b>{pct(r.summary.overall?.after)}</b></span> : <span className="text-xs" style={{ color: "var(--text-3)" }}>{r.message}</span>}
                   <Badge tone={STATE_TONE[r.state]}>{r.state_label}</Badge>
@@ -730,6 +772,16 @@ function RunDetails({ run, tags, onClose }: { run: EvalRun; tags: Record<string,
         {run.baseline && <Badge tone="brand">نتیجهٔ اولیهٔ همراهِ نسخه (Vosk کوچک، روی Piper)</Badge>}
       </div>
       {run.message && <div className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>{run.message}</div>}
+      {s.by_tag && ["ayn", "he", "vav", "ezafe", "ezw"].some((k) => s.by_tag?.[k]) && (
+        <div className="mb-3 rounded-lg p-3 text-sm leading-7" style={{ background: "var(--surface-2)" }}>
+          <b>دسته‌های شکایتِ مالک (ع، ه، او، اضافه)، خطای واژه پیش ← پس:</b>{" "}
+          {["ayn", "he", "vav", "ezafe", "ezw"].filter((k) => s.by_tag?.[k]).map((k) => (
+            <span key={k} className="ml-3 inline-block">
+              {tags[k] ?? k}: {pct(s.by_tag?.[k]?.before)} ← <b>{pct(s.by_tag?.[k]?.after)}</b> (<Delta d={s.by_tag?.[k]?.delta} />)
+            </span>
+          ))}
+        </div>
+      )}
       {s.by_tag && (
         <Table>
           <thead><tr><th>دسته</th><th>جمله</th><th>خطا پیش</th><th>خطا پس</th><th>تغییر</th></tr></thead>

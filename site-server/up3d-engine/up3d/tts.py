@@ -20,6 +20,12 @@ class TTSError(Exception):
     pass
 
 
+#: Optional hook set by the host application: ``(text, provider, voice_asset) -> text``. NMarketing registers its Persian
+#: pronunciation layer here (numbers, dates, Latin words ... spelled the way a voice should read them). The hook runs before
+#: the cache key is made, so the cache always matches the text that was really spoken. A failing hook is ignored.
+TEXT_FILTER = None
+
+
 def _ffmpeg():
     return paths.ffmpeg_binary() or 'ffmpeg'
 
@@ -43,6 +49,11 @@ def synthesize(text, voice_asset, settings=None, out_dir=None, style=None):
     provider = voice.get('provider', 'silent')
     if provider == 'openai' and not settings.get('api_key'):
         provider = 'silent'
+    if TEXT_FILTER is not None:
+        try:
+            text = TEXT_FILTER(text, provider, voice) or text
+        except Exception:  # noqa: BLE001 - a bug in the hook must never silence a narration
+            pass
     key = hashlib.sha256(json.dumps([provider, voice.get('voice'), voice.get('model') or settings.get('model'),
                                      settings.get('base_url'), text, style, voice.get('speed', 1.0)],
                                     ensure_ascii=False).encode('utf-8')).hexdigest()[:24]

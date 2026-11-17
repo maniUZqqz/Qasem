@@ -8,7 +8,9 @@ items.json = {"items": [{"id": 3, "variant": "before", "text": "..."},        # 
                         {"id": 3, "variant": "after",  "ipa": ["sˈaˈlɑm", ...]}]}   # our phonemes, one string per sentence
 
 In an ``ipa`` string every character is one phoneme symbol (the Piper phoneme map is single code points); a piece written
-``{{word}}`` is left to the voice's own front end (the hybrid mode: only the words the lexicon knows are overridden).
+``{{word}}`` is left to the voice's own front end (the hybrid mode: only the words the lexicon knows are overridden). A piece
+written ``{{word|ours}}`` is a lexicon word: ``ours`` is the lexicon's segments, and the voice's own phonemisation of ``word`` decides
+what is said (``reconcile_ipa``: same segments => the voice's own string untouched, otherwise ours with the voice's own stress).
 One WAV per item is written as ``<id>_<variant>.wav``; ``manifest.json`` lists them. Licence of the engine: MIT (piper-tts).
 """
 import argparse
@@ -20,6 +22,50 @@ import time
 import wave
 
 NATIVE = re.compile(r"\{\{(.+?)\}\}")
+
+# --- the same reconciliation as backend/services/audio/fa_pron/phones.py (a test keeps the two copies equal)
+_IPA_VOWELS = "aeiouɑ"
+
+
+def ipa_skeleton(ipa):
+    return ipa.replace("ˈ", "").replace("ˌ", "").replace("ː", "")
+
+
+def ipa_stress_index(ipa):
+    n = sum(c in _IPA_VOWELS for c in ipa)
+    i = ipa.find("ˈ")
+    return (sum(c in _IPA_VOWELS for c in ipa[:i]) if i >= 0 else -1), n
+
+
+def with_stress_like(ours, native):
+    k, n = ipa_stress_index(native)
+    m = sum(c in _IPA_VOWELS for c in ours)
+    if k < 0 or m == 0:
+        return ours
+    target = k if n == m else m - 1 - (n - 1 - k)
+    target = min(max(target, 0), m - 1)
+    seen = -1
+    for idx, c in enumerate(ours):
+        if c in _IPA_VOWELS:
+            seen += 1
+            if seen == target:
+                return ours[:idx] + "ˈ" + ours[idx:]
+    return ours
+
+
+def reconcile_ipa(ours, native):
+    if not native:
+        return ours
+    if ipa_skeleton(native) == ipa_skeleton(ours):
+        return native
+    return with_stress_like(ours, native)
+
+
+def resolve_piece(piece, native):
+    """``word`` or ``word|ours`` (the inside of a ``{{ }}`` piece) -> the phoneme string to say."""
+    word, _, ours = piece.partition("|")
+    nat = native(word)
+    return reconcile_ipa(ours, nat) if ours else nat
 
 
 def main(argv=None):
@@ -61,7 +107,7 @@ def main(argv=None):
         t1 = time.time()
         try:
             if it.get("ipa"):
-                sentences = [list(NATIVE.sub(lambda m: native(m.group(1)), s)) for s in it["ipa"]]
+                sentences = [list(NATIVE.sub(lambda m: resolve_piece(m.group(1), native), s)) for s in it["ipa"]]
             else:
                 sentences = voice.phonemize(it["text"])
             chunks = []

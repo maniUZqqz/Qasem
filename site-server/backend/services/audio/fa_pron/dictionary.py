@@ -116,8 +116,14 @@ def phrases() -> dict[tuple[str, ...], str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        *words, pn = line.split()
-        if words and P.is_valid(pn):
+        parts = line.split()
+        # the written words come first, the PN after them: ONE PN for the whole expression («inSAlA») or one per word
+        # («dar mored»). (The old reading took only the last token as the PN, so every entry with a PN per word never matched.)
+        k = next((i for i, x in enumerate(parts) if x.isascii()), None)
+        if not k:
+            continue
+        words, pn = parts[:k], " ".join(parts[k:])
+        if P.is_valid(pn):
             out[tuple(canon(w.replace("_", ZWNJ)) for w in words)] = pn
     return out
 
@@ -155,6 +161,10 @@ class Dictionary:
                 return sh[k]
         return None
 
+    def has_owner_words(self) -> bool:
+        """Does the store (or the platform) have words of its own? They are honoured at every depth."""
+        return bool(self._store or self._extra)
+
     def tag(self, word: str) -> str:
         e = self.lookup(word)
         return e.tag if e else "-"
@@ -184,7 +194,7 @@ def all_shared_rows() -> list[dict]:
         rows.append({
             "word": e.word.replace(ZWNJ, "‌"),
             "pn": e.pn,
-            "respelling": P.to_respelling(toks),
+            "respelling": P.to_respelling(toks, q_letter=P.q_letter_for(e.word)),
             "ipa": P.to_ssml_ipa(toks),
             "category": e.category,
             "tag": e.tag,

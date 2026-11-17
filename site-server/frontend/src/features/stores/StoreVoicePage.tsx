@@ -334,6 +334,11 @@ export default function StoreVoicePage() {
           گوینده‌ی فارسی کلمه‌ی لاتین را حرف‌به‌حرف می‌خواند. اسم برند و کلمه‌های خاص را همان‌طور
           که می‌گویید بنویسید. متن کپشن عوض نمی‌شود — فقط صدای ویدیو.
         </p>
+        <p className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>
+          واژه‌نامهٔ کاملِ تلفظ (ع، ه، او، ی، اضافه، هم‌نویسه‌ها، شنیدنِ پیش و پس برای هر صدا و سنجشِ صدا) در{" "}
+          <Link to={`/stores/${storeId}/audio/pronunciation`} style={{ color: "var(--brand)" }}>صدا › تلفظ</Link> است؛ این فهرستِ ساده هم
+          کار می‌کند و پیش از آن اعمال می‌شود.
+        </p>
         <div className="flex flex-col gap-2">
           {rows.map((row, index) => (
             <div key={index} className="flex flex-wrap items-center gap-2">

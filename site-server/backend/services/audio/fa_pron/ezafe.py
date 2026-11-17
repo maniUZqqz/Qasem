@@ -46,7 +46,7 @@ _PRONOUNS = {"من", "تو", "او", "ما", "شما", "ایشان", "آنها",
 
 _VERBISH = re.compile(r"^(ن?می‌?[آ-ی]{2,}|[آ-ی]{2,}(?:یم|ید|ند)|ب[آ-ی]{3,}(?:یم|ید|ند)|"
                       r"[آ-ی]{2,}(?:ام|ای)ست)$")
-_NOUNISH_END = re.compile(r"(?:‌ها|‌های|ان|ات|گی|ش|ه|ی|ت|ر|ن|ک|ل|م|ب|د|س|ز)$")
+_NOUNISH_END = re.compile(r"(?:‌ها|‌های|ان|ات|گی|ه|ی|ر|ن|ک|ل|ب|د|س|ز)$")      # not ش ت م: possessive clitics («پدرش», «کتابم»)
 _PLURALISH = re.compile(r"(?:‌ها|‌های|ها|های|ان|ات)$")
 
 
@@ -84,6 +84,27 @@ def can_follow(token_text: str, tag: str) -> bool:
     return tag == "N" or bool(_PLURALISH.search(key))
 
 
+#: nouns that merely END in what looks like a possessive clitic («مردم» = people, not «مرد» + «م»)
+_NOT_POSSESSED = {D.canon(w) for w in ("مردم", "قدرت", "حکومت", "عادت", "حرکت", "سلامت", "صحبت", "دقت", "همت", "ثروت",
+                                      "علت", "جمعیت", "کیفیت", "ماهیت", "فعالیت", "اهمیت", "نیت", "ملت", "وقت", "سخت",
+                                      "اسم", "جسم", "حکم", "علم", "رسم", "قسم", "عشق", "حرم", "کرم", "نرم", "گرم", "رزم")}
+
+
+def _is_possessed(t, dic: D.Dictionary) -> bool:
+    """«پدرش», «کتابم», «خانه‌مان»: a noun we know + a possessive clitic. It never takes an ezafe itself."""
+    if t.source in ("shared", "store", "global", "phrase", "letters", "conj") or t.pn and t.source != "morph":
+        return False
+    w = D.canon(t.text).replace(ZWNJ, "")
+    if w in _NOT_POSSESSED or dic.lookup(w) is not None:
+        return False
+    for suf in ("مان", "تان", "شان", "ش", "م", "ت"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            e = dic.lookup(w[: -len(suf)])
+            if e is not None and e.tag == "N":
+                return True
+    return False
+
+
 def mark_ezafe(tokens, dic: D.Dictionary) -> None:
     """Set ``token.ezafe`` in place (tokens are ``pipeline.Token``)."""
     words = [t for t in tokens if t.kind == "word"]
@@ -98,10 +119,14 @@ def mark_ezafe(tokens, dic: D.Dictionary) -> None:
         after = tokens[idx + 2] if idx + 2 < len(tokens) else None
         if after is not None and after.kind == "word" and D.canon(after.text) in LIGHT_VERBS:
             continue          # «… خوبی پیشنهاد کرد»: the next word belongs to the verb
+        if t.written_ezafe:
+            continue          # already set from what the writer wrote
+        if D.canon(t.text).endswith(ZWNJ + "ای") or _is_possessed(t, dic):
+            continue          # «برنامه‌ای عالی»: no ezafe after the indefinite «ای»; «پدرش مرد»: none after a possessive ending
         first_ok = can_take(t.text, t.tag, t.source) and (t.tag == "N" or t.source in ("morph", "homograph") or
                                                           bool(_PLURALISH.search(D.canon(t.text))))
         # an unknown word with noun shape may also take it when the next word is a sure follower
-        if not first_ok and t.tag == "-" and can_take(t.text, t.tag, t.source) and \
+        if not first_ok and t.tag == "-" and not t.pn and can_take(t.text, t.tag, t.source) and \
                 (D.canon(nxt.text) in _PRONOUNS or nxt.tag == "N") and _NOUNISH_END.search(D.canon(t.text)):
             first_ok = True
         if first_ok and can_follow(nxt.text, nxt.tag):

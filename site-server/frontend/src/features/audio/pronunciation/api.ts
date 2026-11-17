@@ -51,10 +51,13 @@ export type Overview = {
   depths: Record<Depth, string>;
   local_only: boolean;
   node: { known: number; online: number; names: string[] };
-  counts: { store: number; global: number; shared: number; problems: number; sentences: number };
+  counts: { store: number; global: number; shared: number; problems: number; sentences: number; quick: number };
   tags: Record<string, string>;
   latest: Partial<Record<EngineKey, EvalRun>>;
   runs: EvalRun[];
+  /** صداهای Piper که همین الان روی همین سایت نصب‌اند (عددهای سنجش برای یک صدا و یک عمق‌اند) */
+  site_voices: string[];
+  layer_version: string;
   is_staff: boolean;
 };
 
@@ -66,7 +69,7 @@ export type Preview = {
   words: WordRow[];
   unknown: string[];
   latin_guesses: string[];
-  engines: Partial<Record<EngineKey, { depth: Depth; text: string; ipa?: string }>>;
+  engines: Partial<Record<EngineKey, { depth: Depth; text: string; ipa?: string; engine_words?: number; letter_words?: number }>>;
 };
 
 export type Convert = { pn: string; respelling: string; ipa: string; syllables: number };
@@ -110,11 +113,12 @@ const P = (id: string) => `/stores/${id}/pronunciation`;
 export const loadOverview = async (id: string) => (await api.get<Overview>(`${P(id)}/`)).data;
 export const saveSettings = async (id: string, body: Partial<PronSettings>) =>
   (await api.patch<PronSettings>(`${P(id)}/settings/`, body)).data;
-export const preview = async (id: string, text: string) => (await api.post<Preview>(`${P(id)}/preview/`, { text })).data;
+export const preview = async (id: string, text: string, depth?: Depth | "") =>
+  (await api.post<Preview>(`${P(id)}/preview/`, { text, ...(depth ? { depth } : {}) })).data;
 export const convert = async (id: string, respelling: string) =>
   (await api.post<Convert>(`${P(id)}/convert/`, { respelling })).data;
-export const listen = async (id: string, text: string, engine: EngineKey, variant: "before" | "after") =>
-  (await api.post<Listen>(`${P(id)}/listen/`, { text, engine, variant })).data;
+export const listen = async (id: string, text: string, engine: EngineKey, variant: "before" | "after", depth?: Depth | "") =>
+  (await api.post<Listen>(`${P(id)}/listen/`, { text, engine, variant, ...(depth ? { depth } : {}) })).data;
 export const listenResult = async (id: string, token: string) => (await api.get<Listen>(`${P(id)}/listen/${token}/`)).data;
 export const loadShared = async (id: string, q: string, category: string) =>
   (await api.get<Shared>(`${P(id)}/shared/`, { params: { q, category, limit: 300 } })).data;

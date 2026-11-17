@@ -191,7 +191,8 @@ class OtherNumbers(unittest.TestCase):
 
     def test_fraction_and_decimal(self):
         self.assertEqual(norm("3/4"), "سه چهارم")
-        self.assertEqual(norm("۳٫۵ کیلومتر"), "سه ممیز پنج دهم کیلومتر")
+        self.assertEqual(norm("۳٫۵ کیلومتر"), "سه و نیم کیلومتر")      # a half before a quantity word is «N و نیم»
+        self.assertEqual(norm("۳٫۷ کیلومتر"), "سه ممیز هفت دهم کیلومتر")
 
     def test_plain_and_big_numbers(self):
         self.assertEqual(norm("۱۴۰۵"), "هزار و چهارصد و پنج")
@@ -225,7 +226,7 @@ class LatinWords(unittest.TestCase):
         self.assertEqual(norm("workout"), "ورکاوت")
 
     def test_acronyms_are_spelled(self):
-        self.assertEqual(norm("GPS"), "جی پی اس")
+        self.assertEqual(norm("GPS"), "جی‌پی‌اس")       # letter names joined by half-spaces: the pipeline reads them as letters, not as «پی» (footprint)
         self.assertEqual(norm("HIIT"), "هیت")
 
     def test_model_numbers(self):
@@ -594,7 +595,7 @@ class Renderers(unittest.TestCase):
     TEXT = "معنی ورزش روزانه، ۲۵۰,۰۰۰ تومان است."
 
     def test_piper_ipa(self):
-        r = fa_pron.for_engine(self.TEXT, "piper")
+        r = fa_pron.for_engine(self.TEXT, "piper", depth="lexicon")
         self.assertEqual(len(r.ipa_sentences), 1)
         self.assertIn("maʔ", r.ipa)
         self.assertTrue(r.ipa.endswith("."))
@@ -603,13 +604,13 @@ class Renderers(unittest.TestCase):
         self.assertNotIn("\n", r.ipa)
 
     def test_piper_hybrid_uses_native_words(self):
-        r = fa_pron.for_engine("معنی گربه", "piper", native_ipa=lambda w: "<" + w + ">")
+        r = fa_pron.for_engine("معنی گربه", "piper", depth="lexicon", native_ipa=lambda w: "<" + w + ">")
         self.assertIn("<گربه>", r.ipa)
         self.assertEqual(r.notes["native_words"], 1)
 
     def test_piper_uses_our_numbers_even_though_text_engines_skip_them(self):
         """Measured: espeak phonemises number words one by one without context and does worse than the lexicon."""
-        r = fa_pron.for_engine("هفت روز و معنی", "piper", native_ipa=lambda w: "<" + w + ">")
+        r = fa_pron.for_engine("هفت روز و معنی", "piper", depth="lexicon", native_ipa=lambda w: "<" + w + ">")
         self.assertNotIn("<هفت>", r.ipa)
         self.assertEqual(fa_pron.for_engine("هفت", "moss", depth="lexicon").text, "هفت")   # a text engine reads numbers right itself
 
@@ -618,15 +619,15 @@ class Renderers(unittest.TestCase):
         self.assertNotIn("<>", r.ipa)
 
     def test_piper_stress_modes(self):
-        last = fa_pron.for_engine("برنامه", "piper").ipa
-        none = fa_pron.for_engine("برنامه", "piper", stress="none").ipa
-        first = fa_pron.for_engine("برنامه", "piper", stress="first").ipa
+        last = fa_pron.for_engine("برنامه", "piper", depth="lexicon").ipa
+        none = fa_pron.for_engine("برنامه", "piper", depth="lexicon", stress="none").ipa
+        first = fa_pron.for_engine("برنامه", "piper", depth="lexicon", stress="first").ipa
         self.assertIn("ˈ", last)
         self.assertNotIn("ˈ", none)
         self.assertNotEqual(last, first)
 
     def test_piper_splits_sentences(self):
-        r = fa_pron.for_engine("معنی عالی است. ورزش خوب است!", "piper")
+        r = fa_pron.for_engine("معنی عالی است. ورزش خوب است!", "piper", depth="lexicon")
         self.assertEqual(len(r.ipa_sentences), 2)
         self.assertTrue(r.ipa_sentences[1].endswith("!"))
 
@@ -671,7 +672,9 @@ class Renderers(unittest.TestCase):
         self.assertIn("ipa", r.subs[0])
 
     def test_default_depths(self):
-        self.assertEqual(fa_pron.DEFAULT_DEPTH["piper"], "lexicon")
+        # measured on the site's own voice (gyro, 272 sentences): the lexicon is not better than the normaliser alone yet, so the
+        # safe depth is the default until the node's Whisper measurement says otherwise (services.measured_depths)
+        self.assertEqual(fa_pron.DEFAULT_DEPTH["piper"], "normalize")
         self.assertEqual(fa_pron.DEFAULT_DEPTH["edge"], "normalize")       # measured: respelling hurts Edge
         self.assertTrue(all(d in fa_pron.DEPTHS for d in fa_pron.DEFAULT_DEPTH.values()))
 

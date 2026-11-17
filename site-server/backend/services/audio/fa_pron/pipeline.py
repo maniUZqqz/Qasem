@@ -22,11 +22,13 @@ import re
 from dataclasses import dataclass, field
 
 from . import dictionary as D
-from . import g2p, phones as P
+from . import g2p, latin, phones as P
 from .ezafe import mark_ezafe
 from .normalize import NormNotes, normalize
 
 ZWNJ = "‌"
+KASRA = "ِ"
+HAMZA_ABOVE = "ٔ"
 DEPTHS = ("normalize", "lexicon", "full")
 
 _PAUSE_CHARS = "،.؟!"
@@ -44,6 +46,7 @@ class Token:
     pause: str = ""                # 'short' | 'long' | 'para'  (kind == 'pause')
     n_words: int = 1               # phrases cover several written words
     apply: bool = True             # False: known, but the engine reads it right (kept for context)
+    written_ezafe: bool = False    # the writer put the ezafe on the word («هٔ», «ِ», «ه‌ی»): always honoured
 
     def tokens(self, *, stress: bool = False, stress_position: str = "last") -> list[str]:
         """PN tokens, optionally stressed, including the ezafe vowel when marked.
@@ -86,10 +89,12 @@ HOMOGRAPHS: dict[str, tuple[str, list[tuple[str, set[str]]]]] = {
     ]),
     "کشتی": ("keSti", [
         ("kuSti", {"قهرمان", "مسابقه", "ورزش", "ورزشکار", "فرنگی", "آزاد", "پهلوان", "گیر", "گیری",
-                   "وزنه", "جودو", "المپیک", "مبارزه", "تیم", "ملی"}),
+                   "وزنه", "جودو", "المپیک", "مبارزه", "تیم", "ملی", "کشتی‌گیر", "کشتی‌گیران", "کشتی‌گیری",
+                   "تشک", "حریف", "رقیب", "زورخانه", "گود", "فدراسیون"}),
     ]),
     "مرد": ("mard", [
-        ("mord", {"فوت", "مرد.", "درگذشت", "ناگهان", "دیشب", "پدرم", "مادرم", "بابام", "مامانم"}),
+        ("mord", {"فوت", "مرد.", "درگذشت", "ناگهان", "دیشب", "پدرم", "مادرم", "بابام", "مامانم", "مرحوم", "مرحومه",
+                  "تشییع", "جنازه", "قبرستان", "ختم", "کشته", "جان"}),
     ]),
     "برد": ("bord", [
         ("bard", {"موثر", "وای‌فای", "موشک", "سیگنال", "آنتن", "شبکه", "بی‌سیم", "بلوتوث", "کوتاه",
@@ -101,7 +106,43 @@ HOMOGRAPHS: dict[str, tuple[str, list[tuple[str, set[str]]]]] = {
     ]),
     "علم": ("'elm", [("'alam", {"پرچم", "کردن", "محرم", "عزاداری", "سینه‌زنی"})]),
     "شکر": ("Sekar", [("Sokr", {"خدا", "خدایا", "شکرگزار", "الهی", "کنم", "کردم", "کردیم", "گفتم", "هزار"})]),
+    # the letter D (vitamin D) is «دی» too: the lexicon has the month Dey
+    "دی": ("dey", [("di", {"ویتامین", "ویتامینی", "کلسیم", "اچ", "دبلیو"})]),
 }
+
+#: forms that cannot be listed one by one (conjugated verbs, possessive endings): word -> [(PN, regex on a neighbour)]
+_RE_GIR = re.compile(r"^(?:ن?می‌?|ب|ن)?(?:گیر|گرف)")            # گرفتن: کشتی گرفت / می‌گیرد / بگیر / نگیر / گرفته
+HOMOGRAPH_PATTERNS: dict[str, list[tuple[str, "re.Pattern[str]"]]] = {
+    "کشتی": [("kuSti", _RE_GIR)],
+}
+
+HOMOGRAPH_TAGS = {"mord": "V", "di": "F"}          # read as a verb / a letter name: no ezafe in front of it
+
+_PUNCT = set("،.؟!") | {""}
+#: after «مرد» one of these starts a new clause: «پدرش مرد و ...»
+_CLAUSE_JOIN = {"و", "که", "اما", "ولی", "تا", "پس", "بعد", "سپس", "در", "از", "به", "با", "پیش", "قبل", "همان", "همین"}
+#: who dies in «X مرد»: a person word, a kinship word with its possessive ending, or a time word («بعد از یک سال مرد»)
+_RE_KIN = re.compile(r"^(?:پدر|مادر|پدربزرگ|مادربزرگ|عمو|دایی|خاله|عمه|برادر|خواهر|همسر|شوهر|پسر|دختر|بابا|مامان|"
+                     r"پیرمرد|پیرزن|بیمار|مریض|مادربزرگم|پدربزرگم|دوستم|همسایه)(?:م|ت|ش|مان|تان|شان)?$")
+_DIES_AFTER = {D.canon(w) for w in (
+    "او", "وی", "ایشان", "که", "همه", "ناگهان", "بالاخره", "سرانجام", "آخر", "نهایتا", "نهایتاً", "دیروز", "دیشب", "امروز",
+    "پارسال", "پیرارسال", "سال", "ماه", "هفته", "روز", "شب", "بعد", "پس", "زود", "دیر", "اونجا", "آنجا", "همان‌جا",
+    "بیچاره", "مرحوم", "قهرمان", "پهلوان", "شاعر", "نویسنده", "هنرمند", "پادشاه", "سرباز")}
+
+
+def _window(words: list[str], i: int, span: int = 2) -> list[str]:
+    lo, hi = max(0, i - span), min(len(words), i + span + 1)
+    return [D.canon(w) for j, w in enumerate(words[lo:hi], lo) if j != i]
+
+
+def _mard_or_mord(words: list[str], i: int) -> str:
+    """«مرد»: a man (mard) or died (mord). The verb ends its clause and follows who died or when."""
+    prev = D.canon(words[i - 1]) if i > 0 else ""
+    nxt = D.canon(words[i + 1]) if i + 1 < len(words) else ""
+    ends_clause = nxt in _PUNCT or nxt in _CLAUSE_JOIN
+    if ends_clause and prev not in _PUNCT and (_RE_KIN.match(prev) or prev in _DIES_AFTER):
+        return "mord"
+    return "mard"
 
 
 def _homograph(word: str, words: list[str], i: int) -> str | None:
@@ -110,15 +151,19 @@ def _homograph(word: str, words: list[str], i: int) -> str | None:
     if not entry:
         return None
     default, rules = entry
-    lo, hi = max(0, i - 2), min(len(words), i + 3)
-    window = {D.canon(w) for j, w in enumerate(words[lo:hi], lo) if j != i}
+    near = _window(words, i)
+    window = set(near)
     for pn, triggers in rules:
         if window & {D.canon(t) for t in triggers}:
             return pn
-    # «مرد» at the end of a clause after a person: «او مرد.»
-    if key == "مرد" and i + 1 < len(words) and words[i + 1] in ("،", ".", "؟", "!") and i > 0 \
-            and D.canon(words[i - 1]) in {"او", "آن", "که", "پدر", "مادر", "بیمار", "پیرمرد", "پیرزن", "ناگهان"}:
-        return "mord"
+    if key == "مرد":
+        return _mard_or_mord(words, i)
+    if key == "کشتی":
+        nxt = D.canon(words[i + 1]) if i + 1 < len(words) else ""
+        if nxt == "را":                  # «کشتی را گرفتند»: they seized the ship
+            return default
+        if any(rx.match(w) for pn, rx in HOMOGRAPH_PATTERNS["کشتی"] for w in near):
+            return "kuSti"
     return default
 
 
@@ -131,8 +176,11 @@ _SUFFIXES = [
     ("هایی", "hAyi", "hAyi"), ("های", "hAye", "hAye"), ("ها", "hA", "hA"),
     ("ترین", "tarin", "tarin"), ("تر", "tar", "tar"),
     ("ات", "At", "At"), ("ان", "An", "yAn"), ("ین", "in", "in"),
+    ("یی", "yi", "yi"),            # «رضایی» = «رضا» + one ی (the first ی is only the glide): never two suffixes
     ("ی", "i", "yi"),
 ]
+#: «خانه‌ای»: the written suffix after a half-space; the word «ای» (vocative) is never meant there
+_ZWNJ_SUFFIXES = {"ای": "yi"}
 
 
 def _final_is_vowel(pn: str) -> bool:
@@ -151,6 +199,9 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
         if len(parts) > 1:
             out = []
             for k, p in enumerate(parts):
+                if k > 0 and p in _ZWNJ_SUFFIXES:          # «خانه‌ای»: the suffix, not the word «ای»
+                    out.append(_ZWNJ_SUFFIXES[p])
+                    continue
                 e = dic.lookup(p)
                 if e:
                     out.append(e.pn)
@@ -168,6 +219,8 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
         s = suf.lstrip(ZWNJ)
         if w.endswith(s) and len(w) - len(s) >= 2:
             stem = w[: -len(s)].rstrip(ZWNJ)
+            if s == "ی" and stem.endswith("ی"):
+                continue                  # «رضای» is not a stem: its ی is the glide of the suffix itself («رضایی»)
             e = dic.lookup(stem)
             stem_pn = e.pn if e else _morph(stem, dic, depth + 1)
             if stem_pn:
@@ -176,6 +229,8 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
 
 
 def _suffix_only(part: str) -> str | None:
+    if part in _ZWNJ_SUFFIXES:
+        return _ZWNJ_SUFFIXES[part]
     for suf, pc, _ in _SUFFIXES:
         if D.canon(suf.lstrip(ZWNJ)) == part:
             return pc
@@ -223,10 +278,13 @@ def prepare(text: str, *, depth: str = "lexicon", dictionary: D.Dictionary | Non
     toks = tokenise(norm.text)
     prep = Prepared(original=text, normalized=norm.text, tokens=toks, depth=depth, notes=norm.notes)
     if depth == "normalize":
+        if dic.has_owner_words():
+            prep.tokens = _owner_words_only(toks, dic)       # the owner's own words are honoured at every depth («fix it, listen again»)
         return prep
 
     surface = [t.text for t in toks]
     words_only = [x.text if x.kind == "word" else "" for x in toks]
+    stems = [explicit_ezafe(w)[1] if w else "" for w in words_only]       # «برنامه‌ی» -> «برنامه»: phrases are written without the mark
     out: list[Token] = []
     i = 0
     while i < len(toks):
@@ -236,11 +294,19 @@ def prepare(text: str, *, depth: str = "lexicon", dictionary: D.Dictionary | Non
             i += 1
             continue
         # phrases first
-        ph = dic.phrase_at(words_only, i)
+        ph = dic.phrase_at(stems, i)
         if ph:
             n, pn, src = ph
-            out.append(Token("word", " ".join(words_only[i:i + n]), pn=pn, source="phrase",
-                             tag="-", n_words=n))
+            last_ez = explicit_ezafe(words_only[i + n - 1])[0]
+            per_word = pn.split()
+            if n > 1 and len(per_word) == n:
+                # one PN per written word: every word keeps its own stress and its own place in the output
+                for k, one in enumerate(per_word):
+                    out.append(Token("word", stems[i + k], pn=one, source="phrase", tag="-", ezafe=last_ez and k == n - 1,
+                                     written_ezafe=last_ez and k == n - 1))
+            else:
+                out.append(Token("word", " ".join(stems[i:i + n]), pn=pn, source="phrase",
+                                 tag="-", n_words=n, ezafe=last_ez, written_ezafe=last_ez))
             i += n
             continue
         out.append(_resolve_word(t, surface, i, dic, depth, out))
@@ -258,14 +324,71 @@ def prepare(text: str, *, depth: str = "lexicon", dictionary: D.Dictionary | Non
     return prep
 
 
+def _owner_words_only(toks: list[Token], dic: D.Dictionary) -> list[Token]:
+    """Depth «normalize»: nothing of ours is said EXCEPT what the store (or the platform) wrote in its own lexicon."""
+    words_only = [x.text if x.kind == "word" else "" for x in toks]
+    stems = [explicit_ezafe(w)[1] if w else "" for w in words_only]
+    out: list[Token] = []
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t.kind == "word" and _PERSIAN.search(t.text):
+            ph = dic.phrase_at(stems, i)
+            if ph and ph[2] in ("store", "global"):
+                n, pn, src = ph
+                ez = explicit_ezafe(words_only[i + n - 1])[0]
+                out.append(Token("word", " ".join(stems[i:i + n]), pn=pn, source=src, tag="-", n_words=n, ezafe=ez, written_ezafe=ez))
+                i += n
+                continue
+            ez, stem = explicit_ezafe(t.text)
+            word = stem if ez and stem else t.text
+            e = dic.lookup(word)
+            if e and e.source in ("store", "global"):
+                out.append(Token("word", word, pn=e.pn, source=e.source, tag=e.tag, ezafe=ez, written_ezafe=ez))
+                i += 1
+                continue
+        out.append(t)
+        i += 1
+    return out
+
+
 def _rule_pn(word: str) -> str:
     parts = [p for p in word.split(ZWNJ) if p]
     return "".join(P.join(g2p.rules_to_pn(p)) for p in parts)
 
 
+def explicit_ezafe(word: str) -> tuple[bool, str]:
+    """Is the ezafe WRITTEN on this word? -> (flag, the word without the mark).
+
+    «برنامهٔ» (hamza above), «مربیِ» (kasra) and the everyday «برنامه‌ی» (a half-space and a ی after a word that ends in «ه»)
+    all mean "-e / -ye comes here". The mark is the writer's word, so it is always honoured (a missing ezafe in the
+    lexicon of the NEXT word must not drop it) and the «ی» of «ه‌ی» is not the indefinite «ی» of «برنامه‌ای».
+    """
+    if len(word) < 3:
+        return False, word
+    if word.endswith(HAMZA_ABOVE) or word.endswith(KASRA):
+        return True, word[:-1]
+    if word.endswith(ZWNJ + "ی"):
+        stem = word[:-2]
+        if stem.endswith("ه") and len(stem) >= 2:
+            return True, stem
+    return False, word
+
+
 def _resolve_word(t: Token, words: list[str], i: int, dic: D.Dictionary, depth: str,
                   out: list[Token]) -> Token:
-    w = t.text
+    ez, stem = explicit_ezafe(t.text)
+    if ez and stem:
+        tok = _resolve_core(Token("word", stem), stem, words, i, dic, depth, out)
+        tok.ezafe = tok.written_ezafe = True
+        if tok.tag == "V":                # a verb never takes an ezafe: the mark belongs to a homograph read the other way
+            tok.tag = "N"
+        return tok
+    return _resolve_core(t, t.text, words, i, dic, depth, out)
+
+
+def _resolve_core(t: Token, w: str, words: list[str], i: int, dic: D.Dictionary, depth: str,
+                  out: list[Token]) -> Token:
     key = D.canon(w)
     # the conjunction «و» is /o/ after a consonant and /vo/ after a vowel
     if key == "و":
@@ -279,9 +402,13 @@ def _resolve_word(t: Token, words: list[str], i: int, dic: D.Dictionary, depth: 
     # marked words («نُه») keep their own reading
     if e and e.source in ("store", "global"):
         return Token("word", w, pn=e.pn, source=e.source, tag=e.tag)
+    lp = latin.letters_pn(w)
+    if lp:
+        # a spelled-out acronym («پی‌دی‌اف»): the letter names, never the words «پی» (footprint) and «دی» (the month)
+        return Token("word", w, pn=lp, source="letters", tag="F", apply=False)
     hg = _homograph(w, words, i)
     if hg:
-        return Token("word", w, pn=hg, source="homograph", tag="N")
+        return Token("word", w, pn=hg, source="homograph", tag=HOMOGRAPH_TAGS.get(hg, "N"))
     if e:
         return Token("word", w, pn=e.pn, source="shared", tag=e.tag,
                      apply=not (e.safe and depth == "lexicon"))

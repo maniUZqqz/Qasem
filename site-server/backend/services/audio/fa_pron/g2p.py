@@ -112,6 +112,7 @@ def rules_to_pn(word: str, *, trust_marks: bool = False) -> list[str]:
         nxt = units[i + 1].ch if i + 1 < n else None
         nxt2 = units[i + 2].ch if i + 2 < n else None
         last = i == n - 1
+        prv_has_kasra = i > 0 and units[i - 1].vowel == "e"
 
         def emit_cons(sym: str, unit: _U = u):
             items.append(sym)
@@ -146,7 +147,11 @@ def rules_to_pn(word: str, *, trust_marks: bool = False) -> list[str]:
                 items.append("A")
         elif ch == "و":
             role = _vav_role(units, i, items)
-            if u.vowel and role != "silent":
+            if u.shadda and role != "silent" and (explicit or role in ("u", "o")):
+                emit_cons("v")           # «اَوَّل», «دُوّم»: a doubled و is a doubled /v/, never a vowel
+                if u.vowel:
+                    items.append(u.vowel)
+            elif u.vowel and role != "silent":
                 items.append("v")
                 items.append(u.vowel)
             elif role == "v":
@@ -185,6 +190,8 @@ def rules_to_pn(word: str, *, trust_marks: bool = False) -> list[str]:
                     ez_tail = ["y", "e"]
                 elif prev_item() in P.CONSONANTS:
                     items.append("e")
+                elif prev_item() == "e" and prv_has_kasra:
+                    pass                  # «خانِه», «تَغذیِه»: the kasra already is the vowel; the ه is only the spelling
                 elif prev_item() in P.VOWELS:
                     items.append("h")
                 else:
@@ -208,8 +215,28 @@ def rules_to_pn(word: str, *, trust_marks: bool = False) -> list[str]:
 
     if not explicit:
         items = _insert_vowels(items)
+    else:
+        items = _vowel_after_geminate(items)
     items.extend(ez_tail)
     return items
+
+
+def _vowel_after_geminate(items: list[str]) -> list[str]:
+    """«سَوّم»: after a doubled consonant a vowel must follow (a doubled consonant closes one syllable and opens the next).
+    The vowel written before it is repeated («سَوّم» -> sa-vv-a-m)."""
+    out: list[str] = []
+    last_vowel = "a"
+    for k, t in enumerate(items):
+        out.append(t)
+        if t in P.VOWELS:
+            last_vowel = t
+        nxt = items[k + 1] if k + 1 < len(items) else None
+        after = items[k + 2] if k + 2 < len(items) else None
+        if t in P.CONSONANTS and nxt == t and after in P.CONSONANTS and after != t:
+            out.append(t)                     # the geminate's second half is appended on the next loop turn: handled below
+            out.append(last_vowel if last_vowel in ("a", "e", "o") else "a")
+            items[k + 1] = ""                 # consumed
+    return [t for t in out if t]
 
 
 def _vav_role(units: list[_U], i: int, items: list[str]) -> str:

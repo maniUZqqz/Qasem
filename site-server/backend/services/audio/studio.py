@@ -305,11 +305,17 @@ def _site_speech(store, user, engine, ref, spoken, speed, common):
 
     if engine == "edge" and engine_registry.local_only(store):
         raise StudioError("سیاستِ دادهٔ این فروشگاه «فقط لوکال» است و Edge متن را به مایکروسافت می‌فرستد.", 409, "policy")
+    from . import pronounce
+
+    # «fix the word, listen again» must play the NEW recording: the take is only re-used when the pronunciation layer (its
+    # version, switch, depth and the store's lexicon) is exactly what it was when that take was made
+    fp = pronounce.fingerprint(store, engine)
     same = AudioAsset.objects.filter(store=store, kind=AudioAsset.Kind.SPEECH, engine=engine, prompt=spoken,
-                                     params__voice=f"{engine}:{ref}", params__speed=speed,
+                                     params__voice=f"{engine}:{ref}", params__speed=speed, params__pron=fp,
                                      status=AudioAsset.Status.READY).first()
     if same is not None and asset_path(same):
         return same
+    common = {**common, "params": {**(common.get("params") or {}), "pron": fp}}
     provider = PiperProvider(ref) if engine == "piper" else EdgeTTSProvider(voice=ref)
     provider.store = store          # the shop's own lexicon applies to the preview too
     asset = _asset(store, user, AudioAsset.Kind.SPEECH, engine=engine, voice_label=ref,

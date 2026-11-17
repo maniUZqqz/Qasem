@@ -206,17 +206,16 @@ def _edge_with_cues(voice: str, text: str, out: Path, store=None) -> dict | None
         import edge_tts
     except Exception:  # noqa: BLE001
         return None
-    # the Persian pronunciation layer - but the cues carry the words Edge heard, and the captions are matched to
-    # them one by one: a rewrite that changes the number of words (a price spelled out) would break that match,
-    # so such a text is read as written.
+    # the Persian pronunciation layer. The cues carry the words Edge heard (the spoken text), the captions are matched to the
+    # words that were WRITTEN: when the layer changes the number of words (a price or a time spelled out) the cues are
+    # regrouped onto the written words afterwards (``regroup_cues``), so numbers are normalised here too.
+    written = text
     try:
         from services.audio import pronounce
 
-        spoken = pronounce.text_for(text, "edge", store=store)
-        if len(spoken.split()) == len(text.split()):
-            text = spoken
+        text = pronounce.text_for(written, "edge", store=store) or written
     except Exception:  # noqa: BLE001
-        pass
+        text = written
 
     async def go():
         comm = edge_tts.Communicate(text, voice, boundary="WordBoundary") if "boundary" in edge_tts.Communicate.__init__.__code__.co_varnames else edge_tts.Communicate(text, voice)
@@ -236,8 +235,42 @@ def _edge_with_cues(voice: str, text: str, out: Path, store=None) -> dict | None
         return None
     if not audio or len(words) < 2:
         return None
+    if text != written:
+        words = regroup_cues(words, written, text, store=store)
     out.write_bytes(audio)
     return {"path": out, "cues": words}
+
+
+def regroup_cues(cues: list, written: str, spoken: str, *, store=None) -> list:
+    """Word times of the SPOKEN text -> word times of the WRITTEN text (one cue per written word).
+
+    «ساعت ۱۴:۳۰» is spoken as five words and written as two: the cues of the spoken words that come from one written word are
+    merged (first start, last end). How many spoken words a written word becomes is counted by normalising it alone; when the
+    counts do not add up to the cues Edge gave, the written words share the cues in proportion, so every written word still
+    gets a time and the captions stay in step with the audio."""
+    orig = written.split()
+    if not orig or not cues:
+        return cues
+    counts = []
+    try:
+        from services.audio import pronounce
+
+        for w in orig:
+            counts.append(max(1, len((pronounce.text_for(w, "edge", store=store) or w).split())))
+    except Exception:  # noqa: BLE001
+        counts = [1] * len(orig)
+    n, total = len(cues), sum(counts)
+    out, at = [], 0
+    for i, w in enumerate(orig):
+        if total == n:
+            a, b = at, at + counts[i]
+            at = b
+        else:                                   # proportional share (also when Edge gave fewer cues than written words)
+            a = min(n - 1, (i * n) // len(orig))
+            b = max(a + 1, min(n, ((i + 1) * n) // len(orig)))
+        group = cues[a:b] or [cues[min(n - 1, a)]]
+        out.append({"w": w.strip(".،!؟?,;؛:") or w, "s": group[0]["s"], "e": group[-1]["e"]})
+    return out
 
 
 def speech_bounds(path) -> tuple:

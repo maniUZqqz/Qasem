@@ -35,11 +35,16 @@ from .models import InboxSettings
 
 logger = logging.getLogger(__name__)
 
-#: Whole-word requests for a human. Matched on normalised text; a customer who
-#: writes «با پشتیبان صحبت کنم» is not asking the bot anything.
+#: Requests for a human, matched as **whole words** (`norm.has_phrase`), never as
+#: pieces of a word. Only words that almost always mean «let me talk to a person»
+#: are here: «مدیر» / «مسئول» / «آدم» / «صحبت با» are in ordinary product questions
+#: («برنامهٔ غذایی آدم‌های دیابتی…»، «مدیریت ورزشکاران…») and would hand them all
+#: to the team. «پشتیبانی» (the department) is not «پشتیبان» (a person) either -
+#: only «با/به پشتیبانی» is a request.
 DEFAULT_KEYWORDS = [
-    "اپراتور", "پشتیبان", "کارشناس", "مسئول", "مدیر", "آدم", "انسان",
-    "صحبت با", "با یه نفر", "با یک نفر", "ربات نه", "human", "operator", "agent",
+    "اپراتور", "پشتیبان", "کارشناس", "با پشتیبانی", "به پشتیبانی",
+    "با یه نفر", "با یک نفر", "با آدم", "با انسان", "آدم واقعی", "ربات نه", "نه ربات", "ربات نمیخوام",
+    "operator", "live agent", "human agent", "real person", "talk to a human", "speak to a human",
 ]
 
 DEFAULT_GREETING = "سلام! من دستیار هوشمند فروشگاه هستم. هر سؤالی دارید بپرسید؛ اگر لازم شد همکارانمان ادامه می‌دهند."
@@ -68,10 +73,9 @@ def keywords_of(cfg: InboxSettings) -> list[str]:
 
 
 def wants_human(cfg: InboxSettings, text: str) -> str:
-    """The keyword that asked for a person, or ''."""
-    cleaned = norm.ascii_digits((text or "").lower())
+    """The keyword that asked for a person, or ''. Whole words only (see `DEFAULT_KEYWORDS`)."""
     for word in keywords_of(cfg):
-        if word.lower() in cleaned:
+        if norm.has_phrase(text, word):
             return word
     return ""
 

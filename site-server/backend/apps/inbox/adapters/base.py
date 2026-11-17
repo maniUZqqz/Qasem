@@ -105,6 +105,13 @@ class Adapter:
     can_poll = False
     can_send = True
     max_chars: int | None = None
+    #: The platform's API host as seen from an Iranian server, and whether that server can
+    #: normally reach it at all. Telegram is filtered: neither its webhook nor polling can
+    #: work from such a server, and the connect page must say so instead of «در دسترس نبود».
+    host = ""
+    blocked_from_iran = False
+    #: Appended to «not reachable» errors - what the owner can do about it.
+    unreachable_hint = ""
 
     def __init__(self, connection=None):
         self.connection = connection

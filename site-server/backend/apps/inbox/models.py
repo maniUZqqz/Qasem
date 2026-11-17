@@ -159,6 +159,10 @@ class InboxSettings(TimeStampedModel):
 
     # -- web chat widget ----------------------------------------------
     widget = models.JSONField(default=dict, blank=True)
+    #: The https address this site is reachable at from the internet - used for the
+    #: widget snippet and the webhook URLs. Empty = the site-wide PUBLIC_BASE_URL, then the
+    #: address the panel was opened on (see `publicurl`).
+    public_base_url = models.CharField(max_length=200, blank=True, default="")
 
     class Meta:
         verbose_name = "تنظیمات صندوق"

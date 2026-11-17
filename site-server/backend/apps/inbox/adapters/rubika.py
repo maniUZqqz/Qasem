@@ -27,7 +27,7 @@ class RubikaAdapter(Adapter):
     can_poll = True
     max_chars = 4096
 
-    def _call(self, method: str, payload: dict | None = None, timeout: int = TIMEOUT) -> dict:
+    def _call(self, method: str, payload: dict | None = None, timeout: int = TIMEOUT, *, _probe: bool = False) -> dict:
         if not self.token:
             raise AdapterError("توکن ربات روبیکا وارد نشده است.")
         root = base.api_base_override(self.key) or self.host
@@ -48,6 +48,12 @@ class RubikaAdapter(Adapter):
             status == "INVALID_INPUT" and method == "getMe"
         ):
             raise AdapterError("توکن ربات روبیکا پذیرفته نشد.")
+        if status == "INVALID_INPUT" and not _probe:
+            # On every other method Rubika uses INVALID_INPUT for «the token is wrong» *and* for
+            # «this chat id / text is wrong» alike. Ask getMe which one it is, so the owner is told
+            # about the token only when it really is the token.
+            self._call("getMe", timeout=10, _probe=True)  # raises «توکن … پذیرفته نشد» for a bad token
+            raise AdapterError("روبیکا پیام را نپذیرفت: شناسهٔ گفتگو یا متن پیام نامعتبر است.")
         if response.status_code >= 400 or status != "OK":
             detail = scrub(str(data.get("dev_message") or data.get("message") or status))[:120]
             raise AdapterError(f"روبیکا درخواست را نپذیرفت ({response.status_code}): {detail}")

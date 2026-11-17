@@ -62,6 +62,11 @@ export type InboxList = {
   conversations: ConvRow[];
   counts: { waiting: number; unread: number; unassigned: number; mine: number; breached: number; tests: number };
   by_channel: Record<string, number>;
+  /** چند گفتگو با این فیلترها هست، و آیا بیشتر از آنچه آمده وجود دارد (دکمهٔ «نمایش بیشتر»). */
+  total?: number;
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
   now: string;
   me: { username: string; can_write: boolean; can_settings: boolean; is_staff: boolean };
   members: Member[];
@@ -161,6 +166,7 @@ export type Settings = {
   rate_limits: Record<string, number>;
   merge_by_username: boolean;
   widget: Record<string, string | boolean>;
+  public_base_url: string;
   default_working_hours: { days: number[]; start: string; end: string };
   open_now: boolean;
 };
@@ -227,9 +233,15 @@ export type ChannelInfo = {
   ready: boolean;
   mode: "AUTO" | "WEBHOOK" | "POLLING";
   masked_token: string;
+  has_token?: boolean;
   config: Record<string, unknown>;
   has_app_secret: boolean;
+  has_verify_token?: boolean;
+  /** فقط برای کسی که اجازهٔ تنظیمات دارد پر است (نشانی وب‌هوک یک رمز است). */
   hook_url: string;
+  can_see_keys?: boolean;
+  /** «این سرور به پلتفرم دسترسی ندارد» (فقط تلگرام): دسترس‌پذیریِ واقعی از همین سرور. */
+  network?: { reachable: boolean; checked_at: string; message: string };
   health: { ok: boolean | null; detail: string; checked_at: string | null; account: string };
   last_inbound_at: string | null;
   last_outbound_at: string | null;
@@ -242,6 +254,15 @@ export type ChannelInfo = {
   widget_key?: string;
   sms?: { paused: boolean; forwarding: boolean; online: number; phones: { name: string; online: boolean; sms_ready: boolean | null; battery: number | null }[] };
   can_toggle_forwarding?: boolean;
+};
+
+/** نشانی‌ای که کدِ ویجت و نشانیِ وب‌هوک‌ها روی آن ساخته می‌شود. */
+export type PublicAddress = {
+  url: string;
+  source: "setting" | "site" | "request";
+  secure: boolean;
+  warning: string;
+  configured: string;
 };
 
 export type SegmentRule = { field: string; op: string; value?: string | number | boolean | null };

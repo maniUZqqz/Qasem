@@ -169,6 +169,7 @@ function Detail({ storeId, row, canApprove, onChanged }: { storeId: string; row:
           <span>در صف: <b>{faNum(n("queued"))}</b></span>
           <span>ناموفق: <b style={{ color: n("failed") ? "var(--bad)" : undefined }}>{faNum(n("failed"))}</b></span>
           <span>ردشده (مثلاً لغو): <b>{faNum(n("skipped"))}</b></span>
+          {n("fallback") > 0 && <span>رفته به کانال بعدی: <b>{faNum(n("fallback"))}</b></span>}
         </div>
       )}
       {preview && <Preview data={preview} />}

@@ -29,7 +29,6 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -39,7 +38,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.customers.models import Conversation, Customer, Message
 
-from . import contacts, hours, ingest, norm, team
+from . import contacts, hours, ingest, norm, shared, team
 from .adapters.base import Incoming
 from .models import AgentProfile, ChannelConnection, ConversationMeta, WidgetSession
 
@@ -150,12 +149,12 @@ def ticket_visitor(connection: ChannelConnection, token: str) -> str:
 
 
 def _limited(bucket: str, limit: int, window: int = 60) -> bool:
-    key = f"widget:{bucket}:{int(timezone.now().timestamp() // window)}"
-    cache.add(key, 0, window + 30)
-    try:
-        return cache.incr(key) > limit
-    except ValueError:
-        return False
+    """Count one event and say whether `bucket` is now over `limit` per `window` seconds.
+
+    The count lives in Redis (`shared.hit`), so it is the same in every gunicorn worker and
+    survives a reload - a per-process cache would multiply every limit by the worker count.
+    """
+    return shared.hit("widget:" + bucket, window) > limit
 
 
 def _connection(key: str) -> ChannelConnection | None:

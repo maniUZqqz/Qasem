@@ -85,8 +85,11 @@ def stop(conversation: Conversation, now: datetime | None = None) -> int | None:
     return waited
 
 
-def status_of(meta: ConversationMeta | None, now: datetime | None = None) -> str:
-    """`ok`, `warning`, `breached`, or `none` - what the inbox row shows."""
+def status_of(meta: ConversationMeta | None, now: datetime | None = None, *, cfg: InboxSettings | None = None) -> str:
+    """`ok`, `warning`, `breached`, or `none` - what the inbox row shows.
+
+    `cfg` lets a list pass the store's settings once instead of one lookup per row.
+    """
     if meta is None or meta.waiting_since is None or meta.sla_due_at is None:
         return "none"
     if meta.sla_breached_at is not None:
@@ -94,9 +97,10 @@ def status_of(meta: ConversationMeta | None, now: datetime | None = None) -> str
     now = now or timezone.now()
     if now >= meta.sla_due_at:
         return "breached"
-    from .team import settings_for
+    if cfg is None:
+        from .team import settings_for
 
-    cfg = settings_for(meta.store)
+        cfg = settings_for(meta.store)
     start_at = meta.sla_due_at - timedelta(minutes=cfg.sla_first_response_min)
     allowance = (meta.sla_due_at - start_at).total_seconds() or 1
     used = (now - start_at).total_seconds() / allowance

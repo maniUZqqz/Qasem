@@ -33,7 +33,16 @@ MENTION_RE = re.compile(r"@([A-Za-z0-9_.\-]{2,150})")
 #: not names: «سلام مشتری» is worse than «سلام دوست عزیز».
 NO_NAME = {"", "مشتری", "بازدیدکنندهٔ سایت", "بازدیدکننده", "مشتری آزمایشی"}
 FRIENDLY = "دوست عزیز"
+#: When the text itself already says «عزیز» («سلام {name} عزیز»), the stand-in is just «دوست» -
+#: not «دوست عزیز عزیز».
+FRIENDLY_BARE = "دوست"
 _NAME_TOKEN = re.compile(r"\{\s*(?:name|نام)\s*\}", re.IGNORECASE)
+_AFFECTION = re.compile(r"\s*(?:عزیز|گرامی|جان|جانم)(?![\w‌])")
+
+
+def fallback_name(text: str, end: int) -> str:
+    """What stands in for an unknown name that ends at `end` in `text`."""
+    return FRIENDLY_BARE if _AFFECTION.match(text, end) else FRIENDLY
 
 
 def first_name_of(conversation: Conversation) -> str:
@@ -61,7 +70,16 @@ def fill_placeholders(text: str, conversation: Conversation) -> str:
     """
     if not text or "{" not in text:
         return text
-    return _NAME_TOKEN.sub(first_name_of(conversation) or FRIENDLY, text)
+    return render_name(text, first_name_of(conversation))
+
+
+def render_name(text: str, first: str) -> str:
+    """Fill `{name}` with `first`, or the friendly stand-in when the name is not known.
+
+    The same rule everywhere a text goes out (a reply, a system line, a broadcast),
+    and the same one the composer's preview applies in the browser.
+    """
+    return _NAME_TOKEN.sub(lambda m: first or fallback_name(m.string, m.end()), text)
 
 
 def _target(conversation: Conversation) -> str:

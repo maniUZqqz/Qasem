@@ -53,3 +53,59 @@ def normalize_username(raw: str) -> str:
 def fa_digits(value) -> str:
     """ASCII digits to Persian, for text we show."""
     return str(value).translate({ord(str(i)): c for i, c in enumerate(_FA)})
+
+
+# ---------------------------------------------------------------- whole words
+#
+# «Does this text ask for X?» must not be `x in text`: «مدیر» is inside «مدیریت»,
+# «آدم» inside «آدم‌های دیابتی», «human» inside «the human body». The two helpers
+# below compare *words* - after the spelling variants Persian keyboards and
+# phones produce have been folded together - and nothing else.
+
+_STRIP = dict.fromkeys(
+    map(ord, "‌‍‎‏‪‫‬ـًٌٍَُِّْٰ"),
+    None,
+)
+_LETTERS = {ord("ي"): "ی", ord("ى"): "ی", ord("ك"): "ک", ord("ۀ"): "ه", ord("ة"): "ه", ord("أ"): "ا", ord("إ"): "ا"}
+_WORD = re.compile(r"\w+", re.UNICODE)
+
+#: What may follow a word and still be that word: plural / colloquial plural
+#: (and the English «s»). Deliberately **not** «ی»: «پشتیبانی» is a department
+#: («پشتیبانی چطوره؟»), not the person «پشتیبان».
+WORD_SUFFIXES = ("", "ها", "های", "ان", "ا", "s")
+
+
+def fold(text: str) -> str:
+    """Lower-case, ASCII digits, one spelling of ی/ک, no half-spaces or diacritics."""
+    return ascii_digits(text or "").lower().translate(_LETTERS).translate(_STRIP)
+
+
+def words(text: str) -> list[str]:
+    return _WORD.findall(fold(text))
+
+
+def has_phrase(text: str, phrase: str, *, suffixes: tuple[str, ...] = WORD_SUFFIXES) -> bool:
+    """True when `phrase` (one word or several) appears in `text` as whole words.
+
+    A **single** word may carry a plural ending (`suffixes`: «اپراتورها»); in a
+    several-word phrase («با آدم») every word must match exactly, otherwise
+    «با آدم‌های دیابتی» would be read as «با آدم».
+    """
+    want = words(phrase)
+    if not want:
+        return False
+    if len(want) > 1:
+        suffixes = ("",)
+    have = words(text)
+    last = len(want) - 1
+    for start in range(len(have) - last):
+        for offset, wanted in enumerate(want):
+            token = have[start + offset]
+            if offset == last:
+                if not (token == wanted or (token.startswith(wanted) and token[len(wanted):] in suffixes)):
+                    break
+            elif token != wanted:
+                break
+        else:
+            return True
+    return False

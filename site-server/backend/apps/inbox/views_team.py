@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -15,9 +15,10 @@ from rest_framework.views import APIView
 from apps.customers.models import Conversation
 from apps.stores import access
 
-from . import bot, dispatch, hours, surveys, team
+from . import bot, dispatch, hours, publicurl, surveys, team
 from .models import AgentProfile, ConversationMeta, InboxSettings
-from .views_conversations import OPEN_STATES, OWED_BY_AI, OWED_BY_PERSON, fail
+from .owed import OWED
+from .views_conversations import OPEN_STATES, fail
 
 CHANNEL_KEYS = ["TELEGRAM", "BALE", "EITAA", "RUBIKA", "WEBCHAT", "SMS", "INSTAGRAM", "WHATSAPP", "WEB", "API"]
 
@@ -46,6 +47,7 @@ SETTINGS_FIELDS = {
     "rate_limits": ("rates", None),
     "merge_by_username": ("bool", None),
     "widget": ("widget", None),
+    "public_base_url": ("url", None),
 }
 
 
@@ -94,6 +96,11 @@ def _clean(kind, rule, value):
         if end <= start:
             raise ValueError("ساعت پایان باید بعد از شروع باشد.")
         return {"days": sorted(set(days)), "start": start, "end": end}
+    if kind == "url":
+        try:
+            return publicurl.clean(value)
+        except publicurl.BadAddress as exc:
+            raise ValueError(str(exc)) from None
     if kind == "rates":
         out = {}
         for key, number in (value or {}).items():
@@ -167,7 +174,7 @@ class TeamView(APIView):
             # The number on the inbox's «بدون مسئول» tab: real threads that are owed an answer
             # (a person's, or one the bot failed to give) and have nobody on them.
             "unassigned_open": Conversation.objects.filter(
-                OWED_BY_PERSON | OWED_BY_AI, store=store, assigned_to__isnull=True,
+                OWED, store=store, assigned_to__isnull=True,
             ).exclude(Q(inbox_meta__is_test=True) | Q(customer__channel="web-test")).count(),
         })
 
@@ -220,11 +227,10 @@ class StatsView(APIView):
         return Response({
             "days": days,
             "open": real.filter(state__in=OPEN_STATES).count(),
-            "waiting_for_person": real.filter(
-                state__in=[Conversation.State.HUMAN, Conversation.State.ESCALATED]).count(),
-            "unassigned": real.filter(
-                state__in=[Conversation.State.HUMAN, Conversation.State.ESCALATED],
-                assigned_to__isnull=True).count(),
+            # The same numbers as the inbox's «منتظر پاسخ» / «بدون مسئول» tabs (`owed.OWED`): a thread
+            # the team already answered is open, not waiting; one the bot failed to answer is waiting.
+            "waiting_for_person": real.filter(OWED).count(),
+            "unassigned": real.filter(OWED, assigned_to__isnull=True).count(),
             "resolved": real.filter(state=Conversation.State.RESOLVED, updated_at__gte=since).count(),
             "sla_breaches": metas.filter(sla_breached_at__gte=since).count(),
             "avg_first_response_seconds": int(avg) if avg is not None else None,

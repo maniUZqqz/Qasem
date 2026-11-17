@@ -84,9 +84,29 @@ export function toLocalInput(iso: string | null | undefined): string {
 
 const NO_NAME = new Set(["", "مشتری", "بازدیدکنندهٔ سایت", "بازدیدکننده", "مشتری آزمایشی"]);
 
-/** `{name}` / `{نام}` را با نامِ کوچکِ مشتری پر می‌کند (همان قاعدهٔ سرور؛ نامِ ناشناخته = «دوست عزیز»). */
+/** `{name}` / `{نام}` را با نامِ کوچکِ مشتری پر می‌کند (همان قاعدهٔ سرور).
+ *  نامِ ناشناخته = «دوست عزیز»؛ ولی اگر خودِ متن بعدش «عزیز» دارد («سلام {name} عزیز») فقط «دوست» می‌گذارد. */
 export function fillName(text: string, name: string | null | undefined): string {
   const clean = (name ?? "").trim();
   const usable = clean && !NO_NAME.has(clean) && /\p{L}/u.test(clean) ? clean.split(/\s+/)[0] : "";
-  return text.replace(/\{\s*(?:name|نام)\s*\}/gi, usable || "دوست عزیز");
+  return text.replace(/\{\s*(?:name|نام)\s*\}/gi, (match, offset: number) => {
+    if (usable) return usable;
+    const after = text.slice(offset + match.length);
+    return /^\s*(?:عزیز|گرامی|جان|جانم)(?![\p{L}‌])/u.test(after) ? "دوست" : "دوست عزیز";
+  });
+}
+
+/** متنِ یادداشت با @نام‌کاربری‌ها: هر اشاره جدا و چپ‌به‌راست چیده می‌شود تا در متنِ راست‌به‌چپ «sup1@» نشود. */
+export function splitMentions(text: string): { text: string; mention: boolean }[] {
+  const parts: { text: string; mention: boolean }[] = [];
+  const re = /@[A-Za-z0-9_.-]{2,150}/g;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push({ text: text.slice(last, at), mention: false });
+    parts.push({ text: m[0], mention: true });
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), mention: false });
+  return parts;
 }

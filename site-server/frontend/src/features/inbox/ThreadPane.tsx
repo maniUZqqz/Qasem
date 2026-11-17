@@ -7,7 +7,7 @@ import Composer from "./Composer";
 import {
   Canned, ConvRow, Member, STATE_TITLE, Thread, ThreadItem, get, post,
 } from "./api";
-import { channelColor, clock, dateText, duration, faNum, minutesText } from "./format";
+import { channelColor, clock, dateText, duration, faNum, minutesText, splitMentions } from "./format";
 
 const KIND_TITLE: Record<string, string> = {
   BOT: "ربات",
@@ -24,7 +24,15 @@ function Bubble({ item, onUseDraft }: { item: ThreadItem; onUseDraft: (text: str
     return (
       <div className="ib-msg note">
         <span className="by">یادداشت داخلی · {item.author || "؟"}</span>
-        {item.text}
+        {splitMentions(item.text).map((part, i) =>
+          part.mention ? (
+            <bdi key={i} dir="ltr" className="ib-mention">
+              {part.text}
+            </bdi>
+          ) : (
+            <span key={i}>{part.text}</span>
+          ),
+        )}
         <time>{clock(item.at)}</time>
       </div>
     );

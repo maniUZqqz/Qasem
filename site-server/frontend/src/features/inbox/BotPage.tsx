@@ -188,9 +188,9 @@ export default function BotPage() {
               {!CONFIDENCE.some((c) => c.value === cfg.bot_min_confidence) && <option value={String(cfg.bot_min_confidence)}>سفارشی ({faNum(cfg.bot_min_confidence)})</option>}
             </Select>
           </Field>
-          <Field label="کلمه‌هایی که یعنی «آدم می‌خواهم»" hint={`با ویرگول جدا کنید. خالی = فهرست پیش‌فرض: ${cfg.bot_handoff_keywords_effective.slice(0, 6).join("، ")}…`}>
+          <Field label="کلمه‌هایی که یعنی «آدم می‌خواهم»" hint={`با ویرگول جدا کنید. هر مورد فقط وقتی جور درمی‌آید که یک کلمه (یا عبارت) کامل در پیامِ مشتری باشد. کلمه‌ای را که مشتری‌های شما در پرسش‌های معمولی هم می‌نویسند نگذارید (مثلاً «مربی» برای فروشگاهی که با مربی‌ها کار دارد)؛ وگرنه تقریباً هر پیام به تیم می‌رسد. خالی = فهرست پیش‌فرض: ${cfg.bot_handoff_keywords_effective.slice(0, 8).join("، ")}…`}>
             <div className="flex gap-2">
-              <Input value={keywords} disabled={!canEdit} onChange={(e) => setKeywords(e.target.value)} placeholder="اپراتور، پشتیبان، مربی" />
+              <Input value={keywords} disabled={!canEdit} onChange={(e) => setKeywords(e.target.value)} placeholder="اپراتور، پشتیبان، کارشناس" />
               <Button size="sm" variant="secondary" disabled={!canEdit} onClick={() => void save({ bot_handoff_keywords: keywords.split(/[،,\n]/).map((k) => k.trim()).filter(Boolean) })}>ذخیره</Button>
             </div>
           </Field>

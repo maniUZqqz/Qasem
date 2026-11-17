@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -27,10 +27,10 @@ from apps.stores import access
 from . import contacts as contacts_mod
 from . import followups, replies, serializers as ser, sla, team
 from .models import CannedReply, ConversationMeta, InternalNote, MessageMeta
+from .owed import OPEN_STATES, OWED, OWED_BY_AI, OWED_BY_PERSON  # noqa: F401 - re-exported for views_team
 
-OPEN_STATES = [Conversation.State.AI, Conversation.State.HUMAN, Conversation.State.ESCALATED]
-OWED_BY_PERSON = Q(state=Conversation.State.HUMAN) | Q(state=Conversation.State.ESCALATED)
-OWED_BY_AI = Q(state=Conversation.State.AI, ai_failed_at__isnull=False)
+DEFAULT_PAGE = 50
+MAX_PAGE = 500
 
 
 def fail(code: str, message: str, http=status.HTTP_400_BAD_REQUEST) -> Response:
@@ -60,7 +60,7 @@ class ListView(APIView):
         elif not show_tests:
             base = base.exclude(Q(inbox_meta__is_test=True) | Q(customer__channel="web-test"))
 
-        rows = base.select_related("customer", "assigned_to", "store", "inbox_meta")
+        rows = base.select_related("customer", "customer__inbox_link__contact", "assigned_to", "store", "inbox_meta")
 
         channels = [c.upper() for c in qp.get("channel", "").split(",") if c]
         if channels:
@@ -70,17 +70,21 @@ class ListView(APIView):
         if state == "open":
             rows = rows.filter(state__in=OPEN_STATES)
         elif state == "waiting":
-            rows = rows.filter(OWED_BY_PERSON | OWED_BY_AI)
+            rows = rows.filter(OWED)
         elif state in ("AI", "HUMAN", "ESCALATED", "RESOLVED"):
             rows = rows.filter(state=state)
 
         assigned = qp.get("assigned", "")
-        if assigned == "me":
-            rows = rows.filter(assigned_to=request.user)
-        elif assigned == "nobody":
+        if assigned == "nobody":
             rows = rows.filter(assigned_to__isnull=True)
         elif assigned:
-            rows = rows.filter(assigned_to__username=assigned)
+            if assigned == "me":
+                rows = rows.filter(assigned_to=request.user)
+            else:
+                rows = rows.filter(assigned_to__username=assigned)
+            if not state:
+                # «مال من» counts the open ones (`counts.mine`); the list it opens must too.
+                rows = rows.filter(state__in=OPEN_STATES)
 
         if qp.get("unread") in ("1", "true"):
             rows = rows.filter(inbox_meta__unread_count__gt=0)
@@ -103,26 +107,35 @@ class ListView(APIView):
                 | Q(messages__text__icontains=term)
             ).distinct()
 
-        owed = OWED_BY_PERSON | OWED_BY_AI
-        limit = min(int(qp.get("limit", 80) or 80), 200)
+        limit, offset = _page_of(qp)
         # «Longest waiting first» for everyone owed an answer - a person's clock if it is
         # running, otherwise when the customer last wrote (an AI failure has no clock).
-        waiting = list(
-            rows.filter(owed)
+        owed_rows = (
+            rows.filter(OWED)
             .annotate(_since=Coalesce("inbox_meta__waiting_since", "last_customer_at", "updated_at"))
-            .order_by("_since", "id")[:limit]
+            .order_by("_since", "id")
         )
-        rest = list(rows.exclude(owed).order_by("-updated_at")[: max(0, limit - len(waiting))])
-        ordered = waiting + rest
+        rest_rows = rows.exclude(OWED).order_by("-updated_at", "-id")
+        owed_total = owed_rows.count()
+        rest_total = rest_rows.count()
+        page = list(owed_rows[offset: offset + limit]) if offset < owed_total else []
+        owed_ids = {c.pk for c in page}  # these rows are the owed ones - no second question per row
+        room = limit - len(page)
+        if room > 0:
+            rest_from = max(0, offset - owed_total)
+            page += list(rest_rows[rest_from: rest_from + room])
+        total = owed_total + rest_total
 
         everything = base
         now = timezone.now()
+        cfg = team.settings_for(store)
+        last_by_conversation = ser.last_visible_messages([c.pk for c in page])
         counts = {
-            "waiting": everything.filter(owed).count(),
+            "waiting": everything.filter(OWED).count(),
             "unread": everything.filter(inbox_meta__unread_count__gt=0).count(),
             # The same set the «بدون مسئول» tab lists (assigned=nobody&state=waiting): a
             # thread the bot failed to answer is owed an answer too, and it has no owner.
-            "unassigned": everything.filter(owed, assigned_to__isnull=True).count(),
+            "unassigned": everything.filter(OWED, assigned_to__isnull=True).count(),
             "mine": everything.filter(assigned_to=request.user, state__in=OPEN_STATES).count(),
             "breached": everything.filter(
                 inbox_meta__sla_breached_at__isnull=False, inbox_meta__waiting_since__isnull=False,
@@ -130,18 +143,29 @@ class ListView(APIView):
             "tests": Conversation.objects.filter(store=store).filter(
                 Q(inbox_meta__is_test=True) | Q(customer__channel="web-test")).count(),
         }
-        by_channel: dict[str, int] = {}
-        for channel in everything.filter(state__in=OPEN_STATES).values_list("channel", flat=True):
-            by_channel[channel] = by_channel.get(channel, 0) + 1
-        members = [
-            {"username": u.username, "name": team.profile_for(store, u).name,
-             "status": team.profile_for(store, u).effective_status}
-            for u in team.members(store)
-        ]
+        by_channel = {
+            row["channel"]: row["n"]
+            for row in everything.filter(state__in=OPEN_STATES).order_by().values("channel").annotate(n=Count("id"))
+        }
+        members = []
+        for user in team.members(store):
+            profile = team.profile_for(store, user)
+            members.append({"username": user.username, "name": profile.name, "status": profile.effective_status})
         return Response({
-            "conversations": [ser.conversation_row(c, me=request.user) for c in ordered],
+            "conversations": [
+                ser.conversation_row(
+                    c, me=request.user, last=last_by_conversation.get(c.pk), cfg=cfg, now=now, owed=c.pk in owed_ids,
+                )
+                for c in page
+            ],
             "counts": counts,
             "by_channel": by_channel,
+            #: how many conversations match the filters, and how many this page holds - the
+            #: panel's «نمایش بیشتر» button appears while `total > offset + len(conversations)`.
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(page) < total,
             "now": now,
             "me": {
                 "username": request.user.username,
@@ -151,6 +175,19 @@ class ListView(APIView):
             },
             "members": members,
         })
+
+
+def _page_of(qp) -> tuple[int, int]:
+    """(limit, offset) from the query string, clamped. A bad number is the default."""
+    try:
+        limit = int(qp.get("limit", DEFAULT_PAGE) or DEFAULT_PAGE)
+    except (TypeError, ValueError):
+        limit = DEFAULT_PAGE
+    try:
+        offset = int(qp.get("offset", 0) or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    return max(1, min(limit, MAX_PAGE)), max(0, offset)
 
 
 class ThreadView(APIView):

@@ -68,7 +68,7 @@ function MemberEditor({ row, storeId, canEdit, onSaved }: { row: TeamRow; storeI
           ))}
         </div>
       </Field>
-      <Field label="مهارت‌ها" hint="با ویرگول جدا کنید؛ در حالت «بر اساس مهارت» با برچسب گفتگو و مشتری جور می‌شود. مثل: پرداخت، مربی‌گری">
+      <Field label="مهارت‌ها" hint="با ویرگول جدا کنید. در حالت «بر اساس مهارت»، گفتگو به کسی می‌رسد که مهارتش با برچسبِ گفتگو یا مشتری، یا با یک کلمهٔ پیام‌های اخیرِ مشتری (مثلاً «مشکل پرداخت دارم» ⇐ «پرداخت») جور باشد. مثل: پرداخت، ثبت‌نام">
         <Input value={skills} disabled={!canEdit} onChange={(e) => setSkills(e.target.value)} />
       </Field>
       <Field label="سقف گفتگوی هم‌زمان">
@@ -147,7 +147,7 @@ export default function TeamPage() {
 
       <div className="ib-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 170px), 1fr))" }}>
         <Stat value={faNum(stats.open)} label="گفتگوی باز" />
-        <Stat value={faNum(stats.waiting_for_person)} label="منتظر پاسخ تیم" tone={stats.waiting_for_person ? "bad" : undefined} />
+        <Stat value={faNum(stats.waiting_for_person)} label="منتظر پاسخ" tone={stats.waiting_for_person ? "bad" : undefined} />
         <Stat value={faNum(team.unassigned_open)} label="بدون مسئول" tone={team.unassigned_open ? "bad" : undefined} />
         <Stat value={duration(stats.avg_first_response_seconds)} label="میانگین اولین پاسخ" />
         <Stat value={faNum(stats.sla_breaches)} label="رد شدن SLA" tone={stats.sla_breaches ? "bad" : "ok"} />

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import { errorMessage } from "../../api/client";
 import { Alert, Badge, Button, Card, ErrorBox, Field, Input, Select, Spinner } from "../../components/ui";
-import { ChannelField, ChannelInfo, get, post, put } from "./api";
+import { ChannelField, ChannelInfo, PublicAddress, get, patch, post, put } from "./api";
 import { ago, channelColor, copy, faNum } from "./format";
 import { useInbox } from "./InboxLayout";
 
@@ -14,7 +14,7 @@ function statusOf(c: ChannelInfo): { tone: "ok" | "warn" | "bad" | "neutral"; te
   return { tone: "ok", text: "فعال" };
 }
 
-function ChannelCard({ info, storeId, canEdit, isStaff, onChanged }: { info: ChannelInfo; storeId: string; canEdit: boolean; isStaff: boolean; onChanged: () => void }) {
+function ChannelCard({ info, storeId, canEdit, isStaff, pub, onChanged }: { info: ChannelInfo; storeId: string; canEdit: boolean; isStaff: boolean; pub: PublicAddress | null; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string | boolean | string[]>>({});
   const [mode, setMode] = useState(info.mode);
@@ -95,6 +95,11 @@ function ChannelCard({ info, storeId, canEdit, isStaff, onChanged }: { info: Cha
         )}
         {info.last_error && <span style={{ color: "var(--bad)" }}>آخرین خطا{info.last_error_at ? ` (${ago(info.last_error_at)})` : ""}: {info.last_error}</span>}
       </div>
+      {info.network && !info.network.reachable && (
+        <div className="mt-3">
+          <Alert tone="warn" title={`این سرور به ${info.title} دسترسی ندارد`}>{info.network.message}</Alert>
+        </div>
+      )}
 
       {open && (
         <div className="mt-4 grid gap-4">
@@ -180,16 +185,29 @@ function ChannelCard({ info, storeId, canEdit, isStaff, onChanged }: { info: Cha
 
               {info.hook_url && info.kind !== "WEBCHAT" && (
                 <Field label="نشانی وب‌هوک" hint="اگر ثبت خودکار ممکن نبود، همین را در پنل پلتفرم وارد کنید. این نشانی یک رمز است؛ جایی منتشرش نکنید.">
-                  <div className="flex gap-2">
-                    <input className="u-input" dir="ltr" readOnly value={info.hook_url} aria-label="نشانی وب‌هوک" />
-                    <Button size="sm" variant="secondary" onClick={() => void copy(info.hook_url)}>کپی</Button>
+                  <div className="grid gap-2 *:min-w-0">
+                    {pub && !pub.secure && (
+                      <Alert tone="warn" title="نشانی عمومی سایت https نیست">
+                        پلتفرم‌ها وب‌هوکِ http را نمی‌پذیرند؛ تا https نشده پیام‌ها با «پرسش دوره‌ای» گرفته می‌شود. بالای همین صفحه «نشانی عمومی سایت» را بنویسید.
+                      </Alert>
+                    )}
+                    <div className="flex gap-2">
+                      <input className="u-input" dir="ltr" readOnly value={info.hook_url} aria-label="نشانی وب‌هوک" />
+                      <Button size="sm" variant="secondary" onClick={() => void copy(info.hook_url)}>کپی</Button>
+                    </div>
                   </div>
                 </Field>
+              )}
+              {!canEdit && info.kind !== "WEBCHAT" && info.kind !== "SMS" && (
+                <p className="text-xs" style={{ color: "var(--text-3)" }}>نشانی وب‌هوک و کلیدها فقط برای مالک یا مدیر فروشگاه نمایش داده می‌شود.</p>
               )}
 
               {info.kind === "WEBCHAT" && info.snippet && (
                 <Field label="کد ویجت" hint="درست پیش از بستن برچسب </body> صفحه‌هایتان بگذارید؛ روی هر سایتی (از جمله سایت‌های سایت‌ساز) کار می‌کند.">
                   <div className="grid gap-2 *:min-w-0">
+                    {pub && pub.warning && (
+                      <Alert tone="warn" title={pub.secure ? "نشانی عمومی سایت" : "این کد روی سایت‌های https کار نمی‌کند"}>{pub.warning}</Alert>
+                    )}
                     <div className="ib-code">{info.snippet}</div>
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="secondary" onClick={() => void copy(info.snippet ?? "")}>کپی کد</Button>
@@ -263,15 +281,71 @@ function ChannelCard({ info, storeId, canEdit, isStaff, onChanged }: { info: Cha
   );
 }
 
+function PublicAddressCard({ storeId, pub, canEdit, onChanged }: { storeId: string; pub: PublicAddress; canEdit: boolean; onChanged: () => void }) {
+  const [value, setValue] = useState(pub.configured);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => setValue(pub.configured), [pub.configured]);
+
+  const save = async (next: string) => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await patch(storeId, "settings/", { public_base_url: next });
+      setNote(next ? "نشانی ذخیره شد؛ کدِ ویجت و نشانیِ وب‌هوک‌ها با آن ساخته می‌شود." : "نشانی پاک شد؛ از نشانیِ پیش‌فرضِ سایت استفاده می‌شود.");
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const source = pub.source === "setting" ? "نشانیِ ثبت‌شده" : pub.source === "site" ? "نشانیِ پیش‌فرضِ سایت" : "نشانیِ همین صفحه";
+  return (
+    <Card>
+      <h3 className="text-base font-extrabold" style={{ color: "var(--text)" }}>نشانی عمومی سایت</h3>
+      <p className="mt-1 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+        کدِ ویجتِ چت و نشانیِ وب‌هوکِ بله، ایتا و روبیکا روی این نشانی ساخته می‌شود؛ باید همان نشانی‌ای باشد که از اینترنت (و از سایتِ شما) باز می‌شود.
+      </p>
+      <div className="mt-3 grid gap-3 *:min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+          <span>{source}:</span>
+          <b dir="ltr" data-testid="public-url">{pub.url}</b>
+          <Badge tone={pub.secure ? "ok" : "warn"}>{pub.secure ? "https" : "بدون رمزگذاری"}</Badge>
+        </div>
+        {pub.warning && <Alert tone="warn" title={pub.secure ? "نشانی عمومی" : "نشانی عمومی https نیست"}>{pub.warning}</Alert>}
+        {canEdit ? (
+          <Field label="نشانی عمومی سایت" hint="مثل https://chat.example.ir (بدون مسیر). خالی = نشانیِ پیش‌فرضِ سایت.">
+            <div className="flex flex-wrap gap-2">
+              <Input dir="ltr" value={value} placeholder="https://chat.example.ir" onChange={(e) => setValue(e.target.value)} aria-label="نشانی عمومی سایت" />
+              <Button size="sm" disabled={busy || value.trim() === pub.configured} onClick={() => void save(value.trim())}>ذخیره</Button>
+              {pub.configured && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save("")}>پاک کن</Button>}
+            </div>
+          </Field>
+        ) : (
+          <p className="text-xs" style={{ color: "var(--text-3)" }}>فقط مالک یا مدیر فروشگاه می‌تواند این نشانی را عوض کند.</p>
+        )}
+        <ErrorBox message={error} />
+        {note && <div className="text-sm" style={{ color: "var(--ok)" }}>{note}</div>}
+      </div>
+    </Card>
+  );
+}
+
 export default function ChannelsPage() {
   const { storeId, me } = useInbox();
   const [rows, setRows] = useState<ChannelInfo[] | null>(null);
+  const [pub, setPub] = useState<PublicAddress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await get<{ channels: ChannelInfo[] }>(storeId, "channels/");
+      const res = await get<{ channels: ChannelInfo[]; public?: PublicAddress }>(storeId, "channels/");
       setRows(res.channels);
+      setPub(res.public ?? null);
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -291,9 +365,10 @@ export default function ChannelsPage() {
       <p className="text-sm" style={{ color: "var(--text-2)" }}>
         {faNum(on)} کانال از {faNum(rows.length)} کانال روشن است. هر کانال که وصل کنید، پیام‌هایش در همین صندوق می‌آید و پاسخ‌ها از همان کانال می‌رود.
       </p>
+      {pub && <PublicAddressCard storeId={storeId} pub={pub} canEdit={Boolean(me?.can_settings)} onChanged={() => void load()} />}
       <div className="ib-grid">
         {rows.map((r) => (
-          <ChannelCard key={r.kind} info={r} storeId={storeId} canEdit={Boolean(me?.can_settings)} isStaff={Boolean(me?.is_staff)} onChanged={() => void load()} />
+          <ChannelCard key={r.kind} info={r} storeId={storeId} canEdit={Boolean(me?.can_settings)} isStaff={Boolean(me?.is_staff)} pub={pub} onChanged={() => void load()} />
         ))}
       </div>
     </div>

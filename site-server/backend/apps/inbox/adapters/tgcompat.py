@@ -46,7 +46,7 @@ class TelegramCompat(Adapter):
         try:
             response = requests.post(self._url(method), json=payload or {}, timeout=timeout)
         except requests.RequestException:
-            raise AdapterError(f"{self.title} در دسترس نبود؛ کمی بعد دوباره امتحان کنید.") from None
+            raise AdapterError(f"{self.title} در دسترس نبود؛ کمی بعد دوباره امتحان کنید.{self.unreachable_hint}") from None
         try:
             data = response.json()
         except ValueError:
@@ -191,6 +191,11 @@ class TelegramAdapter(TelegramCompat):
     slug = "telegram"
     title = "تلگرام"
     host = "https://api.telegram.org"
+    blocked_from_iran = True
+    unreachable_hint = (
+        " اگر این سرور در ایران است، تلگرام معمولاً از آن در دسترس نیست (نه وب‌هوک کار می‌کند نه پرسش دوره‌ای)؛"
+        " بله، ایتا یا روبیکا را وصل کنید."
+    )
 
 
 class BaleAdapter(TelegramCompat):

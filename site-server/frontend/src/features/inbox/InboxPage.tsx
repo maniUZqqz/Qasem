@@ -21,8 +21,11 @@ const VIEW_TITLE: Record<View, string> = {
   breached: "SLA رد شده",
 };
 
-function queryFor(view: View, channel: string, q: string, tests: boolean, assignee: string): Record<string, string> {
-  const params: Record<string, string> = {};
+/** هر بار این‌قدر گفتگوی بیشتر نشان داده می‌شود («نمایش بیشتر»)؛ سرور برای هر درخواست سقف دارد. */
+const PAGE = 50;
+
+function queryFor(view: View, channel: string, q: string, tests: boolean, assignee: string, limit: number): Record<string, string> {
+  const params: Record<string, string> = { limit: String(limit) };
   if (assignee) params.assigned = assignee;
   if (view === "waiting") params.state = "waiting";
   if (view === "mine") params.assigned = "me";
@@ -90,6 +93,12 @@ export default function InboxPage() {
   const [data, setData] = useState<InboxList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
+
+  // یک فیلتر یا جست‌وجوی تازه از اول شروع می‌شود، نه از «نمایش بیشترِ» فیلتر قبلی.
+  useEffect(() => {
+    setLimit(PAGE);
+  }, [view, channel, debounced, tests, assignee]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(q), 300);
@@ -98,13 +107,13 @@ export default function InboxPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await get<InboxList>(storeId, "v2/", queryFor(view, channel, debounced, tests, assignee));
+      const res = await get<InboxList>(storeId, "v2/", queryFor(view, channel, debounced, tests, assignee, limit));
       setData(res);
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, [storeId, view, channel, debounced, tests, assignee]);
+  }, [storeId, view, channel, debounced, tests, assignee, limit]);
 
   useEffect(() => {
     void load();
@@ -222,6 +231,18 @@ export default function InboxPage() {
             {data?.conversations.map((row) => (
               <Row key={row.id} row={row} selected={row.id === selected} onClick={() => select(row.id)} />
             ))}
+            {data && data.conversations.length > 0 && typeof data.total === "number" && (
+              <div className="ib-more">
+                <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                  {faNum(data.conversations.length)} از {faNum(data.total)} گفتگو
+                </span>
+                {data.has_more && (
+                  <button type="button" className="ib-pill" onClick={() => setLimit((n) => n + PAGE)}>
+                    نمایش بیشتر
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
 

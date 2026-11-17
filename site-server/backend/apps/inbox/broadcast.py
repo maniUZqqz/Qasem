@@ -20,6 +20,11 @@ brakes, each one visible to the owner:
    unless the shop's text already says it.
 6. **A failing channel pauses itself** - three failures in a row on one channel
    and that channel is skipped for the minute instead of hammering a dead token.
+7. **A failed send is not the end of the person** - with `dedupe` (one message per
+   person) a send that fails on the chosen channel moves on to the person's *next*
+   channel (still inside what the owner approved: the broadcast's own channels, still
+   connected, not opted out), instead of leaving someone who has a working channel
+   without the message.
 
 Recipients are one row per (person, channel) and, by default, one *channel* per
 person (`dedupe`): the same woman on Telegram and SMS is messaged once, on her
@@ -58,6 +63,7 @@ SKIP_REASON_TITLES = {
     "cancelled": "ارسال لغو شد",
     "no_address": "راه ارسال ندارد",
     "channel_off": "کانال خاموش است",
+    "fallback": "روی این کانال نرسید؛ کانال بعدیِ همین نفر امتحان شد",
 }
 
 
@@ -85,8 +91,12 @@ def sendable_channels(store) -> list[str]:
 
 def render(text: str, contact: Contact | None) -> str:
     """Fill `{name}`; add the way out. The shop's own text is never rewritten."""
+    from .replies import NO_NAME, render_name
+
     first = ((contact.name if contact else "") or "").strip().split(" ")[0] if contact else ""
-    out = (text or "").replace("{name}", first or "دوست عزیز").replace("{نام}", first or "دوست عزیز")
+    if first in NO_NAME or not any(ch.isalpha() for ch in first):
+        first = ""  # a label or a phone number is not a name
+    out = render_name(text or "", first)
     if "لغو" not in out:
         out += OPT_OUT_FOOTER
     return out
@@ -314,8 +324,35 @@ def _send_one(row: BroadcastRecipient) -> bool:
         row.status, row.sent_at = BroadcastRecipient.Status.SENT, now
         row.save(update_fields=["status", "sent_at"])
         return True
-    row.status, row.error = BroadcastRecipient.Status.FAILED, str(outcome.get("reason", ""))[:300]
+    reason = str(outcome.get("reason", ""))[:300]
+    if _fall_back(row, contact, reason):
+        return False  # this channel failed; the person is queued on the next one
+    row.status, row.error = BroadcastRecipient.Status.FAILED, reason
     row.save(update_fields=["status", "error"])
+    return False
+
+
+def _fall_back(row: BroadcastRecipient, contact: Contact, reason: str) -> bool:
+    """Queue this person on their next channel after a failed send. True = queued (the row is closed)."""
+    broadcast = row.broadcast
+    if not broadcast.dedupe:
+        return False  # they get every channel anyway; a failed one is simply failed
+    store = broadcast.store
+    wanted = [c.upper() for c in (broadcast.channels or [])] or sendable_channels(store)
+    ready = set(sendable_channels(store))
+    tried = set(broadcast.recipients.filter(contact=contact).values_list("channel", flat=True))
+    for channel in PRIORITY:
+        if channel in tried or channel not in wanted or channel not in ready or contact.opted_out_of(channel):
+            continue
+        customer, address = _address(contact, channel)
+        if not address:
+            continue
+        BroadcastRecipient.objects.create(
+            broadcast=broadcast, contact=contact, customer=customer, channel=channel, to=address,
+        )
+        row.status, row.skip_reason, row.error = BroadcastRecipient.Status.SKIPPED, "fallback", reason
+        row.save(update_fields=["status", "skip_reason", "error"])
+        return True
     return False
 
 
@@ -361,11 +398,14 @@ def send_tick(now: datetime | None = None) -> dict:
 
 def _refresh(broadcast: Broadcast, stats: dict, now: datetime) -> None:
     rows = broadcast.recipients
+    fell_back = rows.filter(status=BroadcastRecipient.Status.SKIPPED, skip_reason="fallback").count()
     counts = {
         "sent": rows.filter(status=BroadcastRecipient.Status.SENT).count(),
         "failed": rows.filter(status=BroadcastRecipient.Status.FAILED).count(),
         "queued": rows.filter(status=BroadcastRecipient.Status.QUEUED).count(),
-        "skipped": rows.filter(status=BroadcastRecipient.Status.SKIPPED).count(),
+        # a person moved to their next channel is not «skipped»: they were still messaged (or still are)
+        "skipped": rows.filter(status=BroadcastRecipient.Status.SKIPPED).count() - fell_back,
+        "fallback": fell_back,
     }
     broadcast.stats = {**(broadcast.stats or {}), **counts}
     fields = ["stats", "updated_at"]

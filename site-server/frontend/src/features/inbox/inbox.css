@@ -67,6 +67,8 @@
 .ib-msg.note { align-self: center; max-width: 92%; background: var(--warn-soft); border-style: dashed; border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 .ib-msg.system { align-self: center; background: transparent; border-style: dashed; color: var(--text-3); font-size: .78rem; }
 .ib-msg.withheld { opacity: .8; border-style: dashed; }
+/* «@sup1» همیشه چپ‌به‌راست و جدا از متنِ فارسی چیده می‌شود (وگرنه در خطِ راست‌به‌چپ «sup1@» دیده می‌شود). */
+.ib-mention { unicode-bidi: isolate; direction: ltr; font-weight: 700; color: var(--brand-strong); }
 .ib-msg .bad { color: var(--bad); font-size: .72rem; }
 .ib-day { align-self: center; font-size: .7rem; color: var(--text-3); }
 
@@ -139,3 +141,5 @@
 /* ستون‌های گرید نباید با جدول یا متنِ بلند از صفحه بیرون بزنند */
 .ib-stack { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 .ib-table-wrap { max-width: 100%; }
+/* پایانِ فهرستِ گفتگوها: «۵۰ از ۱۲۰ گفتگو» و دکمهٔ «نمایش بیشتر» */
+.ib-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; padding: .75rem; }

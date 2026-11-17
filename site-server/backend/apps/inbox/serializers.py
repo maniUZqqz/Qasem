@@ -11,6 +11,7 @@ from apps.customers import ai_retry
 from apps.customers.models import Conversation, Message
 
 from . import dispatch, sla
+from .owed import OWED
 from .models import (
     AgentProfile, Broadcast, CannedReply, ChannelConnection, Contact, FollowUp, InternalNote,
     Segment, WebhookEndpoint,
@@ -21,22 +22,23 @@ def _meta(conversation: Conversation):
     return getattr(conversation, "inbox_meta", None)
 
 
-def _waiting_minutes(conversation: Conversation, meta, last) -> int | None:
-    """How long the customer has been waiting for *us* - nothing once a person has answered.
+def _waiting_minutes(conversation: Conversation, meta, owed: bool) -> int | None:
+    """How long the customer has been waiting for *us* - nothing unless they are owed an answer.
 
-    The SLA clock (`meta.waiting_since`) is the truth while it runs. Without it
-    (a thread from before the inbox, a demo thread) the old rule «a person has
-    the thread, so the customer waits since they last wrote» would keep counting
-    after the team's reply, so a thread whose last word is the team's is not
-    waiting at all.
+    `owed` is `owed.OWED` (the one definition every tab and tile uses): a person has the
+    thread and has not answered since the customer wrote, or the bot failed to answer.
+    The SLA clock (`meta.waiting_since`) is the truth while it runs; without it (a thread
+    from before the inbox, a demo thread) the customer waits since they last wrote.
     """
     from django.utils import timezone
 
-    if meta is not None and meta.waiting_since is not None:
-        return max(0, int((timezone.now() - meta.waiting_since).total_seconds() // 60))
-    if last is not None and last.role == Message.Role.HUMAN:
+    if not owed:
         return None
-    return conversation.waiting_minutes
+    since = meta.waiting_since if meta is not None and meta.waiting_since is not None else None
+    since = since or conversation.last_customer_at or (conversation.ai_failed_at if conversation.ai_failed else None)
+    if since is None:
+        return None
+    return max(0, int((timezone.now() - since).total_seconds() // 60))
 
 
 def user_json(user) -> dict | None:
@@ -45,13 +47,51 @@ def user_json(user) -> dict | None:
     return {"username": user.username, "name": user.get_full_name() or user.username}
 
 
-def conversation_row(conversation: Conversation, *, me=None) -> dict:
+_LOOK = object()  # «ask the database yourself» - the single-row callers (thread, assign, close)
+
+
+def last_visible_messages(conversation_ids) -> dict[int, Message | None]:
+    """`ai_retry.last_visible_message` for many conversations in ONE query.
+
+    The list used to ask once per row (181 queries for 53 conversations, every six
+    seconds per open tab). A window function numbers each conversation's newest
+    messages; the first one that is not our own acknowledgement wins - the same
+    rule, `ai_retry`'s, applied to six messages per thread.
+    """
+    from django.db.models import F, Window
+    from django.db.models.functions import RowNumber
+
+    ids = list(conversation_ids)
+    out: dict[int, Message | None] = {i: None for i in ids}
+    if not ids:
+        return out
+    newest = (
+        Message.objects.filter(conversation_id__in=ids)
+        .annotate(_n=Window(
+            expression=RowNumber(), partition_by=[F("conversation_id")],
+            order_by=[F("created_at").desc(), F("id").desc()],
+        ))
+        .filter(_n__lte=6)
+        .order_by("conversation_id", "-created_at", "-id")
+    )
+    for message in newest:
+        if out.get(message.conversation_id) is None and not ai_retry._is_ack(message):  # noqa: SLF001
+            out[message.conversation_id] = message
+    return out
+
+
+def conversation_row(
+    conversation: Conversation, *, me=None, last=_LOOK, cfg=None, now=None, owed=_LOOK,
+) -> dict:
     meta = _meta(conversation)
     customer = conversation.customer
-    last = ai_retry.last_visible_message(conversation)
+    if last is _LOOK:
+        last = ai_retry.last_visible_message(conversation)
+    if owed is _LOOK:
+        owed = Conversation.objects.filter(pk=conversation.pk).filter(OWED).exists()
     link = getattr(customer, "inbox_link", None)
     contact = link.contact if link is not None else None
-    waiting = _waiting_minutes(conversation, meta, last)
+    waiting = _waiting_minutes(conversation, meta, bool(owed))
     return {
         "id": conversation.id,
         "channel": conversation.channel,
@@ -68,7 +108,7 @@ def conversation_row(conversation: Conversation, *, me=None) -> dict:
         "tags": conversation.tags or [],
         "unread": meta.unread_count if meta else 0,
         "waiting_minutes": waiting,
-        "sla": sla.status_of(meta),
+        "sla": sla.status_of(meta, now, cfg=cfg),
         "sla_due_at": meta.sla_due_at if meta else None,
         "is_test": bool(conversation.is_test or (meta and meta.is_test)),
         "ai_failed": conversation.ai_failed,
@@ -123,7 +163,23 @@ def contact_json(contact: Contact, *, detail: bool = False) -> dict:
     return data
 
 
-def channel_json(connection: ChannelConnection, guide: dict, hook_url: str, ready: bool) -> dict:
+#: Config keys that are credentials even though the guide does not mark them `secret`
+#: (WhatsApp's verify token is the shared secret of Meta's webhook handshake).
+_SECRET_CONFIG = {"app_secret", "verify_token"}
+
+
+def channel_json(connection: ChannelConnection, guide: dict, hook_url: str, ready: bool, *, reveal: bool = True) -> dict:
+    """The connect-page card for one channel.
+
+    `reveal` is «this reader may change settings»: only then do the webhook URL (it carries
+    the channel's secret - whoever has it can post fake customer messages), the saved
+    config and the token's masked tail go out. A support agent or a viewer sees the channel's
+    state, never its keys.
+    """
+    config = {k: v for k, v in (connection.config or {}).items() if k != "app_secret"}
+    if not reveal:
+        public_keys = {f["key"] for f in guide.get("fields", []) if not f.get("secret") and f["key"] not in _SECRET_CONFIG}
+        config = {k: v for k, v in config.items() if k in public_keys}
     return {
         "kind": connection.kind,
         "title": guide.get("title", connection.get_kind_display()),
@@ -137,12 +193,13 @@ def channel_json(connection: ChannelConnection, guide: dict, hook_url: str, read
         "enabled": connection.enabled,
         "ready": ready,
         "mode": connection.mode,
-        "masked_token": connection.masked_token,
-        "config": {
-            k: v for k, v in (connection.config or {}).items() if k not in ("app_secret",)
-        },
+        "masked_token": connection.masked_token if reveal else "",
+        "has_token": bool(connection.token),
+        "config": config,
         "has_app_secret": bool((connection.config or {}).get("app_secret")),
-        "hook_url": hook_url,
+        "has_verify_token": bool((connection.config or {}).get("verify_token")),
+        "hook_url": hook_url if reveal else "",
+        "can_see_keys": reveal,
         "health": {
             "ok": connection.health_ok, "detail": connection.health_detail,
             "checked_at": connection.health_checked_at, "account": connection.account_label,

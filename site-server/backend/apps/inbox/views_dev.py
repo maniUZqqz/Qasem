@@ -28,7 +28,7 @@ from apps.customers.models import Conversation
 from apps.stores import access
 
 from . import contacts as contacts_mod
-from . import events, ingest, norm, replies, segments, serializers as ser, sla
+from . import events, ingest, norm, publicurl, replies, segments, serializers as ser, sla
 from .models import Broadcast, Contact, Segment, WebhookDelivery, WebhookEndpoint
 from .views_conversations import fail
 
@@ -127,8 +127,8 @@ class ApiDocsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, store_id):
-        _admin(request, store_id)
-        base = request.build_absolute_uri("/api/v1/inbox-api/")
+        store = _admin(request, store_id)
+        base = publicurl.build(request, store, "/api/v1/inbox-api/")
         text = DOC_PATH.read_text(encoding="utf-8").replace("{{BASE}}", base) if DOC_PATH.exists() else ""
         return Response({"markdown": text, "base": base, "header": "X-Api-Key",
                          "scopes": ["inbox_read", "inbox_write"],

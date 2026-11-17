@@ -12,6 +12,15 @@ Rules that keep it from being a nuisance:
 * never for test conversations;
 * at most one survey per conversation per day;
 * the answer window is three days; after that a stray digit is just a message.
+
+And rules that keep a *customer's real message* from being eaten as an answer
+(«3 نفر هستیم و می‌خوام ثبت‌نام کنم» is a booking, not a 3-star rating):
+* the thread must still be closed - once the customer has written something else
+  and the thread is open again, a digit belongs to that conversation;
+* the message is the digit alone («۵»، «5 ستاره»، «۴ از ۵»), or the digit followed
+  by a short remark that is not a question and does not start like a count
+  («۴ ممنون»، «۵ - عالی بود»). Anything longer, any question, «3 نفر…» /
+  «2 ساعت…» / «5 تا…» is an ordinary message.
 """
 from __future__ import annotations
 
@@ -31,7 +40,48 @@ DEFAULT_TEXT = (
     "با یک عدد از ۱ (ضعیف) تا ۵ (عالی) جواب بدهید؛ اگر خواستید یک جمله هم بنویسید."
 )
 ANSWER_WINDOW = timedelta(days=3)
-_ANSWER = re.compile(r"^\s*([1-5])\s*(?:[-:،,.]|\s)?\s*(.{0,300})$", re.S)
+
+#: The digit alone, or with the usual decorations: «۵»، «5.»، «۴ از ۵»، «۳/۵»، «۵ ستاره»، «⭐ 5».
+_BARE = re.compile(
+    r"^[\s⭐★☆*]*([1-5])\s*(?:/\s*5|از\s*5|ستاره|امتیاز|[*⭐★])*[\s.!،,:;)\-–]*$"
+)
+#: Digit + remark. `sep` tells how they are joined: punctuation reads as «a rating, then a comment».
+_REMARK = re.compile(r"^\s*([1-5])\s*(?P<sep>[-–:،,.)]|\s)\s*(?P<rest>.{1,160})$", re.S)
+#: The word after a digit that makes it a quantity («3 نفر»، «2 ساعت»، «5 تا»…), not a rating.
+_UNITS = {
+    "نفر", "تا", "عدد", "بار", "دفعه", "ساعت", "دقیقه", "ثانیه", "روز", "هفته", "ماه", "سال", "شب",
+    "جلسه", "هزار", "میلیون", "تومان", "تومن", "ریال", "کیلو", "گرم", "لیتر", "متر", "درصد", "ماهه",
+    "ساله", "روزه", "نفره", "تایی", "کلاس", "دوره", "برنامه", "بسته", "سری", "مورد", "قسط", "ماهی",
+    "پیام", "سفارش", "مربی", "ورزشکار", "شاگرد", "کاربر", "اکانت", "حساب",
+    "people", "persons", "times", "hours", "days", "months", "years", "kg",
+}
+_MAX_WORDS_PLAIN = 4  # «۴ خیلی خوب بود» yes; a sentence that merely begins with a digit no
+_MAX_WORDS_PUNCT = 10
+
+
+def parse_answer(text: str) -> tuple[int, str] | None:
+    """(score, comment) when `text` is a survey answer, else None. Pure - no database."""
+    cleaned = norm.ascii_digits((text or "").strip())
+    if not cleaned:
+        return None
+    bare = _BARE.match(cleaned)
+    if bare:
+        return int(bare.group(1)), ""
+    found = _REMARK.match(cleaned)
+    if not found:
+        return None
+    rest = found.group("rest").strip()
+    if "؟" in rest or "?" in rest or re.search(r"\d", rest):
+        return None
+    tokens = norm.words(rest)
+    if not tokens:
+        return None
+    punctuated = found.group("sep") != " " and not found.group("sep").isspace()
+    if len(tokens) > (_MAX_WORDS_PUNCT if punctuated else _MAX_WORDS_PLAIN):
+        return None
+    if tokens[0] in _UNITS:
+        return None
+    return int(found.group(1)), rest[:300]
 
 
 def schedule(conversation: Conversation, closed_by=None) -> FollowUp | None:
@@ -73,9 +123,10 @@ def mark_sent(conversation: Conversation, agent=None) -> SatisfactionSurvey:
 
 def _open_survey_for(conversation: Conversation, message: Message):
     """(survey, score, comment) when `message` answers this thread's open survey, else None."""
-    text = norm.ascii_digits((message.text or "").strip())
-    found = _ANSWER.match(text)
-    if not found:
+    if conversation.state != Conversation.State.RESOLVED:
+        return None  # the customer wrote again and the thread is open: a digit belongs to it
+    parsed = parse_answer(message.text)
+    if parsed is None:
         return None
     survey = (
         SatisfactionSurvey.objects.filter(
@@ -85,7 +136,7 @@ def _open_survey_for(conversation: Conversation, message: Message):
     )
     if survey is None:
         return None
-    return survey, int(found.group(1)), found.group(2).strip()[:500]
+    return survey, parsed[0], parsed[1]
 
 
 def is_answer(conversation: Conversation, message: Message) -> bool:

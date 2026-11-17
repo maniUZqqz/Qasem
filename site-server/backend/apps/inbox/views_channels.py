@@ -18,7 +18,7 @@ from apps.customers import webhooks as legacy_webhooks
 from apps.stores import access
 from services.publishing import channels as legacy_channels
 
-from . import adapters, dispatch, guides, ingest, team
+from . import adapters, dispatch, guides, ingest, publicurl, team
 from .models import ChannelConnection
 from .views_conversations import fail
 
@@ -46,38 +46,47 @@ def ensure_connections(store) -> list[ChannelConnection]:
 
 
 def hook_url(request, connection: ChannelConnection) -> str:
+    """The webhook address a platform posts to - built on the store's public address (`publicurl`)."""
+    store = connection.store
     if connection.kind == "TELEGRAM":
-        return request.build_absolute_uri(
-            f"/api/v1/webhooks/telegram/{legacy_webhooks.secret_for(connection.store)}/"
-        )
+        return publicurl.build(request, store, f"/api/v1/webhooks/telegram/{legacy_webhooks.secret_for(store)}/")
     if connection.kind == "INSTAGRAM":
-        return request.build_absolute_uri(
-            f"/api/v1/webhooks/instagram/{legacy_webhooks.secret_for(connection.store)}/"
-        )
+        return publicurl.build(request, store, f"/api/v1/webhooks/instagram/{legacy_webhooks.secret_for(store)}/")
     cls = adapters.adapter_class(connection.kind)
     if cls is None or not (cls.can_receive_webhook):
         return ""
-    return request.build_absolute_uri(f"/api/v1/inbox/hook/{cls.slug}/{connection.secret}/")
+    return publicurl.build(request, store, f"/api/v1/inbox/hook/{cls.slug}/{connection.secret}/")
 
 
 def widget_snippet(request, connection: ChannelConnection) -> str:
-    src = request.build_absolute_uri(f"/api/v1/widget/{connection.secret}.js")
+    src = publicurl.build(request, connection.store, f"/api/v1/widget/{connection.secret}.js")
     return f'<script src="{src}" async></script>'
 
 
-def _row(request, connection: ChannelConnection) -> dict:
+def can_manage(request, store) -> bool:
+    """May this reader change settings - and so see webhook URLs, widget keys and token tails?"""
+    return access.can(request.user, store, access.SETTINGS, write=True)
+
+
+def _row(request, connection: ChannelConnection, *, reveal: bool | None = None) -> dict:
     from .serializers import channel_json
 
+    if reveal is None:
+        reveal = can_manage(request, connection.store)
     data = channel_json(
         connection, guides.guide_for(connection.kind),
-        hook_url(request, connection), dispatch.is_ready(connection),
+        hook_url(request, connection) if reveal else "", dispatch.is_ready(connection), reveal=reveal,
     )
-    if connection.kind == "WEBCHAT":
+    if connection.kind == "WEBCHAT" and reveal:
         data["snippet"] = widget_snippet(request, connection)
         data["widget_key"] = connection.secret
     if connection.kind == "INSTAGRAM":
         data["ready"] = legacy_channels.configured(legacy_channels.INSTAGRAM, connection.store)
         data["enabled"] = data["ready"]
+    network = dispatch.reachability(connection.kind)
+    if network is not None:
+        # «this server cannot reach the platform» - said on the card instead of a bare «در دسترس نبود».
+        data["network"] = network
     return data
 
 
@@ -87,19 +96,22 @@ class ChannelsView(APIView):
     def get(self, request, store_id):
         store = access.get_store(request.user, store_id, access.CONVERSATIONS, write=False)
         rows = ensure_connections(store)
-        data = [_row(request, c) for c in rows]
+        reveal = can_manage(request, store)
+        data = [_row(request, c, reveal=reveal) for c in rows]
         for item in data:
             if item["kind"] == "SMS":
                 from . import sms_gateway
 
                 item["sms"] = sms_gateway.status(store)
                 item["can_toggle_forwarding"] = bool(request.user.is_staff)
-        return Response({"channels": data})
+        public = publicurl.resolve(request, store)
+        public["configured"] = team.settings_for(store).public_base_url if reveal else ""
+        return Response({"channels": data, "public": public, "can_manage": reveal})
 
 
-def _public_url(request) -> bool:
-    host = request.get_host().split(":")[0]
-    return request.is_secure() and host not in ("localhost", "127.0.0.1")
+def _public_url(request, store) -> bool:
+    """Can a platform reach this site over https? Only then is a webhook worth registering."""
+    return publicurl.resolve(request, store)["secure"]
 
 
 class ChannelDetailView(APIView):
@@ -200,7 +212,7 @@ class ChannelDetailView(APIView):
         mode = connection.mode
         if mode in (ChannelConnection.Mode.AUTO, ChannelConnection.Mode.WEBHOOK) and adapter.can_receive_webhook \
                 and connection.kind not in ("WHATSAPP",):
-            if _public_url(request) or mode == ChannelConnection.Mode.WEBHOOK:
+            if _public_url(request, connection.store) or mode == ChannelConnection.Mode.WEBHOOK:
                 result = adapter.register_webhook(hook_url(request, connection))
                 if result.ok:
                     cfg["webhook_registered"] = True

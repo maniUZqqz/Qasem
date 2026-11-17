@@ -21,13 +21,14 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, OuterRef, Subquery
 from django.utils import timezone
 
 from apps.customers.models import Conversation, Message
 from apps.stores import access
 from apps.stores.models import Membership
 
+from . import norm
 from .models import AgentProfile, ConversationMeta, InboxSettings, MessageMeta
 
 OPEN_STATES = (Conversation.State.HUMAN, Conversation.State.ESCALATED)
@@ -83,17 +84,41 @@ def _least_recent(profiles: list[AgentProfile]) -> AgentProfile | None:
     return min(profiles, key=lambda p: (p.last_assigned_at or epoch, p.pk))
 
 
-def _skill_pool(profiles: list[AgentProfile], conversation: Conversation) -> list[AgentProfile]:
-    wanted = {str(t).lower() for t in (conversation.tags or [])}
+#: A skill is a word the store chose («پرداخت»، «ثبت‌نام»), so it may wear an ending when the
+#: customer writes it: «پرداختم»، «ثبت‌نامش».
+SKILL_SUFFIXES = norm.WORD_SUFFIXES + ("ی", "م", "ت", "ش", "مون", "تون", "شون")
+
+
+def _customer_words(conversation: Conversation, limit: int = 5) -> str:
+    """The customer's last few messages, plus why the bot handed over - what a skill is matched against."""
+    texts = list(
+        conversation.messages.filter(role=Message.Role.CUSTOMER).order_by("-created_at", "-id")
+        .values_list("text", flat=True)[:limit]
+    )
     meta = getattr(conversation, "inbox_meta", None)
-    contact_tags = set()
+    if meta is not None and meta.handoff_reason:
+        texts.append(meta.handoff_reason)
+    return "\n".join(texts)
+
+
+def _skill_pool(profiles: list[AgentProfile], conversation: Conversation) -> list[AgentProfile]:
+    """Members whose skills match this conversation: a tag on it or on its contact, or a
+    skill word the customer actually wrote («مشکل پرداخت دارم» -> the «پرداخت» person)."""
+    wanted = {str(t).lower() for t in (conversation.tags or [])}
     link = getattr(conversation.customer, "inbox_link", None)
     if link is not None:
-        contact_tags = {str(t).lower() for t in (link.contact.tags or [])}
-    wanted |= contact_tags
+        wanted |= {str(t).lower() for t in (link.contact.tags or [])}
+    said = _customer_words(conversation)
+    meta = getattr(conversation, "inbox_meta", None)
     if meta is not None and meta.handoff_reason:
         wanted.add(meta.handoff_reason.lower())
-    matching = [p for p in profiles if {str(s).lower() for s in (p.skills or [])} & wanted]
+    matching = []
+    for profile in profiles:
+        for skill in profile.skills or []:
+            skill = str(skill).strip()
+            if skill and (skill.lower() in wanted or norm.has_phrase(said, skill, suffixes=SKILL_SUFFIXES)):
+                matching.append(profile)
+                break
     return matching
 
 
@@ -168,10 +193,30 @@ def heartbeat(store, user) -> AgentProfile:
 
 
 def performance(store, *, days: int = 30) -> list[dict]:
-    """First-response and average response time per member (test threads out)."""
+    """First-response and average response time per member (test threads out).
+
+    Credit goes to **whoever answered**, not to whoever the thread was assigned to: a
+    colleague who picks up a waiting thread owns that response time (and its
+    `replies` count). An SLA breach is different - it is the *assignee's* miss (they
+    had the thread and nobody answered in time), so it stays with the assignee.
+    """
     since = timezone.now() - timedelta(days=days)
     rows = []
     role_titles = dict(Membership.Role.choices)
+    # Who wrote the first reply of each conversation (one query, not one per member).
+    first_author = Subquery(
+        MessageMeta.objects.filter(
+            message__conversation=OuterRef("conversation"), kind=MessageMeta.Kind.REPLY, author__isnull=False,
+        ).order_by("message__created_at", "id").values("author_id")[:1]
+    )
+    first_by_user: dict[int, list[int]] = {}
+    for author_id, seconds in (
+        ConversationMeta.objects.filter(
+            store=store, is_test=False, first_human_reply_at__gte=since, first_response_seconds__isnull=False,
+        ).annotate(_first_author=first_author).values_list("_first_author", "first_response_seconds")
+    ):
+        if author_id is not None:
+            first_by_user.setdefault(author_id, []).append(seconds)
     for user in members(store):
         profile = profile_for(store, user)
         role = access.role_of(user, store)
@@ -180,10 +225,7 @@ def performance(store, *, days: int = 30) -> list[dict]:
             message__conversation__store=store, message__created_at__gte=since,
         ).exclude(message__conversation__inbox_meta__is_test=True)
         agg = replies.exclude(response_seconds__isnull=True).aggregate(avg=Avg("response_seconds"))
-        firsts = ConversationMeta.objects.filter(
-            store=store, conversation__assigned_to=user, is_test=False,
-            first_human_reply_at__gte=since, first_response_seconds__isnull=False,
-        ).aggregate(avg=Avg("first_response_seconds"), n=Count("id"))
+        mine = first_by_user.get(user.pk, [])
         breaches = ConversationMeta.objects.filter(
             store=store, conversation__assigned_to=user, is_test=False,
             sla_breached_at__gte=since,
@@ -200,8 +242,8 @@ def performance(store, *, days: int = 30) -> list[dict]:
             "max_open": profile.max_open,
             "replies": replies.count(),
             "avg_response_seconds": int(agg["avg"]) if agg["avg"] is not None else None,
-            "avg_first_response_seconds": int(firsts["avg"]) if firsts["avg"] is not None else None,
-            "conversations_answered": firsts["n"],
+            "avg_first_response_seconds": int(sum(mine) / len(mine)) if mine else None,
+            "conversations_answered": len(mine),
             "sla_breaches": breaches,
             "accepts_chats": profile.accepts_chats,
             "channels": profile.channels,

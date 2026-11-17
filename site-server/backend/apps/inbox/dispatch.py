@@ -11,11 +11,14 @@ connection row only adds health, polling state and counters on top.
 """
 from __future__ import annotations
 
+import json
 import logging
 
+import requests
 from django.utils import timezone
 
-from . import adapters
+from . import adapters, shared
+from .adapters import base as adapter_base
 from .models import ChannelConnection
 
 logger = logging.getLogger(__name__)
@@ -146,3 +149,50 @@ def check_health(connection: ChannelConnection) -> dict:
         "last_error", "last_error_at", "updated_at",
     ])
     return {"ok": health.ok, "detail": health.detail, "account": health.account}
+
+
+# ------------------------------------------------------------- reachability
+
+UNREACHABLE_TEXT = (
+    "این سرور به {title} دسترسی ندارد (از ایران معمولاً فیلتر است). برای همین هر دو راهِ دریافتِ پیام، "
+    "یعنی وب‌هوک و پرسش دوره‌ای، کار نمی‌کنند و وضعیت سبز نمی‌شود؛ این از توکن شما نیست. "
+    "بله، ایتا یا روبیکا را وصل کنید. هر وقت سرور به {title} راه پیدا کرد، همین‌جا خودش سبز می‌شود."
+)
+_REACH_TTL_DOWN = 900
+_REACH_TTL_UP = 1800
+
+
+def probe_host(cls, timeout: float = 3.0) -> dict:
+    """One quick request to the platform's API root - any HTTP answer at all means «reachable»."""
+    root = adapter_base.api_base_override(cls.key) or cls.host
+    try:
+        requests.get(root, timeout=timeout, allow_redirects=False)
+        ok = True
+    except requests.RequestException:
+        ok = False
+    return {
+        "reachable": ok, "checked_at": timezone.now().isoformat(),
+        "message": "" if ok else UNREACHABLE_TEXT.format(title=cls.title),
+    }
+
+
+def reachability(kind: str) -> dict | None:
+    """Can *this server* reach the platform at all? Asked only for platforms that Iranian
+    servers cannot normally reach (`Adapter.blocked_from_iran`); None for every other channel.
+
+    The answer is cached in the shared store for a while, so the channels page does not wait
+    on a network timeout every time it opens.
+    """
+    cls = adapters.adapter_class(kind)
+    if cls is None or not cls.blocked_from_iran:
+        return None
+    name = f"reach:{cls.key}"
+    raw = shared.get_flag(name)
+    if raw:
+        try:
+            return json.loads(raw)
+        except ValueError:
+            pass
+    result = probe_host(cls)
+    shared.set_flag(name, json.dumps(result, ensure_ascii=False), _REACH_TTL_UP if result["reachable"] else _REACH_TTL_DOWN)
+    return result

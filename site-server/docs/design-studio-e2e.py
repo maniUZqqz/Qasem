@@ -112,6 +112,10 @@ def run(browser, w, h, tag, full):
         assert rects.count() > 5, "overlay rects"
         rects.nth(2).click(force=True)
         page.get_by_role("tab", name="عنصر").wait_for()
+        # دورِ اصلاح: کلیک روی عنصر باید انتخابش را نگه دارد (پیش‌تر click ِ پس از pointerdown انتخاب را پاک می‌کرد)
+        page.wait_for_timeout(300)
+        assert page.get_by_text("یک عنصر را روی صفحه انتخاب کن").count() == 0, "element selection was cleared by the click"
+        assert page.locator("rect.ds-hit.is-sel").count() == 1, "selected hit-rect"
         ta = page.locator(".ds-panel textarea").first
         if ta.count():
             ta.fill("متنِ ویرایش‌شدهٔ آزمون")
@@ -208,12 +212,22 @@ def run(browser, w, h, tag, full):
         assert page.locator(".ds-layer").count() >= 7, "layers"
         page.locator(".ds-layer-name").nth(1).click()
         page.get_by_text("پیوندِ نمونهٔ اولیه").wait_for()
+        names = page.locator(".ds-layer-name").all_inner_texts()
+        assert not any("undefined" in n or "null" in n for n in names), "layer labels: %s" % names
+        # دورِ اصلاح: انتخابِ بلوک با کلیک روی بوم (نه فقط فهرستِ لایه‌ها)
+        page.get_by_role("tab", name="لایه‌ها").click()
+        boxes = page.locator("svg.ds-overlay rect.ds-box")
+        assert boxes.count() >= 3, "canvas boxes"
+        boxes.nth(1).click(force=True)
+        page.wait_for_timeout(300)
+        assert page.get_by_text("یک لایه یا بلوک را انتخاب کن").count() == 0, "block selection was cleared by the click"
+        assert page.locator("rect.ds-box.is-sel").count() == 1, "selected box"
         page.screenshot(path=f"{OUT}/{tag}-ui-props.png")
     step("ui editor: frames, layers, props", ui_editor, page, tag)
 
     def ui_style():
         page.get_by_role("tab", name="سبک و توکن").click()
-        page.get_by_text("سبکِ طراحی (از ۱۴ سبکِ ui-ux-pro-max)").wait_for()
+        page.get_by_text("سبکِ طراحی (").first.wait_for()
         assert page.locator(".ds-style").count() >= 14
         with page.expect_response(lambda r: "/ops/" in r.url and r.status == 200, timeout=30000):
             page.locator(".ds-style").nth(1).click()
@@ -258,6 +272,14 @@ def run(browser, w, h, tag, full):
             page.get_by_role("button", name="ساختِ سایت از این طرح").click()
         assert r.value.status == 201, r.value.status
         page.get_by_text("پیش‌نویسِ سایت ساخته شد (منتشر نشده)").wait_for(timeout=20000)
+        assert page.get_by_text("پیش‌نویسِ سایت ساخته شد").count() == 1, "only one green banner"
+        link = page.get_by_role("link", name="بازکردن در سایت‌ساز")
+        import re as _re
+        assert _re.search(r"/builder/page/\d+$", link.get_attribute("href") or ""), link.get_attribute("href")
+        link.click()
+        page.wait_for_url(_re.compile(r"/builder/page/\d+"), timeout=20000)
+        page.wait_for_timeout(2500)
+        assert page.get_by_text("موردِ خواسته‌شده پیدا نشد").count() == 0, "site builder 404 message"
         page.screenshot(path=f"{OUT}/{tag}-ui-site.png")
     if full:
         step("ui -> site builder draft", ui_to_site, page, tag)

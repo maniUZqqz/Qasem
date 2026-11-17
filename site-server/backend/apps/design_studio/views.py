@@ -158,7 +158,7 @@ class DocView(APIView):
         doc = _doc(store, pk)
         if doc is None:
             return _nf()
-        doc.delete()
+        services.delete_doc(doc)                                 # ردیفِ دیتابیس + پوشهٔ خروجی‌ها و کَش
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

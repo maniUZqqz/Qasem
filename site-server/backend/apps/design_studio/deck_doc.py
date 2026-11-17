@@ -13,6 +13,21 @@ MAX_SLIDES = 40
 MAX_ITEMS = 8
 
 
+def short_name(name: str, limit: int = 40) -> str:
+    """نامِ محصول برای «منبع»ِ یک آمار: بریدنِ بلند در مرزِ واژه، بی‌پرانتزِ نیمه‌باز و با «…»؛ هرگز وسطِ واژه یا وسطِ پرانتز نمی‌برد."""
+    t = typeset.clean_text(name, 400)
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    if not t[limit].isspace() and " " in cut:                    # وسطِ واژه ⇒ تا مرزِ واژهٔ پیشین
+        cut = cut.rsplit(" ", 1)[0]
+    for o, c in (("(", ")"), ("[", "]"), ("«", "»")):            # برشِ وسطِ پرانتز یا گیومه ⇒ از بازکننده به بعد کنار برود
+        while cut.count(o) > cut.count(c):
+            cut = cut[:cut.rfind(o)]
+    cut = cut.rstrip(" ،,-–—:؛;")
+    return (cut or t[:limit].rstrip()) + "…"
+
+
 def auto_facts(items: list[dict], digits: str = "fa") -> list[dict]:
     """واقعیت‌های قابلِ‌اثباتِ فروشگاه: تعدادِ محصول و بازهٔ قیمتِ ثبت‌شده."""
     out = []
@@ -23,8 +38,8 @@ def auto_facts(items: list[dict], digits: str = "fa") -> list[dict]:
         lo = min(priced, key=lambda p: p["price"])
         hi = max(priced, key=lambda p: p["price"])
         if lo["price"] != hi["price"]:
-            out.append({"value": typeset.price_text(lo["price"], lo.get("currency", "IRT"), digits), "label": "کم‌ترین قیمتِ ثبت‌شده", "source": f"قیمتِ ثبت‌شدهٔ «{lo['name'][:40]}»"})
-            out.append({"value": typeset.price_text(hi["price"], hi.get("currency", "IRT"), digits), "label": "بیشترین قیمتِ ثبت‌شده", "source": f"قیمتِ ثبت‌شدهٔ «{hi['name'][:40]}»"})
+            out.append({"value": typeset.price_text(lo["price"], lo.get("currency", "IRT"), digits), "label": "کم‌ترین قیمتِ ثبت‌شده", "source": f"قیمتِ ثبت‌شدهٔ «{short_name(lo['name'])}»"})
+            out.append({"value": typeset.price_text(hi["price"], hi.get("currency", "IRT"), digits), "label": "بیشترین قیمتِ ثبت‌شده", "source": f"قیمتِ ثبت‌شدهٔ «{short_name(hi['name'])}»"})
     return out
 
 
@@ -292,6 +307,11 @@ def review(data: dict, sc: dict) -> list[dict]:
                     nosrc.append(str(it.get("label") or it.get("value") or ""))
     add("stats_source", "ok" if not nosrc else "warn", "هر آمار منبع دارد" if not nosrc else f"{fa(len(nosrc))} آمار بدونِ منبع است", "" if not nosrc else "آمارِ بی‌منبع را حذف کنید یا منبعش را بنویسید.")
     nonote = [p["name"] for p in sc["pages"] if not (p.get("notes") or "").strip() and p.get("type") not in ("section", "image")]
+    fd = int((data.get("meta") or {}).get("facts_dropped") or 0)
+    if fd:
+        names = [str(x) for x in ((data.get("meta") or {}).get("facts_dropped_labels") or []) if x]
+        add("facts_dropped", "warn", f"{fa(fd)} عددِ بدونِ منبع یا ناقص کنار گذاشته شد",
+            ("«" + "»، «".join(names[:4]) + "» — " if names else "") + "هر عددِ ارائه باید برچسب و منبع داشته باشد؛ در اسلایدِ «آمار» با منبعش اضافه‌اش کنید.")
     add("notes", "ok" if not nonote else "info", "هر اسلاید یادداشتِ گوینده دارد" if not nonote else f"{fa(len(nonote))} اسلاید یادداشتِ گوینده ندارد", "")
     over = [p["name"] for p in sc["pages"] for e in p["elements"] if scene.text_problem(e)]
     add("overflow", "ok" if not over else "warn", "هیچ متنی بریده نشده" if not over else f"{fa(len(over))} متن بیش از جعبه‌اش بود", "" if not over else "، ".join(sorted(set(over))[:4]))

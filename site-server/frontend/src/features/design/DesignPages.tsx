@@ -134,6 +134,21 @@ function DeckForm({ ov, onCreate, busy }: { ov: Overview; onCreate: (title: stri
   const [look, setLook] = useState("");
   const [picked, setPicked] = useState<number[]>([]);
   const [facts, setFacts] = useState<{ value: string; label: string; source: string }[]>([]);
+  const [factErr, setFactErr] = useState<string | null>(null);
+  // ردیفِ نیمه‌کاره (مثلاً عدد و برچسب بدونِ منبع) بی‌صدا دور ریخته نمی‌شد؛ اکنون ساختن متوقف می‌شود و دلیلش گفته می‌شود.
+  const partial = (f: { value: string; label: string; source: string }) => {
+    const n = [f.value, f.label, f.source].filter((x) => x.trim()).length;
+    return n > 0 && n < 3;
+  };
+  const submit = () => {
+    const bad = facts.filter(partial);
+    if (bad.length) {
+      setFactErr(`${fa(bad.length)} ردیفِ «عددهای واقعی» ناقص است: هر عدد باید هم برچسب و هم منبع داشته باشد (آمارِ بی‌منبع در ارائه نمی‌آید). ردیف را کامل یا حذف کن.`);
+      return;
+    }
+    setFactErr(null);
+    onCreate(title, { brief, use_ai: ai, products: picked, facts: facts.filter((f) => f.value.trim() && f.label.trim() && f.source.trim()), settings: { template: tpl, look } });
+  };
   return (
     <Card>
       <div className="ds-sub">ارائهٔ تازه</div>
@@ -147,7 +162,7 @@ function DeckForm({ ov, onCreate, busy }: { ov: Overview; onCreate: (title: stri
         <div className="ds-objs ds-wide">
           <div className="ds-sub">عددهای واقعی برای اسلایدِ آمار (اختیاری؛ منبع الزامی است — خالی = تعدادِ محصول و بازهٔ قیمتِ ثبت‌شده)</div>
           {facts.map((f, i) => (
-            <div key={i} className="ds-obj">
+            <div key={i} className={`ds-obj ${partial(f) ? "is-partial" : ""}`}>
               <Field label="عدد"><Input value={f.value} onChange={(e) => setFacts(facts.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} /></Field>
               <Field label="برچسب"><Input value={f.label} onChange={(e) => setFacts(facts.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} /></Field>
               <Field label="منبع"><Input value={f.source} onChange={(e) => setFacts(facts.map((x, j) => (j === i ? { ...x, source: e.target.value } : x)))} /></Field>
@@ -155,9 +170,10 @@ function DeckForm({ ov, onCreate, busy }: { ov: Overview; onCreate: (title: stri
             </div>
           ))}
           <Button size="sm" variant="secondary" type="button" onClick={() => setFacts([...facts, { value: "", label: "", source: "" }])}><Icon name="plus" size={14} /> افزودنِ عدد</Button>
+          {factErr ? <ErrorBox message={factErr} /> : null}
         </div>
       </div>
-      <Button type="button" disabled={busy} onClick={() => onCreate(title, { brief, use_ai: ai, products: picked, facts: facts.filter((f) => f.value && f.label && f.source), settings: { template: tpl, look } })}>{busy ? <Spinner size={14} /> : <Icon name="sparkle" size={14} />} ساختِ ارائه</Button>
+      <Button type="button" disabled={busy} onClick={submit}>{busy ? <Spinner size={14} /> : <Icon name="sparkle" size={14} />} ساختِ ارائه</Button>
     </Card>
   );
 }
@@ -243,7 +259,7 @@ const FILE_TABLE: [string, string, string][] = [
   ["نمایشگاه یا کیوسک", "PPSX که خودش نمایش می‌دهد، یا ویدیوی MP4", "«بستهٔ نمایشگاه» PPSX می‌دهد؛ MP4 را از «ساختِ ویدیو» بگیر."],
 ];
 const CONCEPTS: [string, string][] = [
-  ["وکتور و پیکسلی", "وکتور (AI، SVG، PDF) هر قدر بزرگ شود تیز می‌ماند؛ پیکسلی (JPG، PNG) نه. متنِ PDF و SVG این استودیو منحنی است، عکس‌ها پیکسلی‌اند."],
+  ["وکتور و پیکسلی", "وکتور (AI، SVG، PDF) هر قدر بزرگ شود تیز می‌ماند؛ پیکسلی (JPG، PNG) نه. متنِ «PDF چاپی» و SVG این استودیو منحنی است («PDF نمایشی» علاوه بر آن یک لایهٔ متنِ نامرئی دارد تا جست‌وجو و کپی کار کند)، عکس‌ها پیکسلی‌اند."],
   ["RGB و CMYK", "RGB رنگِ نور (وب و ارائه)، CMYK رنگِ جوهرِ چاپ. این استودیو RGB می‌دهد؛ تبدیلِ واقعی را چاپخانه انجام می‌دهد."],
   ["بلید و علامت برش", "حاشیهٔ اضافهٔ ۳ میلی‌متری تا بعد از برش نوارِ سفید نماند. «PDF چاپی» همراه با بلید و علامت برش است."],
   ["۳۰۰ dpi", "عکسِ چاپی باید در اندازهٔ واقعیِ چاپ ۳۰۰ dpi باشد؛ چک‌لیست dpi ِ مؤثرِ هر عکس را می‌سنجد."],

@@ -1,7 +1,8 @@
 """نویسندهٔ PDF (بی‌وابستگی؛ فقط zlib + Pillow): صفحهٔ برداری با متنِ منحنی‌شده، عکسِ JPEG، شیب، خونریزی، علامتِ برش، پیوند و نشانک.
 
 * «PDF چاپی»: TrimBox = اندازهٔ برش، BleedBox = برش + خونریزی (۳ میلی‌متر)، MediaBox = با علامت‌های برش؛ عکس‌ها تا ۳۰۰ dpi؛ متن‌ها منحنی (بی‌فونت).
-* «PDF نمایشی»: سبک‌تر (عکس ~۱۱۰ dpi)، بی‌خونریزی و علامت، با پیوندِ قابل‌کلیک (فهرستِ مطالب) و نشانک.
+* «PDF نمایشی»: سبک‌تر (عکس ~۱۱۰ dpi)، بی‌خونریزی و علامت، با پیوندِ قابل‌کلیک (فهرستِ مطالب) و نشانک، و یک «لایهٔ متنِ نامرئی»
+  (حالتِ Tr 3) روی همان متنِ منحنی‌شده تا جست‌وجو و کپی کردن کار کند؛ شکلِ حرف‌ها همچنان از منحنی می‌آید، پس هیچ فونتی لازم نیست.
 * رنگ‌ها RGB‌اند. CMYK و PDF/X واقعی را چاپخانه از همین فایل می‌سازد (در بستهٔ چاپخانه همین نکته نوشته می‌شود).
 """
 from __future__ import annotations
@@ -37,6 +38,7 @@ class PdfDoc:
         self.rtl, self.lang = rtl, lang
         self.pages: list[PageBuilder] = []
         self.outlines: list[tuple[str, int, int]] = []
+        self.tfonts: list[_TextFont] = []
         self.catalog_ref = self._reserve()
         self.pages_ref = self._reserve()
 
@@ -68,11 +70,37 @@ class PdfDoc:
     def bookmark(self, title: str, page_index: int, level: int = 0) -> None:
         self.outlines.append((title, page_index, level))
 
+    def text_runs(self, text: str) -> list[tuple["_TextFont", bytes]]:
+        """متن ⇒ [(فونتِ لایهٔ متن، کدهای تک‌بایتی)]. هر فونت تا ۲۵۴ نویسهٔ متفاوت دارد؛ بیشتر شد فونتِ تازه باز می‌شود."""
+        runs: list[tuple[_TextFont, bytearray]] = []
+        for ch in text:
+            if ch in "\r\n\t\x00":
+                ch = " "
+            font = next((f for f in self.tfonts if ch in f.chars), None)
+            if font is None:
+                if not self.tfonts or len(self.tfonts[-1].chars) >= 254:
+                    self.tfonts.append(_TextFont(self._reserve(), len(self.tfonts) + 1))
+                font = self.tfonts[-1]
+                font.chars[ch] = len(font.chars) + 1
+            if not runs or runs[-1][0] is not font:
+                runs.append((font, bytearray()))
+            runs[-1][1].append(font.chars[ch])
+        return [(f, bytes(b)) for f, b in runs]
+
+    def _write_text_fonts(self) -> None:
+        for f in self.tfonts:
+            cm = f.cmap_bytes()
+            cmap = self.add_stream("", cm)
+            n = len(f.chars)
+            widths = " ".join("0" if _zero_width(ch) else "500" for ch in f.chars)       # اعراب و نیم‌فاصله پهنا ندارند ⇒ به حرفِ پیش از خود می‌چسبند
+            self._set(f.obj, (f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 1 /LastChar {n} /Widths [{widths}] /ToUnicode {cmap} 0 R >>").encode("latin-1"))
+
     # ---- خروجی ----
     def save(self) -> bytes:
         page_nums = [p.obj for p in self.pages]
         for p in self.pages:
             p.finish(page_nums)
+        self._write_text_fonts()
         kids = " ".join(f"{n} 0 R" for n in page_nums)
         self._set(self.pages_ref, f"<< /Type /Pages /Kids [{kids}] /Count {len(page_nums)} >>".encode("latin-1"))
         cat = f"/Type /Catalog /Pages {self.pages_ref} 0 R /Lang ({self.lang})"
@@ -151,6 +179,28 @@ class PdfDoc:
         return root
 
 
+class _TextFont:
+    """فونتِ نامرئیِ لایهٔ متن: Helvetica (غیرِ جاسازی‌شده، چون هیچ‌وقت کشیده نمی‌شود) با ToUnicode که هر کدِ تک‌بایتی را به نویسهٔ واقعی (فارسی) برمی‌گرداند."""
+
+    def __init__(self, obj: int, number: int):
+        self.obj, self.number = obj, number
+        self.chars: dict[str, int] = {}
+
+    @property
+    def name(self) -> str:
+        return f"TL{self.number}"
+
+    def cmap_bytes(self) -> bytes:
+        rows = [f"<{code:02X}> <{ch.encode('utf-16-be').hex().upper()}>" for ch, code in sorted(self.chars.items(), key=lambda kv: kv[1])]
+        parts = ["/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap", "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+                 "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def", "1 begincodespacerange", "<01> <FF>", "endcodespacerange"]
+        for i in range(0, len(rows), 100):
+            chunk = rows[i:i + 100]
+            parts += [f"{len(chunk)} beginbfchar", *chunk, "endbfchar"]
+        parts += ["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"]
+        return "\n".join(parts).encode("latin-1")
+
+
 class PageBuilder:
     def __init__(self, doc: PdfDoc, w: float, h: float, bleed: float, slug: float, ptu: float):
         self.doc, self.w, self.h, self.bleed, self.slug, self.ptu = doc, w, h, bleed, slug, ptu
@@ -162,6 +212,7 @@ class PageBuilder:
         self.xobjs: dict[str, int] = {}
         self.gstates: dict[str, int] = {}
         self.shadings: dict[str, int] = {}
+        self.tl_fonts: dict[str, int] = {}
         self.links: list[tuple[tuple, dict]] = []
         self._n = 0
         self.image_report: list[dict] = []
@@ -294,6 +345,8 @@ class PageBuilder:
             res.append("/ExtGState << " + " ".join(f"/{k} {v} 0 R" for k, v in self.gstates.items()) + " >>")
         if self.shadings:
             res.append("/Shading << " + " ".join(f"/{k} {v} 0 R" for k, v in self.shadings.items()) + " >>")
+        if self.tl_fonts:
+            res.append("/Font << " + " ".join(f"/{k} {v} 0 R" for k, v in self.tl_fonts.items()) + " >>")
         annots = []
         for rect, tgt in self.links:
             r = " ".join(_f(v) for v in rect)
@@ -316,14 +369,14 @@ class PageBuilder:
 
 class Options:
     def __init__(self, *, mode: str = "print", dpi: int = 300, bleed: bool = True, marks: bool = True, jpeg_q: int = 90, outline_quality: str = "print",
-                 eps: float = 0.5):
-        self.mode, self.dpi, self.bleed, self.marks = mode, dpi, bleed, marks
+                 eps: float = 0.5, text_layer: bool = False):
+        self.mode, self.dpi, self.bleed, self.marks, self.text_layer = mode, dpi, bleed, marks, text_layer
         self.jpeg_q, self.outline_quality, self.eps = jpeg_q, outline_quality, eps
         self.page_ids: dict[str, int] = {}
 
 
 PRINT = dict(mode="print", dpi=300, bleed=True, marks=True, jpeg_q=90, outline_quality="print", eps=0.5)
-SCREEN = dict(mode="screen", dpi=110, bleed=False, marks=False, jpeg_q=78, outline_quality="screen", eps=0.8)
+SCREEN = dict(mode="screen", dpi=110, bleed=False, marks=False, jpeg_q=78, outline_quality="screen", eps=0.8, text_layer=True)
 
 
 def draw_page(pb: PageBuilder, page: dict, src: images.ImageSource, o: Options, ptu: float, page_index: int, report: dict) -> None:
@@ -514,6 +567,8 @@ def _draw_text(pb: PageBuilder, e: dict, o: Options, report: dict) -> None:
         pb.op(f"{pb.alpha(op)}{pb.rgb(e['color'])}")
         for i in range(0, len(ops), 400):
             pb.op(" ".join(ops[i:i + 400]) + " f*")
+    if o.text_layer:
+        _text_layer(pb, lay, e, size)
     if e.get("underline") or e.get("strike"):
         th = size * 0.06
         for ln in lay["lines"]:
@@ -525,6 +580,47 @@ def _draw_text(pb: PageBuilder, e: dict, o: Options, report: dict) -> None:
                 pb.op(f"{pb.rgb(e['color'])} {_f(pb.X(lx))} {_f(pb.Y(base + size * 0.12 + th))} {_f(pb.L(ln['w']))} {_f(pb.L(th))} re f")
             if e.get("strike"):
                 pb.op(f"{pb.rgb(e['color'])} {_f(pb.X(lx))} {_f(pb.Y(base - size * 0.28 + th))} {_f(pb.L(ln['w']))} {_f(pb.L(th))} re f")
+
+
+def _zero_width(ch: str) -> bool:
+    import unicodedata
+
+    return unicodedata.category(ch) in ("Mn", "Me", "Cf")
+
+
+def _visual(text: str) -> str:
+    """متنِ منطقیِ راست‌به‌چپ ⇒ ترتیبِ دیداریِ چپ‌به‌راست (الگوریتمِ Unicode Bidi)؛ اگر کتابخانه نبود همان متن."""
+    try:
+        from bidi.algorithm import get_display
+
+        return get_display(text, base_dir="R")
+    except Exception:  # noqa: BLE001
+        return text
+
+
+def _text_layer(pb: PageBuilder, lay: dict, e: dict, size: float) -> None:
+    """لایهٔ متنِ نامرئی (Tr 3) برای هر خط، هم‌اندازهٔ خطِ کشیده‌شده: جست‌وجو، انتخاب و کپی در PDF نمایشی. ترتیبِ نویسه‌ها منطقی (همان‌که تایپ شده) است."""
+    pt = size * pb.ptu
+    if pt <= 0.5:
+        return
+    for ln in lay["lines"]:
+        text = str(ln.get("t", "")).strip()
+        if not text:
+            continue
+        if ln.get("rtl"):
+            text = _visual(text)                      # PDFها نویسه‌ها را به ترتیبِ چپ‌به‌راستِ دیداری نگه می‌دارند؛ نمایشگرها خودشان به ترتیبِ منطقی برمی‌گردانند
+        runs = pb.doc.text_runs(text)
+        n = max(1, sum(1 for ch in text if not _zero_width(ch)))
+        w_pt = pb.L(float(ln.get("w") or 0))
+        tz = max(5.0, min(1000.0, 200.0 * w_pt / (n * pt))) if w_pt > 0 else 100.0
+        x = pb.X(e["x"] + ln["x"])
+        y = pb.Y(e["y"] + ln["y"] + lay["baseline"])
+        parts = [f"BT 3 Tr {_f(tz)} Tz 1 0 0 1 {_f(x)} {_f(y)} Tm"]
+        for font, codes in runs:
+            pb.tl_fonts[font.name] = font.obj
+            parts.append(f"/{font.name} {_f(pt)} Tf <{codes.hex().upper()}> Tj")
+        parts.append("ET")
+        pb.op(" ".join(parts))
 
 
 def build_pdf(pages: list[dict], src: images.ImageSource, *, unit: str = "mm", options: dict | None = None, title: str = "", author: str = "",

@@ -88,8 +88,12 @@ export function PageCanvas(p: CanvasProps) {
     if (mode === "comment" && p.onBackgroundClick) {
       const r = (e.currentTarget as Element).getBoundingClientRect();
       p.onBackgroundClick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
-    } else if (mode === "edit") p.onSelect?.(null);
+    } else if (mode === "edit" && e.target === e.currentTarget) {
+      // فقط کلیک روی خودِ زمینه انتخاب را برمی‌دارد؛ «click» ِ پس از pointerdown روی یک کادر به <svg> می‌رسد و نباید انتخاب را پاک کند.
+      p.onSelect?.(null);
+    }
   };
+  const swallowClick = (e: RMouseEvent) => e.stopPropagation();
 
   return (
     <div className="ds-canvas" style={{ width, height: h }}>
@@ -100,11 +104,11 @@ export function PageCanvas(p: CanvasProps) {
           const sel = p.selected === el.id;
           return (
             <rect key={el.id} x={el.x + (d?.dx ?? 0)} y={el.y + (d?.dy ?? 0)} width={Math.max(2, el.w)} height={Math.max(2, el.h)} className={`ds-hit ${sel ? "is-sel" : ""} ${d ? "is-drag" : ""}`}
-              onPointerDown={(e) => down(e, el)} vectorEffect="non-scaling-stroke" />
+              onPointerDown={(e) => down(e, el)} onClick={swallowClick} vectorEffect="non-scaling-stroke" />
           );
         })}
         {mode === "edit" && p.boxes?.map((b) => (
-          <rect key={b.id} x={b.x} y={b.y} width={b.w} height={b.h} className={`ds-box ${p.selected === b.id ? "is-sel" : ""}`} onPointerDown={(e) => { e.stopPropagation(); p.onSelect?.(b.id); }} vectorEffect="non-scaling-stroke" />
+          <rect key={b.id} x={b.x} y={b.y} width={b.w} height={b.h} className={`ds-box ${p.selected === b.id ? "is-sel" : ""}`} onPointerDown={(e) => { e.stopPropagation(); p.onSelect?.(b.id); }} onClick={swallowClick} vectorEffect="non-scaling-stroke" />
         ))}
         {mode === "play" && p.hotspots?.map((hs, i) => (
           <rect key={i} x={hs.x} y={hs.y} width={hs.w} height={hs.h} className="ds-hot" onClick={(e) => { e.stopPropagation(); p.onHotspot?.(hs.to); }} vectorEffect="non-scaling-stroke" />

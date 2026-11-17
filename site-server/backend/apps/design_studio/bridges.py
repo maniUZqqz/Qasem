@@ -24,6 +24,38 @@ VIDEO_TIMEOUT_S = 1800
 FONT_MAP = {"vazirmatn": "vazirmatn", "estedad": "estedad", "lalezar": "lalezar", "shabnam": "shabnam", "sahel": "sahel", "samim": "samim"}
 
 
+def _page_fingerprint(page: dict) -> str:
+    """شکلِ صفحه (هندسه و متن‌ها) ⇒ اثرانگشت. اگر صفحه عوض نشده باشد، همان پروژهٔ ادیتورِ عکس دوباره باز می‌شود."""
+    import hashlib
+
+    return hashlib.sha1(json.dumps(page.get("elements"), sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:20]
+
+
+def _reuse_designer(doc: DesignDoc, page_id: str, fp: str) -> dict | None:
+    from apps.photoedit.models import PhotoProject
+
+    rec = ((doc.meta or {}).get("designer") or {}).get(page_id)
+    if not isinstance(rec, dict) or rec.get("fp") != fp:
+        return None
+    project = PhotoProject.objects.filter(pk=rec.get("project"), store=doc.store).select_related("asset").first()
+    if project is None or project.asset_id is None:
+        return None
+    layers = sum(1 for lay in ((project.data or {}).get("layers") or []) if isinstance(lay, dict) and lay.get("type") == "text")
+    return {"project": project.pk, "asset": project.asset_id, "layers": layers, "reused": True, "url": f"/stores/{doc.store_id}/photo-editor?asset={project.asset_id}&mode=manual"}
+
+
+def _remember_designer(doc: DesignDoc, page_id: str, fp: str, project_id: int, asset_id: int) -> None:
+    fresh = DesignDoc.objects.filter(pk=doc.pk).values_list("meta", flat=True).first() or {}
+    meta = dict(fresh)
+    d = dict(meta.get("designer") or {})
+    d[page_id] = {"fp": fp, "project": project_id, "asset": asset_id}
+    for k in list(d)[:-60]:                                       # نه بی‌نهایت بزرگ شود
+        d.pop(k, None)
+    meta["designer"] = d
+    DesignDoc.objects.filter(pk=doc.pk).update(meta=meta)
+    doc.meta = meta
+
+
 def edit_in_designer(doc: DesignDoc, page_id: str, user) -> dict:
     """یک صفحه/اسلاید/فریم ⇒ پروژهٔ ادیتورِ عکس: پس‌زمینه و عکس‌ها یک تصویرِ پایه، هر متن یک «لایهٔ متنِ» قابل‌ویرایش."""
     from apps.photoedit import services as photo
@@ -33,6 +65,10 @@ def edit_in_designer(doc: DesignDoc, page_id: str, user) -> dict:
     page = next((p for p in b.pages if p["id"] == page_id), None)
     if page is None:
         raise services.DesignError("صفحه پیدا نشد.")
+    fp = _page_fingerprint(page)
+    again = _reuse_designer(doc, page_id, fp)
+    if again is not None:
+        return again
     width_px = 1800 if b.unit == "mm" else min(1920, int(page["w"]))
     scale = width_px / page["w"]
     base_page = {**page, "elements": [e for e in page["elements"] if e["type"] != "text" or e.get("bg")]}
@@ -55,7 +91,8 @@ def edit_in_designer(doc: DesignDoc, page_id: str, user) -> dict:
     state = photo_render.default_state()
     state["layers"] = layers
     project = photo.create_project(doc.store, asset, f"{doc.title} — {page.get('name', page_id)}", state)
-    return {"project": project.pk, "asset": asset.pk, "layers": len(layers) - 1, "url": f"/stores/{doc.store_id}/photo-editor?asset={asset.pk}&mode=manual"}
+    _remember_designer(doc, page_id, fp, project.pk, asset.pk)
+    return {"project": project.pk, "asset": asset.pk, "layers": len(layers) - 1, "reused": False, "url": f"/stores/{doc.store_id}/photo-editor?asset={asset.pk}&mode=manual"}
 
 
 # ───────────────────────────── ویدیو (سرورِ پردازش)

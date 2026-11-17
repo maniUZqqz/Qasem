@@ -503,3 +503,274 @@ class NodeAndSelftestTests(Base):
         failed = [c for c in res["checks"] if not c["ok"]]
         self.assertEqual(failed, [], failed)
         self.assertTrue(res["ok"])
+
+
+# ───────────────────────────── دورِ اصلاحِ بازبینی (۱۴۰۵/۰۸/۲۶)
+
+def _pdf_objects(pdf: bytes) -> dict[int, bytes]:
+    import re
+
+    return {int(m.group(1)): m.group(2) for m in re.finditer(rb"(\d+) 0 obj\n(.*?)\nendobj", pdf, re.S)}
+
+
+def _pdf_stream(body: bytes) -> bytes:
+    import zlib
+
+    i = body.find(b"stream\n")
+    raw = body[i + 7:body.rfind(b"\nendstream")]
+    return zlib.decompress(raw) if b"FlateDecode" in body[:i] else raw
+
+
+def pdf_text_layer(pdf: bytes) -> list[str]:
+    """متنِ لایهٔ نامرئیِ PDF (Tr 3) را از روی ToUnicodeِ همان فایل برمی‌گرداند؛ هر خط یک رشته."""
+    import re
+
+    from bidi.algorithm import get_display
+
+    objs = _pdf_objects(pdf)
+    tounicode: dict[str, dict[int, str]] = {}
+    for body in objs.values():
+        if b"/Subtype /Type1" in body and b"/ToUnicode" in body:
+            ref = int(re.search(rb"/ToUnicode (\d+) 0 R", body).group(1))
+            cm = _pdf_stream(objs[ref]).decode("latin-1")
+            pairs = [p for blk in re.findall(r"beginbfchar(.*?)endbfchar", cm, re.S) for p in re.findall(r"<([0-9A-F]{2})> <([0-9A-F]+)>", blk)]
+            table = {int(a, 16): bytes.fromhex(b).decode("utf-16-be") for a, b in pairs}
+            tounicode[body.decode("latin-1")] = table
+    name_to_obj: dict[str, int] = {}
+    for body in objs.values():
+        if b"/Type /Page " in body:
+            m = re.search(rb"/Font << (.*?) >>", body)
+            if m:
+                for nm, num in re.findall(rb"/(TL\d+) (\d+) 0 R", m.group(1)):
+                    name_to_obj[nm.decode()] = int(num)
+    lines = []
+    for body in objs.values():
+        if b"stream\n" not in body or b"/Subtype" in body[:body.find(b"stream\n")]:
+            continue
+        try:
+            content = _pdf_stream(body)
+        except Exception:  # noqa: BLE001
+            continue
+        for bt in re.findall(rb"BT 3 Tr (.*?) ET", content, re.S):
+            line = ""
+            for nm, hexs in re.findall(rb"/(TL\d+) [\d.]+ Tf <([0-9A-F]+)> Tj", bt):
+                table = tounicode[objs[name_to_obj[nm.decode()]].decode("latin-1")]
+                line += "".join(table[b] for b in bytes.fromhex(hexs.decode()))
+            lines.append(get_display(line, base_dir="R"))                       # ترتیبِ دیداری ⇒ منطقی (کاری که نمایشگرِ PDF هم می‌کند)
+    return lines
+
+
+class FixRoundTests(Base):
+    # --- ۱) پیوندِ «بازکردن در سایت‌ساز»
+    def test_site_link_points_at_a_real_builder_page_and_old_docs_are_repaired(self):
+        from apps.projects.models import Page, Project
+
+        Store.objects.filter(pk=self.store.pk).update(owner=self.staff)
+        self.api.force_authenticate(self.staff)
+        doc = self.make("ui", devices=["desktop"])
+        out = self.api.post(f"{self.base}/docs/{doc['id']}/site/", {"name": "پیوند"}, format="json").json()["site"]
+        home = Page.objects.filter(project_id=out["project_id"]).order_by("order", "pk").first()
+        self.assertEqual(out["pages"][0]["page_id"], home.pk)
+        self.assertEqual(out["builder_url"], f"/panel/tools/studio/p/{out['slug']}/builder/page/{home.pk}")
+        self.assertEqual(out["url"], f"/panel/tools/studio/p/{out['slug']}")           # نه شناسهٔ پروژه (/studio/19) که به فهرستِ پروژه‌ها می‌رفت
+        # سندِ قدیمی: شناسهٔ صفحه در meta نیست ⇒ از روی پروژه پیدا می‌شود
+        d = DesignDoc.objects.get(pk=doc["id"])
+        d.meta["site"] = {k: v for k, v in d.meta["site"].items() if k not in ("builder_url",)}
+        d.meta["site"]["pages"] = [{k: v for k, v in pg.items() if k != "page_id"} for pg in d.meta["site"]["pages"]]
+        d.meta["site"]["url"] = f"/panel/tools/studio/{out['project_id']}"
+        d.save()
+        got = self.api.get(f"{self.base}/docs/{doc['id']}/").json()["doc"]
+        self.assertEqual(got["site"]["pages"][0]["page_id"], home.pk)
+        self.assertTrue(got["site"]["builder_url"].endswith(f"/builder/page/{home.pk}"))
+        self.assertEqual(got["meta"]["site"]["builder_url"], got["site"]["builder_url"])
+        self.assertTrue(got["site"]["exists"])
+        Project.objects.filter(pk=out["project_id"]).delete()
+        gone = self.api.get(f"{self.base}/docs/{doc['id']}/").json()["doc"]
+        self.assertFalse(gone["site"]["exists"])
+
+    # --- ۲) پاک‌کردنِ سند فایل‌هایش را هم می‌برد
+    def test_delete_doc_removes_its_export_and_cache_folder(self):
+        doc = self.make("catalog")
+        e = self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "screen_pdf"}, format="json").json()["export"]
+        self.assertEqual(e["state"], "READY")
+        self.api.get(f"{self.base}/docs/{doc['id']}/preview/{doc['data']['pages'][0]['id']}.png?w=300")
+        d = services.doc_dir(self.store.pk, doc["id"])
+        self.assertTrue(d.is_dir() and any(d.rglob("*.pdf")))
+        other = self.make("catalog")
+        self.assertEqual(self.api.delete(f"{self.base}/docs/{doc['id']}/").status_code, 204)
+        self.assertFalse(d.exists())
+        self.api.post(f"{self.base}/docs/{other['id']}/exports/", {"kind": "screen_pdf"}, format="json")
+        self.assertTrue(any(services.doc_dir(self.store.pk, other["id"]).rglob("*.pdf")))           # سندِ دیگر دست‌نخورده
+        self.assertFalse(DesignExport.objects.filter(doc_id=doc["id"]).exists())
+
+    def test_cascade_delete_of_the_store_cleans_the_folders_too(self):
+        doc = self.make("deck", use_ai=False)
+        self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "screen_pdf"}, format="json")
+        d = services.doc_dir(self.store.pk, doc["id"])
+        self.assertTrue(d.is_dir())
+        with self.captureOnCommitCallbacks(execute=True):
+            DesignDoc.objects.filter(pk=doc["id"]).first().delete()                      # مثلِ ادمین یا پاک‌شدنِ زنجیره‌ای
+        self.assertFalse(d.exists())
+
+    def test_cleanup_never_leaves_the_design_root(self):
+        outside = self.data.parent / "nm-design-outside-probe"
+        outside.mkdir(exist_ok=True)
+        try:
+            self.assertFalse(services.remove_doc_files(self.store.pk, 987654))              # چیزی برای پاک‌کردن نیست
+            self.assertTrue(outside.exists())
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    # --- ۳) چک‌لیستِ کاتالوگ: صفحهٔ خالی
+    def test_catalog_checklist_warns_about_blank_hero_lookbook_and_friends(self):
+        doc = self.make("catalog")
+        sc = self.api.get(f"{self.base}/docs/{doc['id']}/scene/").json()
+        self.assertEqual({c["key"]: c for c in sc["checks"]}["empty"]["level"], "ok")        # کاتالوگِ خودکار صفحهٔ خالی ندارد
+        for t in ("hero", "lookbook", "grid", "steps"):
+            doc = self.ops(doc, [{"op": "add_page", "type": t, "spec": {}}])
+        sc = self.api.get(f"{self.base}/docs/{doc['id']}/scene/").json()
+        c = {c["key"]: c for c in sc["checks"]}["empty"]
+        self.assertEqual(c["level"], "warn", c)
+        self.assertIn("۴ صفحه خالی", c["title"])
+        self.assertIn("محصولی برایش انتخاب نشده", c["detail"])
+        pid = next(p["id"] for p in doc["data"]["pages"] if p["type"] == "hero" and not p.get("product"))
+        doc = self.ops(doc, [{"op": "update_page", "page": pid, "set": {"product": self.products[0].pk}}])
+        sc = self.api.get(f"{self.base}/docs/{doc['id']}/scene/").json()
+        self.assertIn("۳ صفحه خالی", {c["key"]: c for c in sc["checks"]}["empty"]["title"])
+        # صفحه‌ای که کاربر خودش چیزی رویش گذاشته خالی حساب نمی‌شود
+        lb = next(p["id"] for p in doc["data"]["pages"] if p["type"] == "lookbook" and not p.get("images"))
+        doc = self.ops(doc, [{"op": "add_element", "page": lb, "element": {"type": "text", "x": 10, "y": 10, "w": 60, "h": 10, "text": "نوشته", "size": 5, "color": "#112233"}}])
+        sc = self.api.get(f"{self.base}/docs/{doc['id']}/scene/").json()
+        self.assertIn("۲ صفحه خالی", {c["key"]: c for c in sc["checks"]}["empty"]["title"])
+
+    def test_printer_pack_preflight_text_mentions_blank_pages(self):
+        doc = self.make("catalog")
+        doc = self.ops(doc, [{"op": "add_page", "type": "hero", "spec": {}}])
+        e = self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "pack_printer"}, format="json").json()["export"]
+        z = zipfile.ZipFile(io.BytesIO(b"".join(self.api.get(f"{self.base}/exports/{e['id']}/download/").streaming_content)))
+        pre = next(n for n in z.namelist() if "PREFLIGHT" in n.upper())
+        self.assertIn("صفحه خالی", z.read(pre).decode("utf-8"))
+
+    # --- ۴) فهرستِ لایه‌ها هرگز «undefined» نشان نمی‌دهد (سمتِ داده: فرزندِ بخش فقط type دارد)
+    def test_section_children_are_marked_as_blocks_in_new_docs(self):
+        nodes = ui_doc._from_builder_blocks([{"id": "s1", "type": "section", "props": {}, "children": [{"id": "i1", "type": "image", "props": {"src": ""}}]}])
+        self.assertEqual(nodes[0]["t"], "block")
+        self.assertEqual(nodes[0]["children"][0]["t"], "block")                    # پیش‌تر نبود ⇒ «undefined» در فهرستِ لایه‌ها
+        self.assertEqual(nodes[0]["children"][0]["type"], "image")
+
+    # --- ۵) قطعهٔ تازه پیش از پابرگ می‌نشیند
+    def test_new_component_lands_before_the_footer_header_first_footer_last(self):
+        doc = self.make("ui", devices=["desktop"])
+        f = doc["data"]["frames"][0]["id"]
+        doc = self.ops(doc, [{"op": "add_node", "frame": f, "type": "c_cta_center_box"}])
+        kids = doc["data"]["frames"][0]["children"]
+        self.assertTrue(kids[-1]["type"].startswith("c_footer"), [k["type"] for k in kids])
+        self.assertEqual(kids[-2]["type"], "c_cta_center_box")
+        doc = self.ops(doc, [{"op": "add_node", "frame": f, "type": "c_footer_columns"}])         # پابرگِ دیگر ⇒ آخر
+        self.assertTrue(doc["data"]["frames"][0]["children"][-1]["type"].startswith("c_footer"))
+        doc = self.ops(doc, [{"op": "add_node", "frame": f, "type": "c_nav_classic"}])            # سربرگ ⇒ اول
+        self.assertTrue(doc["data"]["frames"][0]["children"][0]["type"].startswith("c_nav"))
+        doc = self.ops(doc, [{"op": "add_node", "frame": f, "type": "c_faq_two_col", "index": 1}])  # index صریح محترم است
+        self.assertEqual(doc["data"]["frames"][0]["children"][1]["type"], "c_faq_two_col")
+        # فریمِ بی‌پابرگ: مثلِ قبل در انتها
+        doc = self.ops(doc, [{"op": "add_frame", "name": "خالی", "device": "phone"}])
+        f2 = doc["data"]["frames"][-1]["id"]
+        doc = self.ops(doc, [{"op": "add_node", "frame": f2, "type": "c_cta_center_box"}, {"op": "add_node", "frame": f2, "type": "c_faq_two_col"}])
+        self.assertEqual([k["type"] for k in doc["data"]["frames"][-1]["children"]], ["c_cta_center_box", "c_faq_two_col"])
+
+    # --- ۶) «ویرایش در طراح» تکرارپذیر است
+    def test_edit_in_designer_reuses_the_project_until_the_page_changes(self):
+        from apps.photoedit.models import PhotoProject
+
+        doc = self.make("catalog")
+        pid = doc["data"]["pages"][3]["id"]
+        url = f"{self.base}/docs/{doc['id']}/designer/"
+        a = self.api.post(url, {"page": pid}, format="json").json()
+        b = self.api.post(url, {"page": pid}, format="json").json()
+        self.assertFalse(a["reused"])
+        self.assertTrue(b["reused"])
+        self.assertEqual((a["project"], a["asset"]), (b["project"], b["asset"]))
+        self.assertEqual(a["layers"], b["layers"])
+        self.assertEqual(PhotoProject.objects.filter(store=self.store).count(), 1)
+        other = self.api.post(url, {"page": doc["data"]["pages"][0]["id"]}, format="json").json()        # صفحهٔ دیگر ⇒ پروژهٔ دیگر
+        self.assertFalse(other["reused"])
+        self.assertEqual(PhotoProject.objects.filter(store=self.store).count(), 2)
+        fresh = self.ops(self.api.get(f"{self.base}/docs/{doc['id']}/").json()["doc"], [{"op": "override", "page": pid, "el": "title", "set": {"text": "عنوانِ تازه"}}])
+        c = self.api.post(url, {"page": pid}, format="json").json()                                        # صفحه عوض شد ⇒ پروژهٔ تازه
+        self.assertFalse(c["reused"])
+        self.assertNotEqual(c["project"], a["project"])
+        PhotoProject.objects.filter(pk=c["project"]).delete()                                              # پروژه پاک شد ⇒ دوباره ساخته می‌شود
+        d = self.api.post(url, {"page": pid}, format="json").json()
+        self.assertFalse(d["reused"])
+        self.assertGreater(fresh["rev"], doc["rev"])
+
+    # --- ۷) ارائه: ردیفِ آمارِ بی‌منبع بی‌صدا گم نمی‌شود، و منبعِ خودکار وسطِ واژه نمی‌بُرد
+    def test_deck_form_rows_without_source_are_reported_not_silently_dropped(self):
+        doc = self.make("deck", use_ai=False, facts=[{"value": "۱۲", "label": "مربیِ فعال", "source": ""}, {"value": "", "label": "", "source": ""}])
+        self.assertEqual(doc["data"]["meta"]["facts_dropped"], 1)                                     # ردیفِ کاملاً خالی شمرده نمی‌شود
+        sc = self.api.get(f"{self.base}/docs/{doc['id']}/scene/").json()
+        c = {c["key"]: c for c in sc["checks"]}["facts_dropped"]
+        self.assertEqual(c["level"], "warn")
+        self.assertIn("مربیِ فعال", c["detail"])
+        stats = next(s for s in doc["data"]["slides"] if s["type"] == "stats")
+        self.assertTrue(all(i["source"] for i in stats["items"]))                                      # آمارِ خودکار جایگزین شد، همه منبع دارند
+        ok = self.make("deck", use_ai=False, facts=[{"value": "۱۲", "label": "مربیِ فعال", "source": "پرونده‌های داخلی"}])
+        self.assertNotIn("facts_dropped", ok["data"]["meta"])
+        self.assertEqual(next(s for s in ok["data"]["slides"] if s["type"] == "stats")["items"][0]["source"], "پرونده‌های داخلی")
+
+    def test_auto_stat_sources_do_not_cut_names_mid_word_or_leave_open_brackets(self):
+        long_a = "برنامهٔ تکی با هوش مصنوعی (فقط ورزشی یا غذایی)"
+        long_b = "بستهٔ کاملِ سه‌ماههٔ تمرین و تغذیه همراه با پشتیبانیِ مربی و پیگیری هفتگی"
+        Product.objects.filter(pk=self.products[3].pk).update(name=long_a)
+        Product.objects.filter(pk=self.products[4].pk).update(name=long_b)
+        doc = self.make("deck", use_ai=False)
+        stats = next(s for s in doc["data"]["slides"] if s["type"] == "stats")
+        sources = [i["source"] for i in stats["items"] if "قیمتِ ثبت‌شده" in i["source"]]
+        self.assertEqual(len(sources), 2, stats)
+        for s in sources:
+            self.assertEqual(s.count("«"), s.count("»"), s)
+            self.assertEqual(s.count("("), s.count(")"), s)
+            self.assertTrue(s.endswith("»"), s)
+        joined = " | ".join(sources)
+        self.assertIn("«برنامهٔ تکی با هوش مصنوعی…»", joined)
+        for w in ("پشتیبانیِ", "همراه"):
+            self.assertNotIn(w[:3] + "…", joined)
+        self.assertEqual(deck_doc.short_name("نامِ کوتاه"), "نامِ کوتاه")
+        cut = deck_doc.short_name(long_b)
+        self.assertTrue(cut.endswith("…") and long_b.startswith(cut[:-1]) and long_b[len(cut) - 1] == " ", cut)
+
+    # --- ۸) برچسب‌ها و متن‌ها
+    def test_mp4_export_has_a_persian_label_and_kiosk_readme_names_the_real_engine(self):
+        doc = self.make("deck", use_ai=False)
+        e = DesignExport.objects.create(doc_id=doc["id"], kind="mp4", state=DesignExport.State.RUNNING)
+        label = services.export_dict(e)["label"]
+        self.assertNotEqual(label, "mp4")
+        self.assertIn("ویدیو", label)
+        k = self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "pack_kiosk"}, format="json").json()["export"]
+        z = zipfile.ZipFile(io.BytesIO(b"".join(self.api.get(f"{self.base}/exports/{k['id']}/download/").streaming_content)))
+        readme = z.read("README-fa.txt").decode("utf-8")
+        self.assertNotIn("موتور موشن", readme)
+        self.assertIn("ffmpeg", readme)
+
+    # --- ۹) «PDF نمایشی» لایهٔ متنِ جست‌وجوپذیر دارد؛ «PDF چاپی» نه (متنِ منحنی)
+    def test_screen_pdf_has_a_searchable_text_layer_and_print_pdf_stays_outlined(self):
+        doc = self.make("catalog")
+        s = self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "screen_pdf"}, format="json").json()["export"]
+        p = self.api.post(f"{self.base}/docs/{doc['id']}/exports/", {"kind": "print_pdf"}, format="json").json()["export"]
+        screen = b"".join(self.api.get(f"{self.base}/exports/{s['id']}/download/").streaming_content)
+        print_ = b"".join(self.api.get(f"{self.base}/exports/{p['id']}/download/").streaming_content)
+        lines = pdf_text_layer(screen)
+        text = "\n".join(lines)
+        self.assertGreater(len(lines), 10)
+        self.assertIn("آزمون", text)                                          # نامِ محصول‌ها از فارسیِ واقعی استخراج می‌شود
+        self.assertIn(self.store.name, text)
+        self.assertEqual(pdf_text_layer(print_), [])                            # چاپی: فقط منحنی
+        self.assertNotIn(b"3 Tr", b"".join(_pdf_stream(b) for b in _pdf_objects(print_).values() if b"stream\n" in b and b"/Type /XObject" not in b))
+        self.assertLess(len(screen), 3_000_000)
+        # شمارِ نویسه‌های متفاوت از ۲۵۴ بیشتر شود ⇒ فونتِ تازه باز می‌شود و استخراج درست می‌ماند
+        from . import pdf as pdfmod
+
+        d = pdfmod.PdfDoc()
+        runs = d.text_runs("".join(chr(0x4E00 + i) for i in range(300)))
+        self.assertEqual(len(d.tfonts), 2)
+        self.assertEqual(sum(len(c) for _, c in runs), 300)

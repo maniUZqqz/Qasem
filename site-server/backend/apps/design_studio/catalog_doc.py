@@ -178,6 +178,47 @@ def image_dpi(sc: dict, src: images.ImageSource) -> list[dict]:
     return out
 
 
+def empty_pages(data: dict, sc: dict) -> list[dict]:
+    """صفحه‌هایی که بی‌هیچ محتوا چاپ می‌شوند: «محصولِ ویژه» بدونِ محصول، «لوک‌بوک» بدونِ عکس، شبکه/فهرستِ قیمت بدونِ محصول، گام‌ها و متنِ خالی.
+    ⇒ [{id, name, type, why}]. صفحه‌ای که کاربر خودش عنصر به آن افزوده خالی حساب نمی‌شود."""
+    known = set()
+    for p in data.get("products", []):
+        try:
+            known.add(int(p["id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    def has_product(v) -> bool:
+        try:
+            return int(v) in known
+        except (TypeError, ValueError):
+            return False
+
+    specs = {sp.get("id"): sp for sp in data.get("pages", []) if isinstance(sp, dict)}
+    out = []
+    for pg in sc["pages"]:
+        sp = specs.get(pg.get("id")) or {}
+        if sp.get("extra"):
+            continue
+        t = pg.get("type") or sp.get("type")
+        why = ""
+        if t == "hero" and not has_product(sp.get("product")):
+            why = "محصولی برایش انتخاب نشده"
+        elif t == "lookbook" and not [r for r in (sp.get("images") or []) if r]:
+            why = "عکسی ندارد"
+        elif t in ("grid", "price_list") and not any(has_product(v) for v in (sp.get("products") or [])):
+            why = "محصولی ندارد"
+        elif t == "steps" and not [s for s in (sp.get("steps") or []) if isinstance(s, dict) and (s.get("title") or s.get("text"))]:
+            why = "گامی ندارد"
+        elif t == "text" and not (sp.get("image") or [x for x in (sp.get("paragraphs") or []) if str(x).strip()]):
+            why = "متن و عکسی ندارد"
+        elif not any(e.get("role") != "decor" for e in pg.get("elements", [])):
+            why = "چیزی روی صفحه نیست"
+        if why:
+            out.append({"id": pg.get("id"), "name": pg.get("name") or str(pg.get("id")), "type": t, "why": why})
+    return out
+
+
 def preflight(data: dict, sc: dict, src: images.ImageSource) -> list[dict]:
     """⇒ چک‌لیست: [{key، level: ok|warn|info، title، detail}] — هر مورد معادلِ یک خطِ «چک‌لیستِ فایلِ کاتالوگ برای چاپخانه» ِ راهنما."""
     s = sc["settings"]
@@ -203,7 +244,7 @@ def preflight(data: dict, sc: dict, src: images.ImageSource) -> list[dict]:
         add("dpi", "warn", f"{fa(len(low))} عکس کمتر از ۳۰۰ dpi دارد (کمترین {fa(worst)})", "برای چاپِ تیز عکسِ بزرگ‌تر بگذارید؛ برای مشاهدهٔ روی صفحه مشکلی نیست.")
     else:
         add("dpi", "ok", "عکس‌ها دست‌کم ۳۰۰ dpi در اندازهٔ چاپ‌اند", "" if dp else "عکسی در کاتالوگ نیست.")
-    add("fonts", "ok", "فونت‌ها به منحنی (Outline) تبدیل می‌شوند", "چاپخانه نیازی به نصبِ فونت ندارد؛ متن در PDF انتخاب‌پذیر نیست.")
+    add("fonts", "ok", "فونت‌ها به منحنی (Outline) تبدیل می‌شوند", "چاپخانه نیازی به نصبِ فونت ندارد؛ متن در «PDF چاپی» انتخاب‌پذیر نیست (در «PDF نمایشی» متنِ قابل‌جست‌وجو و کپی هست).")
     add("color", "info", "رنگ‌ها RGB‌اند", "CMYK و PDF/X واقعی را چاپخانه از همین PDF می‌سازد؛ اگر چیز دیگری خواست از او بپرسید.")
     safe = 5.0
     bad_safe = []
@@ -218,6 +259,9 @@ def preflight(data: dict, sc: dict, src: images.ImageSource) -> list[dict]:
     over = [p["name"] for p in sc["pages"] for e in p["elements"] if scene.text_problem(e)]
     add("overflow", "ok" if not over else "warn", "هیچ متنی بریده یا سرریز نشده" if not over else f"{fa(len(over))} متن بیش از جعبه‌اش بود (کوتاه یا بریده شد)",
         "" if not over else "، ".join(sorted(set(over))[:4]))
+    empt = empty_pages(data, sc)
+    add("empty", "ok" if not empt else "warn", "هیچ صفحهٔ خالی نیست" if not empt else f"{fa(len(empt))} صفحه خالی است و سفید چاپ می‌شود",
+        "" if not empt else "؛ ".join(f"«{e['name']}» ({e['why']})" for e in empt[:4]) + " — محصول یا عکس را اضافه کنید، یا صفحه را حذف کنید.")
     add("single", "ok", "صفحه‌ها تکی‌اند (نه دوتایی/Spread)", "")
     add("mult4", "ok" if n % 4 == 0 else "info", f"تعداد صفحه‌ها {fa(n)}" + (" (مضرب ۴)" if n % 4 == 0 else ""),
         "" if n % 4 == 0 else "برای کاتالوگِ منگنه‌ای تعدادِ صفحه باید مضرب ۴ باشد (۸، ۱۲، ۱۶…). با «افزودنِ صفحهٔ یادداشت» تکمیل کنید.")

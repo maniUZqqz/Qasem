@@ -10,7 +10,7 @@ export type UiStyle = { key: string; label: string; en: string; mood: string; de
 export type ProductRow = { id: number; name: string; price: number | null; currency: string; available: boolean; category: string; image_ref: string; image_url: string; has_description: boolean };
 export type DocSummary = { id: number; kind: Kind; kind_fa: string; title: string; rev: number; source: string; count: number; updated_at: string; created_at: string; site?: SiteInfo | null; ai?: AiInfo | null };
 export type AiInfo = { used: boolean; via: string; message: string; model?: string };
-export type SiteInfo = { project_id: number; slug: string; pages: { frame: string; title: string; slug: string; blocks: number }[]; url: string; style: string; published: boolean };
+export type SiteInfo = { project_id: number; slug: string; pages: { frame: string; title: string; slug: string; blocks: number; page_id?: number }[]; url: string; builder_url?: string; exists?: boolean; style: string; published: boolean };
 export type Recipient = { key: string; title: string; doc_kinds: Kind[]; pack: string; what: string; note: string };
 export type ExportKindInfo = { label: string; ext: string; kinds: Kind[] };
 
@@ -72,7 +72,7 @@ export const designApi = {
   startExport: async (id: string, docId: number, kind: string, params: Record<string, unknown> = {}) => (await api.post<{ export: ExportRow }>(`${P(id)}/docs/${docId}/exports/`, { kind, params })).data.export,
   deleteExport: async (id: string, eid: number) => api.delete(`${P(id)}/exports/${eid}/`),
   exportRow: async (id: string, eid: number) => (await api.get<{ export: ExportRow }>(`${P(id)}/exports/${eid}/`)).data.export,
-  designer: async (id: string, docId: number, page: string) => (await api.post<{ project: number; asset: number; layers: number; url: string }>(`${P(id)}/docs/${docId}/designer/`, { page })).data,
+  designer: async (id: string, docId: number, page: string) => (await api.post<{ project: number; asset: number; layers: number; url: string; reused?: boolean }>(`${P(id)}/docs/${docId}/designer/`, { page })).data,
   video: async (id: string, docId: number, body: { seconds: number; transition: string }) => (await api.post<{ export: ExportRow; node: { state: string; message: string } }>(`${P(id)}/docs/${docId}/video/`, body)).data,
   site: async (id: string, docId: number, body: { name?: string }) => (await api.post<{ site: SiteInfo }>(`${P(id)}/docs/${docId}/site/`, body)).data.site,
   ai: async (id: string, docId: number, body: { brief: string; use_ai: boolean }) => (await api.post<{ doc: Doc; ai: AiInfo }>(`${P(id)}/docs/${docId}/ai/`, body)).data,

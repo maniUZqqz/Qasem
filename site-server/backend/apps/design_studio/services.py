@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import threading
 import time
 from collections import OrderedDict
@@ -159,10 +160,16 @@ def create_doc(store, user, kind: str, *, title: str = "", options: dict | None 
         info = store_info(store, s)
         ids = [int(i) for i in (opts.get("products") or []) if str(i).isdigit()] or None
         items = prod.snapshot(store, ids, only_available=not bool(ids))
-        facts = [f for f in (opts.get("facts") or []) if isinstance(f, dict) and f.get("value") and f.get("label") and f.get("source")]
+        facts_in = [f for f in (opts.get("facts") or []) if isinstance(f, dict)]
+        facts = [f for f in facts_in if str(f.get("value") or "").strip() and str(f.get("label") or "").strip() and str(f.get("source") or "").strip()]
+        # ردیفِ نیمه‌کاره (مثلاً عدد بدونِ منبع) بی‌صدا دور ریخته نمی‌شود: شمارش و برچسبش در سند می‌ماند و بازبینی هشدار می‌دهد.
+        dropped = [f for f in facts_in if f not in facts and any(str(f.get(k) or "").strip() for k in ("value", "label", "source"))]
         data, ai = deck_doc.new_deck(info, items, s, {k: opts[k] for k in ("featured", "products_count", "steps", "steps_title", "team", "cta", "subtitle", "kicker", "cover_image", "date") if k in opts},
                                      brief=_clip(opts.get("brief"), 1200), use_ai=bool(opts.get("use_ai")), facts=facts or None, store=store, ask=ask)
         meta["ai"] = ai
+        if dropped:
+            data.setdefault("meta", {})["facts_dropped"] = len(dropped)
+            data["meta"]["facts_dropped_labels"] = [_clip(f.get("label") or f.get("value"), 60) for f in dropped[:8]]
         source = DesignDoc.Source.AI if ai.get("used") else DesignDoc.Source.RULES
     else:
         s = _ui_settings(opts)
@@ -182,13 +189,38 @@ def doc_summary(doc: DesignDoc) -> dict:
     d = doc.data or {}
     n = len(d.get("pages") or d.get("slides") or d.get("frames") or [])
     return {"id": doc.pk, "kind": doc.kind, "kind_fa": doc.get_kind_display(), "title": doc.title, "rev": doc.rev, "source": doc.source, "count": n,
-            "updated_at": doc.updated_at.isoformat(), "created_at": doc.created_at.isoformat(), "site": (doc.meta or {}).get("site"), "ai": (doc.meta or {}).get("ai")}
+            "updated_at": doc.updated_at.isoformat(), "created_at": doc.created_at.isoformat(), "site": site_public((doc.meta or {}).get("site")), "ai": (doc.meta or {}).get("ai")}
 
 
 def doc_public(doc: DesignDoc) -> dict:
     out = doc_summary(doc)
     out["data"] = doc.data
-    out["meta"] = doc.meta
+    out["meta"] = {**(doc.meta or {}), "site": out["site"]} if out.get("site") else doc.meta
+    return out
+
+
+def site_public(site: dict | None) -> dict | None:
+    """«ساختِ سایت از این طرح» ⇒ نشانیِ درستِ سایت‌ساز. ویرایشگرِ سایت‌ساز شناسهٔ صفحه می‌خواهد (p/<slug>/builder/page/<id>)؛
+    سندهای قدیمی‌تر شناسهٔ صفحه را نداشتند، پس از روی پروژه پیدا می‌شود. اگر پروژه پاک شده باشد ``exists=False``."""
+    if not isinstance(site, dict) or not site.get("slug"):
+        return site if isinstance(site, dict) else None
+    out = {**site, "pages": [dict(p) for p in (site.get("pages") or []) if isinstance(p, dict)]}
+    proj = None
+    try:
+        from apps.projects.models import Page, Project
+
+        proj = Project.objects.filter(pk=site.get("project_id")).only("pk", "slug").first()
+        if proj is not None:
+            by_slug = {p["slug"]: p["pk"] for p in Page.objects.filter(project=proj).order_by("order", "pk").values("pk", "slug")}
+            for pg in out["pages"]:
+                pg["page_id"] = pg.get("page_id") or by_slug.get(pg.get("slug", ""))
+            out["slug"] = proj.slug
+    except Exception:  # noqa: BLE001 — نشانی فقط یک کمک است؛ هرگز نمایشِ سند را نمی‌شکند
+        logger.exception("design site link lookup failed")
+    out["exists"] = proj is not None
+    out["url"] = f"/panel/tools/studio/p/{out['slug']}"
+    first = next((p.get("page_id") for p in out["pages"] if p.get("page_id")), None)
+    out["builder_url"] = f"/panel/tools/studio/p/{out['slug']}/builder/page/{first}" if first and proj is not None else out["url"]
     return out
 
 
@@ -501,10 +533,41 @@ def rename(doc: DesignDoc, title: str) -> DesignDoc:
     return doc
 
 
+# ───────────────────────────── پاک‌کردنِ سند
+
+def doc_dir(store_id: int, doc_id: int) -> Path:
+    return exports.data_root() / f"s{int(store_id)}" / f"d{int(doc_id)}"
+
+
+def remove_doc_files(store_id: int, doc_id: int) -> bool:
+    """پوشهٔ خروجی‌ها و کَشِ پیش‌نمایشِ یک سند را پاک می‌کند (چند مگابایت برای هر سند؛ سرور جای کمی دارد). فقط داخلِ ``design/s<store>/d<doc>``."""
+    d = doc_dir(store_id, doc_id)
+    root = exports.data_root().resolve()
+    try:
+        r = d.resolve()
+        if r.parent.parent != root or not d.exists():
+            return False
+        shutil.rmtree(r, ignore_errors=True)
+        s = r.parent
+        if s.is_dir() and not any(s.iterdir()):
+            s.rmdir()                                            # پوشهٔ فروشگاهِ خالی هم نماند
+        return True
+    except OSError:
+        logger.exception("design doc files cleanup failed (doc %s)", doc_id)
+        return False
+
+
+def delete_doc(doc: DesignDoc) -> None:
+    """سند + فایل‌های خروجی‌اش. (پاک‌شدنِ زنجیره‌ای، مثلاً با پاک‌شدنِ فروشگاه، با سیگنالِ post_delete پوشه را پاک می‌کند.)"""
+    store_id, doc_id = doc.store_id, doc.pk
+    doc.delete()
+    remove_doc_files(store_id, doc_id)
+
+
 # ───────────────────────────── خروجی‌ها
 
 def export_dict(e: DesignExport) -> dict:
-    label = exports.KINDS.get(e.kind, (e.kind,))[0]
+    label = "ویدیوی MP4 (ساخته‌شده روی سرورِ پردازش)" if e.kind == "mp4" else exports.KINDS.get(e.kind, (e.kind,))[0]
     return {"id": e.pk, "kind": e.kind, "label": label, "state": e.state, "progress": round(e.progress, 3), "message": e.message, "error": e.error, "filename": e.filename,
             "size_bytes": e.size_bytes, "info": e.info, "doc_rev": e.doc_rev, "created_at": e.created_at.isoformat(), "params": e.params,
             "download": f"/design/exports/{e.pk}/download/" if e.state == DesignExport.State.READY else ""}

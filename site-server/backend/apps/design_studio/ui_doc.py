@@ -55,11 +55,18 @@ def block_catalog() -> dict:
         return {"groups": [], "blocks": [], "components": {}}
 
 
+def _mark_blocks(node: dict) -> None:
+    node["t"] = "block"
+    for c in node.get("children") or []:
+        if isinstance(c, dict):
+            _mark_blocks(c)                                       # فرزندِ «بخش» هم بلوک است؛ بدونِ t فهرستِ لایه‌ها نامش را «undefined» می‌نوشت
+
+
 def _from_builder_blocks(blocks: list[dict]) -> list[dict]:
     out = []
     for b in blocks:
         nb = copy.deepcopy(b)
-        nb["t"] = "block"
+        _mark_blocks(nb)
         out.append(nb)
     return out
 
@@ -159,6 +166,28 @@ def clean_node(n, depth: int = 0) -> dict | None:
     return out
 
 
+def _block_family(n: dict) -> str:
+    t = str(n.get("type") or "") if n.get("t") in (None, "block") else ""
+    key = t[2:] if t.startswith("c_") else t
+    return "nav" if t == "site_header" else key.split("_")[0] if key else ""
+
+
+def _default_index(target: list, node: dict, *, top: bool) -> int:
+    """جای پیش‌فرضِ قطعهٔ تازه در بالاترین سطحِ فریم: سربرگ اول، پابرگ آخر و هر چیز دیگر پیش از پابرگ.
+    (پیش‌تر هر قطعه بعد از پابرگ می‌افتاد و کاربر باید با دست بالا می‌آوردش.)"""
+    if not top:
+        return len(target)
+    fam = _block_family(node)
+    if fam == "nav":
+        return 0
+    if fam == "footer":
+        return len(target)
+    i = len(target)
+    while i > 0 and _block_family(target[i - 1]) == "footer":
+        i -= 1                                                    # بعد از آخرین قطعهٔ غیرِ پابرگ
+    return i
+
+
 def apply_ops(data: dict, ops: list[dict]) -> dict:
     """ops روی سند (درجا) ⇒ همان سند. خطا ⇒ ValueError(متنِ فارسی)."""
     for op in (ops or [])[:60]:
@@ -218,7 +247,7 @@ def apply_ops(data: dict, ops: list[dict]) -> dict:
             if isinstance(idx, int) and 0 <= idx <= len(target):
                 target.insert(idx, node)
             else:
-                target.append(node)
+                target.insert(_default_index(target, node, top=target is f["children"]), node)
         elif k == "update_node":
             f = _frame(data, op.get("frame"))
             r = find_node(f, op.get("node")) if f else None
@@ -452,7 +481,7 @@ def to_site(data: dict, info, *, name: str = "", slug: str = "", logo_bytes: byt
         page = Page.objects.create(project=p, title=pg["title"][:120], slug=pg["slug"], kind="home" if pg["home"] else "static", body_html="", in_menu=not pg["home"], order=10 + i * 10)
         doc = clean_doc({"v": 1, "blocks": [fix(b) for b in pg["blocks"]]}, "page")
         Design.objects.create(project=p, target="page", page=page, draft=doc, synced_hash=P.fingerprint(p, "page", page))
-        created.append({"frame": pg["frame"], "title": pg["title"], "slug": pg["slug"], "blocks": len(doc["blocks"])})
+        created.append({"frame": pg["frame"], "title": pg["title"], "slug": pg["slug"], "blocks": len(doc["blocks"]), "page_id": page.pk})
     for target, blk in (("header", plan["header"]), ("footer", plan["footer"])):
         doc = clean_doc({"v": 1, "blocks": [fix(blk)] if blk else []}, target)
         Design.objects.create(project=p, target=target, draft=doc, synced_hash=P.fingerprint(p, target, None))
@@ -460,4 +489,6 @@ def to_site(data: dict, info, *, name: str = "", slug: str = "", logo_bytes: byt
     t.draft = th
     t.menu = [{"id": f"m{i + 1}", "url": plan["path_of"][pg["frame"]], "label": pg["title"][:40]} for i, pg in enumerate(plan["pages"])]
     t.save()
-    return {"project_id": p.pk, "slug": p.slug, "pages": created, "url": f"/panel/tools/studio/{p.pk}", "style": tokens["style"], "published": False}
+    first = created[0]["page_id"] if created else None
+    return {"project_id": p.pk, "slug": p.slug, "pages": created, "url": f"/panel/tools/studio/p/{p.slug}",
+            "builder_url": f"/panel/tools/studio/p/{p.slug}/builder/page/{first}" if first else f"/panel/tools/studio/p/{p.slug}", "style": tokens["style"], "published": False, "exists": True}

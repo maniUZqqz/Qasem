@@ -10,7 +10,7 @@ const SINGLE: Record<string, string[]> = {
   deck: ["pptx", "ppsx", "screen_pdf", "png_zip", "jpg_zip"],
   ui: ["png_zip", "svg_zip", "screen_pdf", "tokens"],
 };
-const PRE: Record<string, string> = { print_pdf: "بلید ۳ میلی‌متر + علامت برش + عکس ۳۰۰ dpi + متنِ منحنی (فونت لازم نیست)", screen_pdf: "کم‌حجم، با فهرستِ کلیک‌پذیر و نشانک", png_zip: "هر صفحه یک PNG", jpg_zip: "هر صفحه یک JPG",
+const PRE: Record<string, string> = { print_pdf: "بلید ۳ میلی‌متر + علامت برش + عکس ۳۰۰ dpi + متنِ منحنی (فونت لازم نیست)", screen_pdf: "کم‌حجم، با فهرستِ کلیک‌پذیر، نشانک و متنِ قابل‌جست‌وجو و کپی", png_zip: "هر صفحه یک PNG", jpg_zip: "هر صفحه یک JPG",
   pptx: "قابل‌ویرایش در PowerPoint و Google Slides؛ متنِ زنده راست‌به‌چپ", ppsx: "مستقیم به‌صورتِ نمایش باز می‌شود", svg_zip: "SVG با متنِ منحنی؛ در Figma و Inkscape باز می‌شود", tokens: "متغیرهای CSS و JSON (روشن/تیره)" };
 
 function ExportItem({ storeId, e, onChange }: { storeId: string; e: ExportRow; onChange: (r: ExportRow) => void }) {

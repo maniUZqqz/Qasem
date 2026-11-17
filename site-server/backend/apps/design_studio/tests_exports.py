@@ -109,8 +109,15 @@ class PdfTests(Base):
 
     def test_text_is_outlined_not_embedded_fonts(self):
         data, _ = exports.screen_pdf(self.cat_bundle)
-        self.assertNotIn(b"/Type /Font", data)
+        self.assertNotIn(b"/FontFile", data)                           # هیچ فونتی جاسازی نمی‌شود: شکلِ حرف‌ها منحنی است
+        for m in re.finditer(rb"/Type /Font[^>]*", data):                # تنها «فونت»: لایهٔ نامرئیِ متن (Helvetica غیرِ جاسازی‌شده + ToUnicode) برای جست‌وجو و کپی
+            self.assertIn(b"/BaseFont /Helvetica", m.group(0))
+            self.assertIn(b"/ToUnicode", m.group(0))
+        self.assertIn(b"3 Tr", b"\n".join(streams(data)))                # نامرئی
         self.assertIn(b"f*", b"\n".join(streams(data)))
+        printed, _ = exports.print_pdf(self.cat_bundle)
+        self.assertNotIn(b"/Type /Font", printed)                       # چاپی: فقط منحنی، بی‌هیچ فونت و بی‌لایهٔ متن
+        self.assertNotIn(b"3 Tr", b"\n".join(streams(printed)))
 
     def test_slide_pdf_page_is_16_by_9(self):
         data, _ = exports.screen_pdf(self.deck_bundle)

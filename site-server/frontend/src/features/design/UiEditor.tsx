@@ -8,6 +8,7 @@ import { BlockCatalog, BlockDef, Comment, FieldSpec, Overview, Scene, ScenePage,
 import C21Panel from "./C21Panel";
 import ExportDialog from "./ExportDialog";
 import { useDocEditor, useOverview, usePreview } from "./hooks";
+import { nodeLabel, siteBuilderPath } from "./labels";
 import { ColorField, Field, ImagePicker, PageCanvas, Thumb, useWidth, ChecksPanel } from "./parts";
 import "./design.css";
 
@@ -20,12 +21,6 @@ function walk(nodes: Node[], depth = 0, out: { n: Node; depth: number }[] = []) 
     if (Array.isArray(n.children) && depth < 4) walk(n.children, depth + 1, out);
   }
   return out;
-}
-
-function nodeLabel(n: Node, catalog: BlockCatalog | null): string {
-  if (n.t === "block" && n.type === "c21") return "قطعهٔ 21st.dev";
-  if (n.t === "block") return catalog?.blocks.find((b) => b.type === n.type)?.label ?? String(n.type);
-  return n.name || ({ frame: "قاب Auto Layout", text: "متن", button: "دکمه", image: "تصویر", rect: "مستطیل", input: "فیلد", spacer: "فاصله", icon: "نماد" } as Record<string, string>)[n.t] || String(n.t);
 }
 
 // ───────────────────────────── فرمِ مشخصه‌های بلوک (از تعریفِ سایت‌ساز)
@@ -159,8 +154,11 @@ export default function UiEditor() {
   const addNode = async (type: string) => {
     const r = await ops([{ op: "add_node", frame: frame.id, type }]);
     if (r) {
+      // قطعهٔ تازه پیش از پابرگ می‌نشیند، نه لزوماً آخر؛ پس تازه‌ترین شناسه را با مقایسه پیدا می‌کنیم.
+      const before = new Set<string>((frame.children ?? []).map((c: Node) => c.id));
       const f = r.data.frames.find((x: Node) => x.id === frame.id);
-      setNid(f.children[f.children.length - 1].id);
+      const fresh = (f?.children ?? []).find((c: Node) => !before.has(c.id));
+      if (fresh) setNid(fresh.id);
       setTab("props");
     }
   };
@@ -175,7 +173,6 @@ export default function UiEditor() {
     setSiteBusy(true);
     try {
       setSite(await designApi.site(id, doc.id, { name: doc.title }));
-      setMsg("پیش‌نویسِ سایت ساخته شد.");
     } catch (e) {
       ed.setError(apiError(e));
     } finally {
@@ -200,7 +197,7 @@ export default function UiEditor() {
       {ed.error ? <ErrorBox message={ed.error} /> : null}
       {siteLink ? (
         <Alert tone="ok" title="پیش‌نویسِ سایت ساخته شد (منتشر نشده)">
-          {fa(siteLink.pages.length)} صفحه · سبک {siteLink.style} · <Link to={`/tools/studio/p/${siteLink.slug}/builder/page`}>بازکردن در سایت‌ساز</Link> · هر صفحه و سربرگ/پابرگ جدا نشسته و پیوندِ دکمه‌ها به نشانیِ صفحه‌ها تبدیل شده است.
+          {fa(siteLink.pages.length)} صفحه · سبک {siteLink.style} · {siteLink.exists === false ? <b>پروژهٔ سایت‌ساز پاک شده است؛ دوباره از این طرح بسازید</b> : <Link to={siteBuilderPath(siteLink)}>بازکردن در سایت‌ساز</Link>} · هر صفحه و سربرگ/پابرگ جدا نشسته و پیوندِ دکمه‌ها به نشانیِ صفحه‌ها تبدیل شده است.
         </Alert>
       ) : null}
 
@@ -365,7 +362,7 @@ export default function UiEditor() {
 
           {tab === "style" ? (
             <div className="ds-panel">
-              <div className="ds-sub">سبکِ طراحی (از ۱۴ سبکِ ui-ux-pro-max)</div>
+              <div className="ds-sub">سبکِ طراحی ({fa(ov.ui.styles.length)} سبکِ آماده)</div>
               <div className="ds-styles">
                 {ov.ui.styles.map((s) => (
                   <button type="button" key={s.key} className={`ds-style ${scene.tokens?.style === s.key ? "is-on" : ""}`} onClick={() => ops([{ op: "set_settings", set: { style: s.key } }])} title={s.desc}>

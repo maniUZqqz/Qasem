@@ -194,7 +194,7 @@ export default function DocEditor({ kind }: { kind: "catalog" | "deck" }) {
                   <Button size="sm" variant="secondary" type="button" onClick={() => pageOps([{ op: opName("duplicate"), [pkey]: spec.id }])}><Icon name="copy" size={14} /> نسخه</Button>
                   <Button size="sm" variant="danger" type="button" onClick={del}><Icon name="trash" size={14} /></Button>
                   {kind === "catalog" ? (
-                    <Button size="sm" variant="secondary" type="button" onClick={async () => { try { const r = await designApi.designer(id, doc.id, page.id); window.open(`/panel${r.url}`, "_blank"); setMsg(`این صفحه در ادیتورِ عکس باز شد (${fa(r.layers)} لایهٔ متنِ قابل‌ویرایش).`); } catch (e) { ed.setError(apiError(e)); } }}><Icon name="image" size={14} /> ویرایش در طراح</Button>
+                    <Button size="sm" variant="secondary" type="button" onClick={async () => { try { const r = await designApi.designer(id, doc.id, page.id); window.open(`/panel${r.url}`, "_blank"); setMsg(r.reused ? `پروژهٔ قبلیِ همین صفحه در ادیتورِ عکس باز شد (پروژهٔ تازه‌ای ساخته نشد؛ ${fa(r.layers)} لایهٔ متنِ قابل‌ویرایش).` : `این صفحه در ادیتورِ عکس باز شد (${fa(r.layers)} لایهٔ متنِ قابل‌ویرایش).`); } catch (e) { ed.setError(apiError(e)); } }}><Icon name="image" size={14} /> ویرایش در طراح</Button>
                   ) : null}
                 </div>
               </div>

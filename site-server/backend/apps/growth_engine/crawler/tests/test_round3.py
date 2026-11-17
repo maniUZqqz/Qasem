@@ -643,6 +643,15 @@ class RepairRound3Tests(Base, TestCase):
         self.assertEqual(LeadInsight.objects.get(lead=gym).types, ["gym"])
         self.assertEqual(CrawlFinding.objects.get(lead=gym).matched["types"], ["gym"])
 
+    def test_a_map_gym_with_a_stray_trainer_type_loses_it_but_a_trainer_by_name_keeps_it(self):
+        gym = self.lead("باشگاه ورزشی آرینا", phones=["09121110008"], provider="crawl_osm", types=("gym", "personal_trainer"), matched={"types": ["gym", "personal_trainer"]})
+        coach = self.lead("مربی آرش", phones=["09121110009"], provider="crawl_osm", types=("gym", "personal_trainer"), matched={"types": ["gym", "personal_trainer"]})
+        repair.run(apply=True)
+        self.assertEqual(LeadInsight.objects.get(lead=gym).types, ["gym"])
+        self.assertEqual(CrawlFinding.objects.get(lead=gym).matched["types"], ["gym"])
+        self.assertIn("personal_trainer", LeadInsight.objects.get(lead=coach).types)  # the name says «مربی»: left alone
+        self.assertEqual(repair.run(apply=False)["report"].get("trainer_type_removed_from_gym", 0), 0)
+
     def test_an_sms_draft_an_older_version_cut_is_written_again_but_an_approved_one_is_not(self):
         lead = self.lead("باشگاه آرمان", phones=["09121112222"])
         other = self.lead("باشگاه سپهر", phones=["09121113333"])

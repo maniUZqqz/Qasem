@@ -217,11 +217,18 @@ def reach_after(lead: Lead, dropped: set) -> bool:
 
 
 def trainer_type_is_wrong(lead: Lead) -> bool:
-    """A gym of a badanfit.ir list that still carries the trainer TYPE (insight / findings) from the old type mapping."""
+    """A gym that still carries the trainer TYPE (insight / findings): it came from a map or a gym directory only (OpenStreetMap, badanfit.ir), no coach directory read it, no
+    page of an independent person was flagged, and its name says nothing about a trainer. (Such a type crept in through an old type mapping or a merge.)"""
     ins = _insight_of(lead)
     has_type = bool(ins and "personal_trainer" in (ins.types or [])) or any("personal_trainer" in ((f.matched or {}).get("types") or []) for f in lead.crawl_findings.all())
-    hosts = _directory_hosts(lead)
-    return has_type and "badanfit.ir" in hosts and "morabiyab.com" not in hosts and not textnorm.name_has_word(lead.business_name, TRAINER_WORDS)
+    if not has_type:
+        return False
+    providers = {s.provider for s in lead.sources.all()}
+    if not providers or not providers <= {"crawl_osm", "crawl_directory"} or "morabiyab.com" in _directory_hosts(lead):
+        return False
+    if ins is not None and (ins.signals or {}).get("individual"):
+        return False
+    return not textnorm.name_has_word(lead.business_name, TRAINER_WORDS)
 
 
 def type_label_of(lead: Lead) -> str:

@@ -18,11 +18,13 @@ import subprocess
 import sys
 import time
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import netguard
@@ -49,6 +51,9 @@ STALE_MINUTES = 30
 FILES = {
     "original.png": ("out", "image/png"),
     "rendered.png": ("out", "image/png"),
+    # پیش‌نمایشِ سبک (WebP) برای مقایسه؛ ۴ تا ۶ برابر کم‌حجم‌تر از PNG ⇒ روی اینترنتِ کند هم زود باز می‌شود. PNGِ کامل در ZIP می‌ماند.
+    "original.preview.webp": ("out", "image/webp"),
+    "rendered.preview.webp": ("out", "image/webp"),
     "source.png": ("", "image/png"),
     "index.html": ("out", "text/html; charset=utf-8"),
     "style.css": ("out", "text/css; charset=utf-8"),
@@ -174,7 +179,10 @@ def engine_status(refresh: bool = False) -> dict:
         msgs.append("خواندنِ متنِ فارسی/انگلیسی (Tesseract) کامل نصب نیست؛ تبدیلِ تصویرِ بارگذاری‌شده بی‌متن می‌شود. نشانیِ صفحه هم‌چنان متن را از خودِ صفحه می‌گیرد.")
     if not browser:
         msgs.append("مرورگرِ بی‌سرِ سرور آماده نیست؛ گرفتنِ عکس از نشانی و تصویرِ مقایسهٔ نتیجه کار نمی‌کند.")
-    data = {"ready": ready, "ocr": ocr, "url_ok": bool(ready and browser), "compare_ok": bool(ready and browser), "version": res.get("mv2code") or "", "messages": msgs}
+    lexicon_ok = bool(res.get("lexicon"))
+    if ready and not lexicon_ok:
+        msgs.append("واژه‌نامهٔ فارسیِ اصلاحِ غلط‌های OCR در موتور نیست؛ متنِ فارسیِ تصویرِ بارگذاری‌شده بدونِ اصلاحِ نقطه‌ها می‌آید (موتور را دوباره نصب کنید).")
+    data = {"ready": ready, "ocr": ocr, "lexicon": lexicon_ok, "url_ok": bool(ready and browser), "compare_ok": bool(ready and browser), "version": res.get("mv2code") or "", "messages": msgs}
     _PROBE.update(at=now, data=data)
     return data
 
@@ -323,15 +331,37 @@ class RunLock:
                 self.fh = None
 
 
+def _earlier(conv: Conversion):
+    """تبدیل‌های قدیمی‌تر از این (با همان ترتیبِ ثبت)."""
+    return Q(created_at__lt=conv.created_at) | Q(created_at=conv.created_at, pk__lt=conv.pk)
+
+
 def queue_position(conv: Conversion) -> int:
-    return Conversion.objects.filter(state__in=Conversion.ACTIVE, created_at__lt=conv.created_at).count() + 1
+    return Conversion.objects.filter(state__in=Conversion.ACTIVE).filter(_earlier(conv)).count() + 1
+
+
+WAIT_FRESH_SECONDS = 90
+
+
+def is_my_turn(conv: Conversion) -> bool:
+    """نوبتِ «اولین وارد، اولین خارج»: تا وقتی تبدیلِ قدیمی‌تری در صف است که کارگرش هنوز زنده است (هر ۵ ثانیه ردیفش را به‌روز می‌کند)، این یکی صبر می‌کند.
+    پیش‌تر هر کار هر ۵ ثانیه قفل را امتحان می‌کرد و هر کس زودتر می‌رسید برنده بود؛ پس جدیدتر می‌توانست از قدیمی‌تر جلو بزند.
+    ردیفِ بی‌کارگر (کارگر مرده) بعد از ۹۰ ثانیه جلوی بقیه را نمی‌گیرد."""
+    fresh = timezone.now() - timedelta(seconds=WAIT_FRESH_SECONDS)
+    return not Conversion.objects.filter(state=Conversion.State.QUEUED, updated_at__gte=fresh).filter(_earlier(conv)).exists()
 
 
 # ───────────────────────────────────────────────────────────────── اجرا
-def _set(conv: Conversion, **kw) -> None:
+def _set(conv: Conversion, **kw) -> bool:
+    """مقدارها را روی ردیف می‌نویسد. اگر کاربر وسطِ کار «حذف» را زده باشد ردیف نیست؛ این خطا نیست (False برمی‌گرداند، بی‌خطا و بی‌ردِ traceback در لاگ).
+    ``update()`` (نه ``save(update_fields)``): save برای ردیفِ رفته خطای DatabaseError می‌دهد و تراکنشِ بازِ بیرونی را هم خراب می‌کرد."""
     for k, v in kw.items():
         setattr(conv, k, v)
-    conv.save(update_fields=list(kw) + ["updated_at"])
+    now = timezone.now()
+    if not Conversion.objects.filter(pk=conv.pk).update(updated_at=now, **kw):
+        return False
+    conv.updated_at = now
+    return True
 
 
 def _cancelled(conv_id: int) -> bool:
@@ -395,6 +425,10 @@ def run(conv: Conversion) -> Conversion:
         args = ["convert", "--image", src, "--outdir", out, "--mode", conv.mode, "--lang", conv.lang, "--title", (conv.title or "Converted page")[:80]]
         if use_dom:
             args += ["--lines", lines]
+        else:
+            words = brand_words(conv)
+            if words:
+                args += ["--glossary", ",".join(words)]
         res = run_process(args, CONVERT_TIMEOUT, mem=CONVERT_MEM, tick=convert_tick)
         if res.get("error") == "cancelled":
             return conv
@@ -421,16 +455,34 @@ def run(conv: Conversion) -> Conversion:
             warnings.append("مرورگرِ بی‌سرِ سرور آماده نیست؛ کد ساخته شد ولی تصویرِ مقایسه و امتیازها نیست.")
         scores, extra = build_scores(raw, report, text_source, conv.lang)
         warnings.extend(extra)
-        _set(conv, scores=scores, raw_scores=raw, warnings=warnings, state=Conversion.State.READY, step="done", progress=100.0, message="آماده شد", finished_at=timezone.now())
+        for which in ("original", "rendered"):
+            preview_path(conv, which)                 # از همین حالا آماده باشد تا اولین باز کردنِ نتیجه سریع شود
+        if not _set(conv, scores=scores, raw_scores=raw, warnings=warnings, state=Conversion.State.READY, step="done", progress=100.0, message="آماده شد", finished_at=timezone.now()):
+            shutil.rmtree(conv.dir, ignore_errors=True)       # کاربر وسطِ کار حذفش کرد؛ فایل‌هایی که در این فاصله ساخته شد نماند
+            return conv
         log.info("img2code #%s ready in %.1fs (%s)", conv.pk, time.monotonic() - t_all, conv.mode)
         return conv
     except Exception as exc:  # noqa: BLE001 — خطای پیش‌بینی‌نشده نباید ردیف را در «در حال تبدیل» بگذارد
         log.exception("img2code #%s crashed", conv.pk)
         return _fail(conv, "خطای پیش‌بینی‌نشده در تبدیل؛ دوباره امتحان کنید.", "%s: %s" % (type(exc).__name__, exc))
+    finally:
+        if not Conversion.objects.filter(pk=conv.pk).exists():          # کاربر وسطِ کار حذفش کرد: فایل‌هایی که runner در این فاصله نوشت نماند
+            shutil.rmtree(conv.dir, ignore_errors=True)
+
+
+def brand_words(conv: Conversion) -> list[str]:
+    """نامِ فروشگاه (و نامِ صفحه برای نشانی): واژه‌هایی که در هیچ واژه‌نامه‌ای نیستند. OCR آن‌ها را خراب می‌خواند (چغر ⇒ چخر / چفر)؛ با این فهرست درست می‌شوند و هرگز «اصلاح» نمی‌شوند."""
+    words: list[str] = []
+    for src in (getattr(conv.store, "name", ""), conv.title if conv.source_kind == Conversion.Source.URL else ""):
+        for w in str(src or "").replace("،", " ").replace("|", " ").replace("—", " ").replace("-", " ").split():
+            w = w.strip(".,:;()«»\"'")
+            if 2 <= len(w) <= 24 and "," not in w and w not in words:
+                words.append(w)
+    return words[:12]
 
 
 def _slim_report(rep: dict) -> dict:
-    keep = ("version", "mode", "lang", "page_direction", "ocr", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds")
+    keep = ("version", "mode", "lang", "page_direction", "ocr", "ocr_stats", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds")
     return {k: rep.get(k) for k in keep if k in rep}
 
 
@@ -482,17 +534,47 @@ def build_scores(raw: dict, report: dict, text_source: str, lang: str = "auto") 
     src_fa = "از خودِ صفحه (دقیق)" if text_source == "dom" else "با OCR (Tesseract)"
     v = "good" if text_source == "dom" else "ok"
     out.append({"key": "text_source", "label": "روشِ خواندنِ متن", "value": text_source, "display": src_fa, "verdict": v, "verdict_fa": VERDICT_FA[v],
-                "hint": "وقتی نشانیِ صفحه داده شود نوشته‌ها از خودِ صفحه برداشته می‌شود و غلطِ املایی ندارد. در تصویرِ بارگذاری‌شده، متن با OCR خوانده می‌شود و در نوشته‌های ریزِ فارسی ممکن است چند حرف غلط باشد."})
+                "hint": "وقتی نشانیِ صفحه داده شود نوشته‌ها از خودِ صفحه برداشته می‌شود و غلطِ املایی ندارد. در تصویرِ بارگذاری‌شده، متن با OCR خوانده می‌شود (غلط‌های نقطه‌ایِ فارسی با واژه‌نامه و نامِ فروشگاه اصلاح می‌شود) ولی در نوشته‌های ریزِ فارسی هنوز ممکن است چند حرف غلط باشد."})
     if text_source == "ocr" and report.get("page_direction") == "rtl":
         warns.append("متن‌ها با OCR خوانده شد؛ نوشته‌های ریزِ فارسی را یک بار بخوانید. اگر نشانیِ صفحه را دارید، با آن بسازید تا متن‌ها دقیق بیایند.")
     return out, warns
 
 
 # ───────────────────────────────────────────────────────────────── خروجی‌ها
+PREVIEW_MAX_W = 1400          # تصویرهای عریض‌تر برای نمایش کوچک می‌شوند؛ فایلِ کامل در ZIP و دانلود می‌ماند
+PREVIEW_QUALITY = 86
+
+
+def preview_path(conv: Conversion, which: str) -> Optional[Path]:
+    """«original» / «rendered» ⇒ مسیرِ پیش‌نمایشِ WebP (اگر نبود همین حالا از PNG ساخته و کنارش نگه داشته می‌شود)."""
+    src = conv.out_dir / ("%s.png" % which)
+    if not src.is_file():
+        return None
+    dst = conv.out_dir / ("%s.preview.webp" % which)
+    try:
+        if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime and dst.stat().st_size > 0:
+            return dst
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = None
+        with Image.open(src) as im:
+            im = im.convert("RGB")
+            if im.width > PREVIEW_MAX_W:
+                im = im.resize((PREVIEW_MAX_W, max(1, round(im.height * PREVIEW_MAX_W / im.width))), Image.LANCZOS)
+            tmp = dst.with_name(dst.name + ".tmp")
+            im.save(tmp, "WEBP", quality=PREVIEW_QUALITY, method=4)
+        os.replace(tmp, dst)
+        return dst
+    except Exception as exc:  # noqa: BLE001 — پیش‌نمایش نشد ⇒ رابط به PNG برمی‌گردد
+        log.warning("img2code preview for #%s %s failed: %s", conv.pk, which, exc)
+        return None
+
+
 def file_path(conv: Conversion, name: str) -> Optional[Path]:
     spec = FILES.get(name)
     if not spec:
         return None
+    if name.endswith(".preview.webp"):
+        return preview_path(conv, name.split(".", 1)[0])
     base = conv.out_dir if spec[0] == "out" else conv.dir
     p = base / name
     return p if p.is_file() else None
@@ -588,7 +670,6 @@ def delete(conv: Conversion) -> None:
 
 def sweep() -> dict:
     """کارِ دوره‌ای: تبدیل‌های گیرکرده (بیش از ۳۰ دقیقه) را ناموفق کن؛ پوشه‌های بی‌ردیف را پاک کن."""
-    from datetime import timedelta
     now = timezone.now()
     # «در حال تبدیل» که نیم‌ساعت خبری نشد یعنی worker وسطِ کار مرد؛ «در صف» ماندگار است (اگر worker ساعت‌ها خاموش بود کار گم نمی‌شود) ⇒ فقط بعد از ۶ ساعت
     stale = list(Conversion.objects.filter(state=Conversion.State.RUNNING, updated_at__lt=now - timedelta(minutes=STALE_MINUTES))) +         list(Conversion.objects.filter(state=Conversion.State.QUEUED, updated_at__lt=now - timedelta(hours=6)))

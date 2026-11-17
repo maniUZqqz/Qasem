@@ -206,7 +206,7 @@ class BrowserTests(TransactionTestCase):
     def test_desktop_full_flow(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            b, page, errors, _seen = self.open_page(pw, self.staff, self.store, 1280, 900)
+            b, page, errors, seen = self.open_page(pw, self.staff, self.store, 1280, 900)
             try:
                 self.assertIn("تصویر به کد", page.inner_text("h1"))
                 self.assertEqual(page.locator("[data-testid=i2c-store]").count(), 0)        # یک فروشگاه ⇒ انتخابگر لازم نیست
@@ -220,6 +220,18 @@ class BrowserTests(TransactionTestCase):
                 # مقایسه: دو تصویرِ واقعی کنارِ هم
                 page.wait_for_function("document.querySelectorAll('[data-testid=i2c-compare-side] img').length === 2 && [...document.querySelectorAll('[data-testid=i2c-compare-side] img')].every(i => i.complete && i.naturalWidth > 100)", timeout=30000)
                 self.no_overflow(page, "desktop result")
+                # مقایسه با پیش‌نمایشِ سبکِ WebP (نه PNGِ کامل) بارگذاری شد
+                files = [u for _m, u in seen if "/files/" in u]
+                self.assertTrue(any(u.endswith("original.preview.webp") for u in files), files)
+                self.assertTrue(any(u.endswith("rendered.preview.webp") for u in files), files)
+                self.assertFalse(any(u.endswith("original.png") or u.endswith("rendered.png") for u in files), files)
+                # سرِ کارتِ نتیجه: عنوان پهن است (نه ستونِ باریکِ یک‌کلمه‌ای) و دکمه‌ها زیرِ عنوان و برچسب‌ها می‌آیند
+                title = page.locator("[data-testid=i2c-result] h2").bounding_box()
+                chips = page.locator("[data-testid=i2c-result] .i2c-chips").bounding_box()
+                actions = page.locator("[data-testid=i2c-result] .i2c-result-actions").bounding_box()
+                self.assertGreaterEqual(title["width"], 500, title)
+                self.assertGreaterEqual(actions["y"], chips["y"] + chips["height"] - 1, (chips, actions))
+                self.assertGreaterEqual(chips["width"], 400, chips)
                 # لغزنده
                 page.click("[data-testid=i2c-view-slider]")
                 page.wait_for_selector("[data-testid=i2c-compare-slider] .i2c-slider-top")

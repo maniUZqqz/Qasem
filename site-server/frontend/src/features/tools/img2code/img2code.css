@@ -55,9 +55,11 @@
 
 /* نتیجه */
 .i2c-result h2 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 800; color: var(--text); overflow-wrap: anywhere; }
-.i2c-result-head { display: grid; gap: 12px; margin-bottom: 12px; }
-@media (min-width: 900px) { .i2c-result-head { grid-template-columns: 1fr auto; align-items: start; } }
-.i2c-result-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* عنوان و برچسب‌ها یک ردیفِ کامل می‌گیرند و دکمه‌ها زیرِ آن‌ها (با ردیف‌های لازم) می‌آیند؛ پیش‌تر دکمه‌ها ردیف را می‌خوردند و عنوان به ستونِ باریکِ یک‌کلمه‌ای می‌رفت */
+.i2c-result-head { display: grid; gap: 12px; margin-bottom: 12px; grid-template-columns: minmax(0, 1fr); }
+.i2c-result-title { min-width: 0; }
+.i2c-result-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); }
+.i2c-loading { display: flex; align-items: center; gap: 10px; min-height: 120px; justify-content: center; }
 .i2c-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .i2c-src { font-size: .75rem; color: var(--text-3); margin: 6px 0 0; overflow-wrap: anywhere; text-align: left; }
 .i2c-list { margin: 4px 0 0; padding-inline-start: 18px; font-size: .82rem; line-height: 1.9; }

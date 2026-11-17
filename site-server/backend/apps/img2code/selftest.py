@@ -28,6 +28,30 @@ def _page(path: Path) -> None:
     im.save(path)
 
 
+FA_LINES = [("برنامه تمرینی و غذایی اختصاصی", 26, 70), ("پشتیبانی مربیان و بدنسازی برای همه", 18, 140), ("همهٔ حقوق محفوظ است", 14, 200), ("تماس با ما و ثبت نام", 14, 240)]
+FA_WORDS = ["برنامه", "تمرینی", "غذایی", "اختصاصی", "پشتیبانی", "مربیان", "بدنسازی", "حقوق", "محفوظ", "تماس"]
+
+
+def _page_fa(path: Path) -> bool:
+    """یک صفحهٔ فارسیِ کوچک با نوشته‌های ریز (همان‌جا که OCR ِ فارسی نقطه‌ها را گم می‌کرد) با قلمِ همراهِ موتور؛ False اگر Pillow شکل‌دهیِ فارسی (raqm) ندارد."""
+    import os
+
+    import mv2code
+    from PIL import Image, ImageDraw, ImageFont, features
+    if not features.check("raqm"):
+        return False
+    fonts = os.path.join(os.path.dirname(mv2code.__file__), "fonts")
+    ttf = next((os.path.join(fonts, n) for n in sorted(os.listdir(fonts)) if n.lower().startswith("vazirmatn") and n.lower().endswith((".ttf", ".otf"))), None)
+    if ttf is None:
+        return False
+    im = Image.new("RGB", (900, 300), (250, 251, 253))
+    d = ImageDraw.Draw(im)
+    for text, size, y in FA_LINES:
+        d.text((860, y), text, font=ImageFont.truetype(ttf, size, layout_engine=ImageFont.Layout.RAQM), fill=(24, 32, 48), anchor="ra", direction="rtl", language="fa")
+    im.save(path)
+    return True
+
+
 def run_engine(url: str = "", wait_s: int = 150) -> dict:
     """⇒ {ok, steps:[{name, ok, detail}], seconds}. هر مرحله جدا گزارش می‌شود؛ ``url`` (اختیاری) عکس‌گرفتن از یک نشانیِ عمومی را هم می‌سنجد."""
     import numpy as np
@@ -68,6 +92,15 @@ def run_engine(url: str = "", wait_s: int = 150) -> dict:
             return done()
         html = (out / "index.html").read_text(encoding="utf-8")
         step("متنِ واقعی در HTML", "Welcome" in html, "text_lines=%s" % (res.get("report") or {}).get("text_lines"))
+        fa_png = tmp / "fa.png"
+        if eng["ocr"] and _page_fa(fa_png):
+            res_fa = services.run_process(["convert", "--image", fa_png, "--outdir", tmp / "out_fa", "--mode", "responsive", "--lang", "fa", "--glossary", "چغر"], services.CONVERT_TIMEOUT, mem=services.CONVERT_MEM)
+            if step("تبدیلِ صفحهٔ فارسی (متنِ ریز)", res_fa.get("ok"), res_fa.get("message") or ""):
+                html_fa = (tmp / "out_fa" / "index.html").read_text(encoding="utf-8").replace("‌", "")
+                got = [w for w in FA_WORDS if w in html_fa]
+                step("خواندنِ متنِ فارسی (OCR + واژه‌نامه)", len(got) >= 8, "%d از %d واژه: %s" % (len(got), len(FA_WORDS), "، ".join(w for w in FA_WORDS if w not in got) or "همه"))
+        elif eng["ocr"]:
+            step("تبدیلِ صفحهٔ فارسی (متنِ ریز)", True, "ردشد (Pillow شکل‌دهیِ فارسی ندارد)")
         if eng["compare_ok"]:
             r2 = services.run_process(["render", "--dir", out], services.RENDER_TIMEOUT)
             step("نمایش و سنجش در مرورگر", r2.get("ok") and (out / "rendered.png").exists(), r2.get("scores") or r2.get("message"))

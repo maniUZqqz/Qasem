@@ -11,8 +11,8 @@ type CodeTab = "html" | "css" | "tree";
 
 const VERDICT_TONE = { good: "ok", ok: "warn", weak: "bad" } as const;
 
-/** تصویری که با ورودِ کاربر (توکن) گرفته می‌شود؛ <img src> ساده توکن نمی‌فرستد. */
-function useBlobUrl(storeId: string, id: number, name: string, enabled: boolean) {
+/** تصویری که با ورودِ کاربر (توکن) گرفته می‌شود؛ <img src> ساده توکن نمی‌فرستد. ``name`` پیش‌نمایشِ سبک (WebP) است؛ اگر نشد PNGِ کامل می‌آید. */
+function useBlobUrl(storeId: string, id: number, name: string, fallback: string, enabled: boolean) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -23,8 +23,10 @@ function useBlobUrl(storeId: string, id: number, name: string, enabled: boolean)
     let dead = false;
     let made: string | null = null;
     setFailed(false);
+    setUrl(null);
     i2cApi
       .blob(storeId, id, name)
+      .catch(() => i2cApi.blob(storeId, id, fallback))
       .then((b) => {
         if (dead) return;
         made = URL.createObjectURL(b);
@@ -35,7 +37,7 @@ function useBlobUrl(storeId: string, id: number, name: string, enabled: boolean)
       dead = true;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [storeId, id, name, enabled]);
+  }, [storeId, id, name, fallback, enabled]);
   return { url, failed };
 }
 
@@ -215,7 +217,15 @@ function DraftDialog({ storeId, item, onClose, onDone }: { storeId: string; item
             {targets.map((t) => (
               <label key={t.slug} className={`i2c-target ${project === t.slug ? "is-on" : ""}`}>
                 <input type="radio" name="i2c-target" checked={project === t.slug} onChange={() => setProject(t.slug)} data-testid="i2c-target-existing" />
-                <span><b>صفحهٔ تازه در «{t.name}»</b><small>{fa(t.pages)} صفحه دارد؛ سربرگ، پابرگ و پوسته‌اش دست نمی‌خورد</small></span>
+                <span>
+                  <b>صفحهٔ تازه در «{t.name}»</b>
+                  <small>
+                    {fa(t.pages)} صفحه دارد؛ پوسته‌اش دست نمی‌خورد.{" "}
+                    {t.has_header && t.has_footer
+                      ? "سربرگ و پابرگِ خودِ پروژه می‌ماند و سربرگ و پابرگِ تصویر در صفحه نمی‌آید (وگرنه دوتا می‌شد)."
+                      : `${!t.has_header ? "سربرگ" : ""}${!t.has_header && !t.has_footer ? " و " : ""}${!t.has_footer ? "پابرگ" : ""} نداشت و از روی تصویر ساخته می‌شود.`}
+                  </small>
+                </span>
               </label>
             ))}
           </div>
@@ -254,8 +264,8 @@ export default function ResultView({
   const [done, setDone] = useState<DraftResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const ready = item.state === "READY";
-  const orig = useBlobUrl(storeId, item.id, "original.png", ready && item.files.original);
-  const rend = useBlobUrl(storeId, item.id, "rendered.png", ready && item.files.rendered);
+  const orig = useBlobUrl(storeId, item.id, "original.preview.webp", "original.png", ready && item.files.original);
+  const rend = useBlobUrl(storeId, item.id, "rendered.preview.webp", "rendered.png", ready && item.files.rendered);
   const [w, h] = item.size;
   const ratioA = w > 0 && h > 0 ? w / h : 1;
   const ratioB = ratioA;
@@ -279,7 +289,7 @@ export default function ResultView({
     <Card className="i2c-result">
       <div data-testid="i2c-result" data-id={item.id}>
         <div className="i2c-result-head">
-          <div>
+          <div className="i2c-result-title">
             <h2>{item.title || `تبدیلِ ${fa(item.id)}`}</h2>
             <div className="i2c-chips">
               <Badge tone={ready ? "ok" : item.state === "FAILED" ? "bad" : "neutral"}>{item.state_label}</Badge>
@@ -388,12 +398,14 @@ export default function ResultView({
                       <button type="button" className={`u-btn u-btn-sm ${view === "side" ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setView("side")} data-testid="i2c-view-side">کنارِ هم</button>
                       <button type="button" className={`u-btn u-btn-sm ${view === "slider" ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setView("slider")} data-testid="i2c-view-slider">لغزنده (رویِ هم)</button>
                     </div>
-                    {orig.url && rend.url ? (
-                      view === "side" ? <SideBySide a={orig.url} b={rend.url} ratioA={ratioA} ratioB={ratioB} /> : <Slider a={orig.url} b={rend.url} ratio={ratioA} />
-                    ) : orig.failed || rend.failed ? (
+                    {orig.failed || rend.failed ? (
                       <ErrorBox message="تصویرها بارگذاری نشد؛ صفحه را تازه کنید." />
+                    ) : view === "side" && orig.url ? (
+                      <SideBySide a={orig.url} b={rend.url} ratioA={ratioA} ratioB={ratioB} />
+                    ) : view === "slider" && orig.url && rend.url ? (
+                      <Slider a={orig.url} b={rend.url} ratio={ratioA} />
                     ) : (
-                      <Spinner />
+                      <p className="i2c-note i2c-loading" data-testid="i2c-loading"><Spinner /> در حال بارگذاریِ تصویرها…</p>
                     )}
                   </>
                 )}

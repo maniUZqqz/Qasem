@@ -239,6 +239,31 @@ class MappingTests(SimpleTestCase):
         self.assertIn("درباره ما", body)
         self.assertIn("همهٔ حقوق محفوظ است", body)
 
+    def test_chrome_skip_drops_header_and_footer_instead_of_scattering_them_in_the_body(self):
+        r, docs = self.map(landing_tree(), chrome="skip")
+        self.assertIsNone(docs["header"])
+        self.assertIsNone(docs["footer"])
+        self.assertEqual(r["skipped"], {"header": 1, "footer": 1})
+        body = " ".join(texts_of(docs["page"]))
+        for gone in ("خانه", "درباره ما", "همهٔ حقوق محفوظ است"):
+            self.assertNotIn(gone, body)
+        self.assertIn("همه‌چیز برای شروعِ کار", body)                  # بدنه می‌ماند
+        self.assertNotIn("site_header", [b["type"] for b in walk(docs["page"]["blocks"])])
+
+    def test_chrome_can_be_decided_per_part(self):
+        r, docs = self.map(landing_tree(), chrome={"header": True, "footer": "skip"})
+        self.assertIsNotNone(docs["header"])
+        self.assertIsNone(docs["footer"])
+        self.assertEqual(r["skipped"], {"header": 0, "footer": 1})
+        r, docs = self.map(landing_tree(), chrome={"header": "skip", "footer": True})
+        self.assertIsNone(docs["header"])
+        self.assertIsNotNone(docs["footer"])
+        self.assertEqual(r["skipped"], {"header": 1, "footer": 0})
+        r, docs = self.map(landing_tree())                              # پیش‌فرض: هر دو سندِ جدا
+        self.assertEqual(r["skipped"], {"header": 0, "footer": 0})
+        self.assertIsNotNone(docs["header"])
+        self.assertIsNotNone(docs["footer"])
+
     def test_theme_colours_come_from_the_tree(self):
         r, _docs = self.map(landing_tree())
         c = r["theme"]["colors"]

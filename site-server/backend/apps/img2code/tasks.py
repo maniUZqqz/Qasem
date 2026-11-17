@@ -15,11 +15,13 @@ def run_conversion(self, conv_id):
     conv = Conversion.objects.filter(pk=conv_id).first()
     if conv is None or conv.state not in (Conversion.State.QUEUED, Conversion.State.RUNNING):
         return {"skipped": True}
+    # «اولین وارد، اولین خارج»: اگر تبدیلِ قدیمی‌تری هنوز منتظر است نوبت با آن است (این‌جا قفل را امتحان هم نمی‌کنیم)
     lock = services.RunLock()
-    if not lock.acquire():
+    if not services.is_my_turn(conv) or not lock.acquire():
         pos = services.queue_position(conv)
         from django.utils import timezone
-        Conversion.objects.filter(pk=conv_id, state=Conversion.State.QUEUED).update(message="در صف؛ یک تبدیلِ دیگر در حال اجراست (نوبتِ %d)" % pos, updated_at=timezone.now())
+        Conversion.objects.filter(pk=conv_id, state=Conversion.State.QUEUED).update(
+            message="در صف؛ %s (نوبتِ %d)" % ("تبدیلِ قدیمی‌تری پیش از این است" if pos > 1 else "یک تبدیلِ دیگر در حال اجراست", pos), updated_at=timezone.now())
         raise self.retry(countdown=5)
     try:
         conv = services.run(conv)

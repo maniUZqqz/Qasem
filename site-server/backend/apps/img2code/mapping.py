@@ -12,7 +12,7 @@
 * رنگِ زمینهٔ هر نوار از خودِ تصویر خوانده می‌شود (پرتکرارترین رنگِ ناحیه بی‌متن‌ها): درختِ mv2code گاهی گرادیانِ بزرگ را از دست می‌دهد و متنِ سفید روی زمینهٔ «سفید» می‌ماند.
 * متن: «تیتر» اگر درشت‌تر از متنِ معمولیِ صفحه باشد، وگرنه «متن». اندازه، ضخامت و رنگ از درخت می‌آید؛ چینش از جای قرارگیری (نه از فیلدِ align که برای یک‌خطی‌ها معنا ندارد).
 * دکمه ⇒ «دکمه»؛ ورودی‌ها ⇒ «فرمِ تماس» (برچسب = نوشتهٔ داخلِ ورودی)؛ جدول ⇒ «کدِ سفارشی» با یک ‹table› واقعی (متن‌ها escape می‌شوند)؛ عکس و نمادهای درشت ⇒ تکه‌ای از تصویرِ اصلی.
-* سربرگ (nav/header) ⇒ سندِ سربرگ (نشان، دکمه، منو)، پابرگ (nav/footer) ⇒ سندِ پابرگ؛ اگر پروژهٔ هدف از قبل دارد ``chrome=False`` می‌دهیم و همه چیز در خودِ صفحه می‌آید.
+* سربرگ (nav/header) ⇒ سندِ سربرگ (نشان، دکمه، منو)، پابرگ (nav/footer) ⇒ سندِ پابرگ؛ اگر پروژهٔ هدف از قبل سربرگ/پابرگ دارد ``chrome="skip"`` می‌دهیم: سربرگ و پابرگِ تصویر کنار گذاشته می‌شود (از همان‌های پروژه استفاده می‌شود) تا دوتا نشود.
 * هر متن، دقیقاً همان رشته‌ای است که در درخت هست؛ متنِ انگلیسی در صفحهٔ راست‌به‌چپ با نشانهٔ ایزولهٔ LTR (U+2066 … U+2069) می‌آید تا نقطه‌گذاری جابه‌جا نشود.
 """
 from __future__ import annotations
@@ -931,10 +931,24 @@ def _trim(doc: dict, limit: int, warnings: list) -> None:
             warnings.append("صفحه بیش از اندازه بلوک داشت؛ بخش‌های آخرِ آن در پیش‌نویس نیامد.")
 
 
-def map_tree(tree: dict, image=None, options: Optional[dict] = None, chrome: bool = True) -> dict:
-    """درخت ⇒ ``{"theme","header","page","footer","menu","crops","stats","warnings","site_title","page_bg"}`` (هنوز تمیزِ سایت‌ساز نشده؛ ``clean_docs`` را صدا بزنید).
+def _chrome_mode(chrome, part: str) -> str:
+    """``chrome`` ⇒ برای هر بخش (header/footer): "doc" (سندِ جدا)، "skip" (کنار گذاشته شود) یا "inline" (در بدنهٔ صفحه)."""
+    v = chrome.get(part, True) if isinstance(chrome, dict) else chrome
+    if v is True:
+        return "doc"
+    if v == "skip":
+        return "skip"
+    return "inline"
 
-    ``chrome=False``: سربرگ و پابرگ هم داخلِ بدنهٔ صفحه می‌آیند (برای پروژه‌ای که از قبل سربرگ و پابرگ دارد)."""
+
+def map_tree(tree: dict, image=None, options: Optional[dict] = None, chrome=True) -> dict:
+    """درخت ⇒ ``{"theme","header","page","footer","menu","crops","stats","warnings","site_title","page_bg","skipped"}`` (هنوز تمیزِ سایت‌ساز نشده؛ ``clean_docs`` را صدا بزنید).
+
+    ``chrome`` سرنوشتِ سربرگ و پابرگِ تصویر را معلوم می‌کند (یک مقدار برای هر دو، یا ``{"header": …, "footer": …}``):
+
+    * ``True``  : سندِ جدای سربرگ/پابرگ (پروژهٔ تازه)؛
+    * ``"skip"``: کنار گذاشته می‌شوند (پروژه‌ای که سربرگ و پابرگِ خودش را دارد؛ وگرنه دو سربرگ و دو پابرگ می‌شد) و در ``skipped`` می‌آیند؛
+    * ``False`` : داخلِ بدنهٔ صفحه می‌آیند (همان چیدمانِ عمومی؛ فقط برای کسی که عمداً بخواهد)."""
     m = Mapper(tree, image, options)
     page_bg = _valid_hex(tree.get("background")) or "#ffffff"
     leaves: list = []
@@ -944,11 +958,19 @@ def map_tree(tree: dict, image=None, options: Optional[dict] = None, chrome: boo
     nav_footer: list = []
     for c in tree.get("children") or []:
         _collect(c, cards, leaves, divs, nav_header, nav_footer)
-    if not chrome:
-        for nav in nav_header + nav_footer:
-            for c in nav.get("children") or []:
-                _collect(c, cards, leaves, divs, [], [], depth=2)
-        nav_header, nav_footer = [], []
+    skipped = {"header": 0, "footer": 0}
+    for part in ("header", "footer"):
+        navs = nav_header if part == "header" else nav_footer
+        mode = _chrome_mode(chrome, part)
+        if mode == "doc" or not navs:
+            continue
+        if mode == "inline":
+            for nav in navs:
+                for c in nav.get("children") or []:
+                    _collect(c, cards, leaves, divs, [], [], depth=2)
+        else:
+            skipped[part] = len(navs)
+        navs.clear()
     m.all_cards = cards
     items = [it for it in _build_items(leaves, cards, m.W) if it.box[2] > 1 and it.box[3] > 1]
     bands = _bands(items, m.scale)
@@ -999,7 +1021,7 @@ def map_tree(tree: dict, image=None, options: Optional[dict] = None, chrome: boo
                 footer_doc = {"v": 1, "blocks": [m.block("section", children=fblocks, full=bool(fbg), style={"d": style})]}
     theme = _theme_for(m, page_bg, tree)
     return {"theme": theme, "header": header_doc, "page": page_doc, "footer": footer_doc, "menu": menu, "crops": m.crops, "stats": dict(m.stats),
-            "warnings": m.warnings, "site_title": site_title, "page_bg": page_bg, "direction": tree.get("direction") or "rtl"}
+            "warnings": m.warnings, "site_title": site_title, "page_bg": page_bg, "direction": tree.get("direction") or "rtl", "skipped": skipped}
 
 
 def clean_docs(result: dict) -> dict:

@@ -43,6 +43,12 @@ def cmd_probe(_args) -> None:
     except Exception as exc:  # noqa: BLE001
         out["mv2code"] = None
         out["mv2code_error"] = "%s: %s" % (type(exc).__name__, exc)
+    try:
+        from mv2code import lexicon
+        lex = lexicon.load()
+        out["lexicon"] = len(lex.zipf) if lex is not None else 0
+    except Exception:  # noqa: BLE001
+        out["lexicon"] = 0
     tess = shutil.which("tesseract")
     out["tesseract"] = None
     if tess:
@@ -227,8 +233,10 @@ def cmd_convert(args) -> None:
         if args.lines and os.path.exists(args.lines):
             with open(args.lines, encoding="utf-8") as fh:
                 lines = json.load(fh) or None
+        glossary = [w for w in (args.glossary or "").split(",") if w.strip()][:20]
+        extra = {"glossary": glossary} if glossary else {}          # an older engine (2.0.x) has no such parameter: only pass it when there is one
         res = convert(args.image, mode=args.mode, lang=args.lang, ocr="auto", refine="off", dpr=dpr, title=args.title or "Converted page",
-                      ocr_lines=lines)
+                      ocr_lines=lines, **extra)
     except ImageError as exc:
         return fail("bad_image", "این فایل تصویرِ قابلِ خواندنی نیست یا خیلی کوچک/بزرگ است.", detail=str(exc)[:200])
     except (RuntimeError, ValueError) as exc:
@@ -287,6 +295,7 @@ def main(argv=None) -> int:
     c.add_argument("--title", default="")
     c.add_argument("--dpr", default="")
     c.add_argument("--lines", default="", help="json with ocr_lines (text read from the page itself) instead of OCR")
+    c.add_argument("--glossary", default="", help="comma separated brand words: never 'repaired', and misread look-alikes become them")
     r = sub.add_parser("render")
     r.add_argument("--dir", required=True)
     r.add_argument("--out", default="")

@@ -68,7 +68,7 @@ export type Overview = {
 };
 
 export type Code = { html: string; css: string; tree: string; truncated: boolean };
-export type Target = { slug: string; name: string; pages: number };
+export type Target = { slug: string; name: string; pages: number; has_header: boolean; has_footer: boolean };
 export type DraftResult = {
   project_slug: string;
   page_id: number;
@@ -76,6 +76,7 @@ export type DraftResult = {
   created_project: boolean;
   warnings: string[];
   stats: Record<string, number>;
+  skipped?: { header: number; footer: number };
   item: Item;
 };
 

@@ -3,8 +3,9 @@
 
 * هرگز منتشر نمی‌شود: ``Design.published`` خالی می‌ماند، ``SiteTheme.active=False`` و ``Page.body_html`` خالی است؛ فقط در ویرایشگرِ دیداری دیده می‌شود.
 * اگر فروشگاه پروژه‌ای ندارد (یا کاربر «پروژهٔ تازه» بخواهد) یک پروژهٔ تازه با صفحهٔ اصلی، سربرگ، پابرگ و پوسته (رنگ‌ها از تصویر) ساخته و به فروشگاه وصل می‌شود
-  (همان ``SiteBinding`` ِ شخصیتِ برند)؛ اگر پروژهٔ موجودی انتخاب شود فقط یک صفحهٔ تازه به آن اضافه می‌شود و سربرگ/پابرگ/پوسته‌اش دست نمی‌خورد
-  (سربرگ و پابرگِ تصویر در خودِ صفحه می‌آیند).
+  (همان ``SiteBinding`` ِ شخصیتِ برند)؛ اگر پروژهٔ موجودی انتخاب شود فقط یک صفحهٔ تازه به آن اضافه می‌شود و سربرگ/پابرگ/پوسته‌اش دست نمی‌خورد:
+  **سربرگ و پابرگِ تصویر کنار گذاشته می‌شود** (پروژه سربرگ و پابرگِ خودش را روی هر صفحه می‌گذارد؛ اگر آن‌ها هم در بدنه می‌آمدند دو سربرگ و دو پابرگ می‌شد).
+  فقط اگر پروژه اصلاً سربرگ یا پابرگ نداشته باشد، همان بخش از تصویر ساخته و به پروژه داده می‌شود.
 * تصویرها و لوگو تکه‌هایی از همان اسکرین‌شات‌اند که به کتابخانهٔ رسانهٔ پروژه می‌روند (``m:<شناسه>``)؛ هیچ تصویرِ ساختگی گذاشته نمی‌شود.
 """
 from __future__ import annotations
@@ -24,15 +25,29 @@ from .services import Img2CodeError
 log = logging.getLogger(__name__)
 
 
+def project_has_part(project, target: str) -> bool:
+    """آیا پروژه سربرگ (target='header') یا پابرگ ('footer') دارد؟ سندِ بلوکی (پیش‌نویس یا منتشرشده) یا بخشِ مشترکِ ساخته‌شده."""
+    from apps.projects.builder import publish as P
+    from apps.projects.models import Design
+
+    d = Design.objects.filter(project=project, target=target, page__isnull=True).first()
+    if d is not None and (((d.draft or {}).get("blocks")) or ((d.published or {}).get("blocks"))):
+        return True
+    try:
+        return bool((P.part_content(project, target) or "").strip())
+    except Exception:  # noqa: BLE001 — نتوانستیم بسنجیم ⇒ فرض می‌کنیم دارد (دوتا شدن بدتر از نبودن است)
+        return True
+
+
 def targets(store) -> list[dict]:
-    """پروژه‌های سایت‌ساز که به این فروشگاه وصل‌اند."""
+    """پروژه‌های سایت‌ساز که به این فروشگاه وصل‌اند (با این‌که سربرگ و پابرگ دارند یا نه)."""
     from apps.brandchar.models import SiteBinding
     from apps.projects.models import Project
 
     slugs = list(SiteBinding.objects.filter(store=store).values_list("project_slug", flat=True))
     out = []
     for p in Project.objects.filter(slug__in=slugs).order_by("-updated_at")[:30]:
-        out.append({"slug": p.slug, "name": p.name, "pages": p.pages.count()})
+        out.append({"slug": p.slug, "name": p.name, "pages": p.pages.count(), "has_header": project_has_part(p, "header"), "has_footer": project_has_part(p, "footer")})
     return out
 
 
@@ -105,8 +120,14 @@ def create_draft(conv: Conversion, user, project_slug: str = "", page_title: str
             raise Img2CodeError("این پروژهٔ سایت‌ساز به این فروشگاه وصل نیست.", "bad_project", 404)
     new_project = project is None
 
-    result = mapping.map_tree(tree, arr, chrome=new_project)
+    # پروژهٔ موجود سربرگ/پابرگِ خودش را دارد ⇒ از تصویر کنار گذاشته می‌شود (وگرنه دو سربرگ و دو پابرگ می‌شد)؛ پروژهٔ تازه یا بی‌سربرگ از تصویر می‌گیرد
+    need = {"header": True, "footer": True} if new_project else {t: not project_has_part(project, t) for t in ("header", "footer")}
+    result = mapping.map_tree(tree, arr, chrome={t: (True if need[t] else "skip") for t in need})
     warnings = list(result["warnings"]) + list(conv.warnings or [])
+    if result["skipped"]["header"]:
+        warnings.append("سربرگِ تصویر در صفحه نیامد: پروژه سربرگِ خودش را دارد و روی همین صفحه هم نمایش می‌دهد.")
+    if result["skipped"]["footer"]:
+        warnings.append("پابرگِ تصویر در صفحه نیامد: پروژه پابرگِ خودش را دارد و روی همین صفحه هم نمایش می‌دهد.")
     warnings = [w for w in warnings if "OCR" not in w or conv.source_kind != "url"]
 
     # سایت‌ساز پایگاهِ جدا دارد (alias ِ studio)؛ هر دو یک‌جا تأیید یا برگردانده شوند
@@ -143,6 +164,19 @@ def create_draft(conv: Conversion, user, project_slug: str = "", page_title: str
             theme.menu = result["menu"]
             theme.active = False
             theme.save()
+        else:
+            # پروژهٔ موجود فقط وقتی سربرگ/پابرگ نداشته باشد آن بخش را از تصویر می‌گیرد؛ پوسته و رنگ‌هایش دست نمی‌خورد (منو فقط اگر خالی بود)
+            for target in ("header", "footer"):
+                if need[target] and docs.get(target):
+                    Design.objects.update_or_create(project=project, target=target, page=None,
+                                                    defaults={"draft": docs[target], "synced_hash": P.fingerprint(project, target, None)})
+                    label = "سربرگ" if target == "header" else "پابرگ"
+                    warnings.append("این پروژه %s نداشت؛ %sِ تصویر برایش ساخته شد (پیش‌نویس)." % (label, label))
+            if need["header"] and result.get("menu"):
+                theme, _ = SiteTheme.objects.get_or_create(project=project)
+                if not theme.menu:
+                    theme.menu = result["menu"]
+                    theme.save(update_fields=["menu", "updated_at"])
         conv.draft_project_slug = project.slug
         conv.draft_page_id = page.pk
         conv.draft_at = timezone.now()
@@ -154,4 +188,4 @@ def create_draft(conv: Conversion, user, project_slug: str = "", page_title: str
         blocks += 1
     _walk(docs["page"]["blocks"], count)
     return {"project_slug": project.slug, "page_id": page.pk, "url": "/tools/studio/p/%s/builder/page/%d" % (project.slug, page.pk), "created_project": new_project,
-            "warnings": warnings, "stats": {**result["stats"], "blocks": blocks, "images": len(refs)}}
+            "warnings": warnings, "stats": {**result["stats"], "blocks": blocks, "images": len(refs)}, "skipped": result["skipped"]}

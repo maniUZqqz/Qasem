@@ -364,6 +364,118 @@ class ResultTests(Base):
             lock.release()
 
 
+class QueueOrderAndCleanupTests(Base):
+    """صف «اولین وارد، اولین خارج»، حذفِ تبدیلِ در حال اجرا بی‌ردِ خطا، و پیش‌نمایشِ سبک."""
+
+    def queued(self, n):
+        return [Conversion.objects.create(store=self.store, state="QUEUED") for _ in range(n)]
+
+    def test_a_newer_conversion_never_jumps_ahead_of_an_older_waiting_one(self):
+        a, b, c = self.queued(3)
+        self.assertTrue(services.is_my_turn(a))
+        self.assertFalse(services.is_my_turn(b))
+        self.assertFalse(services.is_my_turn(c))
+        a.state = "RUNNING"
+        a.save()
+        self.assertTrue(services.is_my_turn(b))          # قدیمی‌تر در حال اجراست (در صف نیست)؛ قفل جلوی همزمانی را می‌گیرد
+        self.assertFalse(services.is_my_turn(c))
+
+    def test_a_dead_waiter_does_not_block_the_line_forever(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        a, b = self.queued(2)
+        Conversion.objects.filter(pk=a.pk).update(updated_at=timezone.now() - timedelta(seconds=services.WAIT_FRESH_SECONDS + 30))
+        self.assertTrue(services.is_my_turn(b))
+
+    def test_the_task_waits_while_an_older_one_is_queued_and_says_so(self):
+        from celery.exceptions import Retry
+        from . import tasks
+        a, b = self.queued(2)
+        with self.assertRaises(Retry):
+            tasks.run_conversion.run(b.pk)
+        b.refresh_from_db()
+        self.assertIn("نوبتِ 2", b.message)
+        self.assertEqual(b.state, "QUEUED")
+
+    def test_queue_position_follows_creation_order(self):
+        a, b, c = self.queued(3)
+        self.assertEqual([services.queue_position(x) for x in (a, b, c)], [1, 2, 3])
+
+    def test_deleting_a_conversion_while_it_runs_ends_quietly(self):
+        item = self.make(self.store, self.owner)
+        conv = Conversion.objects.get(pk=item["id"])
+        Conversion.objects.filter(pk=conv.pk).update(state="QUEUED")
+        conv.refresh_from_db()
+        base = fake_runner()
+
+        def deleting(args, timeout, mem=0, tick=None):
+            r = base(args, timeout, mem, tick)
+            if args[0] == "convert":
+                services.delete(Conversion.objects.get(pk=conv.pk))          # کاربر وسطِ کار «حذف» را زد
+            return r
+        with mock.patch.object(services, "run_process", side_effect=deleting), mock.patch.object(services, "log") as lg:
+            services.run(conv)
+        self.assertFalse(Conversion.objects.filter(pk=conv.pk).exists())
+        self.assertFalse((self.tmp / "data" / "img2code" / ("conv%d" % conv.pk)).exists(), "پوشهٔ تبدیلِ حذف‌شده نباید بماند")
+        self.assertFalse(lg.exception.called)
+
+    def test_upload_conversion_passes_the_store_name_as_brand_glossary_but_a_url_with_dom_text_does_not(self):
+        calls = []
+        self.runner.side_effect = fake_runner(calls)
+        self.make(self.store, self.owner)
+        conv_args = next(a for a in calls if a[0] == "convert")
+        self.assertIn("--glossary", conv_args)
+        words = conv_args[conv_args.index("--glossary") + 1].split(",")
+        self.assertIn("نمونه", words)
+        calls.clear()
+        self.client.force_authenticate(self.owner)
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(self.url(self.store), {"url": "https://example.com/", "mode": "responsive"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        conv_args = next(a for a in calls if a[0] == "convert")
+        self.assertIn("--lines", conv_args)
+        self.assertNotIn("--glossary", conv_args)
+
+    def test_brand_words_are_clean_and_bounded(self):
+        c = Conversion(store=Store(name="چغر | مربی هوشمند — Chagher"), source_kind="upload", title="x")
+        self.assertEqual(services.brand_words(c)[:3], ["چغر", "مربی", "هوشمند"])
+        self.assertLessEqual(len(services.brand_words(Conversion(store=Store(name=" ".join("واژه%d" % i for i in range(40))), source_kind="upload"))), 12)
+
+    def test_set_returns_false_for_a_deleted_row_instead_of_raising(self):
+        c = Conversion.objects.create(store=self.store, state="RUNNING")
+        ghost = Conversion.objects.get(pk=c.pk)
+        c.delete()
+        self.assertFalse(services._set(ghost, message="x"))
+
+    def test_previews_are_small_webp_and_made_on_demand(self):
+        item = self.make(self.store, self.owner)
+        conv = Conversion.objects.get(pk=item["id"])
+        big = Image.fromarray(np.random.default_rng(1).integers(0, 255, (1600, 1800, 3), dtype=np.uint8))
+        big.save(conv.out_dir / "original.png")
+        (conv.out_dir / "original.preview.webp").unlink(missing_ok=True)
+        self.client.force_authenticate(self.owner)
+        r = self.client.get(self.url(self.store, "%d/files/original.preview.webp" % conv.pk))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "image/webp")
+        im = Image.open(io.BytesIO(b"".join(r.streaming_content)))
+        self.assertEqual(im.format, "WEBP")
+        self.assertEqual(im.width, services.PREVIEW_MAX_W)
+        self.assertEqual(Image.open(conv.out_dir / "original.png").size, (1800, 1600))        # PNGِ کامل دست‌نخورده می‌ماند
+        self.assertEqual(self.client.get(self.url(self.store, "%d/files/nothing.preview.webp" % conv.pk)).status_code, 404)
+
+    def test_a_conversion_made_by_the_pipeline_has_its_previews(self):
+        item = self.make(self.store, self.owner)
+        conv = Conversion.objects.get(pk=item["id"])
+        self.assertEqual(conv.state, "READY")
+        self.assertTrue((conv.out_dir / "original.preview.webp").is_file())
+        self.assertTrue((conv.out_dir / "rendered.preview.webp").is_file())
+
+    def test_a_stranger_cannot_read_previews(self):
+        item = self.make(self.store, self.owner)
+        self.client.force_authenticate(self.stranger)
+        self.assertEqual(self.client.get(self.url(self.store, "%d/files/original.preview.webp" % item["id"])).status_code, 404)
+
+
 class SiteDraftTests(Base):
     def setUp(self):
         super().setUp()
@@ -442,7 +554,14 @@ class SiteDraftTests(Base):
         self.assertEqual(SiteTheme.objects.get(project__slug=first["project_slug"]).draft, theme_before)
         self.assertEqual(Design.objects.filter(project__slug=first["project_slug"], target="header").count(), 1)
         body = json.dumps(Design.objects.get(page=page).draft, ensure_ascii=False)
-        self.assertIn("درباره ما", body)                       # سربرگ/پابرگِ تصویر در خودِ صفحه آمد
+        # سربرگ و پابرگِ تصویر در صفحه نمی‌آید (پروژه خودش دارد؛ وگرنه دو سربرگ و دو پابرگ می‌شد) ولی متنِ بدنه می‌آید
+        self.assertNotIn("درباره ما", body)
+        self.assertNotIn("همهٔ حقوق محفوظ است", body)
+        self.assertIn("همه‌چیز برای شروعِ کار", body)
+        self.assertEqual(out["skipped"], {"header": 1, "footer": 1})
+        self.assertTrue(any("سربرگِ تصویر در صفحه نیامد" in w for w in out["warnings"]))
+        self.assertTrue(any("پابرگِ تصویر در صفحه نیامد" in w for w in out["warnings"]))
+        self.assertNotIn("site_header", body)                   # هیچ سربرگِ دومی در بدنه نیست
 
     def test_a_project_not_bound_to_this_store_is_refused(self):
         stranger_project = Project.objects.create(name="دیگری")
@@ -465,6 +584,49 @@ class SiteDraftTests(Base):
         SiteBinding.objects.create(project_slug=other.slug, store=self.other)
         t = self.client.get(self.url(self.staff_store, "%d/site-targets/" % self.conv.pk)).json()["targets"]
         self.assertEqual([x["slug"] for x in t], [first["project_slug"]])
+        self.assertTrue(t[0]["has_header"] and t[0]["has_footer"])          # رابط به کاربر می‌گوید سربرگ/پابرگِ تصویر نمی‌آید
+
+    def _second_conversion(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            again = self.client.post(self.url(self.staff_store, "%d/again/" % self.conv.pk), {}, format="json").json()["item"]
+        conv2 = Conversion.objects.get(pk=again["id"])
+        for f in ("tree.json", "original.png"):
+            shutil.copy2(self.conv.out_dir / f, conv2.out_dir / f)
+        return conv2
+
+    def test_existing_project_without_header_or_footer_gets_them_from_the_image_once(self):
+        """پروژه‌ای که سربرگ/پابرگ ندارد همان بخش‌ها را از تصویر می‌گیرد (نه در بدنه)؛ پروژه‌ای که دارد نمی‌گیرد."""
+        project = Project.objects.create(name="بی‌سربرگ")
+        SiteBinding.objects.create(project_slug=project.slug, store=self.staff_store)
+        from . import sitedraft
+        self.assertFalse(sitedraft.project_has_part(project, "header"))
+        out = self.draft(project=project.slug).json()
+        self.assertFalse(out["created_project"])
+        self.assertEqual(out["skipped"], {"header": 0, "footer": 0})
+        self.assertEqual({d.target for d in Design.objects.filter(project=project)}, {"page", "header", "footer"})
+        self.assertTrue(sitedraft.project_has_part(project, "header") and sitedraft.project_has_part(project, "footer"))
+        body = json.dumps(Design.objects.get(page_id=out["page_id"]).draft, ensure_ascii=False)
+        self.assertNotIn("همهٔ حقوق محفوظ است", body)                           # پابرگ در بدنه نیست؛ در سندِ پابرگ است
+        self.assertTrue(Design.objects.get(project=project, target="header").draft["blocks"])
+        self.assertTrue(Design.objects.get(project=project, target="footer").draft["blocks"])
+        self.assertTrue(any("سربرگ نداشت" in w for w in out["warnings"]))
+        # بار دوم: حالا سربرگ و پابرگ دارد ⇒ کنار گذاشته می‌شوند و سندهایشان دست نمی‌خورد
+        before = Design.objects.get(project=project, target="header").draft
+        conv2 = self._second_conversion()
+        r = self.client.post(self.url(self.staff_store, "%d/site-draft/" % conv2.pk), {"project": project.slug}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["skipped"], {"header": 1, "footer": 1})
+        self.assertEqual(Design.objects.get(project=project, target="header").draft, before)
+
+    def test_existing_project_page_body_has_no_header_like_columns(self):
+        """«کنار گذاشتن» جایگزینِ «داخلِ بدنه» است: در پروژهٔ موجود هیچ ستونِ سربرگ‌مانندی در بدنه نمی‌ماند."""
+        first = self.draft().json()
+        conv2 = self._second_conversion()
+        out = self.client.post(self.url(self.staff_store, "%d/site-draft/" % conv2.pk), {"project": first["project_slug"]}, format="json").json()
+        page = Design.objects.get(page_id=out["page_id"]).draft
+        texts = " ".join(str((b.get("props") or {}).get("text") or (b.get("props") or {}).get("html") or "") for b in self.walk(page["blocks"]))
+        for nav_text in ("خانه", "درباره ما", "تماس"):
+            self.assertNotIn(nav_text, texts)
 
 
 class UiDesignTests(Base):

@@ -26,6 +26,8 @@ export type FieldSpec = {
   accept?: string;
   only_if?: string;
   group?: string;
+  /** فیلدِ فنی که در فرمِ تنظیمات نمی‌آید ولی در سند می‌ماند (مثلاً نشانِ «متنِ نمونه» ِ قطعهٔ 21st) */
+  hidden?: boolean;
 };
 
 export type BlockSpec = {

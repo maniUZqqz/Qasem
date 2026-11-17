@@ -64,9 +64,52 @@ _FA = {
     "frequently asked questions": "پرسش‌های متداول", "how it works": "چطور کار می‌کند", "why choose us": "چرا ما؟", "our features": "ویژگی‌های ما", "our services": "خدماتِ ما",
     "what our customers say": "مشتریانِ ما چه می‌گویند", "get in touch": "با ما در تماس باشید", "let's talk": "صحبت کنیم", "our team": "تیمِ ما", "meet the team": "با تیم آشنا شوید",
 }
+#: بخش‌های واقعیِ صفحه (قیمت، پرسش‌ها، کوکی، خطا، به‌زودی …): جمله‌های عمومیِ این بخش‌ها (دورِ ۴؛ پیش‌تر فقط ۱۸۷ از ۲۰۱۰ متن فارسی می‌شد). فقط ترجمه است، نه محتوا:
+#: قیمت و عددِ نمونه همان می‌ماند و «هنوز نمونه است» پیش از انتشار همچنان هشدار می‌دهد. جمله‌های داستانیِ یک محصولِ خیالی (Hirael، Ledger …) ترجمه نمی‌شود.
+_FA_SECTIONS = {
+    # قیمت و پلن
+    "simple pricing for teams of every size": "قیمتِ ساده برای تیم‌هایی در هر اندازه", "for individuals trying things out": "برای کسانی که می‌خواهند امتحان کنند",
+    "for teams shipping every week": "برای تیم‌هایی که هر هفته تحویل می‌دهند", "for organizations that need more control": "برای سازمان‌هایی که کنترلِ بیشتری می‌خواهند",
+    "sso & saml": "ورود یکپارچه (SSO و SAML)", "sso & audit logs": "ورود یکپارچه و گزارشِ ممیزی", "simple and transparent": "ساده و شفاف",
+    "pricing that scales with your build": "قیمتی که با رشدِ کارِ شما بزرگ می‌شود", "start free, upgrade when you need more power": "رایگان شروع کنید و هر وقت لازم شد ارتقا دهید",
+    "start free, upgrade when you need more": "رایگان شروع کنید و هر وقت بیشتر خواستید ارتقا دهید", "plans that grow with you": "پلن‌هایی که با شما رشد می‌کنند",
+    "for solo builders shipping a first project": "برای سازنده‌های تک‌نفره‌ای که اولین پروژه‌شان را تحویل می‌دهند", "/forever": "/همیشه", "forever": "همیشه", "/monthly": "/ماهانه",
+    "no credit card required": "بدونِ نیاز به کارتِ اعتباری", "2 months free": "۲ ماه رایگان", "custom domains": "دامنهٔ سفارشی", "scale": "مقیاس", "growth": "رشد",
+    "for growing teams that need more room to build": "برای تیم‌های در حال رشد که جای بیشتری برای ساختن می‌خواهند", "for growing teams that need more power": "برای تیم‌های در حال رشد که توانِ بیشتری می‌خواهند",
+    "for organizations running at production scale": "برای سازمان‌هایی که در مقیاسِ تولید کار می‌کنند", "for organizations with custom needs": "برای سازمان‌هایی با نیازِ سفارشی",
+    "for individuals getting started with the basics": "برای کسانی که با امکاناتِ پایه شروع می‌کنند", "talk to sales": "صحبت با فروش", "unlimited workspaces": "فضای کارِ نامحدود",
+    "custom slas": "توافق‌نامهٔ سطحِ خدمتِ سفارشی", "compare plans": "مقایسهٔ پلن‌ها", "plan comparison": "مقایسهٔ پلن‌ها",
+    "pick the plan that fits your team's needs": "پلنی را انتخاب کنید که به نیازِ تیمِ شما می‌خورد", "core": "پایه", "projects": "پروژه‌ها", "team members": "اعضای تیم",
+    "api access": "دسترسی به API", "not included": "شامل نیست", "included": "شامل است", "dedicated manager": "مدیرِ اختصاصی", "sla": "توافق‌نامهٔ سطحِ خدمت",
+    "service level agreement": "توافق‌نامهٔ سطحِ خدمت", "core functionality": "امکاناتِ اصلی", "up to 3 projects": "تا ۳ پروژه", "1 gb storage": "۱ گیگابایت فضا", "50 gb storage": "۵۰ گیگابایت فضا",
+    "per user / month": "برای هر کاربر در ماه", "everything in starter, plus": "همهٔ امکاناتِ شروع، به‌علاوهٔ", "everything in growth, plus": "همهٔ امکاناتِ رشد، به‌علاوهٔ",
+    "priority email support": "پشتیبانی ایمیلیِ اولویت‌دار", "team roles & permissions": "نقش‌ها و دسترسی‌های تیم", "custom pricing": "قیمتِ سفارشی", "unlimited everything": "همه‌چیز نامحدود",
+    "dedicated infrastructure": "زیرساختِ اختصاصی", "24/7 phone support": "پشتیبانی تلفنی ۲۴ ساعته", "volume discounts available for annual billing": "برای پرداختِ سالانه تخفیفِ حجمی هست",
+    # پرسش‌ها
+    "questions, answered": "پرسش‌ها و پاسخ‌ها", "answers": "پاسخ‌ها", "general": "عمومی", "billing": "پرداخت", "goals": "هدف‌ها",
+    "the things people ask most often. still stuck? reach out and we'll walk you through it": "چیزهایی که بیشتر می‌پرسند. هنوز گیر کرده‌اید؟ پیام بدهید تا قدم‌به‌قدم کمکتان کنیم",
+    "is there a free plan?": "آیا پلنِ رایگان دارید؟", "can i change plans later?": "آیا بعداً می‌توانم پلن را عوض کنم؟", "how is my data kept safe?": "داده‌های من چطور امن نگه داشته می‌شود؟",
+    "do you offer team accounts?": "آیا حسابِ تیمی دارید؟", "what if i need help?": "اگر کمک لازم داشتم چه؟", "how do i report a problem?": "مشکل را چطور گزارش کنم؟",
+    "is right-to-left supported?": "آیا راست‌به‌چپ پشتیبانی می‌شود؟", "what do i actually install?": "دقیقاً چه چیزی نصب می‌کنم؟",
+    # کوکی، خطا، به‌زودی
+    "we use cookies": "ما از کوکی استفاده می‌کنیم", "necessary": "ضروری", "always on": "همیشه روشن", "analytics": "تحلیل", "marketing": "بازاریابی", "manage": "مدیریت",
+    "accept all": "پذیرفتنِ همه", "reject all": "رد کردنِ همه", "sign-in, security, and remembering this choice": "ورود، امنیت و به‌خاطر سپردنِ همین انتخاب",
+    "page views and feature usage, aggregated": "بازدیدِ صفحه و استفاده از امکانات، به‌صورتِ تجمیعی", "attribution for the campaigns that brought you here": "ردیابیِ کمپینی که شما را به این‌جا آورد",
+    "something broke on our end": "مشکلی از سمتِ ما پیش آمد", "go home": "بازگشت به خانه", "technical details": "جزئیاتِ فنی", "status: all systems operational": "وضعیت: همهٔ سامانه‌ها سالم است",
+    "hours": "ساعت", "min": "دقیقه", "sec": "ثانیه", "get notified at launch": "در زمانِ راه‌اندازی خبرم کنید", "people on the list get access first": "کسانی که در فهرست‌اند اول دسترسی می‌گیرند",
+    "one email on launch day. nothing else": "فقط یک ایمیل در روزِ راه‌اندازی؛ هیچ‌چیزِ دیگر",
+    # بنر، فهرست، مقایسه، خط زمانی
+    "upgrade plan": "ارتقای پلن", "browse integrations": "دیدنِ یکپارچه‌سازی‌ها", "featured": "ویژه", "bring your favorite tools together": "ابزارهای محبوبتان را کنار هم بیاورید",
+    "inbox": "صندوق ورودی", "changelog": "تغییرات", "all": "همه", "improved": "بهبودیافته", "fixed": "رفع‌شده", "before": "قبل", "after": "بعد", "before and after": "قبل و بعد",
+    "design": "طراحی", "code": "کد", "test": "آزمون", "deploy": "استقرار", "done!": "تمام!", "the problem": "مسئله", "release notes": "یادداشتِ نسخه", "install": "نصب", "rtl": "راست‌به‌چپ",
+    "one command": "یک فرمان", "see what ships": "دیدنِ آنچه عرضه می‌شود", "latest drop": "تازه‌ترین عرضه", "what teams say": "تیم‌ها چه می‌گویند", "from the field": "از میدان",
+    "no releases match this filter yet": "هنوز نسخه‌ای با این فیلتر نیست", "generated answer": "پاسخِ تولیدشده",
+}
+_FA.update(_FA_SECTIONS)
 _NUM_WORD = {"project": "پروژه", "projects": "پروژه", "user": "کاربر", "users": "کاربر", "seat": "کاربر", "seats": "کاربر", "member": "عضو", "members": "عضو", "day": "روز", "days": "روز",
              "week": "هفته", "weeks": "هفته", "month": "ماه", "months": "ماه", "year": "سال", "years": "سال", "gb": "گیگابایت", "mb": "مگابایت", "item": "مورد", "items": "مورد",
-             "task": "کار", "tasks": "کار", "review": "نظر", "reviews": "نظر", "step": "گام", "steps": "گام"}
+             "task": "کار", "tasks": "کار", "review": "نظر", "reviews": "نظر", "step": "گام", "steps": "گام", "workspace": "فضای کار", "workspaces": "فضای کار",
+             "domain": "دامنه", "domains": "دامنه", "site": "سایت", "sites": "سایت", "page": "صفحه", "pages": "صفحه", "plan": "پلن", "plans": "پلن", "event": "رویداد", "events": "رویداد"}
 _RE_NUM_WORD = re.compile(r"^\s*(\d[\d,.]*)\s+([A-Za-z]+)\s*$")
 _RE_LATIN = re.compile(r"[A-Za-z]{3,}")
 _RE_CODEISH = re.compile(r"https?:|\w+@\w+\.|\.(?:tsx?|jsx?|css|json|png|jpe?g|svg)\b|^[\w.-]+/[\w./-]+$")      # نشانی، ایمیل، نامِ فایل، مسیر: ترجمه نمی‌شود
@@ -144,15 +187,22 @@ def ai_translate(texts: list[str], *, complete=None) -> tuple[list[str], dict]:
         if not isinstance(got, list) or len(got) != len(pick):
             raise ValueError("پاسخِ مدل به همان تعداد نبود")
     except Exception as exc:  # noqa: BLE001 - AI «در دسترس نیست» (۴۰۲، گره خاموش، مهلت …) نباید درجِ قطعه را خراب کند
-        msg = ""
+        reason = ""
         try:
             from apps.ai_engine import parking
             un = parking.unavailable_from(exc)
-            msg = str(un) if un is not None else ""
+            reason = (getattr(un, "reason", "") or "") if un is not None else ""
         except Exception:                          # noqa: BLE001
-            msg = ""
+            reason = ""
         logger.info("c21 translate: AI unavailable: %s", exc)
-        return list(texts), {"ok": False, "translated": 0, "message": msg or ("ترجمهٔ هوش مصنوعی ممکن نشد: %s" % str(exc)[:160])}
+        # بازبینیِ دورِ ۴: پیامِ پیشین «درخواستِ شما در صف ماند و خودکار اجرا می‌شود» می‌گفت ولی هیچ‌چیزی در صف نمی‌ماند (فقط پیشنهادهای ساختِ صفحه پارک می‌شوند).
+        # این ترجمه درجا انجام می‌شود، پس پیام فقط می‌گوید چه شد و چه باید کرد؛ قطعه با همان ترجمهٔ فرهنگ‌لغت درج شده است.
+        if reason:
+            msg = ("هوش مصنوعی الان در دسترس نیست: %s. قطعه درج شد ولی بقیهٔ متن‌ها انگلیسی ماند (این ترجمه در صف نمی‌ماند). "
+                   "وقتی هوش مصنوعی برگشت «افزودن + فارسی‌سازی» را دوباره بزنید، یا متن را روی بوم خودتان بنویسید." % reason.rstrip(".。 "))
+        else:
+            msg = "ترجمهٔ هوش مصنوعی ممکن نشد: %s. قطعه درج شد و متن‌ها را می‌توانید روی بوم خودتان بنویسید." % str(exc)[:160]
+        return list(texts), {"ok": False, "translated": 0, "message": msg, "queued": False}
     out = list(texts)
     n = 0
     for i, v in zip(pick, got):

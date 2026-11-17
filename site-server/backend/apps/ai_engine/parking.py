@@ -36,9 +36,10 @@ FRIENDLY_KINDS = PARK_KINDS | {"bad_key", "no_model"}
 class AiUnavailable(AiError):
     """هوش مصنوعی الان جواب نمی‌دهد؛ ``parkable`` یعنی با صبر درست می‌شود."""
 
-    def __init__(self, message: str, kind: str = "", parkable: bool = True):
+    def __init__(self, message: str, kind: str = "", parkable: bool = True, reason: str = ""):
         super().__init__(message)
         self.kind, self.parkable = kind, parkable
+        self.reason = reason            # فقط «چرا»ی کوتاه (بی‌وعدهٔ «در صف ماند»)؛ کارهایی که صفِ انتظار ندارند (ترجمهٔ درجا) پیامِ خودشان را با آن می‌سازند
 
 
 def unavailable_from(exc: Exception) -> AiUnavailable | None:
@@ -62,7 +63,7 @@ def unavailable_from(exc: Exception) -> AiUnavailable | None:
                f"(تا ۲۴ ساعت)؛ لازم نیست دوباره بنویسید.")
     else:
         msg = f"هوش مصنوعی کار نکرد: {reason}. تنظیمات را درست کنید («تنظیماتِ هوشِ مصنوعی» ⇒ «آزمونِ اتصال») و دوباره بفرستید."
-    return AiUnavailable(msg, f.kind, parkable)
+    return AiUnavailable(msg, f.kind, parkable, reason)
 
 
 # ───────────────────────────── برگهٔ پارک (فایل)

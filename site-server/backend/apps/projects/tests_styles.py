@@ -245,7 +245,10 @@ class VariantTests(Base):
             b = clean.new_block(btype)
             plain = self.render(b)
             self.assertNotIn('nbv-', plain.html)
-            self.assertNotIn('nbc', plain.css)
+            if btype.startswith('c_'):             # قطعهٔ آماده (دورِ ۴): CSSِ خودِ قطعه (nbc-…) همیشه می‌آید؛ از چیدمان فقط وقتی که خواسته شود
+                self.assertNotIn('.nbv-', plain.css)
+            else:
+                self.assertNotIn('nbc', plain.css)
             with_key = clean.new_block(btype)
             with_key['props']['variant'] = ''
             self.assertEqual(self.render(with_key).html.replace(with_key['id'], 'X'), plain.html.replace(b['id'], 'X'))

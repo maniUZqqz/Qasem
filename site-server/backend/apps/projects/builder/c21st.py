@@ -156,6 +156,22 @@ def is_permissive(lic: str) -> bool:
     return s in PERMISSIVE or s.startswith(("bsd", "apache"))
 
 
+def _lic_norm(lic: str) -> str:
+    s = re.sub(r"[\s_]+", "-", (lic or "").strip().lower())
+    return {"apache-2": "apache-2.0", "apache2": "apache-2.0", "apache-license-2.0": "apache-2.0", "cc0": "cc0-1.0", "bsd": "bsd-3-clause"}.get(s, s)
+
+
+def effective_license(catalog_license: str, source_license: str = "") -> str:
+    """مجوزی که نشان داده می‌شود (کارت، نشان، پیش‌نمایش، توضیحِ HTML) = مجوزِ فایلِ LICENSE ِ مخزنِ کد، وقتی آزاد است و با گفتهٔ کاتالوگ فرق دارد.
+
+    بازبینیِ دورِ ۴: برای ۱۱ قطعهٔ Spectrum UI کاتالوگ «MIT» می‌گفت ولی مخزن Apache-2.0 است و توضیحِ داخلِ HTML «Apache-2.0» می‌نوشت؛ سه‌جا دو مجوز.
+    منبعِ حقیقت همان مخزن است (آن را قطعه از آن گرفته‌ایم)؛ گفتهٔ کاتالوگ در ``license_catalog`` می‌ماند."""
+    cat, src = (catalog_license or "").strip(), (source_license or "").strip()
+    if src and is_permissive(src) and _lic_norm(src) != _lic_norm(cat):
+        return src
+    return cat or src
+
+
 # ───────────────────────────── خزش (قابلِ ازسرگیری، مؤدبانه)
 
 def _state_path() -> Path:
@@ -331,7 +347,7 @@ def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1,
             "insertable": len(ins), "insertable_sections": sum(1 for r in ins if kind_of(r) == "section"), "with_preview": sum(1 for r in rows if r.get("preview")), "query_en": " ".join(sorted(words)) if _FA_RE.search(q or "") else ""}
 
 
-_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}, "kind": {}}
+_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}, "kind": {}, "license": {}}
 
 
 def _rtl_index() -> dict:
@@ -345,7 +361,8 @@ def _rtl_index() -> dict:
     if _rtl_cache["mtime"] != m or _rtl_cache["path"] != str(p):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
-            _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()}, kind={k: (v or {}).get("kind", "") for k, v in data.items()})
+            _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()}, kind={k: (v or {}).get("kind", "") for k, v in data.items()},
+                               license={k: (v or {}).get("license", "") for k, v in data.items()})
         except (OSError, ValueError):
             return {}
     return _rtl_cache["map"]
@@ -355,6 +372,13 @@ def kind_of(r: dict) -> str:
     """بخشِ صفحه (section) یا ابزارک (widget) ⇒ از سنجشِ مرورگر (c21_rtl.classify)؛ نسنجیده ⇒ ''."""
     _rtl_index()
     return _rtl_cache["kind"].get(r.get("id")) or (r.get("conv") or {}).get("kind", "")
+
+
+def shown_license(r: dict) -> str:
+    """مجوزی که برای یک ردیف نشان داده می‌شود: قطعهٔ تبدیل‌شده ⇒ مجوزِ مخزنِ کد (index.json ِ تبدیل‌ها)، وگرنه گفتهٔ کاتالوگ."""
+    _rtl_index()
+    src = _rtl_cache["license"].get(r.get("id")) or ""
+    return effective_license(r.get("license", ""), src if src else "")
 
 
 def insertable(r: dict) -> bool:
@@ -367,7 +391,7 @@ def public(r: dict) -> dict:
     code = (root() / "code" / (safe_name(r["id"]) + ".tsx")).is_file()
     conv = r.get("conv") or {}
     return {"id": r["id"], "title": r.get("title", ""), "description": r.get("description", ""), "author": r.get("author_name", ""), "library": link_text(r.get("library", "")),
-            "license": r.get("license", "") or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
+            "license": shown_license(r) or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
             "deps": r.get("deps", []), "cats": r.get("cats", []), "url": r.get("url") or f"{BASE}/@{r['id'].split('/')[0]}/components/{'/'.join(r['id'].split('/')[1:])}",
             "has_code": code, "nearest": nearest_components(r), "preview": bool(r.get("preview")), "insertable": insertable(r), "conv_key": conv.get("key", "") if insertable(r) else "",
             "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "kind": kind_of(r) if insertable(r) else "", "src": r.get("src", ""), "library_id": r.get("library_id", "")}

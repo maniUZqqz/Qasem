@@ -47,6 +47,18 @@ TEXT_JS = r"""
 () => {
   // every visible text node: colour, opacity chain, size and rectangles (the caller measures the real pixels behind it in the text-less screenshot)
   const out = [], sx = window.scrollX, sy = window.scrollY;
+  // Tailwind v4 colours are oklch()/color-mix(): getComputedStyle returns them as written (oklch(0.87 0 0), color(srgb ...)), not as rgb(). The old rgb()-only regex silently SKIPPED every such
+  // text (text-neutral-300, text-red-500 ...), so the readability gate never saw the dim texts that were the actual problem (review round 4). A 1x1 canvas converts any CSS colour to sRGB.
+  const cvs = document.createElement('canvas'); cvs.width = cvs.height = 1;
+  const g2 = cvs.getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => {
+    const m = String(c || '').match(/^rgba?\(([^)]+)\)$/);
+    if (m) { const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(parseFloat); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
+    if (!g2) return null;
+    g2.clearRect(0, 0, 1, 1); g2.fillStyle = 'rgba(1,2,3,0.004)'; g2.fillStyle = String(c); g2.fillRect(0, 0, 1, 1);
+    const d = g2.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  };
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const chain = (el) => { let o = 1; while (el && el.nodeType === 1) { const v = parseFloat(getComputedStyle(el).opacity); o *= isNaN(v) ? 1 : v; el = el.parentElement; } return o; };
   let n;
@@ -70,10 +82,9 @@ TEXT_JS = r"""
     }
     rects = rects.map((r) => ({ left: r[0], top: r[1], width: r[2] - r[0], height: r[3] - r[1] }));
     if (!rects.length) continue;
-    const fill = cs.webkitTextFillColor && cs.webkitTextFillColor.startsWith('rgb') ? cs.webkitTextFillColor : cs.color;
-    const m = fill.match(/rgba?\(([^)]+)\)/); if (!m) continue;
-    const p = m[1].split(',').map(parseFloat);
-    if (p.length > 3 && p[3] < 0.05) continue;
+    const fill = cs.webkitTextFillColor || cs.color;          // transparent fill (bg-clip-text gradients) = not measurable, skipped below
+    const p = rgba(fill); if (!p) continue;
+    if (p[3] < 0.05) continue;
     const fs = parseFloat(cs.fontSize), fw = parseInt(cs.fontWeight) || 400;
     // text covered by something that is NOT its own box (a badge over a label, two labels on top of each other, an icon over text): elementFromPoint skips pointer-events:none decorations
     let occ = 0;
@@ -84,13 +95,13 @@ TEXT_JS = r"""
         if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
         const top = document.elementFromPoint(x, y);
         if (!top || top === el || el.contains(top) || top.contains(el)) continue;
-        const tcs = getComputedStyle(top), bg = tcs.backgroundColor.match(/rgba?\(([^)]+)\)/);
-        const solid = bg && (bg[1].split(',').length < 4 || parseFloat(bg[1].split(',')[3]) >= 0.9);
+        const tcs = getComputedStyle(top), bg = rgba(tcs.backgroundColor);
+        const solid = bg && bg[3] >= 0.9;
         const own = Array.from(top.childNodes).some((c) => c.nodeType === 3 && c.textContent.trim().length > 0);
         if (solid || own || ['IMG', 'CANVAS', 'VIDEO'].includes(top.tagName)) { occ++; }
       }
     }
-    out.push({ text: t.slice(0, 40), color: [p[0], p[1], p[2]], alpha: (p.length > 3 ? p[3] : 1) * chain(el), large: fs >= 24 || (fs >= 18.66 && fw >= 700), occ,
+    out.push({ text: t.slice(0, 40), color: [p[0], p[1], p[2]], alpha: p[3] * chain(el), large: fs >= 24 || (fs >= 18.66 && fw >= 700), occ,
                rects: rects.slice(0, 3).map((r) => [r.left + sx, r.top + sy, r.width, r.height]) });
   }
   return out;
@@ -113,7 +124,8 @@ def capture_contrast(b, d, ctx_files):
                 page.wait_for_timeout(250)
                 items = page.evaluate(TEXT_JS)
                 chars = page.evaluate("(document.body.innerText || '').replace(/\\s+/g, '').length")
-                height = page.evaluate('document.documentElement.scrollHeight')
+                # the component's own height (host box), NOT the page: documentElement.scrollHeight is never below the 1400 px viewport, which made every component look 'tall'
+                height = page.evaluate("(() => { const h = document.querySelector('.nbc21-host'); if (!h) return document.documentElement.scrollHeight; const r = h.getBoundingClientRect(); return Math.round(Math.max(r.height, h.scrollHeight)); })()")
                 page.add_style_tag(content=HIDE)
                 page.wait_for_timeout(100)
                 page.screenshot(path='%s/%s.png' % (os.path.abspath(d), name), full_page=True)

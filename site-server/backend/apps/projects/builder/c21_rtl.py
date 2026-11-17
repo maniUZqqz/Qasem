@@ -23,13 +23,21 @@ DEFAULT_PY = "/opt/up3d-uitest/venv/bin/python"
 DEFAULT_BROWSERS = "/opt/up3d-uitest/browsers"
 _REPO_SCRIPT = Path(__file__).resolve().parents[4] / "deploy" / "c21" / "rtl_check.py"        # همیشه هم‌نسخهٔ کد (بی‌نصبِ دستی)
 SCRIPT = _REPO_SCRIPT if _REPO_SCRIPT.exists() else Path(CV.TOOLCHAIN) / "rtl_check.py"
-CHECK_VERSION = 4                    # ۲ = اسکرین‌شاتِ «blank» + سرریزِ گوشی ⇒ fail؛ ۳ = «فقط یک قابِ خالی» (بی‌متن و بی‌تصویر) هم blank است؛ ۴ = سنجشِ خوانایی روی پوستهٔ روشن/تیره/جزیره + «بسیار کوچک» + CSSِ ترمیم‌شده؛ رکوردهای با نسخهٔ کمتر خودکار دوباره سنجیده می‌شوند (recheck_outdated)
+CHECK_VERSION = 5                    # ۲ = اسکرین‌شاتِ «blank» + سرریزِ گوشی ⇒ fail؛ ۳ = «فقط یک قابِ خالی» (بی‌متن و بی‌تصویر) هم blank است؛ ۴ = سنجشِ خوانایی روی پوستهٔ روشن/تیره/جزیره + «بسیار کوچک» + CSSِ ترمیم‌شده؛ ۵ = (بازبینیِ ۱۱/۱۷، دورِ ۴) خوانایی با رنگ‌های oklch()/color-mix() هم سنجیده می‌شود (پیش‌تر هر متنِ Tailwind مثل text-neutral-300 نادیده بود) و «بخشِ صفحه» با ارتفاعِ واقعیِ قطعه و نامِ آن تشخیص داده می‌شود؛ رکوردهای با نسخهٔ کمتر خودکار دوباره سنجیده می‌شوند (recheck_outdated)
 INK_MIN = 150                        # کمتر از این تعداد پیکسلِ «پررنگ» (اختلافِ هر کانال با زمینه > ۴۰ از ۲۵۵؛ نقطه‌های محوِ شبکهٔ سوسوزن حساب نمی‌شوند) در هر دو عرض ⇒ قطعه خالی است
 PAGE_BG = (0xf7, 0xf8, 0xfa)
 TINY_CHARS = 5                       # کمتر از این تعداد نویسهٔ دیدنی (و بی‌تصویر، کوتاه) ⇒ «بسیار کوچک»: یک نشان/دکمهٔ بی‌متن به کارِ سایت‌ساز نمی‌آید
-SECTION_MIN_H, SECTION_MIN_CHARS = 180, 24      # بخشِ صفحه (بقیه «ابزارک»)
-WIDGET_WORDS = re.compile(r"\b(badge|kbd|button|btn|spinner|loader|switch|toggle|tooltip|avatar|chip|tag|counter|wheel|cursor|checkbox|radio|slider|knob|icon)s?\b", re.I)
-SECTION_CATS = {"hero", "features", "cta", "pricing-section", "testimonials", "navigation", "footer", "accordion", "landing-page", "carousel", "marquee", "dashboard", "table", "chart", "form", "ai-chat"}
+SECTION_MIN_H, SECTION_MIN_CHARS = 300, 150     # «بخشِ صفحه»ی عمومی (بی‌نشانِ نام): ارتفاعِ واقعیِ قطعه و تعدادِ نویسه
+NAMED_SECTION_MIN_CHARS = 40                     # نامش بخش بودنش را می‌گوید (قیمت، پرسش‌ها، ویژگی‌ها …): فقط نباید خالی باشد
+#: نامِ قطعه که یک بخشِ واقعیِ صفحهٔ فرود است (قیمت، پرسش‌های متداول، ویژگی‌ها، قهرمان، پابرگ، نظرها، مقایسه، خط زمانی …). «Table» و «Tabs» و «Select» اینجا نیست.
+SECTION_TITLE = re.compile(r"\b(pricing|prices?|tiers?|plans?|faqs?|hero|footers?|headers?|navbar|nav ?bar|navigation|testimonials?|reviews?|features?|comparison|timeline|changelog|coming soon|launch|banner|"
+                           r"call to action|cta|integrations?|logo ?cloud|logos?|clients?|contact|newsletter|team|stats|statistics|gallery|showcase|bento|cookie|how it works|about)\b", re.I)
+#: نامِ قطعه که یک «ابزارک»ِ رابط است، نه بخشِ صفحه (مؤلفهٔ فرم، دکمه، نشان، پنجره، منو، نوار …): حتی اگر دمویش بلند باشد
+WIDGET_WORDS = re.compile(r"\b(badge|kbd|buttons?|btn|spinner|loader|switch|toggle|tooltip|avatars?|chip|tag|counter|wheel|cursor|checkbox|radio|slider|knob|icons?|label|select|separator|picker|timer|"
+                          r"stepper|tabs?|table|dialog|modal|popover|dropdown|input|textarea|pagination|breadcrumb|collapsible|command|palette|menu|drawer|player|dynamic island|tally|conversation|"
+                          r"message|reaction|rating|dropzone|validation|password|otp|progress|skeleton|marquee|text|heading|typing|typewriter|glitch|particles?|pattern|grid|background|beam|shapes|pointer|terminal|thinking|blur|empty state|activity|steps|task|citation|tool call|approval|memory|prompt|composer)s?\b", re.I)
+#: دسته‌هایی که داشبورد/گفت‌وگوی AI/نمودارند: ابزارکِ برنامه‌اند، بخشِ صفحهٔ بازاریابی نیستند
+APP_CATS = {"ai-chat", "chart", "dashboard", "form", "table", "tabs", "tooltip", "dialog", "notification", "search", "sidebar", "avatar", "badge", "button", "text-animation", "background", "animated"}
 OVERLAP_MAX = 1                      # این تعداد متنِ رویِ‌هم‌افتاده (یا بیشتر) ⇒ درج‌شدنی نیست
 
 _PAGE_HEAD = ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -157,16 +165,30 @@ def check(keys: list[str], *, runner=subprocess.run, timeout: int = 900, contras
 
 
 def classify(row: dict, rec: dict) -> tuple[str, str]:
-    """نتیجهٔ مرورگر + رکورد ⇒ (نوع: section | widget | tiny، علتِ بسته‌شدن یا ''). «tiny»: کمتر از ۵ نویسه، بی‌تصویر، کوتاه (یک نشان/دکمهٔ بی‌متن)."""
+    """نتیجهٔ مرورگر + رکورد ⇒ (نوع: section | widget | tiny، علتِ بسته‌شدن یا ''). «tiny»: کمتر از ۵ نویسه، بی‌تصویر، کوتاه (یک نشان/دکمهٔ بی‌متن).
+
+    «section» (بخشِ صفحه) فقط وقتی که واقعاً بخشِ یک صفحهٔ فرود است (دورِ ۴: پیش‌تر ۱۴۶ از ۲۲۲ «بخش» بودند، از جمله Label و Select و Radio Group و Timer، چون ارتفاعِ صفحه
+    ۱۴۰۰ پیکسل می‌ماند و هر قطعهٔ ۲۴ نویسه‌ای «بزرگ» حساب می‌شد):
+      ۱. نامش بخش بودنش را می‌گوید (قیمت، پرسش‌های متداول، ویژگی‌ها، قهرمان، پابرگ، نظرها، مقایسه، خط زمانی …) و بی‌متن نیست؛ یا
+      ۲. نامش ابزارکِ رابط نیست و داشبورد/گفت‌وگوی AI/نمودار/فرم هم نیست، ولی ارتفاعِ واقعیِ قطعه ≥ ۳۰۰ پیکسل و متنش ≥ ۱۵۰ نویسه است.
+    بقیه «widget» (ابزارک) می‌شوند: همچنان درج‌شدنی‌اند، فقط در فهرستِ «بخشِ صفحه» نمی‌آیند."""
     chars, height = row.get("chars"), row.get("height")
     if chars is None:
         return "", ""
     if chars < TINY_CHARS and not rec.get("images"):
         return "tiny", "بی‌متن است (کمتر از %d نویسهٔ دیدنی و بی‌تصویر: یک نشان، دکمهٔ تک‌آیکون یا قابِ تزئینی)؛ به کارِ ساختِ صفحه نمی‌آید." % TINY_CHARS
-    big = (height or 0) >= SECTION_MIN_H and chars >= SECTION_MIN_CHARS
-    if big and WIDGET_WORDS.search(rec.get("title", "")) and not (set(rec.get("cats") or []) & SECTION_CATS):         # «Badge»، «Kbd»، «Number wheel»: ویترینِ یک ابزارک، نه بخشِ صفحه
-        big = False
-    return ("section" if big else "widget"), ""
+    return ("section" if is_section(rec.get("title", ""), rec.get("cats") or [], int(chars or 0), int(height or 0)) else "widget"), ""
+
+
+def is_section(title: str, cats, chars: int, height: int) -> bool:
+    """نامِ قطعه + دسته‌ها + نویسه‌ها + ارتفاعِ واقعی ⇒ آیا بخشِ صفحه است (توضیح در classify)."""
+    named = bool(SECTION_TITLE.search(title or ""))
+    if named and chars >= NAMED_SECTION_MIN_CHARS:
+        # «Gradient Text»، «Animated Grid» و مانندش نامی از بخش ندارند؛ ولی «Pricing Table» و «FAQ Tabs Card» دارند: نامِ بخش بر نامِ ابزارک می‌چربد
+        return True
+    if WIDGET_WORDS.search(title or "") or (set(cats or []) & APP_CATS):
+        return False
+    return height >= SECTION_MIN_H and chars >= SECTION_MIN_CHARS
 
 
 def apply(keys: list[str], **kw) -> dict:

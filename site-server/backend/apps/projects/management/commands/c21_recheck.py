@@ -23,6 +23,8 @@ class Command(BaseCommand):
         parser.add_argument("--max-minutes", type=float, default=90.0)
 
     def handle(self, *a, **o):
+        n = CV.relicense_all()                                    # بی‌مرورگر: مجوزِ مخزن در رکورد و فهرست (کاتالوگ «MIT»، مخزن «Apache-2.0»)
+        self.stdout.write(json.dumps({"relicensed": n}))
         ok, why = c21_rtl.available()
         if not ok:
             self.stdout.write("FAILED browser unavailable: %s" % why)

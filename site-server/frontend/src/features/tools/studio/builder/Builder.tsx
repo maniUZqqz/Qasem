@@ -889,7 +889,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
             {selBlock.type === "brand_hero" && (
               <BrandHeroFill slug={slug} onApply={(p) => { const { image, ...rest } = p; setProp("image", image, rest as Rec); }} />
             )}
-            {selSpec.fields.map((f) => (
+            {selSpec.fields.filter((f) => !f.hidden).map((f) => (
               <FieldInput key={f.key} f={f} value={selBlock.props[f.key]} env={env} block={selBlock} device={device} onChange={(v, extra) => setProp(f.key, v, extra)} />
             ))}
             {selSpec.fields.length === 0 && <p className="nbe-note">این بلوک محتوای جدا ندارد؛ از زبانهٔ «ظاهر» تنظیمش کن.</p>}

@@ -275,7 +275,7 @@ class BrowserContrastGateTests(DataDirMixin, Base):
 
     def test_four_contexts_choose_theme_island_or_block(self):
         white = (255, 255, 255)
-        a = self.convert("acme/safe", "Safe Card")
+        a = self.convert("acme/safe", "Safe Pricing Table")
         b = self.convert("acme/white-card", "White Card")             # متنِ سفید روی کارتِ سفید فقط روی پوستهٔ تیره (و جزیرهٔ تیره)
         c = self.convert("acme/invisible", "Invisible")
         spec = {a["key"]: {},
@@ -482,7 +482,9 @@ class ClassifyTests(SimpleTestCase):
         self.assertEqual(cl(big, title="Hero Section 01", cats=["hero"])[0], "section")
         self.assertEqual(cl(big, title="Kbd", cats=["badge"])[0], "widget", "ویترینِ یک ابزارک بخشِ صفحه نیست")
         self.assertEqual(cl(big, title="Number wheel", cats=["animated"])[0], "widget")
-        self.assertEqual(cl(big, title="Gradient Button Row", cats=["cta"])[0], "section", "دستهٔ بخشِ صفحه (cta) برنده است")
+        self.assertEqual(cl(big, title="Gradient Button Row", cats=["cta"])[0], "widget", "دورِ ۴: نامِ ابزارک (Button) بر دستهٔ cta می‌چربد؛ پیش‌تر هر قطعهٔ بلندی «بخش» بود")
+        self.assertEqual(cl({"chars": 120, "height": 90}, title="Pricing Table", cats=["pricing-section"])[0], "section", "نامِ بخش (قیمت) بر ارتفاع می‌چربد")
+        self.assertEqual(cl({"chars": 200, "height": 1400}, title="Label")[0], "widget", "دورِ ۴: ارتفاعِ ۱۴۰۰ (= ارتفاعِ پنجره) دیگر قطعه را «بخش» نمی‌کند")
         self.assertEqual(cl({"chars": 30, "height": 90}, title="Footer Links", cats=["footer"])[0], "widget", "کوتاه ⇒ ابزارک")
         kind, why = cl({"chars": 3, "height": 60}, title="Badge")
         self.assertEqual(kind, "tiny")

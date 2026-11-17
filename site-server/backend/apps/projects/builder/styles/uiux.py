@@ -90,16 +90,43 @@ def attribution():
             'counts': {k: len(rows(k)) for k in KINDS}, 'skipped': d.get('skipped', {})}
 
 
+# «ي/ك/ى» ی عربی ⇒ فارسی؛ کشیده، نیم‌فاصله و نشانه‌های جهت حذف؛ رقمِ فارسی/عربی ⇒ لاتین (نویسه‌ها با escape نوشته شده‌اند تا ویرایشگر نامرئی‌ها را گم نکند)
+_FOLD = str.maketrans({'ي': 'ی', 'ك': 'ک', 'ى': 'ی', 'ة': 'ه', 'ۀ': 'ه', 'أ': 'ا', 'إ': 'ا', 'ـ': '',
+                       '‌': ' ', '‍': '', '‎': '', '‏': ''})
+_FOLD.update({ord(a): b for a, b in zip('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')})
+_DIACRITICS = re.compile('[ً-ٰٟ]')
+
+
+def fold(text):
+    """برای مقایسهٔ جست‌وجو: ی/ک عربی ⇒ فارسی، اعراب و کشیده و نیم‌فاصله حذف، رقمِ فارسی/عربی ⇒ لاتین، حروفِ کوچک.
+    (بازبینیِ دورِ ۴: «ويپور» با ی عربی هیچ سبکی پیدا نمی‌کرد ولی «ویپور» Vaporwave را می‌یافت؛ جست‌وجوی ۲۱st این را از پیش داشت.)"""
+    return _DIACRITICS.sub('', str(text or '')).translate(_FOLD).lower()
+
+
 def _words(text):
-    return [w for w in re.split(r'[^\w؀-ۿ]+', (text or '').lower()) if len(w) > 1]
+    return [w for w in re.split(r'[^\w؀-ۿ]+', fold(text)) if len(w) > 1]
+
+
+_hay_cache = {}
+
+
+def _hay(row, fields):
+    """(متنِ جست‌وجو، متنِ ستونِ اول) با حروفِ یکسان‌شده؛ برای هر ردیف یک بار ساخته می‌شود (ردیف‌ها در حافظه ثابت‌اند)."""
+    k = (id(row), id(fields))
+    h = _hay_cache.get(k)
+    if h is None:
+        h = (fold(' '.join(str(row.get(f, '')) for f in fields)), fold(row.get(fields[0], '')))
+        _hay_cache[k] = h
+    return h
 
 
 def _score(row, q_words, fields, extra=''):
-    hay = ' '.join(str(row.get(f, '')) for f in fields).lower() + ' ' + extra.lower()
+    hay, first = _hay(row, fields)
+    ex = fold(extra)
+    hay, first = hay + ' ' + ex, first + ' ' + ex
     if not hay.strip():
         return 0
     score = 0
-    first = str(row.get(fields[0], '')).lower() + ' ' + extra.lower()
     for w in q_words:
         if w in hay:
             score += 3 if w in first else 1

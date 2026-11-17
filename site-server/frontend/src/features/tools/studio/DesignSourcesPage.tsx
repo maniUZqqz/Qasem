@@ -102,8 +102,8 @@ function Card({ kind, row, open, onToggle }: { kind: string; row: Row; open: boo
         </p>
       )}
       {kind === "fonts" && fa2 && (
-        <p className="ds-site" data-testid="ds-fa">
-          قلم‌های لاتینِ مخزن: <bdi dir="ltr" style={{ whiteSpace: "nowrap" }} data-testid="ds-latin">{str(row.heading)} + {str(row.body)}</bdi> ⇐ معادلِ فارسیِ مجوزدار: <b>{fa2.heading.label}</b> (تیتر) + <b>{fa2.body.label}</b> (متن)
+        <p className="ds-site ds-fa" data-testid="ds-fa">
+          قلم‌های لاتینِ مخزن: <bdi dir="ltr" data-testid="ds-latin">{str(row.heading)} + {str(row.body)}</bdi> ⇐ معادلِ فارسیِ مجوزدار: <b>{fa2.heading.label}</b> (تیتر) + <b>{fa2.body.label}</b> (متن)
         </p>
       )}
       <dl className="ds-fields">

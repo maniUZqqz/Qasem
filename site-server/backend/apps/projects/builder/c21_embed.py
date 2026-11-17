@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 from . import c21_contrast as CC, c21_convert as CV
@@ -30,10 +31,89 @@ def attribution(rec: dict) -> str:
     return "<!-- 21st.dev: %s -->" % text if text else ""
 
 
-def default_props(rec: dict) -> dict:
-    """رکورد ⇒ props ِ تازهٔ بلوک (متن‌های نمونه، پیوندهای «#»، تصویرهای خالی با توضیحِ اصلی)."""
-    return {"ref": rec["key"], "texts": [{"v": t} for t in rec.get("texts", [])], "links": [{"u": u} for u in rec.get("links", [])],
+def text_hash(text) -> str:
+    """اثرِ انگشتِ کوتاهِ یک متن (فاصله‌ها یکی)؛ برای تشخیصِ «این متن از وقتِ درج دست نخورده»."""
+    return hashlib.sha1(re.sub(r"\s+", " ", str(text or "")).strip().encode("utf-8")).hexdigest()[:8]
+
+
+def seed_of(texts) -> str:
+    """متن‌هایی که همراهِ قطعه درج شدند ⇒ رشتهٔ اثرِ انگشت‌ها (جدا با «,»؛ سقفِ فیلد ۱۰۰۰ نویسه)."""
+    out, size = [], 0
+    for t in texts or []:
+        h = text_hash(t)
+        if size + len(h) + 1 > 950:
+            break
+        out.append(h)
+        size += len(h) + 1
+    return ",".join(out)
+
+
+def default_props(rec: dict, texts=None) -> dict:
+    """رکورد ⇒ props ِ تازهٔ بلوک (متن‌های نمونه، پیوندهای «#»، تصویرهای خالی با توضیحِ اصلی).
+
+    ``texts``: متن‌هایی که واقعاً درج می‌شوند (مثلاً بعد از فارسی‌سازی)؛ ``seed`` اثرِ انگشتِ همین‌هاست: تا وقتی متنِ یک شکاف همان باشد، «هنوز نمونه است» و پیش از انتشار
+    پرسیده می‌شود (دورِ ۴: متنِ فارسی‌شده با فرهنگ‌لغت یا AI دیگر شبیهِ متنِ کاربر دیده نمی‌شد و قیمت‌های ساختگیِ ۲۱st بی‌هشدار منتشر می‌شد)."""
+    texts = list(rec.get("texts", [])) if texts is None else [str(t) for t in texts]
+    return {"ref": rec["key"], "seed": seed_of(texts), "texts": [{"v": t} for t in texts], "links": [{"u": u} for u in rec.get("links", [])],
             "images": [{"src": "", "alt": i.get("alt", "")} for i in rec.get("images", [])]}
+
+
+# ───────────────────────────── «هنوز نمونه است» (پیش از انتشار)
+
+_PRICE = re.compile(r"[$€£¥₹]\s?\d|\d\s?[$€£¥₹]|\d[\d,.٫٬]*\s?(?:[%٪])|\d\s?(?:/|per|در)\s?(?:mo|yr|month|year|ماه|سال)|\b(?:USD|EUR)\b|دلار|یورو|\d\s*(?:K|M)\+?\b|[۰-۹]+\s?(?:میلیون|هزار)", re.I)
+
+
+def meaningful(text) -> bool:
+    """متنی که «محتوا» است (دست‌کم دو واژه، یا عدد): برچسب‌های تک‌واژه‌ای رابط («ماه»، «ورود»، «Pricing») نمونهٔ ساختگی حساب نمی‌شوند."""
+    n = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(re.findall(r"[^\W\d_]", n)) < 3 and not re.search(r"\d", n):
+        return False
+    return n.count(" ") >= 1 or bool(re.search(r"\d", n))
+
+
+def untouched_samples(rec: dict, props: dict) -> list[str]:
+    """متن‌های «معنادار»ی که از نمونهٔ ۲۱st دست نخورده‌اند.
+
+    بلوکی که ``seed`` دارد: متنِ شکاف با اثرِ انگشتِ هنگامِ درج یکی است. بلوکِ قدیمی (بی‌seed): با متنِ انگلیسیِ اصلی یا ترجمهٔ فرهنگ‌لغتش یکی است.
+    فقط ردیف‌های موجود در سند شمرده می‌شوند (ردیفِ حذف‌شده نشان داده نمی‌شود)."""
+    from . import c21_translate as TR
+
+    originals = list(rec.get("texts") or [])
+    rows = props.get("texts")
+    if not isinstance(rows, list) or not rows:
+        rows = [{"v": t} for t in originals]
+    seed = [x for x in str(props.get("seed") or "").split(",")]
+    out = []
+    for i, row in enumerate(rows):
+        v = row.get("v") if isinstance(row, dict) else ""
+        if not isinstance(v, str) or not meaningful(v):
+            continue
+        if i < len(seed) and seed[i]:
+            same = text_hash(v) == seed[i]
+        else:
+            orig = originals[i] if i < len(originals) else None
+            same = orig is not None and (v == orig or v == TR.fa_text(orig))
+        if same:
+            out.append(v)
+    return out
+
+
+def sample_warnings(rec: dict, props: dict) -> list[str]:
+    """⇒ جمله‌های هشدارِ فارسی (۰ تا ۲): قیمت/عددِ ساختگی، و متنِ نمونهٔ انگلیسی/ترجمه‌شده. چیزی از «دیگران» نباید به‌جای حرفِ مالک منتشر شود."""
+    from .placeholders import _fa, _snip
+
+    left = untouched_samples(rec, props)
+    if not left:
+        return []
+    out = []
+    priced = [t for t in left if _PRICE.search(t)]
+    if priced:
+        more = "" if len(priced) == 1 else " (و %s مورد دیگر)" % _fa(len(priced) - 1)
+        out.append("قیمت یا عددِ نمونه از قطعهٔ 21st مانده («%s»)%s؛ فقط عددهای واقعیِ خودتان بماند." % (_snip(priced[0], 30), more))
+    rest = [t for t in left if t not in priced]
+    if rest:
+        out.append("%s متنِ این قطعه هنوز نمونهٔ 21st است (مثلاً «%s»)؛ با متنِ خودتان عوض کنید." % (_fa(len(rest)), _snip(rest[0], 36)))
+    return out
 
 
 def _rows(props: dict, name: str, field: str, defaults: list):
@@ -84,8 +164,8 @@ def render(r, b) -> str:
     html = _RE_T.sub(tval, html)
     if not r.ctx.canvas and any(not (row.get("src") if isinstance(row, dict) else "") for row in images) and rec.get("images"):
         r.warn(b, "تصویرهای این قطعه را انتخاب کنید (جای خالی در سایت نمی‌آید).", kind="media")
-    if rec.get("texts") and all((texts.get(i) == rec["texts"][i]) for i in range(len(rec["texts"]))) and not r.ctx.canvas:
-        r.warn(b, "متن‌های این قطعه هنوز نمونه‌اند؛ با متنِ خودتان عوض کنید.", kind="sample")
+    for sentence in sample_warnings(rec, p):                 # بوم هم (فهرستِ «هنوز نمونه یا ناتمام است» ِ کنارِ ویرایشگر) مثلِ بلوک‌های خودمان
+        r.warn(b, sentence, kind="sample")
     return '<div %s>%s<div class="%s" dir="auto">%s</div></div>' % (r.attrs(b, "nbc21-host"), attribution(rec), rec["scope"], html)
 
 

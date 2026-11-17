@@ -22,9 +22,11 @@ import re
 
 from .styles import gen_core as G
 
-CONTRAST_VERSION = 1
+CONTRAST_VERSION = 2
 HARD = 3.0                     # زیرِ این، متن عملاً دیده نمی‌شود
 SOFT = 4.5                     # حدِ WCAG AA برای متنِ معمولی
+PLAN_MIN = 3.4                 # حاشیهٔ ایمنیِ «طرح»: پوستهٔ نماینده با پوستهٔ واقعیِ ۸۹ سبک فرق دارد (زمینهٔ #181818 به‌جای #0f172a)؛ بدترین متنی که روی پوستهٔ نماینده زیرِ این بماند
+                               # (دورِ ۴: «Search…» با ۲٫۸۹:۱ روی سبکِ سایبرپانک) روی همان حالت «سخت» حساب می‌شود، حتی اگر ۳:۱ را رد کرده باشد
 MODES = ("theme", "light", "dark")
 
 #: جزیرهٔ ثابت: دو پالتِ خوانا (متن/زمینه ≥ ۱۵:۱، متنِ دوم و کم‌رنگ ≥ ۴٫۵:۱ روی هر دو سطح)
@@ -110,7 +112,11 @@ def make_plan(ctx: dict) -> dict:
     ctx = {tl|td|il|id: {hard, soft, worst, n}}. برای هر قطبیتِ پوسته ترتیبِ ترجیح: همان پوسته (theme) ⇒ جزیرهٔ هم‌قطب ⇒ جزیرهٔ مخالف؛ اولین که هیچ متنِ «سخت» و «نرم» ندارد برنده است،
     وگرنه اولی که فقط «نرم» دارد؛ وگرنه '' (درج‌شدنی نیست در آن قطب)."""
     def cell(name):
-        return ctx.get(name) or {"hard": 99, "soft": 99, "n": 0}
+        c = dict(ctx.get(name) or {"hard": 99, "soft": 99, "n": 0})
+        w = c.get("worst")
+        if w is not None and w < PLAN_MIN and not c.get("hard"):
+            c["hard"] = 1                       # بدترین متن زیرِ حاشیهٔ ایمنی است (نه لزوماً زیرِ ۳:۱)
+        return c
 
     def pick(order):
         cands = [(m, cell(n)) for m, n in order]

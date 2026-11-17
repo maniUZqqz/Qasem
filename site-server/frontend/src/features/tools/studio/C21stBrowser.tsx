@@ -248,8 +248,8 @@ export default function C21stBrowser({
             {insertable && (
               <select className="c21-input" value={kind} onChange={(e) => { setKind(e.target.value as "" | "section" | "widget"); setPage(1); }} aria-label="نوعِ قطعه" data-testid="c21st-kind">
                 <option value="">بخش و ابزارک</option>
-                <option value="section">فقط بخش‌های صفحه</option>
-                <option value="widget">فقط ابزارک‌ها (دکمه، کارت کوچک …)</option>
+                <option value="section">فقط بخش‌های صفحه (قیمت، پرسش‌ها، ویژگی‌ها، تغییرات …){data ? ` · ${fa(data.insertable_sections ?? 0)}` : ""}</option>
+                <option value="widget">فقط ابزارک‌ها (فرم، دکمه، گفت‌وگو، نمودار، جدول …){data ? ` · ${fa(Math.max(0, (data.insertable ?? 0) - (data.insertable_sections ?? 0)))}` : ""}</option>
               </select>
             )}
             <label className="c21-check"><input type="checkbox" checked={usable} onChange={(e) => { setUsable(e.target.checked); setPage(1); }} /> فقط مجوزِ آزاد</label>

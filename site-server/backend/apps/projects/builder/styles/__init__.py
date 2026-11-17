@@ -112,8 +112,9 @@ def apply_to_doc(doc, key, only=None):
     def walk(blocks):
         for b in blocks or []:
             btype = b.get('type')
-            if btype in sections and (only is None or btype in only) and variants.has_field(btype):
-                want = sections[btype]
+            base = variants.base_of(btype)                 # c_hero_center_glow ⇒ hero (ستونِ sections برای بلوکِ پایه نوشته شده)
+            if base in sections and (only is None or btype in only or base in only) and variants.has_field(btype):
+                want = sections[base]
                 if want and variants.has(btype, want):
                     b.setdefault('props', {})['variant'] = want
                 else:

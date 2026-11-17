@@ -432,7 +432,28 @@ def normalize_record(rec: dict) -> dict:
     for k in ("library", "author"):
         if isinstance(rec.get(k), str) and "](" in rec[k]:
             rec[k] = c21st.link_text(rec[k])
+    src_lic = ((rec.get("source") or {}).get("license") or "")
+    shown = c21st.effective_license(rec.get("license", ""), src_lic)
+    if shown != (rec.get("license") or ""):                 # کاتالوگ «MIT» می‌گفت، مخزن «Apache-2.0»: همه‌جا مجوزِ مخزن (و توضیحِ HTML هم همین را می‌نوشت)
+        rec.setdefault("license_catalog", rec.get("license", ""))
+        rec["license"] = shown
     return rec
+
+
+def relicense_all() -> int:
+    """همهٔ رکوردهای تبدیل‌شده را از نو ذخیره می‌کند تا مجوزِ مخزن در رکورد و index.json بنشیند (بی‌مرورگر، چند ثانیه). ⇒ تعدادِ رکوردِ عوض‌شده."""
+    n = 0
+    for e in list(load_index().values()):
+        try:
+            raw = json.loads(record_path(e["key"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        before = raw.get("license", "")
+        rec = normalize_record(raw)
+        if rec.get("license", "") != before or (e.get("license") or "") != rec.get("license", ""):
+            save_record(rec)
+            n += 1
+    return n
 
 
 def load_index() -> dict:
@@ -536,7 +557,7 @@ def convert_bundle(cid: str, bundle: dict, *, meta: dict | None = None, runner=s
     if not sl["template"].strip():
         raise ConvertError("خروجی خالی است")
     rec = {"id": cid, "key": key, "scope": scope, "title": meta.get("title", ""), "description": meta.get("description", ""), "cats": meta.get("cats", []),
-           "license": meta.get("license", ""), "author": c21st.link_text(meta.get("author", "")), "library": c21st.link_text(meta.get("library", "")), "url": meta.get("url", ""),
+           "license": c21st.effective_license(meta.get("license", ""), (bundle.get("source") or {}).get("license", "")), "author": c21st.link_text(meta.get("author", "")), "library": c21st.link_text(meta.get("library", "")), "url": meta.get("url", ""),
            "source": bundle.get("source") or {}, "template": sl["template"], "css": css, "texts": sl["texts"], "links": sl["links"], "images": sl["images"],
            "warnings": (res.get("warnings") or []) + sl["warnings"], "stats": res.get("stats") or {}, "rtl": {"status": "unchecked"},
            "converted_at": c21st._now() if hasattr(c21st, "_now") else time.strftime("%Y-%m-%dT%H:%M:%S")}

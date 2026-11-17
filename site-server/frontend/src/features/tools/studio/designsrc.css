@@ -23,6 +23,9 @@
 .ds-fields dd { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .ds-rest dd { -webkit-line-clamp: unset; display: block; }
 .ds-site { margin: 0; font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+/* ردیفِ «قلم‌های لاتین ⇐ معادلِ فارسی» یک جمله است، نه چند ستون: با display:flex هر تکه‌متن یک ستونِ جدا می‌شد، کلمه‌به‌کلمه می‌شکست و از کارت بیرون می‌زد (بازبینیِ دورِ ۴) */
+.ds-site.ds-fa { display: block; line-height: 1.9; overflow-wrap: anywhere; min-width: 0; }
+.ds-site.ds-fa bdi { unicode-bidi: isolate; font-weight: 600; color: var(--text); }
 .ds-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
 .ds-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
 .ds-sw { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }

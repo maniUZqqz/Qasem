@@ -70,18 +70,17 @@ def _block_for(rec: dict, fa: bool, ai: bool) -> dict:
     """بلوکِ c21 با متن‌های نمونه؛ fa ⇒ فرهنگ‌لغتِ رابط، ai ⇒ بقیه با AI (اختیاری؛ شکستش درج را خراب نمی‌کند). ⇒ {block, translated, ai?}"""
     from .builder import c21_translate as TR
 
-    props = EM.default_props(rec)
+    texts = list(rec.get("texts", []))
     out = {"translated": 0}
     if fa or ai:
-        texts = [t.get("v", "") for t in props["texts"]]
-        new, n = TR.apply_dictionary(texts)
+        texts, n = TR.apply_dictionary(texts)
         out["translated"] = n
         if ai:
-            new, info = TR.ai_translate(new)
+            texts, info = TR.ai_translate(texts)
             out["ai"] = info
             out["translated"] += info.get("translated", 0)
-        props["texts"] = [{"v": v} for v in new]
-    out["block"] = new_block(EM.TYPE, **props)
+    # seed = اثرِ انگشتِ همین متن‌های درج‌شده ⇒ تا خودِ کاربر متنی را عوض نکند «هنوز نمونه است» می‌ماند (فارسی‌شده یا نه)
+    out["block"] = new_block(EM.TYPE, **EM.default_props(rec, texts))
     return out
 
 

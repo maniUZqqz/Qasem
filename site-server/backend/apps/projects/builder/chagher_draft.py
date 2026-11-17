@@ -114,12 +114,17 @@ def menu():
     return [{'id': 'm1', 'url': BRAND['panel'], 'label': 'پنلِ چغر'}, {'id': 'm2', 'url': BRAND['site'], 'label': 'سایتِ چغر'}]
 
 
-def build(style=DEFAULT_STYLE, logo=''):
+def build(style=DEFAULT_STYLE, logo='', layout=False):
+    """layout=True ⇒ «چیدمانِ بخش‌ها هم جور شود»: همان کاری که دکمهٔ «اعمالِ سبک» در سایت‌ساز با apply_layout می‌کند (سربرگ/دعوت/پرسش‌ها چیدمانِ سبک را می‌گیرند)."""
     nav, page, foot = blocks(logo)
     th = theme(style)
     extra = {'extra_css': LOGO_CSS} if logo else {}
-    return {'theme': th, 'menu': menu(), 'header': clean_doc({'v': 1, 'blocks': nav, **extra}, 'header'), 'page': clean_doc({'v': 1, 'blocks': page}, 'page'),
-            'footer': clean_doc({'v': 1, 'blocks': foot, **extra}, 'footer')}
+    parts = {'theme': th, 'menu': menu(), 'header': clean_doc({'v': 1, 'blocks': nav, **extra}, 'header'), 'page': clean_doc({'v': 1, 'blocks': page}, 'page'),
+             'footer': clean_doc({'v': 1, 'blocks': foot, **extra}, 'footer')}
+    if layout and style in styles.STYLES:
+        for k in ('header', 'page', 'footer'):
+            parts[k] = styles.apply_to_doc(parts[k], style)
+    return parts
 
 
 def static_page(parts, fonts_prefix='fonts/', canvas=False):

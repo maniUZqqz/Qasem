@@ -3,7 +3,7 @@
 
 · `site_styles_ai` (کارِ واقعی، روی کارت): همان بسته‌ای که حالتِ AI می‌سازد (سبکِ «بنتو» + دو قطعه، کوچک و محدود) با مدلِ متنیِ خودِ مالک (qwen3:8b یا هر مدلِ کوچکِ نصب‌شده؛
   هیچ مدلی عوض نمی‌شود) به‌صورتِ یک کارِ `ollama.generate` فرستاده می‌شود. قبول یعنی: جوابِ فارسی، بی‌اسکریپت، و دست‌کم یک قطعهٔ داده‌شده را با کلاسِ `nbc-…` به‌کار برده.
-· `site_styles_render` (مجازی، بی‌گره): همهٔ ۱۴ سبک × همهٔ قطعه‌ها بدونِ خطا رندر می‌شوند و پرامپتِ AI از سقف بیرون نمی‌زند.
+· `site_styles_render` (مجازی، بی‌گره): همهٔ سبک‌ها (۱۴ دست‌ساز + ۷۵ از ui-ux-pro-max، جمعاً ۸۹) × همهٔ قطعه‌های آماده بدونِ خطا رندر می‌شوند و پرامپتِ AI از سقف بیرون نمی‌زند.
 """
 import re
 
@@ -77,5 +77,15 @@ def virtual(ctx):
 register(SelfTest(key='site_styles_ai', label='سایت‌ساز: سبک و قطعه‌ها در حالتِ AI (مدلِ خودِ شما)', group='text', kind='ollama.generate', build=build, check=check,
                   available=_text_available, gpu_required=True, order=32, optional=True,
                   describe='بستهٔ کوچکِ «سبک + دو قطعه» را به مدلِ متنیِ روی کارت می‌دهد؛ باید فارسی و با کلاس‌های nbc-… جواب بدهد'))
+def _describe():
+    """شمارهای زنده (بازبینیِ دورِ ۴: متنِ ثابتِ «۱۴ سبک × ۴۹ قطعه» کهنه بود؛ سبک‌ها ۸۹ تا شده‌اند)."""
+    try:
+        from apps.projects.builder import components as C, styles as S
+        fa = str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹')
+        return 'بی‌گره: %s سبک × %s قطعهٔ آماده؛ سقفِ اندازهٔ پرامپتِ AI' % (str(len(S.ORDER)).translate(fa), str(len(C.COMPONENTS)).translate(fa))
+    except Exception:       # noqa: BLE001 - توضیح هرگز نباید ثبتِ آزمون را بشکند
+        return 'بی‌گره: همهٔ سبک‌ها × همهٔ قطعه‌های آماده؛ سقفِ اندازهٔ پرامپتِ AI'
+
+
 register(SelfTest(key='site_styles_render', label='سایت‌ساز: همهٔ سبک‌ها و قطعه‌ها رندر می‌شوند', group='system', virtual=virtual, optional=True, order=96,
-                  describe='بی‌گره: ۱۴ سبک × ۴۹ قطعه؛ سقفِ اندازهٔ پرامپتِ AI'))
+                  describe=_describe()))

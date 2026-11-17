@@ -108,9 +108,24 @@ def main():
                 pg.fill('[data-testid=ds-search]', 'brutalism')
                 pg.wait_for_function("document.querySelectorAll('[data-testid=ds-site]').length > 0", timeout=10000)
                 check(pg.locator('[data-testid=ds-site]').first.inner_text().startswith('در سایت‌ساز'), 'a style row shows its site-builder equivalent')
+                # ی/ک عربی (دورِ ۴): «ويپور» همان سبکِ «ویپور» را می‌یابد
+                pg.fill('[data-testid=ds-search]', 'ويپور')
+                pg.wait_for_function("document.querySelectorAll('[data-testid=ds-site]').length > 0", timeout=10000)
+                check(pg.locator('[data-testid=ds-site]').count() >= 1, 'Arabic-letter search (ويپور) finds the Vaporwave style')
+                pg.fill('[data-testid=ds-search]', '')
                 pg.click('[data-kind=fonts]')
                 pg.wait_for_selector('[data-testid=ds-fa]')
                 check('معادلِ فارسی' in pg.locator('[data-testid=ds-fa]').first.inner_text(), 'font pairings show the Persian pair')
+                # دورِ ۴: ردیفِ «قلمِ لاتین ⇐ معادلِ فارسی» یک جمله است؛ پیش‌تر هر تکه‌متن یک ستونِ flex بود، کلمه‌به‌کلمه می‌شکست و از کارت بیرون می‌زد
+                for w in (1100, 390):
+                    pg.set_viewport_size({'width': w, 'height': 900})
+                    pg.wait_for_timeout(200)
+                    sw = pg.evaluate('[document.documentElement.scrollWidth, document.documentElement.clientWidth]')
+                    check(sw[0] <= sw[1] + 1, 'fonts tab has no sideways scroll at %dpx (%s)' % (w, sw))
+                    geo = pg.evaluate("(() => { const out = []; document.querySelectorAll('[data-testid=ds-fa]').forEach((p, i) => { if (i > 5) return; const c = p.closest('.ds-card'), a = p.getBoundingClientRect(), b = c.getBoundingClientRect(); out.push([a.left >= b.left - 1 && a.right <= b.right + 1, Math.round(a.height)]); }); return out; })()")
+                    check(geo and all(g[0] for g in geo), 'font rows stay inside their card at %dpx: %s' % (w, geo))
+                    check(geo and all(g[1] < (170 if w >= 1000 else 260) for g in geo), 'font rows are a sentence, not one word per line (heights %s at %dpx)' % ([g[1] for g in geo], w))
+                pg.set_viewport_size({'width': 1100, 'height': 900})
                 pg.click('[data-kind=google_fonts]')
                 pg.locator('label:has-text("فقط عربی") input').check()
                 pg.locator('label:has-text("فقط آنچه در سایت‌ساز هست") input').check()
@@ -166,7 +181,7 @@ def main():
                     pg.locator('[data-testid=c21-add]').first.click()
                     pg.wait_for_function('window.__added.length > 0', timeout=10000)
                     check(pg.evaluate('window.__added[0]').startswith('x'), 'insert hands the converted key to the builder: ' + str(pg.evaluate('window.__added')))
-                    pg.fill('.c21-filters input[aria-label]', 'zzzz-no-such-thing')
+                    pg.fill('.c21-filters input[aria-label]', 'qqqqzzzzxxxx')
                     pg.wait_for_function("document.querySelectorAll('.c21-item').length === 0", timeout=10000)
                     check('چیزی پیدا نشد' in pg.inner_text('.c21-list'), 'empty search says so')
                 else:

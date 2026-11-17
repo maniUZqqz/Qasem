@@ -140,6 +140,98 @@ VARIANTS = {
     }),
 }
 
+
+# ───────────────────────────── چیدمانِ «قطعه‌های آماده» (c_*)
+# بازبینیِ دورِ ۴: چیدمان‌های بالا فقط به بلوکِ پایهٔ «hero/faq/cta/…» می‌رسید؛ صفحهٔ واقعیِ چغر از قطعه‌های آماده (c_hero_center_glow، c_cta_center_box، c_faq_two_col) ساخته شده
+# و با هر ۸۹ سبک سربرگ همیشه وسط‌چین می‌ماند. این‌جا همان کلیدهای چیدمان برای این قطعه‌ها هم هست (CSSِ جدا چون HTMLِ قطعه فرق دارد)؛ «چیدمانِ بخش‌ها هم جور شود»
+# از ستونِ ``sections`` ِ همان سبکِ بلوکِ پایه (hero → c_hero_*) می‌خواند.
+PART_BASE = {'c_hero_center_glow': 'hero', 'c_hero_stats_bar': 'hero', 'c_cta_center_box': 'cta', 'c_faq_two_col': 'faq', 'c_faq_cards_grid': 'faq'}
+
+_HERO_PART = {
+    'framed': ('متن در قابِ شیشه‌ای',
+               '@R@.nbv-framed @W@{background:color-mix(in srgb,var(--card,#fff) 58%,transparent);border:1px solid var(--line);border-radius:calc(var(--r,16px) + 10px);'
+               'padding:clamp(24px,5vw,52px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 24px 60px -28px rgba(0,0,0,.35)}'),
+    'aurora': ('شفق (گرادیانِ تیره)',
+               '@R@.nbv-aurora{background:linear-gradient(rgba(5,8,20,.2),rgba(5,8,20,.2)),radial-gradient(55% 60% at 15% 20%,color-mix(in srgb,var(--brand) 55%,#0b1020) 0,transparent 60%),'
+               'radial-gradient(50% 55% at 85% 15%,#0e7490 0,transparent 60%),radial-gradient(60% 60% at 70% 100%,#9d174d 0,transparent 60%),color-mix(in srgb,var(--brand) 40%,#0b1020);color:#fff}'
+               '@R@.nbv-aurora::before{display:none}'
+               '@R@.nbv-aurora .nbc-title,@R@.nbv-aurora .nbc-lead,@R@.nbv-aurora .nbc-muted,@R@.nbv-aurora .nbc-kicker{color:#fff}'
+               '@R@.nbv-aurora .nbc-lead{opacity:.92}@R@.nbv-aurora .nbc-pill{background:rgba(255,255,255,.16);color:#fff}'
+               '@R@.nbv-aurora .nbc-btn{background:#fff;color:#0b1020;border-color:transparent;box-shadow:none}'
+               '@R@.nbv-aurora .nbc-btn.is-alt{background:transparent;color:#fff;border-color:rgba(255,255,255,.6)}'
+               '@R@.nbv-aurora .nbc-hsb-stats{border-top-color:rgba(255,255,255,.3)}@R@.nbv-aurora .nbc-hsb-stats b,@R@.nbv-aurora .nbc-hsb-stats span{color:#fff}'),
+    'start': ('تیترِ درشت و ابتدای‌خط',
+              '@R@.nbv-start @W@{text-align:start;margin-inline:0;max-width:900px}'
+              '@R@.nbv-start @W@ .nbc-lead{margin-inline:0}@R@.nbv-start @W@ .nbc-btns{justify-content:flex-start}'
+              '@R@.nbv-start .nbc-title{font-size:clamp(2.4rem,6.4vw,4.6rem);line-height:1.12}'),
+    'band': ('نوارِ رنگیِ تخت',
+             '@R@.nbv-band{background:var(--brand);color:var(--brand-ink,#fff);border-block:4px solid currentColor}@R@.nbv-band::before{display:none}'
+             '@R@.nbv-band .nbc-title,@R@.nbv-band .nbc-lead,@R@.nbv-band .nbc-muted,@R@.nbv-band .nbc-kicker,@R@.nbv-band .nbc-hsb-stats b,@R@.nbv-band .nbc-hsb-stats span{color:inherit}'
+             '@R@.nbv-band .nbc-title{font-size:clamp(2.4rem,7vw,5rem);line-height:1.1}'
+             '@R@.nbv-band .nbc-btn{background:var(--brand-ink,#fff);color:var(--brand);box-shadow:none}'
+             '@R@.nbv-band .nbc-btn.is-alt{background:transparent;color:inherit;border-color:currentColor}'
+             '@R@.nbv-band .nbc-pill{background:transparent;color:inherit;box-shadow:inset 0 0 0 1px currentColor}@R@.nbv-band .nbc-hsb-stats{border-top-color:currentColor}'),
+    'minimal': ('مینیمال و بی‌زمینه',
+                '@R@.nbv-minimal{background:transparent;color:var(--ink);padding-block:clamp(72px,11vw,150px)}@R@.nbv-minimal::before{display:none}'
+                '@R@.nbv-minimal .nbc-pill{background:transparent;padding-inline:0}'),
+    'orb': ('ابتدای‌خط با هالهٔ تزئینی',
+            '@R@.nbv-orb{overflow:hidden}'
+            '@R@.nbv-orb @W@{text-align:start;margin-inline:0;max-width:680px}'
+            '@R@.nbv-orb @W@ .nbc-lead{margin-inline:0}@R@.nbv-orb @W@ .nbc-btns{justify-content:flex-start}'
+            '@R@.nbv-orb::after{content:"";position:absolute;inset-block:14%;inset-inline-end:5%;width:min(32vw,360px);aspect-ratio:1;border-radius:50%;'
+            'background:radial-gradient(circle at 32% 30%,color-mix(in srgb,var(--brand) 28%,transparent),transparent 70%);border:1px solid color-mix(in srgb,var(--brand) 34%,transparent);pointer-events:none}'
+            '@media (max-width:860px){@R@.nbv-orb::after{display:none}}'),
+    'card': ('کارتِ روشن روی زمینهٔ هیرو',
+             '@R@.nbv-card @W@{background:var(--card,#fff);color:var(--ink,#111827);border:var(--st-card-bd,1px solid var(--line));border-radius:calc(var(--r,16px) + 8px);'
+             'padding:clamp(24px,5vw,56px);box-shadow:0 30px 70px -34px rgba(0,0,0,.55);max-width:820px}'),
+}
+
+
+def _part_css(table, root, wrap):
+    """قالبِ CSS (با «@R@» = کلاسِ ریشهٔ قطعه و «@W@» = پوشهٔ متن) ⇒ {کلید: (برچسب، CSS)}."""
+    return {k: (label, css.replace('@R@', root).replace('@W@', wrap)) for k, (label, css) in table.items()}
+
+
+VARIANTS['c_hero_center_glow'] = ('nbc-hero-center-glow', _part_css(_HERO_PART, '.nbc-hero-center-glow', '.nbc-hcg'))
+VARIANTS['c_hero_stats_bar'] = ('nbc-hero-stats-bar', _part_css(_HERO_PART, '.nbc-hero-stats-bar', '.nbc-hsb'))
+VARIANTS['c_cta_center_box'] = ('nbc-cta-center-box', {
+    'split': ('متن و دکمه کنارِ هم',
+              '.nbc-cta-center-box.nbv-split .nbc-cb{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;text-align:start;gap:6px 40px}'
+              '.nbc-cta-center-box.nbv-split .nbc-cb .nbc-title,.nbc-cta-center-box.nbv-split .nbc-cb .nbc-lead{grid-column:1;margin:0}'
+              '.nbc-cta-center-box.nbv-split .nbc-cb .nbc-btns{grid-column:2;grid-row:1/span 2;margin-top:0;justify-content:flex-start}'
+              '@media (max-width:760px){.nbc-cta-center-box.nbv-split .nbc-cb{grid-template-columns:minmax(0,1fr);text-align:center}'
+              '.nbc-cta-center-box.nbv-split .nbc-cb .nbc-btns{grid-column:1;grid-row:auto;margin-top:18px;justify-content:center}}'),
+    'outline': ('فقط حاشیه',
+                '.nbc-cta-center-box.nbv-outline .nbc-cb{background:transparent;color:var(--ink);border:2px solid var(--ink);box-shadow:none}'
+                '.nbc-cta-center-box.nbv-outline .nbc-btn.is-light{background:var(--brand);color:var(--brand-ink,#fff)}'
+                '.nbc-cta-center-box.nbv-outline .nbc-btn.is-ghost{color:var(--ink)}'),
+    'bar': ('نوارِ تمام‌عرض',
+            '.nbc-cta-center-box.nbv-bar{padding-block:0}.nbc-cta-center-box.nbv-bar>.nb-wrap{max-width:none;padding-inline:0}'
+            '.nbc-cta-center-box.nbv-bar .nbc-cb{border-radius:0;padding-inline:20px}'),
+})
+_FAQ_PART = {
+    'plain': ('خطی',
+              '@R@.nbv-plain @I@{background:transparent;border:0;border-block-end:1px solid var(--line);border-radius:0;box-shadow:none;padding-inline:0;'
+              '-webkit-backdrop-filter:none;backdrop-filter:none}'),
+    'boxed': ('قاب‌دار',
+              '@R@.nbv-boxed @I@{border-width:1.5px;box-shadow:0 8px 24px -18px rgba(0,0,0,.3)}'),
+    'columns': ('ستون‌بندیِ دیگر', '@C@'),
+}
+VARIANTS['c_faq_two_col'] = ('nbc-faq-two-col', {k: (lab, css.replace('@R@', '.nbc-faq-two-col').replace('@I@', '.nbc-fq-i').replace(
+    '@C@', '.nbc-faq-two-col.nbv-columns .nbc-fq.nbc-split{grid-template-columns:minmax(0,1fr)}'
+           '.nbc-faq-two-col.nbv-columns .nbc-fq-list{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:14px}'
+           '@media (max-width:760px){.nbc-faq-two-col.nbv-columns .nbc-fq-list{grid-template-columns:minmax(0,1fr)}}')) for k, (lab, css) in _FAQ_PART.items()})
+VARIANTS['c_faq_cards_grid'] = ('nbc-faq-cards-grid', {k: (lab, css.replace('@R@', '.nbc-faq-cards-grid').replace('@I@', '.nbc-fg-i').replace(
+    '@C@', '.nbc-faq-cards-grid.nbv-columns .nbc-fg{grid-template-columns:repeat(3,minmax(0,1fr))}'
+           '@media (max-width:1024px){.nbc-faq-cards-grid.nbv-columns .nbc-fg{grid-template-columns:repeat(2,minmax(0,1fr))}}'
+           '@media (max-width:640px){.nbc-faq-cards-grid.nbv-columns .nbc-fg{grid-template-columns:minmax(0,1fr)}}')) for k, (lab, css) in _FAQ_PART.items()})
+
+
+def base_of(btype):
+    """نوعِ بلوک ⇒ بلوکِ پایه که ستونِ ``sections`` ِ سبک برایش نوشته شده (c_hero_center_glow ⇒ hero)."""
+    return PART_BASE.get(btype, btype)
+
+
 LABEL = '«چیدمانِ بخش»'
 
 
@@ -185,4 +277,4 @@ def used_in_html(html):
     return found
 
 
-__all__ = ['VARIANTS', 'has_field', 'has', 'options', 'css_for', 'root_class', 'label_of']
+__all__ = ['VARIANTS', 'PART_BASE', 'base_of', 'has_field', 'has', 'options', 'css_for', 'root_class', 'label_of']

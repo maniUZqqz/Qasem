@@ -1115,3 +1115,11 @@ CELERY_BEAT_SCHEDULE["market-trends-refresh"] = {
     "schedule": _crontab(minute=7, hour="3,15"),
     "options": {"expires": 3600},
 }
+
+
+# ── تصویر به کد (پنل › استودیوی طراحی): اسکرین‌شات ⇒ صفحهٔ قابل‌ویرایش؛ موتور = بستهٔ mv2code (deploy/nm/requirements-img2code.txt) ──
+INSTALLED_APPS += ["apps.img2code"]
+#: «باز کردن در طراحیِ UI» (استودیوی طراحی روشن است ⇒ همان‌جا یک سندِ UI ساخته و باز می‌شود)؛ برای خاموش‌کردن: IMG2CODE_UI_DESIGN=0
+IMG2CODE_UI_DESIGN = os.getenv("IMG2CODE_UI_DESIGN", "1") not in ("0", "false", "no", "off") and "apps.design_studio" in INSTALLED_APPS
+# تبدیل‌های گیرکرده را ناموفق و پوشه‌های بی‌ردیف را پاک می‌کند
+CELERY_BEAT_SCHEDULE["img2code-sweep"] = {"task": "apps.img2code.tasks.sweep", "schedule": 900.0, "options": {"expires": 600}}

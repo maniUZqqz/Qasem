@@ -143,6 +143,7 @@ export const PAGES: PanelPage[] = [
   { key: "design_catalog", section: "design", label: "کاتالوگ محصولات", icon: "file", to: (id) => `/stores/${id}/design/catalog` },
   { key: "design_deck", section: "design", label: "ارائه (اسلاید)", icon: "play", to: (id) => `/stores/${id}/design/deck` },
   { key: "design_ui", section: "design", label: "طراحی UI/UX", icon: "edit", to: (id) => `/stores/${id}/design/ui` },
+  { key: "img2code", section: "design", label: "تصویر به کد", icon: "file", to: (id) => `/stores/${id}/design/image-to-code` },
   { key: "design_guide", section: "design", label: "راهنمای فایل‌ها", icon: "bulb", to: (id) => `/stores/${id}/design/guide` },
 
   // ------------------------------------------------------------------ صدا

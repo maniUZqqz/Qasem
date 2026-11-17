@@ -40,6 +40,7 @@ urlpatterns = [
     path("api/v1/", include("apps.brandchar.urls")),        # شخصیتِ برند (لحن + شخصیتِ دیداری)
     path("api/v1/", include("apps.looks.urls")),            # سبک تصویر (۱۱۶ سبک + ۲۴ تم)
     path("api/v1/", include("apps.design_studio.urls")),    # استودیوی طراحی (کاتالوگ، ارائه، UI/UX)
+    path("api/v1/", include("apps.img2code.urls")),         # تصویر به کد (اسکرین‌شات ⇒ پیش‌نویسِ سایت‌ساز و طرحِ UI)
     path("api/v1/", include("apps.pronunciation.urls")),    # تلفظِ صداها (واژه‌نامه، پیش/پس، سنجش)
     path("api/v1/", include("apps.multiangle.urls")),       # چندزاویه
     path("api/v1/", include("apps.igtrends.urls")),         # ترندهای اینستاگرام (خواندن با آباگرام روی سرورِ پردازش)

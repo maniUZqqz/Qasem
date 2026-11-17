@@ -1,0 +1,104 @@
+/* «تصویر به کد» — رنگ‌ها فقط از توکن‌های پنل (روشن و تیره)؛ بدونِ اسکرولِ افقیِ صفحه روی گوشی */
+.i2c-page { min-width: 0; max-width: 1100px; margin-inline: auto; }
+.i2c-page * { box-sizing: border-box; }
+.i2c-store { max-width: 220px; }
+.i2c-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.i2c-note { font-size: .8rem; color: var(--text-3); margin: 6px 0 0; line-height: 1.8; }
+.i2c-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.i2c-row { display: grid; gap: 12px; grid-template-columns: 1fr; align-items: end; }
+@media (min-width: 720px) { .i2c-row { grid-template-columns: 220px 1fr; } }
+
+/* بارگذاری */
+.i2c-drop { border: 2px dashed var(--line-strong, var(--line)); border-radius: 16px; padding: 22px 16px; text-align: center; cursor: pointer; background: var(--surface-2); transition: border-color .15s, background .15s; }
+.i2c-drop:hover, .i2c-drop:focus-visible, .i2c-drop.is-drag { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, transparent); outline: none; }
+.i2c-drop-empty { display: grid; gap: 6px; justify-items: center; color: var(--text-2); }
+.i2c-drop-empty span { font-size: .78rem; color: var(--text-3); }
+.i2c-drop-preview { display: grid; gap: 8px; justify-items: center; }
+.i2c-drop-preview img { max-width: 100%; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); object-fit: contain; background: #fff; }
+.i2c-drop-preview span { font-size: .78rem; color: var(--text-3); overflow-wrap: anywhere; }
+.i2c-check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.i2c-check input { margin-top: 5px; }
+.i2c-check b, .i2c-mode b, .i2c-target b { display: block; font-size: .88rem; color: var(--text); }
+.i2c-check small, .i2c-mode small, .i2c-target small { display: block; font-size: .74rem; color: var(--text-3); line-height: 1.7; margin-top: 2px; }
+
+/* گزینه‌ها */
+.i2c-opts { display: grid; gap: 14px; grid-template-columns: 1fr; margin-top: 16px; }
+@media (min-width: 820px) { .i2c-opts { grid-template-columns: 1.4fr 1fr; } }
+.i2c-modes { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; min-width: 0; }
+.i2c-modes legend { font-size: .78rem; font-weight: 700; color: var(--text-2); margin-bottom: 6px; padding: 0; }
+.i2c-mode, .i2c-target { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; background: transparent; }
+.i2c-mode input, .i2c-target input { margin-top: 5px; }
+.i2c-mode.is-on, .i2c-target.is-on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 9%, transparent); }
+.i2c-side { display: grid; gap: 12px; align-content: start; }
+
+/* پیشرفت */
+.i2c-progress-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.i2c-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; margin: 0 0 10px; padding: 0; font-size: .8rem; color: var(--text-3); }
+.i2c-steps li { position: relative; padding-inline-start: 14px; }
+.i2c-steps li::before { content: ""; position: absolute; inset-inline-start: 0; top: .55em; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong, var(--line)); }
+.i2c-steps li.is-done { color: var(--ok); }
+.i2c-steps li.is-done::before { background: var(--ok); }
+.i2c-steps li.is-now { color: var(--text); font-weight: 700; }
+.i2c-steps li.is-now::before { background: var(--brand); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 25%, transparent); }
+.i2c-bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.i2c-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand), var(--ok)); border-radius: inherit; transition: width .6s ease; }
+
+/* تاریخچه */
+.i2c-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.i2c-history li { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.i2c-history li.is-open { border-color: var(--brand); }
+.i2c-history-btn { all: unset; display: grid; gap: 6px; width: 100%; padding: 10px 14px; cursor: pointer; box-sizing: border-box; }
+.i2c-history-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 12px; }
+.i2c-history-title { font-weight: 700; font-size: .9rem; color: var(--text); overflow-wrap: anywhere; }
+.i2c-history-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.i2c-history-meta small { color: var(--text-3); font-size: .74rem; }
+
+/* نتیجه */
+.i2c-result h2 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 800; color: var(--text); overflow-wrap: anywhere; }
+.i2c-result-head { display: grid; gap: 12px; margin-bottom: 12px; }
+@media (min-width: 900px) { .i2c-result-head { grid-template-columns: 1fr auto; align-items: start; } }
+.i2c-result-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.i2c-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.i2c-src { font-size: .75rem; color: var(--text-3); margin: 6px 0 0; overflow-wrap: anywhere; text-align: left; }
+.i2c-list { margin: 4px 0 0; padding-inline-start: 18px; font-size: .82rem; line-height: 1.9; }
+.i2c-compare { display: grid; gap: 12px; }
+.i2c-side-by-side { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .i2c-side-by-side { grid-template-columns: 1fr 1fr; } }
+.i2c-side-by-side figure { margin: 0; min-width: 0; }
+.i2c-side-by-side figcaption { font-size: .8rem; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+.i2c-pane { max-height: 72vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; direction: ltr; }
+.i2c-pane img { display: block; width: 100%; height: auto; }
+.i2c-slider { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fff; direction: ltr; touch-action: pan-y; cursor: ew-resize; user-select: none; }
+.i2c-slider img { display: block; width: 100%; height: auto; }
+.i2c-slider-top { position: absolute; inset: 0 auto auto 0; }
+.i2c-slider-handle { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--brand); box-shadow: 0 0 0 1px #fff; pointer-events: none; }
+.i2c-slider-handle::after { content: "↔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 15px; box-shadow: 0 2px 10px rgb(0 0 0 / .35); }
+.i2c-slider-tag { position: absolute; top: 8px; padding: 2px 10px; border-radius: 99px; background: rgb(15 23 42 / .72); color: #fff; font-size: .72rem; pointer-events: none; direction: rtl; }
+.i2c-tag-l { left: 8px; } .i2c-tag-r { right: 8px; }
+.i2c-range { width: 100%; margin-top: 10px; accent-color: var(--brand); }
+.i2c-brief { display: flex; flex-wrap: wrap; gap: 8px; }
+.i2c-brief-chip { font-size: .78rem; padding: 4px 12px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); }
+.i2c-brief-chip.is-good { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.i2c-brief-chip.is-ok { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.i2c-brief-chip.is-weak { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+/* امتیازها */
+.i2c-score-grid { display: grid; gap: 12px; grid-template-columns: 1fr; margin-bottom: 14px; }
+@media (min-width: 700px) { .i2c-score-grid { grid-template-columns: 1fr 1fr; } }
+.i2c-score { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface-2); min-width: 0; }
+.i2c-score-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.i2c-score-label { font-size: .85rem; font-weight: 700; color: var(--text-2); }
+.i2c-score-value { font-size: 1.5rem; font-weight: 800; color: var(--text); margin: 6px 0; }
+.i2c-meter { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.i2c-meter i { display: block; height: 100%; border-radius: inherit; }
+.i2c-meter i.is-good { background: var(--ok); } .i2c-meter i.is-ok { background: var(--warn); } .i2c-meter i.is-weak { background: var(--bad); }
+.i2c-score-hint { font-size: .76rem; color: var(--text-3); line-height: 1.9; margin: 8px 0 0; }
+
+/* کد */
+.i2c-pre { margin: 0; padding: 12px; max-height: 60vh; overflow: auto; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: .76rem/1.7 ui-monospace, Menlo, Consolas, monospace; white-space: pre; text-align: left; tab-size: 2; }
+
+/* پنجرهٔ ساختِ پیش‌نویس */
+.i2c-modal-bg { position: fixed; inset: 0; z-index: 80; background: rgb(2 6 23 / .6); display: grid; place-items: center; padding: 16px; }
+.i2c-modal { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: var(--surface, #fff); color: var(--text); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: 0 24px 80px rgb(0 0 0 / .45); }
+.i2c-modal h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 800; }
+.i2c-targets { display: grid; gap: 8px; margin-top: 12px; }

@@ -32,6 +32,9 @@ step "python venv + وابستگی‌ها"
 "$PY" -m pip install -q openai pillow arabic-reshaper python-bidi requests >/dev/null || true
 "$PY" -c "import django, rest_framework, celery, openai; print('django', django.get_version())"
 
+step "تصویر به کد (mv2code، Tesseract، playwright)"
+bash "$ROOT/deploy/nm/install-img2code.sh" || echo "  !! تصویر به کد کامل آماده نشد؛ deploy/nm/install-img2code.sh را دوباره اجرا کنید"
+
 step "موتورِ سه‌بعدی (up3d/engine/assets/vendor) ⇐ up3d-engine"
 if [ ! -d "$ROOT/up3d-engine/up3d" ]; then
   mkdir -p "$ROOT/up3d-engine"

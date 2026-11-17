@@ -27,7 +27,7 @@ from apps.growth_engine.leads.models import Lead
 from apps.growth_engine.leads.services.editing import ValidationFailed
 
 from . import presets
-from .engine import fetch, nodebridge, runner
+from .engine import fetch, finalize, nodebridge, runner
 from .engine.sources import neshan
 from .engine.sources import search as search_source
 from .models import CrawlCandidate, CrawlFinding, CrawlLog, CrawlMission, CrawlRun, CrawlTask, LeadReminder, OutreachDraft
@@ -40,13 +40,13 @@ SOURCE_INFO = [
     {"key": "osm", "label": missions.SOURCE_LABELS["osm"], "needs_node": False, "needs_key": False, "default": True,
      "help": "برچسب‌های هر نوعِ کسب‌وکار روی نقشه؛ مطمئن‌ترین منبع. سرورهای عمومیِ نقشه گاهی شلوغ‌اند؛ خودش دوباره امتحان می‌کند."},
     {"key": "search", "label": missions.SOURCE_LABELS["search"], "needs_node": False, "needs_key": False, "default": True,
-     "help": "فقط چند جست‌وجو؛ نتیجه‌ها پیش از استفاده برای ارتباط با موضوع سنجیده می‌شوند."},
+     "help": "فقط چند جست‌وجو؛ نتیجه‌ها پیش از استفاده برای ارتباط با موضوع سنجیده می‌شوند. موتورِ Brave اگر پشتِ‌هم پرسیده شود موقتاً مسدود می‌کند؛ خودش آهسته می‌پرسد و بعد از مسدودی نیم‌ساعت استراحت می‌دهد."},
     {"key": "directory", "label": missions.SOURCE_LABELS["directory"], "needs_node": False, "needs_key": False, "default": True,
      "help": "فهرست‌هایی که robots.txt‌شان اجازه می‌دهد (مثل بدن‌فیت برای باشگاه‌ها) و نشانی‌هایی که خودتان می‌دهید."},
     {"key": "website", "label": missions.SOURCE_LABELS["website"], "needs_node": False, "needs_key": False, "default": True,
      "help": "از صفحهٔ اصلی لینکِ تماس و درباره را دنبال می‌کند: تلفن، ایمیل، شبکه‌های اجتماعی، نشانی، ساعتِ کاری."},
     {"key": "instagram", "label": missions.SOURCE_LABELS["instagram"], "needs_node": True, "needs_key": False, "default": False,
-     "help": "پیجِ عمومیِ کسب‌وکار؛ تا روشن‌شدنِ سرورِ پردازش در صف می‌ماند."},
+     "help": "پیج‌های عمومیِ کسب‌وکار را از روی هشتگ و مکانی که می‌نویسید پیدا می‌کند (از راهِ فهرستِ وب، نه جست‌وجو در خودِ اینستاگرام)؛ خواندنِ کاملِ پیج با آباگرام روی سرورِ پردازش است و تا روشن‌شدنش در صف می‌ماند."},
     {"key": "neshan", "label": missions.SOURCE_LABELS["neshan"], "needs_node": False, "needs_key": True, "default": False,
      "help": "فقط اگر کلیدِ API نشان را در تنظیماتِ کشف بگذارید."},
 ]
@@ -80,7 +80,9 @@ def mission_dict(m: CrawlMission, *, with_last: bool = True) -> dict:
 def run_dict(r: CrawlRun) -> dict:
     stage = r.stage
     pct = r.progress if r.status == CrawlRun.Status.COMPLETED else min(99, STAGE_WEIGHT.get(stage, 0) + int(r.progress * 0.4))
+    report = (r.usage or {}).get("city_report") or {}
     return {
+        "city_report": {"cities": report.get("cities") or {}, "empty": report.get("empty") or [], "notes": report.get("notes") or {}},
         "id": r.pk, "mission_id": r.mission_id, "mission_name": r.mission.name if r.mission_id else "", "trigger": r.trigger, "status": r.status, "state_label": r.state_label,
         "paused": r.paused, "pause_requested": r.pause_requested, "cancel_requested": r.cancel_requested, "stage": stage, "stage_label": STAGE_LABELS.get(stage, stage),
         "progress": pct, "message": r.message, "error": r.error, "tasks": {"total": r.tasks_total, "done": r.tasks_done, "failed": r.tasks_failed, "waiting_node": r.tasks_waiting},
@@ -122,7 +124,10 @@ def _engines_state() -> dict:
     from apps.growth_engine.discovery.models import ProviderConfig
 
     row = ProviderConfig.objects.filter(provider="crawler_engines").first()
-    return (row.config if row else {}) or {}
+    state = dict((row.config if row else {}) or {})
+    state["cooldown"] = search_source.cooldowns()  # the engines that are resting right now (until when, and why)
+    state["brave_api"] = bool(search_source.brave_api_key())
+    return state
 
 
 # --------------------------------------------------------------------------- meta
@@ -142,7 +147,9 @@ class MetaView(FinderView):
             "stores": list(Store.objects.filter(is_active=True).order_by("name").values("id", "name")[:80]), "products": products.public(),
             "node": _node_status(), "engines": _engines_state(),
             "outreach": {"sending_enabled": sets.sending_enabled, "emergency_stop": sets.emergency_stop, "daily_cap": sets.daily_cap, "cap_remaining": limits.cap_remaining(sets),
-                         "identity_problems": sets.identity_problems()},
+                         "identity_problems": sets.identity_problems(), "sms_room": draft_service.sms_budget(sets)},
+            "individuals": {"tag": finalize.INDIVIDUAL_TAG, "note": "مربیِ مستقل یعنی خودِ فرد کسب‌وکار است: نام و راهِ تماسِ کاری‌اش را خودش در فهرستِ عمومی گذاشته. این لیدها برچسبِ «" + finalize.INDIVIDUAL_TAG + "» دارند، "
+                            "نامشان در گزارشِ اجرا نمی‌آید، و پیش از هر پیام فهرستِ «تماس نگیر» و لغوِ پیامک سنجیده می‌شود."},
             "attribution": "© OpenStreetMap contributors (ODbL)",
         })
 
@@ -187,11 +194,8 @@ class EnginesProbeView(FinderView):
             state = search_source.probe(web)
         finally:
             web.close()
-        payload = {"at": timezone.now().isoformat(timespec="seconds"), "engines": state}
-        row, _ = ProviderConfig.objects.get_or_create(provider="crawler_engines")
-        row.config = payload
-        row.save(update_fields=["config", "updated_at"])
-        return Response(payload)
+        search_source.save_probe(state)
+        return Response(_engines_state())
 
 
 # --------------------------------------------------------------------------- missions
@@ -273,7 +277,7 @@ class RunDetailView(FinderView):
         by_source: dict[str, dict[str, int]] = {}
         for source, st, n in CrawlTask.objects.filter(run=run).values_list("source", "status").annotate(n=Count("id")):
             by_source.setdefault(source, {})[st] = n
-        sample = list(CrawlCandidate.objects.filter(run=run).order_by("-id")[:8].values_list("name", "city", "state"))
+        sample = [(finalize.log_name(c), c.city, c.state) for c in CrawlCandidate.objects.filter(run=run).order_by("-id")[:8].only("name", "city", "state", "signals")]  # an independent person is never named here
         logs = list(CrawlLog.objects.filter(run=run).order_by("-id")[:40].values("id", "level", "message", "created_at"))[::-1]
         return Response({**run_dict(run), "by_source": by_source, "sample": [{"name": n, "city": c, "state": s} for n, c, s in sample], "logs": logs,
                         "spec": run.spec, "mission": {"id": run.mission_id, "name": run.mission.name}})
@@ -325,7 +329,7 @@ class RunActionView(FinderView):
 
 class ResultListView(FinderView):
     def get(self, request):
-        qs = results.order(results.filter_findings(results.base_queryset(), request.query_params), request.query_params.get("ordering"))
+        qs = results.order(results.filter_findings(results.base_queryset(request.query_params), request.query_params), request.query_params.get("ordering"))
         paginator = GrowthPagination()
         page = paginator.paginate_queryset(results.with_prefetch(qs), request, view=self)
         return paginator.get_paginated_response([results.result_dict(f) for f in page])
@@ -333,7 +337,7 @@ class ResultListView(FinderView):
 
 class ResultMapView(FinderView):
     def get(self, request):
-        qs = results.filter_findings(results.base_queryset(), request.query_params)
+        qs = results.filter_findings(results.base_queryset(request.query_params), request.query_params)
         return Response(results.map_points(qs.order_by("-score")))
 
 
@@ -341,7 +345,7 @@ class ResultExportView(FinderView):
     throttle_classes = [GrowthExportThrottle]
 
     def get(self, request):
-        qs = results.order(results.filter_findings(results.base_queryset(), request.query_params), request.query_params.get("ordering"))
+        qs = results.order(results.filter_findings(results.base_queryset(request.query_params), request.query_params), request.query_params.get("ordering"))
         response = StreamingHttpResponse(results.stream_csv(qs), content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="moshtari-yab-{date.today().isoformat()}.csv"'
         return response
@@ -351,7 +355,7 @@ class ResultSummaryView(FinderView):
     """Counts for the header of the results page: per level, per stage, per source."""
 
     def get(self, request):
-        qs = results.filter_findings(results.base_queryset(), request.query_params)
+        qs = results.filter_findings(results.base_queryset(request.query_params), request.query_params)
         by_level = dict(qs.values_list("level").annotate(n=Count("id")))
         by_status = dict(qs.values_list("lead__status").annotate(n=Count("id")))
         by_stage = {s["key"]: sum(by_status.get(x, 0) for x in s["statuses"]) for s in pipeline.STAGES}

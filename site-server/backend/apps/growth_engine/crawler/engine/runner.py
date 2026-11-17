@@ -25,14 +25,15 @@ from apps.growth_engine.core.dbretry import retry_locked
 from .. import presets
 from ..models import CrawlCandidate, CrawlLog, CrawlMission, CrawlRun, CrawlTask
 from . import candidates as cand_mod
-from . import finalize, nodebridge, scoring
+from . import finalize, nodebridge, place, scoring
 from . import fetch as fetchmod
 from .sources import directory, instagram, neshan, osm, search, website
 from .sources.base import RetryLater, SourceContext, TaskFailed, TaskSpec, WaitForNode
 
 logger = logging.getLogger(__name__)
 
-SOURCES = {"osm": osm, "search": search, "directory": directory, "website": website, "neshan": neshan}
+SOURCES = {"osm": osm, "search": search, "directory": directory, "website": website, "neshan": neshan, "instagram": instagram}
+SOURCE_FA = {"osm": "نقشه", "search": "جست‌وجوی وب", "directory": "فهرست", "website": "سایت", "neshan": "نشان", "instagram": "اینستاگرام"}
 MAX_LOG_ROWS = 700
 MAX_ATTEMPTS = 3
 MAX_TASKS = 1500
@@ -102,6 +103,8 @@ def plan_discovery(spec: dict) -> list[TaskSpec]:
         specs += directory.plan(spec)
     if sources.get("search", True):
         specs += search.plan(spec)
+    if sources.get("instagram"):
+        specs += instagram.plan(spec)  # public profiles by hashtag / location (through the web search); their pages are read later by the node
     return specs
 
 
@@ -535,7 +538,10 @@ def _drive(run: CrawlRun, engine: Engine) -> str:
         specs = plan_discovery(spec)
         n = add_task_specs(run, specs)
         set_state(run.pk, stage="discover")
-        log(run.pk, "info", f"برنامه ساخته شد: {n} کارِ پیدا کردن ({', '.join(sorted({s.source for s in specs})) or 'هیچ'}).")
+        log(run.pk, "info", f"برنامه ساخته شد: {n} کارِ پیدا کردن ({'، '.join(sorted({SOURCE_FA.get(s.source, s.source) for s in specs})) or 'هیچ'}).")
+        missing = directory.unsupported_cities(spec)
+        if missing:
+            log(run.pk, "info", f"فهرستِ بدن‌فیت برای {'، '.join(missing)} صفحه‌ای ندارد؛ برای این شهرها نقشه، جست‌وجوی وب، سایت‌ها و اینستاگرام کار می‌کنند.")
         if n == 0 and not spec.get("directory_urls"):
             log(run.pk, "warn", "هیچ کاری برای پیدا کردن برنامه‌ریزی نشد؛ نوعِ کسب‌وکار، شهر و منبع‌ها را بررسی کنید.")
         stage = "discover"
@@ -583,6 +589,39 @@ def _park(run: CrawlRun, engine: Engine) -> str:
     return "parked"
 
 
+def city_report(run: CrawlRun, spec: dict) -> dict:
+    """What every city of the mission produced: ``{"cities": {city: {"leads": n}}, "empty": [city, ...], "notes": {city: why}}``. A city that gave nothing is
+    said so (a run that ends «تمام شد» with one of four cities empty would otherwise look complete)."""
+    wanted = [c for c in dict.fromkeys(place.canonical_city(x) for x in (spec.get("cities") or []) if x) if c]
+    if not wanted:
+        return {"cities": {}, "empty": [], "notes": {}}
+    counts: dict[str, int] = {c: 0 for c in wanted}
+    for city in CrawlCandidate.objects.filter(run=run, lead__isnull=False).values_list("lead__city", flat=True):
+        canon = place.canonical_city(city or "")
+        if canon in counts:
+            counts[canon] += 1
+    empty = [c for c in wanted if counts[c] == 0]
+    notes: dict[str, str] = {}
+    for city in empty:
+        failed: list[str] = []
+        silent: list[str] = []
+        for t in CrawlTask.objects.filter(run=run).exclude(stage__in=["node", "ig"]):
+            if place.canonical_city(str((t.params or {}).get("city") or "")) != city:
+                continue
+            name = SOURCE_FA.get(t.source, t.source)
+            if t.status == CrawlTask.Status.FAILED and name not in failed:
+                failed.append(name)
+            elif t.status == CrawlTask.Status.DONE and not int((t.result or {}).get("new_candidates") or 0) and name not in silent:
+                silent.append(name)
+        bits = []
+        if failed:
+            bits.append("کارِ این منبع‌ها ناموفق بود: " + "، ".join(failed))
+        if silent:
+            bits.append("این منبع‌ها چیزِ تازه‌ای نیاوردند: " + "، ".join(silent))
+        notes[city] = "؛ ".join(bits) or "هیچ منبعی برای این شهر کاری نکرد (منبع‌ها یا نوعِ کسب‌وکار را بازبینی کنید)."
+    return {"cities": {c: {"leads": n} for c, n in counts.items()}, "empty": empty, "notes": notes}
+
+
 def _finalize_and_finish(run: CrawlRun, engine: Engine) -> str:
     run.refresh_from_db()
     set_state(run.pk, stage="finalize", message="ساختنِ لیدها")
@@ -590,11 +629,20 @@ def _finalize_and_finish(run: CrawlRun, engine: Engine) -> str:
     out = finalize.finalize_run(run, spec, stop=engine.should_stop, log=lambda lv, m: log(run.pk, lv, m))
     engine.check_interrupt()
     CrawlRun.objects.filter(pk=run.pk).update(created_count=out["created"], merged_count=out["merged"], skipped_count=out["skipped"])
+    report = city_report(run, spec)
     engine.save_usage()
+    CrawlRun.objects.filter(pk=run.pk).update(usage={**(CrawlRun.objects.get(pk=run.pk).usage or {}), "city_report": report})
+    for city in report["empty"]:
+        log(run.pk, "warn", f"برای «{city}» هیچ لیدی ساخته نشد. {report['notes'].get(city, '')}")
     refresh_counters(run)
     run.refresh_from_db()
     # the leads exist now: a late node answer (a JavaScript site, an Instagram page) refreshes them through ``sync_node``
-    CrawlRun.objects.filter(pk=run.pk).update(stage="done", finished_ok=True, message="تمام شد" + (f" (برای {run.tasks_waiting} کار منتظرِ سرورِ پردازش)" if run.tasks_waiting else ""))
+    extra = []
+    if run.tasks_waiting:
+        extra.append(f"برای {fa_numbers(str(run.tasks_waiting))} کار منتظرِ سرورِ پردازش")
+    if report["empty"]:
+        extra.append("برای " + "، ".join(report["empty"]) + " چیزی پیدا نشد")
+    CrawlRun.objects.filter(pk=run.pk).update(stage="done", finished_ok=True, message="تمام شد" + (f" ({'؛ '.join(extra)})" if extra else ""))
     run.refresh_from_db()
     run.mark_finished(CrawlRun.Status.COMPLETED)
     _after_run(run)

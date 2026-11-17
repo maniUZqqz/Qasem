@@ -9,7 +9,7 @@ export type StageInfo = { key: string; label: string; tone: "neutral" | "brand" 
 export type ChannelInfo = { key: string; label: string; manual: boolean };
 
 export type NodeState = { known: boolean; online: boolean; ready: boolean; message: string };
-export type EngineProbe = Record<string, { label: string; ok: boolean; results: number; message: string }>;
+export type EngineProbe = Record<string, { label: string; ok: boolean; results: number; message: string; resting?: boolean }>;
 
 export type FinderMeta = {
   types: BusinessTypeInfo[];
@@ -23,8 +23,9 @@ export type FinderMeta = {
   stores: { id: number; name: string }[];
   products: { key: string; label: string; short: string }[];
   node: { crawl: NodeState; instagram: NodeState };
-  engines: { at?: string; engines?: EngineProbe };
-  outreach: { sending_enabled: boolean; emergency_stop: boolean; daily_cap: number; cap_remaining: number; identity_problems: string[] };
+  engines: { at?: string; engines?: EngineProbe; cooldown?: Record<string, { until: string; reason: string }>; brave_api?: boolean };
+  outreach: { sending_enabled: boolean; emergency_stop: boolean; daily_cap: number; cap_remaining: number; identity_problems: string[]; sms_room: number };
+  individuals: { tag: string; note: string };
   attribution: string;
 };
 
@@ -46,9 +47,15 @@ export type MissionSpec = {
   exclude_words?: string[];
   tag?: string;
   pitch?: Pitch;
+  ig_hashtags?: string[];
+  ig_locations?: string[];
+  include_individuals?: boolean;
 };
 
+export type CityReport = { cities: Record<string, { leads: number }>; empty: string[]; notes: Record<string, string> };
+
 export type RunSummary = {
+  city_report?: CityReport;
   id: number;
   mission_id: number;
   mission_name: string;
@@ -149,6 +156,8 @@ export type Result = {
   seen_count: number;
   first_seen: string;
   updated_at: string;
+  missions: number;
+  individual: boolean;
 };
 
 export type MapPoint = { id: number; lead_id: number; name: string; score: number; stage: string; lat: number; lon: number; city: string };

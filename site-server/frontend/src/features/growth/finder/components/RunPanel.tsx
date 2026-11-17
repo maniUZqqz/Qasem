@@ -141,6 +141,17 @@ export default function RunPanel({ runId, onChanged }: { runId: number; onChange
             {fa(run.tasks.waiting_node)} کار (سایت‌های جاوااسکریپتی، پیج‌های اینستاگرام یا خواندنِ انبوه) در صفِ ماندگار است. اجرا منتظرشان نمی‌ماند؛ با روشن‌شدنِ سرورِ پردازش خودکار انجام و به لیدها اضافه می‌شوند. کاری لازم نیست.
           </Alert>
         )}
+        {run.city_report && run.city_report.empty.length > 0 && (
+          <Alert tone="warn" title={`برای ${run.city_report.empty.join("، ")} چیزی پیدا نشد`}>
+            <ul className="list-disc space-y-0.5 ps-5" data-testid="empty-cities">
+              {run.city_report.empty.map((c) => (
+                <li key={c}>
+                  <b>{c}</b>: {run.city_report?.notes[c] ?? ""}
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        )}
         {notice && <Alert tone="info">{notice}</Alert>}
 
         <div className="grid grid-cols-2 gap-2 md:grid-cols-6" data-testid="run-counters">
@@ -165,6 +176,12 @@ export default function RunPanel({ runId, onChanged }: { runId: number; onChange
         <p className="text-xs" style={{ color: "var(--text-3)" }}>
           کارها: {fa(run.tasks.done)} از {fa(run.tasks.total)} انجام شد{run.tasks.failed ? `، ${fa(run.tasks.failed)} ناموفق` : ""} · حجمِ دریافتی {bytes(run.bytes)} · {fa(run.cache_hits)} صفحه از حافظه{run.usage?.seconds ? ` · ${fa(Math.round(run.usage.seconds / 60))} دقیقه` : ""}{run.out_of_area ? ` · ${fa(run.out_of_area)} مورد از شهرِ دیگر کنار گذاشته شد` : ""}
         </p>
+
+        {run.city_report && Object.keys(run.city_report.cities).length > 1 && (
+          <p className="text-xs" style={{ color: "var(--text-3)" }} data-testid="city-leads">
+            لیدِ هر شهر: {Object.entries(run.city_report.cities).map(([c, v]) => `${c} ${fa(v.leads)}`).join(" · ")}
+          </p>
+        )}
 
         {sources.length > 0 && (
           <div className="flex flex-wrap gap-2" data-testid="run-sources">

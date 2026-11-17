@@ -16,6 +16,11 @@ check, delay and budget):
 
 The data is a coach's self-published BUSINESS contact; it stays a draft source for a person to contact with an approved message (opt-out
 sentence included), exactly like every other lead.
+
+An independent coach IS his or her own business, so the person's name and professional contact lines are the business's data - and are handled as
+personal data: the lead is tagged «فردِ مستقل» (filter / bulk-remove it), the panel says so, no name is written to the run diary or the task list
+(only the directory's profile number), a mission can switch these coaches off (``include_individuals``), and the «تماس نگیر» list and the SMS
+opt-out are checked before any draft exists.
 """
 from __future__ import annotations
 
@@ -47,7 +52,7 @@ def list_url(page: int = 1) -> str:
 
 def plan(spec: dict) -> list[TaskSpec]:
     """One task for the first list page; it plans the other pages and the profiles by itself."""
-    if "personal_trainer" not in (spec.get("business_types") or []):
+    if "personal_trainer" not in (spec.get("business_types") or []) or not spec.get("include_individuals", True):
         return []
     return [TaskSpec(source=SOURCE, kind="list", key=f"dir:{list_url(1)}", priority=22, label="مربی‌یاب: فهرستِ مربی‌ها",
                      params={"url": list_url(1), "directory": DIRECTORY, "types": ["personal_trainer"], "page": 1})]
@@ -145,7 +150,7 @@ def parse_profile(html: str, url: str, card: dict | None = None) -> Found | None
         name=name, source=SOURCE, ref=f"directory:{DIRECTORY}:{card.get('id') or textnorm.domain_key(url)}"[:120], url=url, category="مربی", types=["personal_trainer"],
         city=card.get("city", ""), city_src="evidence" if card.get("city") and not card.get("via_online") else "", phones=phones, whatsapp=whatsapp, instagram=instagram,
         telegram=telegram,
-        signals={"directory": DIRECTORY, "dir_host": HOST, "coach": {"specialties": card.get("specialties", "")[:200], "mode": card.get("mode", "")},
+        signals={"directory": DIRECTORY, "dir_host": HOST, "individual": True, "coach": {"specialties": card.get("specialties", "")[:200], "mode": card.get("mode", "")},
                  **({"place_free": True} if card.get("via_online") else {})},  # an online coach is wanted for being online, wherever he or she lives
     )
 
@@ -180,7 +185,8 @@ def _list(task, ctx: SourceContext, directory) -> dict:
             keep.append({**c, "via_online": why == "online"})
     max_details = ctx.budget("max_directory_details", 120)
     for c in keep[:max_details]:
-        follow.append(TaskSpec(source=SOURCE, kind="detail", key=f"dir:{c['url']}", priority=60, label=f"مربی‌یاب: {c['name'][:60]}", stage="discover",
+        # the task label (shown in the panel and the diary) never carries the coach's name: only the directory's own number
+        follow.append(TaskSpec(source=SOURCE, kind="detail", key=f"dir:{c['url']}", priority=60, label=f"مربی‌یاب: پروفایلِ شمارهٔ {c.get('id') or '؟'}", stage="discover",
                                params={"url": c["url"], "directory": DIRECTORY, "types": ["personal_trainer"], "card": c}))
     ctx.add_tasks(follow)
     return {"cards": len(cards), "kept": len(keep), "detail_tasks": min(len(keep), max_details), "new_candidates": 0}

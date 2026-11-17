@@ -132,7 +132,7 @@ def _route_platform_url(f: Found) -> None:
         f.website = ""
     elif host in ("wa.me", "api.whatsapp.com", "whatsapp.com"):
         f.website = ""
-    elif nz._is_shared_platform(host) or textnorm.is_media_host(host):
+    elif nz._is_shared_platform(host) or textnorm.is_foreign_site(host):
         f.website = ""
 
 
@@ -295,6 +295,10 @@ def _apply(c: CrawlCandidate, f: Found) -> bool:
             signals["prov"] = _merge_prov(signals.get("prov") or {}, v)
         elif isinstance(v, list):
             signals[k] = _union(signals.get(k, []), v, 30)
+        elif isinstance(v, dict) and isinstance(signals.get(k), dict) and signals[k]:
+            # two descriptions of the same kind of signal: what was already there stays - except an Instagram page's own numbers (read by the node) which replace the
+            # public counters a search result only showed (``ig.from == "search"``)
+            signals[k] = {**signals[k], **v} if k == "ig" else {**v, **signals[k]}
         elif k not in signals or signals[k] in ("", None, 0):
             signals[k] = v
     new_prov = {**_auto_prov(f), **(f.prov or {})}

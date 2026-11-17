@@ -10,7 +10,7 @@ import MissionForm from "../components/MissionForm";
 import RunPanel from "../components/RunPanel";
 import { Section } from "../components/bits";
 import { useFinder } from "../FinderLayout";
-import type { EngineProbe, Mission, Paged, PresetInfo } from "../types";
+import type { FinderMeta, Mission, Paged, PresetInfo } from "../types";
 
 const SCHEDULE_LABEL = (d: number) => (d === 0 ? "بدونِ تکرار" : d === 1 ? "هر روز" : d === 7 ? "هر هفته" : d === 14 ? "هر دو هفته" : d === 30 ? "هر ماه" : `هر ${fa(d)} روز`);
 
@@ -24,7 +24,7 @@ export default function MissionsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [archive, setArchive] = useState<Mission | null>(null);
-  const [probe, setProbe] = useState<{ at?: string; engines?: EngineProbe } | null>(null);
+  const [probe, setProbe] = useState<FinderMeta["engines"] | null>(null);
   const openRun = Number(params.get("run")) || null;
   const [neshanKey, setNeshanKey] = useState("");
 
@@ -88,7 +88,7 @@ export default function MissionsPage() {
   const testEngines = async () => {
     setBusy("probe");
     try {
-      setProbe(await g.post<{ at?: string; engines?: EngineProbe }>("/finder/engines/probe/"));
+      setProbe(await g.post<FinderMeta["engines"]>("/finder/engines/probe/"));
       reloadMeta();
     } catch (err) {
       setNotice({ tone: "bad", text: problem(err).message });
@@ -321,11 +321,22 @@ export default function MissionsPage() {
                 </ul>
               ) : (
                 <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-                  هنوز آزمایش نشده. «آزمایش» سه درخواستِ کوچک می‌فرستد.
+                  هنوز آزمایش نشده. «آزمایش» از هر موتور یک درخواستِ کوچک می‌فرستد (موتوری که در استراحت است پرسیده نمی‌شود).
                 </p>
               )}
+              {engines.cooldown && Object.keys(engines.cooldown).length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs" style={{ color: "var(--text-2)" }} data-testid="engine-rest">
+                  {Object.entries(engines.cooldown).map(([k, c]) => (
+                    <li key={k} className="flex flex-wrap items-center gap-2">
+                      <Badge tone="warn">در استراحت</Badge>
+                      <b>{engines.engines?.[k]?.label ?? k}</b>
+                      <span style={{ color: "var(--text-3)" }}>تا {faDateTime(c.until)} ({c.reason}) — برای اینکه مسدودی طولانی نشود دوباره نمی‌پرسیم.</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
-                از این سرور فقط بعضی موتورها جواب می‌دهند؛ نتیجه‌ها پیش از استفاده از نظرِ ارتباط با موضوع سنجیده می‌شوند. منبعِ اصلی نقشه و فهرست‌هاست.
+                از این سرور فقط Brave به پرسِ فارسی جواب درست می‌دهد و اگر پشتِ‌هم پرسیده شود موقتاً مسدود می‌کند؛ پس آهسته و کم می‌پرسیم و بعد از مسدودی نیم‌ساعت استراحت می‌دهیم. نتیجه‌ها پیش از استفاده از نظرِ ارتباط با موضوع سنجیده می‌شوند و مقاله و فهرست کنار می‌رود. {engines.brave_api ? "کلیدِ API برِیو ثبت است؛ از راهِ رسمی پرسیده می‌شود." : "اگر کلیدِ API برِیو را در تنظیماتِ کشف بگذارید، از راهِ رسمی و بدونِ محدودیت پرسیده می‌شود."}
               </p>
             </div>
           </Card>

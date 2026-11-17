@@ -281,8 +281,11 @@ class DirectoryFixTests(Base, TestCase):
         spec = {"business_types": ["gym", "personal_trainer"], "cities": ["تهران", "اصفهان", "مشهد", "شیراز"], "sources": {"directory": True},
                 "budget": {"max_directory_pages": 12}}
         urls = [t.params["url"] for t in directory.plan(spec) if t.params.get("directory") == "badanfit"]
-        for slug in ("tehran", "isfahan", "mashhad", "shiraz"):
+        for slug in ("tehran", "isfahan", "mashhad"):
             self.assertGreaterEqual(sum(1 for u in urls if f"city={slug}" in u), 3, slug)
+        self.assertFalse([u for u in urls if "shiraz" in u])  # badanfit.ir has no Shiraz page (HTTP 404): no failing tasks are planned for it
+        self.assertEqual(directory.unsupported_cities(spec), ["شیراز"])
+        self.assertEqual(directory.unsupported_cities({**spec, "business_types": ["cafe"]}), [])
         self.assertEqual([u for u in urls[:4]], [u for u in urls[:4] if "area=" not in u])  # the basic lists come before the sub-area lists
         self.assertTrue(any(t.params.get("directory") == "morabiyab" for t in directory.plan(spec)))  # the coach directory is planned for personal trainers
 
@@ -592,7 +595,7 @@ class RepairTests(Base, TestCase):
         self.assertEqual(out["report"]["activity_digits_fixed"], 1)
 
     def test_filler_and_personal_contact_values_are_removed(self):
-        lead = self.lead("کافه سفر", address="تهران، ونک", phones=["09133093934", "09123456789"], emails=["info@faslesafar.com", "m.dorri@gmail.com", "vanadiumdev.ir@gmail.com"],
+        lead = self.lead("باشگاه سفر", address="تهران، ونک", phones=["09133093934", "09123456789"], emails=["info@faslesafar.com", "m.dorri@gmail.com", "vanadiumdev.ir@gmail.com"],
                          website="https://faslesafar.com")
         repair.run(apply=True)
         values = {c.value for c in lead.contacts.all()}

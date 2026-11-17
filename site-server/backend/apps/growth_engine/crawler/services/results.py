@@ -2,12 +2,16 @@
 
 A result is a ``CrawlFinding`` (a lead seen by a mission, with that mission's fit score and Persian reasons). Filters are plain
 query parameters so a view can be linked: ``?mission=3&min_score=60&has_phone=1&city=تهران&q=آرمان&ordering=-score``.
+
+One business is ONE result: without a ``mission`` filter the same lead found by several missions is listed once, with its best score and the number
+of missions that found it (``missions``); the counters and the CSV follow the same rule, so «۷۸۰ نتیجه» can never mean 624 businesses. With a
+``mission`` filter every finding of that mission is its own row, as before.
 """
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from apps.growth_engine.core import csvio
@@ -15,7 +19,9 @@ from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.models import ContactPoint
 from apps.growth_engine.sources.models import LeadSource
 
+from .. import presets
 from ..engine import place
+from ..engine.finalize import INDIVIDUAL_TAG
 from ..models import CrawlFinding, LeadReminder
 from . import pipeline
 
@@ -35,8 +41,17 @@ def _has(kind: str):
     return Exists(ContactPoint.objects.filter(lead=OuterRef("lead_id"), kind=kind))
 
 
-def base_queryset() -> QuerySet[CrawlFinding]:
-    return CrawlFinding.objects.select_related("lead", "mission").filter(lead__is_archived=False)
+def _best_finding_of_lead():
+    """The id of the best finding (highest score, newest on a tie) of the row's lead."""
+    return Subquery(CrawlFinding.objects.filter(lead_id=OuterRef("lead_id")).order_by("-score", "-id").values("pk")[:1])
+
+
+def base_queryset(params: Mapping | None = None) -> QuerySet[CrawlFinding]:
+    """Every finding of a non-archived lead; one per lead (its best) unless a single mission is asked for."""
+    qs = CrawlFinding.objects.select_related("lead", "mission").filter(lead__is_archived=False)
+    if not (params or {}).get("mission"):
+        qs = qs.filter(pk=_best_finding_of_lead())
+    return qs
 
 
 def filter_findings(qs: QuerySet[CrawlFinding], params: Mapping) -> QuerySet[CrawlFinding]:
@@ -63,8 +78,8 @@ def filter_findings(qs: QuerySet[CrawlFinding], params: Mapping) -> QuerySet[Cra
         raw = nz.normalize_text(str(params["city"]))
         qs = qs.filter(Q(lead__city__icontains=raw) | Q(lead__city__icontains=place.canonical_city(raw)))  # «Tehran», «tehran» and «شهر تهران» all find «تهران»
     tags = _csv(params.get("tag"))
-    for tag in tags:
-        qs = qs.filter(lead__tags__name_key=nz.search_key(tag)[:60])
+    for tag in tags:  # a part of a tag is enough: «کافه» finds «کافه · اصفهان», «چغر» finds «چغر · تهران»
+        qs = qs.filter(lead__tags__name_key__contains=nz.search_key(tag)[:60])
     for flag, kind in (("has_phone", "phone"), ("has_email", "email"), ("has_telegram", "telegram"), ("has_whatsapp", "whatsapp")):
         if str(params.get(flag)) in ("1", "true"):
             qs = qs.filter(_has(kind))
@@ -94,7 +109,8 @@ def order(qs: QuerySet[CrawlFinding], ordering: str | None) -> QuerySet[CrawlFin
 
 
 def with_prefetch(qs: QuerySet[CrawlFinding]) -> QuerySet[CrawlFinding]:
-    return qs.prefetch_related("lead__contacts", "lead__tags", "lead__sources").select_related("lead__insight")
+    return (qs.prefetch_related("lead__contacts", "lead__tags", "lead__sources").select_related("lead__insight")
+            .annotate(n_missions=Subquery(CrawlFinding.objects.filter(lead_id=OuterRef("lead_id")).values("lead_id").annotate(n=Count("id")).values("n")[:1])))
 
 
 # --------------------------------------------------------------------------- shapes
@@ -123,17 +139,34 @@ def contacts_of(lead, kind: str) -> list[str]:
     return [c.value for c in lead.contacts.all() if c.kind == kind]
 
 
+def _category(lead, f: CrawlFinding, ins) -> str:
+    """The lead's category; a lead without one (a directory card) shows the label of the business type it was found as."""
+    if lead.category:
+        return lead.category
+    for key in [*((f.matched or {}).get("types") or []), *(ins.types if ins else [])]:
+        bt = presets.get_type(key)
+        if bt:
+            return bt.fa
+    return ""
+
+
+def mission_names_of(lead) -> list[str]:
+    return list(CrawlFinding.objects.filter(lead=lead).order_by("-score", "-id").values_list("mission__name", flat=True))
+
+
 def result_dict(f: CrawlFinding) -> dict:
     lead = f.lead
     ins = _insight(lead)
     sources = sorted({s.provider.replace("crawl_", "") for s in lead.sources.all() if s.provider.startswith("crawl_")})
+    tags = [t.name for t in lead.tags.all()]
     return {
-        "id": f.pk, "lead_id": lead.pk, "mission_id": f.mission_id, "name": lead.display_name, "city": lead.city, "category": lead.category, "status": lead.status,
+        "id": f.pk, "lead_id": lead.pk, "mission_id": f.mission_id, "name": lead.display_name, "city": lead.city, "category": _category(lead, f, ins), "status": lead.status,
         "status_label": lead.get_status_display(), "stage": pipeline.stage_of(lead.status), "score": f.score, "level": f.level, "reasons": f.reasons, "matched": f.matched,
         "phones": phones_of(lead), "emails": contacts_of(lead, "email"), "website": lead.website, "instagram": lead.instagram_url, "telegram": (contacts_of(lead, "telegram") or [""])[0],
         "whatsapp": (contacts_of(lead, "whatsapp") or [""])[0], "address": address_of(lead),
         "lat": ins.lat if ins else None, "lon": ins.lon if ins else None, "hours": ins.hours if ins else "", "rating": ins.rating if ins else None,
-        "tags": [t.name for t in lead.tags.all()], "sources": sources, "seen_count": f.seen_count, "first_seen": f.created_at, "updated_at": lead.updated_at,
+        "tags": tags, "sources": sources, "seen_count": f.seen_count, "first_seen": f.created_at, "updated_at": lead.updated_at,
+        "missions": int(getattr(f, "n_missions", None) or 1), "individual": INDIVIDUAL_TAG in tags,
     }
 
 
@@ -155,7 +188,7 @@ def map_points(qs: QuerySet[CrawlFinding]) -> dict:
 # --------------------------------------------------------------------------- CSV
 
 HEADER = ["نام", "شهر", "نشانی", "دسته", "امتیاز تناسب", "سطح", "دلیل‌ها", "مرحله", "موبایل", "تلفن", "ایمیل", "وب‌سایت", "اینستاگرام", "تلگرام", "عرض جغرافیایی",
-          "طول جغرافیایی", "ساعت کاری", "امتیاز در نقشه/فهرست", "برچسب‌ها", "منبع‌ها", "تاریخ کشف"]
+          "طول جغرافیایی", "ساعت کاری", "امتیاز در نقشه/فهرست", "برچسب‌ها", "منبع‌ها", "تاریخ کشف", "مأموریت‌ها"]
 
 
 def export_rows(qs: QuerySet[CrawlFinding]) -> Iterator[list[object]]:
@@ -168,6 +201,7 @@ def export_rows(qs: QuerySet[CrawlFinding]) -> Iterator[list[object]]:
             "؛ ".join(r["text"] for r in d["reasons"] if r["points"] > 0), pipeline.stage_label(d["stage"]), " | ".join(mobiles), " | ".join(others), " | ".join(d["emails"]),
             d["website"], d["instagram"], d["telegram"], d["lat"] if d["lat"] is not None else "", d["lon"] if d["lon"] is not None else "", d["hours"],
             d["rating"] if d["rating"] is not None else "", "، ".join(d["tags"]), "، ".join(d["sources"]), f.created_at.strftime("%Y-%m-%d"),
+            "؛ ".join(dict.fromkeys(mission_names_of(f.lead))) if d["missions"] > 1 else f.mission.name,
         ]
 
 

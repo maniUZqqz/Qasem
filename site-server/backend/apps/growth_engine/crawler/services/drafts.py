@@ -42,6 +42,7 @@ CHANNELS = {
 }
 MANUAL = (DM, Channel.WHATSAPP, Channel.TELEGRAM)
 MAX_PER_CALL = 200
+USED_STATUSES = (OutreachDraft.Status.APPROVED, OutreachDraft.Status.QUEUED, OutreachDraft.Status.SENT_MANUAL)
 
 
 # --------------------------------------------------------------------------- the pitch
@@ -49,11 +50,14 @@ MAX_PER_CALL = 200
 
 def pitch_of(mission: CrawlMission) -> dict:
     """What the sender says: the mission's own pitch, else the preset's, else built from the store's own description. Raises when there is nothing true to say."""
-    spec_pitch = dict((mission.spec or {}).get("pitch") or {})
-    if not spec_pitch.get("what"):
-        preset = presets.pitch_for(mission.preset_key)
-        if preset is not None:
-            spec_pitch = {"brand": preset.brand, "what": preset.what, "benefit": preset.benefit, "cta": preset.cta, "voice": preset.voice, **spec_pitch}
+    spec_pitch = {k: v for k, v in dict((mission.spec or {}).get("pitch") or {}).items() if v}
+    preset = presets.pitch_for(mission.preset_key)
+    if preset is not None:
+        # the preset's own words are the base (every field, ``sms`` and ``avoid`` too); what the mission itself wrote on top wins
+        base = {"brand": preset.brand, "what": preset.what, "benefit": preset.benefit, "cta": preset.cta, "voice": preset.voice, "sms": preset.sms, "avoid": list(preset.avoid)}
+        spec_pitch = {**base, **spec_pitch} if not spec_pitch.get("what") else {**{k: v for k, v in base.items() if k in ("sms", "avoid")}, **spec_pitch}
+        if preset.sms and preset.sms != spec_pitch.get("sms"):
+            spec_pitch["sms_alt"] = preset.sms  # the preset's short line is the fallback when the mission's own line does not fit two SMS parts
     if not spec_pitch.get("what") and mission.store is not None:
         store = mission.store
         sentence = re.split(r"(?<=[.!؟?])\s", nz.normalize_text(store.description or "", multiline=False))[0] if store.description else ""
@@ -92,18 +96,47 @@ def sms_budget(settings_obj) -> int:
     return max(30, total - used - 2)
 
 
-def fit_sms(brand: str, line: str, budget: int) -> str:
-    """The longest greeting that still fits ``budget`` characters; the line is cut at a word (with «…») only when nothing else fits."""
+def _pieces(text: str) -> list[str]:
+    """Complete pieces of a sentence, longest first: the first sentence, what comes before its first «:» / «؛», and before its first «،». Never a cut in the middle of a clause."""
+    first = re.split(r"(?<=[.!؟?])\s", nz.normalize_text(text or "", multiline=False))[0].strip().rstrip(".")
+    out = [first]
+    for sep in ("؛", ":", "،"):
+        head = first.split(sep)[0].strip()
+        if head and head not in out:
+            out.append(head)
+    return [x for x in out if x]
+
+
+def sms_lines(pitch: dict) -> list[str]:
+    """The lines an SMS may carry, best first: the mission's own short line, the preset's short line, then complete pieces of «what» and of «benefit»."""
+    lines: list[str] = []
+    for text in (pitch.get("sms"), pitch.get("sms_alt")):
+        text = nz.normalize_text(text or "", multiline=False)
+        if text and text not in lines:
+            lines.append(text)
+    for source in (pitch.get("what"), pitch.get("benefit")):
+        for piece in _pieces(source or ""):
+            if piece not in lines:
+                lines.append(piece)
+    return lines
+
+
+def fit_sms(brand: str, line, budget: int) -> str:
+    """The best SMS body that fits ``budget`` characters. ``line`` is one line or a list of lines (``sms_lines``), best first. Only COMPLETE lines are used - a text is
+    never cut in the middle of a sentence. When nothing fits, the shortest complete form is returned (the draft then says it is too long, ``_warnings``) and
+    the owner shortens the line; a body that stops after a half-sentence is worse than a long one."""
     units = lambda text: sms_channel.segments(text)["length"]  # noqa: E731
-    for text in (f"سلام، از تیمِ «{brand}». {line}", f"«{brand}»: {line}", line):
-        if units(text) <= budget:
-            return text
-    out = f"«{brand}»:"
-    for word in line.split():
-        if units(f"{out} {word}…") > budget:
-            break
-        out = f"{out} {word}"
-    return out + "…" if out != f"«{brand}»:" else line[:max(10, budget - 1)].rstrip() + "…"
+    lines = [line] if isinstance(line, str) else [x for x in line if x]
+    if not lines:
+        return f"سلام، از تیمِ «{brand}»."
+    forms: list[str] = []
+    for ln in lines:
+        has_brand = nz.search_key(brand) in nz.search_key(ln)
+        for text in ((f"سلام، {ln}", ln) if has_brand else (f"سلام، از تیمِ «{brand}». {ln}", f"«{brand}»: {ln}")):
+            forms.append(text)
+            if units(text) <= budget:
+                return text
+    return min(forms, key=units)
 
 
 def template_text(pitch: dict, channel: str, sms_chars: int | None = None) -> tuple[str, str]:
@@ -111,8 +144,8 @@ def template_text(pitch: dict, channel: str, sms_chars: int | None = None) -> tu
     brand, what, benefit, cta = pitch["brand"], pitch["what"], pitch.get("benefit", ""), pitch["cta"]
     place = "دیدم {business_name} در {city|شهرِ شما} فعالیت می‌کند"
     if channel == Channel.SMS:
-        line = pitch.get("sms") or _short(what, 45)
-        return "", fit_sms(brand, line, sms_chars) if sms_chars else f"سلام، از تیمِ «{brand}». {line}"
+        lines = sms_lines(pitch) or [_short(what, 45)]
+        return "", fit_sms(brand, lines, sms_chars) if sms_chars else f"سلام، از تیمِ «{brand}». {lines[0]}"
     if channel == Channel.EMAIL:
         subject = f"{brand}: پیشنهادی برای {{business_name}}"
         body = f"سلام، وقتتان بخیر.\nمن از تیمِ «{brand}» پیام می‌دهم. {what}\n{place}" + (f"؛ {benefit}" if benefit else ".") + f"\n{cta}"
@@ -179,6 +212,9 @@ def generate(mission: CrawlMission, lead_ids: list[int], channels: list[str], us
         raise ValidationFailed([{"field": "lead_ids", "code": "required", "message": "دست‌کم یک لید را انتخاب کنید."}])
     leads = {lead.pk: lead for lead in Lead.objects.filter(pk__in=ids, is_archived=False).prefetch_related("contacts")}
     blocked = suppression.suppressed_lead_ids(list(leads))
+    # one business gets ONE message per channel, whichever mission found it: a message a person approved (or that is in a campaign / was sent) in another mission
+    # stands and blocks a second one; an unapproved draft of another mission is replaced by this one (never two drafts for one phone)
+    elsewhere = set(OutreachDraft.objects.filter(lead_id__in=ids, channel__in=channels, status__in=USED_STATUSES).exclude(mission=mission).values_list("lead_id", "channel"))
     settings_obj = GrowthSettings.load()
     out = {"created": 0, "updated": 0, "skipped": [], "blocked": 0}
     for channel in channels:
@@ -188,6 +224,10 @@ def generate(mission: CrawlMission, lead_ids: list[int], channels: list[str], us
             lead = leads.get(lead_id)
             if lead is None:
                 out["skipped"].append({"lead_id": lead_id, "channel": channel, "reason": "missing", "text": "لید پیدا نشد یا بایگانی است."})
+                continue
+            if (lead_id, channel) in elsewhere:
+                out["skipped"].append({"lead_id": lead_id, "channel": channel, "reason": "exists_elsewhere",
+                                       "text": "برای این لید و کانال در مأموریتِ دیگری پیامی تأییدشده، در کمپین یا فرستاده‌شده هست؛ هر کسب‌وکار برای هر کانال فقط یک پیام می‌گیرد."})
                 continue
             recipient, code, text = _recipient(lead, channel)
             if not recipient:
@@ -208,6 +248,8 @@ def generate(mission: CrawlMission, lead_ids: list[int], channels: list[str], us
                 out["blocked"] += 1
             defaults = {"recipient": recipient[:500], "subject": built.subject, "body": built.text, "warnings": warnings, "status": status, "block_reason": reason,
                         "approved_by": None, "approved_at": None}
+            OutreachDraft.objects.filter(lead=lead, channel=channel, status__in=[OutreachDraft.Status.DRAFT, OutreachDraft.Status.REJECTED, OutreachDraft.Status.BLOCKED]
+                                         ).exclude(mission=mission).delete()  # another mission's unapproved draft for the same phone: this one replaces it
             _, created = OutreachDraft.objects.update_or_create(mission=mission, lead=lead, channel=channel, defaults=defaults)
             out["created" if created else "updated"] += 1
     return out
@@ -290,6 +332,8 @@ def queue(draft: OutreachDraft, user=None) -> OutreachDraft:
         raise ValidationFailed([{"field": "channel", "code": "manual", "message": "این کانال دستی است؛ متن را کپی کنید و خودتان بفرستید."}])
     if draft.status != OutreachDraft.Status.APPROVED:
         raise ValidationFailed([{"field": "status", "code": "not_approved", "message": "اول متنِ پیام را تأیید کنید."}])
+    if OutreachDraft.objects.filter(lead_id=draft.lead_id, channel=draft.channel, status__in=[OutreachDraft.Status.QUEUED, OutreachDraft.Status.SENT_MANUAL]).exclude(pk=draft.pk).exists():
+        raise ValidationFailed([{"field": "lead", "code": "already_messaged", "message": "این لید برای این کانال قبلاً در کمپینِ دیگری گذاشته یا دستی پیام گرفته؛ دوباره نمی‌گذاریم."}])
     mission = draft.mission
     campaign = _campaign_for(mission, draft.channel, user)
     result = campaigns.add_leads(campaign, [draft.lead_id], user=user)

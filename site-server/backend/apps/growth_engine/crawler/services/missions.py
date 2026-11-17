@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 SOURCE_KEYS = ("osm", "search", "directory", "website", "instagram", "neshan")
 SOURCE_LABELS = {
-    "osm": "نقشهٔ آزاد (OpenStreetMap)", "search": "جست‌وجوی وب (Bing / DuckDuckGo / Mojeek)", "directory": "فهرست‌های عمومیِ کسب‌وکار",
-    "website": "سایتِ خودِ کسب‌وکار (تماس، درباره، ساعتِ کاری)", "instagram": "پیجِ اینستاگرام (آباگرام روی سرورِ پردازش)", "neshan": "نشان (فقط با کلیدِ API)",
+    "osm": "نقشهٔ آزاد (OpenStreetMap)", "search": "جست‌وجوی وب (Brave / Bing / DuckDuckGo / Mojeek)", "directory": "فهرست‌های عمومیِ کسب‌وکار",
+    "website": "سایتِ خودِ کسب‌وکار (تماس، درباره، ساعتِ کاری)", "instagram": "پیج‌های اینستاگرام (هشتگ و مکان؛ خواندنِ پیج با آباگرام)", "neshan": "نشان (فقط با کلیدِ API)",
 }
 BUDGET_LIMITS = {
     "max_requests": (20, 3000), "max_sites": (0, 300), "max_pages_per_site": (1, 10), "max_seconds": (60, 7200), "max_bytes": (1_000_000, 400_000_000),
-    "max_search_queries": (0, 20), "max_directory_pages": (0, 60), "max_ig_accounts": (0, 200), "server_sites": (0, 300), "max_directory_details": (0, 400),
+    "max_search_queries": (0, 20), "max_directory_pages": (0, 60), "max_ig_accounts": (0, 200), "server_sites": (0, 300), "max_directory_details": (0, 400), "max_ig_queries": (0, 20),
 }
 ACTIVE = (CrawlRun.Status.QUEUED, CrawlRun.Status.RUNNING)
 
@@ -124,9 +124,12 @@ def validate_spec(data: dict) -> dict:
         require_contact=bool(data.get("require_contact", True)), include_online=bool(data.get("include_online", False)), max_results=max_results, min_score=min_score,
         exclude_words=_strings(data.get("exclude_words"), "exclude_words", [], limit=20, max_len=40, label="کلمه‌های ردکننده"),
         tag=nz.normalize_text(str(data.get("tag") or ""))[:40], pitch=pitch,
+        ig_hashtags=_strings(data.get("ig_hashtags"), "ig_hashtags", [], limit=12, max_len=60, label="هشتگ‌ها"),
+        ig_locations=_strings(data.get("ig_locations"), "ig_locations", [], limit=12, max_len=60, label="مکان‌ها"),
+        include_individuals=bool(data.get("include_individuals", True)),
     )
     if data.get("search_engines"):
-        spec["search_engines"] = [e for e in data["search_engines"] if e in ("bing", "duckduckgo", "mojeek")]
+        spec["search_engines"] = [e for e in data["search_engines"] if e in ("brave", "bing", "duckduckgo", "mojeek")]
     return spec
 
 

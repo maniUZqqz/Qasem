@@ -140,7 +140,7 @@ export default function ResultsPage() {
       {summary.data && (
         <div className="grid grid-cols-2 gap-2 md:grid-cols-5" data-testid="results-summary">
           {[
-            ["همهٔ نتیجه‌ها", summary.data.total],
+            [get("mission") ? "نتیجه‌های این مأموریت" : "کسب‌وکارِ یکتا", summary.data.total],
             ["تناسبِ بالا", summary.data.by_level.high ?? 0],
             ["متوسط", summary.data.by_level.medium ?? 0],
             ["کم", summary.data.by_level.low ?? 0],
@@ -204,7 +204,7 @@ export default function ResultsPage() {
             </label>
           ))}
           <Input value={get("city")} onChange={(e) => patch({ city: e.target.value })} placeholder="شهر" style={{ width: 110 }} aria-label="شهر" />
-          <Input value={get("tag")} onChange={(e) => patch({ tag: e.target.value })} placeholder="برچسب" style={{ width: 110 }} aria-label="برچسب" />
+          <Input value={get("tag")} onChange={(e) => patch({ tag: e.target.value })} placeholder="برچسب (بخشی کافی است)" style={{ width: 150 }} aria-label="برچسب" data-testid="filter-tag" />
           {filterCount > 0 && (
             <Button variant="ghost" size="sm" onClick={() => { setQInput(""); setSp(new URLSearchParams(get("mission") ? { mission: get("mission") } : {})); }}>
               پاک‌کردنِ فیلترها
@@ -329,9 +329,15 @@ export default function ResultsPage() {
                       <div className="text-xs" style={{ color: "var(--text-3)" }}>
                         {[r.city, r.category].filter(Boolean).join(" · ")}
                       </div>
-                      {r.tags.length > 0 && (
+                      {(r.tags.length > 0 || r.missions > 1) && (
                         <div className="mt-0.5 flex flex-wrap gap-1">
-                          {r.tags.slice(0, 3).map((t) => (
+                          {r.individual && <Badge tone="warn">فردِ مستقل</Badge>}
+                          {r.missions > 1 && (
+                            <span title="همین کسب‌وکار را چند مأموریت پیدا کرده‌اند؛ بالاترین امتیاز نشان داده می‌شود.">
+                              <Badge tone="info">در {fa(r.missions)} مأموریت</Badge>
+                            </span>
+                          )}
+                          {r.tags.filter((t) => !(r.individual && t === meta?.individuals.tag)).slice(0, 3).map((t) => (
                             <Badge key={t}>{t}</Badge>
                           ))}
                         </div>

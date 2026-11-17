@@ -149,7 +149,7 @@ def cache_get(method: str, url: str) -> sh.FetchResult | None:
 
 
 def cache_put(method: str, url: str, result: sh.FetchResult, ttl_hours: float) -> None:
-    if result.outcome != sh.OK or not (200 <= result.status < 300) or not result.text or len(result.text) > CACHE_BODY_LIMIT:
+    if result.outcome != sh.OK or result.status != 200 or not result.text or len(result.text) > CACHE_BODY_LIMIT:  # a «202 anomaly / bot check» page is not an answer to keep
         return
     key = _key(method, url)
     path = cache_dir() / key[:2]

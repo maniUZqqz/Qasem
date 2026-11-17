@@ -34,10 +34,8 @@ from .base import SourceContext, TaskFailed, TaskSpec
 
 SOURCE = "directory"
 BADANFIT = "https://badanfit.ir"
-BADANFIT_CITIES = {
-    "تهران": "tehran", "اصفهان": "isfahan", "مشهد": "mashhad", "شیراز": "shiraz", "تبریز": "tabriz", "کرج": "karaj", "قم": "qom", "اهواز": "ahvaz",
-    "رشت": "rasht", "همدان": "hamedan", "کرمان": "kerman", "یزد": "yazd", "ارومیه": "urmia", "اراک": "arak", "ساری": "sari", "قزوین": "qazvin",
-}
+#: the cities badanfit.ir has a list page for (checked 2026-11-17: every other slug answers HTTP 404, so no task is planned for them)
+BADANFIT_CITIES = {"تهران": "tehran", "اصفهان": "isfahan", "مشهد": "mashhad", "تبریز": "tabriz"}
 #: badanfit.ir lists GYMS (name, address, phone); a «bodybuilding» list is a list of bodybuilding gyms, not of trainers - trainers come from ``coaches.py``
 BADANFIT_TYPES = {
     "gym": ["fitness", "bodybuilding", "crossfit"], "sports_club": ["fitness"], "yoga_pilates": ["yoga", "pilates"],
@@ -85,6 +83,13 @@ def plan(spec: dict) -> list[TaskSpec]:
     if spec.get("sources", {}).get("directory", True):
         out += coaches.plan(spec)
     return out
+
+
+def unsupported_cities(spec: dict) -> list[str]:
+    """The mission's cities badanfit.ir has no list for (when the mission asks for a kind of business that directory lists): the run says so instead of failing three tasks per city."""
+    if not spec.get("sources", {}).get("directory", True) or not any(t in BADANFIT_TYPES for t in spec.get("business_types", [])):
+        return []
+    return [c for c in spec.get("cities", []) if c and place.canonical_city(c) not in BADANFIT_CITIES]
 
 
 def _round_robin(groups: list[list[TaskSpec]]) -> list[TaskSpec]:

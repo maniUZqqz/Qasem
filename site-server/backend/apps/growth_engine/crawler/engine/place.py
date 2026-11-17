@@ -218,7 +218,8 @@ def verdict(cities, *, address: str = "", cities_ev=(), lat=None, lon=None, phon
         return Verdict("out", f"نشانی یا شهرِ ثبت‌شده «{named[0]}» است", named[0])
     geo = geo_state(lat, lon, wanted)
     if geo == "out":
-        return Verdict("out", "جای دقیقش روی نقشه بیرون از شهرِ خواسته‌شده است", named[0] if named else "")
+        # no city in the address: the city of the map position names the place it really is in («فیت لند» of a Tehran list whose position is in Isfahan)
+        return Verdict("out", "جای دقیقش روی نقشه بیرون از شهرِ خواسته‌شده است", named[0] if named else geo_city(lat, lon))
     if geo == "in" or here:
         return Verdict("in", "نشانی/جایش در شهرِ خواسته‌شده است", (here or sorted(wanted))[0])
     provs = phone_provinces(phones)

@@ -9,6 +9,7 @@ import Modal from "../../components/Modal";
 import type { Activity, Note, Paged as GPaged } from "../../types";
 import { useFinder } from "../FinderLayout";
 import type { Reminders, Result } from "../types";
+import DncDialog from "../../components/leads/DncDialog";
 import { ReasonList, ScoreBadge, SOURCE_LABEL, mapsLink } from "./bits";
 
 type ResultList = { results: Result[] };
@@ -32,6 +33,7 @@ export default function LeadPanel({ leadId, missionId, onClose, onChanged }: { l
   const [channels, setChannels] = useState<string[]>(["sms"]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+  const [dnc, setDnc] = useState(false);
 
   const run = async (key: string, fn: () => Promise<unknown>, ok: string) => {
     setBusy(key);
@@ -52,10 +54,16 @@ export default function LeadPanel({ leadId, missionId, onClose, onChanged }: { l
     <Modal open title={row?.name ?? lead.data?.display_name ?? "کسب‌وکار"} onClose={onClose} size="lg" testId="lead-panel">
       <div className="space-y-5">
         {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+        {row?.individual && (
+          <Alert tone="warn" title="فردِ مستقل">
+            <span data-testid="individual-note">{meta?.individuals.note} پیش از هر پیام مطمئن شوید که او خودش این راهِ تماس را برای کار منتشر کرده؛ اگر نخواست، «تماس نگیر» را بزنید.</span>
+          </Alert>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {row && <ScoreBadge score={row.score} level={row.level} />}
           {row?.city && <Badge tone="brand">{row.city}</Badge>}
           {row?.category && <Badge>{row.category}</Badge>}
+          {row && row.missions > 1 && <Badge tone="info">در {fa(row.missions)} مأموریت</Badge>}
           {row?.sources.map((s) => (
             <Badge key={s} tone="info">
               {SOURCE_LABEL[s] ?? s}
@@ -79,6 +87,10 @@ export default function LeadPanel({ leadId, missionId, onClose, onChanged }: { l
             <Link to={`/growth/leads/${leadId}`} className="u-btn u-btn-secondary u-btn-sm no-underline">
               صفحهٔ کاملِ لید
             </Link>
+            <Button variant="ghost" size="sm" onClick={() => setDnc(true)} data-testid="lead-dnc">
+              <Icon name="stop" size={13} />
+              تماس نگیر
+            </Button>
           </span>
         </div>
 
@@ -235,6 +247,7 @@ export default function LeadPanel({ leadId, missionId, onClose, onChanged }: { l
           </div>
         </div>
       </div>
+      <DncDialog open={dnc} leadId={leadId} leadName={row?.name ?? lead.data?.display_name ?? "این کسب‌وکار"} onClose={() => setDnc(false)} onDone={() => { setDnc(false); setMsg({ tone: "ok", text: "در فهرستِ «تماس نگیر» ثبت شد؛ هیچ پیامی برایش نوشته یا فرستاده نمی‌شود." }); onChanged?.(); }} />
     </Modal>
   );
 }

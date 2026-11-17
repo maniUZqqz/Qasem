@@ -183,7 +183,7 @@ class Pitch:
     benefit: str  # one sentence: why this kind of business would care
     cta: str  # the one thing we ask for
     voice: str = "صمیمی ولی حرفه‌ای، کوتاه و بدونِ اغراق"
-    sms: str = ""  # one short line for an SMS (<= 45 characters: «سلام، از تیمِ «برند».» + this line + the sender block + the opt-out sentence must fit two SMS parts)
+    sms: str = ""  # one short, COMPLETE line for an SMS (<= 45 characters: «سلام، از تیمِ «برند».» + this line + the sender block + the opt-out sentence must fit two SMS parts)
     avoid: tuple[str, ...] = ("قیمت", "درصد", "تضمین")
 
 
@@ -208,7 +208,7 @@ _CHAGHER_PITCH = Pitch(
     avoid=("قیمت", "درصد", "تضمین", "جایگزینِ مربی", "رضایتِ ۹۸", "۵۰۰ برنامه"),
 )
 
-_DEFAULT_BUDGET = {"max_requests": 600, "max_sites": 60, "max_pages_per_site": 5, "max_seconds": 1500, "max_bytes": 80_000_000, "domain_delay": 2.0, "max_search_queries": 8, "max_directory_pages": 12}
+_DEFAULT_BUDGET = {"max_requests": 600, "max_sites": 60, "max_pages_per_site": 5, "max_seconds": 1800, "max_bytes": 80_000_000, "domain_delay": 2.0, "max_search_queries": 8, "max_directory_pages": 12, "max_ig_queries": 6}
 
 PRESETS: dict[str, Preset] = {
     "chagher_gyms_tehran": Preset(
@@ -224,6 +224,7 @@ PRESETS: dict[str, Preset] = {
             "cities": ["تهران"],
             "language": "fa",
             "sources": {"osm": True, "search": True, "directory": True, "website": True, "instagram": False, "neshan": False},
+            "include_individuals": True,
             "require_contact": True,
             "max_results": 400,
             "budget": {**_DEFAULT_BUDGET},
@@ -245,9 +246,12 @@ PRESETS: dict[str, Preset] = {
             "language": "fa",
             "sources": {"osm": False, "search": True, "directory": True, "website": True, "instagram": True, "neshan": False},
             "include_online": True,
+            "include_individuals": True,  # the brief names personal trainers as the target; they are handled as personal data (tag, no names in the diary, opt-out first)
+            "ig_hashtags": ["#مربی_بدنسازی", "#برنامه_تمرینی", "#مربی_آنلاین"],
+            "ig_locations": [],
             "require_contact": True,
             "max_results": 200,
-            "budget": {**_DEFAULT_BUDGET, "max_ig_accounts": 40, "max_search_queries": 12, "max_directory_pages": 24},
+            "budget": {**_DEFAULT_BUDGET, "max_ig_accounts": 40, "max_search_queries": 8, "max_directory_pages": 24, "max_ig_queries": 8},
             "execution": "auto",
         },
         pitch=_CHAGHER_PITCH,

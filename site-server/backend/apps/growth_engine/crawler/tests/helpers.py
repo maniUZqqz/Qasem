@@ -72,6 +72,19 @@ def bing_page(results: list[tuple[str, str, str]]) -> str:
     return f'<html><body><ol id="b_results">{items}</ol></body></html>'
 
 
+def brave_page(results: list[tuple[str, str, str]]) -> str:
+    """Brave's result page as the finder reads it (the structure of a real page, checked 2026-11-17): ``div.snippet[data-type=web]`` > ``.result-body`` > ``.result-content``
+    with the real address in the first absolute link, the title in ``.title`` and the description in ``.generic-snippet .content``. The texts here are synthetic."""
+    items = ""
+    for url, title, snippet in results:
+        items += (f'<div class="snippet svelte-x" data-type="web" data-pos="0"><div class="result-body svelte-1"><div class="result-wrapper svelte-2"><div class="result-content svelte-3">'
+                  f'<a class="svelte-4 l1" href="{url}"><div class="site-name-wrapper"><div class="favicon-wrapper"></div><div class="site-name-content">site</div></div>'
+                  f'<div class="title search-snippet-title line-clamp-1 svelte-5">{title}</div></a>'
+                  f'<div class="generic-snippet svelte-6"><div class="content desktop-default-regular t-primary line-clamp-dynamic svelte-7">{snippet}</div></div>'
+                  f'</div></div></div></div>')
+    return f'<html><body><div id="results">{items}</div></body></html>'
+
+
 def overpass_json(elements: list[dict]) -> str:
     return json.dumps({"version": 0.6, "elements": elements}, ensure_ascii=False)
 

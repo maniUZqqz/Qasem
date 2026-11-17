@@ -100,6 +100,31 @@ def name_has_word(text: str, words) -> list[str]:
     return out
 
 
+_LETTER = "؀-ۿݐ-ݿa-z0-9"
+_JOINERS = re.compile("[‌‍‎‏]")
+
+
+def _plain(text: str) -> str:
+    """Lower-cased, letters unified, ZWNJ and direction marks turned into spaces, one space between words."""
+    return re.sub(r"\s+", " ", _JOINERS.sub(" ", nz.normalize_text(text or ""))).strip().casefold()
+
+
+def exclude_hits(text: str, words) -> list[str]:
+    """The words (of ``words``) that are WHOLE words of ``text``: «اسپا» is in «اسپا حس خوب» but not in «اسپارتا» or «اسپاد فیت»; «کلینیک» is in
+    «کلینیک ورزشی» and «کلینیک‌های ورزشی» but not in «کلینیکال». A name is judged by its words, never by letters that happen to sit inside another word
+    (the «this is something else» lists would otherwise throw out real gyms called Sparta or Spartan)."""
+    hay = _plain(text)
+    out: list[str] = []
+    for w in words:
+        parts = _plain(w).split(" ")
+        if not parts or not parts[0]:
+            continue
+        pattern = rf"(?<![{_LETTER}])" + r" ".join(re.escape(p) for p in parts) + rf"(?![{_LETTER}])"
+        if re.search(pattern, hay):
+            out.append(" ".join(parts))
+    return out
+
+
 def clip(text: str, n: int) -> str:
     text = nz.normalize_text(text or "")
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
@@ -120,3 +145,43 @@ def is_media_host(host: str) -> bool:
         return False
     labels = parts[:-1]  # everything but the domain ending
     return any(lab.startswith(_MEDIA_PREFIXES) or lab in _MEDIA_NAMES for lab in labels)
+
+
+#: business DIRECTORIES and map portals (they list other people's businesses): their address is never a business's own website. Whole site names;
+#: the foreign yellow-pages style sites are also caught by their start («cylex.ir», «yellowpages.com»).
+_DIRECTORY_NAMES = frozenset({
+    "cybo", "yelp", "foursquare", "mapquest", "hotfrog", "brownbook", "tupalo", "justdial", "zoominfo", "opendi", "infobel", "kompass", "europages", "bizapedia",
+    "manta", "yalwa", "nicelocal", "whitepages", "balad", "neshan", "gymcenter", "badanfit", "morabiyab", "poolticket", "iranestekhdam", "yellowbook", "dnb",
+    "2gis", "waze", "tripadvisor", "booking", "google", "bing", "maps",
+})
+_DIRECTORY_PREFIXES = ("cylex", "yellowpage", "goldenpage", "cybo")
+
+
+def is_directory_host(host: str) -> bool:
+    """``cybo.com``, ``www.cylex.ir``, ``balad.ir``, ``badanfit.ir`` ...: a directory / map portal - a page ABOUT businesses, never one business's own website."""
+    parts = [p for p in (host or "").lower().split(".") if p]
+    if len(parts) < 2:
+        return False
+    labels = parts[:-1]
+    return any(lab in _DIRECTORY_NAMES or lab.startswith(_DIRECTORY_PREFIXES) for lab in labels)
+
+
+def is_foreign_site(host: str) -> bool:
+    """A host that is media OR a directory: not a business's own site."""
+    return is_media_host(host) or is_directory_host(host)
+
+
+#: the title of an article / list page («بهترین باشگاه‌های تهران»، «۱۵ کافهٔ برتر اصفهان»، «لیست ...»، «معرفی ...») - a page about MANY businesses
+_LISTING_TITLE = re.compile(r"(?:^|[\s|\-–—:«»(\[])(?:بهترین|برترین|لیست|فهرست|معرفی|راهنمای|مقایسه|top\s*\d*|best|list of|guide to)(?:\s|$|[|\-–—:«»)\]])", re.I)
+_ARTICLE_PATH = re.compile(r"/(?:blog|article|articles|news|post|posts|best|top|list|lists|category|categories|tag|tags|mag|magazine)(?:/|$)|/\d{3,}(?:/|$)", re.I)
+
+
+def looks_like_listing_page(title: str, url: str) -> bool:
+    """A search hit that is an article or a list of businesses, not one business's own page. A business's HOME page (path «/») with a marketing title
+    («بهترین باشگاهِ منطقه») is kept; the same words on a deeper page (a blog post, a category) mean a listing."""
+    from urllib.parse import urlsplit
+
+    path = urlsplit(url or "").path or "/"
+    if _ARTICLE_PATH.search(path):
+        return True
+    return path.strip("/") != "" and bool(_LISTING_TITLE.search(nz.normalize_text(title or "")))

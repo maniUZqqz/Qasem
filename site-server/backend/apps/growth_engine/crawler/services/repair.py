@@ -15,7 +15,15 @@ enriched (every source of the lead is a ``crawl_*`` provider) and never what a p
 * a landline of another province than the lead's own address (a web agency's or a template's line), an Instagram / Telegram placeholder («instagram.com/0») are removed;
 * a gym that wears the trainer type's tag only because a badanfit.ir gym list was mapped onto it loses that tag; a lead that is no longer a result of a
   mission loses the mission's tag; the activity line «امتیازِ تناسب 59» gets Persian digits;
-* the preset missions get the current preset (budgets, «require_contact», online coaches ...), keeping their tag, pitch and hand-set limits.
+* the preset missions get the current preset (budgets, «require_contact», online coaches ...), keeping their tag, pitch and hand-set limits; a preset
+  mission whose own SMS line is too long for two SMS parts gets the preset's short one;
+* a result that is not what its mission asked for loses its finding: a name that is another kind of business («اسپا»، «تجهیزات بدنسازی»، «کلاس رقص»؛ whole
+  words only, so «اسپارتا» stays), a media / video site («آپارات اسپرت»)، a directory host used as the business's website («cybo.com»). The lead is deleted
+  when nobody worked on it and nothing is left to reach it by; a lead a person worked on stays in the lead list, only without the finding;
+* a lead whose map position is in another city than its label gets the position's city (a Tehran-list gym whose position is in Isfahan);
+* a lead without a category gets the label of its business type; a coach of the coach directory gets the tag «فردِ مستقل»; a gym that only wears the trainer type
+  loses that type in its insight and in its findings;
+* an SMS draft that an older version cut in the middle of a sentence («…») and nobody approved is written again (the same lead, the same channel).
 
 «Touched by a person» = a status other than «جدید»، a note, a reminder, an approved / queued / sent draft, a campaign item, or an activity with a
 person as its actor. Such a lead is only repaired (city, contacts, finding), never deleted.
@@ -23,18 +31,22 @@ person as its actor. Such a lead is only repaired (city, contacts, finding), nev
 from __future__ import annotations
 
 from collections import Counter
+from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from django.db import transaction
 
 from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.choices import ActivityKind, ContactKind, LeadStatus
-from apps.growth_engine.leads.models import ContactPoint, Lead
+from apps.growth_engine.leads.models import ContactPoint, Lead, LeadTag
 
 from .. import presets
 from ..engine import contactrules, finalize, place, textnorm
 from ..models import CrawlFinding, CrawlMission, LeadInsight, LeadReminder, OutreachDraft
+from . import drafts as draft_service
 
 MOBILE_CAP = 3
+SMS_LINE_MAX = 60  # a preset's SMS line is at most 45 characters; a longer one on a preset mission is an older version
 _FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 TRAINER_WORDS = ("مربی", "کوچ", "coach", "trainer", "pt")
 
@@ -179,6 +191,47 @@ def trainer_tag_is_wrong(lead: Lead) -> bool:
     return "badanfit.ir" in hosts and "morabiyab.com" not in hosts and not textnorm.name_has_word(lead.business_name, TRAINER_WORDS)
 
 
+def lead_types(lead: Lead, finding: CrawlFinding | None = None) -> list[str]:
+    ins = _insight_of(lead)
+    return list(dict.fromkeys([*(((finding.matched or {}).get("types") or []) if finding else []), *(ins.types if ins else [])]))
+
+
+def not_the_asked_type(lead: Lead, finding: CrawlFinding) -> str:
+    """The word in the lead's NAME that says it is something else than what the finding's mission asked for, or ''."""
+    return finalize.type_mismatch(SimpleNamespace(name=lead.business_name, types=lead_types(lead, finding)), finding.mission.spec or {})
+
+
+def foreign_site_points(lead: Lead) -> list[ContactPoint]:
+    """The lead's «website» contact points that are really a media site or a directory (not the business's own site)."""
+    out = []
+    for c in lead.contacts.all():
+        if c.kind == ContactKind.WEBSITE and textnorm.is_foreign_site((urlsplit(c.value).hostname or "").lower()):
+            out.append(c)
+    return out
+
+
+def reach_after(lead: Lead, dropped: set) -> bool:
+    """Can the lead still be reached once the contact points ``dropped`` (and a foreign website field) are gone?"""
+    site_ok = bool(lead.website) and not textnorm.is_foreign_site((urlsplit(lead.website).hostname or "").lower())
+    return site_ok or bool(lead.instagram_url) or any(c.pk not in dropped for c in lead.contacts.all())
+
+
+def trainer_type_is_wrong(lead: Lead) -> bool:
+    """A gym of a badanfit.ir list that still carries the trainer TYPE (insight / findings) from the old type mapping."""
+    ins = _insight_of(lead)
+    has_type = bool(ins and "personal_trainer" in (ins.types or [])) or any("personal_trainer" in ((f.matched or {}).get("types") or []) for f in lead.crawl_findings.all())
+    hosts = _directory_hosts(lead)
+    return has_type and "badanfit.ir" in hosts and "morabiyab.com" not in hosts and not textnorm.name_has_word(lead.business_name, TRAINER_WORDS)
+
+
+def type_label_of(lead: Lead) -> str:
+    for key in lead_types(lead, lead.crawl_findings.order_by("-score").first()):
+        bt = presets.get_type(key)
+        if bt:
+            return bt.fa
+    return ""
+
+
 def repair_lead(lead: Lead, *, apply: bool, report: Counter, notes: list[str]) -> None:
     finder = is_finder_lead(lead)
     touched = touched_by_person(lead)
@@ -209,6 +262,49 @@ def repair_lead(lead: Lead, *, apply: bool, report: Counter, notes: list[str]) -
             if new_city and lead.city != new_city:
                 Lead.objects.filter(pk=lead.pk).update(city=new_city)
                 lead.city = new_city
+    # 2b. a result that is not what its mission asked for: another kind of business (whole words in the name)
+    if finder:
+        wrong = [(f, not_the_asked_type(lead, f)) for f in lead.crawl_findings.select_related("mission")]
+        wrong = [(f, w) for f, w in wrong if w]
+        if wrong:
+            gone = {x.pk for x, _ in wrong}
+            left = [f for f in lead.crawl_findings.all() if f.pk not in gone]
+            if not left and not touched:
+                report["deleted_not_the_asked_type"] += 1
+                if len(notes) < 12:
+                    notes.append(f"{lead.business_name} ← نامش «{wrong[0][1]}» دارد")
+                if apply:
+                    lead.delete()
+                return
+            report["findings_removed_not_the_asked_type"] += len(wrong)
+            if apply:
+                for f, _ in wrong:
+                    CrawlFinding.objects.filter(pk=f.pk).delete()
+                drop_mission_tags(lead, [f.mission for f, _ in wrong])
+    # 2c. a media site / a directory used as the business's own website
+    foreign = foreign_site_points(lead) if finder else []
+    foreign_field = bool(finder and lead.website and textnorm.is_foreign_site((urlsplit(lead.website).hostname or "").lower()))
+    if foreign or foreign_field:
+        report["foreign_website_removed"] += max(1, len(foreign))
+        reachable = reach_after(lead, {c.pk for c in foreign})
+        if not reachable and not touched:
+            report["deleted_only_a_foreign_site"] += 1
+            if len(notes) < 12:
+                notes.append(f"{lead.business_name} ← فقط نشانیِ یک سایتِ رسانه‌ای/فهرست دارد")
+            if apply:
+                lead.delete()
+            return
+        if apply:
+            for c in foreign:
+                c.delete()
+            if foreign_field:
+                Lead.objects.filter(pk=lead.pk).update(website="")
+                lead.website = ""
+            if not reachable:  # somebody worked on it: it stays in the lead list, but it is no result of any mission any more
+                dropped = [f.mission for f in lead.crawl_findings.select_related("mission")]
+                CrawlFinding.objects.filter(lead=lead).delete()
+                drop_mission_tags(lead, dropped)
+                return
     # 3. nobody can reach it
     if finder and not touched and not has_reach(lead):
         report["deleted_no_contact"] += 1
@@ -243,6 +339,35 @@ def repair_lead(lead: Lead, *, apply: bool, report: Counter, notes: list[str]) -
         report["trainer_tag_removed_from_gym"] += 1
         if apply:
             lead.tags.remove(*lead.tags.filter(name_key=nz.search_key(finalize.clean_tag(presets.get_type("personal_trainer").fa))[:60]))
+    if finder and trainer_type_is_wrong(lead):
+        report["trainer_type_removed_from_gym"] += 1
+        if apply:
+            ins = _insight_of(lead)
+            if ins is not None and "personal_trainer" in (ins.types or []):
+                LeadInsight.objects.filter(pk=ins.pk).update(types=[t for t in ins.types if t != "personal_trainer"])
+            for f in lead.crawl_findings.all():
+                matched = dict(f.matched or {})
+                if "personal_trainer" in (matched.get("types") or []):
+                    matched["types"] = [t for t in matched["types"] if t != "personal_trainer"]
+                    CrawlFinding.objects.filter(pk=f.pk).update(matched=matched)
+    # 6c. the category the list shows under the name
+    if finder and not lead.category:
+        label = type_label_of(lead)
+        if label:
+            report["category_filled"] += 1
+            if apply:
+                Lead.objects.filter(pk=lead.pk).update(category=label)
+    # 6d. a coach of the coach directory is an independent person: tagged, so the owner can see and remove them as a group
+    if finder and "morabiyab.com" in _directory_hosts(lead) and not lead.tags.filter(name=finalize.INDIVIDUAL_TAG).exists():
+        report["individual_tagged"] += 1
+        if apply:
+            tag, _ = LeadTag.objects.get_or_create(name=finalize.INDIVIDUAL_TAG)
+            lead.tags.add(tag)
+            ins = _insight_of(lead)
+            if ins is not None:
+                LeadInsight.objects.filter(pk=ins.pk).update(signals={**(ins.signals or {}), "individual": True})
+            if lead.category in ("", "مربی"):
+                Lead.objects.filter(pk=lead.pk).update(category=finalize.INDIVIDUAL_CATEGORY)
 
 
 def resync_presets(*, apply: bool, report: Counter) -> None:
@@ -252,12 +377,32 @@ def resync_presets(*, apply: bool, report: Counter) -> None:
         if preset is None:
             continue
         spec = {**mission.spec, **{k: v for k, v in preset.spec.items() if k not in keep}}
+        pitch = dict(spec.get("pitch") or {})
+        if preset.pitch is not None and preset.pitch.sms and pitch.get("sms") and len(pitch["sms"]) > SMS_LINE_MAX:
+            spec["pitch"] = {**pitch, "sms": preset.pitch.sms}  # an older preset's long line would be cut by the two-part limit
         if spec != mission.spec:
             report["missions_resynced"] += 1
             if apply:
                 from . import missions
 
                 CrawlMission.objects.filter(pk=mission.pk).update(spec=missions.validate_spec(spec))
+
+
+def refresh_cut_drafts(*, apply: bool, report: Counter) -> None:
+    """An SMS draft an older version cut in the middle of a sentence («…») and that nobody approved is written again from the current pitch."""
+    rows = list(OutreachDraft.objects.filter(channel="sms", status__in=[OutreachDraft.Status.DRAFT, OutreachDraft.Status.REJECTED], body__contains="…").select_related("mission", "lead").order_by("id"))
+    done: set[int] = set()
+    for d in rows:
+        if d.lead_id in done:  # two missions each wrote a cut draft for one lead: one rewritten draft replaces both
+            report["sms_drafts_duplicates_removed"] += 1
+            continue
+        done.add(d.lead_id)
+        report["sms_drafts_rewritten"] += 1
+        if apply:
+            try:
+                draft_service.generate(d.mission, [d.lead_id], ["sms"])
+            except Exception:  # noqa: BLE001 - a mission without a usable pitch is left as it is
+                report["sms_drafts_rewrite_failed"] += 1
 
 
 def run(*, apply: bool = False, limit: int | None = None) -> dict:
@@ -273,4 +418,5 @@ def run(*, apply: bool = False, limit: int | None = None) -> dict:
         report["leads_looked_at"] += 1
         with transaction.atomic():
             repair_lead(lead, apply=apply, report=report, notes=notes)
+    refresh_cut_drafts(apply=apply, report=report)
     return {"applied": apply, "report": dict(report), "examples": notes}

@@ -26,7 +26,10 @@ type FormState = {
   exclude_words: string;
   tag: string;
   schedule_days: string;
-  budget: { max_requests: string; max_sites: string; max_pages_per_site: string; max_minutes: string; domain_delay: string; max_search_queries: string };
+  ig_hashtags: string;
+  ig_locations: string;
+  include_individuals: boolean;
+  budget: { max_requests: string; max_sites: string; max_pages_per_site: string; max_minutes: string; domain_delay: string; max_search_queries: string; max_ig_queries: string };
   pitch: { brand: string; what: string; benefit: string; cta: string; sms: string };
 };
 
@@ -58,6 +61,9 @@ function fromSpec(spec: MissionSpec | undefined, mission?: Mission | null, prese
     exclude_words: joinList(spec?.exclude_words),
     tag: spec?.tag ?? "",
     schedule_days: String(mission?.schedule_days ?? 0),
+    ig_hashtags: joinList(spec?.ig_hashtags),
+    ig_locations: joinList(spec?.ig_locations),
+    include_individuals: spec?.include_individuals ?? true,
     budget: {
       max_requests: String(b.max_requests ?? 600),
       max_sites: String(b.max_sites ?? 60),
@@ -65,6 +71,7 @@ function fromSpec(spec: MissionSpec | undefined, mission?: Mission | null, prese
       max_minutes: String(Math.round((b.max_seconds ?? 1500) / 60)),
       domain_delay: String(b.domain_delay ?? 2),
       max_search_queries: String(b.max_search_queries ?? 6),
+      max_ig_queries: String(b.max_ig_queries ?? 6),
     },
     pitch: { brand: spec?.pitch?.brand ?? "", what: spec?.pitch?.what ?? "", benefit: spec?.pitch?.benefit ?? "", cta: spec?.pitch?.cta ?? "", sms: spec?.pitch?.sms ?? "" },
   };
@@ -86,6 +93,9 @@ function toBody(f: FormState, extra: Record<string, unknown>) {
     max_results: n(f.max_results, 300),
     exclude_words: splitList(f.exclude_words),
     tag: f.tag.trim(),
+    ig_hashtags: splitList(f.ig_hashtags),
+    ig_locations: splitList(f.ig_locations),
+    include_individuals: f.include_individuals,
     budget: {
       max_requests: n(f.budget.max_requests, 600),
       max_sites: n(f.budget.max_sites, 60),
@@ -93,6 +103,7 @@ function toBody(f: FormState, extra: Record<string, unknown>) {
       max_seconds: n(f.budget.max_minutes, 25) * 60,
       domain_delay: n(f.budget.domain_delay, 2),
       max_search_queries: n(f.budget.max_search_queries, 6),
+      max_ig_queries: n(f.budget.max_ig_queries, 6),
     },
     pitch: Object.fromEntries(Object.entries(f.pitch).filter(([, v]) => v.trim())),
   };
@@ -141,6 +152,8 @@ export default function MissionForm({ open, mission, onClose, onSaved }: { open:
   };
 
   const noNode = meta && !meta.node.crawl.known;
+  // room of the SMS body minus «سلام، از تیمِ «برند». »
+  const smsLine = Math.max(20, (meta?.outreach.sms_room ?? 65) - (form.pitch.brand.trim().length || 3) - 14);
   return (
     <Modal
       open={open}
@@ -302,10 +315,50 @@ export default function MissionForm({ open, mission, onClose, onSaved }: { open:
           )}
         </Field>
 
+        {form.sources.instagram && (
+          <div className="space-y-3 rounded-xl p-3" style={{ border: "1px solid var(--line)" }} data-testid="ig-discovery">
+            <div>
+              <h4 className="text-sm font-bold" style={{ color: "var(--text-2)" }}>
+                پیداکردنِ پیج‌های اینستاگرام با هشتگ و مکان
+              </h4>
+              <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                هر هشتگ و هر مکان یک جست‌وجوی «پیج‌های عمومیِ اینستاگرام» در فهرستِ وب می‌شود (نه جست‌وجو در خودِ اینستاگرام و بدونِ ورود به حسابِ شما). پیج‌های پیداشده بعد با آباگرام روی سرورِ پردازش خوانده می‌شوند. اگر هیچ‌کدام را ننویسید، نوعِ کسب‌وکار و کلیدواژه‌ها هشتگ حساب می‌شوند.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="هشتگ‌ها" hint="با ویرگول جدا کنید؛ # و _ اختیاری است.">
+                <TextArea rows={2} value={form.ig_hashtags} onChange={(e) => set("ig_hashtags", e.target.value)} placeholder="#مربی_بدنسازی، #برنامه_تمرینی" data-testid="ig-hashtags" />
+              </Field>
+              <Field label="مکان‌ها (محله، منطقه یا شهر)" hint="مثلاً: پونک، ولنجک، سعادت‌آباد.">
+                <TextArea rows={2} value={form.ig_locations} onChange={(e) => set("ig_locations", e.target.value)} placeholder="پونک، ولنجک" data-testid="ig-locations" />
+              </Field>
+            </div>
+          </div>
+        )}
+
+        {form.types.includes("personal_trainer") && (
+          <label className="flex items-start gap-2 rounded-xl p-3 text-sm" style={{ background: "var(--surface-2)", border: "1px solid var(--line)" }}>
+            <input type="checkbox" className="mt-1" checked={form.include_individuals} onChange={(e) => set("include_individuals", e.target.checked)} data-testid="include-individuals" />
+            <span>
+              <b style={{ color: "var(--text)" }}>مربی‌های مستقل (فردی) هم باشند</b>
+              <span className="block text-xs" style={{ color: "var(--text-3)" }}>
+                {meta?.individuals.note ?? "مربیِ مستقل خودش کسب‌وکار است و راهِ تماسِ کاری‌اش را خودش منتشر کرده؛ این لیدها برچسب و هشدار دارند و نامشان در گزارشِ اجرا نمی‌آید."}
+              </span>
+            </span>
+          </label>
+        )}
+
         <Field label="معرفیِ کوتاه برای پیام‌ها" hint="پیش‌نویس‌ها فقط از همین متن و نامِ خودِ کسب‌وکار ساخته می‌شوند؛ قیمت یا آمارِ ساختگی نمی‌آید. اگر خالی بماند از توضیحِ فروشگاه استفاده می‌شود.">
           <div className="grid gap-3 md:grid-cols-2">
             <Input value={form.pitch.brand} onChange={(e) => set("pitch", { ...form.pitch, brand: e.target.value })} placeholder="نامِ برند (مثلاً چغر)" data-testid="pitch-brand" />
-            <Input value={form.pitch.sms} onChange={(e) => set("pitch", { ...form.pitch, sms: e.target.value })} placeholder="یک خطِ کوتاه برای پیامک" />
+            <div>
+              <Input value={form.pitch.sms} onChange={(e) => set("pitch", { ...form.pitch, sms: e.target.value })} placeholder="یک خطِ کوتاه برای پیامک" data-testid="pitch-sms" />
+              {meta && (
+                <p className="mt-1 text-xs" style={{ color: form.pitch.sms.length > smsLine ? "var(--bad)" : "var(--text-3)" }} data-testid="pitch-sms-count">
+                  {fa(form.pitch.sms.length)} از حدودِ {fa(smsLine)} نویسه{form.pitch.sms.length > smsLine ? " — بلندتر از دو بخشِ پیامک است؛ در پیش‌نویس به‌جایش خطِ کوتاه‌تری می‌آید." : "؛ پیامک باید با سلام، نامِ برند و جملهٔ لغو در دو بخش جا شود."}
+                </p>
+              )}
+            </div>
             <TextArea rows={3} value={form.pitch.what} onChange={(e) => set("pitch", { ...form.pitch, what: e.target.value })} placeholder="چیست؟ یک جمله" data-testid="pitch-what" />
             <TextArea rows={3} value={form.pitch.benefit} onChange={(e) => set("pitch", { ...form.pitch, benefit: e.target.value })} placeholder="چرا به درد این کسب‌وکار می‌خورد؟" />
             <TextArea rows={2} value={form.pitch.cta} onChange={(e) => set("pitch", { ...form.pitch, cta: e.target.value })} placeholder="یک درخواست از گیرنده" className="md:col-span-2" />
@@ -329,6 +382,7 @@ export default function MissionForm({ open, mission, onClose, onSaved }: { open:
                   ["max_minutes", "حداکثر زمان (دقیقه)"],
                   ["domain_delay", "فاصلهٔ درخواست‌ها به یک سایت (ثانیه)"],
                   ["max_search_queries", "تعداد جست‌وجوی وب"],
+                  ["max_ig_queries", "تعداد جست‌وجوی هشتگ و مکان"],
                 ] as const
               ).map(([k, label]) => (
                 <Field key={k} label={label}>

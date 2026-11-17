@@ -90,7 +90,7 @@ def card(lead: Lead, now=None) -> dict:
     due = getattr(lead, "next_due", None)
     return {
         "id": lead.pk, "name": lead.display_name, "city": lead.city, "category": lead.category, "status": lead.status, "status_label": lead.get_status_display(),
-        "score": getattr(lead, "best_score", None), "phone": phones[0] if phones else "", "website": lead.website, "instagram": lead.instagram_url,
+        "score": getattr(lead, "best_score", None), "phone": nz.format_phone_display(phones[0]) if phones else "", "phone_raw": phones[0] if phones else "", "website": lead.website, "instagram": lead.instagram_url,
         "tags": [t.name for t in lead.tags.all()][:4], "next_due": due, "overdue": bool(due and due < now),
     }
 

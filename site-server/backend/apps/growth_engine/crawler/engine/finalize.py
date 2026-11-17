@@ -82,7 +82,7 @@ def type_mismatch(c: CrawlCandidate, spec: dict) -> str:
     mine = [wanted[t] for t in (c.types or []) if t in wanted] or list(wanted.values())
     first = ""
     for bt in mine:
-        hit = textnorm.name_has_word(c.name, bt.exclude)
+        hit = textnorm.exclude_hits(c.name, bt.exclude)  # whole words: a gym called «اسپارتا» is not a spa
         if not hit:
             return ""  # one of its types accepts the name
         first = first or hit[0]
@@ -100,9 +100,36 @@ def has_contact(c) -> bool:
     return bool(c.phones or c.emails or c.website or c.instagram or c.telegram or c.whatsapp or c.contact_form)
 
 
+INDIVIDUAL_TAG = "فرد مستقل"
+INDIVIDUAL_CATEGORY = "مربی مستقل"
+
+
+def is_individual(c) -> bool:
+    """An independent professional (a personal trainer with his / her own page): the business IS the person. Handled with extra care (tag, banner, no names in logs)."""
+    return bool((c.signals or {}).get("individual"))
+
+
+def log_name(c) -> str:
+    """The name for the run diary and the panel's «latest found» line: an independent person is never named there."""
+    return INDIVIDUAL_CATEGORY if is_individual(c) else (c.name or "")[:50]
+
+
+def category_of(c: CrawlCandidate) -> str:
+    """What the list shows under the name: the source's own category, else the label of the business type the candidate was found as (a directory card has no category)."""
+    if is_individual(c):
+        return INDIVIDUAL_CATEGORY
+    if c.category:
+        return c.category
+    for key in (c.types or []):
+        bt = presets.get_type(key)
+        if bt:
+            return bt.fa
+    return ""
+
+
 def _raw_for(c: CrawlCandidate, tags: list[str]) -> dict:
     raw = {
-        "business_name": c.name, "category": c.category, "city": c.city, "address": c.address, "website": c.website, "instagram": c.instagram,
+        "business_name": c.name, "category": category_of(c), "city": c.city, "address": c.address, "website": c.website, "instagram": c.instagram,
         "phone": "; ".join(c.phones), "email": "; ".join(c.emails), "whatsapp": "; ".join(c.whatsapp), "telegram": c.telegram, "tags": tags,
         "country": "IR",
     }
@@ -118,6 +145,8 @@ def clean_tag(text: str) -> str:
 
 def _tags_for(mission: CrawlMission, c: CrawlCandidate) -> list[str]:
     tags = ["مشتری‌یاب", clean_tag(str((mission.spec or {}).get("tag") or "")) or f"مأموریت {mission.pk}"]
+    if is_individual(c):
+        tags.append(INDIVIDUAL_TAG)
     for t in (c.types or [])[:2]:
         bt = presets.get_type(t)
         if bt:
@@ -218,6 +247,8 @@ def upsert_insight(lead: Lead, c: CrawlCandidate) -> None:
     if types != ins.types:
         ins.types, changed = types, True
     sig = dict(ins.signals or {})
+    if is_individual(c):
+        sig["individual"] = True
     site, ig = (c.signals or {}).get("site"), (c.signals or {}).get("ig")
     if site:
         sig["site"] = {k: site.get(k) for k in ("title", "lang", "words", "fit_words", "js_shell") if site.get(k) not in (None, "", [])}
@@ -262,6 +293,8 @@ def finalize_candidate(run: CrawlRun, c: CrawlCandidate, spec: dict, mission: Cr
         c.save(update_fields=["state", "score"])
         return f"skipped:{reason}"
 
+    if is_individual(c) and not spec.get("include_individuals", True):
+        return skip("individual")
     if place_verdict(c, spec).state == "out":
         return skip("other_city")
     if type_mismatch(c, spec):
@@ -350,12 +383,12 @@ def finalize_run(run: CrawlRun, spec: dict, *, stop=None, log=lambda level, msg:
         except Exception as exc:  # noqa: BLE001 - one bad business never stops the run
             logger.exception("crawler: finalize of candidate %s failed", c.pk)
             counts["skipped:error"] += 1
-            log("warn", f"«{c.name[:50]}» ثبت نشد ({type(exc).__name__}).")
+            log("warn", f"«{log_name(c)}» ثبت نشد ({type(exc).__name__}).")
     skipped = sum(n for k, n in counts.items() if k.startswith("skipped"))
     out = {"created": counts["created"], "merged": counts["merged"], "skipped": skipped, "skipped_detail": {k: v for k, v in counts.items() if k.startswith("skipped")}}
     why = {"skipped:other_city": "شهرِ دیگر", "skipped:not_type": "از نوعِ دیگر (مثلاً اسپا یا فروشگاهِ تجهیزات)", "skipped:no_contact": "بی‌راهِ تماس", "skipped:invalid": "نامعتبر",
            "skipped:low_score": "امتیازِ کم", "skipped:excluded_word": "کلمهٔ ردکننده", "skipped:limit": "سقفِ تعداد", "skipped:error": "خطا",
-           "skipped:shared_contact": "راهِ تماسش فقط همان است که لیدِ شهرِ دیگری دارد"}
+           "skipped:shared_contact": "راهِ تماسش فقط همان است که لیدِ شهرِ دیگری دارد", "skipped:individual": "فردِ مستقل (مأموریت فقط کسب‌وکارها را می‌خواهد)"}
     detail = "؛ ".join(f"{scoring._fa(n)} {why.get(k, k)}" for k, n in out["skipped_detail"].items())
     log("info", f"لیدها: {scoring._fa(out['created'])} تازه، {scoring._fa(out['merged'])} ادغام در لیدِ موجود، {scoring._fa(skipped)} ردشده" + (f" ({detail})." if detail else "."))
     return out

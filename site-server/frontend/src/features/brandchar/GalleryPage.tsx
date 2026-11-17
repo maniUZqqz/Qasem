@@ -192,7 +192,7 @@ export default function GalleryPage() {
               <small>{r.kind_fa} · {r.width && r.height ? `${fa(r.width)}×${fa(r.height)}` : ""} · {fmtDate(r.created_at)}</small>
               {r.qa && r.qa.ok === false ? <Badge tone="warn">رنگِ امضا گم شده</Badge> : null}
               <div className="bc-row">
-                <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `brand-character-${r.id}.${r.kind === "svg" ? "svg" : r.kind === "pdf" ? "pdf" : "png"}`)}>دانلود</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `brand-character-${r.id}.${r.kind === "svg" ? "svg" : r.kind === "pdf" ? "pdf" : "png"}`).catch((e) => n.fail(e))}>دانلود</Button>
                 {r.asset && r.kind !== "sheet" ? <Button type="button" variant="ghost" size="sm" onClick={() => nav(`/stores/${id}/photo-editor?asset=${r.asset!.id}&mode=manual`)}>ادیتورِ عکس</Button> : null}
                 {r.asset?.has_alpha ? <Button type="button" variant="ghost" size="sm" onClick={() => nav(`/stores/${id}/thumbnails?subject=${r.asset!.id}`)}>تامنیل</Button> : null}
                 <Button type="button" variant="ghost" size="sm" onClick={() => void bcApi.removeRender(id, cid, r.id).then(() => { void loadItems(); void reload(cid); })}>حذف</Button>

@@ -9,6 +9,7 @@ import base64
 import hashlib
 import io
 import json
+import logging
 import threading
 import types
 import zipfile
@@ -30,6 +31,8 @@ from .engine import doc as D
 from .engine import render as R
 from .engine import sheet as SH
 from .models import BrandCharacter, BrandPersona, CharacterRender, CharacterVersion, UsageEvent
+
+logger = logging.getLogger(__name__)
 
 MAX_CHARACTERS = 8
 MAX_RENDERS = 300
@@ -534,10 +537,39 @@ def character_dict(c: BrandCharacter, *, with_cover: bool = True) -> dict:
            "has_logo": doc["logo"] == "chest", "created_at": c.created_at, "updated_at": c.updated_at, "style": doc["style"], "style_fa": D.STYLE_LABELS_FA[doc["style"]],
            "shots": c.renders.filter(kind="shot").count(), "stickers": c.renders.filter(kind="sticker").count(), "mascot": c.mascot_id}
     if with_cover:
-        qs = c.renders.select_related("asset")
-        last = qs.filter(kind__in=("shot", "template")).first() or qs.filter(kind__in=("sticker", "sheet")).first()
-        out["cover"] = photo.media_url(last.asset.thumb) if last is not None and last.asset_id else None
+        row, kind = cover_row(c)
+        out["cover"] = photo.media_url(row.asset.thumb) if row is not None and row.asset_id else None
+        out["cover_kind"] = kind
     return out
+
+
+#: نیم‌تنهٔ شفافِ ایستاده و خندان: «کارتِ» پایدارِ هر شخصیت (همان آواتارِ صندوقِ پیام). قالب‌ها و پست‌ها کارت را عوض نمی‌کنند.
+COVER = {"pose": "stand", "expression": "happy", "prop": "none", "flip": False, "crop": "bust"}
+
+
+def cover_row(c: BrandCharacter) -> tuple[CharacterRender | None, str]:
+    """⇒ (رندر، «bust» اگر نیم‌تنهٔ تازهٔ همین نسخه باشد؛ «other» اگر فقط چیزِ دیگری هست؛ «» اگر هیچ)."""
+    qs = c.renders.select_related("asset")
+    h = D.doc_hash(c.doc)
+    for r in qs.filter(kind="sticker")[:60]:
+        p = r.params or {}
+        if r.asset_id and p.get("crop") == "bust" and p.get("pose") == COVER["pose"] and p.get("expression") == COVER["expression"] and (p.get("prop") or "none") == "none" and not p.get("flip") \
+                and r.doc_hash == h and r.version == c.version:
+            return r, "bust"
+    other = qs.filter(kind__in=("sticker", "sheet")).first() or qs.filter(kind__in=("shot", "template")).first()
+    return (other, "other") if other is not None else (None, "")
+
+
+def ensure_cover(c: BrandCharacter, user) -> CharacterRender | None:
+    """کارتِ پایدار را (اگر نیست یا کهنه است) می‌سازد؛ شکست در آن هرگز کاری را خراب نمی‌کند."""
+    row, kind = cover_row(c)
+    if kind == "bust":
+        return row
+    try:
+        return render_sticker(c, user, COVER)[0]
+    except Exception:  # noqa: BLE001
+        logger.warning("brandchar cover failed for %s", c.pk, exc_info=True)
+        return None
 
 
 def options_public() -> dict:

@@ -68,7 +68,7 @@ export default function BrandTemplatesCard({ storeId }: { storeId: string }) {
             <div key={k} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <img src={r.asset.thumb} alt={k} loading="lazy" style={{ width: "100%", borderRadius: 10, border: "1px solid var(--line)" }} />
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `${k}.png`)}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `${k}.png`).catch((e) => setError(errorMessage(e)))}>
                   دانلود
                 </Button>
                 <Button type="button" variant="ghost" size="sm" onClick={() => nav(`/stores/${storeId}/photo-editor?asset=${r.asset!.id}&mode=manual`)}>

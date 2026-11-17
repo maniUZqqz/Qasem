@@ -216,7 +216,10 @@ function AiTab({ onChosen }: { onChosen: (characterId: number, sheet: RenderItem
                 {o.preview ? <img src={o.preview} alt={o.title} /> : null}
                 <b>{o.title}</b>
                 <p>{o.why}</p>
-                <Badge tone={o.source === "ai" ? "info" : "neutral"}>{ov.options.styles.find((s) => s.key === o.doc.style)?.fa}</Badge>
+                <div className="bc-row" style={{ gap: 6 }}>
+                  <Badge tone={o.source === "ai" ? "info" : "neutral"}>{ov.options.styles.find((s) => s.key === o.doc.style)?.fa}</Badge>
+                  {o.prop_fa ? <span data-testid="concept-prop"><Badge tone="brand">{`در دست: ${o.prop_fa}`}</Badge></span> : null}
+                </div>
                 <Button type="button" variant="secondary" size="sm" onClick={() => void choose(o.index, o.title)} disabled={busy !== null}>{busy === `choose${o.index}` ? <Spinner size={14} /> : null} این را بساز + برگهٔ مدل</Button>
               </div>
             ))}

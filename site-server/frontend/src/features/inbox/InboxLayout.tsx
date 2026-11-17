@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../api/client";
 import Icon, { type IconName } from "../../components/Icon";
 import { ErrorBox, Select } from "../../components/ui";
+import { AgentCard, AgentVoiceBanner, useBrandAgent } from "../brandchar/AgentVoice";
 import { useFlags } from "../panel/FlagsContext";
 import { InboxList, PRESENCE_TITLE, PresenceStatus, get, post } from "./api";
 import { faNum } from "./format";
@@ -24,6 +25,8 @@ type Ctx = {
   me: InboxList["me"] | null;
   members: InboxList["members"];
   refreshCounts: () => void;
+  /** آواتار و سلامِ «شخصیتِ برند» برای ربات (null = شخصیتی ساخته نشده) */
+  brandAgent: AgentCard | null;
 };
 
 const InboxCtx = createContext<Ctx | null>(null);
@@ -53,6 +56,10 @@ function Badge({ n, bad }: { n: number; bad?: boolean }) {
 export default function InboxLayout() {
   const { id: storeId = "" } = useParams<{ id: string }>();
   const { pageEnabled } = useFlags();
+  const brandAgent = useBrandAgent(storeId);
+  const { pathname } = useLocation();
+  // نوارِ «شخصیتِ برند» فقط جایی که ربات حرف می‌زند (گفتگوها و تنظیماتِ ربات) تا بقیهٔ زبانه‌ها شلوغ نشوند
+  const showAgentBanner = /\/inbox\/?$/.test(pathname) || /\/inbox\/bot\/?$/.test(pathname);
   const [counts, setCounts] = useState<InboxList["counts"] | null>(null);
   const [me, setMe] = useState<InboxList["me"] | null>(null);
   const [members, setMembers] = useState<InboxList["members"]>([]);
@@ -130,7 +137,7 @@ export default function InboxLayout() {
     { key: "inbox_dev", to: "developers", label: "توسعه‌دهندگان", icon: "key" },
   ];
 
-  const ctx = useMemo<Ctx>(() => ({ storeId, counts, me, members, refreshCounts }), [storeId, counts, me, members, refreshCounts]);
+  const ctx = useMemo<Ctx>(() => ({ storeId, counts, me, members, refreshCounts, brandAgent }), [storeId, counts, me, members, refreshCounts, brandAgent]);
 
   return (
     <InboxCtx.Provider value={ctx}>
@@ -168,6 +175,8 @@ export default function InboxLayout() {
         </div>
 
         <ErrorBox message={error} />
+
+        {showAgentBanner ? <AgentVoiceBanner card={brandAgent} storeId={storeId} /> : null}
 
         <nav className="u-tabs">
           {tabs

@@ -3,11 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
 import { Badge, Button, ErrorBox, Select, Spinner } from "../../components/ui";
+import { AgentAvatar, AgentCard } from "../brandchar/AgentVoice";
 import Composer from "./Composer";
 import {
   Canned, ConvRow, Member, STATE_TITLE, Thread, ThreadItem, get, post,
 } from "./api";
 import { channelColor, clock, dateText, duration, faNum, minutesText, splitMentions } from "./format";
+import { useInbox } from "./InboxLayout";
 
 const KIND_TITLE: Record<string, string> = {
   BOT: "ربات",
@@ -19,7 +21,7 @@ const KIND_TITLE: Record<string, string> = {
   REPLY: "",
 };
 
-function Bubble({ item, onUseDraft }: { item: ThreadItem; onUseDraft: (text: string) => void }) {
+function Bubble({ item, onUseDraft, agent }: { item: ThreadItem; onUseDraft: (text: string) => void; agent: AgentCard | null }) {
   if (item.type === "note") {
     return (
       <div className="ib-msg note">
@@ -41,9 +43,16 @@ function Bubble({ item, onUseDraft }: { item: ThreadItem; onUseDraft: (text: str
   const cls = item.role === "CUSTOMER" ? "customer" : item.role === "HUMAN" ? "human" : system ? "system" : "ai";
   const by =
     item.role === "CUSTOMER" ? "" : item.role === "HUMAN" ? item.author || "تیم" : KIND_TITLE[item.kind ?? ""] || "ربات";
+  // پاسخِ خودِ ربات (نه پیامِ سیستمی/ارسال گروهی): آواتار و نامِ «شخصیتِ برند»
+  const botVoice = cls === "ai" && agent?.avatar;
   return (
     <div className={`ib-msg ${cls} ${item.withheld ? "withheld" : ""}`}>
-      {by && <span className="by">{by}</span>}
+      {by && (
+        <span className="by" style={botVoice ? { display: "flex", alignItems: "center", gap: 6 } : undefined}>
+          {botVoice ? <AgentAvatar card={agent} size={22} /> : null}
+          {botVoice && agent?.name ? `${agent.name} · ${by}` : by}
+        </span>
+      )}
       {item.withheld && (
         <span className="by" style={{ color: "var(--warn)" }}>
           پیش‌نویس ربات — چون مطمئن نبود برای مشتری فرستاده نشد
@@ -93,6 +102,7 @@ export default function ThreadPane({
   onBack: () => void;
   onInfo: () => void;
 }) {
+  const { brandAgent } = useInbox();
   const [data, setData] = useState<Thread | null>(null);
   const [canned, setCanned] = useState<Canned[]>([]);
   const [draft, setDraft] = useState("");
@@ -211,6 +221,7 @@ export default function ThreadPane({
               {row.channel_title}
             </span>
             {row.customer.phone && <span dir="ltr">{row.customer.phone}</span>}
+            {row.state === "AI" ? <AgentAvatar card={brandAgent} size={22} /> : null}
             <Badge tone={row.state === "ESCALATED" ? "warn" : row.state === "RESOLVED" ? "neutral" : row.state === "AI" ? "info" : "brand"}>
               {STATE_TITLE[row.state]}
             </Badge>
@@ -323,7 +334,7 @@ export default function ThreadPane({
           return (
             <div key={`${item.type}-${item.id}`} style={{ display: "contents" }}>
               {head}
-              <Bubble item={item} onUseDraft={(text) => setDraft(text)} />
+              <Bubble item={item} agent={brandAgent} onUseDraft={(text) => setDraft(text)} />
             </div>
           );
         })}

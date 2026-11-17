@@ -112,6 +112,13 @@ def _colour_targets(description: str) -> dict:
     return out
 
 
+def preview_pose(doc: dict) -> str:
+    """ژستِ پیش‌نمایشِ کارتِ ایده. «سلام» دستِ خالی است و وسیله را نشان نمی‌دهد؛ پس وقتی ایده وسیله‌ای دارد (دمبل، گوشی، ...) با ژستِ ایستاده نمایش می‌دهیم تا آنچه
+    در عنوان و توصیف قول داده‌ایم دیده شود."""
+    prop = str((doc or {}).get("prop") or "none")
+    return "stand" if prop != "none" else "wave"
+
+
 def rule_options(store, description: str, brand: list[str], *, logo: bool, n: int = 4) -> list[dict]:
     traits = parse_traits(description)
     role = traits.get("_role") or "coach"

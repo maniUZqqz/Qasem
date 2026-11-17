@@ -23,6 +23,7 @@ from apps.photoedit import services as photo
 from apps.stores import access
 
 from . import ai_render, concepts, persona as P, persona_ai, persona_store, services, templates, usage
+from .engine import doc as D
 from .models import BrandCharacter, CharacterAIJob, CharacterConcept, CharacterRender
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,14 @@ LockView = _action(lambda c, u: services.lock(c, u), user=True, response=_char_r
 UnlockView = _action(services.unlock, response=_char_resp)
 PrimaryView = _action(services.set_primary, response=_char_resp)
 CheckView = _action(services.run_check)
+
+
+def _cover(c, user):
+    services.ensure_cover(c, user)
+    return c
+
+
+CoverView = _action(_cover, user=True, response=_char_resp)
 PreviewView = _action(services.preview, write=False, body=True)
 SvgView = _action(services.figure_svg, write=False, body=True)
 RenderView = _action(services.render_shot, user=True, body=True, response=_render_response)
@@ -358,6 +367,9 @@ def _concept_dict(row: CharacterConcept, *, store=None, previews: bool = False) 
     opts = []
     for i, o in enumerate(row.options or []):
         item = {"index": i, "title": o.get("title"), "why": o.get("why"), "source": o.get("source"), "doc": o.get("doc")}
+        prop = str((o.get("doc") or {}).get("prop") or "none")
+        item["prop"] = prop
+        item["prop_fa"] = D.CHOICE_LABELS_FA.get("prop", {}).get(prop, prop) if prop != "none" else ""
         if previews:
             item["preview"] = _concept_preview(row.store, o.get("doc") or {})
         opts.append(item)
@@ -372,8 +384,9 @@ def _concept_preview(store, doc: dict) -> str:
     from .engine import render as R
 
     logo = services.store_logo(store) if doc.get("logo") == "chest" else None
+    pose = concepts.preview_pose(doc)
     with services._slots:
-        img, _ = R.sticker(doc, pose="wave", expression="happy", logo=logo, height_px=420)
+        img, _ = R.sticker(doc, pose=pose, expression="happy", logo=logo, height_px=420)
     img.thumbnail((280, 340))
     buf = io.BytesIO()
     img.save(buf, "PNG")
@@ -399,6 +412,7 @@ class ConceptChooseView(Base):
         row.chosen, row.character = idx, c
         row.save(update_fields=["chosen", "character", "updated_at"])
         sheet, err = _run(services.render_sheet, c, request.user)
+        services.ensure_cover(c, request.user)
         out = {"character": services.character_dict(c)}
         if not err:
             out["sheet"] = services.render_dict(sheet[0], cached=sheet[1])

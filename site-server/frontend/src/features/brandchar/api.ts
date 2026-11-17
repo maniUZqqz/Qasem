@@ -90,6 +90,8 @@ export type Character = {
   stickers: number;
   mascot: number | null;
   cover?: string | null;
+  /** «bust» = کارتِ پایدار (نیم‌تنهٔ شفافِ نسخهٔ فعلی)؛ «other» = فعلاً چیزِ دیگری؛ «» = هنوز خروجی‌ای نیست */
+  cover_kind?: "bust" | "other" | "";
   updated_at: string;
 };
 
@@ -225,7 +227,7 @@ export type RenderItem = {
 export type Preview = { image: string; width: number; height: number; qa: Qa; claims: Claim[]; claims_message: string; prop: string };
 export type SvgOut = { svg: string; embedded: boolean; view: number[]; anchors?: Record<Anchor, number[]>; head?: number[] };
 
-export type ConceptOption = { index: number; title: string; why: string; source: string; doc: CharDoc; preview?: string };
+export type ConceptOption = { index: number; title: string; why: string; source: string; doc: CharDoc; preview?: string; prop?: string; prop_fa?: string };
 export type Concept = { id: number; description: string; options: ConceptOption[]; source: string; note: string; chosen: number | null; character: number | null; created_at: string };
 
 export type NodeStatus = { known: boolean; online: boolean; ready: boolean; kind_known: boolean; profiles: string[]; identity_tools: string[]; agent: string; note: string };
@@ -276,6 +278,7 @@ export const bcApi = {
   primary: async (id: string, cid: number) => (await api.post<Character>(`${P(id)}/characters/${cid}/primary/`, {})).data,
   publishMascot: async (id: string, cid: number) => (await api.post<{ mascot: number }>(`${P(id)}/characters/${cid}/publish-mascot/`, {})).data,
   check: async (id: string, cid: number) => (await api.post<CheckResult>(`${P(id)}/characters/${cid}/check/`, {})).data,
+  cover: async (id: string, cid: number) => (await api.post<Character>(`${P(id)}/characters/${cid}/cover/`, {})).data,
   versions: async (id: string, cid: number) => (await api.get<{ items: { version: number; note: string; created_at: string; style: string }[] }>(`${P(id)}/characters/${cid}/versions/`)).data.items,
   restore: async (id: string, cid: number, version: number) => (await api.post<Character>(`${P(id)}/characters/${cid}/restore/`, { version })).data,
   preview: async (id: string, cid: number, body: Record<string, unknown>, signal?: AbortSignal) => (await api.post<Preview>(`${P(id)}/characters/${cid}/preview/`, body, { signal })).data,
@@ -306,9 +309,15 @@ export const bcApi = {
   inbox: async (id: string) => (await api.get<{ enabled: boolean; name?: string; greeting?: string; signoff?: string; avatar?: string | null; avatar_full?: string | null }>(`${P(id)}/use/inbox/`)).data,
 };
 
+/** نشانیِ API را برای کلاینتِ ما (که خودش پیشوندِ /api/v1 دارد) می‌سازد: سرور نشانیِ کامل (/api/v1/...) می‌دهد و بدونِ این برش پیشوند دو بار می‌آمد و دانلود ۴۰۴ می‌شد. */
+export function apiPath(path: string): string {
+  return path.replace(/^(?:https?:\/\/[^/]+)?\/api\/v1(?=\/)/, "");
+}
+
 /** دانلود با توکنِ ورود (لینکِ ساده سرآیندِ Authorization ندارد). */
 export async function downloadBlob(path: string, filename: string, method: "get" | "post" = "get") {
-  const res = method === "post" ? await api.post(path, {}, { responseType: "blob" }) : await api.get(path, { responseType: "blob" });
+  const url0 = apiPath(path);
+  const res = method === "post" ? await api.post(url0, {}, { responseType: "blob" }) : await api.get(url0, { responseType: "blob" });
   const url = URL.createObjectURL(res.data as Blob);
   const a = document.createElement("a");
   a.href = url;

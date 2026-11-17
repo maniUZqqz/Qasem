@@ -217,7 +217,7 @@ export default function ScenesPage() {
                       {r.asset?.thumb ? <img src={r.asset.thumb} alt={r.kind_fa} loading="lazy" /> : null}
                       <small>{r.kind_fa} · {fa(r.width)}×{fa(r.height)}</small>
                       <div className="bc-row">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `brand-character-${r.id}.png`)}>دانلود</Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(r.urls.download, `brand-character-${r.id}.png`).catch((e) => n.fail(e))}>دانلود</Button>
                         {r.asset ? <Button type="button" variant="ghost" size="sm" onClick={() => nav(`/stores/${id}/photo-editor?asset=${r.asset!.id}&mode=manual`)}>ادیتورِ عکس</Button> : null}
                       </div>
                     </div>
@@ -248,7 +248,7 @@ export default function ScenesPage() {
                   <div className="bc-shot">
                     <img src={out.asset.thumb} alt={t.fa} loading="lazy" />
                     <div className="bc-row">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(out.urls.download, `${t.id}.png`)}>دانلود</Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void downloadBlob(out.urls.download, `${t.id}.png`).catch((e) => n.fail(e))}>دانلود</Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => nav(`/stores/${id}/photo-editor?asset=${out.asset!.id}&mode=manual`)}>ادیتورِ عکس</Button>
                     </div>
                   </div>

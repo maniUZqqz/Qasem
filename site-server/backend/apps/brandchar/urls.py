@@ -25,6 +25,7 @@ urlpatterns = [
     path(C + "primary/", v.PrimaryView.as_view(), name="brandchar-primary"),
     path(C + "publish-mascot/", v.PublishMascotView.as_view(), name="brandchar-publish-mascot"),
     path(C + "check/", v.CheckView.as_view(), name="brandchar-check"),
+    path(C + "cover/", v.CoverView.as_view(), name="brandchar-cover"),
     path(C + "versions/", v.VersionsView.as_view(), name="brandchar-versions"),
     path(C + "restore/", v.RestoreView.as_view(), name="brandchar-restore"),
     path(C + "preview/", v.PreviewView.as_view(), name="brandchar-preview"),

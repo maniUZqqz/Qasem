@@ -132,7 +132,7 @@ function CannedManager({ storeId, canWrite }: { storeId: string; canWrite: boole
 }
 
 export default function BotPage() {
-  const { storeId, me } = useInbox();
+  const { storeId, me, brandAgent } = useInbox();
   const [cfg, setCfg] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -198,7 +198,15 @@ export default function BotPage() {
             <textarea className="u-input" rows={2} defaultValue={cfg.handoff_message} disabled={!canEdit} onBlur={(e) => e.target.value !== cfg.handoff_message && void save({ handoff_message: e.target.value })} aria-label="پیام واگذاری به همکار" />
           </Field>
           <Field label="پیام خوش‌آمد (چت سایت)" hint="اولین چیزی که بازدیدکننده در ویجت می‌بیند.">
-            <textarea className="u-input" rows={2} defaultValue={cfg.greeting_message} disabled={!canEdit} onBlur={(e) => e.target.value !== cfg.greeting_message && void save({ greeting_message: e.target.value })} aria-label="پیام خوش‌آمد" />
+            <textarea key={cfg.greeting_message} className="u-input" rows={2} defaultValue={cfg.greeting_message} disabled={!canEdit} onBlur={(e) => e.target.value !== cfg.greeting_message && void save({ greeting_message: e.target.value })} aria-label="پیام خوش‌آمد" />
+            {brandAgent?.greeting && brandAgent.greeting !== cfg.greeting_message ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="persona-greeting">
+                <Button size="sm" variant="secondary" disabled={!canEdit} onClick={() => void save({ greeting_message: brandAgent.greeting })}>
+                  سلامِ «شخصیتِ برند» را بگذار
+                </Button>
+                <span className="text-xs" style={{ color: "var(--text-3)" }}>«{brandAgent.greeting}»</span>
+              </div>
+            ) : null}
           </Field>
         </div>
       </Card>

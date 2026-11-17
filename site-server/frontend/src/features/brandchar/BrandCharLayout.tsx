@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../api/client";
@@ -60,6 +60,19 @@ export default function BrandCharLayout() {
     setOv(null);
     void reload();
   }, [reload]);
+
+  // «کارت»ِ هر شخصیت همیشه نیم‌تنهٔ شفافِ تمیز است (نه آخرین پست یا برگه). اگر هنوز ساخته نشده یا با ویرایش کهنه شده، آرام و یکی‌یکی در پس‌زمینه ساخته می‌شود.
+  const coverTried = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!ov) return;
+    const todo = ov.characters.find((c) => c.cover_kind !== "bust" && !coverTried.current.has(`${id}:${c.id}:${c.updated_at}`));
+    if (!todo) return;
+    coverTried.current.add(`${id}:${todo.id}:${todo.updated_at}`);
+    bcApi
+      .cover(id, todo.id)
+      .then((fresh) => setOv((cur) => (cur ? { ...cur, characters: cur.characters.map((c) => (c.id === fresh.id ? { ...c, cover: fresh.cover, cover_kind: fresh.cover_kind } : c)) } : cur)))
+      .catch(() => undefined);
+  }, [ov, id]);
 
   const value = useMemo<Ctx | null>(() => {
     if (!ov) return null;

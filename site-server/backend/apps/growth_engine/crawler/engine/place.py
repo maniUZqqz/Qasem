@@ -82,7 +82,8 @@ def strip_plus_code(address: str) -> str:
 
 
 def _clean(text: str) -> str:
-    return nz.normalize_text(text or "").replace("‌", " ").replace("‎", "")
+    # a ZWNJ becomes a space, and a ZWNJ typed next to a space («نجف‌ آباد»، «شاهین‌ شهر») must not leave TWO spaces: the city patterns allow one
+    return re.sub(r"\s+", " ", nz.normalize_text(text or "").replace("‌", " ").replace("‎", "")).strip()
 
 
 def _all_patterns():

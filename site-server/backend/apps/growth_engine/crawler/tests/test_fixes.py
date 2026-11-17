@@ -50,6 +50,12 @@ class PlaceTests(TestCase):
         self.assertEqual(place.canonical_city("شهر ناشناخته"), "ناشناخته")
         self.assertEqual(place.canonical_city(""), "")
 
+    def test_a_zwnj_next_to_a_space_does_not_hide_the_city(self):
+        for text, city in (("نجف‌ آباد، یزدانشهر، بلوار طالقانی", "نجف‌آباد"), ("شاهین‌ شهر، گلدیس", "شاهین‌شهر"), ("خمینی‌  شهر، خیابان", "خمینی‌شهر")):
+            self.assertEqual(place.address_cities(text), [city], text)
+        # the Najafabad address of a lead labelled «Tehran» is another city's
+        self.assertEqual(place.verdict(["تهران"], address="نجف‌ آباد، یزدانشهر، بلوار طالقانی، J8H5+7FG").state, "out")
+
     def test_a_street_named_after_a_city_is_not_the_city(self):
         self.assertEqual(place.address_cities("تهران، خیابان شیراز جنوبی، پلاک ۴"), ["تهران"])
         self.assertEqual(place.address_cities("خیابان شیراز، پلاک ۴"), [])

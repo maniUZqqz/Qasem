@@ -28,7 +28,7 @@ from urllib.parse import quote, urlsplit
 
 from services import safenet
 
-from . import c21st
+from . import c21_net, c21st
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ CONNECT_RETRIES = 5                    # قطعِ اتصال/زمان‌سنج (
 CONNECT_WAIT = 1.0
 MAX_RETRY_AFTER = 120.0
 ROBOTS_TTL_S = 24 * 3600
+ROBOTS_STALE_OK_S = 7 * 24 * 3600     # robots.txt خوانده نشد (مسیرِ ایران لنگ می‌زند) ⇒ نسخهٔ ذخیره‌شدهٔ تا یک هفته پیش را به‌کار ببر؛ نه «همه‌چیز ممنوع»
 SITEMAP_TTL_S = 6 * 24 * 3600
 PREVIEW_W = 560
 PREVIEW_MAX_BYTES = 900_000
@@ -146,8 +147,9 @@ class Session:
     """یک نوبتِ خزش: robots، محدودکنندهٔ نرخ، تلاشِ مجدد. ``fetch`` / ``sleep`` / ``clock`` برای آزمون جایگزین می‌شوند."""
 
     def __init__(self, *, fetch=None, sleep=time.sleep, clock=time.monotonic, delay: float = DELAY, jitter: float = 0.4, robots: Robots | None = None,
-                 rng=random.random):
-        self.fetch = fetch or safenet.get
+                 rng=random.random, robots_cache: bool = False):
+        self.fetch = fetch or c21_net.get              # اتصالِ هم‌زمانِ چندتایی + Keep-Alive برای 21st.dev (c21_net)؛ میزبانِ دیگر ⇒ safenet.get
+        self.robots_cache = robots_cache               # robots.txt روی دیسک می‌ماند (۲۴ ساعت تازه؛ تا ۷ روز اگر خواندنِ تازه شکست خورد)
         self.sleep, self.clock, self.delay, self.jitter, self.rng = sleep, clock, delay, jitter, rng
         self.robots = robots
         self._last = None
@@ -156,18 +158,47 @@ class Session:
         self.refused: list[str] = []         # نشانی‌هایی که robots.txt اجازه نداد (برای گزارش و آزمون)
 
     # ── robots
+    # ── robots.txt روی دیسک (از نوبتی به نوبتِ دیگر؛ خواندنِ هر بارهٔ آن از ایران گاهی شکست می‌خورد و کلِ نوبت را هدر می‌داد)
+    @staticmethod
+    def robots_cache_path() -> Path:
+        return c21st.root() / "robots.txt"
+
+    def _read_robots_cache(self, max_age: float) -> str | None:
+        try:
+            p = self.robots_cache_path()
+            if time.time() - p.stat().st_mtime <= max_age:
+                text = p.read_text(encoding="utf-8")
+                return text if text.strip() else None
+        except OSError:
+            pass
+        return None
+
+    def _write_robots_cache(self, text: str) -> None:
+        try:
+            c21st._atomic(self.robots_cache_path(), text)
+        except OSError:
+            pass
+
     def load_robots(self, *, cached_text: str | None = None) -> Robots:
         if self.robots is not None:
             return self.robots
         if cached_text:
             self.robots = Robots(cached_text)
             return self.robots
+        if self.robots_cache:
+            fresh = self._read_robots_cache(ROBOTS_TTL_S)
+            if fresh:
+                self.robots = Robots(fresh)
+                self.robots.raw = fresh
+                return self.robots
         last = None
         for attempt in range(CONNECT_RETRIES + 1):                      # یک زمان‌سنجِ گذرا نباید کلِ نوبت را بخواباند
             try:
                 res = self.fetch(f"{BASE}/robots.txt", max_bytes=200_000, accept="text/plain,*/*;q=0.1", timeout=40.0)
                 self.robots = Robots(res.text)
                 self.robots.raw = res.text
+                if self.robots_cache and res.text.strip():
+                    self._write_robots_cache(res.text)
                 return self.robots
             except safenet.FetchError as exc:
                 last = exc
@@ -175,6 +206,13 @@ class Session:
                     break
                 if attempt < CONNECT_RETRIES:
                     self.sleep(CONNECT_WAIT * min(attempt + 1, 3) if exc.code in ("connect", "timeout") else RETRY_WAITS[min(attempt, len(RETRY_WAITS) - 1)])
+        if self.robots_cache and not (last and last.code.startswith("http_4") and last.code != "http_429"):
+            stale = self._read_robots_cache(ROBOTS_STALE_OK_S)             # شبکه شکست خورد ولی نسخهٔ هفتهٔ گذشته هست: همان قاعده‌ها معتبرند
+            if stale:
+                self.robots = Robots(stale)
+                self.robots.raw = stale
+                self.robots.from_cache = True
+                return self.robots
         # ۴xx = «robots.txt ندارد» ⇒ مجاز؛ غیرِ آن (قطعی، زمان‌سنج) ⇒ محتاطانه ممنوع
         self.robots = Robots("", ok=bool(last and last.code.startswith("http_4") and last.code != "http_429"))
         self.robots.raw = ""
@@ -284,20 +322,64 @@ def tag_slug(tag: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (tag or "").lower()).strip("-")
 
 
+# برچسبِ 21st.dev (به‌شکلِ slug) ⇒ دستهٔ ما. بازبینیِ ۱۱/۱۶: ۱۲۲ از ۲۷۸ قطعهٔ تبدیل‌شده دسته نداشت چون فقط برچسبی که دقیقاً نامِ دسته بود می‌خورد.
+TAG_ALIAS = {
+    "faq": "accordion", "collapsible": "accordion", "expandable": "accordion", "disclosure": "accordion",
+    "navbar": "navigation", "nav": "navigation", "menu": "navigation", "header": "navigation", "toolbar": "navigation", "breadcrumb": "navigation", "pagination": "navigation",
+    "modal": "dialog", "popover": "dialog", "drawer": "dialog", "sheet": "dialog", "overlay": "dialog", "alert-dialog": "dialog", "lightbox": "dialog",
+    "hover-card": "tooltip", "popup": "tooltip", "kbd": "badge", "tag": "badge", "chip": "badge", "label": "badge", "status": "badge",
+    "login-form": "login", "sign-in": "login", "sign-up": "login", "signup": "login", "auth": "login", "authentication": "login", "register": "login",
+    "input": "form", "textarea": "form", "select": "form", "checkbox": "form", "radio": "form", "switch": "form", "slider": "form", "color-picker": "form",
+    "date-picker": "form", "upload": "form", "file-upload": "form", "dropzone": "form", "otp": "form", "newsletter": "form", "contact": "form",
+    "testimonial": "testimonials", "reviews": "testimonials", "review": "testimonials", "social-proof": "testimonials", "customers": "testimonials",
+    "pricing": "pricing-section", "plans": "pricing-section", "price": "pricing-section", "comparison": "pricing-section",
+    "timeline": "landing-page", "steps": "landing-page", "stepper": "landing-page", "onboarding": "landing-page", "empty-state": "landing-page", "launch": "landing-page",
+    "gallery": "carousel", "slideshow": "carousel", "image": "carousel", "video-player": "carousel", "video": "carousel", "media": "carousel",
+    "list": "table", "data-table": "table", "grid-list": "card", "bento": "features", "bento-grid": "features", "benefits": "features", "services": "features",
+    "chat": "ai-chat", "ai": "ai-chat", "agent": "ai-chat", "prompt": "ai-chat", "assistant": "ai-chat", "llm": "ai-chat",
+    "graph": "chart", "data-visualization": "chart", "analytics": "dashboard", "stats": "dashboard", "kpi": "dashboard", "metrics": "dashboard",
+    "typography": "text-animation", "heading": "text-animation", "title": "text-animation", "text": "text-animation",
+    "loading": "animated", "spinner": "animated", "skeleton": "animated", "progress": "animated", "loader": "animated", "motion": "animated", "animation": "animated",
+    "hover": "animated", "cursor": "animated", "shader": "background", "webgl": "background", "canvas": "background", "gradient": "background", "particles": "background",
+    "banner": "hero", "landing": "landing-page", "splash": "hero", "intro": "hero", "announcement": "notification", "toast": "notification", "alert": "notification",
+    "banners": "notification", "sidebar-menu": "sidebar", "drawer-menu": "sidebar", "command": "search", "command-palette": "search", "autocomplete": "search",
+    "button": "button", "buttons": "button", "toggle": "button", "like": "button", "copy": "button",
+}
+TITLE_WORDS = (("hero", "hero"), ("pricing", "pricing-section"), ("testimonial", "testimonials"), ("footer", "footer"), ("navbar", "navigation"),
+               ("nav-", "navigation"), ("navigation", "navigation"), ("menu", "navigation"), ("faq", "accordion"), ("accordion", "accordion"), ("marquee", "marquee"),
+               ("carousel", "carousel"), ("feature", "features"), ("cta", "cta"), ("call-to-action", "cta"), ("login", "login"), ("sign-in", "login"), ("signup", "login"),
+               ("dashboard", "dashboard"), ("sidebar", "sidebar"), ("button", "button"), ("btn", "button"), ("card", "card"), ("dialog", "dialog"), ("modal", "dialog"),
+               ("popover", "dialog"), ("drawer", "dialog"), ("tooltip", "tooltip"), ("badge", "badge"), ("avatar", "avatar"), ("tabs", "tabs"), ("tab-", "tabs"),
+               ("input", "form"), ("form", "form"), ("select", "form"), ("checkbox", "form"), ("switch", "form"), ("slider", "form"), ("upload", "form"),
+               ("search", "search"), ("table", "table"), ("chart", "chart"), ("graph", "chart"), ("chat", "ai-chat"), ("prompt", "ai-chat"), ("toast", "notification"),
+               ("notification", "notification"), ("alert", "notification"), ("heading", "text-animation"), ("typing", "text-animation"),
+               ("spinner", "animated"), ("loader", "animated"), ("loading", "animated"), ("progress", "animated"), ("background", "background"),
+               ("gradient", "background"))
+
+
+def _has_word(norm: str, word: str) -> bool:
+    """واژه به‌صورتِ «توکنِ کامل» (با s جمع) در شناسه/عنوان؛ «transform» دسته‌ی «form» نمی‌شود."""
+    return re.search(r"(^|-)%ss?(-|$)" % re.escape(word.strip("-")), norm) is not None
+
+
 def infer_cats(row: dict) -> list[str]:
-    """دسته‌های ما از برچسب‌های 21st.dev (که خودشان نامِ دسته‌اند) و واژه‌های عنوان؛ ترتیبِ حفظ‌شده و بی‌تکرار."""
+    """دسته‌های ما از برچسب‌های 21st.dev (نامِ دسته یا هم‌معنی‌اش، TAG_ALIAS) و واژه‌های عنوان/شناسه؛ ترتیبِ حفظ‌شده و بی‌تکرار.
+    اولویت با دسته‌های «بخشِ صفحه» (hero، قیمت، منو، پابرگ …) تا هر قطعه دست‌کم یک دسته داشته باشد."""
     cats = list(row.get("cats") or [])
-    hay = [tag_slug(t) for t in row.get("tags", [])]
+    hay = [tag_slug(t) for t in row.get("tags", []) or []]
     title = (row.get("title", "") + " " + row.get("id", "")).lower()
+    norm = tag_slug(title)
     for slug in hay:
         if slug in c21st.CATEGORIES and slug not in cats:
             cats.append(slug)
         elif slug + "-section" in c21st.CATEGORIES and slug + "-section" not in cats:
             cats.append(slug + "-section")
-    for word, cat in (("hero", "hero"), ("pricing", "pricing-section"), ("testimonial", "testimonials"), ("footer", "footer"), ("navbar", "navigation"),
-                      ("nav-", "navigation"), ("faq", "accordion"), ("accordion", "accordion"), ("marquee", "marquee"), ("carousel", "carousel"),
-                      ("feature", "features"), ("cta", "cta"), ("call-to-action", "cta"), ("login", "login"), ("dashboard", "dashboard"), ("sidebar", "sidebar")):
-        if word in title and cat not in cats:
+    for word, cat in TITLE_WORDS:
+        if cat not in cats and _has_word(norm, word):
+            cats.append(cat)
+    for slug in hay:
+        cat = TAG_ALIAS.get(slug)
+        if cat and cat in c21st.CATEGORIES and cat not in cats:
             cats.append(cat)
     return cats[:6]
 
@@ -377,7 +459,7 @@ def run_turn(*, session: Session | None = None, max_seconds: float = 240.0, deta
              categories=None, clock=time.monotonic) -> dict:
     """یک نوبتِ خزش؛ وضعیت در crawl.json می‌ماند و دوباره صدا زدن از همان‌جا ادامه می‌دهد. ⇒ وضعیت.
     ترتیب: robots ⇒ نقشهٔ سایت ⇒ دسته‌ها (۶۰ تای اول) ⇒ کتابخانه‌ها ⇒ جزئیاتِ قطعه‌ها ⇒ پیش‌نمایشِ قطعه‌های با مجوزِ آزاد."""
-    s = session or Session()
+    s = session or Session(robots_cache=True)
     started = clock()
     from . import c21_pipeline
     ps = c21_pipeline.pipeline_state()
@@ -390,9 +472,20 @@ def run_turn(*, session: Session | None = None, max_seconds: float = 240.0, deta
     st["turns"] = st.get("turns", 0) + 1
     c21st._save_state(st)
     rows = {r["id"]: r for r in c21st.load()}
+    for r in rows.values():                              # دسته‌های تازه (TAG_ALIAS/عنوان) برای ردیف‌های قدیمی در همین نوبت؛ فقط افزودن (نوشتنِ جدا با خزش درگیر می‌شد)
+        if r.get("detail"):
+            new = infer_cats(r)
+            if new != (r.get("cats") or []):
+                r["cats"] = new
     libs = load_libs()
     errors = st.get("errors", [])[-20:]
     blocked = False
+
+    def marker() -> int:
+        """کارِ انجام‌شده تا حالا (جزئیات + پیش‌نمایش + کتابخانه + دسته)؛ تفاوتِ اولِ نوبت با آخرش = پیشرفتِ این نوبت."""
+        return (sum(1 for r in rows.values() if r.get("detail")) + sum(1 for r in rows.values() if r.get("preview") or r.get("preview_err"))
+                + sum(1 for lb in libs.values() if lb.get("detail")) + len(st.get("cats_done", [])))
+    marker0 = marker()
 
     def out_of_time() -> bool:
         return clock() - started > max_seconds
@@ -525,6 +618,9 @@ def run_turn(*, session: Session | None = None, max_seconds: float = 240.0, deta
         remaining = (sum(1 for r in rows.values() if not r.get("detail")) + sum(1 for c in (categories or c21st.CATEGORIES) if c not in st["cats_done"] and c in c21st.CATEGORIES)
                      + sum(1 for l in libs.values() if not l.get("detail"))
                      + sum(1 for r in rows.values() if r.get("usable") and r.get("detail") and not r.get("preview") and not r.get("preview_err") and len(r["id"].split("/")) == 2))
+        made = marker() - marker0
+        st["turn_progress"] = made
+        st["idle_turns"] = 0 if made > 0 else int(st.get("idle_turns", 0)) + 1       # نوبتِ پشت‌سرِ هم بی‌پیشرفت ⇒ سرور نمی‌رسد؛ کارِ گره (crawl21.run) وارد می‌شود
         st.update(running=False, errors=errors[-20:], updated_at=c21st._now(), total=len(rows), libraries=len(libs), remaining=remaining,
                   finished=remaining == 0 and not blocked, blocked=blocked, requests=st.get("requests", 0) + s.requests,
                   refused=sorted(set(st.get("refused", []) + s.refused))[:30],
@@ -533,6 +629,34 @@ def run_turn(*, session: Session | None = None, max_seconds: float = 240.0, deta
             st["finished_at"] = c21st._now()
         c21st._save_state(st)
     return st
+
+
+def recategorize_catalog() -> dict:
+    """ردیف‌های با جزئیاتِ کاتالوگ دسته‌های تازه (TAG_ALIAS / واژه‌های عنوان) را می‌گیرند؛ فقط افزودن، هرگز حذف. نوشتنِ کاتالوگ فقط وقتی خزش/تبدیل ننوشته‌اند. ⇒ {changed, uncategorised}."""
+    if c21st.is_running():
+        return {"changed": 0, "deferred": True}
+    rows = c21st.load()
+    changed = 0
+    for r in rows:
+        if not r.get("detail"):
+            continue
+        new = infer_cats(r)
+        if new != (r.get("cats") or []):
+            r["cats"] = new
+            changed += 1
+    if changed:
+        c21st.save(rows)
+    return {"changed": changed, "uncategorised": sum(1 for r in rows if r.get("detail") and not r.get("cats"))}
+
+
+STALL_TURNS = 3                      # نوبتِ پشت‌سرِ هم بی‌پیشرفت ⇒ سرور نمی‌رسد؛ گره (crawl21.run) کار را می‌گیرد
+
+
+def needs_node(st: dict) -> bool:
+    """وضعیتِ خزش ⇒ آیا کارِ گرهٔ GPU باید پر نگه داشته شود؟ (۴۰۳، robots.txt خوانده نشد، یا چند نوبتِ بی‌پیشرفت؛ و کاتالوگ هنوز تمام نشده)"""
+    if not st or st.get("finished"):
+        return False
+    return bool(st.get("blocked") or not st.get("robots_ok", True) or int(st.get("idle_turns") or 0) >= STALL_TURNS)
 
 
 def usable_without_preview(limit: int = 50) -> list[str]:

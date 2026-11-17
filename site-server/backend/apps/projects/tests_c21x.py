@@ -721,6 +721,44 @@ class NodeJobTests(DataDirMixin, Base):
         self.assertTrue(c21st.by_id("acme/hero-one")["usable"])
         self.assertIsNone(ND.enqueue_batch())                                                      # دیگر چیزی برای خزش نیست
 
+    def test_refresh_hands_the_crawl_to_the_node_when_the_server_cannot_reach_21st_and_collect_keeps_it_filled(self):
+        """سرور به 21st.dev نمی‌رسد (robots.txt خوانده نشد) ⇒ کارِ گره در صفِ ماندگار؛ نتیجه که جمع شد دستهٔ بعدی؛ سرورِ سالم ⇒ هیچ کاری به گره داده نمی‌شود."""
+        from apps.compute.models import ComputeJob, ComputeNode
+        from apps.projects import tasks as T
+        c21st.save([{"id": "acme/hero-%d" % i, "title": "Hero %d" % i, "detail": False, "cats": []} for i in range(120)])
+        ComputeNode.objects.create(name="gpu", capabilities={"agent": "2.28", "kinds": ["echo", ND.KIND]})
+        jobs = lambda: ComputeJob.objects.filter(kind=ND.KIND).count()  # noqa: E731
+        with mock.patch.object(CR, "run_turn", return_value={"blocked": False, "robots_ok": True, "finished": False}), mock.patch.object(T.c21st_refresh, "apply_async") as again:
+            T.c21st_refresh(force=True)
+        self.assertEqual(jobs(), 0)                                                                # سرورِ سالم: خودش می‌خزد
+        self.assertEqual(again.call_args.kwargs["countdown"], 30)
+        with mock.patch.object(CR, "run_turn", return_value={"blocked": False, "robots_ok": False, "finished": False}), mock.patch.object(T.c21st_refresh, "apply_async") as again:
+            T.c21st_refresh(force=True)
+        self.assertEqual(jobs(), 1)                                                                # robots.txt خوانده نشد ⇒ کارِ گره
+        self.assertEqual(again.call_args.kwargs["countdown"], 600)                                 # و سرور ده دقیقه بعد دوباره امتحان می‌کند
+        with mock.patch.object(CR, "run_turn", return_value={"blocked": True, "robots_ok": True, "finished": False}), mock.patch.object(T.c21st_refresh, "apply_async") as again:
+            T.c21st_refresh(force=True)
+        self.assertEqual(jobs(), 2)                                                                # ۴۰۳ هم همان
+        again.assert_not_called()
+        # collect: مسیرِ گره فعال ⇒ پر نگه می‌دارد (سقفِ ۴ کارِ منتظر)؛ سرورِ سالم ⇒ پر نمی‌کند
+        c21st._save_state({"robots_ok": False, "finished": False})
+        T.c21_node_collect()
+        T.c21_node_collect()
+        T.c21_node_collect()
+        self.assertEqual(jobs(), ND.MAX_PENDING)
+        T.c21_node_collect()
+        self.assertEqual(jobs(), ND.MAX_PENDING)
+        ComputeJob.objects.filter(kind=ND.KIND).delete()
+        st = ND.state()
+        st["pending"] = []
+        ND._save(st)
+        c21st._save_state({"robots_ok": True, "blocked": False, "finished": False})
+        T.c21_node_collect()
+        self.assertEqual(jobs(), 0)
+        c21st._save_state({"robots_ok": False, "finished": True})
+        T.c21_node_collect()
+        self.assertEqual(jobs(), 0)
+
     def test_selftest_passes_only_with_real_page_data(self):
         from apps.compute.selftests import crawl21 as ST
         good = {"browser": "msedge", "results": [{"id": ST.PROBE, "ok": True, "md": "# Marquee\n- License: mit\n", "page": {"demo": {"code": "import { cn } from 'x'"}}}]}

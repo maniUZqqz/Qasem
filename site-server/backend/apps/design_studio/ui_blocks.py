@@ -406,6 +406,31 @@ def basic(k: Kit, block: dict, block_id: str) -> dict | None:
     return None
 
 
+def c21_block(k: Kit, props: dict, block_id: str) -> dict:
+    """قطعهٔ 21st.dev در طرحِ UI: کارتِ جای‌نگهدار با عنوان، دسته، متن‌های نمونه و مجوزِ قطعه. «ساختِ سایت از این طرح» همین بلوک را
+    با ظاهرِ کاملش در سایت‌ساز می‌گذارد (HTMLِ پاک‌شده؛ مجوز و مبدأ همراهِ قطعه)."""
+    d = k.d
+    ref = _g(props, "ref")
+    title, cat_label, lic, lib = "قطعهٔ آمادهٔ 21st.dev", "", "", ""
+    texts = [str((t or {}).get("v", "")) for t in (props.get("texts") if isinstance(props.get("texts"), list) else []) if isinstance(t, dict)]
+    try:
+        from apps.projects.builder import c21_convert as CV, c21st
+
+        rec = CV.get_record(ref)
+        if rec:
+            title = rec.get("title") or title
+            lic, lib = str(rec.get("license") or ""), str(rec.get("library") or "")
+            cats = rec.get("cats") or []
+            cat_label = c21st.CATEGORIES.get(cats[0], ("",))[0] if cats else ""
+            texts = [t for t in texts if t.strip()] or list(rec.get("texts") or [])
+    except Exception:  # noqa: BLE001 - قطعه‌ای که از کاتالوگ رفته هم جای‌نگهدار می‌ماند
+        pass
+    kids = [k.pill("21st.dev" + (" · " + cat_label if cat_label else "")), k.head(title[:60], d["h3"], w="fill")]
+    kids += [k.text(t[:140], d["small"], 400, "var:muted", w="fill") for t in texts[:4] if t.strip()]
+    kids.append(k.text(" · ".join(x for x in (lic, lib) if x) or "مجوزِ آزاد", d["small"], 600, "var:muted", w="fill"))
+    return k.section([k.card(kids, gap=10)], py=24, id=block_id, name=("21st.dev: " + title)[:40])
+
+
 def block_to_node(k: Kit, block: dict) -> dict | None:
     """بلوکِ سایت‌ساز ⇒ گرهٔ چیدمان (شناسهٔ گره = شناسهٔ بلوک)."""
     t = str(block.get("type") or "")
@@ -438,6 +463,8 @@ def block_to_node(k: Kit, block: dict) -> dict | None:
         node = footer(k, props, bid, key)
     elif t == "menu_links" or t == "copyright":
         node = k.section([k.text(_g(props, "text") or "|".join(k.menu), k.d["small"], 400, "var:muted", w="fill", align="center")], py=12, id=bid)
+    elif t == "c21":
+        node = c21_block(k, props, bid)
     elif t == "contact_form":
         node = contact_form(k, props, bid)
     elif t == "map":

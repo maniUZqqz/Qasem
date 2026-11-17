@@ -17,7 +17,7 @@ SPECS = [
       """<div class="nbc-pr-price"><b data-s="price"></b><small data-s="period"></small></div><p class="nbc-muted" data-s="desc|m"></p><ul class="nbc-list" data-lines="features"></ul>"""
       """<a class="nbc-btn is-alt" data-s="button" data-h="link"></a></article><!--/each--></div>""",
       """.nbc-pr{align-items:stretch}.nbc-pr-i{display:flex;flex-direction:column;gap:10px;position:relative}
-.nbc-pr-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.nbc-pr-price b{font-family:var(--nb-font-head,inherit);font-size:clamp(1.5rem,3vw,2rem);color:var(--brand);line-height:1.3}
+.nbc-pr-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.nbc-pr-price b{font-family:var(--nb-font-head,inherit);font-size:clamp(1.5rem,3vw,2rem);color:var(--brand-fg,var(--brand));line-height:1.3}
 .nbc-pr-price small{color:var(--ink-3)}.nbc-pr-i .nbc-list{flex:1;margin:10px 0 14px}.nbc-pr-i .nbc-btn{width:100%}
 .nbc-pr-i.is-hot{border:var(--st-hl-bd,2px solid var(--brand));box-shadow:var(--st-hl-sh,0 24px 50px -28px color-mix(in srgb,var(--brand) 70%,transparent));transform:translateY(-6px)}
 .nbc-pr-i.is-hot .nbc-btn{background:var(--brand);color:var(--brand-ink,#fff)}
@@ -46,7 +46,7 @@ SPECS = [
 .nbc-tbl th,.nbc-tbl td{padding:15px 18px;text-align:center;border-bottom:1px solid var(--line)}
 .nbc-tbl thead th{font-family:var(--nb-font-head,inherit);font-size:1.05rem;background:color-mix(in srgb,var(--ink) 4%,transparent)}
 .nbc-tbl tbody th{text-align:start;font-weight:600;color:var(--ink-2)}.nbc-tbl tr:last-child>*{border-bottom:0}
-.nbc-tbl .is-hot{background:color-mix(in srgb,var(--brand) 9%,transparent);color:var(--brand);font-weight:700}""",
+.nbc-tbl .is-hot{background:color-mix(in srgb,var(--brand) 9%,transparent);color:var(--brand-fg,var(--brand));font-weight:700}""",
       'قیمت جدول مقایسه بسته ها', 'corporate-clean minimalism swiss editorial'),
 
     C('price_packs', 'pricing', 'بسته‌های کوچکِ شارژ', 'چهار کارتِ کوچک برای بسته‌های شارژ یا اعتبار (مقدار، قیمت و دکمه)',
@@ -57,8 +57,8 @@ SPECS = [
       _HEADHTML + """<div class="nbc-grid nbc-auto nbc-pk"><!--each:items--><article class="nbc-card nbc-pk-i" data-ifc="highlight:is-hot"><span class="nbc-pill" data-s="note"></span><h3 class="nbc-h3" data-s="name"></h3>"""
       """<b class="nbc-pk-n" data-s="amount"></b><span class="nbc-pk-p" data-s="price"></span><a class="nbc-btn is-alt" data-s="button" data-h="link"></a></article><!--/each--></div>""",
       """.nbc-pk{grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))}.nbc-pk-i{display:grid;justify-items:center;text-align:center;gap:8px;align-content:start}
-.nbc-pk-n{font-family:var(--nb-font-head,inherit);font-size:1.7rem;color:var(--brand);line-height:1.3}.nbc-pk-p{color:var(--ink-2);margin-bottom:8px}
-.nbc-pk-i .nbc-pill{color:var(--brand);margin-bottom:2px}.nbc-pk-i.is-hot{border:var(--st-hl-bd,2px solid var(--brand));box-shadow:var(--st-hl-sh,none)}.nbc-pk-i.is-hot .nbc-btn{background:var(--brand);color:var(--brand-ink,#fff)}""",
+.nbc-pk-n{font-family:var(--nb-font-head,inherit);font-size:1.7rem;color:var(--brand-fg,var(--brand));line-height:1.3}.nbc-pk-p{color:var(--ink-2);margin-bottom:8px}
+.nbc-pk-i .nbc-pill{color:var(--brand-fg,var(--brand));background:color-mix(in srgb,var(--brand) 12%,var(--card,#fff));margin-bottom:2px}.nbc-pk-i.is-hot{border:var(--st-hl-bd,2px solid var(--brand));box-shadow:var(--st-hl-sh,none)}.nbc-pk-i.is-hot .nbc-btn{background:var(--brand);color:var(--brand-ink,#fff)}""",
       'قیمت بسته شارژ توکن اعتبار کوچک', 'glassmorphism claymorphism soft-pastel neo-brutalism bento-grid'),
 
     C('price_minimal_list', 'pricing', 'فهرستِ سادهٔ بسته‌ها', 'هر بسته یک ردیف: نام و توضیح در یک سو، قیمت و دکمه در سوی دیگر',

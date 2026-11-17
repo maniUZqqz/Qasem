@@ -418,6 +418,44 @@ def save_record(rec: dict) -> None:
     _CACHE.pop(rec["key"], None)
 
 
+def recategorize_records() -> dict:
+    """رکوردهای تبدیل‌شده دسته‌های ردیفِ کاتالوگ را می‌گیرند (اولین‌بار ۱۲۲ از ۲۷۸ بی‌دسته بودند). ⇒ {changed, uncategorised}."""
+    changed = left = 0
+    for cid, e in list(load_index().items()):
+        row = c21st.by_id(cid) or {}
+        cats = list(row.get("cats") or e.get("cats") or [])
+        if cats != list(e.get("cats") or []):
+            rec = load_record(e["key"])
+            if rec:
+                rec["cats"] = cats
+                save_record(rec)
+                changed += 1
+        if not cats:
+            left += 1
+    return {"changed": changed, "uncategorised": left}
+
+
+def repair_attribution() -> dict:
+    """رکوردهای ذخیره‌شده‌ای که «حقِ نشر»شان متنِ خودِ مجوز بود (Apache) یا خالی ⇒ سطرِ درست (یا نامِ مخزن). بی‌اثر روی رکوردهای درست؛ ⇒ {fixed, checked}."""
+    from . import c21_source
+    fixed = checked = 0
+    for e in load_index().values():
+        rec = load_record(e["key"])
+        if not rec:
+            continue
+        checked += 1
+        src = rec.get("source") or {}
+        if src.get("kind") != "upstream":
+            continue
+        new = c21_source.clean_copyright(src.get("copyright", ""), src.get("repo", ""))
+        if new != src.get("copyright", ""):
+            src["copyright"] = new
+            rec["source"] = src
+            save_record(rec)
+            fixed += 1
+    return {"fixed": fixed, "checked": checked}
+
+
 def remove_record(cid: str) -> bool:
     idx = load_index()
     ent = idx.pop(cid, None)

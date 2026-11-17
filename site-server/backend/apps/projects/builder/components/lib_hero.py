@@ -17,7 +17,7 @@ SPECS = [
 .nbc-hcg{position:relative;max-width:800px;margin-inline:auto;text-align:center}
 .nbc-hcg .nbc-title{font-size:clamp(2.1rem,6vw,3.9rem);line-height:1.2}
 .nbc-hcg .nbc-lead{margin-inline:auto}.nbc-hcg .nbc-btns{justify-content:center}.nbc-hcg .nbc-muted{margin-top:16px}
-.nbc-hcg .nbc-pill{margin-bottom:18px;color:var(--brand)}""",
+.nbc-hcg .nbc-pill{margin-bottom:18px;color:var(--brand-fg,var(--brand));background:color-mix(in srgb,var(--brand) 12%,var(--card,#fff))}""",
       'سربرگ هیرو بالای صفحه وسط درخشش', 'glassmorphism aurora bento-grid corporate-clean soft-pastel'),
 
     C('hero_split_media', 'hero', 'سربرگِ متن و تصویر', 'متن و فهرستِ مزیت‌ها در یک سو، تصویر در سوی دیگر',
@@ -41,7 +41,7 @@ SPECS = [
       + _BTNS2 + """</div><div class="nbc-hmf-frame"><div class="nbc-hmf-bar"><i></i><i></i><i></i></div><img class="nbc-img" data-i="image" data-alt="image_alt"></div></div>""",
       """.nbc-hero-media-frame{padding-block:clamp(60px,9vw,120px)}
 .nbc-hmf-copy{max-width:760px;margin:0 auto;text-align:center}.nbc-hmf-copy .nbc-lead{margin-inline:auto}.nbc-hmf-copy .nbc-btns{justify-content:center}
-.nbc-hmf-copy .nbc-pill{margin-bottom:16px;color:var(--brand)}
+.nbc-hmf-copy .nbc-pill{margin-bottom:16px;color:var(--brand-fg,var(--brand));background:color-mix(in srgb,var(--brand) 12%,var(--card,#fff))}
 .nbc-hmf-frame{max-width:980px;margin:clamp(34px,5vw,56px) auto 0;border:var(--st-card-bd,1px solid var(--line));border-radius:calc(var(--r,16px) + 4px);overflow:hidden;background:var(--card);box-shadow:0 40px 90px -40px rgba(0,0,0,.5)}
 .nbc-hmf-bar{display:flex;gap:6px;padding:11px 14px;background:color-mix(in srgb,var(--ink) 6%,var(--card));border-bottom:1px solid var(--line)}
 .nbc-hmf-bar i{width:10px;height:10px;border-radius:50%;background:color-mix(in srgb,var(--ink) 22%,transparent)}
@@ -69,7 +69,7 @@ SPECS = [
       """.nbc-hero-stats-bar{padding-block:clamp(64px,10vw,124px)}
 .nbc-hsb{max-width:860px;margin-inline:auto;text-align:center}.nbc-hsb .nbc-lead{margin-inline:auto}.nbc-hsb .nbc-btns{justify-content:center}
 .nbc-hsb-stats{list-style:none;margin:clamp(34px,5vw,56px) 0 0;padding:22px 10px;display:flex;flex-wrap:wrap;justify-content:center;gap:18px 8px;border-top:1px solid var(--line)}
-.nbc-hsb-stats li{flex:1 1 150px;display:grid;gap:4px}.nbc-hsb-stats b{font-family:var(--nb-font-head,inherit);font-size:clamp(1.8rem,4vw,2.6rem);color:var(--brand);line-height:1.2}
+.nbc-hsb-stats li{flex:1 1 150px;display:grid;gap:4px}.nbc-hsb-stats b{font-family:var(--nb-font-head,inherit);font-size:clamp(1.8rem,4vw,2.6rem);color:var(--brand-fg,var(--brand));line-height:1.2}
 .nbc-hsb-stats span{color:var(--ink-3);font-size:.9rem}""",
       'سربرگ هیرو آمار عدد نوار', 'corporate-clean minimalism bento-grid swiss'),
 
@@ -92,7 +92,7 @@ background:radial-gradient(60% 80% at 85% 0,color-mix(in srgb,var(--brand) 40%,#
       + _BTNS2 + """</div><a class="nbc-hvt-media" data-href="video_link"><img class="nbc-img" data-i="image" data-alt="image_alt"><span class="nbc-hvt-play" aria-hidden="true"><i></i></span>"""
       """<span class="nbc-hvt-label" data-s="play_label"></span></a></div>""",
       """.nbc-hero-video-thumb{padding-block:clamp(56px,9vw,112px)}.nbc-hvt-copy{max-width:780px;margin:0 auto clamp(28px,5vw,52px);text-align:center}
-.nbc-hvt-copy .nbc-lead{margin-inline:auto}.nbc-hvt-copy .nbc-btns{justify-content:center}.nbc-hvt-copy .nbc-pill{margin-bottom:16px;color:var(--brand)}.nbc-hvt-copy .nbc-title{font-size:clamp(2rem,5.4vw,3.5rem);line-height:1.22}
+.nbc-hvt-copy .nbc-lead{margin-inline:auto}.nbc-hvt-copy .nbc-btns{justify-content:center}.nbc-hvt-copy .nbc-pill{margin-bottom:16px;color:var(--brand-fg,var(--brand));background:color-mix(in srgb,var(--brand) 12%,var(--card,#fff))}.nbc-hvt-copy .nbc-title{font-size:clamp(2rem,5.4vw,3.5rem);line-height:1.22}
 .nbc-hvt-media{position:relative;display:block;max-width:960px;margin-inline:auto;border-radius:var(--st-card-r,var(--r,16px));overflow:hidden;text-decoration:none;color:#fff;
 background:linear-gradient(135deg,color-mix(in srgb,var(--brand) 70%,#000),color-mix(in srgb,var(--brand) 30%,#000));aspect-ratio:16/9;border:var(--st-card-bd,1px solid var(--line));box-shadow:var(--st-card-sh,0 30px 70px -34px rgba(0,0,0,.55))}
 .nbc-hvt-media img{position:absolute;inset:0;width:100%;height:100%;border-radius:0;object-fit:cover;transition:filter .2s}.nbc-hvt-media:hover img{filter:brightness(.8)}

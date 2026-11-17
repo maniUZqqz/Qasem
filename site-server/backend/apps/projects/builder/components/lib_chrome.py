@@ -60,12 +60,12 @@ border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--c
       """<div class="nbc-fc-col"><h4 class="nbc-h3" data-s="col3_title"></h4><p class="nbc-text" data-s="col3_text|m"></p></div></div>""" + _FT_COPY,
       """.nbc-footer-columns{padding-block:clamp(34px,5vw,60px) 22px;background:var(--st-hd-bg,var(--card));color:var(--ink);border-top:var(--st-hd-bd,1px solid var(--line))}
 .nbc-fc{display:grid;grid-template-columns:1.5fr repeat(3,1fr);gap:clamp(22px,4vw,56px);padding-bottom:30px}
-.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.35rem;color:var(--brand);margin-bottom:10px}
+.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.35rem;color:var(--brand-fg,var(--brand));margin-bottom:10px}
 .nbc .nbc-fc-logo{display:block;height:44px;width:auto;margin-bottom:12px}
 .nbc-fc-col{display:grid;gap:9px;align-content:start}.nbc-fc-col .nbc-h3{font-size:1rem;margin-bottom:4px}
-.nbc-fc-col>a{color:var(--ink-2);text-decoration:none;opacity:.9}.nbc-fc-col>a:hover{color:var(--brand)}
+.nbc-fc-col>a{color:var(--ink-2);text-decoration:none;opacity:.9}.nbc-fc-col>a:hover{color:var(--brand-fg,var(--brand))}
 .nbc-fc-social{list-style:none;margin:14px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap}.nbc-fc-social:empty{display:none}
-.nbc-fc-social a{display:inline-block;padding:5px 13px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;font-size:.86rem}.nbc-fc-social a:hover{border-color:var(--brand);color:var(--brand)}
+.nbc-fc-social a{display:inline-block;padding:5px 13px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;font-size:.86rem}.nbc-fc-social a:hover{border-color:var(--brand);color:var(--brand-fg,var(--brand))}
 .nbc-fc-copy{margin:0;padding-top:18px;border-top:1px solid var(--line);color:var(--ink-3);font-size:.88rem}
 @media (max-width:900px){.nbc-fc{grid-template-columns:repeat(2,minmax(0,1fr))}.nbc-fc-about{grid-column:1/-1}}@media (max-width:520px){.nbc-fc{grid-template-columns:minmax(0,1fr)}}""",
       'پابرگ فوتر چند ستون', 'corporate-clean bento-grid glassmorphism soft-pastel organic', root='footer'),
@@ -75,9 +75,9 @@ border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--c
       """<div class="nbc-fm"><b class="nbc-fc-brand">[[TITLE]]</b><nav class="nbc-fm-nav">[[MENU]]</nav></div>""" + _FT_COPY,
       """.nbc-footer-minimal{padding-block:30px 22px;background:var(--st-hd-bg,var(--bg));color:var(--ink);border-top:var(--st-hd-bd,1px solid var(--line))}
 .nbc-fm{display:flex;flex-wrap:wrap;gap:14px 30px;align-items:center;justify-content:space-between;padding-bottom:18px}
-.nbc-fm .nbc-fc-brand{margin:0}.nbc-fm-nav{display:flex;flex-wrap:wrap;gap:6px 22px}.nbc-fm-nav a{color:var(--ink-2);text-decoration:none}.nbc-fm-nav a:hover{color:var(--brand)}
+.nbc-fm .nbc-fc-brand{margin:0}.nbc-fm-nav{display:flex;flex-wrap:wrap;gap:6px 22px}.nbc-fm-nav a{color:var(--ink-2);text-decoration:none}.nbc-fm-nav a:hover{color:var(--brand-fg,var(--brand))}
 .nbc-footer-minimal .nbc-fc-copy{border-top:1px solid var(--line);color:var(--ink-3);font-size:.88rem;margin:0;padding-top:16px}
-.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.25rem;color:var(--brand)}""",
+.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.25rem;color:var(--brand-fg,var(--brand))}""",
       'پابرگ فوتر مینیمال ساده', 'minimalism swiss editorial neumorphism dark-luxury', root='footer'),
 
     C('footer_centered_social', 'footer', 'پابرگِ وسط‌چین با شبکه‌ها', 'نام، یک جملهٔ معرفی، دکمه‌های شبکه‌های اجتماعی و منو، همه وسط‌چین',
@@ -85,11 +85,11 @@ border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--c
       """<div class="nbc-fcs"><b class="nbc-fc-brand">[[TITLE]]</b><p class="nbc-text" data-s="about|m"></p><ul class="nbc-fc-social" data-links="social"></ul><nav class="nbc-fm-nav">[[MENU]]</nav></div>""" + _FT_COPY,
       """.nbc-footer-centered-social{padding-block:clamp(34px,5vw,56px) 22px;background:var(--st-hd-bg,var(--card));color:var(--ink);border-top:var(--st-hd-bd,1px solid var(--line))}
 .nbc-fcs{display:grid;justify-items:center;text-align:center;gap:14px;padding-bottom:26px}.nbc-fcs .nbc-text{max-width:52ch}
-.nbc-fcs .nbc-fc-social{justify-content:center;margin:2px 0}.nbc-fcs .nbc-fm-nav{justify-content:center}.nbc-fcs .nbc-fm-nav a{color:var(--ink-2);text-decoration:none}.nbc-fcs .nbc-fm-nav a:hover{color:var(--brand)}
+.nbc-fcs .nbc-fc-social{justify-content:center;margin:2px 0}.nbc-fcs .nbc-fm-nav{justify-content:center}.nbc-fcs .nbc-fm-nav a{color:var(--ink-2);text-decoration:none}.nbc-fcs .nbc-fm-nav a:hover{color:var(--brand-fg,var(--brand))}
 .nbc-footer-centered-social .nbc-fc-copy{text-align:center;border-top:1px solid var(--line);margin:0;padding-top:16px;color:var(--ink-3);font-size:.88rem}
-.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.5rem;color:var(--brand)}
+.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.5rem;color:var(--brand-fg,var(--brand))}
 .nbc-fc-social{list-style:none;margin:0;padding:0;display:flex;gap:8px;flex-wrap:wrap}.nbc-fc-social:empty{display:none}
-.nbc-fc-social a{display:inline-block;padding:6px 16px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;font-size:.88rem}.nbc-fc-social a:hover{border-color:var(--brand);color:var(--brand)}""",
+.nbc-fc-social a{display:inline-block;padding:6px 16px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;font-size:.88rem}.nbc-fc-social a:hover{border-color:var(--brand);color:var(--brand-fg,var(--brand))}""",
       'پابرگ فوتر وسط چین شبکه اجتماعی', 'soft-pastel claymorphism glassmorphism organic aurora retro-y2k', root='footer'),
 
     C('footer_big_cta', 'footer', 'پابرگِ با دعوتِ بزرگ', 'نواری رنگی با تیتر و دکمه در بالا و زیرش ستون‌های پیوند',
@@ -103,8 +103,8 @@ border:var(--st-card-bd,1px solid var(--line));background:var(--st-hd-bg,var(--c
 background:var(--st-cta-bg,linear-gradient(135deg,var(--brand),color-mix(in srgb,var(--brand) 55%,#0b1020)));border-radius:var(--st-cta-r,calc(var(--r,16px) + 6px));border:var(--st-cta-bd,0 solid transparent);box-shadow:var(--st-cta-sh,none)}
 .nbc-fb-cta .nbc-title,.nbc-fb-cta .nbc-lead{color:inherit;margin:0}.nbc-fb-cta .nbc-title{font-size:clamp(1.3rem,3vw,1.9rem)}.nbc-fb-cta .nbc-lead{margin-top:6px;opacity:.92}
 .nbc-fb-cols{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:clamp(22px,4vw,56px);padding-bottom:26px}
-.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.35rem;color:var(--brand)}
-.nbc-fc-col{display:grid;gap:9px;align-content:start}.nbc-fc-col .nbc-h3{font-size:1rem}.nbc-fc-col>a{color:var(--ink-2);text-decoration:none}.nbc-fc-col>a:hover{color:var(--brand)}
+.nbc-fc-brand{display:block;font-family:var(--nb-font-head,inherit);font-size:1.35rem;color:var(--brand-fg,var(--brand))}
+.nbc-fc-col{display:grid;gap:9px;align-content:start}.nbc-fc-col .nbc-h3{font-size:1rem}.nbc-fc-col>a{color:var(--ink-2);text-decoration:none}.nbc-fc-col>a:hover{color:var(--brand-fg,var(--brand))}
 .nbc-footer-big-cta .nbc-fc-copy{margin:0;border-top:1px solid var(--line);padding-top:16px;color:var(--ink-3);font-size:.88rem}
 @media (max-width:760px){.nbc-fb-cols{grid-template-columns:minmax(0,1fr)}}""",
       'پابرگ فوتر دعوت به اقدام بزرگ', 'aurora glassmorphism corporate-clean bento-grid soft-pastel', root='footer'),

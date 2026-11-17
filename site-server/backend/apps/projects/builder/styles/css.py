@@ -6,6 +6,7 @@
 """
 import re
 
+from . import harden
 from .data import STYLES
 
 # مقدارِ پیش‌فرضِ هر توکن = همان ظاهرِ پایهٔ بلوک‌ها؛ هر سبک فقط چیزهایی را که فرق دارد می‌دهد
@@ -26,7 +27,7 @@ DEFAULTS = {
     'in_bg': 'var(--bg)', 'in_bd': '1px solid var(--line)', 'in_r': 'calc(var(--r,16px) - 6px)', 'in_sh': 'none',
     'hd_bg': 'var(--card)', 'hd_bd': '1px solid var(--line)', 'hd_bf': 'none',
     'ic_bg': 'color-mix(in srgb,var(--brand) 13%,transparent)', 'ic_fg': 'var(--brand)', 'ic_r': '14px',
-    'eb_bg': 'color-mix(in srgb,currentColor 15%,transparent)', 'eb_r': '999px',
+    'eb_bg': 'color-mix(in srgb,currentColor 15%,transparent)', 'eb_r': '999px', 'eb_fg': 'inherit',
 }
 
 CORE = r"""
@@ -38,7 +39,7 @@ body{background:var(--st-page-bg);background-attachment:var(--st-page-att)}
 .nb-plan.is-featured{border:var(--st-hl-bd);box-shadow:var(--st-hl-sh);transform:translateY(-6px)}
 .nb-grid,.nb-cards{gap:var(--st-gap)}
 .nb-feature-icon{background:var(--st-ic-bg);color:var(--st-ic-fg);border-radius:var(--st-ic-r)}
-.nb-eyebrow{background:var(--st-eb-bg);border-radius:var(--st-eb-r)}
+.nb-eyebrow{background:var(--st-eb-bg);border-radius:var(--st-eb-r);color:var(--st-eb-fg)}
 .nb-btn{border-width:var(--st-btn-bw);transition:var(--st-btn-mo)}
 .nb-btn:hover{transform:var(--st-btn-hov);filter:var(--st-btn-filter)}
 .nb-btn.is-filled{box-shadow:var(--st-btn-sh);border-color:var(--st-btn-bc)}
@@ -74,19 +75,20 @@ def rebrand_text(text, old_hex):
     return re.sub(r'#%s\b' % h, 'var(--brand)', out, flags=re.I)
 
 
-def root_vars(key, rebrand=False):
+def root_vars(key, rebrand=False, brand=None):
     toks = tokens_of(key)
+    primary = STYLES[key]['theme']['colors']['primary']
     if rebrand:
-        primary = STYLES[key]['theme']['colors']['primary']
         toks = {k: rebrand_text(v, primary) for k, v in toks.items()}
+    toks = harden.guard_surface_fg(toks, brand or primary, STYLES[key]['theme']['colors'].get('bg') or '#ffffff', (STYLES[key].get('sections') or {}).get('hero', ''))         # متنِ هیرو/دعوت روی همهٔ ایستگاه‌های گرادیان (با رنگِ برندِ واقعی) ≥ ۴٫۶
     return ':root{%s}' % ';'.join('--st-%s:%s' % (k.replace('_', '-'), v) for k, v in toks.items())
 
 
-def style_css(key, rebrand=False):
+def style_css(key, rebrand=False, brand=None):
     """CSSِ کاملِ سبک؛ برای کلیدِ ناشناخته رشتهٔ خالی. rebrand: رنگِ اصلیِ سبک جایش را به var(--brand) بدهد."""
     if key not in STYLES:
         return ''
-    parts = ['/* سبکِ طراحی: %s (%s) */' % (STYLES[key]['label'], key), root_vars(key, rebrand), CORE]
+    parts = ['/* سبکِ طراحی: %s (%s) */' % (STYLES[key]['label'], key), root_vars(key, rebrand, brand), CORE]
     extra = (STYLES[key].get('extra') or '').strip()
     if extra:
         parts.append(rebrand_text(extra, STYLES[key]['theme']['colors']['primary']) if rebrand else extra)

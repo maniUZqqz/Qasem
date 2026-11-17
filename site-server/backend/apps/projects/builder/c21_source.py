@@ -35,6 +35,42 @@ MAX_FILE = 80_000
 MAX_REPO_FILES = 6000
 
 
+# سطرِ حقِ نشر در فایلِ مجوز: «Copyright (c) 2023 Name». متنِ خودِ مجوز (Apache: «"Licensor" shall mean the copyright owner or entity…») و جای‌نگهدارِ پیوستِ آن
+# («Copyright [yyyy] [name of copyright owner]») حقِ نشرِ کسی نیست و نباید به‌جای نامِ دارنده بنشیند (بازبینیِ ۱۱/۱۶: ۸ قطعهٔ Apache).
+_CP_LINE = re.compile(r"^[\s*#>/\-]*((?:copyright\s*(?:\(c\)|©)?|\(c\)|©)[^\n]*)$", re.I | re.M)
+_CP_NOT = re.compile(r"shall mean|owner or entity|authorized by|copyright owner|copyright holder|copyright license|copyright notice|copyright law|copyright statement|"
+                     r"\[yyyy\]|\[name|\{yyyy\}|\{name|<year>|<copyright|\bYEAR\b|\bTHE COPYRIGHT|without limitation|permission notice|the above|this license|this software|"
+                     r"you may|\bunder\b.*\blicen[sc]e", re.I)
+
+
+def find_copyright(text: str) -> str:
+    """اولین سطرِ حقِ نشرِ واقعی (سال یا نامِ دارنده دارد) یا «»."""
+    for m in _CP_LINE.finditer(text or ""):
+        line = re.sub(r"\s+", " ", m.group(1)).strip().strip("*#>/ ")
+        if _CP_NOT.search(line):
+            continue
+        rest = re.sub(r"^(?:copyright\s*)?(?:\(c\)|©)?\s*(?:copyright\s*)?(?:\(c\)|©)?\s*", "", line, flags=re.I)
+        if re.search(r"(?:19|20)\d{2}", rest) or re.search(r"[^\W\d_]{2,}", rest):
+            if len(line) >= 12:
+                return line[:160]
+    return ""
+
+
+def repo_holder(repo_url: str) -> str:
+    """https://github.com/owner/repo ⇒ «owner/repo» (نشانِ مبدأ وقتی فایلِ مجوز نامِ دارنده ندارد)."""
+    m = re.match(r"^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)", repo_url or "")
+    return "%s/%s" % (m.group(1), re.sub(r"\.git$", "", m.group(2))) if m else ""
+
+
+def clean_copyright(copyright_line: str, repo_url: str = "") -> str:
+    """سطرِ ذخیره‌شده ⇒ سطرِ درست: اگر متنِ مجوز بود یا خالی است، نامِ مخزن (دارنده) با توضیح؛ وگرنه همان."""
+    line = re.sub(r"\s+", " ", str(copyright_line or "")).strip()
+    if line and find_copyright(line):
+        return find_copyright(line)
+    holder = repo_holder(repo_url)
+    return "Copyright (c) %s contributors (the licence file names no holder)" % holder if holder else ""
+
+
 def detect_license(repo: Path) -> dict:
     """⇒ {'spdx': 'MIT'|…|'', 'file': 'LICENSE', 'copyright': 'Copyright (c) …', 'text_len': n}؛ ناشناخته ⇒ spdx ''."""
     for name in LICENSE_FILES:
@@ -45,8 +81,7 @@ def detect_license(repo: Path) -> dict:
             except OSError:
                 continue
             spdx = next((k for k, rx in PERMISSIVE_LICENSE_TEXT if rx.search(text)), "")
-            cp = re.search(r"^.*copyright\s*(?:\(c\)|©)?.*$", text, re.I | re.M)
-            return {"spdx": spdx, "file": name, "copyright": (cp.group(0).strip()[:160] if cp else ""), "text_len": len(text)}
+            return {"spdx": spdx, "file": name, "copyright": find_copyright(text), "text_len": len(text)}
     pj = repo / "package.json"
     if pj.is_file():
         try:
@@ -185,8 +220,8 @@ def bundle_from_repo(repo: Path, rel: str, slug: str, demo: dict, *, license_inf
             aliases[other] = str(repo / got)
     entry_code = demo.get("code") or fallback_demo(spec, code)
     return {"entry": {"path": demo.get("file") or "Demo.tsx", "code": entry_code}, "files": {}, "aliases": aliases, "roots": repo_roots(repo), "export": "auto",
-            "source": {"kind": "upstream", "repo": repo_url, "path": rel, "commit": commit, "license": license_info.get("spdx", ""), "copyright": license_info.get("copyright", ""),
-                       "license_file": license_info.get("file", ""), "demo": bool(demo.get("code"))}}
+            "source": {"kind": "upstream", "repo": repo_url, "path": rel, "commit": commit, "license": license_info.get("spdx", ""),
+                       "copyright": clean_copyright(license_info.get("copyright", ""), repo_url), "license_file": license_info.get("file", ""), "demo": bool(demo.get("code"))}}
 
 
 def bundle_from_api(files: list[dict], demo: dict, *, row: dict) -> dict:

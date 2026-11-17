@@ -15,7 +15,9 @@ from .. import variants
 from .css import style_css, tokens_of
 from .gen_core import lum
 from .data import ORDER, STYLES
-from . import uiux
+from . import harden, uiux
+
+harden.apply_to_styles(STYLES, tokens_of)           # متنِ دوم/کم‌رنگ با حاشیهٔ ایمنیِ تباین (خوانایی در مرورگر؛ بازبینیِ ۱۱/۱۶)
 
 
 def get(key):

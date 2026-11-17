@@ -15,8 +15,8 @@ VARIANTS = {
                    '.nb-hero.nbv-framed .nb-hero-copy{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.38);border-radius:calc(var(--r,16px) + 10px);'
                    'padding:clamp(24px,5vw,52px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 24px 60px -28px rgba(0,0,0,.45)}'),
         'aurora': ('شفق (گرادیانِ متحرک)',
-                   '.nb-hero.nbv-aurora{background:radial-gradient(55% 60% at 15% 20%,color-mix(in srgb,var(--brand) 70%,#fff) 0,transparent 60%),'
-                   'radial-gradient(50% 55% at 85% 15%,#22d3ee 0,transparent 60%),radial-gradient(60% 60% at 70% 100%,#f472b6 0,transparent 60%),'
+                   '.nb-hero.nbv-aurora{background:linear-gradient(rgba(5,8,20,.2),rgba(5,8,20,.2)),radial-gradient(55% 60% at 15% 20%,color-mix(in srgb,var(--brand) 55%,#0b1020) 0,transparent 60%),'
+                   'radial-gradient(50% 55% at 85% 15%,#0e7490 0,transparent 60%),radial-gradient(60% 60% at 70% 100%,#9d174d 0,transparent 60%),'
                    'color-mix(in srgb,var(--brand) 40%,#0b1020);background-size:140% 140%;animation:nbv-aurora 14s ease-in-out infinite alternate;color:#fff}'
                    '@keyframes nbv-aurora{from{background-position:0 0}to{background-position:100% 100%}}'
                    '@media (prefers-reduced-motion:reduce){.nb-hero.nbv-aurora{animation:none}}'),

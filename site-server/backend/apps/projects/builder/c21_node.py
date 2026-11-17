@@ -60,10 +60,14 @@ def load_demo(cid: str) -> dict:
 
 
 def pick_ids(limit: int = BATCH) -> list[str]:
-    """اول قطعه‌هایی که جزئیاتشان هنوز نیست (سرور مسدود بود)، بعد قطعه‌های قابلِ استفاده که نمونهٔ استفاده‌شان هنوز نیست."""
+    """اول قطعه‌هایی که جزئیاتشان هنوز نیست (سرور مسدود بود یا نرسید)، بعد قطعه‌های قابلِ تبدیل که نمونهٔ استفاده‌شان هنوز نیست:
+    مجوزِ آزاد + کتابخانه‌ای با مخزنِ عمومی (بی‌مخزن هرگز تبدیل نمی‌شود، پس نمونه‌اش بی‌فایده است) + نه «مجوزِ مخزن آزاد نیست» و نه «در مخزن نبود»."""
     rows = c21st.load()
+    libs = c21_crawl.load_libs()
     first = [r["id"] for r in rows if not r.get("detail") and len(r["id"].split("/")) == 2]
-    second = [r["id"] for r in rows if r.get("usable") and r.get("detail") and len(r["id"].split("/")) == 2 and not load_demo(r["id"]) and (r.get("conv") or {}).get("state") != "ok"]
+    second = [r["id"] for r in rows if r.get("usable") and r.get("detail") and len(r["id"].split("/")) == 2
+              and (libs.get(r.get("library_id") or "") or {}).get("github") and (r.get("conv") or {}).get("state") not in ("ok", "license", "no-source")
+              and not load_demo(r["id"])]
     seen, out = set(), []
     for cid in first + second:
         if cid not in seen:
@@ -87,7 +91,8 @@ def enqueue_batch(limit: int = BATCH, *, ids: list[str] | None = None, robots_te
     st["pending"] = [p for p in st.get("pending", []) if p.get("uid")]
     if len(st["pending"]) >= MAX_PENDING:
         return None
-    ids = ids or [i for i in pick_ids(limit) if not any(i in p.get("ids", []) for p in st["pending"])]
+    taken = {i for p in st["pending"] for i in p.get("ids", [])}      # دسته‌های در انتظار دوباره گرفته نمی‌شوند؛ هر کارِ تازه ۲۵ قطعهٔ بعدی را می‌برد (تا MAX_PENDING کارِ هم‌زمان)
+    ids = ids or [i for i in pick_ids(limit + len(taken)) if i not in taken][:limit]
     if not ids:
         return None
     try:

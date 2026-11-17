@@ -121,7 +121,9 @@ urlpatterns = [
     path('c21st/', c21st_api.c21st_list),
     path('c21st/pipeline/', c21_api.c21_pipeline_status),                     # GET وضعیتِ خزش، تبدیل و کارِ گره
     path('c21st/convert/', c21_api.c21_convert_start),                        # POST شروعِ تبدیلِ قطعه‌ها (صفِ Celery)
-    path('c21st/image/<path:cid>/', c21_api.c21_image),                       # GET تصویرِ پیش‌نمایشِ یک قطعه
+    path('c21st/image/<path:cid>/', c21_api.c21_image),
+    path('c21st/preview/<str:key>/', c21_api.c21_preview_free),                 # GET پیش‌نمایشِ بی‌پروژهٔ یک قطعه (استودیوی طراحی)
+    path('c21st/block/<str:key>/', c21_api.c21_block_free),                     # GET بلوکِ بی‌پروژهٔ c21 (استودیوی طراحی)                       # GET تصویرِ پیش‌نمایشِ یک قطعه
     path('projects/<slug:slug>/builder/c21/<str:key>/preview/', c21_api.c21_preview),   # GET پیش‌نمایشِ زندهٔ قطعه با پوستهٔ پروژه
     path('projects/<slug:slug>/builder/c21/<str:key>/block/', c21_api.c21_block),       # GET بلوکِ آمادهٔ درج                                     # GET کاتالوگِ 21st.dev (جست‌وجو)
     path('c21st/crawl/', c21st_api.c21st_crawl),                              # POST به‌روزرسانیِ کاتالوگ (صفِ Celery)

@@ -158,6 +158,7 @@ function C21Tab() {
         <div><dt>کتابخانه‌ها</dt><dd>{fa(Number(c.libraries ?? 0))}</dd></div>
         <div><dt>قطعهٔ قابلِ درج</dt><dd data-testid="ds-converted">{fa(Number(p.converted ?? 0))}</dd></div>
         <div><dt>بدونِ کدِ عمومی</dt><dd>{fa(Number(p.no_source ?? 0))}</dd></div>
+        <div><dt>در انتظارِ تبدیل</dt><dd>{fa(Number(p.waiting ?? 0))}</dd></div>
         <div><dt>مجوزِ مخزن آزاد نبود</dt><dd>{fa(Number(p.license_blocked ?? 0))}</dd></div>
         <div><dt>تبدیلِ ناموفق</dt><dd>{fa(Number(p.failed ?? 0))}</dd></div>
         <div><dt>کارِ خزشِ سرورِ گرافیکی</dt><dd>{fa(Number(node?.pending ?? 0))} در انتظار · {fa(Number(node?.jobs ?? 0))} کلاً</dd></div>
@@ -223,7 +224,7 @@ export default function DesignSourcesPage() {
     <div className="ds" data-testid="design-sources">
       <SectionHead title="منبع‌های طراحی" hint={`کلِ مخزنِ ui-ux-pro-max-skill · MIT · ${src.copyright}`} />
       <p className="ds-note" data-testid="ds-note">
-        {index.note} · نسخه <span dir="ltr">{src.commit.slice(0, 8)}</span> (<span dir="ltr">{src.commit_date.slice(0, 10)}</span>) ·{" "}
+        {index.note} · نسخه <bdi dir="ltr">{src.commit.slice(0, 8)}</bdi> · تاریخِ نسخه <bdi dir="ltr">{src.commit_date.slice(0, 10)}</bdi> ·{" "}
         <a href={src.source} target="_blank" rel="noopener noreferrer" dir="ltr">{src.source.replace("https://", "")}</a>
       </p>
       <p className="ds-note">

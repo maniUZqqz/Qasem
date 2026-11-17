@@ -29,7 +29,7 @@ SPECS = [
       r""".nbc-alt{display:grid;gap:clamp(36px,6vw,80px)}.nbc-alt-t{font-size:clamp(1.4rem,3vw,2rem)}
 .nbc-alt-row:nth-child(even) .nbc-alt-copy{order:2}.nbc-alt-media img{aspect-ratio:4/3}
 .nbc-alt-media:empty{display:none}.nbc-alt-row:has(.nbc-alt-media:empty){grid-template-columns:minmax(0,1fr)}
-.nbc-arrow{font-weight:700;color:var(--brand);opacity:1}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}
+.nbc-arrow{font-weight:700;color:var(--brand-fg,var(--brand));opacity:1}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}
 @media (max-width:760px){.nbc-alt-row:nth-child(even) .nbc-alt-copy{order:0}}""",
       'ویژگی ردیف تصویر متن متناوب', 'corporate-clean minimalism editorial organic'),
 
@@ -63,7 +63,7 @@ border:var(--st-card-bd,1px solid var(--line));box-shadow:var(--st-card-sh,none)
                      [{'value': '۰۰', 'title': 'عنوانِ اول', 'text': 'توضیحِ کوتاه'}, {'value': '۰۰', 'title': 'عنوانِ دوم', 'text': 'توضیحِ کوتاه'},
                       {'value': '۰۰', 'title': 'عنوانِ سوم', 'text': 'توضیحِ کوتاه'}], 'title', 'افزودنِ عدد')],
       _HEADHTML + """<div class="nbc-grid nbc-auto"><!--each:items--><article class="nbc-card nbc-sc-i"><b class="nbc-sc-n" data-s="value"></b><h3 class="nbc-h3" data-s="title"></h3><p class="nbc-text" data-s="text|m"></p></article><!--/each--></div>""",
-      """.nbc-sc-i{display:grid;gap:2px;align-content:start}.nbc-sc-n{font-family:var(--nb-font-head,inherit);font-size:clamp(2.2rem,5vw,3.4rem);line-height:1.15;color:var(--brand);margin-bottom:8px}""",
+      """.nbc-sc-i{display:grid;gap:2px;align-content:start}.nbc-sc-n{font-family:var(--nb-font-head,inherit);font-size:clamp(2.2rem,5vw,3.4rem);line-height:1.15;color:var(--brand-fg,var(--brand));margin-bottom:8px}""",
       'ویژگی آمار عدد کارت', 'corporate-clean swiss minimalism bento-grid'),
 
     C('feat_icon_rows', 'features', 'ردیف‌های نماد‌دارِ دو ستونه', 'ویژگی‌ها بی‌قاب و دو ستونه، نماد در ابتدای هر ردیف',
@@ -109,7 +109,7 @@ border:var(--st-card-bd,1px solid var(--line));box-shadow:var(--st-card-sh,none)
       """.nbc-fq{align-items:start}.nbc-fq-list{display:grid;gap:10px}
 .nbc-fq-i{background:var(--st-card-bg,var(--card));border:var(--st-card-bd,1px solid var(--line));border-radius:calc(var(--r,16px) - 4px);padding:4px 20px;color:var(--ink)}
 .nbc-fq-i summary{cursor:pointer;font-weight:700;padding:14px 0;list-style:none;display:flex;justify-content:space-between;gap:12px;align-items:center}
-.nbc-fq-i summary::-webkit-details-marker{display:none}.nbc-fq-i summary::after{content:"+";font-size:1.4rem;line-height:1;color:var(--brand);transition:transform .15s}
+.nbc-fq-i summary::-webkit-details-marker{display:none}.nbc-fq-i summary::after{content:"+";font-size:1.4rem;line-height:1;color:var(--brand-fg,var(--brand));transition:transform .15s}
 .nbc-fq-i[open] summary::after{transform:rotate(45deg)}.nbc-fq-i p{padding-bottom:16px}""",
       'پرسش پرتکرار سوالات متداول', 'corporate-clean minimalism bento-grid swiss editorial'),
 
@@ -123,7 +123,7 @@ border:var(--st-card-bd,1px solid var(--line));box-shadow:var(--st-card-sh,none)
 border:var(--st-card-bd,1px solid var(--line));border-radius:var(--st-card-r,calc(var(--r,16px) + 6px));box-shadow:var(--st-card-sh,0 1px 2px rgba(0,0,0,.04),0 12px 30px -20px rgba(0,0,0,.25));-webkit-backdrop-filter:var(--st-bf,none);backdrop-filter:var(--st-bf,none)}
 .nbc-bs-i:nth-child(1){grid-column:span 2}.nbc-bs-i:nth-child(4){grid-column:span 2}.nbc-bs-i:nth-child(n+5):nth-child(odd){grid-column:span 2}
 .nbc-bs-b{display:grid;gap:6px;transition:transform .3s ease}.nbc-bs-b .nbc-ic{margin-bottom:10px;transform-origin:left center;transition:transform .3s ease}[dir=rtl] .nbc-bs-b .nbc-ic{transform-origin:right center}
-.nbc-bs-l{margin-top:14px;font-weight:700;color:var(--brand);opacity:1;justify-self:start;transition:transform .3s ease,opacity .3s ease}.nbc-bs-l::after{content:"\2190";margin-inline-start:8px}
+.nbc-bs-l{margin-top:14px;font-weight:700;color:var(--brand-fg,var(--brand));opacity:1;justify-self:start;transition:transform .3s ease,opacity .3s ease}.nbc-bs-l::after{content:"\2190";margin-inline-start:8px}
 @media (hover:hover) and (min-width:1025px){.nbc a.nbc-link.nbc-bs-l{position:absolute;inset-inline-start:clamp(20px,2.6vw,28px);inset-block-end:18px;transform:translateY(34px);opacity:0}.nbc .nbc-bs-i:hover a.nbc-link.nbc-bs-l,.nbc .nbc-bs-i:focus-within a.nbc-link.nbc-bs-l{transform:none;opacity:1}
 .nbc-bs-i:hover .nbc-bs-b{transform:translateY(-26px)}.nbc-bs-i:hover .nbc-bs-b .nbc-ic{transform:scale(.78)}}
 @media (max-width:1024px){.nbc-bs{grid-template-columns:repeat(2,minmax(0,1fr))}.nbc .nbc-bs .nbc-bs-i:nth-child(n){grid-column:auto}.nbc .nbc-bs .nbc-bs-i:nth-child(1){grid-column:1/-1}}@media (max-width:620px){.nbc-bs{grid-template-columns:minmax(0,1fr)}.nbc .nbc-bs .nbc-bs-i:nth-child(n){grid-column:auto}}
@@ -137,6 +137,6 @@ border:var(--st-card-bd,1px solid var(--line));border-radius:var(--st-card-r,cal
        ITEMS('items', 'پرسش‌ها', [T('q', 'پرسش'), A('a', 'پاسخ')],
              [{'q': 'پرسشِ اول؟', 'a': 'پاسخِ کوتاه.'}, {'q': 'پرسشِ دوم؟', 'a': 'پاسخِ کوتاه.'}, {'q': 'پرسشِ سوم؟', 'a': 'پاسخِ کوتاه.'}, {'q': 'پرسشِ چهارم؟', 'a': 'پاسخِ کوتاه.'}], 'q', 'افزودنِ پرسش')],
       _HEADHTML + """<div class="nbc-grid nbc-c2 nbc-fg"><!--each:items--><article class="nbc-card nbc-fg-i"><h3 class="nbc-h3" data-s="q"></h3><p class="nbc-text" data-s="a|m"></p></article><!--/each--></div>""",
-      """.nbc-fg-i{display:grid;gap:6px;align-content:start}.nbc-fg-i .nbc-h3::before{content:"؟";display:inline-grid;place-items:center;width:28px;height:28px;margin-inline-end:10px;border-radius:50%;background:var(--st-ic-bg,color-mix(in srgb,var(--brand) 14%,transparent));color:var(--brand);font-size:.95rem}""",
+      """.nbc-fg-i{display:grid;gap:6px;align-content:start}.nbc-fg-i .nbc-h3::before{content:"؟";display:inline-grid;place-items:center;width:28px;height:28px;margin-inline-end:10px;border-radius:50%;background:var(--st-ic-bg,color-mix(in srgb,var(--brand) 14%,transparent));color:var(--brand-fg,var(--brand));font-size:.95rem}""",
       'پرسش پرتکرار سوالات کارت دو ستون', 'bento-grid soft-pastel claymorphism neo-brutalism glassmorphism'),
 ]

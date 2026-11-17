@@ -5,6 +5,7 @@ import Icon from "../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Input, PageHeader, Select, Spinner, TextArea } from "../../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { BlockCatalog, BlockDef, Comment, FieldSpec, Overview, Scene, ScenePage, SiteInfo, apiError, designApi, fa } from "./api";
+import C21Panel from "./C21Panel";
 import ExportDialog from "./ExportDialog";
 import { useDocEditor, useOverview, usePreview } from "./hooks";
 import { ColorField, Field, ImagePicker, PageCanvas, Thumb, useWidth, ChecksPanel } from "./parts";
@@ -22,6 +23,7 @@ function walk(nodes: Node[], depth = 0, out: { n: Node; depth: number }[] = []) 
 }
 
 function nodeLabel(n: Node, catalog: BlockCatalog | null): string {
+  if (n.t === "block" && n.type === "c21") return "قطعهٔ 21st.dev";
   if (n.t === "block") return catalog?.blocks.find((b) => b.type === n.type)?.label ?? String(n.type);
   return n.name || ({ frame: "قاب Auto Layout", text: "متن", button: "دکمه", image: "تصویر", rect: "مستطیل", input: "فیلد", spacer: "فاصله", icon: "نماد" } as Record<string, string>)[n.t] || String(n.t);
 }
@@ -289,6 +291,8 @@ export default function UiEditor() {
                   </optgroup>
                 ))}
               </select>
+              <div className="ds-sub">قطعه‌های آمادهٔ 21st.dev (جست‌وجو، پیش‌نمایش، درج)</div>
+              <C21Panel onAdd={(n) => addPrimitive(n)} />
               <div className="ds-sub">Auto Layout و عنصرها {node?.t === "frame" ? "(داخلِ قابِ انتخاب‌شده)" : ""}</div>
               <div className="ds-row ds-wrap">
                 <Button size="sm" variant="secondary" type="button" onClick={() => addPrimitive({ t: "frame", name: "پشتهٔ عمودی", dir: "v", gap: 12, pad: [16, 16, 16, 16], fill: "var:surface", radius: 14, children: [] })}>+ پشتهٔ عمودی</Button>

@@ -8,7 +8,10 @@ Every <key>.html in the directory is opened with dir="rtl" (the component host i
   overflow_390 / overflow_1280   the page scrolls sideways (document wider than the window)
   escapes                       elements whose box leaves the window by more than 2 px (decorative marquees inside overflow:clip are ignored)
   rtl                           the computed direction of the host is rtl
-  status                        ok | warn (only phones overflow) | fail (both) | error
+  status                        ok | warn (only desktop overflows, or an element leaves the window) | fail (the phone view overflows sideways) | error
+  text_<w> / visual_<w>         visible characters / visible images, svgs, inputs, buttons (both 0 = only an empty frame: canvas or script-driven animation)
+  <key>-<width>.png             a screenshot of the top of each page (390 and 1280 px); the caller measures how much is actually visible (components that render empty
+                                as static HTML - typing animations, canvases, sliders at 0 - are blank: c21_rtl.ink_of)
 Needs Playwright for Python and a Chromium (the headless shell is enough). PLAYWRIGHT_BROWSERS_PATH is respected.
 """
 import json
@@ -26,7 +29,12 @@ JS = """() => {
     }
   });
   const host = document.querySelector('.nbc21-host > div') || document.body;
-  return { sw: de.scrollWidth, vw, dir: getComputedStyle(host).direction, escapes: esc.slice(0, 5), n: esc.length, h: de.scrollHeight };
+  // «محتوا»: متنِ دیدنی یا یک عنصرِ تصویری/ورودیِ دیدنی (تصویر، svg، فیلد، دکمه، ویدیو …). فقط یک قابِ خالی (canvas/انیمیشنِ بی‌جاوااسکریپت) محتوا ندارد؛ حاشیهٔ قاب «جوهر» حساب می‌شود ولی محتوا نیست.
+  const seen = (e) => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width >= 8 && r.height >= 8 && cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) > 0.05; };
+  let visual = 0;
+  document.querySelectorAll('body img, body svg, body input, body textarea, body select, body button, body video, body progress, body meter').forEach((e) => { if (seen(e)) visual++; });
+  const text = (document.body.innerText || '').replace(/\s+/g, '').length;
+  return { sw: de.scrollWidth, vw, dir: getComputedStyle(host).direction, escapes: esc.slice(0, 5), n: esc.length, h: de.scrollHeight, text, visual };
 }"""
 
 
@@ -48,11 +56,15 @@ def main():
                         page.evaluate("document.querySelectorAll('.nbc21-host > div').forEach((e) => e.setAttribute('dir', 'rtl'))")      # متنِ فارسی ⇒ dir=auto همین می‌شود
                         page.wait_for_timeout(150)
                         m = page.evaluate(JS)
+                        page.wait_for_timeout(250)                                   # animations/transitions settle (the screenshot is what the owner would see)
+                        page.screenshot(path='%s/%s-%d.png' % (os.path.abspath(d), k, w), full_page=False)
                         row = res.setdefault(k, {})
                         row['overflow_%d' % w] = m['sw'] > m['vw'] + 1
                         row['escapes_%d' % w] = m['n']
                         row['escape_sample'] = m['escapes'] or row.get('escape_sample', [])
                         row['rtl'] = row.get('rtl', True) and m['dir'] == 'rtl'
+                        row['text_%d' % w] = m['text']
+                        row['visual_%d' % w] = m['visual']
                         if w == 1280:
                             row['height'] = m['h']
                     except Exception as exc:  # noqa: BLE001
@@ -63,9 +75,9 @@ def main():
     for k, row in res.items():
         if row.get('error'):
             row['status'] = 'error'
-        elif row.get('overflow_390') and row.get('overflow_1280'):
-            row['status'] = 'fail'
-        elif row.get('overflow_390') or row.get('overflow_1280') or not row.get('rtl'):
+        elif row.get('overflow_390'):
+            row['status'] = 'fail'                    # a phone scrolls sideways (RTL: content that leaves on the left is cut off, not scrollable; see escapes_*)
+        elif row.get('overflow_1280') or row.get('escapes_390') or row.get('escapes_1280') or not row.get('rtl'):
             row['status'] = 'warn'
         else:
             row['status'] = 'ok'

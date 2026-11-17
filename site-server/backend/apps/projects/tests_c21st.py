@@ -280,7 +280,7 @@ class CodeAndKeyTests(TmpData):
         self.assertNotIn("nope/none", got)
         self.assertIn("code_excerpt", got["sensewood8/responsive-hero-banner"])
         self.assertLessEqual(len(got["sensewood8/responsive-hero-banner"]["code_excerpt"]), c21st.EXCERPT_CHARS)
-        self.assertNotIn("code_excerpt", got["ncdai/hero-01"], "an unlicensed component never sends code")
+        self.assertNotIn("ncdai/hero-01", got, "catalogue only: an unlicensed component reaches the model neither as code nor as title/tags (review 11/16)")
         self.assertIn("inspiration", p["howto"])
         self.assertEqual(p["stats"]["inspiration"], len(p["inspiration"]))
         # بدونِ الهام ⇒ بسته دقیقاً مثلِ قبل (بدونِ کلیدِ inspiration)
@@ -356,7 +356,8 @@ class ApiTests(Base):
         from apps.projects.helpers import FormData
 
         d = ai_api._design(FormData({"style": "aurora", "components": ["cta_strip"], "refs21": ["acme/pricing-cards", "evil/none", "ncdai/hero-01", "sensewood8/responsive-hero-banner", "ibelick/background-snippets/background-radial-dark-gray"]}))
-        self.assertEqual(d["refs21"], ["acme/pricing-cards", "ncdai/hero-01", "sensewood8/responsive-hero-banner"])
+        self.assertEqual(d["refs21"], ["acme/pricing-cards", "sensewood8/responsive-hero-banner", "ibelick/background-snippets/background-radial-dark-gray"],
+                         "only open-licence entries can be inspiration; unknown and unlicensed ones are dropped")
         self.assertEqual(ai_api._design(FormData({"refs21": ["evil/none"]})), None)
         self.assertNotIn("refs21", ai_api._design(FormData({"style": "aurora"})))
 

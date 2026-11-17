@@ -61,6 +61,9 @@ def pick_components(brief='', style_key='', kind='home', pinned=(), limit=MAX_CO
     words = _words(brief)
     cats_taken = {comps.COMPONENTS[k]['cat'] for k in chosen}
     plan = PAGE_PLANS.get(kind) or DEFAULT_PLAN
+    if kind not in ('header', 'footer'):                       # متن «قیمت» یا «پرسش» را صریح خواسته ⇒ همان بخش‌ها اول (نه همیشه hero/features/…)
+        asked = [c for c in section_intents(brief) if c in comps.CAT_LABEL and c not in ('navbar', 'footer')]
+        plan = asked + [c for c in plan if c not in asked]
     for cat in plan:
         if len(chosen) >= limit:
             break
@@ -131,22 +134,116 @@ KIND_UX_QUERY = {'home': 'hero navigation accessibility contrast mobile', 'landi
 CHART_WORDS = ('chart', 'graph', 'dashboard', 'analytics', 'نمودار', 'داشبورد', 'آمار', 'گزارش')
 
 
-#: واژه‌های فارسیِ رایجِ درخواست ⇒ معادلِ انگلیسی (دادهٔ ui-ux-pro-max انگلیسی است)
-FA_EN = (('فروشگاه', 'e-commerce shop store'), ('ورزش', 'fitness sports gym'), ('آموزش', 'education course learning'), ('رستوران', 'restaurant food'),
-         ('کافه', 'cafe bakery'), ('پزشک', 'medical clinic'), ('کلینیک', 'medical clinic'), ('سلامت', 'health wellness'), ('املاک', 'real estate property'),
-         ('موسیقی', 'music'), ('سفر', 'travel tourism'), ('گردشگری', 'travel tourism'), ('حقوقی', 'legal'), ('وکیل', 'legal'), ('بانک', 'banking finance'),
-         ('مالی', 'finance'), ('داشبورد', 'dashboard analytics'), ('نمودار', 'chart'), ('آمار', 'analytics'), ('کودک', 'kids education'), ('زیبایی', 'beauty spa'),
-         ('سالن', 'beauty salon'), ('خبر', 'news media'), ('بازی', 'gaming'), ('نمایشگاه', 'gallery museum'), ('گالری', 'gallery'), ('هوش مصنوعی', 'ai chatbot'),
-         ('عروسی', 'wedding event'), ('نمونه‌کار', 'portfolio'), ('پرتفولیو', 'portfolio'), ('نرم‌افزار', 'saas software'), ('استارتاپ', 'startup saas'),
-         ('مشاور', 'consulting service'), ('خدمات', 'service'), ('مد ', 'fashion'), ('لباس', 'fashion'), ('گل', 'florist plant'), ('دندان', 'dental'),
-         ('حیوان', 'pet veterinary'), ('ساختمان', 'construction architecture'), ('معماری', 'architecture interior'), ('بیمه', 'insurance'),
-         ('حمل', 'logistics delivery'), ('مجله', 'magazine blog'), ('وبلاگ', 'blog'), ('رمزارز', 'crypto'), ('خیریه', 'non-profit charity'))
+#: واژه‌های فارسیِ رایجِ «حوزهٔ کار» ⇒ معادلِ انگلیسی (دادهٔ ui-ux-pro-max انگلیسی است). ترتیبِ وقوع در متن مهم است: واژهٔ اولِ متن «سرِ» موضوع است
+#: («فروشگاه لوازمِ ورزشی» ⇒ فروشگاه، نه باشگاه).
+FA_EN = (('فروشگاه', 'e-commerce shop store'), ('خرید', 'e-commerce shop store'), ('ورزش', 'fitness sports gym'), ('باشگاه', 'fitness gym'), ('آموزش', 'education course learning'),
+         ('دوره', 'education course'), ('رستوران', 'restaurant food'), ('کافه', 'cafe bakery'), ('پزشک', 'medical clinic'), ('کلینیک', 'medical clinic'),
+         ('سلامت', 'health wellness'), ('املاک', 'real estate property'), ('موسیقی', 'music'), ('سفر', 'travel tourism'), ('گردشگری', 'travel tourism'),
+         ('هتل', 'hotel hospitality'), ('حقوقی', 'legal'), ('وکیل', 'legal'), ('بانک', 'banking finance'), ('مالی', 'finance'), ('داشبورد', 'dashboard analytics'),
+         ('نمودار', 'chart'), ('آمار', 'analytics'), ('کودک', 'kids education'), ('زیبایی', 'beauty spa'), ('آرایشگاه', 'beauty salon'), ('سالن', 'beauty salon'),
+         ('خبر', 'news media'), ('بازی', 'gaming'), ('نمایشگاه', 'gallery museum'), ('گالری', 'gallery'), ('هوش مصنوعی', 'ai chatbot'), ('عروسی', 'wedding event'),
+         ('نمونه کار', 'portfolio'), ('پرتفولیو', 'portfolio'), ('نرم افزار', 'saas software'), ('اپلیکیشن', 'mobile app'), ('استارتاپ', 'startup saas'),
+         ('مشاور', 'consulting service'), ('خدمات', 'service'), ('مد', 'fashion'), ('لباس', 'fashion'), ('گل', 'florist plant'), ('دندان', 'dental'),
+         ('حیوان', 'pet veterinary'), ('ساختمان', 'construction architecture'), ('معماری', 'architecture interior'), ('بیمه', 'insurance'), ('حمل', 'logistics delivery'),
+         ('مجله', 'magazine blog'), ('وبلاگ', 'blog'), ('رمزارز', 'crypto'), ('خیریه', 'non-profit charity'), ('مدرسه', 'education school'), ('دانشگاه', 'education university'))
+
+#: «بخشِ صفحه»ای که متن می‌خواهد (قیمت، پرسش، منو …) ⇒ دستهٔ قطعه‌های ما (PAGE_PLANS) + واژه‌های انگلیسی برای جست‌وجو. ترتیبِ وقوع در متن = ترتیبِ اولویت.
+SECTION_INTENTS = (
+    ('pricing', ('قیمت', 'تعرفه', 'پلن', 'پلان', 'اشتراک', 'بسته', 'هزینه', 'pricing', 'price', 'plans', 'subscription', 'tariff'), 'pricing plans comparison'),
+    ('faq', ('پرسش', 'سوال', 'سؤال', 'faq', 'questions', 'accordion'), 'faq accordion questions'),
+    ('testimonials', ('نظر', 'رضایت', 'مشتریان', 'بازخورد', 'testimonial', 'testimonials', 'reviews', 'feedback'), 'testimonials reviews social proof'),
+    ('navbar', ('منو', 'ناوبری', 'ناوبر', 'هدر', 'سربرگ', 'navbar', 'navigation', 'menu', 'header'), 'navigation menu navbar'),
+    ('footer', ('فوتر', 'پابرگ', 'پایین صفحه', 'footer'), 'footer'),
+    ('hero', ('هیرو', 'صفحه اصلی', 'صفحه نخست', 'hero', 'banner'), 'hero'),
+    ('features', ('ویژگی', 'امکانات', 'قابلیت', 'مزایا', 'مزیت', 'features', 'benefits'), 'features benefits'),
+    ('steps', ('مراحل', 'نحوه', 'چگونه', 'چطور', 'روند', 'steps', 'process', 'timeline', 'how it works'), 'steps timeline process'),
+    ('cta', ('ثبت نام', 'عضویت', 'خبرنامه', 'فراخوان', 'دعوت به اقدام', 'cta', 'sign up', 'signup', 'newsletter', 'call to action'), 'cta signup newsletter'),
+    ('cards', ('کارت', 'محصولات', 'محصول', 'کالا', 'کاتالوگ', 'cards', 'products', 'catalog'), 'cards product'),
+    ('gallery', ('گالری', 'نمونه کار', 'تصاویر', 'عکس', 'اسلایدر', 'gallery', 'portfolio', 'carousel', 'slider'), 'gallery portfolio carousel'),
+    ('contact', ('تماس', 'ارتباط', 'contact'), 'contact form'),
+    ('dashboard', ('داشبورد', 'نمودار', 'آمار', 'گزارش', 'پنل', 'dashboard', 'chart', 'analytics'), 'dashboard chart analytics'),
+)
+#: حوزه (معادلِ انگلیسیِ FA_EN) ⇒ بخش‌هایی که چنین صفحه‌ای معمولاً می‌خواهد؛ وقتی متن بخشی را صریح نخواسته، همین‌ها قطعه‌های پیشنهادی را از هم جدا می‌کند
+DOMAIN_SECTIONS = {
+    'e-commerce shop store': ('cards', 'gallery', 'cta'), 'fitness sports gym': ('pricing', 'testimonials', 'steps'), 'fitness gym': ('pricing', 'testimonials', 'steps'),
+    'education course learning': ('features', 'steps', 'faq'), 'education course': ('features', 'steps', 'faq'), 'education school': ('features', 'faq', 'contact'),
+    'education university': ('features', 'faq', 'contact'), 'restaurant food': ('gallery', 'cards', 'contact'), 'cafe bakery': ('gallery', 'cards', 'contact'),
+    'medical clinic': ('testimonials', 'faq', 'contact'), 'dental': ('testimonials', 'faq', 'contact'), 'health wellness': ('features', 'testimonials', 'faq'),
+    'real estate property': ('gallery', 'cards', 'contact'), 'travel tourism': ('gallery', 'cards', 'cta'), 'hotel hospitality': ('gallery', 'pricing', 'contact'),
+    'legal': ('faq', 'testimonials', 'contact'), 'consulting service': ('features', 'faq', 'contact'), 'service': ('features', 'steps', 'contact'),
+    'saas software': ('features', 'pricing', 'faq'), 'startup saas': ('features', 'pricing', 'cta'), 'ai chatbot': ('features', 'pricing', 'faq'), 'mobile app': ('features', 'gallery', 'cta'),
+    'portfolio': ('gallery', 'features', 'contact'), 'gallery': ('gallery', 'cards'), 'gallery museum': ('gallery', 'cards'), 'music': ('gallery', 'cards', 'cta'),
+    'beauty spa': ('gallery', 'pricing', 'testimonials'), 'beauty salon': ('gallery', 'pricing', 'testimonials'), 'fashion': ('cards', 'gallery', 'cta'),
+    'banking finance': ('features', 'pricing', 'faq'), 'finance': ('features', 'pricing', 'faq'), 'insurance': ('features', 'pricing', 'faq'), 'dashboard analytics': ('dashboard',),
+    'news media': ('cards', 'gallery'), 'magazine blog': ('cards', 'gallery'), 'blog': ('cards',), 'wedding event': ('gallery', 'steps', 'contact'),
+    'kids education': ('features', 'gallery', 'contact'), 'non-profit charity': ('cta', 'steps', 'testimonials'), 'construction architecture': ('gallery', 'steps', 'contact'),
+    'architecture interior': ('gallery', 'features', 'contact'), 'logistics delivery': ('steps', 'features', 'contact'), 'pet veterinary': ('features', 'testimonials', 'contact'),
+}
+#: دستهٔ «بخشِ صفحه» ⇒ دسته‌های کاتالوگِ 21st.dev که به آن می‌خورند
+_C21_OF_INTENT = {'contact': ('form',), 'steps': ('landing-page', 'tabs'), 'dashboard': ('dashboard', 'chart', 'table', 'sidebar'), 'cards': ('card',)}
+
+
+def _norm(text):
+    """نرمال‌سازیِ فارسی برای تطبیق: ي/ك عربی، نیم‌فاصله ⇒ فاصله، فاصلهٔ اضافه."""
+    t = (text or '').replace('ي', 'ی').replace('ك', 'ک').replace('‌', ' ').replace('\u200f', ' ').lower()
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def _find(text, kw):
+    """موقعیتِ اولین وقوعِ واژه «در آغازِ یک توکن» (نه وسطِ کلمه: «گل» در «تاگل» نیست)؛ واژهٔ کوتاه (≤ ۳ حرف) فقط کاملِ توکن (با ی/ها). نیافت ⇒ -1."""
+    kw = _norm(kw)
+    if not kw:
+        return -1
+    suffix = r'(?:ی|ها|های|ای)?(?![\w؀-ۿ])' if len(kw) <= 3 else ''
+    m = re.search(r'(?<![\w؀-ۿ])' + re.escape(kw) + suffix, text)
+    return m.start() if m else -1
+
+
+def domain_matches(brief):
+    """⇒ [(موقعیت، واژه، معادلِ انگلیسی)] مرتب بر اساسِ وقوع در متن (بی‌تکرارِ معادل)."""
+    text = _norm(brief)
+    seen, out = set(), []
+    for fa, en in FA_EN:
+        pos = _find(text, fa)
+        if pos >= 0 and en not in seen:
+            seen.add(en)
+            out.append((pos, fa, en))
+    return sorted(out)
+
+
+def section_intents(brief, implied=True):
+    """⇒ فهرستِ دستهٔ بخش‌های صفحه که متن خواسته، به ترتیبِ وقوع (['pricing', 'faq', …]). implied: بخش‌هایی که حوزهٔ کار معمولاً می‌خواهد (DOMAIN_SECTIONS) پشتِ سرِ صریح‌ها."""
+    text = _norm(brief)
+    found = []
+    for cat, words, _en in SECTION_INTENTS:
+        pos = min((p for p in (_find(text, w) for w in words) if p >= 0), default=-1)
+        if pos >= 0:
+            found.append((pos, cat))
+    out = [c for _p, c in sorted(found)]
+    if implied:
+        for _p, _fa, en in domain_matches(brief)[:2]:
+            for it in DOMAIN_SECTIONS.get(en, ()):
+                if it not in out:
+                    out.append(it)
+    return out
 
 
 def en_words(brief):
-    """متنِ فارسی ⇒ همان متن + معادل‌های انگلیسیِ واژه‌های رایج (برای جست‌وجو در دادهٔ انگلیسی)."""
-    extra = ' '.join(en for fa, en in FA_EN if fa in (brief or ''))
+    """متنِ فارسی ⇒ همان متن + معادل‌های انگلیسیِ «حوزه» و «بخش‌های صفحه» (برای جست‌وجو در دادهٔ انگلیسی)."""
+    extra = ' '.join(en for _p, _fa, en in domain_matches(brief))
+    sec = {c: en for c, _w, en in SECTION_INTENTS}
+    extra += ' ' + ' '.join(sec[c] for c in section_intents(brief))
     return ((brief or '') + ' ' + extra).strip()
+
+
+def product_query(brief):
+    """جست‌وجوی «نوعِ محصول»: واژهٔ حوزهٔ اولِ متن سر است («فروشگاه ورزشی» ⇒ فروشگاه)؛ بقیه فقط برای رتبه‌بندیِ بینِ هم‌رده‌ها. ⇒ (سر، بقیه) انگلیسی."""
+    dm = domain_matches(brief)
+    if not dm:
+        return '', ''
+    head = dm[0][2]
+    rest = ' '.join(en for _p, _fa, en in dm[1:])
+    return head, rest
 
 
 def _cut(text, n=GUIDE_FIELD):
@@ -154,10 +251,28 @@ def _cut(text, n=GUIDE_FIELD):
     return text if len(text) <= n else text[:n - 1].rstrip() + '…'
 
 
+def _product_rows(uiux, orig_brief, brief_en):
+    """ردیفِ «نوعِ محصول» (۰ یا ۱ ردیف). واژهٔ حوزهٔ اولِ متن سر است («فروشگاه ورزشی» ⇒ E-commerce، نه Fitness)؛ بقیهٔ واژه‌ها فقط بینِ هم‌رده‌ها رتبه می‌دهند.
+    متنِ فارسیِ فقط-بخش («صفحهٔ قیمت‌گذاری»، «پرسش‌های پرتکرار») نوعِ محصول ندارد ⇒ هیچ (ردیفِ بی‌ربط و پالتِ بی‌ربط به مدل نمی‌رسید)."""
+    head, rest = product_query(orig_brief)
+    if head:
+        cands = uiux.search('products', head, limit=6)
+        words = uiux._words(rest)
+        if cands and words:
+            fields = uiux.SEARCH_FIELDS['products']
+            best = max(range(len(cands)), key=lambda i: (uiux._score(cands[i], words, fields), -i))
+            return [cands[best]]
+        return cands[:1]
+    if section_intents(orig_brief, implied=False) and not re.search(r'[A-Za-z]{3}', orig_brief or ''):
+        return []
+    return uiux.search('products', brief_en, limit=1) if brief_en else []
+
+
 def uiux_hints(brief='', kind='home', style_key='', max_chars=GUIDE_MAX_CHARS):
     """⇒ {'ux': […], 'pattern': {…}, 'product': {…}, 'chart': {…}, 'rtl': {…}} با «فقط ردیف‌های مرتبط» از کلِ دادهٔ ui-ux-pro-max؛ کوچک و محدود (≤ max_chars).
     نه کلِ هزاران ردیف: چند رهنمودِ UX، یک الگوی صفحه، یک ردیفِ محصول/استدلال، (اگر درخواست داده/نمودار است) یک نمودار و یک نکتهٔ راست‌به‌چپ."""
     uiux = styles_mod.uiux
+    orig_brief = brief or ''
     brief = en_words(brief)
     out = {}
     ux = []
@@ -176,7 +291,7 @@ def uiux_hints(brief='', kind='home', style_key='', max_chars=GUIDE_MAX_CHARS):
     if pat:
         p = pat[0]
         out['pattern'] = {'name': _cut(p.get('name'), 60), 'sections': _cut(p.get('sections'), 170), 'cta': _cut(p.get('cta'), 60), 'colors': _cut(p.get('color_strategy'), 110)}
-    prod = uiux.search('products', brief, limit=1) if brief else []
+    prod = _product_rows(uiux, orig_brief, brief)
     if prod:
         p = prod[0]
         out['product'] = {'type': _cut(p.get('product'), 50), 'style': _cut(p.get('primary_style'), 70), 'landing': _cut(p.get('landing'), 60), 'notes': _cut(p.get('notes'), 120)}
@@ -222,28 +337,51 @@ _CAT_OF_PLAN = {'hero': ('hero',), 'features': ('features', 'tabs'), 'testimonia
                 'faq': ('accordion',), 'steps': ('landing-page',), 'cards': ('card',), 'gallery': ('marquee', 'carousel'), 'navbar': ('navigation',), 'footer': ('footer',)}
 
 
+def _c21_hay(e, row):
+    """متنِ جست‌وجوی یک قطعهٔ تبدیل‌شده: عنوان + دسته + کتابخانه + برچسب‌ها و توضیحِ انگلیسیِ کاتالوگ."""
+    parts = [e.get('title', ''), ' '.join(e.get('cats', [])), e.get('library', '')]
+    if row:
+        parts += [' '.join(row.get('tags', []) or []), row.get('description', '')]
+    return _words(' '.join(parts))
+
+
 def c21_suggest(brief='', kind='home', pinned=(), limit=MAX_C21):
-    """⇒ حداکثر `limit` قطعهٔ تبدیل‌شده (سنجاق‌شده‌ها اول؛ بعد امتیازِ کلمه‌های مشترک + جورِ بودنِ دسته با نوعِ صفحه)؛ هر کدام {id, class, cat, title, html}."""
+    """⇒ حداکثر `limit` قطعهٔ تبدیل‌شده (سنجاق‌شده‌ها اول؛ بعد «بخشی که متن خواسته» (قیمت ⇒ جدولِ قیمت، پرسش ⇒ FAQ …) و امتیازِ کلمه‌های مشترک
+    با عنوان/برچسب/توضیح + جورِ بودنِ دسته با نوعِ صفحه)؛ هر کدام {id, class, cat, title, html}. قطعه‌ای که به‌صورتِ ایستا خالی دیده می‌شود (rtl=fail) هرگز نمی‌آید."""
+    from . import c21st
     idx = c21_convert.load_index()
     if not idx:
         return []
-    chosen = [i for i in dict.fromkeys(pinned or ()) if i in idx][:limit]
+    chosen = [i for i in dict.fromkeys(pinned or ()) if i in idx and idx[i].get('rtl') != 'fail'][:limit]
     if len(chosen) < limit:
         words = _words(en_words(brief))
+        asked = section_intents(brief)
+        asked_cats = []                                   # به ترتیبِ وقوعِ بخش در متن: [(intent, {دسته‌های 21st})]
+        for it in asked:
+            asked_cats.append((it, set(_CAT_OF_PLAN.get(it, ())) | set(_C21_OF_INTENT.get(it, ()))))
         want = set()
         for cat in PAGE_PLANS.get(kind) or DEFAULT_PLAN:
             want.update(_CAT_OF_PLAN.get(cat, ()))
+        rows = {r['id']: r for r in c21st.load() if r['id'] in idx}
         scored = []
         for cid, e in idx.items():
             if cid in chosen or e.get('rtl') == 'fail':
                 continue
-            hay = _words(' '.join([e.get('title', ''), ' '.join(e.get('cats', [])), e.get('library', '')]))
-            fit = len(want & set(e.get('cats', [])))
-            s = 2 * len(words & hay) + 3 * fit
+            ecats = set(e.get('cats', []))
+            hay = _c21_hay(e, rows.get(cid))
+            ask_hit = sum(1 for _it, cs in asked_cats if cs & ecats)
+            s = 2 * len(words & hay) + 2 * len(want & ecats) + 8 * ask_hit
             if s:
-                scored.append((s, e.get('bytes', 0), cid))
-        scored.sort(key=lambda x: (-x[0], x[1], x[2]))                  # امتیاز بالا، بعد کوچک‌تر (کم‌هزینه برای پرامپت)
-        chosen += [cid for _s, _b, cid in scored[:limit - len(chosen)]]
+                scored.append((s, ask_hit, e.get('bytes', 0), cid))
+        scored.sort(key=lambda x: (-x[0], x[2], x[3]))             # امتیاز بالا، بعد کوچک‌تر (کم‌هزینه برای پرامپت)
+        # هر بخشِ خواسته‌شده یک نمایندهٔ خودش را می‌گیرد (قیمت و پرسش با هم خواسته شدند ⇒ هر دو)
+        for it, cs in asked_cats:
+            if len(chosen) >= limit:
+                break
+            best = next((cid for _s, _h, _b, cid in scored if cid not in chosen and cs & set(idx[cid].get('cats', []))), None)
+            if best:
+                chosen.append(best)
+        chosen += [cid for _s, _h, _b, cid in scored if cid not in chosen][:limit - len(chosen)]
     out = []
     for cid in chosen:
         e = idx[cid]

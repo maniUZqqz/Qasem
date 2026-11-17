@@ -249,11 +249,11 @@ STYLES = {
                    'btn_sh': 'inset 0 -6px 10px rgba(0,0,0,.18),inset 0 4px 8px rgba(255,255,255,.65),3px 4px 0 #2a0a4a',
                    'ic_bg': 'radial-gradient(circle at 30% 25%,#ffffff 0,#ffc2e6 40%,#ca0077 100%)', 'ic_fg': '#2a0a4a', 'ic_r': '50%',
                    'eb_bg': '#bff4ff', 'eb_r': '999px', 'hd_bg': '#ffffff', 'hd_bd': '2px solid #2a0a4a',
-                   'hero_bg': 'conic-gradient(from 210deg at 70% 30%,#ff7ac6,#8f5bff,#4fd3ff,#ff7ac6)', 'hero_fg': '#ffffff', 'hero_btn_bg': '#ffffff', 'hero_btn_fg': '#ca0077',
-                   'cta_bg': 'linear-gradient(120deg,#ff7ac6,#8f5bff 55%,#4fd3ff)', 'cta_fg': '#ffffff', 'cta_bd': '2px solid #2a0a4a', 'cta_sh': '6px 6px 0 #2a0a4a',
+                   'hero_bg': 'conic-gradient(from 210deg at 70% 30%,#c2257f,#6d3fd1,#0a7497,#c2257f)', 'hero_fg': '#ffffff', 'hero_btn_bg': '#ffffff', 'hero_btn_fg': '#ca0077',
+                   'cta_bg': 'linear-gradient(120deg,#c2257f,#6d3fd1 55%,#0a7497)', 'cta_fg': '#ffffff', 'cta_bd': '2px solid #2a0a4a', 'cta_sh': '6px 6px 0 #2a0a4a',
                    'in_bd': '2px solid #2a0a4a', 'in_bg': '#ffffff', 'hl_bd': '2px solid #2a0a4a', 'hl_sh': '8px 8px 0 #ca0077'},
         'sections': {'hero': 'framed', 'features': '', 'pricing': 'bold', 'testimonials': 'marked', 'faq': 'boxed', 'cta': '', 'site_header': 'floating'},
-        'extra': '.nb-btn.is-filled{background:linear-gradient(180deg,#ff8fd0 0,#ca0077 55%,#a8005f 100%);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.25)}'
+        'extra': '.nb-btn.is-filled{background:linear-gradient(180deg,color-mix(in srgb,#ca0077 94%,#fff) 0,#ca0077 55%,color-mix(in srgb,#ca0077 78%,#000) 100%);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.25)}'
                  '.nb-hero-title{text-shadow:3px 3px 0 #2a0a4a;-webkit-text-stroke:0}.nb-btn.is-ghost{color:#fff;border-color:#fff}'
                  '.nb-eyebrow{border:2px solid #2a0a4a;color:#2a0a4a}.nb-hero .nb-sub{text-shadow:1px 1px 0 rgba(42,10,74,.5)}'
                  '.nb-feature:nth-child(even) .nb-feature-icon{background:radial-gradient(circle at 30% 25%,#ffffff 0,#bff4ff 40%,#2fb4e0 100%)}',

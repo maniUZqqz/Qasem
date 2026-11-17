@@ -88,7 +88,7 @@ def clay(P, o):
 def tactile(P, o):
     c = clay(P, o)
     c['tokens'].update(card_bg='linear-gradient(160deg,%s,%s)' % (tint(P.surface, .0) if not P.dark else tint(P.surface, .04), mix(P.surface, P.primary, .08)),
-                       btn_sh='inset 0 -8px 14px rgba(0,0,0,.18),inset 0 8px 14px rgba(255,255,255,.5),0 12px 22px -8px %s' % rgba(P.primary, .7), hov='translateY(-4px) scale(1.01)')
+                       btn_sh='inset 0 -8px 14px rgba(0,0,0,.18),inset 0 8px 14px rgba(255,255,255,.16),0 12px 22px -8px %s' % rgba(P.primary, .7), hov='translateY(-4px) scale(1.01)')
     c['extra'] = '.nb-feature-icon{box-shadow:inset 0 -4px 8px rgba(0,0,0,.14),inset 0 4px 8px rgba(255,255,255,.55)}'
     return c
 
@@ -105,7 +105,7 @@ def brut(P, o):
                             hero_btn_fg=bf, cta_bg=P.primary, cta_fg=P.on_primary, cta_bd='3px solid ' + ink, cta_sh='8px 8px 0 ' + ink, cta_r='0',
                             sec_py='clamp(44px,6vw,76px)'),
                 extra='.nb-btn:hover{box-shadow:7px 7px 0 %s}.nb-btn:active{transform:translate(3px,3px);box-shadow:0 0 0 %s}.nb-hero .nb-sub{opacity:1}' % (ink, ink)
-                      + '.nb-feature:nth-child(3n+2){background:%s}.nb-feature:nth-child(3n+3){background:%s}' % (mix(P.surface, o.get('acc3') or '#7be0b0', .45), mix(P.surface, P.acc2, .3)))
+                      + '.nb-feature:nth-child(3n+2){background:%s}.nb-feature:nth-child(3n+3){background:%s}' % (stop_for(mix(P.surface, o.get('acc3') or '#7be0b0', .45), P.text2, 5.6), stop_for(mix(P.surface, P.acc2, .3), P.text2, 5.6)))
 
 
 def raw(P, o):

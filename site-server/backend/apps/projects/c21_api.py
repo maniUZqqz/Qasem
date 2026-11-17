@@ -6,6 +6,8 @@
     GET  projects/<slug>/builder/c21/<کلید>/block/     ⇒ {block}: بلوکِ c21 با متن‌های نمونه؛ پنل درونِ صفحه می‌گذارد
     POST c21st/convert/                                ⇒ نوبتِ تبدیل در صفِ Celery (۲۰۲)
     GET  c21st/pipeline/                               ⇒ وضعیتِ خزش، تبدیل و کارِ گره
+    GET  c21st/preview/<کلید>/                         ⇒ {doc, …}: همان قطعه در صفحه‌ای مستقل با پوستهٔ خنثی (بی‌پروژه؛ برای استودیوی طراحی)
+    GET  c21st/block/<کلید>/                           ⇒ {block}: بلوکِ c21 بی‌پروژه (استودیوی طراحی در طرحِ UI می‌گذارد؛ «ساختِ سایت از طرح» همان را در سایت‌ساز می‌آورد)
 """
 import re
 
@@ -69,6 +71,31 @@ def c21_block(request, slug, key):
     return Response({"block": new_block(EM.TYPE, **EM.default_props(rec))})
 
 
+@studio_api("GET")
+def c21_preview_free(request, key):
+    """پیش‌نمایشِ بی‌پروژه (استودیوی طراحی): صفحهٔ مستقلِ HTML با پوستهٔ خنثی؛ پنل آن را در iframe ِ بی‌اسکریپت (srcdoc) نشان می‌دهد."""
+    from .builder import c21_rtl
+
+    rec = _rec(key)
+    if (rec.get("rtl") or {}).get("status") == "fail":
+        return bad("این قطعه برای درج بسته شده است (سرریز یا خالیِ ایستا).", code=409)
+    pv = EM.preview_page(key)
+    if not pv:
+        raise Http404
+    return Response({"key": key, "id": rec["id"], "doc": c21_rtl.PAGE % (pv["css"], pv["html"]), "title": rec.get("title", ""), "license": rec.get("license", ""),
+                     "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""), "cats": rec.get("cats", []),
+                     "source": {k: (rec.get("source") or {}).get(k, "") for k in ("repo", "license", "copyright")}})
+
+
+@studio_api("GET")
+def c21_block_free(request, key):
+    rec = _rec(key)
+    if (rec.get("rtl") or {}).get("status") == "fail":
+        return bad("این قطعه برای درج بسته شده است (سرریز یا خالیِ ایستا).", code=409)
+    return Response({"block": new_block(EM.TYPE, **EM.default_props(rec)), "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""),
+                     "library": rec.get("library", "")})
+
+
 @studio_api("POST")
 def c21_convert_start(request):
     from .tasks import c21_convert
@@ -83,8 +110,21 @@ def pipeline_json() -> dict:
     st = c21_pipeline.pipeline_state()
     rows = c21st.load()
     node = c21_node.state()
+    libs = c21_crawl.load_libs()
+    no_source = waiting = 0
+    for r in rows:                                               # «بدونِ کدِ عمومی» = تلاش شد و پیدا نشد، یا کتابخانه‌اش مخزنِ عمومی ندارد (هرگز تبدیل نمی‌شود)؛ «در انتظار» = مخزن دارد و نوبتش نرسیده
+        if not r.get("usable"):
+            continue
+        state = (r.get("conv") or {}).get("state")
+        if state == "no-source":
+            no_source += 1
+        elif state is None:
+            if (libs.get(r.get("library_id") or "") or {}).get("github"):
+                waiting += 1
+            else:
+                no_source += 1
     return {"toolchain": CV.toolchain_ready(), "converted": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "ok"),
-            "failed": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "failed"), "no_source": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "no-source"),
+            "failed": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "failed"), "no_source": no_source, "waiting": waiting,
             "license_blocked": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "license"), "last": {k: st.get(k) for k in ("converted", "failed", "libs_done", "remaining_libs", "finished_at")},
             "errors": (st.get("errors") or [])[-3:], "node": {"pending": len(node.get("pending", [])), "jobs": node.get("jobs", 0), "ingested": node.get("ingested", 0)}}
 

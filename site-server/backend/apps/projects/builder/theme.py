@@ -143,9 +143,22 @@ def theme_for_editor(theme_row, project, base_css):
     return data
 
 
+def brand_fg(c):
+    '''رنگِ اصلیِ برند به‌شکلِ «متن»: همان رنگ اگر روی زمینه، کارت و سطحِ برند-رنگ‌شده (پیل، دکمهٔ توخالی، درخششِ هیرو) تباینِ ≥ ۴٫۶ دارد، وگرنه کمترین تغییر
+    (به سمتِ سفید یا سیاه) تا بخواند. بازبینیِ ۱۱/۱۶: رنگِ برند (مثلاً فیروزه‌ایِ چغر) روی زمینهٔ تیره یا درخششِ هیرو ۲٫۴ تا ۴٫۴ بود.'''
+    try:
+        from .styles.gen_core import ensure, mix
+        brand, bg, card = c['primary'], c['bg'], c['surface']
+        bgs = [bg, card, mix(bg, brand, .25), mix(card, brand, .16)]
+        return ensure(brand, bgs, 6.2)
+    except (KeyError, ValueError, TypeError, IndexError):
+        return c.get('primary') or '#126F85'
+
+
 def colors_zone(theme):
     c = theme['colors']
     decls = ' '.join('%s: %s;' % (COLOR_VARS[k], c[k]) for k in COLOR_VARS)
+    decls += ' --brand-fg: %s;' % brand_fg(c)
     return '%s\n:root { %s --r: %dpx; --r-sm: %dpx; }\n%s\n' % (ZONE_START, decls, theme['radius'], max(0, theme['radius'] - 6), ZONE_END)
 
 
@@ -182,7 +195,7 @@ def blocks_css(theme, prefix='../fonts/', chrome_css=''):
               % (body, FALLBACK, head, body, FALLBACK, BUTTONS.get(theme.get('button'), 999), theme.get('width') or 1140))
     parts = [faces, tokens, BLOCK_CSS]
     if theme.get('style') in styles_mod.STYLES:
-        parts.append(styles_mod.style_css(theme['style'], rebrand=bool(theme.get('style_keep'))))
+        parts.append(styles_mod.style_css(theme['style'], rebrand=bool(theme.get('style_keep')), brand=(theme.get('colors') or {}).get('primary')))
     if (chrome_css or '').strip():
         parts.append('/* سربرگ و پابرگ */\n' + chrome_css.strip())
     return '\n'.join(parts) + '\n'

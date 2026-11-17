@@ -46,7 +46,7 @@ type Crawl = {
   usable?: number;
   previews?: number;
 };
-type Pipeline = { toolchain: boolean; converted: number; failed: number; no_source: number; license_blocked: number; node: { pending: number; jobs: number; ingested: number } };
+type Pipeline = { toolchain: boolean; converted: number; failed: number; no_source: number; waiting?: number; license_blocked: number; node: { pending: number; jobs: number; ingested: number } };
 type Listing = {
   total: number;
   page: number;
@@ -124,7 +124,7 @@ export default function C21stBrowser({
 }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
-  const [usable, setUsable] = useState(false);
+  const [usable, setUsable] = useState(mode === "ai");               // الهام برای AI فقط از قطعه‌های با مجوزِ آزاد؛ بقیه فقط کاتالوگ‌اند
   const [insertable, setInsertable] = useState(mode === "manual");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Listing | null>(null);
@@ -226,7 +226,7 @@ export default function C21stBrowser({
       {data.crawl.blocked && <p className="c21-warn">سرور از 21st.dev ۴۰۳ گرفت؛ خزش به کارِ «crawl21.run» روی سرورِ گرافیکی سپرده می‌شود و با روشن‌شدنِ آن خودکار ادامه پیدا می‌کند.</p>}
       {conv && (
         <p className="c21-note" data-testid="c21st-pipeline">
-          تبدیل: {fa(conv.converted)} قطعه آماده · {fa(conv.no_source)} بدونِ کدِ عمومی · {fa(conv.license_blocked)} مجوزِ مخزن آزاد نبود · {fa(conv.failed)} ناموفق
+          تبدیل: {fa(conv.converted)} قطعه آماده · {fa(conv.no_source)} بدونِ کدِ عمومی{conv.waiting ? ` · ${fa(conv.waiting)} در انتظارِ تبدیل` : ""} · {fa(conv.license_blocked)} مجوزِ مخزن آزاد نبود · {fa(conv.failed)} ناموفق
           {conv.node.pending ? ` · ${fa(conv.node.pending)} کارِ خزشِ سرورِ گرافیکی در انتظار` : ""}
         </p>
       )}
@@ -279,8 +279,9 @@ export default function C21stBrowser({
                       </button>
                     )}
                     {mode === "ai" && (
-                      <button type="button" className="c21-btn" aria-pressed={on} disabled={!on && picked.length >= max} onClick={() => toggle(it.id)}>
-                        {on ? "برداشتنِ الهام" : it.insertable ? "پیشنهاد به AI (HTMLِ آماده)" : "الهام برای AI"}
+                      <button type="button" className="c21-btn" aria-pressed={on} disabled={!it.usable || (!on && picked.length >= max)} onClick={() => toggle(it.id)}
+                              title={it.usable ? undefined : "مجوزِ آزاد ندارد؛ فقط در کاتالوگ دیده می‌شود و به هوشِ مصنوعی داده نمی‌شود"}>
+                        {!it.usable ? "فقط در کاتالوگ" : on ? "برداشتنِ الهام" : it.insertable ? "پیشنهاد به AI (HTMLِ آماده)" : "الهام برای AI"}
                       </button>
                     )}
                     {mode === "manual" && !it.insertable && it.nearest.map((n) => (

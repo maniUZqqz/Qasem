@@ -24,7 +24,8 @@ _RE_CLASS = re.compile(r'class="([^"]*)"')
 def attribution(rec: dict) -> str:
     """نشانِ مبدأ و مجوز به‌شکلِ یک توضیحِ HTML در خروجی (شرطِ MIT/Apache: اعلامِ حقِ نشر بماند)."""
     src = rec.get("source") or {}
-    bits = [rec.get("id", ""), src.get("license") or rec.get("license", ""), src.get("repo", ""), src.get("copyright", "")]
+    from . import c21_source
+    bits = [rec.get("id", ""), src.get("license") or rec.get("license", ""), src.get("repo", ""), c21_source.clean_copyright(src.get("copyright", ""), src.get("repo", ""))]
     text = " | ".join(re.sub(r"[<>{}%]|-{2,}", " ", str(b))[:120] for b in bits if b)
     return "<!-- 21st.dev: %s -->" % text if text else ""
 

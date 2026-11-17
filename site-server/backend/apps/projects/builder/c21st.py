@@ -132,15 +132,22 @@ def _field(md: str, name: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def link_text(s: str) -> str:
+    """«[Spectrum UI](https://21st.dev/@…/library/spectrum-ui)» ⇒ «Spectrum UI» (در کارت‌ها نباید مارک‌داونِ خام دیده شود)."""
+    s = (s or "").strip()
+    m = re.match(r"^\[([^\]]+)\]\([^)]*\)\s*$", s) or re.match(r"^\[([^\]]+)\]", s)
+    return m.group(1).strip() if m else s
+
+
 def parse_component_md(md: str) -> dict:
     title = re.search(r"^#\s+(.+)$", md or "", re.M)
     desc = re.search(r"^>\s+(.+)$", md or "", re.M)
-    link = lambda s: (re.match(r"\[([^\]]+)\]", s) or [None, s])[1]  # noqa: E731
+    link = link_text
     lic = _field(md, "License")
     tags = [t.strip() for t in _field(md, "Tags").split(",") if t.strip()]
     deps = [t.strip() for t in _field(md, "npm dependencies").split(",") if t.strip()]
     return {"title": title.group(1).strip()[:120] if title else "", "description": desc.group(1).strip()[:260] if desc else "",
-            "author_name": link(_field(md, "Author"))[:80], "library": _field(md, "Library")[:80], "license": lic[:40],
+            "author_name": link(_field(md, "Author"))[:80], "library": link_text(_field(md, "Library"))[:80], "license": lic[:40],
             "tags": tags[:10], "deps": deps[:8]}
 
 
@@ -288,16 +295,36 @@ def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1,
             "insertable": sum(1 for r in rows if insertable(r)), "with_preview": sum(1 for r in rows if r.get("preview"))}
 
 
+_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}}
+
+
+def _rtl_index() -> dict:
+    """شناسه ⇒ وضعیتِ سنجشِ رکوردِ تبدیل‌شده (converted/index.json؛ منبعِ حقیقت: خزش ممکن است ردیفِ کاتالوگ را با نسخهٔ کهنه بازنویسی کند، پس «fail» فقط از این‌جا هم دیده می‌شود)."""
+    p = root() / "converted" / "index.json"
+    try:
+        stt = p.stat()
+        m = (stt.st_mtime_ns, stt.st_size)                 # زمانِ فایل دانه‌درشت است (چند میلی‌ثانیه)؛ اندازه هم در کلید می‌آید
+    except OSError:
+        return {}
+    if _rtl_cache["mtime"] != m or _rtl_cache["path"] != str(p):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()})
+        except (OSError, ValueError):
+            return {}
+    return _rtl_cache["map"]
+
+
 def insertable(r: dict) -> bool:
-    """قطعه‌ای که تبدیل شده و می‌شود در صفحه گذاشت (مجوزِ آزاد + رکوردِ تبدیل + سنجشِ RTL رد نشده)."""
+    """قطعه‌ای که تبدیل شده و می‌شود در صفحه گذاشت (مجوزِ آزاد + رکوردِ تبدیل + سنجشِ RTL/«خالیِ ایستا» رد نشده)."""
     conv = r.get("conv") or {}
-    return bool(r.get("usable") and conv.get("state") == "ok" and conv.get("key") and conv.get("rtl") != "fail")
+    return bool(r.get("usable") and conv.get("state") == "ok" and conv.get("key") and conv.get("rtl") != "fail" and _rtl_index().get(r.get("id")) != "fail")
 
 
 def public(r: dict) -> dict:
     code = (root() / "code" / (safe_name(r["id"]) + ".tsx")).is_file()
     conv = r.get("conv") or {}
-    return {"id": r["id"], "title": r.get("title", ""), "description": r.get("description", ""), "author": r.get("author_name", ""), "library": r.get("library", ""),
+    return {"id": r["id"], "title": r.get("title", ""), "description": r.get("description", ""), "author": r.get("author_name", ""), "library": link_text(r.get("library", "")),
             "license": r.get("license", "") or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
             "deps": r.get("deps", []), "cats": r.get("cats", []), "url": r.get("url") or f"{BASE}/@{r['id'].split('/')[0]}/components/{'/'.join(r['id'].split('/')[1:])}",
             "has_code": code, "nearest": nearest_components(r), "preview": bool(r.get("preview")), "insertable": insertable(r), "conv_key": conv.get("key", "") if insertable(r) else "",
@@ -441,11 +468,12 @@ def code_excerpt(cid: str, limit: int = EXCERPT_CHARS) -> str:
 # ───────────────────────────── به مدل (حالتِ AI)
 
 def inspiration_for(ids, limit: int = MAX_AI_REFS) -> list[dict]:
-    """حداکثر ``limit`` قطعه ⇒ ردیف‌های کوچک برای پرامپت. شناسهٔ ناشناخته یا بی‌مجوزِ آزاد دور ریخته می‌شود (برای قطعه‌های بی‌مجوز فقط عنوان و برچسب)."""
+    """حداکثر ``limit`` قطعه ⇒ ردیف‌های کوچک برای پرامپت. شناسهٔ ناشناخته یا بی‌مجوزِ آزاد دور ریخته می‌شود: «بقیه فقط کاتالوگ» (بازبینیِ ۱۱/۱۶:
+    پیش‌تر برای قطعه‌های بی‌مجوز هم عنوان و برچسب به مدل می‌رسید)."""
     out: list[dict] = []
     for cid in list(dict.fromkeys(ids or []))[:limit]:
         r = by_id(str(cid))
-        if r is None:
+        if r is None or not r.get("usable"):
             continue
         row = {"id": r["id"], "title": r.get("title", ""), "summary": (r.get("description") or "")[:200], "tags": r.get("tags", [])[:6],
                "deps": r.get("deps", [])[:4], "license": r.get("license", "") or "نامعلوم"}
@@ -458,5 +486,6 @@ def inspiration_for(ids, limit: int = MAX_AI_REFS) -> list[dict]:
 
 
 def valid_ids(ids) -> list[str]:
-    have = {r["id"] for r in load()}
+    """شناسه‌های معتبرِ «الهام»: فقط قطعه‌های با مجوزِ آزاد (بقیه فقط در کاتالوگ دیده می‌شوند)."""
+    have = {r["id"] for r in load() if r.get("usable")}
     return [i for i in dict.fromkeys(str(x) for x in (ids or [])) if i in have][:MAX_AI_REFS]

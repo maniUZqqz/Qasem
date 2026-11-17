@@ -19,7 +19,7 @@ SPECS = [
 .nbc-ng-card::before,.nbc-ng-card::after{content:"";position:absolute;inset:-2px;z-index:-1;border-radius:inherit;background:linear-gradient(0deg,var(--ng1),var(--ng2));background-size:100% 220%;animation:nbc-ng-spin 3.2s ease infinite alternate}
 .nbc-ng-card::after{inset:-1px;filter:blur(16px);opacity:.65}
 .nbc-ng-in{height:100%;display:grid;gap:8px;align-content:start;padding:clamp(20px,3vw,30px);border-radius:calc(var(--st-card-r,20px) - 2px);background:var(--card);color:var(--ink)}
-.nbc-arrow{font-weight:700;color:var(--brand);opacity:1;justify-self:start;margin-top:6px}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}
+.nbc-arrow{font-weight:700;color:var(--brand-fg,var(--brand));opacity:1;justify-self:start;margin-top:6px}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}
 @keyframes nbc-ng-spin{from{background-position:50% 0}to{background-position:50% 100%}}
 @media (prefers-reduced-motion:reduce){.nbc-ng-card::before,.nbc-ng-card::after{animation:none}}""",
       'کارت نئون گرادیان حاشیه درخشان متحرک', 'aurora dark-luxury retro-y2k glassmorphism neo-brutalism',
@@ -37,7 +37,7 @@ background:var(--st-card-bg,var(--card));border:var(--st-card-bd,1px solid var(-
 .nbc-sp-i::before{background:radial-gradient(240px circle at var(--sx) var(--sy),color-mix(in srgb,var(--brand) 22%,transparent),transparent 70%)}
 .nbc-sp-i::after{padding:1px;background:radial-gradient(200px circle at var(--sx) var(--sy),var(--brand),transparent 70%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
 .nbc-sp-i:hover::before,.nbc-sp-i:hover::after,.nbc-sp-i:focus-within::before,.nbc-sp-i:focus-within::after{opacity:1}
-.nbc-sp-i>*{position:relative}.nbc-arrow{font-weight:700;color:var(--brand);opacity:1;justify-self:start;margin-top:6px}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}""",
+.nbc-sp-i>*{position:relative}.nbc-arrow{font-weight:700;color:var(--brand-fg,var(--brand));opacity:1;justify-self:start;margin-top:6px}.nbc-arrow::after{content:"\2190";margin-inline-start:8px}""",
       'کارت نور لبه اسپات لایت هاور', 'aurora dark-luxury glassmorphism bento-grid corporate-clean',
       src=PV.adapted('magicui', 'apps/www/registry/magicui/magic-card.tsx', 'magic-card',
                      'نورِ شعاعی روی لبه و درونِ کارت از MagicCard؛ ردگیریِ ماوس (framer-motion) برداشته شد و نور در گوشهٔ ثابتی از هر کارت می‌نشیند و با hover/focus پدیدار می‌شود')),
@@ -50,7 +50,7 @@ background:var(--st-card-bg,var(--card));border:var(--st-card-bd,1px solid var(-
       """<h3 class="nbc-h3" data-s="name"></h3><b class="nbc-tm4-r" data-s="role"></b><p class="nbc-text" data-s="text|m"></p></article><!--/each--></div>""",
       """.nbc-tm4{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}.nbc-tm4-i{display:grid;justify-items:center;text-align:center;gap:4px}
 .nbc-tm4-ph{width:112px;height:112px;border-radius:50%;object-fit:cover;margin-bottom:10px;box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 18%,transparent)}
-.nbc-tm4-r{font-size:.86rem;color:var(--brand);font-weight:700;margin-bottom:6px}""",
+.nbc-tm4-r{font-size:.86rem;color:var(--brand-fg,var(--brand));font-weight:700;margin-bottom:6px}""",
       'کارت تیم افراد اعضا مربی', 'corporate-clean soft-pastel claymorphism organic bento-grid'),
 
     C('cards_blog', 'cards', 'کارت‌های نوشته', 'تصویر، تاریخ، عنوان و چند خطِ اول؛ برای وبلاگ و خبر',
@@ -62,7 +62,7 @@ background:var(--st-card-bg,var(--card));border:var(--st-card-bd,1px solid var(-
       """<time class="nbc-muted" data-s="date"></time><h3 class="nbc-h3" data-s="title"></h3><p class="nbc-text" data-s="text|m"></p><a class="nbc-link nbc-arrow" data-s="link_text" data-h="link"></a></div></article><!--/each--></div>""",
       r""".nbc-bl-i{padding:0;overflow:hidden;display:grid;align-content:start}.nbc-bl-img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
 .nbc-bl-b{display:grid;gap:6px;padding:clamp(16px,2.2vw,24px);align-content:start}.nbc-bl-b time:empty{display:none}
-.nbc-bl-i .nbc-arrow{font-weight:700;color:var(--brand);opacity:1;justify-self:start}.nbc-bl-i .nbc-arrow::after{content:"\2190";margin-inline-start:8px}""",
+.nbc-bl-i .nbc-arrow{font-weight:700;color:var(--brand-fg,var(--brand));opacity:1;justify-self:start}.nbc-bl-i .nbc-arrow::after{content:"\2190";margin-inline-start:8px}""",
       'کارت نوشته مقاله وبلاگ خبر', 'editorial corporate-clean minimalism soft-pastel organic bento-grid'),
 
     C('cards_product', 'cards', 'کارت‌های محصول', 'عکس، نام، قیمت و دکمهٔ هر محصول (قیمت‌ها را خودت بنویس)',
@@ -75,7 +75,7 @@ background:var(--st-card-bg,var(--card));border:var(--st-card-bd,1px solid var(-
       """.nbc-pd-i{padding:0;overflow:hidden;display:grid;gap:6px;align-content:start;padding-bottom:clamp(16px,2vw,22px)}.nbc-pd-i>*:not(.nbc-pd-m){margin-inline:clamp(16px,2vw,22px)}
 .nbc-pd-m{position:relative;background:color-mix(in srgb,var(--ink) 5%,var(--card));margin-bottom:8px}.nbc-pd-img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;border-radius:0}
 .nbc-pd-tag{position:absolute;inset-block-start:12px;inset-inline-start:12px;background:var(--brand);color:var(--brand-ink,#fff);font-size:.76rem}.nbc-pd-tag:empty{display:none}
-.nbc-pd-p{color:var(--brand);font-size:1.1rem;margin-bottom:8px}""",
+.nbc-pd-p{color:var(--brand-fg,var(--brand));font-size:1.1rem;margin-bottom:8px}""",
       'کارت محصول فروشگاه قیمت خرید', 'bento-grid soft-pastel claymorphism corporate-clean minimalism organic'),
 
     # ─────────────── گالری و نشان‌ها
@@ -103,7 +103,7 @@ border:var(--st-card-bd,0 solid transparent);box-shadow:var(--st-card-sh,none)}.
       """<div class="nbc-mq-track" aria-hidden="true"><!--each:items.dup--><figure class="nbc-lg-i"><img data-i="image" data-alt="name"><figcaption data-s="name"></figcaption></figure><!--/each--></div></div>""",
       """.nbc-logos-marquee{padding-block:clamp(28px,4vw,48px)}.nbc-lg-t{text-align:center;color:var(--ink-3);font-weight:600;margin:0 0 20px}
 .nbc-lg{--gap:48px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
-.nbc-lg-i{margin:0;display:flex;align-items:center;gap:8px;white-space:nowrap;color:var(--ink-2);font-weight:700;font-family:var(--nb-font-head,inherit);font-size:1.15rem;opacity:.75;transition:opacity .2s}
+.nbc-lg-i{margin:0;display:flex;align-items:center;gap:8px;white-space:nowrap;color:var(--ink-2);font-weight:700;font-family:var(--nb-font-head,inherit);font-size:1.15rem;opacity:.9;transition:opacity .2s}
 .nbc-lg-i:hover{opacity:1}.nbc-lg-i img{height:34px;width:auto;max-width:150px;object-fit:contain;filter:grayscale(1)}.nbc-lg-i:hover img{filter:none}
 .nbc-lg-i:has(img) figcaption{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}""",
       'نوار لوگو نشان همکاران مشتریان متحرک مارکی', 'minimalism corporate-clean aurora dark-luxury swiss bento-grid', uses='mq',

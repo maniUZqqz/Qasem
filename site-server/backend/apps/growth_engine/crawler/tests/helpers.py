@@ -90,7 +90,7 @@ SITE_HOME = """<html lang="fa"><head><title>باشگاه آرمان | تهران
 <h1>باشگاه آرمان</h1><p>باشگاه بدنسازی با مربی شخصی و برنامه تمرینی اختصاصی</p></body></html>"""
 SITE_CONTACT = """<html lang="fa"><body><h1>تماس با ما</h1>
 <p>آدرس: تهران، سعادت‌آباد، خیابان دوم، پلاک ۱۲</p>
-<p>تلفن: <a href="tel:+989121234567">۰۹۱۲ ۱۲۳ ۴۵۶۷</a></p><p>ایمیل: <a href="mailto:info@arman-gym.ir">info@arman-gym.ir</a></p>
+<p>تلفن: <a href="tel:+989121834765">۰۹۱۲ ۱۸۳ ۴۷۶۵</a></p><p>ایمیل: <a href="mailto:info@arman-gym.ir">info@arman-gym.ir</a></p>
 <p><a href="https://www.instagram.com/arman.gym/">اینستاگرام</a></p>
 <p>ساعت کاری: شنبه تا چهارشنبه ۷ تا ۲۲</p></body></html>"""
 SITE_ABOUT = "<html lang='fa'><body><h1>درباره ما</h1><p>مربی‌های ما شاگردان را با برنامه غذایی راهنمایی می‌کنند.</p></body></html>"

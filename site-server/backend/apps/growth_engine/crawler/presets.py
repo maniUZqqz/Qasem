@@ -27,6 +27,7 @@ class BusinessType:
     terms_en: tuple[str, ...] = ()
     words: tuple[str, ...] = ()  # seen in a name / title / site text: "this is one"
     fit_words: tuple[str, ...] = ()  # optional: signals of a good customer for the usual products (used by scoring only)
+    exclude: tuple[str, ...] = ()  # seen in a NAME: «this is something else» (a spa, an equipment dealer ...) - such a result is not this type
 
     @property
     def osm_selectors(self) -> list[tuple[str, str]]:
@@ -36,8 +37,8 @@ class BusinessType:
         return list(self.osm)
 
 
-def _t(key, fa, group, osm=(), terms_fa=(), terms_en=(), words=(), fit_words=()) -> BusinessType:
-    return BusinessType(key, fa, group, tuple(osm), tuple(terms_fa), tuple(terms_en), tuple(words), tuple(fit_words))
+def _t(key, fa, group, osm=(), terms_fa=(), terms_en=(), words=(), fit_words=(), exclude=()) -> BusinessType:
+    return BusinessType(key, fa, group, tuple(osm), tuple(terms_fa), tuple(terms_en), tuple(words), tuple(fit_words), tuple(exclude))
 
 
 GROUPS = {
@@ -50,14 +51,19 @@ _TYPES: list[BusinessType] = [
     _t("gym", "باشگاه بدنسازی و فیتنس", "sport", [("leisure", "fitness_centre"), ("amenity", "gym")],
        ["باشگاه بدنسازی", "باشگاه فیتنس", "سالن بدنسازی", "باشگاه ورزشی"], ["gym", "fitness club", "fitness center"],
        ["باشگاه", "بدنسازی", "فیتنس", "تناسب اندام", "gym", "fitness", "bodybuilding", "crossfit", "کراس فیت"],
-       ["مربی", "برنامه تمرینی", "برنامه غذایی", "رژیم", "شاگرد", "کوچینگ", "coach", "trainer"]),
+       ["مربی", "برنامه تمرینی", "برنامه غذایی", "رژیم", "شاگرد", "کوچینگ", "coach", "trainer"],
+       ["اسپا", "spa", "ماساژ", "massage", "رقص", "dance", "تجهیزات", "لوازم", "فروشگاه", "بازرگانی", "تولیدی", "نمایندگی", "پاراگلایدر", "خلبانی", "پرواز",
+        "آرایشگاه", "سالن زیبایی", "کلینیک", "داروخانه", "مدرسه", "دبستان", "مهدکودک", "مهد کودک", "کافه", "رستوران", "هتل", "تالار", "شیرینی", "پوشاک", "مسجد"]),
     _t("sports_club", "مجموعه و باشگاه ورزشی", "sport", [("leisure", "sports_centre"), ("leisure", "sports_hall")],
        ["مجموعه ورزشی", "باشگاه ورزشی", "سالن ورزشی", "فرهنگسرای ورزشی"], ["sports club", "sports center"],
-       ["مجموعه ورزشی", "باشگاه", "سالن", "ورزشی", "sports", "club"], ["مربی", "کلاس", "coach", "trainer"]),
+       ["مجموعه ورزشی", "باشگاه", "سالن", "ورزشی", "sports", "club"], ["مربی", "کلاس", "coach", "trainer"],
+       ["اسپا", "spa", "ماساژ", "massage", "رقص", "dance", "تجهیزات", "لوازم", "فروشگاه", "بازرگانی", "تولیدی", "نمایندگی", "پاراگلایدر", "خلبانی", "پرواز", "هوانوردی",
+        "آرایشگاه", "سالن زیبایی", "کلینیک", "داروخانه", "مدرسه", "دبستان", "مهدکودک", "مهد کودک", "کافه", "رستوران", "هتل", "تالار", "شیرینی", "پوشاک", "مسجد"]),
     _t("personal_trainer", "مربی شخصی و مشاور تناسب اندام", "sport", [],
-       ["مربی بدنسازی", "مربی شخصی", "مربی تناسب اندام", "مربی آنلاین", "برنامه تمرینی اختصاصی"], ["personal trainer", "fitness coach", "online coach"],
+       ["مربی بدنسازی", "مربی شخصی", "مربی تناسب اندام", "مربی آنلاین", "برنامه تمرینی اختصاصی"], ["personal trainer", "fitness coach", "online coach", "bodybuilding coach"],
        ["مربی", "کوچ", "coach", "trainer", "pt", "تغذیه ورزشی", "برنامه تمرین"],
-       ["برنامه تمرینی", "برنامه غذایی", "شاگرد", "آنلاین", "رژیم"]),
+       ["برنامه تمرینی", "برنامه غذایی", "شاگرد", "آنلاین", "رژیم"],
+       ["فروشگاه", "تجهیزات", "بازرگانی", "نمایندگی", "اسپا", "ماساژ", "آرایشگاه", "مدرسه", "دبستان"]),
     _t("yoga_pilates", "یوگا و پیلاتس", "sport", [("sport", "yoga"), ("sport", "pilates")],
        ["استودیو یوگا", "باشگاه پیلاتس", "کلاس یوگا"], ["yoga studio", "pilates studio"], ["یوگا", "پیلاتس", "yoga", "pilates"], ["مربی", "کلاس"]),
     _t("martial_arts", "رزمی و دفاع شخصی", "sport",
@@ -177,7 +183,7 @@ class Pitch:
     benefit: str  # one sentence: why this kind of business would care
     cta: str  # the one thing we ask for
     voice: str = "صمیمی ولی حرفه‌ای، کوتاه و بدونِ اغراق"
-    sms: str = ""  # one short line for an SMS (the whole message has to fit two SMS parts, sender block included)
+    sms: str = ""  # one short line for an SMS (<= 45 characters: «سلام، از تیمِ «برند».» + this line + the sender block + the opt-out sentence must fit two SMS parts)
     avoid: tuple[str, ...] = ("قیمت", "درصد", "تضمین")
 
 
@@ -191,6 +197,16 @@ class Preset:
     spec: dict = field(default_factory=dict)
     pitch: Pitch | None = None
 
+
+_CHAGHER_PITCH = Pitch(
+    brand="چغر",
+    what="چغر دستیارِ هوش مصنوعیِ مربی‌هاست: برنامهٔ ورزشی و غذاییِ هر ورزشکار را در کمتر از یک دقیقه پیش‌نویس می‌کند و تصمیمِ نهایی همیشه با مربی است.",
+    benefit="برای مربی‌ها و باشگاه‌هایی که شاگردِ زیاد دارند وقتِ نوشتنِ برنامه را کم می‌کند.",
+    cta="اگر مایلید همین‌جا پاسخ بدهید تا بیشتر توضیح بدهم؛ شروعِ چغر رایگان است و کارتِ اعتباری نمی‌خواهد.",
+    voice="صمیمی ولی حرفه‌ای، کوتاه و بدونِ اغراق؛ مثلِ همکارِ مربی. «پیش‌نویس» را همیشه بگو؛ جایگزینِ مربی نیست.",
+    sms="دستیارِ هوش مصنوعیِ مربی‌ها؛ شروعِ رایگان.",
+    avoid=("قیمت", "درصد", "تضمین", "جایگزینِ مربی", "رضایتِ ۹۸", "۵۰۰ برنامه"),
+)
 
 _DEFAULT_BUDGET = {"max_requests": 600, "max_sites": 60, "max_pages_per_site": 5, "max_seconds": 1500, "max_bytes": 80_000_000, "domain_delay": 2.0, "max_search_queries": 8, "max_directory_pages": 12}
 
@@ -213,15 +229,7 @@ PRESETS: dict[str, Preset] = {
             "budget": {**_DEFAULT_BUDGET},
             "execution": "auto",
         },
-        pitch=Pitch(
-            brand="چغر",
-            what="چغر دستیارِ هوش مصنوعیِ مربی‌هاست: برنامهٔ ورزشی و غذاییِ هر ورزشکار را در کمتر از یک دقیقه پیش‌نویس می‌کند و تصمیمِ نهایی همیشه با مربی است.",
-            benefit="برای مربی‌ها و باشگاه‌هایی که شاگردِ زیاد دارند وقتِ نوشتنِ برنامه را کم می‌کند.",
-            cta="اگر مایلید همین‌جا پاسخ بدهید تا بیشتر توضیح بدهم؛ شروعِ چغر رایگان است و کارتِ اعتباری نمی‌خواهد.",
-            voice="صمیمی ولی حرفه‌ای، کوتاه و بدونِ اغراق؛ مثلِ همکارِ مربی. «پیش‌نویس» را همیشه بگو؛ جایگزینِ مربی نیست.",
-            sms="دستیارِ هوش مصنوعیِ مربی‌ها برای پیش‌نویسِ برنامهٔ ورزشی و غذایی؛ شروع رایگان.",
-            avoid=("قیمت", "درصد", "تضمین", "جایگزینِ مربی", "رضایتِ ۹۸", "۵۰۰ برنامه"),
-        ),
+        pitch=_CHAGHER_PITCH,
     ),
     "chagher_coaches_instagram": Preset(
         key="chagher_coaches_instagram",
@@ -236,12 +244,13 @@ PRESETS: dict[str, Preset] = {
             "cities": ["تهران", "اصفهان", "مشهد", "شیراز"],
             "language": "fa",
             "sources": {"osm": False, "search": True, "directory": True, "website": True, "instagram": True, "neshan": False},
-            "require_contact": False,
+            "include_online": True,
+            "require_contact": True,
             "max_results": 200,
-            "budget": {**_DEFAULT_BUDGET, "max_ig_accounts": 40},
+            "budget": {**_DEFAULT_BUDGET, "max_ig_accounts": 40, "max_search_queries": 12, "max_directory_pages": 24},
             "execution": "auto",
         },
-        pitch=None,
+        pitch=_CHAGHER_PITCH,
     ),
     "cafes_isfahan": Preset(
         key="cafes_isfahan",
@@ -266,7 +275,7 @@ PRESETS: dict[str, Preset] = {
             what="آپ‌مارکت ابزارِ بازاریابیِ فارسی برای کسب‌وکارهاست: از محتوای شبکه‌های اجتماعی تا عکس و ویدیوی محصول.",
             benefit="برای کافه‌هایی که پیجِ اینستاگرامِ فعال دارند ساختنِ پست و استوریِ روزانه را سریع‌تر می‌کند.",
             cta="اگر دوست دارید، یک نمونهٔ رایگان برای کافهٔ شما آماده می‌کنم تا ببینید.",
-            sms="ابزارِ فارسیِ ساختنِ پست و استوریِ اینستاگرام برای کافه‌ها.",
+            sms="پست و استوریِ اینستاگرام برای کافه‌ها.",
             avoid=("قیمت", "درصد", "تضمین"),
         ),
     ),
@@ -293,7 +302,7 @@ PRESETS: dict[str, Preset] = {
             what="آپ‌مارکت ابزارِ بازاریابیِ فارسی برای فروشگاه‌هاست: عکسِ حرفه‌ایِ محصول، کپشن و ویدیوی اینستاگرام.",
             benefit="برای فروشگاه‌هایی که محصولِ زیاد دارند عکس و کپشنِ هر محصول را سریع و یکدست می‌کند.",
             cta="اگر مایلید، با یکی از محصولاتِ فروشگاهتان یک نمونه می‌سازم و برایتان می‌فرستم.",
-            sms="ابزارِ فارسیِ عکس، کپشن و ویدیوی محصول برای فروشگاه‌ها.",
+            sms="عکس و کپشنِ محصول برای فروشگاه‌ها.",
         ),
     ),
     "dental_clinics_mashhad": Preset(
@@ -319,7 +328,7 @@ PRESETS: dict[str, Preset] = {
             what="آپ‌مارکت ابزارِ بازاریابیِ فارسی برای کسب‌وکارهاست؛ از جمله محتوای آموزشیِ شبکه‌های اجتماعی برای کلینیک‌ها.",
             benefit="کلینیک‌ها را در ساختنِ محتوای آموزشیِ منظم برای اینستاگرام یاری می‌کند.",
             cta="اگر مایلید، یک نمونه محتوای آموزشی برای کلینیکتان آماده می‌کنم.",
-            sms="ابزارِ فارسیِ ساختنِ محتوای آموزشیِ اینستاگرام برای کلینیک‌ها.",
+            sms="محتوای آموزشیِ اینستاگرام برای کلینیک‌ها.",
             avoid=("قیمت", "درصد", "تضمین", "درمان", "نتیجه"),
         ),
     ),

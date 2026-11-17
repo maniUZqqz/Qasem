@@ -163,7 +163,7 @@ export default function RunPanel({ runId, onChanged }: { runId: number; onChange
           ))}
         </div>
         <p className="text-xs" style={{ color: "var(--text-3)" }}>
-          کارها: {fa(run.tasks.done)} از {fa(run.tasks.total)} انجام شد{run.tasks.failed ? `، ${fa(run.tasks.failed)} ناموفق` : ""} · حجمِ دریافتی {bytes(run.bytes)} · {fa(run.cache_hits)} صفحه از حافظه{run.usage?.seconds ? ` · ${fa(Math.round(run.usage.seconds / 60))} دقیقه` : ""}
+          کارها: {fa(run.tasks.done)} از {fa(run.tasks.total)} انجام شد{run.tasks.failed ? `، ${fa(run.tasks.failed)} ناموفق` : ""} · حجمِ دریافتی {bytes(run.bytes)} · {fa(run.cache_hits)} صفحه از حافظه{run.usage?.seconds ? ` · ${fa(Math.round(run.usage.seconds / 60))} دقیقه` : ""}{run.out_of_area ? ` · ${fa(run.out_of_area)} مورد از شهرِ دیگر کنار گذاشته شد` : ""}
         </p>
 
         {sources.length > 0 && (

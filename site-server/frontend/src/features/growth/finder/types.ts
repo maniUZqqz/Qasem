@@ -72,6 +72,7 @@ export type RunSummary = {
   pages: number;
   bytes: number;
   cache_hits: number;
+  out_of_area?: number;
   usage: { requests?: number; bytes?: number; seconds?: number; failures?: number; per_host?: Record<string, number> };
   parked_until: string | null;
   queued_at: string;

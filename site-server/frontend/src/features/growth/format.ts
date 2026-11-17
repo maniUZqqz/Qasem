@@ -8,11 +8,17 @@ export function faDate(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("fa-IR");
 }
 
-/** Persian date and time, e.g. «۱۴۰۵/۰۸/۱۴، ۱۶:۳۰». */
+const LRI = "⁦"; // each number is an isolated left-to-right run, so a date and a time never swap their parts inside an RTL line
+const PDI = "⁩";
+
+/** Persian date and time, e.g. «۱۴۰۵/۰۸/۱۴، ۱۶:۳۰» (date first, then the time, in an RTL line too). */
 export function faDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" });
+  if (Number.isNaN(d.getTime())) return "—";
+  const date = d.toLocaleDateString("fa-IR");
+  const time = d.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${LRI}${date}${PDI}، ${LRI}${time}${PDI}`;
 }
 
 /** «۳ دقیقه پیش» ... up to «۲۰ روز پیش», then the date. */

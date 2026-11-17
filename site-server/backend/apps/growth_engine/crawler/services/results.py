@@ -15,6 +15,7 @@ from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.leads.models import ContactPoint
 from apps.growth_engine.sources.models import LeadSource
 
+from ..engine import place
 from ..models import CrawlFinding, LeadReminder
 from . import pipeline
 
@@ -59,7 +60,8 @@ def filter_findings(qs: QuerySet[CrawlFinding], params: Mapping) -> QuerySet[Cra
         wanted = [s for st in pipeline.STAGES if st["key"] in _csv(stage) for s in st["statuses"]]
         qs = qs.filter(lead__status__in=wanted) if wanted else qs.none()
     if params.get("city"):
-        qs = qs.filter(lead__city__icontains=nz.normalize_text(str(params["city"])))
+        raw = nz.normalize_text(str(params["city"]))
+        qs = qs.filter(Q(lead__city__icontains=raw) | Q(lead__city__icontains=place.canonical_city(raw)))  # «Tehran», «tehran» and «شهر تهران» all find «تهران»
     tags = _csv(params.get("tag"))
     for tag in tags:
         qs = qs.filter(lead__tags__name_key=nz.search_key(tag)[:60])

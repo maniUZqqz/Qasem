@@ -141,7 +141,7 @@ def parse_elements(elements: list, *, city: str, allowed: list[str]) -> list[Fou
         label = presets.get_type(types[0]).fa if types else ""
         out.append(Found(
             name=name, source=SOURCE, ref=f"osm:{etype}/{eid}", url=f"https://www.openstreetmap.org/{etype}/{eid}",
-            category=label, types=types, city=(tags.get("addr:city") or city or "").strip(), address=_address(tags),
+            category=label, types=types, city=(tags.get("addr:city") or city or "").strip(), city_src="evidence" if tags.get("addr:city") else "", address=_address(tags),
             lat=centre.get("lat"), lon=centre.get("lon"), phones=_first(tags, PHONE_TAGS), emails=_first(tags, EMAIL_TAGS),
             whatsapp=_first(tags, WHATSAPP_TAGS), website=websites[0] if websites else "", instagram=instagram[0] if instagram else "",
             telegram=telegram[0] if telegram else "", hours=extras.osm_hours_fa(str(tags.get("opening_hours") or "")),

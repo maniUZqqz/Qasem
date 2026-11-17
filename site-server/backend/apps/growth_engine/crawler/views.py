@@ -85,7 +85,7 @@ def run_dict(r: CrawlRun) -> dict:
         "paused": r.paused, "pause_requested": r.pause_requested, "cancel_requested": r.cancel_requested, "stage": stage, "stage_label": STAGE_LABELS.get(stage, stage),
         "progress": pct, "message": r.message, "error": r.error, "tasks": {"total": r.tasks_total, "done": r.tasks_done, "failed": r.tasks_failed, "waiting_node": r.tasks_waiting},
         "found": r.found_count, "unique": r.unique_count, "created": r.created_count, "merged": r.merged_count, "skipped": r.skipped_count,
-        "pages": r.pages_fetched, "bytes": r.bytes_fetched, "cache_hits": r.cache_hits, "usage": (r.usage or {}).get("budget", {}), "parked_until": (r.usage or {}).get("parked_until") or None,
+        "pages": r.pages_fetched, "bytes": r.bytes_fetched, "cache_hits": r.cache_hits, "usage": (r.usage or {}).get("budget", {}), "out_of_area": int((r.usage or {}).get("out_of_area") or 0), "parked_until": (r.usage or {}).get("parked_until") or None,
         "queued_at": r.queued_at, "started_at": r.started_at, "finished_at": r.finished_at, "stalled": r.is_stalled, "attempts": r.attempts,
     }
 

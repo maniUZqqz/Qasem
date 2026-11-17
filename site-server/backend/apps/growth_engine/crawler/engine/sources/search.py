@@ -30,7 +30,7 @@ from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.integrations import safe_http as sh
 
 from ... import presets
-from .. import extras, textnorm
+from .. import extras, place, textnorm
 from ..candidates import Found
 from .base import RetryLater, SourceContext, TaskSpec
 
@@ -153,7 +153,7 @@ def host_of(url: str) -> str:
 
 
 def blocked_host(host: str) -> bool:
-    return any(host == b or host.endswith("." + b) for b in BLOCKED_HOSTS)
+    return any(host == b or host.endswith("." + b) for b in BLOCKED_HOSTS) or textnorm.is_media_host(host)
 
 
 def instagram_handle(url: str) -> str:
@@ -169,7 +169,7 @@ def instagram_handle(url: str) -> str:
 def relevant(hit: Hit, *, words: list[str], city: str, city_en: str = "") -> bool:
     """A result is relevant when its title / snippet / address names the KIND of business (or a query word) and the place (or is a .ir site)."""
     hay = nz.normalize_text(f"{hit.title} {hit.snippet} {unquote(hit.url)}").casefold()
-    kind_ok = any(nz.normalize_text(w).casefold() in hay for w in words if w)
+    kind_ok = bool(textnorm.name_has_word(hay, [w for w in words if w]))  # a Latin word counts only as a whole word («pt» is not in «script»)
     city_ok = (nz.normalize_text(city).casefold() in hay if city else True) or bool(city_en and city_en.casefold() in hay)
     iran_ok = host_of(hit.url).endswith(".ir") or "ایران" in hay or "iran" in hay
     return kind_ok and (city_ok or iran_ok)
@@ -216,31 +216,39 @@ CITY_EN = {
 
 
 def build_queries(spec: dict, limit: int) -> list[dict]:
-    """Per city, in this order: each type's first Persian term, its first English term (+ the city in English), the second Persian terms, the keywords."""
-    out: list[dict] = []
+    """Per city, in this order: each type's first Persian term, its first English term (+ the city in English), the second Persian terms, the keywords.
+    The cities share the query budget (round-robin), so with four cities each one gets its turn - the first city never uses it all up."""
     seen: set[str] = set()
     cities = [c for c in spec.get("cities", []) if c] or [""]
     types = [presets.get_type(t) for t in spec.get("business_types", []) if presets.get_type(t)]
 
-    def add(query: str, city: str, keys: list[str], words: list[str], city_en: str = "") -> None:
-        q = nz.normalize_text(query)
-        if q and q not in seen:
-            seen.add(q)
-            out.append({"query": q, "city": city, "city_en": city_en, "types": keys, "words": words})
+    def for_city(city: str) -> list[dict]:
+        out: list[dict] = []
+        city_en = CITY_EN.get(place.canonical_city(city), "")
 
-    for city in cities:
-        city_en = CITY_EN.get(nz.normalize_text(city), "")
+        def add(query: str, keys: list[str], words: list[str]) -> None:
+            q = nz.normalize_text(query)
+            if q and q not in seen:
+                seen.add(q)
+                out.append({"query": q, "city": city, "city_en": city_en, "types": keys, "words": words})
+
         for bt in types:
             if bt.terms_fa:
-                add(f"{bt.terms_fa[0]} {city}", city, [bt.key], [*bt.words, *bt.terms_fa], city_en)
+                add(f"{bt.terms_fa[0]} {city}", [bt.key], [*bt.words, *bt.terms_fa])
             if bt.terms_en and city_en:
-                add(f"{bt.terms_en[0]} {city_en}", city, [bt.key], [*bt.words, *bt.terms_en], city_en)
+                add(f"{bt.terms_en[0]} {city_en}", [bt.key], [*bt.words, *bt.terms_en])
         for bt in types:
             for term in bt.terms_fa[1:2]:
-                add(f"{term} {city}", city, [bt.key], [*bt.words, *bt.terms_fa], city_en)
+                add(f"{term} {city}", [bt.key], [*bt.words, *bt.terms_fa])
         for kw in (spec.get("keywords") or [])[:4]:
-            add(f"{kw} {city}", city, [t.key for t in types], [kw, *[w for t in types for w in t.words]], city_en)
-    return out[:limit]
+            add(f"{kw} {city}", [t.key for t in types], [kw, *[w for t in types for w in t.words]])
+        return out
+
+    groups = [for_city(city) for city in cities]
+    merged: list[dict] = []
+    for i in range(max((len(g) for g in groups), default=0)):
+        merged += [g[i] for g in groups if i < len(g)]
+    return merged[:max(limit, 2 * len(cities))]
 
 
 def plan(spec: dict) -> list[TaskSpec]:
@@ -273,8 +281,13 @@ def execute(task, ctx: SourceContext) -> dict:
     for hit in hits:
         host = host_of(hit.url)
         if host in DIRECTORY_HOSTS and relevant(hit, words=p["words"], city=p.get("city", ""), city_en=p.get("city_en", "")):
-            if ctx.spec.get("sources", {}).get("directory", True):
-                ctx.add_tasks([TaskSpec(source="directory", kind="list", key=f"dir:{hit.url[:300]}", priority=25, label=f"فهرستِ {host}", params={"url": hit.url, "directory": DIRECTORY_HOSTS[host], "types": p["types"], "city": p.get("city", "")})])
+            wanted = {place.canonical_city(c) for c in ctx.cities()}
+            its_city = place.city_of_url(hit.url)
+            if its_city and wanted and its_city not in wanted:  # «badanfit.ir/gym-hub.php?city=isfahan» found while searching for Tehran: another city's list
+                ctx.log("info", f"فهرستِ {host} برای «{its_city}» است، نه شهرهای این مأموریت؛ دنبال نشد.")
+            elif ctx.spec.get("sources", {}).get("directory", True):
+                ctx.add_tasks([TaskSpec(source="directory", kind="list", key=f"dir:{hit.url[:300]}", priority=25, label=f"فهرستِ {host}",
+                                        params={"url": hit.url, "directory": DIRECTORY_HOSTS[host], "types": p["types"], "city": its_city or p.get("city", "")})])
                 dirs += 1
             continue
         if not relevant(hit, words=p["words"], city=p.get("city", ""), city_en=p.get("city_en", "")):

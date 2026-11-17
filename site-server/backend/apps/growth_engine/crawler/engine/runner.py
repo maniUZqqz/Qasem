@@ -11,6 +11,7 @@ bug or a database problem; a busy website or a blocked search engine is never a 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import timedelta
 
@@ -51,11 +52,20 @@ class Interrupted(Exception):
 # --------------------------------------------------------------------------- the run's diary and counters
 
 
+_FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+_NUMBER = re.compile(r"(?<![A-Za-z0-9_./=:@#%+-])\d+(?:[.,]\d+)?(?![A-Za-z0-9_])")
+
+
+def fa_numbers(text: str) -> str:
+    """The diary is read by a Persian speaker: «12 مورد» -> «۱۲ مورد». Numbers inside addresses, ids and handles (``id=12``, ``/page/2``, ``abc123``) stay as they are."""
+    return _NUMBER.sub(lambda m: m.group(0).translate(_FA_DIGITS), text)
+
+
 def log(run_id: int, level: str, message: str) -> None:
     def write() -> None:
         if CrawlLog.objects.filter(run_id=run_id).count() >= MAX_LOG_ROWS:
             return
-        CrawlLog.objects.create(run_id=run_id, level=level, message=message[:500])
+        CrawlLog.objects.create(run_id=run_id, level=level, message=fa_numbers(message)[:500])
 
     try:
         retry_locked(write)
@@ -125,6 +135,7 @@ class Engine:
         self.fetcher = factory(read_timeout=110.0, domain_delay=float(budget_spec.get("domain_delay") or 2.0))
         self._flags_at = 0.0
         self._flags = (False, False)
+        self.out_of_area = int((run.usage or {}).get("out_of_area") or 0)  # found, but in another city than the mission asked for (not kept)
         self.web = fetchmod.WebClient(self.fetcher, self.budget, stop=self.should_stop, log=lambda lv, m: log(run.pk, lv, m), heartbeat=lambda: CrawlRun.objects.filter(pk=run.pk).update(heartbeat_at=timezone.now()))
         self.node_known = nodebridge.capable("crawl.run")
 
@@ -151,6 +162,9 @@ class Engine:
     def context(self) -> SourceContext:
         def emit(found):
             cand, created = cand_mod.add_found(self.run, found)
+            if cand is None:  # its own address / position / landline area code says another city
+                self.out_of_area += 1
+                return None, False
             CrawlRun.objects.filter(pk=self.run.pk).update(found_count=F("found_count") + 1)
             return cand, created
 
@@ -227,7 +241,7 @@ class Engine:
     def save_usage(self) -> None:
         refresh_counters(self.run)
         CrawlRun.objects.filter(pk=self.run.pk).update(
-            usage={**(self.run.usage or {}), "budget": self.budget.snapshot()}, pages_fetched=self.budget.requests, bytes_fetched=self.budget.bytes, cache_hits=self.budget.cache_hits,
+            usage={**(self.run.usage or {}), "budget": self.budget.snapshot(), "out_of_area": self.out_of_area}, pages_fetched=self.budget.requests, bytes_fetched=self.budget.bytes, cache_hits=self.budget.cache_hits,
         )
 
     def close(self) -> None:
@@ -538,6 +552,8 @@ def _drive(run: CrawlRun, engine: Engine) -> str:
         refresh_counters(run)
         total = CrawlCandidate.objects.filter(run=run).count()
         log(run.pk, "info", f"پیدا کردن تمام شد: {CrawlRun.objects.get(pk=run.pk).found_count} مورد، پس از یکی‌کردنِ تکراری‌ها {total} کسب‌وکار.")
+        if engine.out_of_area:
+            log(run.pk, "info", f"{engine.out_of_area} مورد کنار گذاشته شد چون نشانی یا جایگاهشان شهرِ دیگری بود (نه شهرهای این مأموریت).")
         if (spec.get("sources") or {}).get("website", True) or (spec.get("sources") or {}).get("instagram"):
             plan_enrichment(engine)
         set_state(run.pk, stage="enrich")
@@ -561,7 +577,7 @@ def _park(run: CrawlRun, engine: Engine) -> str:
     soon = CrawlTask.objects.filter(run=run, status=CrawlTask.Status.PENDING, not_before__isnull=False).order_by("not_before").first()
     until = soon.not_before if soon else timezone.now() + timedelta(minutes=10)
     engine.save_usage()
-    CrawlRun.objects.filter(pk=run.pk).update(status=CrawlRun.Status.QUEUED, usage={**(run.usage or {}), "budget": engine.budget.snapshot(), "parked_until": until.isoformat()},
+    CrawlRun.objects.filter(pk=run.pk).update(status=CrawlRun.Status.QUEUED, usage={**(run.usage or {}), "budget": engine.budget.snapshot(), "out_of_area": engine.out_of_area, "parked_until": until.isoformat()},
                                               message="منتظرِ سرویسِ شلوغِ بیرونی؛ خودکار ادامه می‌یابد.")
     log(run.pk, "info", f"سرویسِ بیرونی شلوغ است؛ اجرا تا {timezone.localtime(until).strftime('%H:%M')} می‌خوابد و خودش ادامه می‌دهد.")
     return "parked"

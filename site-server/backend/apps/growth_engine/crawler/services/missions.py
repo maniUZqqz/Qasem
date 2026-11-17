@@ -121,7 +121,7 @@ def validate_spec(data: dict) -> dict:
         raise ValidationFailed(errors)
     spec.update(
         business_types=types, keywords=keywords, cities=cities, language=language, sources=sources, budget=budget, directory_urls=urls, execution=execution, size=size,
-        require_contact=bool(data.get("require_contact", True)), max_results=max_results, min_score=min_score,
+        require_contact=bool(data.get("require_contact", True)), include_online=bool(data.get("include_online", False)), max_results=max_results, min_score=min_score,
         exclude_words=_strings(data.get("exclude_words"), "exclude_words", [], limit=20, max_len=40, label="کلمه‌های ردکننده"),
         tag=nz.normalize_text(str(data.get("tag") or ""))[:40], pitch=pitch,
     )

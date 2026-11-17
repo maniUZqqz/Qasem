@@ -14,6 +14,7 @@ node (or rendered there when it is a JavaScript shell) goes through the very sam
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from apps.growth_engine.core import normalization as nz
 from apps.growth_engine.extraction.services import crawler as site_crawler
@@ -21,13 +22,13 @@ from apps.growth_engine.extraction.services import parser as contact_parser
 from apps.growth_engine.integrations import safe_http as sh
 
 from ... import presets
-from .. import extras, textnorm
-from ..candidates import Found
+from .. import contactrules, extras, textnorm
+from ..candidates import Found, prov_key
 from .base import SourceContext, TaskFailed, TaskSpec
 
 SOURCE = "website"
-MIN_PHONE_CONF = 60
-MIN_EMAIL_CONF = 65
+MAX_SITE_EMAILS = 3
+MAX_SITE_WHATSAPP = 2
 
 
 @dataclass
@@ -55,9 +56,10 @@ class SiteInfo:
     rating: float | None = None
     js_shell: bool = False
     robots: str = ""
+    prov: dict = field(default_factory=dict)  # «phone:0912...» -> {url, evidence, confidence}: the page each contact value was read from
 
     def to_dict(self) -> dict:
-        return {k: getattr(self, k) for k in ("home_url", "ok", "reason", "pages", "fields", "meta", "words", "fit_words", "hours", "rating", "js_shell", "robots")}
+        return {k: getattr(self, k) for k in ("home_url", "ok", "reason", "pages", "fields", "meta", "words", "fit_words", "hours", "rating", "js_shell", "robots", "prov")}
 
 
 # --------------------------------------------------------------------------- fetching (on the server)
@@ -111,7 +113,8 @@ def analyze_site(pages: list[PageData], *, home_url: str, type_words: list[str],
             if page.kind == "home":
                 info.reason = {sh.ROBOTS_BLOCKED: "robots_blocked", sh.ROBOTS_UNAVAILABLE: "robots_unavailable"}.get(page.outcome, "fetch_failed")
             continue
-        parsed = contact_parser.parse_page(page.html, page.url, page.kind if page.kind in ("home", "contact", "about", "support") else "contact")
+        html = contactrules.drop_credits(page.html)  # «طراحی توسط ...» lines are not the business's contact
+        parsed = contact_parser.parse_page(html, page.url, page.kind if page.kind in ("home", "contact", "about", "support") else "contact")
         if parsed.is_challenge:
             log["note"] = "صفحهٔ چالشِ مرورگر"
             if page.kind == "home":
@@ -126,29 +129,41 @@ def analyze_site(pages: list[PageData], *, home_url: str, type_words: list[str],
         log["findings"] = len(parsed.findings)
         findings.extend(parsed.findings)
         if page.kind == "home":
-            info.meta = extras.page_meta(page.html)
-        text = extras.visible_text(page.html, 14_000)
+            info.meta = extras.page_meta(html)
+        text = extras.visible_text(html, 14_000)
         texts.append(text)
         if not hours:
-            hours = extras.find_hours(page.html, text)
+            hours = extras.find_hours(html, text)
         if rating is None:
             rating = extras.find_rating(text)
     merged = site_crawler.merge_findings(findings)
     by: dict[str, list] = {}
     for f in merged:
         by.setdefault(f.field, []).append(f)
+    host = urlsplit(home_url if "//" in home_url else "//" + home_url).hostname or ""
+    phones = contactrules.cap_phones([(f.value, f.confidence) for f in by.get("phone", []) if contactrules.phone_ok(f.value, f.confidence)], contactrules.is_mobile)
+    emails = [f.value for f in sorted(by.get("email", []), key=lambda x: -x.confidence) if contactrules.email_ok(f.value, f.confidence, host)][:MAX_SITE_EMAILS]
+    whatsapp = [f.value for f in by.get("whatsapp", []) if not contactrules.is_placeholder_phone(f.value)][:MAX_SITE_WHATSAPP]
     info.fields = {
-        "phones": [f.value for f in by.get("phone", []) if f.confidence >= MIN_PHONE_CONF],
-        "emails": [f.value for f in by.get("email", []) if f.confidence >= MIN_EMAIL_CONF],
+        "phones": phones,
+        "emails": emails,
         "instagram": (by.get("instagram") or [None])[0].value if by.get("instagram") else "",
         "telegram": (by.get("telegram") or [None])[0].value if by.get("telegram") else "",
-        "whatsapp": [f.value for f in by.get("whatsapp", [])],
+        "whatsapp": whatsapp,
         "contact_form": (by.get("contact_form") or [None])[0].value if by.get("contact_form") else "",
         "address": (by.get("address") or [None])[0].value if by.get("address") else "",
         "city": (by.get("city") or [None])[0].value if by.get("city") else "",
         "business_name": (by.get("business_name") or [None])[0].value if by.get("business_name") else "",
         "language": (by.get("language") or [None])[0].value if by.get("language") else "",
     }
+    kept = {("phone", p) for p in phones} | {("email", e) for e in emails} | {("whatsapp", w) for w in whatsapp}
+    for f in merged:
+        if f.field in ("phone", "email", "whatsapp") and (f.field, f.value) not in kept:
+            continue
+        if f.field in ("phone", "email", "whatsapp", "instagram", "telegram", "contact_form"):
+            key = prov_key(f.field, f.value)
+            if key and key not in info.prov:
+                info.prov[key] = {"url": f.source_url[:300], "evidence": f.evidence[:120], "confidence": f.confidence}
     blob = "\n".join(texts + [info.meta.get("title", ""), info.meta.get("description", "")])
     info.words = extras.find_words(blob, type_words)
     info.fit_words = extras.find_words(blob, fit_words)
@@ -182,7 +197,8 @@ def apply_to_candidate(c, info: SiteInfo) -> bool:
 
     f = info.fields
     found = Found(
-        name=c.name, source=SOURCE, ref=f"website:{textnorm.domain_key(c.website)}"[:120], url=info.home_url, city=f.get("city", ""), address=f.get("address", ""),
+        name=c.name, source=SOURCE, ref=f"website:{textnorm.domain_key(c.website)}"[:120], url=info.home_url, city=f.get("city", ""), city_src="evidence" if f.get("city") else "",
+        address=f.get("address", ""), prov=info.prov,
         phones=f.get("phones", []), emails=f.get("emails", []), whatsapp=f.get("whatsapp", []), instagram=f.get("instagram", ""), telegram=f.get("telegram", ""),
         contact_form=f.get("contact_form", ""), hours=info.hours, rating=info.rating,
         signals={"site": {"title": info.meta.get("title", "")[:160], "description": info.meta.get("description", "")[:300], "lang": f.get("language") or info.meta.get("lang", ""),

@@ -30,7 +30,7 @@ from apps.growth_engine.leads.services.editing import ValidationFailed
 from apps.growth_engine.outreach.channels import sms as sms_channel
 from apps.growth_engine.outreach.channels import targets as channel_targets
 from apps.growth_engine.outreach.models import ANY, AUTO_CHANNELS, Campaign, Channel, MessageTemplate
-from apps.growth_engine.outreach.services import campaigns, channel_config, generators, items
+from apps.growth_engine.outreach.services import campaigns, channel_config, generators, items, rendering
 
 from .. import presets
 from ..models import CrawlMission, OutreachDraft
@@ -73,13 +73,46 @@ def _short(text: str, n: int) -> str:
     return first if len(first) <= n else first[: n - 1].rstrip() + "…"
 
 
-def template_text(pitch: dict, channel: str) -> tuple[str, str]:
-    """(subject, body with {placeholders}) for a channel."""
+SMS_PART = 67  # UCS-2 (Persian): 70 characters in one part, 67 in each part of a longer message
+_FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def _fa(n) -> str:
+    return str(n).translate(_FA)
+
+
+def sms_budget(settings_obj) -> int:
+    """How many characters the BODY of an SMS may take so that body + sender line + opt-out sentence still fit the allowed number of parts.
+    While the sender's company / name is not written in the settings yet, room for it is kept (the final text gets longer by that line)."""
+    parts = channel_config.sms_max_parts()
+    total = 70 if parts <= 1 else SMS_PART * parts
+    closing = rendering.closing_block(settings_obj, Channel.SMS)
+    reserve = 0 if (settings_obj.sender_company.strip() or settings_obj.sender_name.strip()) else 20
+    used = (sms_channel.segments(closing)["length"] + 1 if closing else 0) + reserve
+    return max(30, total - used - 2)
+
+
+def fit_sms(brand: str, line: str, budget: int) -> str:
+    """The longest greeting that still fits ``budget`` characters; the line is cut at a word (with «…») only when nothing else fits."""
+    units = lambda text: sms_channel.segments(text)["length"]  # noqa: E731
+    for text in (f"سلام، از تیمِ «{brand}». {line}", f"«{brand}»: {line}", line):
+        if units(text) <= budget:
+            return text
+    out = f"«{brand}»:"
+    for word in line.split():
+        if units(f"{out} {word}…") > budget:
+            break
+        out = f"{out} {word}"
+    return out + "…" if out != f"«{brand}»:" else line[:max(10, budget - 1)].rstrip() + "…"
+
+
+def template_text(pitch: dict, channel: str, sms_chars: int | None = None) -> tuple[str, str]:
+    """(subject, body with {placeholders}) for a channel. ``sms_chars``: the room an SMS body has (``sms_budget``)."""
     brand, what, benefit, cta = pitch["brand"], pitch["what"], pitch.get("benefit", ""), pitch["cta"]
     place = "دیدم {business_name} در {city|شهرِ شما} فعالیت می‌کند"
     if channel == Channel.SMS:
-        line = pitch.get("sms") or _short(what, 70)
-        return "", f"سلام، از تیمِ «{brand}». {line}"
+        line = pitch.get("sms") or _short(what, 45)
+        return "", fit_sms(brand, line, sms_chars) if sms_chars else f"سلام، از تیمِ «{brand}». {line}"
     if channel == Channel.EMAIL:
         subject = f"{brand}: پیشنهادی برای {{business_name}}"
         body = f"سلام، وقتتان بخیر.\nمن از تیمِ «{brand}» پیام می‌دهم. {what}\n{place}" + (f"؛ {benefit}" if benefit else ".") + f"\n{cta}"
@@ -93,7 +126,7 @@ def template_text(pitch: dict, channel: str) -> tuple[str, str]:
 
 
 def ensure_template(mission: CrawlMission, channel: str, pitch: dict) -> MessageTemplate:
-    subject, body = template_text(pitch, channel)
+    subject, body = template_text(pitch, channel, sms_budget(GrowthSettings.load()) if channel == Channel.SMS else None)
     seed = f"crawler:{mission.pk}:{channel}"[:60]
     tpl_channel = channel if channel in (Channel.SMS, Channel.EMAIL, Channel.CONTACT_FORM, Channel.WHATSAPP, Channel.TELEGRAM) else ANY
     tpl, _ = MessageTemplate.objects.update_or_create(
@@ -131,7 +164,7 @@ def _warnings(pitch: dict, channel: str, text: str) -> list[str]:
         seg = sms_channel.segments(text)
         allowed = channel_config.sms_max_parts()
         if seg["parts"] > allowed:
-            out.append(f"پیامک {seg['parts']} بخش می‌شود و حداکثرِ مجاز {allowed} بخش است؛ کوتاه‌ترش کنید.")
+            out.append(f"پیامک {_fa(seg['parts'])} بخش می‌شود و حداکثرِ مجاز {_fa(allowed)} بخش است؛ کوتاه‌ترش کنید.")
     return out
 
 

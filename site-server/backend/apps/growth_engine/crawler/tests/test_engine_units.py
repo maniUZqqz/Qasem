@@ -242,7 +242,7 @@ class WebsiteAnalysisTests(TestCase):
         words, fit = website.words_for(["gym"], {"keywords": []})
         info = website.analyze_site(self.pages(), home_url="https://arman-gym.ir", type_words=words, fit_words=fit)
         self.assertTrue(info.ok)
-        self.assertIn("09121234567", info.fields["phones"])
+        self.assertIn("09121834765", info.fields["phones"])
         self.assertEqual(info.fields["emails"], ["info@arman-gym.ir"])
         self.assertIn("arman.gym", info.fields["instagram"])
         self.assertIn("شنبه", info.hours)
@@ -257,7 +257,7 @@ class WebsiteAnalysisTests(TestCase):
         self.assertFalse(info.ok)
         self.assertTrue(info.js_shell)
         self.assertEqual(info.reason, "js_shell")
-        rendered = website.analyze_site([PageData("https://x.ir/", "home", JS_SHELL.replace('<div id="root"></div>', "<h1>سلام</h1><p>تلفن: 09121234567</p>"), 200, rendered=True)], home_url="https://x.ir", type_words=[], fit_words=[])
+        rendered = website.analyze_site([PageData("https://x.ir/", "home", JS_SHELL.replace('<div id="root"></div>', "<h1>سلام</h1><p>تلفن: 09121834765</p>"), 200, rendered=True)], home_url="https://x.ir", type_words=[], fit_words=[])
         self.assertTrue(rendered.ok)
 
     def test_failed_home_gives_a_reason(self):

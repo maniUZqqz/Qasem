@@ -19,7 +19,7 @@ from __future__ import annotations
 from apps.growth_engine.core import normalization as nz
 
 from .. import presets
-from . import textnorm
+from . import place, textnorm
 
 LEVELS = {"high": "مناسب", "medium": "متوسط", "low": "کم"}
 
@@ -73,9 +73,14 @@ def score(c, spec: dict) -> dict:
             add(6, "نتیجهٔ جست‌وجوی وب با نوعِ کسب‌وکار می‌خواند")
 
     # --- is it in the right place?
-    cities = [nz.search_key(x) for x in spec.get("cities", []) if x]
-    if c.city and nz.search_key(c.city) in cities:
-        add(8, f"در «{c.city}» است")
+    # only what the business's OWN data says counts (address, map position, landline area code, a map query bounded to the city);
+    # «it turned up while searching for Tehran» is not evidence of being in Tehran
+    where = place.Verdict("unknown") if sig.get("place_free") else place.verdict(
+        spec.get("cities") or [], address=c.address, cities_ev=sig.get("city_ev") or [], lat=c.lat, lon=c.lon, phones=c.phones, mapped="osm" in sources)
+    if where.state == "in":
+        add(8, f"در «{where.city or c.city}» است")
+    elif where.state == "out":
+        add(-30, f"به‌نظر در «{where.city or 'شهرِ دیگری'}» است، نه شهرِ خواسته‌شده")
     if c.lat is not None and c.lon is not None:
         add(4, "جای دقیقش روی نقشه معلوم است")
 

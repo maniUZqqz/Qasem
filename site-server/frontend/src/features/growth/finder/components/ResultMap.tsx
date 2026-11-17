@@ -26,9 +26,12 @@ const latOf = (y: number, z: number) => {
 
 function fit(points: MapPoint[], w: number, h: number): { lat: number; lon: number; zoom: number } {
   if (!points.length) return { lat: 32.4, lon: 53.7, zoom: 5 };
-  const lats = points.map((p) => p.lat);
-  const lons = points.map((p) => p.lon);
-  const [s, n, west, e] = [Math.min(...lats), Math.max(...lats), Math.min(...lons), Math.max(...lons)];
+  // one stray point (a wrong-city entry 400 km away) must not zoom the map out to the whole country: with ten or more points the extreme 5% on each side are left out of the first view (they stay on the map and can be panned to)
+  const lats = points.map((p) => p.lat).sort((a, b) => a - b);
+  const lons = points.map((p) => p.lon).sort((a, b) => a - b);
+  const trim = points.length >= 10 ? Math.max(1, Math.floor(points.length * 0.05)) : 0;
+  const hi = points.length - 1 - trim;
+  const [s, n, west, e] = [lats[trim], lats[hi], lons[trim], lons[hi]];
   let zoom = 16;
   for (; zoom > 3; zoom--) {
     if (Math.abs(worldX(e, zoom) - worldX(west, zoom)) < w * 0.85 && Math.abs(worldY(s, zoom) - worldY(n, zoom)) < h * 0.85) break;

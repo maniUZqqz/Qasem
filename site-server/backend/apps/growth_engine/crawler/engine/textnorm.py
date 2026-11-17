@@ -30,12 +30,18 @@ def name_core(name: str) -> str:
     return key[:120]
 
 
+_NUMBERS = re.compile(r"\d+")
+
+
 def similar(a: str, b: str) -> float:
-    """0..1 similarity of two name cores (1 = identical)."""
+    """0..1 similarity of two name cores (1 = identical). Two names that differ in a NUMBER are two businesses
+    («باشگاه بدنسازی 7» and «باشگاه بدنسازی 12»; branch numbers, «2» and «3»), however alike the letters are."""
     if not a or not b:
         return 0.0
     if a == b:
         return 1.0
+    if _NUMBERS.findall(a) != _NUMBERS.findall(b):
+        return 0.0
     if min(len(a), len(b)) >= 4 and (a in b or b in a) and min(len(a), len(b)) / max(len(a), len(b)) >= 0.6:
         return 0.93
     return SequenceMatcher(None, a, b).ratio()
@@ -78,6 +84,39 @@ def text_has_any(text: str, words) -> list[str]:
     return [w for w in words if w and nz.normalize_text(w).casefold() in hay]
 
 
+def name_has_word(text: str, words) -> list[str]:
+    """The words (of ``words``) in ``text``; a Latin word only as a whole word («spa» is not in «Sparta»), a Persian one anywhere (the script has no capital letters)."""
+    hay = nz.normalize_text(text).casefold()
+    out: list[str] = []
+    for w in words:
+        w = nz.normalize_text(w).casefold()
+        if not w:
+            continue
+        if re.fullmatch(r"[a-z0-9 .\-]+", w):
+            if re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", hay):
+                out.append(w)
+        elif w in hay:
+            out.append(w)
+    return out
+
+
 def clip(text: str, n: int) -> str:
     text = nz.normalize_text(text or "")
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+#: Iranian video / streaming sites by the START of the site's name («aparat.com», «aparatsport.ir», «telewebion.ir»), the others by the whole name
+_MEDIA_PREFIXES = ("aparat", "telewebion", "namava", "filimo", "tamashakhoneh")
+_MEDIA_NAMES = frozenset({
+    "youtube", "youtu", "vimeo", "dailymotion", "twitch", "soundcloud", "spotify", "namasha", "radiojavan", "musixmatch", "genius", "wikipedia", "wikiwand",
+    "digikala", "torob", "divar", "sheypoor", "basalam", "emalls", "tripadvisor", "booking", "lenz",
+})
+
+
+def is_media_host(host: str) -> bool:
+    """``aparat.com``, ``aparatsport.ir``, ``telewebion.ir``, ``www.youtube.com`` ...: a video / music / marketplace / encyclopedia site - a page ABOUT something, never a business's own website."""
+    parts = [p for p in (host or "").lower().split(".") if p]
+    if len(parts) < 2:
+        return False
+    labels = parts[:-1]  # everything but the domain ending
+    return any(lab.startswith(_MEDIA_PREFIXES) or lab in _MEDIA_NAMES for lab in labels)

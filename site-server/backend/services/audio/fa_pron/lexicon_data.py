@@ -178,7 +178,7 @@ SHARED_TEXT = r"""
 معتبر mo'tabar N
 معلم mo'allem N
 معلمی mo'allemi N
-معرفی ma'rafi N
+معرفی mo'arrefi N
 معروف ma'ruf N
 معین mo'ayyan N
 معیار me'yAr N
@@ -320,6 +320,8 @@ SHARED_TEXT = r"""
 رفاه refAh N
 جزء joz' N
 جزئی joz'i N
+جزئیات joz'iyyAt N
+کلیات kolliyyAt N
 مبدا mabda' N
 وقایع vaqAye' N
 اتفاق ettefAq N
@@ -362,8 +364,8 @@ SHARED_TEXT = r"""
 نامه nAme N
 برنامه barnAme N
 برنامه_ها barnAmehA N
-برنامه_ریزی barnAmeriz N
-مدرسه madrase N
+برنامه_ریزی barnAmerizi N
+مدرسه madrese N
 تغذیه taqziye N
 تصفیه tasfiye N
 قضیه qaziyye N
@@ -394,7 +396,7 @@ SHARED_TEXT = r"""
 برادر barAdar N
 مادر mAdar N
 پدر pedar N
-خوشحال xoSAl N
+خوشحال xoShAl N
 نحوه nahve N
 فایده fAyede N
 فایده_ها fAyedehA N
@@ -445,7 +447,7 @@ SHARED_TEXT = r"""
 ارزشمند arzeSmand N
 پروژه poroje N
 پرونده parvande N
-پروتئین porotein N
+پروتئین porote'in N
 کلاس kelAs N
 کلاس_ها kelAsehA N
 ## و و او
@@ -640,7 +642,7 @@ SHARED_TEXT = r"""
 واکسن vAksan N
 ولی vali F
 ولو valow F
-ولع valla N
+ولع vala' N
 و o F
 ## ی و ای ~
 ای ey F
@@ -711,7 +713,7 @@ SHARED_TEXT = r"""
 نیمه nime N
 نیست nist V
 نیز niz F
-نیکو nikow N
+نیکو niku N
 میز miz N
 میدان meydAn N
 میل meyl N
@@ -721,9 +723,10 @@ SHARED_TEXT = r"""
 فیلم film N
 فیلم_برداری filmbardAri N
 کیف kif N
-کیفیت kayfiyyat N
+کیفیت keyfiyyat N
 کیلو kilo N
 کیلوگرم kilogerAm N
+میلی_گرم miligerAm N
 کیلومتر kilumetr N
 کیک kik N
 لیست list N
@@ -954,7 +957,7 @@ SHARED_TEXT = r"""
 لایک lAyk N
 کامنت koment N
 فالو fAlo N
-فالوور fAlower N
+فالوور fAlover N
 پست post N
 استوری estori N
 ریلز rilz N
@@ -963,7 +966,7 @@ SHARED_TEXT = r"""
 واتساپ vAtsAp N
 یوتیوب yutyub N
 گوگل gugel N
-اندروید Andoroyd N
+اندروید androyd N
 آیفون Ayfon N
 اپل apel N
 سامسونگ sAmsung N
@@ -973,9 +976,9 @@ SHARED_TEXT = r"""
 ایمیل imeyl N
 پسورد pasvord N
 رمز ramz N
-رمز_عبور ramzeoboor N
+رمز_عبور ramze'obur N
 ورود vorud N
-اشتراک eStarAk N
+اشتراک eSterAk N
 رایگان rAyegAn N
 ارسال ersAl N
 سفارش sefAreS N
@@ -1002,7 +1005,7 @@ SHARED_TEXT = r"""
 فروشگاه foruSgAh N
 محصول mahsul N
 محصولات mahsulAt N
-کیفیت kayfiyyat N
+کیفیت keyfiyyat N
 ضمانت zamAnat N
 گارانتی gArAnti N
 مرجوعی marjuyi N
@@ -1085,8 +1088,8 @@ SHARED_TEXT = r"""
 استفاده_کنید estefAdekonid V
 استفاده_کن estefAdekon V
 استفاده_از estefAdeaz
-دریافت dariyAft N
-دریافت_کنید dariyAftkonid V
+دریافت daryAft N
+دریافت_کنید daryAftkonid V
 ثبت_کنید sabtkonid V
 ثبت_نام_کنید sabtenAmkonid V
 نصب nasb N
@@ -1198,7 +1201,6 @@ SHARED_TEXT = r"""
 متر metr N
 سانتی_متر sAntimetr N
 میلی_متر milimetr N
-گرم gerAm N
 کیلوگرم kilogerAm N
 لیتر litr N
 میلی_لیتر mililitr N
@@ -1217,7 +1219,7 @@ SHARED_TEXT = r"""
 مگاهرتز megAhertz N
 کیلووات kilovAt N
 ولت volt N
-آمپر Ampr N
+آمپر Amper N
 بار bAr N
 ## نام‌های پرکاربرد
 محمد mohammad
@@ -1272,7 +1274,7 @@ SHARED_TEXT = r"""
 علیرضا 'alirezA
 محمدرضا mohammadrezA
 امیرعلی amir'ali
-امیرحسین amirhosein
+امیرحسین amirhoseyn
 حسام hesAm
 اکبر akbar
 اصغر asqar

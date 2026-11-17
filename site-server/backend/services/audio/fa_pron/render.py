@@ -52,6 +52,9 @@ def respell_token(tok: Token, *, sukun: bool = False) -> str:
     if not tok.pn or not tok.apply:
         return _surface_with_ezafe(tok)
     toks = P.parse(tok.pn)
+    if tok.ezafe_inside and toks[-2:] == ["y", "e"]:
+        # «ورزش‌های»: the suffix already ends with the ezafe; written the way a grammar book marks it, a kasra on the ی («ورزشهایِ»)
+        return P.to_respelling(toks[:-1], sukun=sukun, q_letter=P.q_letter_for(tok.text)) + KASRA
     base = P.to_respelling(toks, sukun=sukun, q_letter=P.q_letter_for(tok.text))
     if not tok.ezafe:
         return base
@@ -67,7 +70,7 @@ def respell_token(tok: Token, *, sukun: bool = False) -> str:
 
 def _surface_with_ezafe(tok: Token) -> str:
     text = tok.text
-    if not tok.ezafe:
+    if not tok.ezafe or tok.ezafe_inside:
         return text
     last = text.rstrip(ZWNJ)[-1:] if text else ""
     if last == "ی":
@@ -106,7 +109,7 @@ def _subs(prep: Prepared, *, glottal: str = "keep") -> list[dict]:
         if t.kind == "word" and t.pn:
             toks = t.tokens()
             rows.append({
-                "word": t.text, "pn": t.pn, "source": t.source, "ezafe": t.ezafe, "applied": t.apply,
+                "word": t.text, "pn": t.pn, "source": t.source, "ezafe": t.ezafe or t.ezafe_inside, "applied": t.apply,
                 "respelling": respell_token(t), "ipa": P.to_ipa(t.tokens(stress=True), glottal=glottal),
                 "ssml_ipa": P.to_ssml_ipa(toks, glottal=glottal),
             })
@@ -175,7 +178,7 @@ def _reconciled(t: Token, native_ipa: Callable[[str], str], glottal: str, gemina
     if not ours:
         return None
     ez = ""
-    if t.ezafe:
+    if t.ezafe and not t.ezafe_inside:
         ez = P.to_ipa(["y", "e"] if base and base[-1] in P.VOWELS else ["e"])
     try:
         native = native_ipa(t.text)

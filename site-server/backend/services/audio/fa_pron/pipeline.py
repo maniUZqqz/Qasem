@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from . import dictionary as D
 from . import g2p, latin, phones as P
-from .ezafe import mark_ezafe
+from .ezafe import NUMBER_WORDS, mark_ezafe
 from .normalize import NormNotes, normalize
 
 ZWNJ = "‌"
@@ -47,6 +47,7 @@ class Token:
     n_words: int = 1               # phrases cover several written words
     apply: bool = True             # False: known, but the engine reads it right (kept for context)
     written_ezafe: bool = False    # the writer put the ezafe on the word («هٔ», «ِ», «ه‌ی»): always honoured
+    ezafe_inside: bool = False     # the pn already ENDS with the ezafe («ورزش‌های» = varzeShhAye, «غذای سالم» = qazAye): never add a second one
 
     def tokens(self, *, stress: bool = False, stress_position: str = "last") -> list[str]:
         """PN tokens, optionally stressed, including the ezafe vowel when marked.
@@ -57,9 +58,13 @@ class Token:
         if not self.pn:
             return []
         toks = P.parse(self.pn)
+        tail: list[str] = []
+        if self.ezafe_inside and toks[-2:] == ["y", "e"]:
+            tail, toks = toks[-2:], toks[:-2]          # the ezafe is part of the pn: the stress stays on the word
         if stress:
             toks = P.with_final_stress(toks, position=stress_position)
-        if self.ezafe:
+        toks = toks + tail
+        if self.ezafe and not self.ezafe_inside:
             toks = toks + (["y", "e"] if toks and toks[-1] in P.VOWELS else ["e"])
         return toks
 
@@ -106,6 +111,8 @@ HOMOGRAPHS: dict[str, tuple[str, list[tuple[str, set[str]]]]] = {
     ]),
     "علم": ("'elm", [("'alam", {"پرچم", "کردن", "محرم", "عزاداری", "سینه‌زنی"})]),
     "شکر": ("Sekar", [("Sokr", {"خدا", "خدایا", "شکرگزار", "الهی", "کنم", "کردم", "کردیم", "گفتم", "هزار"})]),
+    # «گرم»: hot (garm: «آب گرم», «گرم کردن») far more often than the unit (gerAm: «دویست گرم»); the unit follows a number
+    "گرم": ("garm", []),
     # the letter D (vitamin D) is «دی» too: the lexicon has the month Dey
     "دی": ("dey", [("di", {"ویتامین", "ویتامینی", "کلسیم", "اچ", "دبلیو"})]),
 }
@@ -158,6 +165,9 @@ def _homograph(word: str, words: list[str], i: int) -> str | None:
             return pn
     if key == "مرد":
         return _mard_or_mord(words, i)
+    if key == "گرم":
+        prev = D.canon(words[i - 1]) if i > 0 else ""
+        return "gerAm" if prev in NUMBER_WORDS else default
     if key == "کشتی":
         nxt = D.canon(words[i + 1]) if i + 1 < len(words) else ""
         if nxt == "را":                  # «کشتی را گرفتند»: they seized the ship
@@ -196,6 +206,8 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
     # compound with half-spaces: every part known?
     if ZWNJ in w:
         parts = [p for p in w.split(ZWNJ) if p]
+        if len(parts) > 1 and parts[0] in ("می", "نمی"):
+            return None          # «می‌بینی» is a verb, not «می» + «بین» + «ی» (= mibeyni): the voice reads it by itself
         if len(parts) > 1:
             out = []
             for k, p in enumerate(parts):
@@ -226,6 +238,26 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
             if stem_pn:
                 return stem_pn + (pv if _final_is_vowel(stem_pn) else pc)
     return None
+
+
+def _plural_with_ezafe(word: str, pn: str) -> bool:
+    """«ورزش‌های» is plural + the ezafe vowel in one suffix («hAye»): a word read that way already carries its ezafe, the ezafe
+    marker must not add a second «-ye» («varzeShhAyeye» was an extra syllable the voice made audible)."""
+    return D.canon(word).replace(ZWNJ, "").endswith("های") and P.parse(pn)[-2:] == ["y", "e"]
+
+
+def _glide_ezafe(t: Token) -> None:
+    """«غذای سالم», «هوای تازه»: after a long vowel the ezafe is written as a lone «ی». Morphology read that «ی» as the indefinite
+    suffix («qazAyi»; the indefinite is spelled «غذایی»), and with the ezafe added after it the word got an extra syllable
+    («qazAyiye»). A noun written with a final «ای» / «وی» ends with the ezafe vowel: «qazAye» - also when the next word is one we
+    do not know (espeak itself reads it that way). A plural «ورزش‌های» carries its ezafe in the suffix (``Token.ezafe_inside``)."""
+    if t.source != "morph" or t.ezafe_inside or not t.pn:
+        return
+    w = D.canon(t.text)
+    toks = P.parse(t.pn)
+    if ZWNJ not in w and w.endswith(("ای", "وی")) and toks[-2:] == ["y", "i"]:
+        t.pn = P.join(toks[:-1] + ["e"])
+        t.ezafe_inside = True
 
 
 def _suffix_only(part: str) -> str | None:
@@ -414,7 +446,9 @@ def _resolve_core(t: Token, w: str, words: list[str], i: int, dic: D.Dictionary,
                      apply=not (e.safe and depth == "lexicon"))
     m = _morph(w, dic)
     if m:
-        return Token("word", w, pn=m, source="morph", tag="N")
+        tok = Token("word", w, pn=m, source="morph", tag="N", ezafe_inside=_plural_with_ezafe(w, m))
+        _glide_ezafe(tok)
+        return tok
     if depth == "full":
         return Token("word", w, pn=_rule_pn(w), source="rule", tag="-")
     return Token("word", w, tag="-")

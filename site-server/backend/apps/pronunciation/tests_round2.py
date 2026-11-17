@@ -109,12 +109,13 @@ class SmallApiFixes(Base):
     def test_preview_shows_the_acronym_with_letter_names(self):
         r = self.api.post(f"{self.base}/preview/", {"text": "خروجی PDF"}, format="json").json()
         self.assertEqual(r["normalized"], "خروجی پی‌دی‌اف")
-        self.assertEqual(r["engines"]["piper"]["depth"], "normalize")          # the default depth: still letter by letter
+        self.assertEqual(r["engines"]["piper"]["depth"], "lexicon")            # the default depth: letter by letter
         self.assertIn("pˈiː dˈiː ˈɛf", r["engines"]["piper"]["ipa"])
         self.assertNotIn("pej", r["engines"]["piper"]["ipa"])
         self.assertEqual(r["engines"]["piper"]["letter_words"], 1)
-        lex = self.api.post(f"{self.base}/preview/", {"text": "خروجی PDF", "depth": "lexicon"}, format="json").json()
-        self.assertIn("pˈiː dˈiː ˈɛf", lex["engines"]["piper"]["ipa"])
+        plain = self.api.post(f"{self.base}/preview/", {"text": "خروجی PDF", "depth": "normalize"}, format="json").json()
+        self.assertEqual(plain["engines"]["piper"]["depth"], "normalize")      # and at the lighter depth too
+        self.assertIn("pˈiː dˈiː ˈɛf", plain["engines"]["piper"]["ipa"])
 
     def test_preview_spelled_ezafe(self):
         r = self.api.post(f"{self.base}/preview/", {"text": "وعده‌ی غذایی سالم", "depth": "lexicon"}, format="json").json()
@@ -271,12 +272,12 @@ class MotionCuesAndUp3d(Base):
         self.assertEqual(up3d_tts.TEXT_FILTER("Hello 250", "openai", {}), "Hello 250", "English is untouched")
 
 
-class NormalizeIsTheDefaultForPiper(Base):
-    """Measured on the voice the site really has (gyro, 272 sentences): the lexicon is not better than the normaliser alone, so the
-    default depth for Piper is «normalize». What must still work at that depth: the OWNER's words and the spelled-out acronyms."""
+class PiperDefaultAndNormalizeDepth(Base):
+    """Piper's default depth is «lexicon» (the owner's ع/ه/و/اضافه words are what the layer is for; the small Vosk cannot rank it against the
+    normaliser: it does not hear a reduced «و»), «normalize» is one setting away. Both must work: the OWNER's words and the spelled-out
+    acronyms go in as phonemes at either depth, plain text goes in as text only at «normalize»."""
 
     def provider(self, voice):
-        from .tests import FakeVoice  # noqa: F401  (the voice is made by the caller)
         p = tts.PiperProvider("fa_IR-gyro-medium")
         p.store, p.language, p.use_pron = self.store, "fa", True
         patcher = mock.patch.object(tts.PiperProvider, "_load", lambda self_: voice)
@@ -284,12 +285,28 @@ class NormalizeIsTheDefaultForPiper(Base):
         self.addCleanup(patcher.stop)
         return p
 
-    def test_the_default_depth_for_piper_is_normalize(self):
-        self.assertEqual(svc.effective_default("piper"), "normalize")
+    def use_normalize(self):
+        svc.save_settings(self.store, depth={"piper": "normalize"})
+
+    def test_the_default_depths(self):
+        self.assertEqual(svc.effective_default("piper"), "lexicon")
+        self.assertEqual(svc.effective_default("edge"), "normalize")
+        self.assertEqual(svc.effective_default("moss"), "normalize")
         self.assertEqual(svc.settings_for(self.store)["depth"], {})
 
-    def test_plain_text_goes_to_the_voice_as_text(self):
+    def test_the_default_says_the_words_the_voice_gets_wrong(self):
         from .tests import FakeVoice
+        v = FakeVoice()
+        self.provider(v).synthesize("هزار و چهار", self.media / "d.wav")
+        self.assertEqual(v.synth_calls, [], "phoneme input")
+        heard = "".join("".join(c) for c in v.id_calls)
+        self.assertIn("hazɑr", heard)               # espeak says hezɑr
+        self.assertIn("o", heard)                   # the reduced «و», not espeak's stressed «va»
+        self.assertNotIn("va", heard)
+
+    def test_plain_text_goes_to_the_voice_as_text_at_the_normalize_depth(self):
+        from .tests import FakeVoice
+        self.use_normalize()
         v = FakeVoice()
         self.provider(v).synthesize("برنامهٔ ورزشی ۳ جلسه", self.media / "a.wav")
         self.assertEqual(v.id_calls, [])
@@ -297,37 +314,43 @@ class NormalizeIsTheDefaultForPiper(Base):
         self.assertIn("سه جلسه", v.synth_calls[0])          # the normaliser still ran
         self.assertIn("برنامهٔ", v.synth_calls[0])           # the writer's ezafe mark is left for the voice
 
-    def test_the_owners_word_is_honoured_at_the_default_depth(self):
+    def test_the_owners_word_is_honoured_at_every_depth(self):
         from .tests import FakeVoice
         svc.save_entry(self.store, "چغر", "چُغُر")
-        v = FakeVoice()
-        self.provider(v).synthesize("سلام چغر", self.media / "b.wav")
-        self.assertEqual(v.synth_calls, [])                  # phoneme input: the owner's word could not go in as text
-        heard = "".join("".join(c) for c in v.id_calls)
-        self.assertIn("tʃoq1", heard)
-        self.assertIn("or", heard)
+        for depth in (None, "normalize"):
+            if depth:
+                self.use_normalize()
+            v = FakeVoice()
+            self.provider(v).synthesize("سلام چغر", self.media / f"b{depth}.wav")
+            self.assertEqual(v.synth_calls, [])                  # phoneme input: the owner's word could not go in as text
+            heard = "".join("".join(c) for c in v.id_calls)
+            self.assertIn("tʃoq1", heard)
+            self.assertIn("or", heard)
 
     def test_the_owners_word_reaches_the_text_engines_at_the_default_depth(self):
         svc.save_entry(self.store, "چغر", "چُغُر")
         self.assertIn("چُغُر", pronounce.text_for("سلام چغر", "moss", store=self.store))
         self.assertIn("چُغُر", pronounce.text_for("سلام چغر", "edge", store=self.store))
 
-    def test_a_spelled_out_acronym_goes_in_as_letters_at_the_default_depth(self):
+    def test_a_spelled_out_acronym_goes_in_as_letters_at_every_depth(self):
         from .tests import FakeVoice
-        v = FakeVoice()
-        self.provider(v).synthesize("خروجی PDF", self.media / "c.wav")
-        self.assertEqual(v.synth_calls, [])
-        flat = "".join("".join(c) for c in v.id_calls)
-        self.assertIn("pˈiː dˈiː ˈɛf", flat)
-        self.assertNotIn("pˈej", flat)
+        for depth in (None, "normalize"):
+            if depth:
+                self.use_normalize()
+            v = FakeVoice()
+            self.provider(v).synthesize("خروجی PDF", self.media / f"c{depth}.wav")
+            self.assertEqual(v.synth_calls, [])
+            flat = "".join("".join(c) for c in v.id_calls)
+            self.assertIn("pˈiː dˈiː ˈɛf", flat)
+            self.assertNotIn("pˈej", flat)
 
     def test_the_test_box_can_try_another_depth(self):
         base = self.api.post(f"{self.base}/preview/", {"text": "برنامه‌ی تمرینی چغر"}, format="json").json()
-        self.assertEqual(base["engines"]["piper"]["depth"], "normalize")
-        self.assertNotIn("ipa", base["engines"]["piper"])
-        lex = self.api.post(f"{self.base}/preview/", {"text": "برنامه‌ی تمرینی چغر", "depth": "lexicon"}, format="json").json()
-        self.assertEqual(lex["engines"]["piper"]["depth"], "lexicon")
-        self.assertIn("barnɑm", lex["engines"]["piper"]["ipa"])
+        self.assertEqual(base["engines"]["piper"]["depth"], "lexicon")
+        self.assertIn("barnɑm", base["engines"]["piper"]["ipa"])
+        plain = self.api.post(f"{self.base}/preview/", {"text": "برنامه‌ی تمرینی چغر", "depth": "normalize"}, format="json").json()
+        self.assertEqual(plain["engines"]["piper"]["depth"], "normalize")
+        self.assertNotIn("ipa", plain["engines"]["piper"])
         self.assertEqual(svc.settings_for(self.store)["depth"], {})        # the store's own setting is untouched
         bad = self.api.post(f"{self.base}/preview/", {"text": "سلام", "depth": "nope"}, format="json")
         self.assertEqual(bad.status_code, 400)

@@ -90,6 +90,15 @@ def text_for(text: str, engine: str, *, store=None, language: str = "fa", depth:
     return rendered.text
 
 
+def spoken_form(text: str, engine: str, *, store=None, language: str = "fa") -> str:
+    """The text the voice is REALLY given (numbers as words, Latin words in Persian; respelled for text engines) - what the panel
+    shows next to a sample. Never records problems (the synthesis did); falls back to the input."""
+    rendered = prepare(text, engine, store=store, language=language, record=False)
+    if rendered is None or not rendered.text.strip():
+        return text
+    return rendered.text
+
+
 def fingerprint(store, engine: str) -> str:
     """Key of what the layer does for this store and engine right now (see ``apps.pronunciation.services.fingerprint``);
     the studio puts it in the cache key of a finished take."""

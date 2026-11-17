@@ -49,6 +49,8 @@ export type Overview = {
   settings: PronSettings;
   engines: EngineInfo[];
   depths: Record<Depth, string>;
+  /** توضیحِ بلندِ هر عمق (برچسب‌ها کوتاه‌اند تا در انتخابگر بریده نشوند) */
+  depth_help?: Record<Depth, string>;
   local_only: boolean;
   node: { known: number; online: number; names: string[] };
   counts: { store: number; global: number; shared: number; problems: number; sentences: number; quick: number };
@@ -108,6 +110,13 @@ export type Listen =
   | { state: "queued" | "running"; token: string; engine: EngineKey; variant: string; message?: string }
   | { state: "failed"; message: string };
 
+/** نمونه‌های پیش/پس که روی سرور ساخته شده؛ فایل‌ها فقط با ورود شنیده می‌شوند */
+export type SampleLine = { group: string; text: string; spoken: string; files: Record<string, Record<string, string>> };
+export type SampleSet = {
+  id: string; title: string; note: string; created: string; layer_version: string;
+  variants: { key: string; label: string }[]; voices: { key: string; label: string }[]; lines: SampleLine[];
+};
+
 const P = (id: string) => `/stores/${id}/pronunciation`;
 
 export const loadOverview = async (id: string) => (await api.get<Overview>(`${P(id)}/`)).data;
@@ -141,3 +150,4 @@ export const loadRuns = async (id: string) => (await api.get<{ runs: EvalRun[]; 
 export const loadRun = async (id: string, pk: number) => (await api.get<EvalRun>(`${P(id)}/eval/${pk}/`)).data;
 export const startRun = async (id: string, engine: EngineKey, sample: "quick" | "full") =>
   (await api.post<EvalRun>(`${P(id)}/eval/`, { engine, sample })).data;
+export const loadSamples = async (id: string) => (await api.get<{ sets: SampleSet[] }>(`${P(id)}/samples/`)).data.sets;

@@ -222,7 +222,7 @@ class VoicePreviewView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, store_id):
-        from services.audio import lexicon, polish, tts
+        from services.audio import lexicon, polish, pronounce, tts
         from services.audio.profile import ProfileError
 
         store = access.get_store(request.user, store_id, access.CONTENT, write=False)
@@ -254,10 +254,13 @@ class VoicePreviewView(APIView):
             provider.wait_s = 240
 
         mix = polish.settings_mix()
+        # «fix the word, listen again» must play the NEW sample: the pronunciation layer's state (version, on/off, ezafe switch, depth
+        # and the store's lexicon) is part of the key, like it is for the studio takes and the test box
+        pron_fp = pronounce.fingerprint(store, provider.name) if language == "fa" and getattr(provider, "use_pron", True) else "off"
         key = hashlib.sha256("|".join([
             str(store.pk), language, profile.gender, str(profile.rate), str(profile.pitch),
             str(profile.volume), spoken, provider.name, provider.voice, str(mix.voice_lufs),
-            str(getattr(mix, "polish_voice", True)),
+            str(getattr(mix, "polish_voice", True)), pron_fp,
         ]).encode("utf-8")).hexdigest()[:20]
         name = f"voice_previews/store_{store.pk}/{key}.m4a"
 
@@ -283,10 +286,13 @@ class VoicePreviewView(APIView):
             _sweep_previews(store.pk)
 
         speaker = provider.describe() if hasattr(provider, "describe") else {}
+        shown = spoken
+        if language == "fa" and getattr(provider, "use_pron", True):
+            shown = pronounce.spoken_form(spoken, provider.name, store=store, language=language)    # numbers as words, as the voice gets them
         return Response({
             "url": default_storage.url(name),
             "speaker": speaker,
-            "spoken_text": spoken,
+            "spoken_text": shown,
             "unresolved": unresolved,
         })
 

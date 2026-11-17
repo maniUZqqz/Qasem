@@ -9,9 +9,9 @@ import {
 import { useAuthAudio } from "../useAuthAudio";
 import { useAudio } from "../AudioLayout";
 import {
-  Convert, Depth, Entry, EngineInfo, EngineKey, EvalRun, Overview, Preview, Problem, Shared, WordRow,
+  Convert, Depth, Entry, EngineInfo, EngineKey, EvalRun, Overview, Preview, Problem, SampleSet, Shared, WordRow,
   addProblem, convert, deleteEntry, deleteProblem, listen, listenResult, loadLexicon, loadOverview, loadProblems, loadRun,
-  loadShared, patchProblem, preview, saveEntry, saveSettings, startRun,
+  loadSamples, loadShared, patchProblem, preview, saveEntry, saveSettings, startRun,
 } from "./api";
 
 /**
@@ -35,6 +35,7 @@ const TAB_LABELS = [
   { key: "lexicon", label: "واژه‌نامه" },
   { key: "problems", label: "مشکل‌دار" },
   { key: "eval", label: "سنجشِ صدا" },
+  { key: "samples", label: "نمونه‌ها" },
 ] as const;
 type Tab = (typeof TAB_LABELS)[number]["key"];
 
@@ -94,6 +95,7 @@ export default function PronunciationPage() {
       {tab === "lexicon" && <LexiconTab {...ctx} />}
       {tab === "problems" && <ProblemsTab {...ctx} />}
       {tab === "eval" && <EvalTab {...ctx} />}
+      {tab === "samples" && <SamplesTab {...ctx} />}
     </div>
   );
 }
@@ -138,6 +140,7 @@ function Header({ storeId, ov, reload, setError }: Ctx) {
             <Field key={e.key} label={e.label} hint={e.native}>
               <Select
                 value={e.depth}
+                title={ov.depth_help?.[e.depth]}
                 onChange={(ev) => void patch({ depth: { ...s.depth, [e.key]: ev.target.value as Depth } })}
               >
                 {(Object.keys(ov.depths) as Depth[]).map((d) => (
@@ -149,6 +152,13 @@ function Header({ storeId, ov, reload, setError }: Ctx) {
               </Select>
             </Field>
           ))}
+          {ov.depth_help && (
+            <ul className="sm:col-span-3 space-y-1 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+              {(Object.keys(ov.depths) as Depth[]).map((d) => (
+                <li key={d}><b style={{ color: "var(--text-2)" }}>{ov.depths[d]}:</b> {ov.depth_help?.[d]}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </Card>
@@ -176,6 +186,7 @@ function ListenButton({ storeId, text, engine, variant, disabled, depth }: {
       } else if (r.state === "failed") {
         setSt({ state: "error", msg: r.message });
       } else {
+        setSt((cur) => ({ state: "queued", msg: r.message || cur.msg }));
         timer.current = window.setTimeout(() => void poll(token), 4000);
       }
     } catch (err) {
@@ -193,7 +204,7 @@ function ListenButton({ storeId, text, engine, variant, disabled, depth }: {
       } else if (r.state === "failed") {
         setSt({ state: "error", msg: r.message });
       } else {
-        setSt({ state: "queued", msg: "در صفِ سرورِ پردازش ..." });
+        setSt({ state: "queued", msg: r.message || "در صفِ سرورِ پردازش ..." });
         void poll(r.token);
       }
     } catch (err) {
@@ -208,7 +219,7 @@ function ListenButton({ storeId, text, engine, variant, disabled, depth }: {
           {variant === "before" ? "پیش از لایه" : "پس از لایه"}
         </span>
       </Button>
-      {st.msg && <span className="text-xs" style={{ color: st.state === "error" ? "var(--bad)" : "var(--text-3)" }}>{st.msg}</span>}
+      {st.msg && <span className="max-w-[22rem] text-xs leading-6" style={{ color: st.state === "error" ? "var(--bad)" : "var(--text-3)" }}>{st.msg}</span>}
     </span>
   );
 }
@@ -271,7 +282,7 @@ function TestTab({ storeId, ov, reload, setError, text, setText, res, setRes, de
           </Button>
           <label className="flex items-center gap-2 text-sm" title="فقط برای همین آزمون؛ تنظیمِ فروشگاه عوض نمی‌شود">
             <span style={{ color: "var(--text-2)" }}>عمقِ لایه در این آزمون</span>
-            <Select value={depth} onChange={(ev) => { const d = ev.target.value as Depth | ""; setDepth(d); void run(d); }}>
+            <Select value={depth} title={depth ? ov.depth_help?.[depth] : undefined} onChange={(ev) => { const d = ev.target.value as Depth | ""; setDepth(d); void run(d); }}>
               <option value="">طبقِ تنظیمِ فروشگاه</option>
               {(Object.keys(ov.depths) as Depth[]).map((d) => (<option key={d} value={d}>{ov.depths[d]}</option>))}
             </Select>
@@ -317,9 +328,9 @@ function TestTab({ storeId, ov, reload, setError, text, setText, res, setRes, de
           <Card>
             <SectionTitle>چه واژه‌هایی عوض شد و چرا</SectionTitle>
             <p className="mb-3 text-xs leading-6" style={{ color: "var(--text-3)" }}>
-              این جدول همهٔ واژه‌هایی است که لایه می‌شناسد (عمقِ «واژه‌های شناخته‌شده»). هر موتور فقط در عمقِ خودش از آن‌ها استفاده می‌کند: در عمقِ پیش‌فرض
-              (فقط نرمال‌سازی) تنها سرواژه‌ها و واژه‌های واژه‌نامهٔ خودِ فروشگاه عوض می‌شوند؛ برای شنیدنِ بقیه «عمقِ لایه در این آزمون» را روی
-              «واژه‌های شناخته‌شده» بگذارید.
+              این جدول واژه‌هایی است که لایه می‌شناسد و عوض می‌کند. هر موتور فقط در عمقِ خودش از آن‌ها استفاده می‌کند: Piper به‌طور پیش‌فرض در عمقِ
+              «نرمال‌سازی + واژه‌نامه» است و همهٔ این واژه‌ها را اعمال می‌کند؛ Edge و MOSS به‌طور پیش‌فرض «فقط نرمال‌سازی» هستند و تنها سرواژه‌ها و
+              واژه‌های واژه‌نامهٔ خودِ فروشگاه را عوض می‌کنند. برای شنیدنِ بقیه، «عمقِ لایه در این آزمون» را روی «نرمال‌سازی + واژه‌نامه» بگذارید.
             </p>
             {known.length === 0 ? (
               <EmptyState icon="info" title="در این متن واژه‌ای نبود که لایه باید عوضش کند"
@@ -376,7 +387,7 @@ function EngineCard({ engine, storeId, text, res, depth }: { engine: EngineInfo;
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <b className="text-sm">{engine.label}</b>
         <Badge tone={engine.local ? "ok" : "info"}>{engine.local ? "لوکال" : "آنلاین"}</Badge>
-        {info && <Badge>{({ normalize: "فقط نرمال‌سازی", lexicon: "واژه‌های شناخته‌شده", full: "همه" } as Record<string, string>)[info.depth]}</Badge>}
+        {info && <Badge>{({ normalize: "فقط نرمال‌سازی", lexicon: "نرمال‌سازی + واژه‌نامه", full: "همه‌چیز" } as Record<string, string>)[info.depth]}</Badge>}
       </div>
       <div className="mb-2 text-xs leading-6" style={{ color: "var(--text-3)" }}>{engine.native}</div>
       {engine.blocked ? (
@@ -820,5 +831,81 @@ function RunDetails({ run, tags, onClose }: { run: EvalRun; tags: Record<string,
         </details>
       )}
     </Card>
+  );
+}
+
+
+// ───────────────────────────────────────────────────────────── نمونه‌های آماده: پیش و پس، با صدای واقعیِ سرور
+
+function SamplesTab({ storeId, setError }: Ctx) {
+  const audio = useAuthAudio();
+  const [sets, setSets] = useState<SampleSet[] | null>(null);
+  const [busyUrl, setBusyUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    loadSamples(storeId).then((r) => { if (alive) setSets(r); }).catch((err) => { if (alive) setError(errorMessage(err)); });
+    return () => { alive = false; };
+  }, [storeId, setError]);
+
+  const play = async (url: string) => {
+    setBusyUrl(url);
+    try {
+      await audio.play(url);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyUrl(null);
+    }
+  };
+
+  if (sets === null) return <div className="py-8 text-center"><Spinner /></div>;
+  if (sets.length === 0) {
+    return <EmptyState icon="info" title="هنوز نمونه‌ای روی سرور ساخته نشده" />;
+  }
+  return (
+    <div className="space-y-4">
+      {sets.map((set) => (
+        <Card key={set.id}>
+          <SectionTitle>{set.title}</SectionTitle>
+          {set.note && <p className="mb-3 text-sm leading-7" style={{ color: "var(--text-2)" }}>{set.note}</p>}
+          <div className="space-y-4">
+            {set.lines.map((ln, i) => (
+              <div key={i} className="rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <Badge>{ln.group}</Badge>
+                </div>
+                <div className="text-base leading-8">{ln.text}</div>
+                {ln.spoken && ln.spoken !== ln.text && (
+                  <div className="text-xs leading-6" style={{ color: "var(--text-3)" }}>پس از نرمال‌سازی: {ln.spoken}</div>
+                )}
+                <div className="mt-2 space-y-2">
+                  {set.voices.map((v) => (
+                    <div key={v.key} className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-[8rem] text-xs" style={{ color: "var(--text-2)" }}>{v.label}</span>
+                      {set.variants.map((va) => {
+                        const url = ln.files[v.key]?.[va.key];
+                        return (
+                          <Button key={va.key} size="sm" variant={va.key === "before" ? "secondary" : "primary"} disabled={!url || busyUrl === url}
+                            onClick={() => url && void play(url)}>
+                            <span className="inline-flex items-center gap-1">
+                              {busyUrl === url ? <Spinner size={14} /> : <Icon name="play" size={14} />}
+                              {va.label}
+                            </span>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+            نسخهٔ لایه: <span dir="ltr">{set.layer_version}</span> · ساخته‌شده: {set.created}
+          </p>
+        </Card>
+      ))}
+    </div>
   );
 }

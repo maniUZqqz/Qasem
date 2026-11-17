@@ -32,7 +32,13 @@ ENGINES = {
     "moss": {"label": "MOSS-TTS (کارتِ گرافیکِ سرورِ پردازش)", "local": True,
              "native": "متنِ بازنویسی‌شده با نشانهٔ کوتاه‌صدا"},
 }
-DEPTH_LABELS = {"normalize": "نرمال‌سازیِ متن (+ سرواژه‌ها و واژه‌های خودِ فروشگاه)", "lexicon": "نرمال‌سازی + واژه‌های شناخته‌شده", "full": "همه‌چیز (حتی واژه‌های ناشناخته)"}
+#: short enough for a select box at phone width; the long explanation is DEPTH_HELP (shown under the settings and as a tooltip)
+DEPTH_LABELS = {"normalize": "فقط نرمال‌سازی", "lexicon": "نرمال‌سازی + واژه‌نامه", "full": "همه‌چیز"}
+DEPTH_HELP = {
+    "normalize": "فقط متن را آماده می‌کند: عدد، تاریخ، ساعت، قیمت، شماره‌تلفن و واژه‌های لاتین به واژهٔ فارسی، سرواژه‌ها (PDF، GPS) حرف‌به‌حرف، و واژه‌هایی که خودِ فروشگاه در واژه‌نامه‌اش نوشته. بقیهٔ واژه‌ها را خودِ صدا می‌خواند.",
+    "lexicon": "علاوه بر آن، واژه‌هایی را که صدا اشتباه می‌خواند با آوای درست می‌دهد: ع و ء، «ه» و «ی» و «و/او» پایانی و میانی، تشدید، اضافه (برنامهٔ تمرینی، ورزش‌های سنگین)، هم‌نویسه‌ها (کشتی، مرد، کرم). این عمق برای شکایتِ تلفظ است.",
+    "full": "علاوه بر آن، حتی واژه‌های ناشناخته را با قاعده‌های حرف‌به‌حرف آوانویسی می‌کند (برای موتورهایی که هیچ پیش‌پردازشِ فارسی ندارند).",
+}
 MAX_WORD = 80
 
 # ------------------------------------------------------------------ runtime (used by every provider)
@@ -289,7 +295,7 @@ def preview(store, text: str, engines=None, depth: str | None = None) -> dict:
     out = {"text": text, "engines": {}, "settings": s}
     base = fa_pron.prepare(text, depth="lexicon", dictionary=dic, ezafe=s["ezafe"])
     out["normalized"] = base.normalized
-    out["words"] = [{"text": t.text, "pn": t.pn or "", "source": t.source, "ezafe": t.ezafe, "applied": t.apply,
+    out["words"] = [{"text": t.text, "pn": t.pn or "", "source": t.source, "ezafe": t.ezafe or t.ezafe_inside, "applied": t.apply,
                      "heard_as": respell_token(t) if t.pn else ""}
                     for t in base.tokens if t.kind == "word"]
     out["unknown"] = base.unknown

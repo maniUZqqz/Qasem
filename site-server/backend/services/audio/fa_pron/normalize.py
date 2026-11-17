@@ -91,17 +91,25 @@ def split_glued_digits(text: str) -> str:
     return _WORD_THEN_DIGIT.sub(" ", text)
 
 
-#: «۴۵۰.۰۰۰ تومان»: a dot between a digit and exactly three digits is the thousands separator when it repeats («۱.۲۵۰.۰۰۰»)
-#: or when a price / count word follows («۲.۵۰۰ تومان»); otherwise it is a decimal point («۳.۱۴۱»).
-_DOT_THOUSANDS_MULTI = re.compile(r"(?<![\d.,/])(\d{1,3}(?:\.\d{3}){2,})(?![\d])(?!\.\d)")
+#: «۴۵۰.۰۰۰ تومان»: a dot (or the Arabic decimal mark «٫», which many keyboards type for it) between a digit and exactly three digits is the
+#: thousands separator when it repeats («۱.۲۵۰.۰۰۰», «۱٫۲۰۰٫۰۰۰»), when the three digits are «000» («۴۵۰.۰۰۰») or when a price / count
+#: word follows («۲.۵۰۰ تومان», «۳٫۵۰۰ تومان»); otherwise it is a decimal point («۳.۱۴۱»).
+_SEP = "[.٫]"
+_DOT_THOUSANDS_MULTI = re.compile(rf"(?<![\d.,/٫])(\d{{1,3}}(?:{_SEP}\d{{3}}){{2,}})(?![\d])(?!{_SEP}\d)")
+_DOT_THOUSANDS_ZEROS = re.compile(rf"(?<![\d.,/٫])([1-9]\d{{0,2}}{_SEP}000)(?![\d])(?!{_SEP}\d)")
 _DOT_THOUSANDS_ONE = re.compile(
-    r"(?<![\d.,/])([1-9]\d{0,2}\.\d{3})(?![\d])(?=\s*(?:تومان|تومن|ریال|دلار|یورو|پوند|درهم|نفر|عدد|فالوور|دنبال‌کننده|بازدید|لایک|"
+    rf"(?<![\d.,/٫])([1-9]\d{{0,2}}{_SEP}\d{{3}})(?![\d])(?=\s*(?:تومان|تومن|ریال|دلار|یورو|پوند|درهم|نفر|عدد|فالوور|دنبال‌کننده|بازدید|لایک|"
     r"کالری|کیلوکالری|گام|قدم|بار|جلسه|دقیقه|ثانیه|کلمه|واژه))")
 
 
+def _group(m) -> str:
+    return m.group(1).replace(".", ",").replace("٫", ",")
+
+
 def fix_dot_thousands(text: str) -> str:
-    text = _DOT_THOUSANDS_MULTI.sub(lambda m: m.group(1).replace(".", ","), text)
-    return _DOT_THOUSANDS_ONE.sub(lambda m: m.group(1).replace(".", ","), text)
+    text = _DOT_THOUSANDS_MULTI.sub(_group, text)
+    text = _DOT_THOUSANDS_ZEROS.sub(_group, text)
+    return _DOT_THOUSANDS_ONE.sub(_group, text)
 
 
 # ------------------------------------------------------------------ names
@@ -295,6 +303,8 @@ def _num_to_words(s: str) -> str:
 #: «۹۹۰/۰۰۰ تومان» (a slash as the thousands separator): only when the last group is «000» or a price word follows.
 _SLASH_THOUSANDS = re.compile(
     r"(?<![\d/])(\d{1,3})/(\d{3})(?![\d/])(?=(?<=000)|\s*(?:تومان|تومن|ریال|دلار|یورو))")
+#: «۲۴/۷» (support «24/7»): said as what it means.
+_ALL_DAY = re.compile(r"(?<![\d/.])(?:24/7|7/24)(?![\d/])")
 #: «-۵ کیلو»: a minus sign in front of a number (not a range «۵-۱۰», not a dash between words «برنامه - ۵ روز»).
 _MINUS = re.compile(r"(?<![\w)\]])[-−](?=\d)")
 #: «4G», «5G» (mobile network) and «4K» (picture size) are letter names, not grams / thousands.
@@ -307,6 +317,20 @@ _HALF_FA = re.compile(rf"(?<![\d.])(\d+)\.5(?!\d)(?=\s+(?:{_QUANT_FA})(?![آ-ی]
 _HALF_UNIT = re.compile(rf"(?<![\d.])(\d+)\.5(?!\d)\s?(°C|℃|°F|km²|m²|m2|{_UNIT_RE})(?![A-Za-z0-9])", re.I)
 
 
+#: «۲/۵ کیلو» (a slash typed as the decimal mark, common in Persian text): a decimal when a unit follows and it cannot be a plain
+#: fraction («۱/۲ کیلو» stays one half, «۳/۴ لیتر» three quarters): the numerator is not smaller than the denominator, or the denominator
+#: is a digit from 5 up, or it has two digits.
+_SLASH_DECIMAL = re.compile(
+    rf"(?<![\d/.])(\d{{1,3}})/(\d{{1,2}})(?![\d/])(?=\s*(?:(?:{_QUANT_FA})(?![آ-ی])|(?:{_UNIT_RE})(?![A-Za-z0-9])))", re.I)
+
+
+def _slash_decimal(m) -> str:
+    num, den = m.group(1), m.group(2)
+    if int(num) >= int(den) or int(den) >= 5 or len(den) == 2:
+        return f"{num}.{den}"
+    return m.group(0)
+
+
 def _half(n: str) -> str:
     return "نیم" if int(n) == 0 else f"{cardinal(int(n))} و نیم"
 
@@ -316,6 +340,8 @@ def spell_numbers(text: str) -> str:
     text = _NETWORK_G.sub(lambda m: f"{cardinal(int(m.group(1)))} جی ", text)
     text = _PICTURE_K.sub(lambda m: f"{cardinal(int(m.group(1)))} کی ", text)
     text = _SLASH_THOUSANDS.sub(lambda m: f"{m.group(1)},{m.group(2)}", text)
+    text = _ALL_DAY.sub(" بیست و چهار ساعته و هفت روز هفته ", text)
+    text = _SLASH_DECIMAL.sub(_slash_decimal, text)
     text = _MINUS.sub("منفی ", text)
     text = _CURR_BEFORE.sub(lambda m: f"{_num_to_words(m.group(2))} {CURRENCY_BEFORE[m.group(1)]}", text)
     text = _CURR_AFTER.sub(lambda m: f"{_num_to_words(m.group(1))} {CURRENCY_BEFORE[m.group(2)]}", text)
@@ -361,10 +387,23 @@ _HANDLE = re.compile(r"(?<![\w@])@([A-Za-z0-9_.]{2,30})")
 _HASHTAG = re.compile(r"#([\w؀-ۿ‌]+)")
 
 
+#: how the ending of an address is said («chagher.ir» = «چغر دات آی‌آر»): letter names for the short ones, never a guessed word
+TLD_SAY = {"ir": "آی‌آر", "com": "کام", "org": "ارگ", "net": "نت", "io": "آی‌او", "ai": "ای‌آی", "app": "اپ", "me": "می",
+           "info": "اینفو", "co": "سی‌او", "ac": "ای‌سی", "edu": "ای‌دی‌یو", "tv": "تی‌وی", "dev": "دِو"}
+_BARE_DOMAIN = re.compile(
+    r"(?<![\w@./:\-])((?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)+(?:ir|com|org|net|io|ai|app|me|info|co|ac|edu|tv|dev))(?![A-Za-z0-9\-])"
+    r"(?:/([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-]+)*))?", re.I)
+
+
 def _say_domain(host: str) -> str:
+    parts = [p for p in re.split(r"[.]", host) if p]
     out = []
-    for part in re.split(r"[.]", host):
-        if not part:
+    for k, part in enumerate(parts):
+        if k > 0 and k == len(parts) - 1 and part.lower() in TLD_SAY:
+            out.append(TLD_SAY[part.lower()])
+            continue
+        if k > 0 and part.lower() in ("co", "ac") and k == len(parts) - 2:
+            out.append(TLD_SAY[part.lower()])
             continue
         spoken, _ = latin.speak_latin(part) if re.fullmatch(r"[A-Za-z0-9\-]+", part) else (part, False)
         out.append(spoken)
@@ -388,8 +427,16 @@ def spell_web(text: str) -> str:
             " ".join(latin.speak_latin(p)[0] for p in re.split(r"[._+\-]", local) if p)
         return f" {l} اَت {_say_domain(domain)} "
 
+    def bare(m):
+        spoken = _say_domain(m.group(1))
+        if m.group(2):
+            spoken += " اسلش " + " ".join(
+                latin.speak_latin(p)[0] for p in re.split(r"[/_\-]", m.group(2)) if p)
+        return " " + spoken + " "
+
     text = _URL.sub(url, text)
     text = _EMAIL.sub(email, text)
+    text = _BARE_DOMAIN.sub(bare, text)
     text = _HANDLE.sub(lambda m: " " + " ".join(
         latin.speak_latin(p)[0] for p in re.split(r"[._]", m.group(1)) if p) + " ", text)
     text = _HASHTAG.sub(lambda m: " " + m.group(1).replace("_", " ") + " ", text)

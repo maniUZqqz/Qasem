@@ -418,7 +418,7 @@ class Lexicon(unittest.TestCase):
         d = D.Dictionary()
         for word, want in {"معنی": "ma'ni", "عضله": "'azale", "خانه": "xAne", "او": "u", "خواهر": "xAhar", "دو": "do",
                            "نو": "now", "نه": "na", "ده": "dah", "سوال": "so'Al", "مسئول": "mas'ul", "چغر": "Caqar",
-                           "مربی": "morabbi", "ورزش": "varzeS", "تغذیه": "taqziye", "پروتئین": "porotein"}.items():
+                           "مربی": "morabbi", "ورزش": "varzeS", "تغذیه": "taqziye", "پروتئین": "porote'in"}.items():
             e = d.lookup(word)
             self.assertIsNotNone(e, word)
             self.assertEqual(e.pn, want, word)
@@ -672,10 +672,12 @@ class Renderers(unittest.TestCase):
         self.assertIn("ipa", r.subs[0])
 
     def test_default_depths(self):
-        # measured on the site's own voice (gyro, 272 sentences): the lexicon is not better than the normaliser alone yet, so the
-        # safe depth is the default until the node's Whisper measurement says otherwise (services.measured_depths)
-        self.assertEqual(fa_pron.DEFAULT_DEPTH["piper"], "normalize")
+        # Piper: the depth that fixes the owner's words (espeak reads «و» as a stressed «va», «هزار» as hezAr ...); the small Vosk
+        # cannot rank it against the normaliser (it does not hear a reduced «و»), the node's Whisper run decides by itself later
+        # (services.measured_depths). Edge reads ع/ه/و right and is disturbed by a respelling; MOSS is not measured yet.
+        self.assertEqual(fa_pron.DEFAULT_DEPTH["piper"], "lexicon")
         self.assertEqual(fa_pron.DEFAULT_DEPTH["edge"], "normalize")       # measured: respelling hurts Edge
+        self.assertEqual(fa_pron.DEFAULT_DEPTH["moss"], "normalize")
         self.assertTrue(all(d in fa_pron.DEPTHS for d in fa_pron.DEFAULT_DEPTH.values()))
 
 

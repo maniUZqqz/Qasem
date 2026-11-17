@@ -12,9 +12,12 @@
     PATCH · DELETE lexicon/<id>/
     GET · POST problems/ · PATCH · DELETE problems/<id>/     ⇐ «مشکل‌دار»؛ PATCH {status} یا {respelling} (= افزودن به واژه‌نامه)
     GET · POST eval/  · GET eval/<id>/   ⇐ سنجشِ صدا ← تشخیصِ گفتار ← نرخِ خطای واژه
+    GET    samples/          ⇐ نمونه‌های پیش/پس که روی سرور ساخته شده (فقط وارد شده‌ها؛ فایل‌ها در پوشهٔ دادهٔ سرور، نه در مسیرِ عمومیِ media)
+    GET    samples/<set>/<file>
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -101,7 +104,7 @@ class OverviewView(APIView):
                             "depth": s["depth"].get(key) or svc.effective_default(key),
                             "default_depth": svc.effective_default(key), "static_default": fa_pron.DEFAULT_DEPTH[key]})
         return Response({
-            "settings": s, "engines": engines, "depths": svc.DEPTH_LABELS, "local_only": local, "node": _node_state(),
+            "settings": s, "engines": engines, "depths": svc.DEPTH_LABELS, "depth_help": svc.DEPTH_HELP, "local_only": local, "node": _node_state(),
             "site_voices": site_voices, "layer_version": fa_pron.VERSION,
             "counts": {"store": LexiconEntry.objects.filter(store=store).count(),
                        "global": LexiconEntry.objects.filter(store__isnull=True).count(),
@@ -207,8 +210,12 @@ class ListenView(APIView):
                                      store=store, purpose="speech", origin="pron_listen", durable=True)
         except (node_audio.NodeAudioError, compute.ComputeUnavailable) as exc:
             return _err(str(exc), "node", status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response({"state": "queued", "token": str(job.uid), "engine": "moss", "variant": variant,
-                         "message": "در صفِ سرورِ پردازش است؛ با روشن بودنِ آن چند ثانیه بعد آماده می‌شود."})
+        if _node_state()["online"]:
+            message = "در صفِ سرورِ پردازش است؛ چند ثانیه بعد آماده می‌شود."
+        else:
+            message = ("سرورِ پردازشِ GPU الان خاموش است؛ این درخواست در صفِ ماندگار می‌ماند و با روشن شدنِ آن خودکار ساخته می‌شود "
+                       "(صفحه را می‌توانید ببندید).")
+        return Response({"state": "queued", "token": str(job.uid), "engine": "moss", "variant": variant, "message": message})
 
 
 class ListenResultView(APIView):
@@ -432,3 +439,63 @@ class EvalItemView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+
+
+# ───────────────────────────────────────────────────────────── ready-made before/after samples (rendered on the server)
+
+_SET_ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+_SAMPLE_FILE = re.compile(r"^[A-Za-z0-9_.-]{1,90}\.(mp3|wav)$")
+
+
+def samples_root() -> Path:
+    """Not under MEDIA_ROOT: that folder is served to everyone without a login. These files are for the signed-in owner only."""
+    return Path(settings.NM_DATA_DIR) / "pron-samples"
+
+
+def load_sample_sets(store_id) -> list[dict]:
+    """Every set under ``pron-samples/<id>/manifest.json`` (newest first), with the audio URLs of this API filled in."""
+    out = []
+    root = samples_root()
+    if not root.is_dir():
+        return out
+    for manifest in sorted(root.glob("*/manifest.json"), reverse=True):
+        set_id = manifest.parent.name
+        if not _SET_ID.match(set_id):
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        base = f"/stores/{store_id}/pronunciation/samples/{set_id}/"
+        lines = []
+        for ln in data.get("lines", []):
+            files = {}
+            for voice, per_variant in (ln.get("files") or {}).items():
+                files[voice] = {variant: base + name for variant, name in per_variant.items()
+                                if name and _SAMPLE_FILE.match(str(name)) and (manifest.parent / name).is_file()}
+            lines.append({"group": ln.get("group", ""), "text": ln.get("text", ""), "spoken": ln.get("spoken", ""), "files": files})
+        out.append({"id": set_id, "title": data.get("title", set_id), "note": data.get("note", ""), "created": data.get("created", ""),
+                    "layer_version": data.get("layer_version", ""), "variants": data.get("variants", []), "voices": data.get("voices", []),
+                    "lines": lines})
+    return out
+
+
+class SamplesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        _store(request, store_id, write=False)
+        return Response({"sets": load_sample_sets(store_id)})
+
+
+class SampleFileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, set_id, name):
+        _store(request, store_id, write=False)
+        if not _SET_ID.match(set_id) or not _SAMPLE_FILE.match(name):
+            raise Http404
+        p = samples_root() / set_id / name
+        if not p.is_file():
+            raise Http404
+        return FileResponse(open(p, "rb"), content_type="audio/wav" if name.endswith(".wav") else "audio/mpeg")

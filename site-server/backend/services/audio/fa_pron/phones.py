@@ -199,6 +199,9 @@ def to_respelling(tokens: list[str], *, sukun: bool = False, final_he: bool = Tr
         # vowels
         at_start = i == 0
         if t in _SHORT:
+            if t == "e" and i == n - 3 and toks[i + 1:] == ["y", "i"] and final_he and prev_is_cons and toks[i - 1] != "'":
+                out.append("ه‌ای")  # «خانه‌ای» (the indefinite after a final «e»), not «خانِیی»
+                break
             if t == "e" and i == n - 1 and final_he and prev_is_cons and toks[i - 1] != "'":
                 out.append("ه")  # word-final «e» is the silent «ه»
             elif at_start:

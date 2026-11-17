@@ -38,7 +38,14 @@ _NO_EZAFE = {
     "جز", "بعد", "قبل", "زیر", "روی", "کنار", "بالای", "جلوی", "پشت", "بین", "میان",
 }
 # every spoken number («سی», «بیست», «هزار», «نُه» ...) counts a noun, it never links to it: «سی دقیقه», not «سیِ دقیقه»
-_NO_EZAFE |= {D.canon(w) for w in (_N.ONES + _N.TEENS + _N.TENS + _N.HUNDREDS + [x[1] for x in _N.SCALES] + ["صفر"]) if w}
+NUMBER_WORDS = {D.canon(w) for w in (_N.ONES + _N.TEENS + _N.TENS + _N.HUNDREDS + [x[1] for x in _N.SCALES] + ["صفر", "نیم"]) if w}
+_NO_EZAFE |= NUMBER_WORDS
+
+#: «دو لیتر آب», «دویست گرم پروتئین», «ده دقیقه گرم کردن», «سه عدد سیب»: a measure word after a number is not linked to what it
+#: measures (a counted noun is: «دو جلسهٔ تمرین»).
+MEASURE_NOUNS = {D.canon(w) for w in (
+    "کیلو کیلوگرم گرم میلی‌گرم لیتر میلی‌لیتر متر سانتی‌متر میلی‌متر کیلومتر قاشق لیوان فنجان کف بسته عدد تکه برش مشت لقمه جرعه "
+    "دقیقه ثانیه ساعت روز هفته ماه سال تومان ریال دلار یورو درصد نفر بار ست تکرار کالری کیلوکالری قدم گام درجه").split()}
 
 #: May follow an ezafe although they are pronouns (کتابِ من).
 _PRONOUNS = {"من", "تو", "او", "ما", "شما", "ایشان", "آنها", "آن‌ها", "اینها", "این‌ها", "خود",
@@ -56,6 +63,14 @@ LIGHT_VERBS = {D.canon(w) for w in (
     "کرد کردن کردند کردم کردیم کردید کنم کنی کند کنیم کنید کنند کن نکرد نکن نکنید می‌کند می‌کنم می‌کنی می‌کنیم می‌کنید می‌کنند "
     "نمی‌کند نمی‌کنم نمی‌کنید داد دادن دادم دادند بده بدهید بدهم بدهد می‌دهد می‌دهم می‌دهید می‌دهند نمی‌دهد "
     "شد شدن شدند می‌شود می‌شوند نمی‌شود زد زدن بزن بزنید گرفت گرفتن بگیر بگیرید می‌گیرد می‌گیرند".split())}
+
+
+#: «برنامه عالی است», «غذا خوشمزه بود»: an adjective that ENDS the clause with a copula is the predicate, it is not linked to the noun
+#: before it. Without the mark in the text a wrong ezafe («برنامهٔ عالی است») sounds worse than a missing one.
+COPULAS = {D.canon(w) for w in (
+    "است هست نیست بود بودند بودم بودی بودیم بودید هستم هستی هستیم هستید هستند نیستم نیستی نیستیم نیستید نیستند "
+    "باشد باشند باشم باشی باشیم باشید می‌باشد می‌باشند شد شدند شدم شدی شدیم شدید می‌شود می‌شوند می‌شوم می‌شوی می‌شویم می‌شوید "
+    "نمی‌شود نمی‌شوند نشد نبود نیست".split())}
 
 
 def _is_verbish(w: str, tag: str) -> bool:
@@ -121,8 +136,12 @@ def mark_ezafe(tokens, dic: D.Dictionary) -> None:
             continue          # «… خوبی پیشنهاد کرد»: the next word belongs to the verb
         if t.written_ezafe:
             continue          # already set from what the writer wrote
+        if D.canon(t.text) in MEASURE_NOUNS and idx > 0 and tokens[idx - 1].kind == "word" and D.canon(tokens[idx - 1].text) in NUMBER_WORDS:
+            continue          # «دو لیتر آب»: a measure after a number
         if D.canon(t.text).endswith(ZWNJ + "ای") or _is_possessed(t, dic):
             continue          # «برنامه‌ای عالی»: no ezafe after the indefinite «ای»; «پدرش مرد»: none after a possessive ending
+        if after is not None and after.kind == "word" and D.canon(after.text) in COPULAS and D.canon(nxt.text) not in _PRONOUNS:
+            continue          # «برنامه عالی است»: «عالی» is the predicate (but «کتابِ من است»: a pronoun does take the ezafe)
         first_ok = can_take(t.text, t.tag, t.source) and (t.tag == "N" or t.source in ("morph", "homograph") or
                                                           bool(_PLURALISH.search(D.canon(t.text))))
         # an unknown word with noun shape may also take it when the next word is a sure follower

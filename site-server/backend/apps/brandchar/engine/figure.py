@@ -113,7 +113,10 @@ class _B:
 
 # ------------------------------------------------------------------ اسکلت
 
-def _rig(st: St, hip_y: float) -> g.Rig:
+SHOULDER_K = 0.78            # محورِ شانه = این کسر از نیم‌پهنای شانه به بیرون؛ قبلاً هر دو بازو از وسطِ سینه می‌آمدند و آستین زیرِ چانه می‌نشست
+
+
+def _rig(st: St, hip_y: float, shoulder_dx: float = 4.0) -> g.Rig:
     rig = g.Rig(size=DESIGN, anchor=(CX, GROUND))
 
     def part(name, pos, parent, z):
@@ -125,8 +128,8 @@ def _rig(st: St, hip_y: float) -> g.Rig:
     part("leg_r", (hip[0] + 9, hip[1]), None, 6)
     part("shin_l", (0, st.thigh), "leg_l", 5)
     part("shin_r", (0, st.thigh), "leg_r", 6)
-    part("arm_l", (-4, -st.torso + 14), "body", 12)
-    part("arm_r", (4, -st.torso + 14), "body", 30)
+    part("arm_l", (-shoulder_dx, -st.torso + 14), "body", 12)
+    part("arm_r", (shoulder_dx, -st.torso + 14), "body", 30)
     part("forearm_l", (0, st.upper), "arm_l", 12)
     part("forearm_r", (0, st.upper), "arm_r", 30)
     part("head", (0, -st.torso + 2), "body", 20)
@@ -134,8 +137,24 @@ def _rig(st: St, hip_y: float) -> g.Rig:
     return rig
 
 
-def _pose_tuples(pose: str, k: float) -> dict:
+#: ژست‌هایی که برای سبک‌های برداری (تنِ پوشیده و سرِ بزرگ‌تر) دوباره تنظیم شده‌اند؛ آدمک‌چوبی همان جدولِ ماسکوت را می‌رود.
+#: «wave»: بازو به‌سمتِ بیرون و ساعد به بالا، کنارِ سر (قبلاً از روی صورت می‌گذشت)؛ «lift»: بازوها بلندتر می‌شوند تا هالتر بالای سر برسد.
+VECTOR_POSES: dict[str, dict[str, dict]] = {
+    "flat": {"wave": {"arm_r": {"rot": -104}, "forearm_r": {"rot": -76}, "head": {"rot": 4}}},
+    "sticker": {"wave": {"arm_r": {"rot": -104}, "forearm_r": {"rot": -76}, "head": {"rot": 4}}},
+    "chibi": {"wave": {"arm_r": {"rot": -97, "sy": 1.32}, "forearm_r": {"rot": -83}, "head": {"rot": 4}},
+              "lift": {"arm_l": {"rot": 168, "sy": 1.62}, "forearm_l": {"rot": 10}, "arm_r": {"rot": -168, "sy": 1.62}, "forearm_r": {"rot": -10}, "leg_l": {"rot": 7}, "leg_r": {"rot": -7}}},
+}
+
+
+def _pose_tuples(pose: str, k: float, style: str = "flat") -> dict:
     out = stage.pose_tuples(pose)
+    over = VECTOR_POSES.get(style, {}).get(pose)
+    if over:
+        out = dict(out)
+        for part_name, vals in over.items():
+            dx, dy, rot, sx, sy = out.get(part_name, (0.0, 0.0, 0.0, 1.0, 1.0))
+            out[part_name] = (vals.get("dx", dx), vals.get("dy", dy), vals.get("rot", rot), vals.get("sx", sx), vals.get("sy", sy))
     return {n: (dx * k, dy * k, rot, sx, sy) for n, (dx, dy, rot, sx, sy) in out.items()}
 
 
@@ -501,8 +520,8 @@ def build(doc: dict, pose: str = "stand", expression: str = "neutral", *, flip: 
     st_prop = stage.resolve_prop(D.to_mascot_spec(d), pose, prop)
     k = (st.thigh + st.shin) / 310.0
     hip_y = GROUND - (st.thigh + st.shin) - st.foot_h * 0.5
-    rig = _rig(st, hip_y)
-    pose_t = _pose_tuples(pose, k)
+    rig = _rig(st, hip_y, st.sh_w * bk[0] * SHOULDER_K)
+    pose_t = _pose_tuples(pose, k, sk)
     mats = rig.world_matrices(V.IDENT, pose_t)
     B = _B(st, d["outline"])
     root = V.G(name="figure")
@@ -549,7 +568,8 @@ def build(doc: dict, pose: str = "stand", expression: str = "neutral", *, flip: 
         arm = V.G(name=f"arm_{side}")
         for n in _arm_nodes(B, d, st, bk, sh, el, wr, far, thumb, tdir):
             arm.add(n)
-        items.append((12 if far else (18 if (st.key == "chibi" or pose in ARMS_UP) else 30), arm))
+        raised = abs(pose_t.get(f"arm_{side}", (0, 0, 0, 1, 1))[2] + pose_t.get("body", (0, 0, 0, 1, 1))[2]) > 100
+        items.append((12 if far else (18 if (st.key == "chibi" or pose in ARMS_UP or raised) else 30), arm))
     # --- سر
     back_h: list = []
     front_h: list = []
@@ -739,7 +759,12 @@ def render_actor(actor: dict, w: int, h: int, *, logo: Image.Image | None = None
 STYLE_KEYS = tuple(STYLE)
 
 
+#: «دست تکان‌دادن» برای آدمک‌چوبیِ این بخش (``spec["pose_variant"] == "brand"``): بازو بیرونِ سر و ساعد بالا، نه از رویِ صورت. ماسکوتِ قدیمی همان ژستِ مشترک را دارد.
+STICK_POSES: dict[str, dict[str, dict[str, float]]] = {"wave": {"arm_r": {"rot": -112}, "forearm_r": {"rot": -68}, "head": {"rot": 4}}}
+
+
 def register() -> None:
-    """سبک‌های برداری را به ``stage.render_actor`` ِ ماسکوت می‌شناساند (``spec['style']``)؛ آدمک‌چوبی همان مسیرِ قدیمی را می‌رود."""
+    """سبک‌های برداری را به ``stage.render_actor`` ِ ماسکوت می‌شناساند (``spec['style']``)؛ آدمک‌چوبی همان مسیرِ قدیمی را می‌رود (با جدولِ ژستِ «brand»)."""
     for key in STYLE_KEYS:
         stage.STYLE_RENDERERS[key] = render_actor
+    stage.POSE_VARIANTS["brand"] = STICK_POSES

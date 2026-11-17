@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any
 
-ENGINE_VERSION = 1             # با هر تغییرِ ظاهریِ موتور بالا برود تا کَشِ قدیمی نخوانده شود
+ENGINE_VERSION = 2             # با هر تغییرِ ظاهریِ موتور بالا برود تا کَشِ قدیمی نخوانده شود
 
 STYLES = ("flat", "chibi", "sticker", "stick")
 STYLE_LABELS_FA = {"flat": "برداریِ تخت", "chibi": "گردِ کوچک (چیبی)", "sticker": "استیکرِ خط‌دور", "stick": "آدمک‌چوبی"}
@@ -188,7 +188,7 @@ def doc_hash(doc: dict) -> str:
 def to_mascot_spec(doc: dict) -> dict:
     """سند ⇒ spec ِ ماسکوت (آدمک‌چوبی). رنگِ دست و پا = ``limb_colour``؛ رنگِ سر = ``head_fill``."""
     s = normalize(doc)
-    return {"name": s["name"], "limb_colour": s["limb_colour"], "head_fill": s["head_fill"], "outline": s["outline"], "line_width": s["line_width"],
+    return {"pose_variant": "brand", "name": s["name"], "limb_colour": s["limb_colour"], "head_fill": s["head_fill"], "outline": s["outline"], "line_width": s["line_width"],
             "head_style": HEAD_TO_STICK[s["head_style"]], "eye_style": EYE_TO_STICK[s["eye_style"]], "hat": s["hat"], "hat_colour": s["hat_colour"],
             "hair": HAIR_TO_STICK[s["hair"]], "hair_colour": s["hair_colour"], "neck": s["neck"], "neck_colour": s["neck_colour"], "extra": s["extra"], "extra_colour": s["extra_colour"],
             "prop": s["prop"], "prop_colour": s["prop_colour"], "logo": s["logo"]}

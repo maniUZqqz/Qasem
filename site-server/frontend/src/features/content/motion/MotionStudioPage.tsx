@@ -200,6 +200,30 @@ export default function MotionStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // عکسی که در صحنه‌ها هست ولی در فهرستِ منبع‌ها نیست (مثلاً استیکرِ «شخصیتِ برند» که از گالری آمده) را می‌خواهیم تا انتخابگر پیش‌نمایشش را نشان بدهد
+  const askedRefs = useRef("");
+  useEffect(() => {
+    if (!lib) return;
+    const found = new Set<string>();
+    const scan = (o: unknown): void => {
+      if (!o || typeof o !== "object") return;
+      for (const v of Object.values(o as Record<string, unknown>)) {
+        if (typeof v === "string") {
+          if (/^photo:\d+$/.test(v)) found.add(v);
+        } else scan(v);
+      }
+    };
+    scenes.forEach(scan);
+    const missing = [...found].filter((r) => !sources.some((s) => s.ref === r)).sort();
+    const key = missing.join(",");
+    if (!missing.length || key === askedRefs.current) return;
+    askedRefs.current = key;
+    motionApi
+      .sources(id, missing)
+      .then((rows) => setSources((prev) => [...prev, ...rows.filter((r) => !prev.some((p) => p.ref === r.ref))]))
+      .catch(() => undefined);
+  }, [scenes, sources, id, lib]);
+
   const refresh = useCallback(async () => {
     try {
       const o = await motionApi.overview(id);

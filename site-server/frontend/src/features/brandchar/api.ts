@@ -166,7 +166,7 @@ export type PersonaInfo = PersonaPublic & {
   voices: { id?: string; name?: string; gender?: string; group?: string; available?: boolean; why?: string }[];
 };
 
-export type PersonaDraft = { persona: PersonaData; sources: { fact: string; source: string }[]; notes: string[]; origin: string; ai: { used: boolean; reason: string; label: string }; score: PersonaPublic["score"] };
+export type PersonaDraft = { persona: PersonaData; sources: { fact: string; source: string }[]; notes: string[]; origin: string; ai: { used: boolean; reason: string; label: string }; brief?: { given: boolean; applied: string[]; used_by_ai: boolean } | null; score: PersonaPublic["score"] };
 
 // ───────────────────────────── نمای کلی
 

@@ -117,10 +117,11 @@ def model_sheet(doc: dict, *, title: str = "", store_name: str = "", version: in
     pw = (W - 120) // len(poses.SHEET_POSES)
     for i, pz in enumerate(poses.SHEET_POSES):
         x = 60 + i * pw
-        dr.rectangle([x, 1146, x + pw - 10, 1446], fill=(255, 255, 255, 255))
-        sheet.alpha_composite(_cell(d, (pw - 10, 300), pose=pz, logo=logo, expression="happy"), (x, 1146))
-        label(x + (pw - 10) // 2, 1452, poses.label_fa(pz), 24)
-    text.draw_text(sheet, "شخصیتِ کارتونیِ کشیده‌شده با کد؛ نه آدمِ واقعی. این برگه مرجعِ همهٔ تصویرهاست.", (W - 60, 1480), 22, fill="#7a7e8a", anchor="ra", max_w=1500, weight=500)
+        dr.rectangle([x, 1146, x + pw - 10, 1402], fill=(255, 255, 255, 255))
+        sheet.alpha_composite(_cell(d, (pw - 10, 256), pose=pz, logo=logo, expression="happy"), (x, 1146))
+        label(x + (pw - 10) // 2, 1408, poses.label_fa(pz), 24)
+    # خطِ پایانی کاملاً داخلِ بوم (قبلاً از لبهٔ پایین بریده می‌شد): بالای آن ≥ ۴۰ پیکسل تا لبه می‌ماند
+    text.draw_text(sheet, "شخصیتِ کارتونیِ کشیده‌شده با کد؛ نه آدمِ واقعی. این برگه مرجعِ همهٔ تصویرهاست.", (W - 60, 1448), 22, fill="#7a7e8a", anchor="ra", max_w=1500, weight=500)
     return sheet.convert("RGB")
 
 

@@ -27,6 +27,8 @@ export default function StudioPage() {
   const [logo, setLogo] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [mascots, setMascots] = useState<{ id: number; name: string; role_fa: string }[]>([]);
+  // بعد از «این را بساز + برگهٔ مدل» نمای صفحه به ویرایشگر می‌رود و سربرگِ ساختِ هوشمند از بین می‌رود؛ این کارت می‌ماند تا خبرِ موفقیت و برگهٔ مدل دیده شود
+  const [fresh, setFresh] = useState<{ name: string; sheet: string | null } | null>(null);
   const n = useNotice();
 
   useEffect(() => {
@@ -63,6 +65,17 @@ export default function StudioPage() {
     <div className="bc-root" data-testid="studio-page">
       {n.error ? <ErrorBox message={n.error} /> : null}
       {n.notice ? <Alert tone="ok">{n.notice}</Alert> : null}
+      {fresh ? (
+        <div className="bc-card" data-testid="fresh-character" role="status">
+          <b>شخصیتِ «{fresh.name}» ساخته شد و برگهٔ مدلش هم آماده است.</b>
+          <span className="bc-sub">همین حالا در «ویرایشگر» باز است؛ برگهٔ مدل را در صفحهٔ «خروجی» هم می‌توانید بردارید.</span>
+          {fresh.sheet ? <div className="bc-previewbox"><img src={fresh.sheet} alt="برگهٔ مدلِ شخصیتِ تازه" /></div> : null}
+          <div className="bc-row">
+            <Link className="u-btn u-btn-secondary u-btn-sm" to={`/stores/${id}/brand-character/export`}>رفتن به خروجی</Link>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setFresh(null)}>بستن</Button>
+          </div>
+        </div>
+      ) : null}
 
       <Section
         title="شخصیت‌های دیداری"
@@ -110,7 +123,7 @@ export default function StudioPage() {
       {tab === "editor" ? (
         sel ? <CharacterEditor id={id} ch={sel} ov={ov} onSaved={() => void reload(sel.id)} onReload={() => reload(sel.id)} /> : <Alert tone="info">اول یک شخصیت بسازید (دکمهٔ «شخصیتِ تازه») یا در سربرگِ «ساخت با هوش مصنوعی» توصیفش کنید.</Alert>
       ) : null}
-      {tab === "ai" ? <AiTab onChosen={(c) => { void reload(c).then(() => setTab("editor")); }} /> : null}
+      {tab === "ai" ? <AiTab onChosen={(c, sheet, nm) => { setFresh({ name: nm, sheet: sheet?.asset?.url ?? null }); n.ok("شخصیت ساخته شد و برگهٔ مدلش آماده است."); void reload(c).then(() => setTab("editor")); }} /> : null}
       {tab === "versions" && sel ? <VersionsTab ch={sel} /> : null}
       {tab === "versions" && !sel ? <Alert tone="info">شخصیتی نیست.</Alert> : null}
     </div>
@@ -132,7 +145,7 @@ function VersionsTab({ ch }: { ch: Character }) {
       <div className="bc-row">
         <Badge tone={ch.locked ? "ok" : "warn"}>{ch.locked ? `قفل · نسخهٔ ${fa(ch.version)}` : "قفل نیست"}</Badge>
         {ch.mascot ? <Badge tone="info">هم‌نام با ماسکوتِ #{fa(ch.mascot)}</Badge> : null}
-        <Button type="button" variant="ghost" size="sm" onClick={() => void bcApi.publishMascot(id, ch.id).then(() => { n.ok("به‌عنوانِ ماسکوت (آدمک‌چوبی) هم ثبت شد؛ صفحهٔ «ماسکوتِ برند» و تامنیل‌ساز آن را می‌بینند."); return reload(ch.id); }).catch(n.fail)}>ثبت به‌عنوانِ ماسکوتِ قدیمی</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void bcApi.publishMascot(id, ch.id).then(() => { n.ok("به‌عنوانِ ماسکوت (آدمک‌چوبی) هم ثبت شد؛ صفحهٔ «ماسکوتِ قدیمی» و تامنیل‌ساز آن را می‌بینند."); return reload(ch.id); }).catch(n.fail)}>ثبت به‌عنوانِ ماسکوتِ قدیمی</Button>
       </div>
       {items.map((v) => (
         <div className="bc-row" key={v.version}>
@@ -149,7 +162,7 @@ function VersionsTab({ ch }: { ch: Character }) {
 
 // ───────────────────────────── خلقِ هوشمند
 
-function AiTab({ onChosen }: { onChosen: (characterId: number) => void }) {
+function AiTab({ onChosen }: { onChosen: (characterId: number, sheet: RenderItem | null, name: string) => void }) {
   const { id, ov, sel } = useBrandChar();
   const [desc, setDesc] = useState("");
   const [useAi, setUseAi] = useState(true);
@@ -176,7 +189,7 @@ function AiTab({ onChosen }: { onChosen: (characterId: number) => void }) {
       const r = await bcApi.choose(id, concept.id, idx, title);
       setSheet(r.sheet ?? null);
       n.ok("شخصیت ساخته شد و برگهٔ مدلش آماده است.");
-      onChosen(r.character.id);
+      onChosen(r.character.id, r.sheet ?? null, r.character.name);
     } catch (e) {
       n.fail(e);
     } finally {

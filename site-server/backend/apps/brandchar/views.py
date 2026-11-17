@@ -125,7 +125,7 @@ class PersonaDraftView(Base):
         store = _store(request, store_id)
         d = _body(request)
         out = persona_ai.draft(store, brief=str(d.get("brief") or ""), use_ai=bool(d.get("use_ai", True)))
-        return Response({"persona": out["persona"], "sources": out["sources"], "notes": out["notes"], "origin": out["origin"], "ai": out["ai"], "score": P.filled_score(out["persona"])})
+        return Response({"persona": out["persona"], "sources": out["sources"], "notes": out["notes"], "origin": out["origin"], "ai": out["ai"], "brief": out.get("brief"), "score": P.filled_score(out["persona"])})
 
 
 class PersonaLockView(Base):
@@ -422,7 +422,7 @@ class AIJobsView(Base):
         if c is None:
             return _nf()
         rows = [ai_render.refresh(r) for r in CharacterAIJob.objects.filter(character=c).select_related("asset", "sticker_asset")[:20]]
-        return Response({"items": [ai_render.job_dict(r) for r in rows], "node": ai_render.node_status()})
+        return Response({"items": [ai_render.job_dict(r) for r in rows], "node": ai_render.node_status(), "modes": ai_render.modes_public()})
 
 
 # ───────────────────────────── قالب‌ها و کاربردها

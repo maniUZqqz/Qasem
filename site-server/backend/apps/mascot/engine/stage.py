@@ -111,6 +111,9 @@ def _barbell(layer: Image.Image, left: tuple[float, float], right: tuple[float, 
 
 #: سبک‌های دیگرِ کشیدن (برداری: apps.brandchar) که با کلیدِ spec["style"] ثبت می‌شوند؛ آدمک‌چوبی همین مسیرِ پایین است
 STYLE_RENDERERS: dict = {}
+#: جدول‌های ژستِ جایگزین: ``spec["pose_variant"] = کلید`` ⇒ همان ژست‌ها فقط برای همین spec کمی فرق می‌کنند (مثلاً «brand» از apps.brandchar برای «دست تکان‌دادن» بیرونِ سر).
+#: ماسکوتِ قدیمی spec["pose_variant"] ندارد و همان جدولِ ``poses.POSES`` را می‌رود.
+POSE_VARIANTS: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
 
 
 def render_actor(actor: dict, w: int, h: int, *, logo: Image.Image | None = None, shadow: bool | None = None, inside: float | None = None) -> ActorShot:
@@ -135,6 +138,10 @@ def render_actor(actor: dict, w: int, h: int, *, logo: Image.Image | None = None
         ImageDraw.Draw(layer).ellipse((sx - rw, sy - rh, sx + rw, sy + rh), fill=(0, 0, 0, 70))
     base = g.mul(g.translate(sx, sy), g.mul(g.scale(px * fl, px), g.translate(-rig.anchor[0], -rig.anchor[1])))
     pose_t = pose_tuples(pose)
+    variant = POSE_VARIANTS.get(spec_in.get("pose_variant")) if isinstance(spec_in, dict) else None
+    for part_name, ch in ((variant or {}).get(pose) or {}).items():
+        dx, dy, rot, sx, sy = pose_t.get(part_name, (0.0, 0.0, 0.0, 1.0, 1.0))
+        pose_t[part_name] = (float(ch.get("dx", dx)), float(ch.get("dy", dy)), float(ch.get("rot", rot)), float(ch.get("sx", sx)), float(ch.get("sy", sy)))
     if "prop" in rig.parts:
         total = math.radians(sum(pose_t.get(p, (0, 0, 0, 1, 1))[2] for p in ("body", "arm_r", "forearm_r")))
         off = PROP_FORWARD.get(prop, 0.0)                    # جابه‌جاییِ «جلو» در قابِ صفحه ⇒ در قابِ چرخیدهٔ ساعد

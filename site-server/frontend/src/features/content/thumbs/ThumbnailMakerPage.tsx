@@ -133,7 +133,7 @@ export default function ThumbnailMakerPage() {
           const base = cur ?? defaultSpec(o.default_format, "face_text");
           return { ...base, subject: { ...base.subject, asset: subjectParam, mode: "cutout", outline: true } };
         });
-        setNotice("ماسکوت به‌عنوانِ سوژه گذاشته شد؛ پس‌زمینه‌اش شفاف است و نیازی به «حذفِ پس‌زمینه» نیست.");
+        setNotice("شخصیتِ برند به‌عنوانِ سوژه گذاشته شد؛ پس‌زمینه‌اش شفاف است و نیازی به «حذفِ پس‌زمینه» نیست.");
         setSearchParams({}, { replace: true });
       }
     } catch (e) {

@@ -328,7 +328,7 @@ const base = (id: string | number) => `/stores/${id}/motion`;
 export const motionApi = {
   catalog: () => api.get<Catalog>("/motion/styles/").then((r) => r.data),
   overview: (id: string | number) => api.get<Overview>(`${base(id)}/`).then((r) => r.data),
-  sources: (id: string | number) => api.get<{ sources: Source[] }>(`${base(id)}/sources/`).then((r) => r.data.sources),
+  sources: (id: string | number, refs?: string[]) => api.get<{ sources: Source[] }>(`${base(id)}/sources/`, refs && refs.length ? { params: { refs: refs.join(",") } } : undefined).then((r) => r.data.sources),
   upload: (id: string | number, file: File) => {
     const fd = new FormData();
     fd.append("file", file);

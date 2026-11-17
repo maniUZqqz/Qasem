@@ -18,7 +18,7 @@ from apps.mascot.engine import poses
 from apps.photoedit import services as photo
 
 from . import inject, persona as P
-from .models import BrandCharacter, SiteBinding, UsageEvent
+from .models import BrandCharacter, BrandPersona, CharacterRender, SiteBinding, UsageEvent
 
 SURFACES: dict[str, dict] = {
     "motion": {"fa": "استودیوی موشن", "about": "قطعهٔ «شخصیتِ برند»: وارد می‌شود، دست تکان می‌دهد، اشاره می‌کند و حبابِ گفتار را هم‌زمان با کلماتِ گوینده نشان می‌دهد.", "page": "/stores/{id}/motion"},
@@ -48,6 +48,24 @@ def summary(store) -> dict:
 def recent(store, limit: int = 30) -> list[dict]:
     return [{"id": e.pk, "surface": e.surface, "surface_fa": SURFACES.get(e.surface, {}).get("fa", e.surface), "ref": e.ref, "meta": e.meta, "created_at": e.created_at,
              "character": e.character_id} for e in UsageEvent.objects.filter(store=store).order_by("-id")[:limit]]
+
+
+def motion_sources(store, limit: int = 40) -> list[dict]:
+    """استیکرهای شفافِ ساخته‌شدهٔ شخصیتِ برند برای «انتخابگرِ تصویر» در استودیوی موشن: [{ref: photo:<id>, title, url, group}]. از هر (شخصیت، ژست، برش، حالت) آخرین استیکر."""
+    rows = (CharacterRender.objects.filter(store=store, kind="sticker", asset__isnull=False).select_related("asset", "character").order_by("-id")[: limit * 4])
+    seen: set = set()
+    out: list[dict] = []
+    for r in rows:
+        p = r.params or {}
+        key = (r.character_id, p.get("pose"), p.get("crop"), p.get("expression"))
+        if key in seen or r.asset is None:
+            continue
+        seen.add(key)
+        title = f"{r.character.name} — {poses.label_fa(str(p.get('pose') or 'stand'))}" + (" (نیم‌تنه)" if p.get("crop") == "bust" else "")
+        out.append({"ref": f"photo:{r.asset_id}", "title": title, "url": photo.media_url(r.asset.thumb or r.asset.original), "group": "شخصیتِ برند"})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _sticker(c: BrandCharacter, user, pose: str, *, crop: str = "full", expression: str = "happy", prop: str = "none"):
@@ -102,8 +120,11 @@ def inbox_card(store, user=None) -> dict:
     data = P.normalize(row.data) if row is not None else None
     if c is None and not data:
         return {"enabled": False}
+    saved = BrandPersona.objects.filter(store=store).first()
     out = {"enabled": True, "name": (data or {}).get("name") or (c.name if c else ""), "greeting": (data or {}).get("greeting", ""), "signoff": (data or {}).get("signoff", ""),
-           "avatar": None, "character": c.pk if c else None}
+           "avatar": None, "character": c.pk if c else None,
+           # لحن فقط وقتی به ایجنت می‌رسد که ذخیره و «فعال» باشد؛ پنل نباید بدونِ آن بگوید «با لحنِ برند جواب می‌دهد»
+           "persona_active": row is not None, "persona_exists": bool(saved is not None and saved.data)}
     if c is not None:
         try:
             r = _sticker(c, user, "stand", crop="bust")

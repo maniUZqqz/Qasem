@@ -13,19 +13,45 @@ export const FIELD_LABELS: Record<string, string> = {
   horizontal: "افقی", points: "نقطه‌ها", slices: "بخش‌ها", center_label: "نوشتهٔ وسط", cards: "کارت‌ها", old_price: "قیمتِ قبلی", columns: "ستون‌ها", rows: "ردیف‌ها", highlight: "ستونِ برجسته",
   score: "امتیاز (۰ تا ۵)", count_label: "توضیحِ تعداد", from: "شروع از", finish_text: "نوشتهٔ پایان", role: "سمت", steps: "مراحل", layout: "چیدمان", icon: "آیکون", emoji: "ایموجی", quote: "نقل‌قول",
   rating: "ستاره (۰ تا ۵)", size: "اندازه", kind: "شکل", color: "رنگ", platform: "شبکه", handle: "نام‌کاربری / نشانی", tags: "برچسب‌ها", speed: "سرعت",
+  values: "مقدارِ هر ستون (هر مورد یک خط)",
+  // «شخصیتِ برند» (apps.brandchar): دو تصویرِ شفافِ همان شخصیت، کارِ او در صحنه، از کجا بیاید و در کدام سوی کادر بایستد
+  image_a: "تصویرِ شخصیت (ایستاده)", image_b: "تصویرِ شخصیت (در حالِ حرکت)", action: "شخصیت چه کار کند؟", arrive: "از کجا وارد شود؟", side: "جای شخصیت در کادر", bubble: "حبابِ گفتار",
 };
 
 const KIND_FA: Record<string, string> = { burst: "انفجاری", circle: "دایره", tag: "برچسب", emoji: "ایموجیِ پرشی", horizontal: "افقی", vertical: "عمودی", accent: "رنگِ ۱", accent2: "رنگِ ۲", accent3: "رنگِ ۳" };
 
+/** نامِ فارسیِ گزینه‌های هر فیلدِ enum؛ کلیدِ بیرونی نامِ فیلد است چون «left» در دو فیلدِ مختلف یک معنا ندارد (ورود از چپ ≠ ایستادن در چپ). گزینهٔ ناشناخته همان‌طور که هست دیده می‌شود. */
+export const ENUM_FA: Record<string, Record<string, string>> = {
+  action: { wave: "دست تکان‌دادن", point: "اشاره کردن", thumbs: "شستِ بالا (تأیید)", explain: "توضیح‌دادن", think: "فکر کردن" },
+  arrive: { left: "از چپ", right: "از راست", bottom: "از پایین" },
+  side: { left: "چپِ کادر", right: "راستِ کادر" },
+  platform: { instagram: "اینستاگرام", telegram: "تلگرام", whatsapp: "واتس‌اپ", website: "وب‌سایت", youtube: "یوتیوب", aparat: "آپارات", eitaa: "ایتا", rubika: "روبیکا", phone: "تلفن", email: "ایمیل", app: "اپلیکیشن" },
+};
+
+/** برچسبِ یک منبعِ تصویر که (هنوز) در فهرستِ منبع‌ها نیست؛ مثلاً عکسِ کتابخانه‌ای که از بخشِ دیگری آمده */
+export function refLabel(ref: string): string {
+  const [head, tail = ""] = ref.split(":");
+  const n = /^\d+$/.test(tail) ? ` ${fa(Number(tail))}` : "";
+  if (ref === "store-logo") return "لوگوی فروشگاه";
+  if (head === "photo") return `تصویرِ کتابخانهٔ ادیتورِ عکس${n}`;
+  if (head === "upload") return `تصویرِ بارگذاری‌شده${n}`;
+  if (head === "pimg") return `عکسِ محصول${n}`;
+  if (head === "gimg") return `تصویرِ ساخته‌شده${n}`;
+  return ref;
+}
+
 export function ImagePicker({ value, sources, onPick, onUpload }: { value: string; sources: Source[]; onPick: (ref: string) => void; onUpload?: (f: File) => void }) {
   const file = useRef<HTMLInputElement>(null);
   const current = sources.find((s) => s.ref === value);
+  // مقدارِ فعلی که در فهرست نیست (مثلاً photo:<id> از «شخصیتِ برند») نباید «بدونِ تصویر» دیده شود: همان را نشان می‌دهیم تا انتخابِ فعلی گم نشود
+  const orphan = value && !current ? value : "";
   return (
     <div className="flex items-center gap-2">
       {current ? <img src={current.url} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="h-10 w-10 rounded-lg" style={{ background: "var(--surface-2)" }} />}
       <div className="min-w-0 flex-1">
         <Select value={value} onChange={(e) => onPick(e.target.value)}>
           <option value="">— بدونِ تصویر —</option>
+          {orphan ? <option value={orphan}>{refLabel(orphan)}</option> : null}
           {sources.map((s) => (
             <option key={s.ref} value={s.ref}>
               {s.group}: {s.title}
@@ -64,7 +90,7 @@ function Leaf({ name, spec, value, onChange, ctx }: { name: string; spec: FieldS
           <option value="">— پیش‌فرض —</option>
           {(spec.choices ?? []).map((c) => (
             <option key={c} value={c}>
-              {iconField ? `${ctx.lib.icon_labels[c] || ctx.lib.emoji_labels?.[c] || c} (${c})` : KIND_FA[c] || c}
+              {iconField ? `${ctx.lib.icon_labels[c] || ctx.lib.emoji_labels?.[c] || c} (${c})` : ENUM_FA[name]?.[c] || KIND_FA[c] || c}
             </option>
           ))}
         </Select>

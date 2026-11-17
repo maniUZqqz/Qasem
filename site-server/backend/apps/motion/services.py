@@ -114,15 +114,9 @@ def materialize(store, spec: dict) -> tuple[dict, dict[str, tuple[bytes, str]]]:
         names[ref] = key
         files[key] = (data, ext)
 
-    def sub(v):
-        return f"asset:{names[v]}" if isinstance(v, str) and v in names else v
-
-    if out.get("brand", {}).get("logo"):
-        out["brand"]["logo"] = sub(out["brand"]["logo"])
-    for sc in out.get("scenes", []):
-        for k in ("image", "before_image", "after_image", "screenshot"):
-            if sc.get(k):
-                sc[k] = sub(sc[k])
+    # هر «جای تصویر» از روی شمای قطعه‌ها (image، before_image، screenshot، image_a، image_b … و overlay ها) به asset:aN می‌رود؛
+    # فهرستِ ثابتِ کلیدها نه: قطعهٔ تازه با فیلدِ تصویر (مثلِ «شخصیتِ برند») قبلاً photo:<id> می‌ماند و Remotion آن را نمی‌خواند.
+    specs.map_refs(out, lambda v: f"asset:{names[v]}" if v in names else v)
     out["assets"] = {k: f"@file:{k}{files[k][1]}" for k in files}
     out.pop("total_s", None)
     attach_style(store, out)
@@ -146,12 +140,7 @@ def preview_payload(store, spec: dict) -> dict:
             out["assets"][f"a{i}"] = assets.data_uri(store, ref)
         except assets.AssetError as exc:
             raise MotionError(str(exc)) from exc
-    if out.get("brand", {}).get("logo") in mapping:
-        out["brand"]["logo"] = f"asset:{mapping[out['brand']['logo']]}"
-    for sc in out.get("scenes", []):
-        for k in ("image", "before_image", "after_image", "screenshot"):
-            if sc.get(k) in mapping:
-                sc[k] = f"asset:{mapping[sc[k]]}"
+    specs.map_refs(out, lambda v: f"asset:{mapping[v]}" if v in mapping else v)
     out.pop("total_s", None)
     attach_style(store, out)
     return out

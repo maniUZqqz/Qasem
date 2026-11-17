@@ -220,6 +220,22 @@ class SourcesView(APIView):
                 continue
         for a in MotionAsset.objects.filter(store=store)[:60]:
             out.append({"ref": f"upload:{a.pk}", "title": a.title, "url": assets.media_url(a.path), "group": "بارگذاری‌شده"})
+        # استیکرهای شفافِ «شخصیتِ برند» (photo:<id>): قطعهٔ «شخصیتِ برند» تصویرش را از همین فهرست می‌گیرد و صاحبِ فروشگاه می‌تواند عوضش کند
+        try:
+            from apps.brandchar import usage as brand_usage
+
+            out += brand_usage.motion_sources(store)
+        except Exception:  # noqa: BLE001 — بخشِ شخصیتِ برند نبود/خراب بود ⇒ بقیهٔ منبع‌ها می‌آیند
+            pass
+        # عکس‌هایی که همین حالا در صحنه‌ها هستند ولی در فهرستِ بالا نیستند (مثلِ photo:<id> از «افزودن به استودیوی موشن»): ?refs=photo:1,photo:2
+        have = {x["ref"] for x in out}
+        want = [r.strip() for r in str(request.query_params.get("refs", "")).split(",") if r.strip().startswith("photo:") and r.strip() not in have][:12]
+        if want:
+            from apps.photoedit.models import PhotoAsset
+
+            ids = [int(r[6:]) for r in want if r[6:].isdigit()]
+            for pa in PhotoAsset.objects.filter(store=store, pk__in=ids):
+                out.append({"ref": f"photo:{pa.pk}", "title": pa.title or f"تصویرِ کتابخانهٔ ادیتورِ عکس #{pa.pk}", "url": assets.media_url(pa.thumb or pa.original), "group": "کتابخانهٔ عکس"})
         return Response({"sources": out})
 
 

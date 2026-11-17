@@ -83,13 +83,33 @@ def default_ask(store, prompt: str) -> tuple[dict, dict]:
         raise IA.AIUnavailable(IA.reason_text(exc)) from exc
 
 
+def _without_ai(store, base: dict, out: dict, brief: str, why: str) -> dict:
+    """هوش مصنوعی در کار نیست: «توضیحِ دلخواه» را بی‌صدا دور نمی‌ریزیم. واژه‌های روشنِ لحن (شوخ، رسمی، کوتاه …) روی لغزنده‌ها اعمال می‌شود و یادداشت می‌گوید
+    چه چیزی اعمال شد و چه چیزی نخوانده ماند. چیزی جز لغزنده‌های لحن عوض نمی‌شود (هیچ واقعیتی ساخته نمی‌شود)."""
+    brief = " ".join(str(brief or "").split())
+    out["brief"] = {"given": bool(brief), "applied": [], "used_by_ai": False}
+    if not brief:
+        return out
+    persona = dict(out["persona"])
+    tone, applied = P.apply_brief_tone(persona.get("tone") or {}, brief)
+    if applied:
+        out["persona"] = P.normalize({**persona, "tone": tone})
+    out["brief"]["applied"] = applied
+    if applied:
+        out["notes"] = [*out["notes"], f"توضیحِ شما بدونِ هوش مصنوعی فقط برای لحن خوانده شد و این‌ها اعمال شد: {'، '.join(applied)}. بقیهٔ توضیح نخوانده ماند؛ با برگشتِ هوش مصنوعی دکمه را دوباره بزنید."]
+    else:
+        out["notes"] = [*out["notes"], "توضیحِ شما در این پیش‌نویس استفاده نشد، چون هوش مصنوعی در دسترس نیست و واژهٔ روشنی از لحن (مثلِ شوخ، رسمی، کوتاه، پرانرژی) در آن نبود. "
+                                       "لغزنده‌ها را دستی تنظیم کنید یا با برگشتِ هوش مصنوعی دوباره «پیش‌نویس بساز» را بزنید."]
+    return out
+
+
 def draft(store, *, brief: str = "", use_ai: bool = True, ask: Callable | None = None) -> dict:
-    """⇒ {persona، sources، notes، origin: facts|rule|ai، ai: {used، reason، label}}. ``ask`` را آزمون تزریق می‌کند."""
+    """⇒ {persona، sources، notes، origin: facts|rule|ai، ai: {used، reason، label}، brief: {given، applied، used_by_ai}}. ``ask`` را آزمون تزریق می‌کند."""
     base = P.draft(store)
-    out = {**base, "ai": {"used": False, "reason": "", "label": ""}}
+    out = {**base, "ai": {"used": False, "reason": "", "label": ""}, "brief": {"given": bool((brief or "").strip()), "applied": [], "used_by_ai": False}}
     if not use_ai:
         out["ai"]["reason"] = "هوش مصنوعی خواسته نشد."
-        return out
+        return _without_ai(store, base, out, brief, out["ai"]["reason"])
     prompt = build_prompt(store, base["persona"], base["sources"], brief)
     try:
         if ask is None:
@@ -100,10 +120,10 @@ def draft(store, *, brief: str = "", use_ai: bool = True, ask: Callable | None =
         reason = getattr(exc, "args", [""])[0] or str(exc) or exc.__class__.__name__
         out["ai"]["reason"] = str(reason)[:240]
         out["notes"] = [*base["notes"], f"هوش مصنوعی در دسترس نبود ({out['ai']['reason']}). پیش‌نویسِ قاعده‌محور آماده است؛ بعداً دوباره امتحان کنید."]
-        return out
+        return _without_ai(store, base, out, brief, out["ai"]["reason"])
     if not isinstance(parsed, dict):
         out["ai"]["reason"] = "پاسخِ مدل قابلِ‌استفاده نبود."
-        return out
+        return _without_ai(store, base, out, brief, out["ai"]["reason"])
     # واقعیت‌های تأییدشده از پیش‌نویس می‌ماند: نام/شعار فقط وقتی از سند آمده‌اند عوض نمی‌شوند
     merged = {**base["persona"]}
     for k, v in parsed.items():
@@ -115,5 +135,6 @@ def draft(store, *, brief: str = "", use_ai: bool = True, ask: Callable | None =
     out["persona"] = P.normalize(merged)
     out["origin"] = "facts" if base["origin"] == "facts" else "ai"
     out["ai"] = {"used": True, "reason": "", "label": (info or {}).get("label", "")}
+    out["brief"]["used_by_ai"] = bool((brief or "").strip())
     out["notes"] = [*base["notes"], "این پیش‌نویس را هوش مصنوعی بهتر کرد؛ جمله‌های دارایِ قیمت، آمار یا وعدهٔ نتیجه خودکار حذف شده‌اند. هر چیزی را که قبول ندارید ویرایش کنید."]
     return out

@@ -39,6 +39,32 @@ MODES = {
            "denoise": 0.62},
     "look": {"fa": "یکی از سبک‌های کتابخانه", "positive": "cartoon brand mascot character, full body, centered, plain light grey background", "denoise": 0.6},
 }
+#: نامِ دیگری که برای حالت‌ها می‌نویسند ⇒ کلیدِ درست (نه بی‌صدا «تصویرسازی»)؛ هر چیزِ دیگر خطای ۴۰۰ با فهرستِ کلیدهای مجاز است
+MODE_ALIASES = {"three_d": "3d", "threed": "3d", "3-d": "3d", "3d_look": "3d", "illustration": "illustrated", "illustrate": "illustrated", "style": "look", "looks": "look"}
+
+
+def normalize_mode(mode: str) -> str:
+    key = str(mode or "illustrated").strip().lower().replace(" ", "_") or "illustrated"
+    key = MODE_ALIASES.get(key, key)
+    if key not in MODES:
+        raise AIRenderError(f"حالتِ «{str(mode)[:30]}» ناشناخته است؛ حالت‌های مجاز: " + "، ".join(f"{k} ({v['fa']})" for k, v in MODES.items()) + ".")
+    return key
+
+
+def modes_public() -> list[dict]:
+    return [{"key": k, "fa": v["fa"], "needs_look": k == "look"} for k, v in MODES.items()]
+
+
+# نامِ انگلیسیِ لباس و ... برای مدلِ تصویرساز (کلیدِ سند مثلِ «track» به‌تنهایی معنا ندارد: «a teal track» یعنی چه؟)
+OUTFIT_EN = {"tshirt": "t-shirt", "tank": "tank top", "hoodie": "hoodie", "jersey": "sports jersey", "suit": "suit jacket over a white shirt", "track": "zip-up track jacket"}
+BOTTOMS_EN = {"pants": "trousers", "shorts": "shorts", "joggers": "jogger pants", "skirt": "skirt"}
+SHOES_EN = {"sneakers": "sneakers", "boots": "boots", "bare": "bare feet"}
+HAIR_EN = {"tuft": "a small tuft of {c} hair", "spikes": "spiky {c} hair", "bob": "{c} bob-cut hair", "ponytail": "{c} hair in a ponytail", "buzz": "buzz-cut {c} hair",
+           "short": "short {c} hair", "bun": "{c} hair in a bun", "curly": "curly {c} hair", "long": "long {c} hair"}
+HAT_EN = {"cap": "baseball cap", "beanie": "knit beanie", "headband": "headband", "tophat": "top hat", "hood": "hood", "chef": "chef hat"}
+EXTRA_EN = {"glasses": "round glasses", "backpack": "backpack", "mask": "face mask", "apron": "apron"}
+PROP_EN = {"torch": "torch", "phone": "smartphone", "key": "key", "bat": "bat", "sign": "sign board", "map": "map", "dumbbell": "dumbbell", "barbell": "barbell", "clipboard": "clipboard",
+           "bag": "shopping bag", "pan": "frying pan", "box": "parcel box", "tablet": "tablet", "megaphone": "megaphone"}
 BASE_NEGATIVE = "text, letters, watermark, logo, signature, extra limbs, deformed hands, blurry, low quality, realistic human face, photo of a real person"
 REF_SIZE = 1024
 BG = (236, 238, 242)
@@ -54,14 +80,16 @@ def anchor_en(doc: dict) -> str:
 
     d = D.normalize(doc)
     cn = MS.colour_name
-    bits = [f"a friendly cartoon character with {cn(d['skin'])}-toned skin, {d['hair']} {cn(d['hair_colour'])} hair" if d["hair"] != "none" else "a friendly cartoon character, no hair",
-            f"wearing a {cn(d['top'])} {d['outfit']} and {cn(d['bottom'])} {d['bottoms']}, {d['shoes_type']}"]
+    hair = HAIR_EN.get(d["hair"], "short {c} hair").format(c=cn(d["hair_colour"])) if d["hair"] != "none" else "no hair"
+    bits = [f"a friendly cartoon character with {cn(d['skin'])}-toned skin, {hair}",
+            f"wearing a {cn(d['top'])} {OUTFIT_EN.get(d['outfit'], d['outfit'])} and {cn(d['bottom'])} {BOTTOMS_EN.get(d['bottoms'], d['bottoms'])}, "
+            + ("barefoot" if d["shoes_type"] == "bare" else SHOES_EN.get(d["shoes_type"], d["shoes_type"]))]
     if d["hat"] != "none":
-        bits.append(f"a {cn(d['hat_colour'])} {d['hat']}")
+        bits.append(f"a {cn(d['hat_colour'])} {HAT_EN.get(d['hat'], d['hat'])}")
     if d["extra"] != "none":
-        bits.append(d["extra"])
+        bits.append(EXTRA_EN.get(d["extra"], d["extra"]))
     if d["prop"] != "none":
-        bits.append(f"holding a {d['prop']}")
+        bits.append(f"holding a {PROP_EN.get(d['prop'], d['prop'])}")
     return ", ".join(bits)
 
 
@@ -107,7 +135,7 @@ def start(c: BrandCharacter, user, *, mode: str = "illustrated", look: str = "",
         raise AIRenderError("ژستِ ناشناخته است.")
     if expression not in D.EXPRESSIONS:
         raise AIRenderError("حالتِ چهره ناشناخته است.")
-    mode = mode if mode in MODES else "illustrated"
+    mode = normalize_mode(mode)
     if mode == "look" and not look:
         raise AIRenderError("برای حالتِ «سبک» یکی از سبک‌ها را انتخاب کنید.")
     p = build_prompt(c.doc, mode, look=look, extra=extra, store=c.store)

@@ -86,7 +86,9 @@ export default function PersonaPage() {
       const r = await bcApi.personaDraft(id, brief, useAi);
       setWiz(r);
       setDraft(r.persona);
-      n.ok(r.ai.used ? "پیش‌نویس با هوش مصنوعی ساخته شد؛ مرور کنید و «ذخیره» را بزنید." : "پیش‌نویسِ قاعده‌محور ساخته شد؛ مرور کنید و «ذخیره» را بزنید.");
+      const skipped = r.brief?.given && !r.brief.used_by_ai;
+      const briefNote = !skipped ? "" : r.brief?.applied?.length ? ` لحنِ توضیحِ شما اعمال شد (${r.brief.applied.join("، ")}).` : " توضیحِ شما استفاده نشد (هوش مصنوعی در دسترس نیست).";
+      n.ok((r.ai.used ? "پیش‌نویس با هوش مصنوعی ساخته شد؛ مرور کنید و «ذخیره» را بزنید." : "پیش‌نویسِ قاعده‌محور ساخته شد؛ مرور کنید و «ذخیره» را بزنید.") + briefNote);
     });
 
   const pickArch = (key: string, asSecond: boolean) => {

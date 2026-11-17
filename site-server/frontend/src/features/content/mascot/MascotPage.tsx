@@ -304,7 +304,7 @@ export default function MascotPage() {
   return (
     <>
       <PageHeader
-        title="ماسکوتِ برند"
+        title="ماسکوتِ قدیمی (آدمک‌چوبی)"
         subtitle="یک شخصیتِ کارتونیِ ثابت با رنگ‌ها و لوگوی برندِ شما؛ در همهٔ پست‌ها، استوری‌ها و تامنیل‌ها دقیقاً یکی است — کشیده‌شده با کد، بدونِ هوش مصنوعی و بدونِ کارتِ گرافیک"
         actions={<>
           <Link to={`/stores/${id}/thumbnails`} className="u-btn u-btn-secondary">تامنیل‌ساز</Link>
@@ -313,6 +313,10 @@ export default function MascotPage() {
       />
       <div ref={top} />
       <div className="mb-4 flex flex-col gap-3">
+        <Alert tone="info" title="شخصیتِ کاملِ برند در بخشِ تازه است">
+          این صفحه همان ماسکوتِ آدمک‌چوبیِ ساده است. بدن و لباسِ پوشیده، ویرایشگرِ برداری، لحنِ گفتار، ۱۰ قالبِ پست و استوری و دکمه‌های «استفاده در» موشن، تامنیل، صندوق و سایت‌ساز در بخشِ{" "}
+          <Link to={`/stores/${id}/brand-character`} className="font-semibold underline">«شخصیتِ برند»</Link> هستند؛ ماسکوتِ قدیمی دست نمی‌خورد و همچنان کار می‌کند.
+        </Alert>
         <Alert tone="info" title="شخصیتِ کارتونی، نه آدمِ واقعی">
           {ov.notes.join(" ")}
         </Alert>

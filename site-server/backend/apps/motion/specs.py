@@ -447,20 +447,44 @@ def upgrade(spec: dict) -> dict:
     return normalize_spec(spec)
 
 
-def asset_refs(spec: dict) -> list:
-    """همهٔ منبع‌های تصویریِ spec (بدونِ تکرار)."""
-    refs: list = []
-    b = spec.get("brand") or {}
-    if b.get("logo"):
-        refs.append(b["logo"])
+def ref_slots(spec: dict) -> list:
+    """هر «جای تصویر» در spec: فهرستِ (دیکشنریِ نگه‌دارنده، کلید). از روی شمای قطعه‌ها می‌آید (هر فیلدِ kind=="ref" در هر صحنه و هر overlay و ردیف‌های objs)،
+    نه از یک فهرستِ ثابتِ کلیدها؛ پس هر قطعه‌ای که فیلدِ تصویر بگیرد (مثلِ image_a و image_b در «شخصیتِ برند») خودکار ساخته می‌شود. لوگوی برند هم هست."""
+    slots: list = []
+    b = spec.get("brand")
+    if isinstance(b, dict) and b.get("logo"):
+        slots.append((b, "logo"))
+
+    def walk(holder: dict, fields: dict) -> None:
+        for key, fs in fields.items():
+            if fs["kind"] == "ref" and holder.get(key):
+                slots.append((holder, key))
+            elif fs["kind"] == "objs" and isinstance(holder.get(key), list):
+                for row in holder[key]:
+                    if isinstance(row, dict):
+                        walk(row, fs.get("fields") or {})
+
     for sc in spec.get("scenes") or []:
         for holder in [sc, *(sc.get("overlays") or [])]:
             comp = components.get(holder.get("type", ""))
-            for key, fs in (comp["fields"].items() if comp else []):
-                if fs["kind"] == "ref" and holder.get(key):
-                    refs.append(holder[key])
+            if comp:
+                walk(holder, comp["fields"])
+    return slots
+
+
+def asset_refs(spec: dict) -> list:
+    """همهٔ منبع‌های تصویریِ spec (بدونِ تکرار)."""
+    refs = [h[k] for h, k in ref_slots(spec) if isinstance(h[k], str)]
     seen: set = set()
     return [r for r in refs if not (r in seen or seen.add(r))]
+
+
+def map_refs(spec: dict, fn) -> dict:
+    """هر منبعِ تصویریِ spec (همان جاهای ``ref_slots``) را با ``fn(ref)`` عوض می‌کند (درجا) و همان spec را برمی‌گرداند. ``fn`` برای رفرنسِ ناشناخته همان را برمی‌گرداند."""
+    for holder, key in ref_slots(spec):
+        if isinstance(holder[key], str):
+            holder[key] = fn(holder[key])
+    return spec
 
 
 def sample_spec(style: str = "flat-vector", template: str = "explainer", aspect: str = "9:16") -> dict:

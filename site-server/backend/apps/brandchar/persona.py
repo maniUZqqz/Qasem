@@ -294,6 +294,37 @@ def draft(store: Any) -> dict:
     return {"persona": p, "sources": sources, "notes": notes, "origin": "rule"}
 
 
+#: «توضیحِ دلخواه» بدونِ هوش مصنوعی: فقط واژه‌های لحن که معنای روشن دارند و فقط لغزنده‌های لحن را جابه‌جا می‌کنند (هیچ واقعیتی ساخته نمی‌شود).
+#: (واژه‌ها ⇒ لغزنده، تغییر، برچسبِ فارسی برای یادداشت)
+BRIEF_TONE_RULES: tuple[tuple[tuple[str, ...], str, int, str], ...] = (
+    (("رسمی", "مؤدب", "مودب", "محترمانه"), "formality", 30, "رسمی‌تر"),
+    (("صمیمی", "خودمانی", "محاوره", "دوستانه"), "formality", -25, "خودمانی‌تر"),
+    (("شوخ", "بامزه", "طنز", "بذله"), "humor", 35, "شوخ‌تر"),
+    (("جدی", "باوقار"), "humor", -25, "جدی‌تر"),
+    (("پرانرژی", "پر انرژی", "پرشور", "پرحرارت", "هیجان"), "energy", 25, "پرانرژی‌تر"),
+    (("آرام", "ملایم", "با‌حوصله", "باحوصله"), "energy", -25, "آرام‌تر"),
+    (("کوتاه", "مختصر", "فشرده"), "detail", -20, "کوتاه‌تر"),
+    (("مفصل", "توضیحی", "کامل توضیح", "با جزئیات"), "detail", 25, "مفصل‌تر"),
+    (("گرم", "مهربان", "دلسوز"), "warmth", 25, "گرم‌تر"),
+    (("بی‌طرف", "بیطرف", "خنثی"), "warmth", -25, "بی‌طرف‌تر"),
+)
+
+
+def apply_brief_tone(tone: dict, brief: str) -> tuple[dict, list[str]]:
+    """⇒ (لحنِ تازه، فهرستِ «چه چیزی اعمال شد»). فقط لغزنده‌های لحن؛ هر لغزنده حداکثر یک بار (اولین قاعدهٔ جور‌شده)."""
+    text = " ".join(str(brief or "").split()).lower()
+    out = dict(tone)
+    applied: list[str] = []
+    touched: set[str] = set()
+    for words, key, delta, label in BRIEF_TONE_RULES:
+        if key in touched or not any(w in text for w in words):
+            continue
+        out[key] = max(0, min(100, int(out.get(key, 50)) + delta))
+        touched.add(key)
+        applied.append(label)
+    return out, applied
+
+
 _NUM = re.compile(r"\d")
 
 

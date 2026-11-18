@@ -184,6 +184,16 @@ class IdeasView(APIView):
             result["message"] += f" ایده‌ها با رنگ، حال‌وهوا و چیدمانِ مرجعِ «{ref.get('title') or 'بدون‌نام'}» دوباره پوشانده شد؛ متن‌ها دست‌نخورده‌اند."
         row = services.save_idea_set(store, request.user, product, result)
         result["id"] = row.pk
+        if bool(d.get("ai", True)) and result.get("via") == "rules" and (result.get("ai") or {}).get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("thumbs.ideas", store, {
+                "topic": str(d.get("topic") or ""), "product_id": getattr(product, "pk", None), "fmt": fmt, "count": _int(d.get("count"), 6), "number": number,
+                "other": str(d.get("other") or "")[:80], "variation": _int(d.get("variation"), 0), "use_price": bool(d.get("use_price", False))},
+                user=request.user, reason=(result.get("ai") or {}).get("reason") or "")
+            if queued:
+                result["queued"] = queued
+                result["message"] = str(result.get("message") or "").replace("وقتی هوش مصنوعی برگردد همین دکمه پیشنهادهای هوشمند می‌دهد.", "این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند؛ ایده‌های هوشمند خودکار می‌رسد.")
         return Response(result)
 
 

@@ -97,7 +97,18 @@ def c21_block(request, slug, key):
         return bad(_blocked_message(rec), code=409)
     extra = {"interact": CV.interact_state(rec), "interact_note": EM.interact_note(rec), "title": rec.get("title", "")}
     if request.method == "POST":
-        return Response({**_block_for(rec, True, bool(request.data.get("ai"))), **extra})
+        out = {**_block_for(rec, True, bool(request.data.get("ai"))), **extra}
+        ai = out.get("ai") or {}
+        if request.data.get("ai") and ai.get("parkable"):
+            from apps.compute import deferred
+
+            ticket = deferred.defer("c21.translate", None, {"key": key}, user=request.user, reason=ai.get("message") or "")
+            if ticket:                                 # قطعه همین حالا با فرهنگ‌لغت درج می‌شود؛ بقیهٔ ترجمه خودکار جایگزین می‌شود
+                ai["queued"] = ticket
+                ai["message"] = ("قطعه درج شد؛ ترجمهٔ بقیهٔ متن‌ها «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار جایگزین می‌شود "
+                                 "(متن‌هایی که خودتان ویرایش کنید دست نمی‌خورند).")
+                out["ai"] = ai
+        return Response(out)
     return Response({**_block_for(rec, request.query_params.get("fa") == "1", False), **extra})
 
 
@@ -174,3 +185,17 @@ def c21_pipeline_status(request):
     from .c21st_api import _crawl_json
 
     return Response({"crawl": _crawl_json(), "pipeline": pipeline_json()})
+
+
+def deferred_translate(store, *, key: str, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): ترجمهٔ AI ِ بقیهٔ متن‌های قطعه. ⇒ {texts, seed, old}؛ سایت‌ساز فقط ردیف‌هایی را عوض می‌کند که کاربر دست نزده."""
+    from .builder import c21_translate as TR
+
+    rec = _rec(key)
+    base, _n = TR.apply_dictionary(list(rec.get("texts", [])))
+    texts, info = TR.ai_translate(base)
+    if not info.get("ok"):
+        if info.get("parkable"):
+            return {"ai_used": False, "ai": info}
+        raise RuntimeError(info.get("message") or "ترجمه انجام نشد")
+    return {"ai_used": True, "ai": info, "old": base, "texts": texts, "seed": EM.default_props(rec, texts)["seed"], "translated": info.get("translated", 0)}

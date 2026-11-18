@@ -148,6 +148,10 @@ def on_cancelled(ph: ComputeJob) -> None:
     """کارِ منتظر در صفِ پردازش لغو شد ⇒ Job ِ کاربر هم لغو شود (اعتبارِ رزرو شده پس می‌آید)."""
     if ph.kind != PARK_KIND:
         return
+    if (ph.payload or {}).get("deferred"):
+        from . import deferred
+        deferred.on_cancelled(ph)
+        return
     row = _row((ph.payload or {}).get("ref"))
     if row is None:
         return
@@ -179,6 +183,10 @@ def on_expired(ph: ComputeJob) -> None:
     """سقفِ انتظار (اختیاری) تمام شد ⇒ Job ِ کاربر ناموفق شود، با پیامِ روشن."""
     if ph.kind != PARK_KIND:
         return
+    if (ph.payload or {}).get("deferred"):
+        from . import deferred
+        deferred.on_expired(ph)
+        return
     row = _row((ph.payload or {}).get("ref"))
     if row is not None:
         from apps.jobs import machine
@@ -209,6 +217,8 @@ def wake_parked() -> int:
     now = timezone.now()
     for ph in ComputeJob.objects.filter(kind=PARK_KIND, state=ComputeJob.State.QUEUED).order_by("created_at"):
         payload = ph.payload or {}
+        if payload.get("deferred"):
+            continue                       # درخواستِ AI ِ صف‌دار: deferred.wake خودش بیدارش می‌کند (ref ِ Job ندارد)
         row = _row(payload.get("ref"))
         if row is None or row.state in machine.TERMINAL or row.cancel_requested:
             call_with_retry(ComputeJob.objects.filter(pk=ph.pk, state=ComputeJob.State.QUEUED).update,

@@ -210,6 +210,12 @@ def ideate(store, topic: str, *, product=None, fmt: str = "youtube", count: int 
                 ai_info["reason"] = "هوش مصنوعی جوابِ قابل‌استفاده نداد."
         except AIUnavailable as exc:
             ai_info["reason"] = hooks.fit_text(str(exc), 300)
+            try:
+                from apps.compute.deferred import is_outage
+
+                ai_info["parkable"] = is_outage(exc)        # با صبر درست می‌شود ⇒ view «در صف» می‌گذارد (compute.deferred)
+            except Exception:  # noqa: BLE001
+                ai_info["parkable"] = False
         except Exception as exc:  # noqa: BLE001 — هیچ خطایی نباید ایده‌ها را بخواباند
             logger.exception("thumbs.ideation: AI path crashed")
             ai_info["reason"] = hooks.fit_text(f"خطای پیش‌بینی‌نشده در هوش مصنوعی: {exc}", 300)
@@ -239,6 +245,23 @@ def ideate(store, topic: str, *, product=None, fmt: str = "youtube", count: int 
     else:
         message = "ایده‌ها از فرمول‌های آمادهٔ فارسی ساخته شد (هوش مصنوعی خاموش بود)."
     return {"topic": topic, "format": fmt, "via": via, "ai": ai_info, "message": message, "ideas": ideas}
+
+
+def deferred_ideas(store, *, topic: str = "", product_id=None, fmt: str = "youtube", count: int = 6, number=None, other: str = "", variation: int = 0,
+                   use_price: bool = False, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان ideate با هوش مصنوعیِ واقعی + ذخیرهٔ مجموعهٔ ایده؛ جواب = همان JSON ِ view."""
+    from django.contrib.auth import get_user_model
+
+    from apps.products.models import Product
+
+    from . import services
+
+    product = Product.objects.filter(store=store, pk=int(product_id)).first() if product_id else None
+    result = ideate(store, topic, product=product, fmt=fmt, count=count, number=number, other=other, use_ai=True, variation=variation, use_price=use_price)
+    user = get_user_model().objects.filter(pk=_user_id).first() if _user_id else None
+    row = services.save_idea_set(store, user, product, result)
+    result["id"] = row.pk
+    return result
 
 
 def moodboard(sample_url) -> list[dict]:

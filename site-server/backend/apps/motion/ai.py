@@ -21,7 +21,20 @@ CALL_TIMEOUT = 150
 
 
 class AIUnavailable(Exception):
-    pass
+    """هوش مصنوعی جواب نداد؛ ``parkable`` = با صبر درست می‌شود (گره خاموش/شلوغ، اعتبار، مهلت) ⇒ می‌شود «در صف» گذاشت (compute.deferred)."""
+
+    def __init__(self, *args, parkable: bool | None = None):
+        super().__init__(*args)
+        self.parkable = None if parkable is None else bool(parkable)         # None = نامعلوم (از روی متنِ خطا حدس زده می‌شود)
+
+
+def _outage(exc) -> bool:
+    try:
+        from apps.compute.deferred import is_outage
+
+        return is_outage(exc)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def get_provider(store, kind: str | None = None):
@@ -164,6 +177,7 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
         msg = f"{MSG_UNAVAILABLE}: {explain(exc)}" if not isinstance(exc, (ValueError, specs.SpecError)) else "پاسخِ هوش مصنوعی قابل‌استفاده نبود"
         spec = polish(specs.normalize_spec({**base, "scenes": rules_scenes(idea, lang)}))
         return {"spec": spec, "source": "rules", "title": "", "components": (kit or {}).get("ids", []), "prompt_chars": (kit or {}).get("chars", 0),
+                "parkable": not isinstance(exc, (ValueError, specs.SpecError)) and _outage(exc),
                 "message": _then(msg, ". یک پیش‌نویسِ ساده از روی متنِ خودتان ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید.")}
 
 
@@ -323,7 +337,18 @@ def code_from_idea(store, idea: str, *, style: str = "", aspect: str = "9:16", p
             return {"code": code, "source": "ai", "warning": f"کدِ نوشته‌شده قاعده‌های امنیتی را رعایت نکرد: {exc}"}
         return {"code": code, "source": "ai", "warning": ""}
     except Exception as exc:  # noqa: BLE001
-        raise AIUnavailable(f"{MSG_UNAVAILABLE}: {explain(exc)}") from exc
+        raise AIUnavailable(f"{MSG_UNAVAILABLE}: {explain(exc)}", parkable=_outage(exc)) from exc
+
+
+def deferred_code_from_idea(store, *, idea: str, style: str = "", aspect: str = "9:16", _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان code_from_idea با هوش مصنوعیِ واقعی."""
+    return code_from_idea(store, idea, style=style, aspect=aspect)
+
+
+def deferred_script_from_idea(store, *, idea: str, style: str, aspect: str = "9:16", lang: str = "fa", seconds: int = 24, brand=None, platform: str = "",
+                              about: str = "", _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان script_from_idea با هوش مصنوعیِ واقعی."""
+    return script_from_idea(store, idea, style=style, aspect=aspect, lang=lang, seconds=seconds, brand=brand or {}, platform=platform, about=about)
 
 
 __all__ = ["script_from_idea", "code_from_idea", "rules_scenes", "AIUnavailable", "assets"]

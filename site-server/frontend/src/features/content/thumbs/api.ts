@@ -159,6 +159,7 @@ export type Idea = {
 };
 
 export type IdeasResult = {
+  queued?: { uid: string; feature?: string; label?: string; message?: string; state?: string };
   id?: number;
   topic: string;
   format: string;

@@ -979,6 +979,9 @@ CELERY_BEAT_SCHEDULE["compute-maintenance"] = {
     "schedule": 60.0,
     "options": {"expires": 50},
 }
+# درخواست‌های هوش مصنوعیِ «در صف تا روشن شدنِ سرورِ پردازش» (compute.deferred): کارِ هوش مصنوعی است و تا ۱۵ دقیقه منتظرِ نوبتِ گره می‌ماند ⇒ روی صفِ «ai» ِ nm-celery-node؛
+# نخِ صفِ دقیقه‌ای (celery، ۴ نخ) را اشغال نکند
+CELERY_TASK_ROUTES["apps.compute.tasks.run_deferred"] = {"queue": "ai"}
 # تامنیل‌ساز: آزمونِ خودکارِ «پس‌زمینهٔ هوش مصنوعی» روی سرورِ پردازش (کار را در صفِ ماندگار می‌گذارد؛ با روشن‌شدنِ گره خودش اجرا و سنجیده می‌شود)
 CELERY_BEAT_SCHEDULE["thumbs-selftest"] = {
     "task": "apps.thumbs.tasks.selftest_when_online",

@@ -265,6 +265,15 @@ class AiView(APIView):
                                       platform=str(d.get("platform") or ""), about=str(d.get("about") or ""))
         except specs.SpecError as exc:
             return _err(str(exc), "invalid")
+        if res.get("source") == "rules" and res.get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("motion.script", store, {
+                "idea": str(d.get("idea") or ""), "style": str(d.get("style") or ""), "aspect": str(d.get("aspect") or "9:16"), "lang": str(d.get("lang") or "fa"),
+                "seconds": max(8, min(90, int(d.get("seconds") or 24))), "brand": brand, "platform": str(d.get("platform") or ""), "about": str(d.get("about") or "")},
+                user=request.user, reason=str(res.get("message") or ""))
+            if queued:
+                res["queued"] = queued
         return Response(res)
 
 
@@ -279,6 +288,14 @@ class AiCodeView(APIView):
         except specs.SpecError as exc:
             return _err(str(exc), "invalid")
         except ai.AIUnavailable as exc:
+            if getattr(exc, "parkable", False):
+                from apps.compute import deferred
+
+                queued = deferred.defer("motion.code", store, {"idea": str(d.get("idea") or ""), "style": str(d.get("style") or ""), "aspect": str(d.get("aspect") or "9:16")},
+                                        user=request.user, reason=str(exc))
+                if queued:                               # «در صف تا روشن شدنِ سرورِ پردازش»: کد خودکار می‌رسد
+                    return Response({"queued": queued, "message": "هوش مصنوعی الان در دسترس نیست؛ این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند و کد خودکار می‌رسد.",
+                                     "reason": str(exc)}, status=status.HTTP_202_ACCEPTED)
             return _err(str(exc), "ai_unavailable", status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(res)
 

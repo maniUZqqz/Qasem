@@ -340,7 +340,15 @@ class AiView(APIView):
         doc.meta = {**(doc.meta or {}), "ai": ai}
         doc.rev += 1
         doc.save(update_fields=["data", "meta", "rev", "updated_at"])
-        return Response({"doc": services.doc_public(doc), "ai": ai})
+        out = {"doc": services.doc_public(doc), "ai": ai}
+        if d.get("use_ai", True) and not ai.get("used") and ai.get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("design.deck", store, {"doc_id": doc.pk, "brief": data["brief"], "options": d.get("options") if isinstance(d.get("options"), dict) else {}, "rev": doc.rev},
+                                    user=request.user, reason=ai.get("message") or "")
+            if queued:
+                out["queued"] = queued
+        return Response(out)
 
 
 # ───────────────────────────── نظرها

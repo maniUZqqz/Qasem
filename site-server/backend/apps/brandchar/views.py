@@ -125,8 +125,17 @@ class PersonaDraftView(Base):
     def post(self, request, store_id):
         store = _store(request, store_id)
         d = _body(request)
-        out = persona_ai.draft(store, brief=str(d.get("brief") or ""), use_ai=bool(d.get("use_ai", True)))
-        return Response({"persona": out["persona"], "sources": out["sources"], "notes": out["notes"], "origin": out["origin"], "ai": out["ai"], "brief": out.get("brief"), "score": P.filled_score(out["persona"])})
+        brief = str(d.get("brief") or "")
+        out = persona_ai.draft(store, brief=brief, use_ai=bool(d.get("use_ai", True)))
+        data = persona_ai.public(out)
+        if d.get("use_ai", True) and not out["ai"].get("used") and out["ai"].get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("brandchar.persona", store, {"brief": brief}, user=request.user, reason=out["ai"].get("reason") or "")
+            if queued:                                   # «در صف تا روشن شدنِ سرورِ پردازش»: پیش‌نویسِ قاعده‌محور همین حالا هست، نسخهٔ هوش مصنوعی خودش می‌رسد
+                data["queued"] = queued
+                data["notes"] = [n.replace("بعداً دوباره امتحان کنید.", "این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند و نسخهٔ هوش مصنوعی خودکار می‌رسد.") for n in data["notes"]]
+        return Response(data)
 
 
 class PersonaLockView(Base):
@@ -360,7 +369,14 @@ class ConceptsView(Base):
         logo = services.store_logo(store) is not None
         out = concepts.generate(store, desc, logo=logo, use_ai=bool(d.get("use_ai", True)))
         row = CharacterConcept.objects.create(store=store, created_by=request.user, description=desc[:600], options=out["options"], source=out["source"], note=out["note"][:240])
-        return Response(_concept_dict(row, store=store, previews=True), status=status.HTTP_201_CREATED)
+        data = _concept_dict(row, store=store, previews=True)
+        if d.get("use_ai", True) and out.get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("brandchar.concepts", store, {"description": desc, "logo": logo}, user=request.user, reason=out.get("note") or "")
+            if queued:
+                data["queued"] = queued
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 def _concept_dict(row: CharacterConcept, *, store=None, previews: bool = False) -> dict:

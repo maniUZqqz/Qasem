@@ -17,6 +17,16 @@ def maintenance():
     except Exception as exc:  # noqa: BLE001 — یک خطا نباید requeue را بخواباند
         out["wake_error"] = str(exc)[:200]
     try:
+        from . import deferred
+        out["deferred"] = deferred.wake()      # درخواست‌های هوش مصنوعی که «در صف تا روشن شدنِ سرورِ پردازش» ماندند (deferred.py)
+    except Exception as exc:  # noqa: BLE001
+        out["deferred_error"] = str(exc)[:200]
+    try:
+        from . import heal
+        out["heal"] = heal.tick()            # کارهایی که یک بار خواسته شده بودند ولی گم شدند (مثلاً «هوش محصول» ِ ری‌استارت‌خورده) دوباره صف می‌شوند
+    except Exception as exc:  # noqa: BLE001
+        out["heal_error"] = str(exc)[:200]
+    try:
         from . import report
         out["report"] = report.maintain()     # بستنِ نوبت‌های ساکت، فشرده‌سازی و پاکسازیِ آمارِ گزارش (هر ۱۰ دقیقه، کران‌دار)
     except Exception as exc:  # noqa: BLE001 — آمار نباید requeue را بخواباند
@@ -27,3 +37,11 @@ def maintenance():
     except Exception as exc:  # noqa: BLE001 — نگه‌داریِ فایل‌ها نباید requeue را بخواباند
         out["retention_error"] = str(exc)[:200]
     return out
+
+
+@shared_task(name="apps.compute.tasks.run_deferred")
+def run_deferred(uid):
+    """یک درخواستِ هوش مصنوعیِ صف‌دار را اجرا می‌کند (deferred.run)؛ هر دقیقه حداکثر یکی از maintenance فرستاده می‌شود."""
+    from . import deferred
+
+    return deferred.run(uid)

@@ -1,4 +1,5 @@
 import { api } from "../../../api/client";
+import type { Queued } from "../../../components/QueuedAi";
 
 /** «استودیوی موشن» — همان شکلِ backend/apps/motion/views.py */
 
@@ -336,7 +337,7 @@ export const motionApi = {
   },
   preview: (id: string | number, spec: Spec) => api.post<{ spec: Spec; total_s: number }>(`${base(id)}/preview/`, { spec }).then((r) => r.data),
   ai: (id: string | number, body: { idea: string; style: string; aspect: string; lang: string; seconds?: number; brand?: Brand; platform?: string }) =>
-    api.post<{ spec: Spec; source: "ai" | "rules"; message: string; title: string; components?: string[] }>(`${base(id)}/ai/`, body).then((r) => r.data),
+    api.post<{ spec: Spec; source: "ai" | "rules"; message: string; title: string; components?: string[]; queued?: Queued }>(`${base(id)}/ai/`, body).then((r) => r.data),
   library: () => api.get<Library>("/motion/library/").then((r) => r.data),
   sound: (id: string | number) => api.get<SoundInfo>(`${base(id)}/sound/`).then((r) => r.data),
   createPlan: (id: string | number, spec: Spec, title = "") => api.post<{ plan: PlanDTO }>(`${base(id)}/plans/`, { spec, title }).then((r) => r.data.plan),
@@ -357,7 +358,7 @@ export const motionApi = {
   renderPlan: (id: string | number, pid: number, body: Record<string, unknown>) =>
     api.post<{ render: RenderRow; node: NodeInfo }>(`${base(id)}/plans/${pid}/render/`, body).then((r) => r.data),
   aiCode: (id: string | number, body: { idea: string; style?: string; aspect?: string }) =>
-    api.post<{ code: string; warning: string }>(`${base(id)}/ai-code/`, body).then((r) => r.data),
+    api.post<{ code?: string; warning?: string; queued?: Queued; message?: string }>(`${base(id)}/ai-code/`, body).then((r) => r.data),
   checkCode: (id: string | number, code: string) =>
     api.post<{ ok: boolean; error?: string; line?: number | null; kind?: string }>(`${base(id)}/code/check/`, { code }).then((r) => r.data),
   render: (id: string | number, body: Record<string, unknown>) =>

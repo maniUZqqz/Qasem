@@ -1,0 +1,13 @@
+/* «امشب: روشن کردنِ سرورِ پردازش» — فقط توکن‌های پنل؛ همان کلاس‌های .nmt ِ صفحهٔ آزمونِ خودکار + چند کلاسِ کوچک. */
+
+.nmtn { max-width: 100%; }
+.nmtn-check { margin: 0; padding-inline-start: 1.4rem; display: grid; gap: 10px; }
+.nmtn-check li { padding-inline-start: 4px; }
+.nmtn-check li::marker { color: var(--brand); font-weight: 800; }
+.nmtn-n {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; flex: none;
+  font-size: .72rem; font-weight: 800; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2);
+}
+.nmtn-rows { display: grid; gap: 8px; margin-top: 4px; }
+.nmtn-ltr { direction: ltr; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .72rem; }
+.nmtn .nmt-chip .nmt-chip { border: none; background: none; padding: 0; }

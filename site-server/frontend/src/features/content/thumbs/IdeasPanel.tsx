@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage } from "../../../api/client";
+import { useQueuedAi } from "../../../components/QueuedAi";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, Select, Spinner, fa } from "../../../components/ui";
 import { Archetype, FormatInfo, Idea, IdeasResult, ProductRow, thumbsApi } from "./api";
 import ReferenceBoard from "./ReferenceBoard";
@@ -36,6 +37,8 @@ export default function IdeasPanel({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IdeasResult | null>(null);
   const [variation, setVariation] = useState(0);
+  // «در صف تا روشن شدنِ سرورِ پردازش»: ایده‌های هوشمند که با روشن شدنِ گره خودکار جای فرمول‌های آماده می‌نشینند
+  const qa = useQueuedAi<IdeasResult>("thumb-ideas", storeId, (r) => setResult(r));
   const [board, setBoard] = useState<Archetype[] | null>(null);
   const [boardNote, setBoardNote] = useState("");
   const [showBoard, setShowBoard] = useState(false);
@@ -64,6 +67,7 @@ export default function IdeasPanel({
         reference: refId || undefined, palette: refId ? paletteMode : undefined,
       });
       setResult(res);
+      qa.setQueued(res.queued);
       setVariation(nextVariation);
     } catch (e) {
       setError(errorMessage(e));
@@ -96,6 +100,8 @@ export default function IdeasPanel({
           <ReferenceBoard storeId={storeId} selected={refId} onSelect={setRefId} paletteMode={paletteMode} onPaletteMode={setPaletteMode} hasBrand={hasBrand} />
         </div>
       )}
+
+      {qa.banner}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="dz-field wide">

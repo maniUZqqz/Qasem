@@ -18,7 +18,9 @@ try:  # همان کمک‌های «بانکِ ایده» (در همین نسخه
     from apps.ideabank.ai import AIUnavailable, reason_text, run_bounded, status as _ib_status
 except Exception:  # noqa: BLE001 — pragma: no cover
     class AIUnavailable(RuntimeError):
-        pass
+        def __init__(self, message="", parkable=None):
+            super().__init__(message)
+            self.parkable = None if parkable is None else bool(parkable)
 
     def reason_text(exc, fallback=""):
         return (fallback or str(exc) or exc.__class__.__name__)[:240]
@@ -29,6 +31,15 @@ except Exception:  # noqa: BLE001 — pragma: no cover
     _ib_status = None
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.M)
+
+
+def _outage(exc) -> bool:
+    try:
+        from apps.compute.deferred import is_outage
+
+        return is_outage(exc)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def parse_json(text: str):
@@ -56,7 +67,7 @@ def default_ask(store, prompt: str, system: str, validate=None) -> tuple[dict, d
     except AIUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise AIUnavailable(reason_text(exc)) from exc
+        raise AIUnavailable(reason_text(exc), parkable=_outage(exc)) from exc
 
 
 def _ask_router(store, prompt: str, system: str, validate=None) -> tuple[dict, dict]:
@@ -74,7 +85,7 @@ def _ask_router(store, prompt: str, system: str, validate=None) -> tuple[dict, d
             prompt=prompt, system=system, validate=validate or (lambda d: (isinstance(d, dict) and bool(d), ["پاسخ خالی است"])), validation_message="پاسخِ مدل ناقص بود")
         info = translate._describe(provider)
     except Exception as exc:  # noqa: BLE001
-        raise AIUnavailable(reason_text(exc)) from exc
+        raise AIUnavailable(reason_text(exc), parkable=_outage(exc)) from exc
     return parsed, (info or {})
 
 

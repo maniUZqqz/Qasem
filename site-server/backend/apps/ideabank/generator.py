@@ -184,6 +184,7 @@ def generate(store, *, category: str = "", count: int = 5, topic: str = "", inst
                 ai_info["reason"] = "هوش مصنوعی جوابِ قابل‌استفاده نداد."
         except ai.AIUnavailable as exc:
             ai_info["reason"] = str(exc)[:300]
+            ai_info["parkable"] = bool(getattr(exc, "parkable", False))         # با صبر درست می‌شود ⇒ view «در صف» می‌گذارد (compute.deferred)
         except Exception as exc:  # noqa: BLE001 — هیچ خطایی نباید «ایده بساز» را از کار بیندازد
             logger.exception("ideabank: AI path crashed")
             ai_info["reason"] = f"خطای پیش‌بینی‌نشده در هوش مصنوعی: {exc}"[:300]
@@ -214,6 +215,19 @@ def generate(store, *, category: str = "", count: int = 5, topic: str = "", inst
     else:
         message = "ایده‌ها از فرمول‌های آمادهٔ فارسی ساخته شد (هوش مصنوعی خاموش بود)."
     return {"via": via, "ai": ai_info, "message": message, "ideas": ideas, "category": category, "topic": topic}
+
+
+def deferred_generate(store, *, category: str = "", count: int = 5, topic: str = "", instruction: str = "", facts=None, product_id=None, variation: int = 0,
+                      save: bool = True, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان generate_and_save با هوش مصنوعیِ واقعی؛ جواب = همان JSON ِ view."""
+    product = None
+    if product_id:
+        from apps.products.models import Product
+
+        product = Product.objects.filter(store=store, pk=int(product_id)).first()
+    kw = dict(category=category, count=count, topic=topic, instruction=instruction, facts=list(facts or []), product=product, use_ai=True,
+              variation=variation, ctx=fill.context(store, product))
+    return generate_and_save(store, **kw) if save else generate(store, **kw)
 
 
 def generate_and_save(store, **kw) -> dict:

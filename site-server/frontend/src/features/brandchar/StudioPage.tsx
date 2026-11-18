@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import { Alert, Badge, Button, ErrorBox, Input, Select, Spinner, TextArea, fa } from "../../components/ui";
+import { useQueuedAi } from "../../components/QueuedAi";
 import LookPicker from "../looks/LookPicker";
 import { AiJob, Character, Concept, NodeStatus, RenderItem, bcApi } from "./api";
 import { useBrandChar } from "./BrandCharLayout";
@@ -170,12 +171,20 @@ function AiTab({ onChosen }: { onChosen: (characterId: number, sheet: RenderItem
   const [busy, setBusy] = useState<string | null>(null);
   const [sheet, setSheet] = useState<RenderItem | null>(null);
   const n = useNotice();
+  // «در صف تا روشن شدنِ سرورِ پردازش»: مجموعهٔ ایده‌های هوش مصنوعی که با روشن شدنِ گره خودکار می‌رسد
+  const qa = useQueuedAi<Concept>("concepts", id, (r) => {
+    setConcept(r);
+    setSheet(null);
+    n.ok("ایده‌های هوش مصنوعی رسید؛ یکی را انتخاب کنید.");
+  });
 
   const make = async () => {
     setBusy("make");
     setSheet(null);
     try {
-      setConcept(await bcApi.concepts(id, desc, useAi));
+      const made = await bcApi.concepts(id, desc, useAi);
+      setConcept(made);
+      qa.setQueued(made.queued);
     } catch (e) {
       n.fail(e);
     } finally {
@@ -208,6 +217,7 @@ function AiTab({ onChosen }: { onChosen: (characterId: number, sheet: RenderItem
           <Button type="button" onClick={() => void make()} disabled={busy !== null || desc.trim().length < 3}>{busy === "make" ? <Spinner size={14} /> : null} چهار ایده بساز</Button>
           <span className="bc-muted">بدونِ هوش مصنوعی هم کار می‌کند (قاعده‌های فارسی)؛ رنگ‌ها از برندِ شما.</span>
         </div>
+        {qa.banner}
         {concept ? <p className="bc-note">{concept.source === "ai" ? "ایده‌ها با کمکِ هوش مصنوعی ساخته شد." : concept.note || "ایده‌ها با قاعده‌های فارسی ساخته شد."}</p> : null}
         {concept ? (
           <div className="bc-concepts" data-testid="concepts">

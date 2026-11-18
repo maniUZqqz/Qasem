@@ -127,6 +127,16 @@ class GenerateView(APIView):
             result = generator.generate(store, **kw) if d.get("save") is False else generator.generate_and_save(store, **kw)
         except ValueError as exc:
             return _err(str(exc))
+        if kw["use_ai"] and not result["ai"].get("ok") and result["ai"].get("parkable"):
+            from apps.compute import deferred
+
+            queued = deferred.defer("ideabank.generate", store, {
+                "category": kw["category"], "count": kw["count"], "topic": kw["topic"], "instruction": kw["instruction"], "facts": kw["facts"],
+                "product_id": getattr(product, "pk", None), "variation": kw["variation"], "save": d.get("save") is not False},
+                user=request.user, reason=result["ai"].get("reason") or "")
+            if queued:
+                result["queued"] = queued
+                result["message"] = str(result.get("message") or "").replace("وقتی هوش مصنوعی برگردد همین دکمه پیشنهادهای هوشمند می‌دهد.", "این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند؛ ایده‌های هوشمند خودکار می‌رسد.")
         return Response(result)
 
 

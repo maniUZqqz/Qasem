@@ -202,7 +202,13 @@ def ai_translate(texts: list[str], *, complete=None) -> tuple[list[str], dict]:
                    "وقتی هوش مصنوعی برگشت «افزودن + فارسی‌سازی» را دوباره بزنید، یا متن را روی بوم خودتان بنویسید." % reason.rstrip(".。 "))
         else:
             msg = "ترجمهٔ هوش مصنوعی ممکن نشد: %s. قطعه درج شد و متن‌ها را می‌توانید روی بوم خودتان بنویسید." % str(exc)[:160]
-        return list(texts), {"ok": False, "translated": 0, "message": msg, "queued": False}
+        try:
+            from apps.compute.deferred import is_outage
+
+            parkable = is_outage(exc)                 # با صبر درست می‌شود ⇒ c21_block ترجمه را «در صف تا روشن شدنِ سرورِ پردازش» می‌گذارد
+        except Exception:                             # noqa: BLE001
+            parkable = False
+        return list(texts), {"ok": False, "translated": 0, "message": msg, "queued": False, "parkable": parkable}
     out = list(texts)
     n = 0
     for i, v in zip(pick, got):

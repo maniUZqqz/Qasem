@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Icon from "../../components/Icon";
+import { useQueuedAi } from "../../components/QueuedAi";
 import { Alert, Badge, Button, Card, ErrorBox, Input, PageHeader, Select, Spinner } from "../../components/ui";
 import { El, Kind, Overview, ScenePage, apiError, designApi, fa } from "./api";
 import ExportDialog from "./ExportDialog";
@@ -76,13 +77,16 @@ function AiBox({ storeId, docId, brief, ov, onDone }: { storeId: string; docId: 
   const [text, setText] = useState(brief);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // «در صف تا روشن شدنِ سرورِ پردازش»: پیش‌نویسِ هوش مصنوعی خودکار می‌رسد و (اگر طرح در این فاصله ویرایش نشده) جای پیش‌نویسِ آماده می‌نشیند
+  const qa = useQueuedAi<{ applied?: boolean; message?: string }>("deck-ai", `${storeId}:${docId}`, (r) => onDone(r?.message || "پیش‌نویسِ هوش مصنوعی رسید."));
   const run = async (use_ai: boolean) => {
     if (!window.confirm("اسلایدهای فعلی با پیش‌نویسِ تازه جایگزین می‌شوند. ادامه بدهم؟")) return;
     setBusy(true);
     setErr(null);
     try {
       const r = await designApi.ai(storeId, docId, { brief: text, use_ai });
-      onDone(r.ai.message);
+      qa.setQueued(r.queued);
+      onDone(r.queued ? "این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند؛ پیش‌نویسِ آماده الان جایگزین شد و نسخهٔ هوش مصنوعی خودکار می‌رسد." : r.ai.message);
     } catch (e) {
       setErr(apiError(e));
     } finally {
@@ -99,6 +103,7 @@ function AiBox({ storeId, docId, brief, ov, onDone }: { storeId: string; docId: 
         <Button type="button" disabled={busy} onClick={() => run(true)}>{busy ? <Spinner size={14} /> : <Icon name="sparkle" size={14} />} بنویس (هوش مصنوعی ⇐ قاعده‌ها)</Button>
         <Button type="button" variant="secondary" disabled={busy} onClick={() => run(false)}>فقط با قاعده‌ها</Button>
       </div>
+      {qa.banner}
       {err ? <ErrorBox message={err} /> : null}
     </Card>
   );

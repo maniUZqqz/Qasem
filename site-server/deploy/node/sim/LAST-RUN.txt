@@ -1,0 +1,78 @@
+[09:54:28] === 0. clean start
+/dev/loop1      406M   28K  374M   1% /root/stage/r4ready-sim/mnt
+[09:54:31] === 1. fresh stage DB snapshot + stage server (no live lock fd, no live Redis)
+snapshot ok
+  No migrations to apply.
+api 401
+[09:54:45] === 2. fake Ollama (the owner's four models) + the 2.10 node
+[09:54:52] old agent started; waiting for the self-update 2.10 -> current
+sim: this node serves only echo, node.update, ollama.chat, ollama.generate
+NMarketing processing node v2.10
+NMarketing processing node v2.10 - start-up checklist
+09:54:52  NMarketing processing node v2.10 (site v3.57)
+09:54:53  panel command: update
+Restarting the node on the updated code ...
+sim: this node serves only echo, edit.slides_mp4, node.update, ollama.chat, ollama.generate, selftest.ffmpeg, selftest.gpu
+NMarketing processing node v2.34
+NMarketing processing node v2.34 - start-up checklist
+09:55:02  NMarketing processing node v2.34 (site v3.57)
+09:55:44  update confirmed: agent v2.34 reached the site
+[09:55:46] UPDATE OK: VERSION = "2.34"
+[09:55:46] === 3. node on -> automatic self-test run (version) + a few cheap jobs
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "nightly_skipped": 1, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+{"autopilot": {"updates": 0, "nightly": 0, "online": 0, "runs": 1, "finished": 0}, "deferred": 0, "heal": {"analysis": 0}}
+
+node online True agent 2.34 ollama True ['qwen3:8b', 'qwq:32b', 'qwen3-vl:30b', 'qwen3-coder:30b']
+submitted [('echo', ComputeJob.State.QUEUED), ('selftest.ffmpeg', ComputeJob.State.QUEUED)]
+[09:56:37] === 4. node OFF (loop killed) while the owner asks for an AI draft -> queued durably
+[09:58:08] node state: OFFLINE
+
+2026-11-18 09:58:11Z INFO [apps.compute.deferred] deferred: brandchar.persona queued for store 34 as 9652b5c3-b222-48a9-87a6-b2962d5ef453
+HTTP 200 | rule draft archetype: sage | ai.used: False | queued: در صف تا روشن شدنِ سرورِ پردازش
+notes: ['هوش مصنوعی در دسترس نبود (سرورِ پردازش خاموش است؛ متیس: تنظیم نشده است). پیش\u200cنویسِ قاعده\u200cمحور آماده است؛ این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند و نسخهٔ هوش مصنوعی خودکار می\u200cرسد.']
+placeholder rows: [('wait.node', 'QUEUED', 'در صف — منتظرِ روشن شدنِ سرورِ پردازش', 'پیش\u200cنویسِ شخصیتِ برند')]
+[09:58:12] wake while the node is OFF must do nothing:
+
+woken 0 status queued
+[09:58:13] === 5. node comes back ON -> the queued request runs by itself (node first)
+[09:58:44] {"woken": 1, "state": "done", "msg": "آماده شد"}
+
+FINAL done | attempts 0 | archetype sage | ai.used True | label لوکال (qwen3:8b)
+ollama jobs: []
+[09:58:45] === 6. self-test run + cheap jobs + GPU-only kinds still waiting
+
+node SIM-OLD-210 agent 2.34 kinds ['echo', 'edit.slides_mp4', 'node.update', 'ollama.chat', 'ollama.generate', 'selftest.ffmpeg', 'selftest.gpu']
+  claimed+ran echo [('COMPLETED', 0.4), ('COMPLETED', 0.2)]
+  claimed+ran selftest.ffmpeg [('COMPLETED', 1.9)]
+  claimed+ran selftest.gpu []
+  claimed+ran edit.slides_mp4 []
+GPU-only kinds in the queue (must stay QUEUED, none claimed by the sim):
+   comfy.graph {'QUEUED': 15, 'CANCELLED': 37, 'COMPLETED': 10, 'FAILED': 7} claimed-by-sim: 0
+   motion.render {'CANCELLED': 8, 'QUEUED': 4} claimed-by-sim: 0
+   voice.music {'QUEUED': 3} claimed-by-sim: 0
+   multiangle.virtual {'QUEUED': 1, 'CANCELLED': 1} claimed-by-sim: 0
+   up3d.render {} claimed-by-sim: 0
+   photo.edit {'QUEUED': 1, 'CANCELLED': 4, 'FAILED': 1} claimed-by-sim: 0
+selftest run 1 RUNNING version 2.34 {'PASSED': 11, 'WAITING': 11, 'FAILED': 6, 'SKIPPED': 17, 'QUEUED': 4, 'PENDING': 9}
+    echo PASSED رفت‌وبرگشتِ کار 0.2 ثانیه
+    bootstrap WAITING عاملِ سرور تازه بالا آمده؛ منتظرِ پایانِ بررسیِ نصب‌ها ...
+    ollama_text PASSED «qwen3:8b» · {"archetype": "sage", "secondary": "everyman", "tone": {"humor": 30, "formality"
+    chagher_content FAILED 5 محصولِ چغر نه تحلیل دارند و نه تحلیلشان در صف است (شمارهٔ 16، 17، 18، 19، 20) — «هوش محصول» برایشان هرگز پر 
+    ai_queue PASSED درخواستِ صف‌داری نمانده است
+    design_offline PASSED layout ✓؛ catalog_print_pdf ✓؛ deck_pptx ✓؛ ui_frames ✓؛ number_guard ✓؛ ai_paths ✓؛ all_types ✓
+    update_flow PENDING 
+[09:59:59] === 7. the Tonight report as the panel sees it
+
+phase tests | آزمونِ خودکارِ ویژگی‌ها در جریان است.
+  [done ] سرورِ پردازش «SIM-OLD-210» روشن است           آخرین ارتباط ۴ ثانیه پیش
+  [done ] به‌روزرسانیِ خودکارِ نرم‌افزارِ گره           نسخهٔ گره ۲.۳۴ است و با بستهٔ سایت یکی است.
+  [done ] نصبِ خودکارِ نیازمندی‌ها                      ۰ ویژگی آماده است.
+  [warn ] هوش مصنوعیِ روی کارت: مدل‌های Ollama و ComfyU ۴ از ۴ نوعِ کارِ متنی/بینایی مدلِ آماده دارد؛ ComfyUI هنوز روشن نیست (برنامه خودش سعی می‌کند بالایش بیاورد).
+  [doing] آزمونِ خودکارِ هر ویژگی                       اجرای ۱ (پس از نسخهٔ تازه) با عاملِ ۲.۳۴ — قبول ۱۱، رد ۶، در جریان ۲۴، اجرا نشد ۱۷
+  [doing] اجرای خودکارِ کارهای منتظر                    ۲۷ در صف، ۰ در حالِ اجرا، ۱۰ تمام‌شده و ۰ ناموفق (۲۴ ساعتِ اخیر)
+  [done ] درخواست‌های هوشِ مصنوعی که در صف مانده‌اند    درخواستی در صف نیست (۱ درخواستِ صف‌شده تمام شد). ترتیب: اول لوکال (گرهٔ پردازش)، بعد متیس.
+DONE

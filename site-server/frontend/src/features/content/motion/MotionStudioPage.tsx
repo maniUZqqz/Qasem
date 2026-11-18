@@ -29,6 +29,7 @@ import PlanList from "./PlanList";
 import PlayerFrame, { PlayerHandle, PlayerMeta } from "./PlayerFrame";
 import { ChatEdit, ChatLine, HistoryBar, PlanJson, QaPanel, SoundPanel } from "./PlanTools";
 import RenderHistory from "./RenderHistory";
+import { useQueuedAi } from "../../../components/QueuedAi";
 import ScenePlan from "./ScenePlan";
 import StyleEditor from "./StyleEditor";
 import StyleGallery from "./StyleGallery";
@@ -397,12 +398,26 @@ export default function MotionStudioPage() {
     }
   };
 
+  // «در صف تا روشن شدنِ سرورِ پردازش»: «توصیف کن، بساز» وقتی هوش مصنوعی در دسترس نبود خودکار اجرا می‌شود و جای پیش‌نویسِ ساده می‌نشیند
+  const qaScript = useQueuedAi<{ spec: Spec; source: "ai" | "rules"; message: string; title: string; components?: string[] }>("motion-script", id, (r) => {
+    setScenes(r.spec.scenes as Scene[]);
+    if (r.spec.platform) setPlatform(r.spec.platform);
+    if (r.title && !title) setTitle(r.title);
+    setAiNote({ tone: "ok", text: `سناریوی هوش مصنوعی رسید و جای پیش‌نویسِ ساده نشست؛ پیش‌نمایش را ببینید و ویرایش کنید.${r.message ? " " + r.message : ""}` });
+  });
+  const qaCode = useQueuedAi<{ code: string; warning?: string }>("motion-code", id, (r) => {
+    setCode(r.code);
+    if (r.warning) setNotice(r.warning);
+    else setNotice("کدِ هوش مصنوعی رسید.");
+  });
+
   const makeScript = async () => {
     setBusy(true);
     setError(null);
     setAiNote(null);
     try {
       const r = await motionApi.ai(id, { idea, style: styleId, aspect, lang, brand, platform: platform || undefined });
+      qaScript.setQueued(r.queued);
       setScenes(r.spec.scenes as Scene[]);
       if (r.spec.platform) setPlatform(r.spec.platform);
       if (r.title && !title) setTitle(r.title);
@@ -423,8 +438,13 @@ export default function MotionStudioPage() {
     setError(null);
     try {
       const r = await motionApi.aiCode(id, { idea: codeIdea, style: styleId, aspect });
-      setCode(r.code);
-      if (r.warning) setNotice(r.warning);
+      if (r.queued) {
+        qaCode.setQueued(r.queued);
+        setNotice(r.message || "این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند.");
+      } else {
+        setCode(r.code ?? "");
+        if (r.warning) setNotice(r.warning);
+      }
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -753,6 +773,8 @@ export default function MotionStudioPage() {
                       مدل فقط قطعه‌های مرتبط را می‌بیند و خروجیِ JSON ِ مقیّد می‌دهد؛ هوش مصنوعی در دسترس نباشد، یک پیش‌نویسِ ساده از روی متنت ساخته می‌شود.
                     </span>
                   </div>
+                  {qaScript.banner}
+                  {qaCode.banner}
                   {aiNote ? (
                     <div className="mt-3">
                       <Alert tone={aiNote.tone}>{aiNote.text}</Alert>

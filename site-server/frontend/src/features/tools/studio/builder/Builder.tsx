@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { accessToken } from "../../../../api/client";
+import { useQueuedAi, type Queued } from "../../../../components/QueuedAi";
 import { api, downloadZip, pUrl, studioError } from "../api";
 import AiBox from "../AiBox";
 import { BarAction, CanvasCtl, CanvasPayload } from "./canvas";
@@ -583,14 +584,30 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
     },
     [catalog, commit],
   );
+  /** «در صف تا روشن شدنِ سرورِ پردازش»: ترجمهٔ AI ِ متن‌های قطعهٔ 21st که با روشن شدنِ گره خودکار می‌رسد؛ فقط ردیف‌هایی عوض می‌شوند که کاربر دست نزده. */
+  const qaC21 = useQueuedAi<{ texts: string[]; seed: string; old: string[] }>("c21", slug, (r, _st, q) => {
+    const blockId = String((q?.meta as Record<string, unknown> | undefined)?.blockId ?? "");
+    const hit = blockId ? D.find(docRef.current, blockId)?.block : null;
+    if (!hit || !Array.isArray(r?.texts)) return;
+    const rows = ((hit.props as Record<string, unknown>).texts as { v?: string }[] | undefined) ?? [];
+    const seed = String((hit.props as Record<string, unknown>).seed ?? "").split(",");
+    const fresh = String(r.seed ?? "").split(",");
+    const next = rows.map((row, i) => (row?.v === r.old?.[i] && typeof r.texts[i] === "string" ? { ...row, v: r.texts[i] } : row));
+    rows.forEach((row, i) => {
+      if (row?.v === r.old?.[i] && typeof r.texts[i] === "string" && fresh[i]) seed[i] = fresh[i];
+    });
+    let doc2 = D.setProp(docRef.current, blockId, "texts", next);
+    doc2 = D.setProp(doc2, blockId, "seed", seed.join(","));
+    commit(doc2);
+  });
   /** قطعهٔ 21st (تبدیل‌شده): بلوکِ آماده را از سرور می‌گیرد و مثلِ «بخشِ ذخیره‌شده» در صفحه می‌گذارد. */
   const addC21 = useCallback(
     async (key: string, withAi?: boolean): Promise<string | void> => {
       // متن‌های نمونهٔ قطعه انگلیسی‌اند: عبارت‌های رایج (دکمه، منو، قیمت …) همیشه با فرهنگ‌لغت فارسی می‌شوند؛ «با AI» بقیه را هم ترجمه می‌کند (متیس بی‌اعتبار ⇒ پیامِ فارسی، قطعه باز هم اضافه می‌شود)
       const url = `/studio/projects/${slug}/builder/c21/${key}/block/`;
       const { data } = withAi
-        ? await api.post<{ block: Block; ai?: { ok: boolean; message: string }; interact?: string; interact_note?: string }>(url, { ai: true })
-        : await api.get<{ block: Block; ai?: { ok: boolean; message: string }; interact?: string; interact_note?: string }>(url, { params: { fa: 1 } });
+        ? await api.post<{ block: Block; ai?: { ok: boolean; message: string; queued?: Queued }; interact?: string; interact_note?: string }>(url, { ai: true })
+        : await api.get<{ block: Block; ai?: { ok: boolean; message: string; queued?: Queued }; interact?: string; interact_note?: string }>(url, { params: { fa: 1 } });
       const b = D.refreshIds(JSON.parse(JSON.stringify(data.block)) as Block);
       const t = D.clickTarget(docRef.current, catalog, b.type, selectedRef.current);
       const r = D.insertBlock(docRef.current, catalog, b, t);
@@ -598,10 +615,14 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       setSelected(r.id);
       setSheet("none");
       window.setTimeout(() => ctlRef.current?.select(r.id, true), 450);
+      if (data.ai?.queued) {
+        const old = (((b.props as Record<string, unknown>).texts as { v?: string }[] | undefined) ?? []).map((row) => row?.v ?? "");
+        qaC21.setQueued({ ...data.ai.queued, meta: { blockId: r.id, old } });
+      }
       const still = data.interact === "static" && data.interact_note ? data.interact_note : "";            // «ثابت (بدونِ حرکت)»: همان لحظهٔ درج گفته می‌شود
       return [data.ai?.message, still].filter(Boolean).join(" ") || undefined;
     },
-    [slug, catalog, commit],
+    [slug, catalog, commit, qaC21.setQueued],
   );
   const loadSaved = useCallback(
     async (s: SectionT) => {
@@ -1022,6 +1043,7 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
           <button type="button" aria-label="بستن" onClick={() => setPubError(null)}>×</button>
         </div>
       )}
+      {qaC21.banner}
 
       <div className="nbe-body">
         <aside className={`nbe-side ${sheet === "side" ? "open" : ""}`} aria-label="ابزارها">

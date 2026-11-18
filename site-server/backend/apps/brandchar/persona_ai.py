@@ -80,7 +80,7 @@ def default_ask(store, prompt: str) -> tuple[dict, dict]:
     except IA.AIUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 — متیسِ بی‌اعتبار (۴۰۲)، گرهٔ خاموش، سیاستِ داده…
-        raise IA.AIUnavailable(IA.reason_text(exc)) from exc
+        raise IA.AIUnavailable(IA.reason_text(exc), parkable=IA._outage(exc)) from exc
 
 
 def _without_ai(store, base: dict, out: dict, brief: str, why: str) -> dict:
@@ -119,6 +119,9 @@ def draft(store, *, brief: str = "", use_ai: bool = True, ask: Callable | None =
     except Exception as exc:  # noqa: BLE001
         reason = getattr(exc, "args", [""])[0] or str(exc) or exc.__class__.__name__
         out["ai"]["reason"] = str(reason)[:240]
+        from apps.ideabank import ai as IA
+
+        out["ai"]["parkable"] = IA._outage(exc)           # با صبر درست می‌شود ⇒ view آن را «در صف» می‌گذارد (compute.deferred)
         out["notes"] = [*base["notes"], f"هوش مصنوعی در دسترس نبود ({out['ai']['reason']}). پیش‌نویسِ قاعده‌محور آماده است؛ بعداً دوباره امتحان کنید."]
         return _without_ai(store, base, out, brief, out["ai"]["reason"])
     if not isinstance(parsed, dict):
@@ -138,3 +141,16 @@ def draft(store, *, brief: str = "", use_ai: bool = True, ask: Callable | None =
     out["brief"]["used_by_ai"] = bool((brief or "").strip())
     out["notes"] = [*base["notes"], "این پیش‌نویس را هوش مصنوعی بهتر کرد؛ جمله‌های دارایِ قیمت، آمار یا وعدهٔ نتیجه خودکار حذف شده‌اند. هر چیزی را که قبول ندارید ویرایش کنید."]
     return out
+
+
+def public(out: dict) -> dict:
+    """پاسخِ «پیش‌نویسِ شخصیت» (همان که view می‌دهد و اجرای صف‌دار هم برمی‌گرداند)."""
+    from . import persona as P
+
+    return {"persona": out["persona"], "sources": out["sources"], "notes": out["notes"], "origin": out["origin"], "ai": out["ai"], "brief": out.get("brief"),
+            "score": P.filled_score(out["persona"])}
+
+
+def deferred_draft(store, *, brief: str = "", _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان draft با هوش مصنوعیِ واقعی؛ جواب = همان JSON ِ view."""
+    return public(draft(store, brief=brief, use_ai=True))

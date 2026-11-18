@@ -267,6 +267,7 @@ def new_deck(info: StoreInfo, items: list[dict], settings: dict | None = None, o
                 ai["message"] = "پاسخِ هوش مصنوعی قابلِ‌استفاده نبود؛ پیش‌نویسِ قاعده‌ای ساخته شد."
         except ai_mod.AIUnavailable as exc:
             ai["message"] = f"هوش مصنوعی در دسترس نبود ({exc}); پیش‌نویس با قاعده‌های آماده ساخته شد."
+            ai["parkable"] = bool(getattr(exc, "parkable", False))        # با صبر درست می‌شود ⇒ view «در صف» می‌گذارد (compute.deferred)
         except Exception as exc:  # noqa: BLE001
             ai["message"] = f"هوش مصنوعی ناموفق بود ({exc.__class__.__name__}); پیش‌نویس با قاعده‌های آماده ساخته شد."
     data = {"v": 1, "kind": KIND, "settings": s, "products": items, "facts": fct, "brief": brief[:1200], "slides": slides, "meta": {"built_for": info.name, "ai": ai}}
@@ -316,4 +317,32 @@ def review(data: dict, sc: dict) -> list[dict]:
     over = [p["name"] for p in sc["pages"] for e in p["elements"] if scene.text_problem(e)]
     add("overflow", "ok" if not over else "warn", "هیچ متنی بریده نشده" if not over else f"{fa(len(over))} متن بیش از جعبه‌اش بود", "" if not over else "، ".join(sorted(set(over))[:4]))
     add("count", "ok" if len(sc["pages"]) <= 20 else "info", f"{fa(len(sc['pages']))} اسلاید", "")
+    return out
+
+
+def deferred_deck(store, *, doc_id: int, brief: str = "", options=None, rev: int = 0, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): پیش‌نویسِ هوش مصنوعیِ اسلایدها. اگر طرح از زمانِ درخواست ویرایش نشده باشد (rev همان است) جایگزینِ پیش‌نویسِ قاعده‌ای می‌شود؛
+    وگرنه ویرایشِ کاربر دست‌نخورده می‌ماند و فقط گفته می‌شود نسخهٔ هوش مصنوعی آماده بود."""
+    from . import services
+    from .models import DesignDoc
+
+    doc = DesignDoc.objects.filter(store=store, pk=doc_id, kind="deck").first()
+    if doc is None:
+        return {"ai_used": True, "applied": False, "message": "طرح دیگر نیست.", "ai": {"used": True}}
+    info = services.store_info(store, doc.data.get("settings") or {})
+    items = doc.data.get("products") or []
+    data, ai = new_deck(info, items, doc.data.get("settings"), options if isinstance(options, dict) else {}, brief=str(brief or "")[:1200], use_ai=True,
+                        facts=doc.data.get("facts") or None, store=store)
+    out = {"ai": ai, "ai_used": bool(ai.get("used")), "doc_id": doc.pk, "applied": False}
+    if not ai.get("used"):
+        return out
+    if doc.rev == rev:
+        doc.data["slides"] = data["slides"]
+        doc.data["brief"] = data["brief"]
+        doc.meta = {**(doc.meta or {}), "ai": ai}
+        doc.rev += 1
+        doc.save(update_fields=["data", "meta", "rev", "updated_at"])
+        out.update(applied=True, message="پیش‌نویسِ هوش مصنوعی جایگزینِ پیش‌نویسِ آماده شد.")
+    else:
+        out["message"] = "پیش‌نویسِ هوش مصنوعی آماده بود ولی طرح بعد از درخواست ویرایش شده؛ برای نگه‌داشتنِ ویرایش‌هایتان اعمال نشد. دوباره «پیش‌نویس با هوش مصنوعی» را بزنید."
     return out

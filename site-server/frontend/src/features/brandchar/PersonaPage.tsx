@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Alert, Badge, Button, ErrorBox, Input, Select, Spinner, TextArea, fa } from "../../components/ui";
+import { useQueuedAi } from "../../components/QueuedAi";
 import { PersonaData, PersonaDraft, PersonaInfo, bcApi } from "./api";
 import { useBrandChar } from "./BrandCharLayout";
 import { ListEditor, Section, fmtDate, useNotice } from "./common";
@@ -27,6 +28,12 @@ export default function PersonaPage() {
   const [prompt, setPrompt] = useState<string>("");
   const [versions, setVersions] = useState<{ version: number; source: string; note: string; created_at: string; name: string }[]>([]);
   const n = useNotice();
+  // «در صف تا روشن شدنِ سرورِ پردازش»: نسخهٔ هوش مصنوعی که با روشن شدنِ گره خودکار می‌رسد جای پیش‌نویسِ قاعده‌محور می‌نشیند
+  const qa = useQueuedAi<PersonaDraft>("persona", id, (r) => {
+    setWiz(r);
+    setDraft(r.persona);
+    n.ok("نسخهٔ هوش مصنوعیِ پیش‌نویس رسید؛ مرور کنید و «ذخیره» را بزنید.");
+  });
 
   const load = useCallback(async () => {
     try {
@@ -84,6 +91,7 @@ export default function PersonaPage() {
   const wizard = () =>
     run("wizard", async () => {
       const r = await bcApi.personaDraft(id, brief, useAi);
+      qa.setQueued(r.queued);
       setWiz(r);
       setDraft(r.persona);
       const skipped = r.brief?.given && !r.brief.used_by_ai;
@@ -128,6 +136,7 @@ export default function PersonaPage() {
           </Button>
           {locked ? <span className="bc-muted">برای تغییر، اول قفل را باز کنید.</span> : null}
         </div>
+        {qa.banner}
         {wiz ? (
           <div className="bc-note" data-testid="wizard-result">
             <b>{wiz.origin === "facts" ? "از واقعیت‌های تأییدشدهٔ برند" : wiz.origin === "ai" ? "با کمکِ هوش مصنوعی" : "قاعده‌محور"}</b>

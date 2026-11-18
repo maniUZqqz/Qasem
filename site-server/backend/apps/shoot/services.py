@@ -54,6 +54,31 @@ def run_analysis(session: ShootSession) -> ShootSession:
     except Exception as exc:  # noqa: BLE001 — تحلیل هرگز جلسه را خراب نمی‌کند
         logger.exception("shoot: analysis of session %s failed", session.pk)
         new_plan, source, notes = session.plan, session.plan_source or "template", [f"تحلیل نشد: {exc}"]
+    if source == "template" and planmod.last_outage():
+        # هر دو مسیرِ هوش مصنوعی خاموش بودند: الگوی آماده همین حالا هست و تحلیلِ هوشمند «در صف تا روشن شدنِ سرورِ پردازش» می‌ماند (compute.deferred)
+        try:
+            from apps.compute import deferred
+
+            if deferred.defer("shoot.plan", session.store, {"session_id": session.pk}, reason=" ".join(notes)[:300]):
+                notes = list(notes) + ["این تحلیل «در صف تا روشن شدنِ سرورِ پردازش» ماند و برنامهٔ هوشمند خودکار جایگزین می‌شود (اگر کارِ دیگری را شروع نکرده باشید)."]
+        except Exception:  # noqa: BLE001
+            logger.info("shoot: could not queue the analysis of session %s", session.pk)
+    return _apply_analysis(session, new_plan, source, notes)
+
+
+def deferred_analysis(store, *, session_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): تحلیلِ هوشمندِ همان جلسه؛ اگر کاربر کار را شروع کرده، برنامهٔ فعلی می‌ماند و فقط «پیشنهاد» ذخیره می‌شود (مثلِ همیشه)."""
+    session = ShootSession.objects.filter(store=store, pk=session_id).select_related("product", "store").first()
+    if session is None:
+        return {"ai_used": True, "gone": True}
+    new_plan, source, notes = planmod.analyze(session.product)
+    if source != "ai":
+        return {"ai_used": False, "ai": {"reason": notes[0] if notes else ""}}
+    _apply_analysis(session, new_plan, source, notes)
+    return {"ai_used": True, "session": session.pk, "plan_source": session.plan_source}
+
+
+def _apply_analysis(session: ShootSession, new_plan: dict, source: str, notes: list) -> ShootSession:
     session.refresh_from_db()
     if session.plan_source == "edited" or session.takes.exists():
         # کاربر شروع کرده یا برنامه را دستی عوض کرده: کلیدهای برداشت‌ها نباید زیرِ پایش عوض شوند

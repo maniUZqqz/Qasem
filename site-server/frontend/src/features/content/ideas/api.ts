@@ -1,4 +1,5 @@
 import { api } from "../../../api/client";
+import type { Queued } from "../../../components/QueuedAi";
 
 /** بانکِ ایده — نوع‌ها و فراخوانی‌ها (همهٔ مسیرها زیرِ stores/<id>/ideas/). */
 
@@ -58,6 +59,7 @@ export type Overview = {
 };
 
 export type GenerateResult = {
+  queued?: Queued;
   via: "ai" | "mixed" | "formula";
   ai: { tried: boolean; ok: boolean; label: string; reason: string };
   message: string;

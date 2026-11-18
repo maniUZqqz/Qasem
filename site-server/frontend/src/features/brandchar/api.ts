@@ -1,4 +1,5 @@
 import { api } from "../../api/client";
+import type { Queued } from "../../components/QueuedAi";
 
 /** «شخصیتِ برند» — همان شکلِ backend/apps/brandchar (views.py، services.py، persona.py). */
 
@@ -168,7 +169,7 @@ export type PersonaInfo = PersonaPublic & {
   voices: { id?: string; name?: string; gender?: string; group?: string; available?: boolean; why?: string }[];
 };
 
-export type PersonaDraft = { persona: PersonaData; sources: { fact: string; source: string }[]; notes: string[]; origin: string; ai: { used: boolean; reason: string; label: string }; brief?: { given: boolean; applied: string[]; used_by_ai: boolean } | null; score: PersonaPublic["score"] };
+export type PersonaDraft = { persona: PersonaData; sources: { fact: string; source: string }[]; notes: string[]; origin: string; ai: { used: boolean; reason: string; label: string }; brief?: { given: boolean; applied: string[]; used_by_ai: boolean } | null; score: PersonaPublic["score"]; queued?: Queued };
 
 // ───────────────────────────── نمای کلی
 
@@ -228,7 +229,7 @@ export type Preview = { image: string; width: number; height: number; qa: Qa; cl
 export type SvgOut = { svg: string; embedded: boolean; view: number[]; anchors?: Record<Anchor, number[]>; head?: number[] };
 
 export type ConceptOption = { index: number; title: string; why: string; source: string; doc: CharDoc; preview?: string; prop?: string; prop_fa?: string };
-export type Concept = { id: number; description: string; options: ConceptOption[]; source: string; note: string; chosen: number | null; character: number | null; created_at: string };
+export type Concept = { id: number; description: string; options: ConceptOption[]; source: string; note: string; chosen: number | null; character: number | null; created_at: string; queued?: Queued };
 
 export type NodeStatus = { known: boolean; online: boolean; ready: boolean; kind_known: boolean; profiles: string[]; identity_tools: string[]; agent: string; note: string };
 export type AiJob = {

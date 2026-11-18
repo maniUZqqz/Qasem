@@ -20,7 +20,20 @@ _inflight_lock = threading.Lock()
 
 
 class AIUnavailable(RuntimeError):
-    """هوش مصنوعی جواب نداد؛ متنِ فارسی برای کاربر."""
+    """هوش مصنوعی جواب نداد؛ متنِ فارسی برای کاربر. ``parkable`` = با صبر درست می‌شود (گره خاموش/شلوغ، اعتبار، مهلت) ⇒ می‌شود «در صف» گذاشت (compute.deferred)."""
+
+    def __init__(self, message="", parkable: bool | None = None):
+        super().__init__(message)
+        self.parkable = None if parkable is None else bool(parkable)         # None = نامعلوم (از روی متنِ خطا حدس زده می‌شود)
+
+
+def _outage(exc) -> bool:
+    try:
+        from apps.compute.deferred import is_outage
+
+        return is_outage(exc)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def reason_text(exc: Exception, fallback: str = "") -> str:
@@ -55,11 +68,18 @@ def run_bounded(key, fn, timeout: float | None = None):
     کارِ مسیریاب در یک رشتهٔ جدا می‌ماند (نمی‌شود وسطش قطعش کرد) و خودش تمام یا لغو می‌شود؛ تا آن موقع درخواستِ دوباره برای همان فروشگاه
     کارِ تازه به صف نمی‌اندازد (وگرنه چند کلیکِ پشتِ‌هم گره را با کارهایی که کسی نتیجه‌شان را نمی‌خواهد پر می‌کرد)."""
     wait = AI_TIMEOUT if timeout is None else timeout
+    try:
+        from apps.compute.deferred import in_deferred_run
+
+        if in_deferred_run():
+            wait = max(wait, 900)             # اجرای صف‌دار: کسی پشتِ دکمه منتظر نیست؛ تا نوبتِ گره صبر می‌کند
+    except Exception:  # noqa: BLE001
+        pass
     box: dict = {}
     with _inflight_lock:
         prev = _inflight.get(key)
         if prev is not None and prev.is_alive():
-            raise AIUnavailable("درخواستِ قبلیِ «ایده بساز» هنوز در صفِ سرورِ پردازش است؛ چند دقیقه بعد دوباره امتحان کنید.")
+            raise AIUnavailable("درخواستِ قبلیِ «ایده بساز» هنوز در صفِ سرورِ پردازش است؛ چند دقیقه بعد دوباره امتحان کنید.", parkable=True)
 
         def work():
             try:
@@ -79,7 +99,7 @@ def run_bounded(key, fn, timeout: float | None = None):
         worker.start()
     worker.join(wait)
     if worker.is_alive():
-        raise AIUnavailable(f"سرورِ پردازش در {int(wait)} ثانیه جواب نداد (احتمالاً سرگرمِ کارِ دیگری است)")
+        raise AIUnavailable(f"سرورِ پردازش در {int(wait)} ثانیه جواب نداد (احتمالاً سرگرمِ کارِ دیگری است)", parkable=True)
     with _inflight_lock:
         if _inflight.get(key) is worker:
             del _inflight[key]
@@ -99,7 +119,7 @@ def default_ask(store, prompt: str, system: str) -> tuple[dict, dict]:
     except AIUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 — متیسِ بی‌اعتبار (۴۰۲)، گرهٔ خاموش، سیاستِ داده، پیکربندی…
-        raise AIUnavailable(reason_text(exc)) from exc
+        raise AIUnavailable(reason_text(exc), parkable=_outage(exc)) from exc
 
 
 def _ask_router(store, prompt: str, system: str) -> tuple[dict, dict]:
@@ -120,7 +140,7 @@ def _ask_router(store, prompt: str, system: str) -> tuple[dict, dict]:
             validation_message="ایده‌ها ناقص بود")
         info = translate._describe(provider)
     except Exception as exc:  # noqa: BLE001
-        raise AIUnavailable(reason_text(exc)) from exc
+        raise AIUnavailable(reason_text(exc), parkable=_outage(exc)) from exc
     return parsed, (info or {})
 
 

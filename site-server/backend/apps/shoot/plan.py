@@ -15,8 +15,14 @@ import base64
 import io
 import logging
 import re
+import threading
 
 logger = logging.getLogger(__name__)
+_LAST = threading.local()                     # آخرین ask_model در این رشته: شکستش «با صبر درست می‌شود» بود؟ (compute.deferred)
+
+
+def last_outage() -> bool:
+    return bool(getattr(_LAST, "outage", False))
 
 PLAN_VERSION = 1
 MAX_PHOTOS = 9
@@ -595,6 +601,7 @@ def ask_model(product) -> tuple[dict | None, str]:
         attempts.append(("vision", gateway.vision_provider, AIRequest.TaskType.VISION, TASK_VISION, images))
     attempts.append(("text", gateway.text_provider, AIRequest.TaskType.REASONING, TASK_REASONING, None))
     last = "هوش مصنوعی در دسترس نبود"
+    _LAST.outage = False
     for label, getter, task_type, route, imgs in attempts:
         try:
             provider = getter(product.store)
@@ -608,6 +615,12 @@ def ask_model(product) -> tuple[dict | None, str]:
             return parsed, ("بینایی + متن" if label == "vision" else "فقط متن (بی‌عکس)")
         except Exception as exc:  # noqa: BLE001 — هر شکست ⇐ تلاشِ بعدی یا الگوی آماده
             last = friendly_error(exc)
+            try:
+                from apps.compute.deferred import is_outage
+
+                _LAST.outage = _LAST.outage or is_outage(exc)
+            except Exception:  # noqa: BLE001
+                pass
             logger.warning("shoot: %s plan call failed for product %s: %s", label, product.pk, exc)
     return None, last
 

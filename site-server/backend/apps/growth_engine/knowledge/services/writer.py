@@ -206,6 +206,13 @@ def run(version_id: int) -> GeneratedMessage | None:
         version.status = GeneratedMessage.Status.PROPOSED
     except ai.AiUnavailable as exc:
         version.status, version.error = GeneratedMessage.Status.FAILED, exc.message[:600]
+        try:                                              # با صبر درست می‌شود ⇒ «در صف تا روشن شدنِ سرورِ پردازش»؛ خودکار دوباره نوشته می‌شود (compute.deferred)
+            from apps.compute import deferred
+
+            if deferred.is_outage(exc) and deferred.defer("growth.writer", None, {"version_id": version_id}, reason=exc.message):
+                version.error = (version.error.rstrip(" .") + ". این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار نوشته می‌شود.")[:600]
+        except Exception:  # noqa: BLE001 - صف نباید نوشتن را بخواباند
+            logger.info("growth ai writer: could not queue version %s", version_id)
     except WriterError as exc:
         version.status, version.error = GeneratedMessage.Status.FAILED, exc.message[:600]
     except Exception as exc:  # noqa: BLE001 - one broken request must not take the worker down
@@ -214,3 +221,15 @@ def run(version_id: int) -> GeneratedMessage | None:
     version.finished_at = timezone.now()
     version.save()
     return version
+
+
+def deferred_run(store, *, version_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): نسخهٔ «ناموفق»ِ بدونِ هوش مصنوعی دوباره نوشته می‌شود؛ جواب = وضعیتِ نسخه."""
+    version = GeneratedMessage.objects.filter(pk=version_id).first()
+    if version is None:
+        return {"status": "missing", "version_id": version_id, "ai_used": True}
+    if version.status == GeneratedMessage.Status.FAILED:
+        version.status, version.error, version.finished_at = GeneratedMessage.Status.GENERATING, "", None
+        version.save(update_fields=["status", "error", "finished_at"])
+    version = run(version_id)
+    return {"status": version.status if version is not None else "missing", "version_id": version_id, "ai_used": bool(version and version.status == "proposed")}

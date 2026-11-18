@@ -192,6 +192,7 @@ export const PAGES: PanelPage[] = [
   // -------------------------------------------------------------- ابزارها
   { key: "studio_builder", section: "tools", label: "سایت‌ساز", icon: "box", to: "/tools/studio", staffOnly: true },
   { key: "video3d", section: "tools", label: "ویدیوی سه‌بعدی", icon: "film", to: "/tools/3d", staffOnly: true },
+  { key: "compute_tonight", section: "tools", label: "امشب: روشن کردنِ سرورِ پردازش", icon: "rocket", to: "/tools/compute/tonight", end: true, staffOnly: true },
   { key: "compute", section: "tools", label: "سرورهای پردازش", icon: "cpu", to: "/tools/compute", end: true, staffOnly: true },
   { key: "compute_queue", section: "tools", label: "صفِ پردازش", icon: "clock", to: "/tools/compute/queue", end: true, staffOnly: true },
   { key: "compute_selftest", section: "tools", label: "آزمونِ خودکارِ سرورِ پردازش", icon: "check", to: "/tools/compute/selftest", end: true, staffOnly: true },

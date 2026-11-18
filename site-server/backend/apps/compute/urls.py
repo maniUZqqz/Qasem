@@ -5,6 +5,7 @@ from . import (api, transfer, views_matting, views_models, views_ollama, views_c
                views_retry, views_update, views_voice)
 
 from . import views_readiness  # noqa: E402  (آمادگیِ صبحِ مالک)
+from . import views_tonight  # noqa: E402  («امشب: روشن کردنِ سرورِ پردازش» + درخواست‌های AI ِ صف‌دار)
 from . import views_ops  # noqa: E402  (آخرین بکاپ + آزمون‌های شبانهٔ سایت)
 
 urlpatterns = [
@@ -69,6 +70,10 @@ urlpatterns = [
     # آزمونِ خودکارِ سرورِ پردازش، پیشرفتِ کلیِ صف، نصبِ خودکار و شروعِ خودکار (کارکنان) — views_platform.py
     path("selftests/", views_platform.overview),
     path("ops/", views_ops.ops),                                    # «آخرین بکاپ» + «آزمون‌های شبانهٔ سایت» (فقط کارکنان؛ ops_status.py)
+    path("tonight/", views_tonight.tonight_report),                # «امشب»: پیش از روشن شدن چک‌لیست، بعد از آن پیشرفتِ زنده (tonight.py)
+    path("tonight/retry/", views_tonight.tonight_retry),
+    path("deferred/<uuid:uid>/", views_tonight.deferred_status),   # درخواستِ AI ِ «در صف تا روشن شدنِ سرورِ پردازش» (deferred.py)
+    path("deferred/<uuid:uid>/cancel/", views_tonight.deferred_cancel),
     path("readiness/", views_readiness.readiness_report),          # «اگر همین حالا گره را روشن کنند…»: فقط‌خواندنی (readiness.py)
     path("selftests/run/", views_platform.start),
     path("selftests/history/", views_platform.history),

@@ -194,7 +194,20 @@ def default_ask(store, prompt: str):
     except IA.AIUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise IA.AIUnavailable(IA.reason_text(exc)) from exc
+        raise IA.AIUnavailable(IA.reason_text(exc), parkable=IA._outage(exc)) from exc
+
+
+def deferred_generate(store, *, description: str, logo: bool = False, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان generate با هوش مصنوعیِ واقعی؛ یک «مجموعهٔ ایده» (CharacterConcept) تازه می‌سازد و همان JSON ِ view را برمی‌گرداند."""
+    from django.contrib.auth import get_user_model
+
+    from .models import CharacterConcept
+    from .views import _concept_dict
+
+    out = generate(store, description, logo=logo, use_ai=True)
+    user = get_user_model().objects.filter(pk=_user_id).first() if _user_id else None
+    row = CharacterConcept.objects.create(store=store, created_by=user, description=description[:600], options=out["options"], source=out["source"], note=out["note"][:240])
+    return {**_concept_dict(row, store=store, previews=True), "ai_used": out["source"] == "ai"}
 
 
 def generate(store, description: str, *, logo: bool = False, n: int = 4, use_ai: bool = True, ask: Callable | None = None) -> dict:
@@ -212,7 +225,10 @@ def generate(store, description: str, *, logo: bool = False, n: int = 4, use_ai:
         parsed = ask(store, prompt) if ask is not None else default_ask(store, prompt)[0]
     except Exception as exc:  # noqa: BLE001
         reason = getattr(exc, "args", [""])[0] or str(exc) or exc.__class__.__name__
-        return {"options": rule, "source": "rule", "note": f"هوش مصنوعی در دسترس نبود ({str(reason)[:200]}). ایده‌ها با قاعده‌های فارسی ساخته شد؛ بعداً دوباره امتحان کنید."}
+        from apps.ideabank import ai as IA
+
+        return {"options": rule, "source": "rule", "parkable": bool(IA._outage(exc)),
+                "note": f"هوش مصنوعی در دسترس نبود ({str(reason)[:200]}). ایده‌ها با قاعده‌های فارسی ساخته شد؛ بعداً دوباره امتحان کنید."}
     options = []
     base_traits = parse_traits(description)
     role = base_traits.get("_role") or "coach"

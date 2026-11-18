@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../../api/client";
 import Icon from "../../../components/Icon";
+import { useQueuedAi } from "../../../components/QueuedAi";
 import { useFlags } from "../../panel/FlagsContext";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, PageHeader, Select, Spinner, TextArea, fa } from "../../../components/ui";
 import { GenerateResult, Idea, IdeaDraft, Overview, faDigits, ideasApi, jalaliText, matches } from "./api";
@@ -71,6 +72,13 @@ export default function IdeasPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [genOpen, setGenOpen] = useState(false);
   const [gen, setGen] = useState<GenerateResult | null>(null);
+  // «در صف تا روشن شدنِ سرورِ پردازش»: ایده‌های هوشمند که با روشن شدنِ گره خودکار ساخته و ذخیره می‌شوند
+  const qa = useQueuedAi<GenerateResult>("ideas", id, (r) => {
+    setGen(r);
+    setFresh(new Set((r.ideas ?? []).map((x) => x.key)));
+    setNotice("ایده‌های هوشمندِ صف‌دار رسید و ذخیره شد.");
+    void load();
+  });
   const topRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -244,6 +252,8 @@ export default function IdeasPage() {
         )}
       </Card>
 
+      {qa.banner}
+
       {/* ── ایده بساز */}
       {genOpen && canGenerate && (
         <Generator
@@ -257,6 +267,7 @@ export default function IdeasPage() {
             const r = await run("gen", () => ideasApi.generate(id, { ...body, product }));
             if (!r) return;
             setGen(r);
+            qa.setQueued(r.queued);
             setFresh(new Set(r.ideas.map((x) => x.key)));
             clearAll();
             setOnlyMine(true);

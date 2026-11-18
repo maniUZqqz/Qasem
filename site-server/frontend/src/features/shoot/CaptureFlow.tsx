@@ -425,6 +425,11 @@ export default function CaptureFlow({
             {takes.map((t) => (
               <div key={t.id} className="rounded-xl p-1" style={{ border: `2px solid ${t.accepted ? "var(--ok)" : "var(--line)"}` }}>
                 <img src={t.thumb || t.url} alt="" className="h-20 w-full rounded-lg object-cover" />
+                {t.vision_pending && (
+                  <div className="mt-1 text-[11px] leading-snug" style={{ color: "var(--text-3)" }} data-testid="vision-pending">
+                    بررسیِ «محصول پیداست؟» در صف تا روشن شدنِ سرورِ پردازش
+                  </div>
+                )}
                 <div className="mt-1 flex items-center justify-between gap-1">
                   <button
                     className="text-xs font-semibold"

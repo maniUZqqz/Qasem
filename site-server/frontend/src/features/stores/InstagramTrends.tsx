@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
+import { useQueuedAi } from "../../components/QueuedAi";
 import Icon from "../../components/Icon";
 import {
   Alert,
@@ -171,6 +172,14 @@ export default function InstagramTrends({ storeId }: { storeId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [briefs, setBriefs] = useState<Record<number, { brief: Brief; idea_id: number }>>({});
+  // ایدهٔ هوش مصنوعی که «در صف تا روشن شدنِ سرورِ پردازش» ماند و حالا رسید: جایگزینِ ایدهٔ قالبیِ همان ترند می‌شود
+  const qaBrief = useQueuedAi<{ brief?: Brief; idea_id?: number; cluster_id?: number; skipped?: boolean }>("ig-brief", storeId, (res, _s, q) => {
+    const cid = Number((q?.meta as { cluster?: number } | undefined)?.cluster ?? 0);
+    if (res.brief && res.idea_id && cid) {
+      setBriefs((prev) => ({ ...prev, [cid]: { brief: res.brief as Brief, idea_id: res.idea_id as number } }));
+      setNotice("ایدهٔ هوش مصنوعی رسید و جایگزین ایدهٔ قالبی شد.");
+    }
+  });
   const [showSeeds, setShowSeeds] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const base = `/stores/${storeId}/igtrends`;
@@ -240,6 +249,7 @@ export default function InstagramTrends({ storeId }: { storeId: string }) {
     run(`idea-${c.id}`, async () => {
       const { data: r } = await api.post(`${base}/clusters/${c.id}/brief/`, {});
       setBriefs((prev) => ({ ...prev, [c.id]: { brief: r.brief, idea_id: r.idea_id } }));
+      if (r.queued) qaBrief.setQueued({ ...r.queued, meta: { cluster: c.id } });     // «در صف تا روشن شدنِ سرورِ پردازش»
       setNotice(r.note || (r.source === "ai" ? "ایده با هوش مصنوعی ساخته شد." : "ایده‌ی قالبی ساخته شد."));
     });
 
@@ -274,6 +284,7 @@ export default function InstagramTrends({ storeId }: { storeId: string }) {
     <div className="flex flex-col gap-4" data-testid="ig-trends">
       <ErrorBox message={error} />
       {notice && <Alert tone="ok">{notice}</Alert>}
+      {qaBrief.banner}
       {problems.length > 0 && (
         <Alert tone="warn" title="بعضی فایل‌ها وارد نشد">
           <ul className="list-inside list-disc">

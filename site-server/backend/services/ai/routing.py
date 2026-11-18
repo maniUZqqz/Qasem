@@ -361,29 +361,47 @@ class _Router:
                 usable.sort(key=lambda p: blocked[p] is not None)
         return usable
 
+    def _blocked_paths(self, cfg=None):
+        """(مسیرهای قابل‌استفادهٔ الان، {مسیر: Failure برای مسیرهای بسته}) — بی‌هیچ درخواستی به شبکه (پیش‌بررسی + مدارِ باز)."""
+        cfg = cfg or priority.config()
+        order = cfg.order(self.kind)
+        failures = {}
+        usable = []
+        for p in order:
+            pre = self._lifetime.get(p) or self._precheck(p)
+            if pre is not None:
+                failures[p] = pre
+            else:
+                usable.append(p)
+        good = []
+        for p in usable:
+            model = self._model_of(p, cfg)
+            info = priority.open_failure(p, model)
+            if info:
+                failures[p] = Failure(info['kind'] or 'error', 'چند لحظه پیش خطا داد (%s)' % (info['message'] or 'بی‌پیام'), provider=p, model=model)
+            else:
+                good.append(p)
+        return good, failures
+
     def availability(self):
         """(آیا دست‌کم یک مسیر الان قابل‌استفاده است، چرا) — بی‌هیچ درخواستی به شبکه. برای ویژگی‌هایی که مدل «اختیاری» است
         (پژوهشِ رقبا/ترند): اگر هیچ‌کدام از دو مسیر نیست، بی‌صبر کردن از مدل صرف‌نظر می‌کنند."""
         cfg = priority.config()
         order = cfg.order(self.kind)
-        reasons = {}
-        usable = []
-        for p in order:
-            pre = self._lifetime.get(p) or self._precheck(p)
-            if pre is not None:
-                reasons[p] = pre.sentence()
-            else:
-                usable.append(p)
-        good = []
-        for p in usable:
-            info = priority.open_failure(p, self._model_of(p, cfg))
-            if info:
-                reasons[p] = 'چند لحظه پیش خطا داد (%s)' % (info['message'] or 'بی‌پیام')
-            else:
-                good.append(p)
+        good, failures = self._blocked_paths(cfg)
         if good:
             return True, ' / '.join(priority.PROVIDER_LABEL[p] for p in good)
-        return False, '؛ '.join('%s: %s' % (priority.PROVIDER_LABEL[p], reasons.get(p, '—')) for p in order)
+        return False, '؛ '.join('%s: %s' % (priority.PROVIDER_LABEL[p], failures[p].sentence() if failures.get(p) is not None else '—') for p in order)
+
+    def unavailable_error(self):
+        """None اگر دست‌کم یک مسیر الان قابل‌امتحان است؛ وگرنه همان `AllProvidersFailed`ی که خودِ فراخوانی می‌انداخت (با `failures` و `node_waiting`).
+        برای ویژگی‌هایی که پیش از فراخوانی `availability()` می‌پرسند: دلیلِ «با صبر درست می‌شود؟» (گره خاموش/اعتبار تمام) از همین خطا خوانده می‌شود،
+        نه از متنِ فارسیِ پیام — پس «فقط لوکالِ + گره خاموش» هم درست «قابلِ صف» حساب می‌شود."""
+        cfg = priority.config()
+        good, failures = self._blocked_paths(cfg)
+        if good:
+            return None
+        return self._all_failed(cfg.order(self.kind), failures)
 
     # ---- اجرا
     def _call_local(self, local_call, cfg, has_alt=True):

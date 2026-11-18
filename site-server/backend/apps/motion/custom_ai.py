@@ -158,13 +158,10 @@ def describe(store, text: str, *, base_id: str | None = None, provider=None) -> 
     text = text[:600]
     draft = rules_style(text, base_id)
     note = ""
+    parkable = False
     try:
         prov = provider if provider is not None else ai.get_provider(store)
-        avail = getattr(prov, "availability", None)
-        if callable(avail):
-            ok, why = avail()
-            if not ok:
-                raise ai.AIUnavailable(why or ai.MSG_UNAVAILABLE)
+        ai.ensure_available(prov)
         system, user = _prompt(text, draft)
         data = ai._call_json(prov, user, system, {"type": "object"}, temperature=0.5, num_predict=1800)
         if not isinstance(data, dict) or not data.get("palette"):
@@ -192,6 +189,15 @@ def describe(store, text: str, *, base_id: str | None = None, provider=None) -> 
     except Exception as exc:  # noqa: BLE001 — هر شکستِ مسیرِ مدل ⇒ پیش‌نویسِ قاعده‌ای
         logger.info("motion style describe: falling back to rules (%s)", exc)
         note = f"{ai.MSG_UNAVAILABLE}: {ai.explain(exc)}" if not isinstance(exc, (ValueError, custom.StyleError)) else "پاسخِ هوش مصنوعی قابل‌استفاده نبود"
+        # «با صبر درست می‌شود» (گرهٔ پردازش خاموش/شلوغ، اعتبارِ متیس، مهلت) ⇒ view می‌تواند «در صف تا روشن شدنِ سرورِ پردازش» بگذارد (compute.deferred)
+        parkable = (not isinstance(exc, (ValueError, custom.StyleError))) and ai._outage(exc)
     base = pick_base(text, base_id)
     msg = ai._then(note, f". پیش‌نویس با قاعده‌های ساده از روی توصیفِ شما (پایه: «{(catalog.get(base) or {}).get('name_fa', base)}») ساخته شد؛ ویرایشش کنید یا بعداً دوباره امتحان کنید.")
-    return {"style": draft, "source": "rules", "message": msg, "notes": [], "base": base}
+    return {"style": draft, "source": "rules", "message": msg, "notes": [], "base": base, "parkable": bool(parkable)}
+
+
+def deferred_describe(store, *, text: str, base_id: str | None = None, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان describe با هوش مصنوعیِ واقعی؛ جواب قاعده‌ای ⇒ هنوز در دسترس نیست ⇒ در صف می‌ماند."""
+    res = describe(store, text, base_id=base_id or None)
+    res["contrast"] = custom.contrast_report(res["style"])                 # همان کلیدی که view به پاسخِ همزمان می‌افزاید
+    return res

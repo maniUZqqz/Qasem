@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, Field, Input, Select, Spinner, TextArea, fa } from "../../../components/ui";
 import { Catalog, ContrastReport, KindDef, ParamSpec, StyleCheck, StyleDef, StyleDoc, StyleSchema, Tok, customApi, errText } from "./api";
+import { useQueuedAi } from "../../../components/QueuedAi";
 import PlayerFrame, { PlayerHandle } from "./PlayerFrame";
 
 /**
@@ -440,6 +441,22 @@ export default function StyleEditor({
   const [fixed, setFixed] = useState<Record<string, string> | null>(null);
   const [check, setCheck] = useState<StyleCheck | null>(null);
   const [desc, setDesc] = useState("");
+  // پیش‌نویسِ قاعده‌ایِ همین لحظه؛ نسخهٔ هوش مصنوعی فقط وقتی جایش می‌نشیند که کاربر در این فاصله چیزی را ویرایش نکرده باشد
+  const draftRef = useRef<string>("");
+  const docRef = useRef<StyleDoc | null>(null);
+  const qaStyle = useQueuedAi<{ style: StyleDoc; source: "ai" | "rules"; message: string }>("motion-style", storeId, (res) => {
+    if (res.source !== "ai") return;
+    if (docRef.current && draftRef.current && JSON.stringify(docRef.current) !== draftRef.current) {
+      setInfo({ tone: "info", text: "نسخهٔ هوش مصنوعیِ سبک رسید ولی شما در این فاصله سبک را ویرایش کرده بودید؛ دست‌نخورده ماند. برای دیدنِ آن دوباره «بساز» را بزنید." });
+      return;
+    }
+    const next = { ...toDoc(res.style, schema.blank), name_fa: res.style.name_fa || docRef.current?.name_fa || "" };
+    setDoc(next);
+    draftRef.current = JSON.stringify(next);
+    setCheck(null);
+    setInfo({ tone: "ok", text: res.message || "نسخهٔ هوش مصنوعیِ سبک رسید و جایگزین پیش‌نویسِ ساده شد." });
+  });
+  docRef.current = doc;
   const [baseId, setBaseId] = useState(startFrom?.id || editing?.base_style || "");
   const [importText, setImportText] = useState("");
   const [previewErr, setPreviewErr] = useState<string | null>(null);
@@ -519,7 +536,10 @@ export default function StyleEditor({
     try {
       const r = await customApi.describe(storeId, desc, baseId || undefined);
       const keep = { name_fa: doc.name_fa };
-      setDoc({ ...toDoc(r.style, schema.blank), name_fa: r.style.name_fa || keep.name_fa });
+      const next = { ...toDoc(r.style, schema.blank), name_fa: r.style.name_fa || keep.name_fa };
+      setDoc(next);
+      draftRef.current = JSON.stringify(next);
+      if (r.queued) qaStyle.setQueued(r.queued);          // «در صف تا روشن شدنِ سرورِ پردازش»: نسخهٔ هوش مصنوعی خودکار جایش می‌نشیند
       setCheck(null);
       setInfo({ tone: r.source === "ai" ? "ok" : "warn", text: r.message || (r.source === "ai" ? "پیش‌نویس با هوش مصنوعی ساخته شد." : "پیش‌نویس ساخته شد.") });
       setTab("colors");
@@ -689,9 +709,10 @@ export default function StyleEditor({
                         <Icon name="sparkle" size={15} /> {busy === "describe" ? "در حال ساختن…" : "بساز"}
                       </Button>
                       <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                        هوش مصنوعی فقط توکن می‌نویسد؛ اگر در دسترس نباشد، پیش‌نویس با واژه‌های کلیدیِ توصیفِ شما و یکی از سبک‌های آماده ساخته می‌شود. نتیجه را می‌توانید ویرایش کنید.
+                        هوش مصنوعی فقط توکن می‌نویسد؛ اگر در دسترس نباشد، پیش‌نویس با واژه‌های کلیدیِ توصیفِ شما و یکی از سبک‌های آماده ساخته می‌شود (و درخواست «در صف تا روشن شدنِ سرورِ پردازش» می‌ماند). نتیجه را می‌توانید ویرایش کنید.
                       </span>
                     </div>
+                    {qaStyle.banner}
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">

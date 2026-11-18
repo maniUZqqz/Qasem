@@ -27,6 +27,11 @@ def maintenance():
     except Exception as exc:  # noqa: BLE001
         out["heal_error"] = str(exc)[:200]
     try:
+        from . import ops_status
+        out["tests_rerun"] = ops_status.maybe_rerun_red()   # قرمزِ «نسخهٔ قدیمی» در گزارشِ شبانه ⇒ همان اپ‌ها یک بار دوباره آزموده می‌شوند
+    except Exception as exc:  # noqa: BLE001
+        out["tests_rerun_error"] = str(exc)[:200]
+    try:
         from . import report
         out["report"] = report.maintain()     # بستنِ نوبت‌های ساکت، فشرده‌سازی و پاکسازیِ آمارِ گزارش (هر ۱۰ دقیقه، کران‌دار)
     except Exception as exc:  # noqa: BLE001 — آمار نباید requeue را بخواباند

@@ -187,22 +187,39 @@ class TrendIdeaView(APIView):
     def post(self, request, store_id):
         store = access.get_store(request.user, store_id, access.CONTENT)
         trend_id = request.data.get("trend_id")
+        regions = request.data.get("regions") or None
+        params = {"regions": regions, "trend_ids": [trend_id] if trend_id else None}
         try:
-            result = engine.suggest(
-                store, regions=request.data.get("regions") or None,
-                trend_ids=[trend_id] if trend_id else None,
-            )
+            result = engine.suggest(store, regions=regions, trend_ids=params["trend_ids"])
         except Exception as exc:  # noqa: BLE001
+            from apps.compute import deferred
+
+            if deferred.is_outage(exc):
+                # هیچ مسیرِ هوش مصنوعی (گرهٔ پردازش، متیس) الان جواب نمی‌دهد ولی «با صبر درست می‌شود»: درخواست در صفِ ماندگار می‌ماند
+                queued = deferred.defer("trends.ideas", store, params, user=request.user, reason=str(exc))
+                if queued:
+                    open_ideas = TrendIdea.objects.filter(store=store, state=TrendIdea.State.OPEN).select_related("trend", "product")
+                    return Response({"ideas": TrendIdeaSerializer(open_ideas, many=True).data, "dropped": 0, "queued": queued,
+                                     "note": "هوش مصنوعی الان در دسترس نیست؛ این درخواست «در صف تا روشن شدنِ سرورِ پردازش» ماند و ایده‌ها خودکار می‌رسند."})
             logger.exception("Trend suggestion failed for store %s", store_id)
             return Response(
                 {"error": {"code": "ai_unavailable", "message": str(exc)}},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({
+        out = {
             "ideas": TrendIdeaSerializer(result["ideas"], many=True).data,
             "dropped": result["dropped"],
             "note": result["note"],
-        })
+        }
+        if result.get("llm_down") and result.get("llm_parkable"):
+            # ایدهٔ قالبی همین الان آماده است؛ نسخهٔ هوش مصنوعی جایش می‌نشیند
+            from apps.compute import deferred
+
+            queued = deferred.defer("trends.ideas", store, params, user=request.user, reason=str(result.get("note") or ""))
+            if queued:
+                out["queued"] = queued
+                out["note"] = str(out["note"]) + " نسخهٔ هوش مصنوعی «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار جایش می‌نشیند."
+        return Response(out)
 
 
 class TrendRelevanceView(APIView):
@@ -216,31 +233,35 @@ class TrendRelevanceView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, store_id):
-        from . import research_llm
-
         store = access.get_store(request.user, store_id, access.CONTENT)
         regions = request.data.get("regions") or None
-        trends = engine.current(regions, limit=200)
-        if not trends:
-            return Response({"ranked": 0, "note": "ترندِ تازه‌ای نیست."})
-        vocabulary = engine.vocabulary_for_store(store)
-        # The model sees the keyword-relevant ones first, then the rest.
-        trends.sort(key=lambda t: -engine.relevance(t, vocabulary)["score"])
         try:
-            ranked = engine.rank_with_llm(store, trends[:30])
-        except research_llm.LLMUnavailable as exc:
+            out = engine.rank_for_store(store, regions)
+        except Exception as exc:  # noqa: BLE001
+            from apps.compute import deferred
+
+            if deferred.is_outage(exc):
+                queued = deferred.defer("trends.rank", store, {"regions": regions}, user=request.user, reason=str(exc))
+                if queued:
+                    return Response({"ranked": 0, "queued": queued, "note": "هوش مصنوعی الان در دسترس نیست؛ رتبه‌بندی «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار انجام می‌شود."},
+                                    status=status.HTTP_202_ACCEPTED)
+            return self._failure(exc)
+        return Response(out)
+
+    def _failure(self, exc):
+        from . import research_llm
+
+        if isinstance(exc, research_llm.LLMUnavailable):
             return Response(
                 {"error": {"code": "ai_unavailable",
                            "message": f"مدلِ زبانی در دسترس نیست: {exc}"}},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.info("Trend relevance failed: %s", exc)
-            return Response(
-                {"error": {"code": "ai_failed", "message": str(exc)[:300]}},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response({"ranked": len(ranked)})
+        logger.info("Trend relevance failed: %s", exc)
+        return Response(
+            {"error": {"code": "ai_failed", "message": str(exc)[:300]}},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 class TrendIdeaUseView(APIView):

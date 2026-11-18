@@ -10,7 +10,8 @@
 (`build`) و چند «تلاشِ دوباره» (`retry`) را به همان ابزارهای موجود می‌سپارد. هر بخش جدا try/except دارد: خرابیِ یکی بقیه را نمی‌اندازد.
 
 هر ردیف: {"key", "title", "state": todo|doing|done|warn|fail|skip, "detail", ...}.
-وضعیت‌ها: todo = هنوز شروع نشده · doing = در جریان · done = تمام و سالم · warn = نیازِ شما یا نیمه‌کاره · fail = قرمز (دلیل و دکمهٔ «دوباره» دارد) · skip = برای این سیستم نیست.
+وضعیت‌ها: todo = هنوز شروع نشده · waiting = منتظرِ روشن شدنِ سرورِ پردازش (کار/درخواست در صف است یا چیزی برای انجام نبوده؛ هنوز «انجام شد» نیست) ·
+doing = در جریان · done = تمام و سالم · warn = نیازِ شما یا نیمه‌کاره · fail = قرمز (دلیل و دکمهٔ «دوباره» دارد) · skip = برای این سیستم نیست.
 """
 from __future__ import annotations
 
@@ -100,8 +101,28 @@ def planned_features(processing: Path | None = None) -> list[dict]:
         out.append({"feature": spec.get("feature") or path.stem, "title": title, "order": int(spec.get("order") or 100),
                     "kinds": list(spec.get("kinds") or []), "needs_gpu": bool(spec.get("needs_gpu")),
                     "platform": list(spec.get("platform") or []), "bytes": _declared_bytes(spec), "requires": list(spec.get("requires") or [])})
+    motion = motion_planned()
+    if motion:
+        out.append(motion)
     out.sort(key=lambda f: (f["order"], f["feature"]))
     return out
+
+
+MOTION_ORDER = 35          # بعد از Node.js قابل‌حمل (۳۰)؛ بستهٔ موشن Node.js ِ خودش را هم دارد
+
+
+def motion_planned() -> dict | None:
+    """بستهٔ موشن (رندرر Remotion + Node.js + مرورگرِ بی‌سر) که ماژولِ موشنِ خودِ گره (motion_jobs.py) با «اولین ضربان» خودش از آینهٔ سایت
+    می‌گیرد؛ requirements.d نیست ولی همان نصبِ خودکار است و باید با بقیه در فهرستِ «چه نصب می‌شود» دیده شود (اندازه از nm-motion-pack.json)."""
+    try:
+        m = json.loads((U.downloads_dir() / "nm-motion-pack.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    total = sum(int((m.get(part) or {}).get("size") or 0) for part in ("pack", "node", "browser"))
+    return {"feature": "motion", "title": MOTION_TITLE, "order": MOTION_ORDER, "kinds": ["motion.render"], "needs_gpu": False, "platform": ["win"], "bytes": total, "requires": []}
+
+
+MOTION_TITLE = "استودیوی موشن: Node.js، رندرر و مرورگر"
 
 
 # ───────────────────────────── بخش‌ها
@@ -209,6 +230,11 @@ def installs_rows(node, planned: list[dict]) -> tuple[dict, list[dict]]:
             rows.append(_row("install:%s" % name, f.get("title") or name, state, detail, feature=name, items=items, kinds=f.get("kinds") or [],
                              progress=(sum(prog) / len(prog)) if prog and state == "doing" else None))
         rows += extra_rows(caps)
+        if not any(r["key"] == "install:motion" for r in rows):
+            mp = motion_planned()                          # عاملِ قدیمی هنوز ماژولِ موشن را گزارش نمی‌دهد؛ بعد از به‌روزرسانی با اولین ضربان شروع می‌شود
+            if mp:
+                rows.append(_row("install:motion", mp["title"], "todo", "بعد از به‌روزرسانیِ نرم‌افزارِ گره، با اولین ضربان خودش شروع می‌شود (حدود %s)." % _mb(mp["bytes"]),
+                                 feature="motion", kinds=mp["kinds"], bytes=mp["bytes"]))
         c = Counter(r["state"] for r in rows)
         if rows and c.get("skip") == len(rows):
             return _row("installs", "نصبِ خودکارِ نیازمندی‌ها", "skip", "هیچ‌کدام از ویژگی‌ها برای سیستم‌عاملِ این گره نیست (نصبِ خودکار فقط روی ویندوز است)."), rows
@@ -319,6 +345,7 @@ def queue_rows(node) -> tuple[dict, list[dict]]:
     from . import sched
 
     prog = sched.progress_by_kind().get("kinds") or {}
+    off_line = node is None or not node.online
     fc = readiness._forecast(node) if node is not None else {"ready": Counter(), "needs_update": Counter(), "installing": Counter(), "parked": 0}
     kinds = sorted(set(prog) | set(fc["ready"]) | set(fc["needs_update"]) | set(fc["installing"]))
     rows = []
@@ -346,6 +373,8 @@ def queue_rows(node) -> tuple[dict, list[dict]]:
         if failed:
             parts.append("%s ناموفق" % fa(failed))
         state = "fail" if failed and not (queued or running) else ("doing" if queued or running else "done")
+        if state == "doing" and not running and off_line:
+            state = "waiting"                      # گره خاموش است: «در جریان» نیست، منتظرِ روشن شدن است
         rows.append(_row("queue:%s" % kind, QV.kind_label(kind), state, "؛ ".join(parts), kind=kind, queued=queued, running=running, done=done, failed=failed))
     tot = Counter()
     for r in rows:
@@ -355,18 +384,28 @@ def queue_rows(node) -> tuple[dict, list[dict]]:
     detail = "%s در صف، %s در حالِ اجرا، %s تمام‌شده و %s ناموفق (۲۴ ساعتِ اخیر)" % (fa(tot["queued"]), fa(tot["running"]), fa(tot["done"]), fa(tot["failed"]))
     if parked:
         detail += "؛ %s کارِ «منتظرِ روشن شدنِ گره» هم هر دقیقه بیدار می‌شوند" % fa(parked)
-    state = "doing" if tot["queued"] or tot["running"] or parked else ("fail" if tot["failed"] else "done")
+    if tot["queued"] or tot["running"] or parked:
+        state = "doing" if (tot["running"] or not off_line) else "waiting"
+        if state == "waiting":
+            detail = "منتظرِ روشن شدنِ سرورِ پردازش — " + detail
+    else:
+        state = "fail" if tot["failed"] else ("waiting" if off_line and not tot["done"] else "done")
+        if state == "waiting":
+            detail = "منتظرِ روشن شدنِ سرورِ پردازش؛ هیچ کاری در صف نیست — " + detail
     return _row("queue", title, state, detail, totals=dict(tot), parked=parked, action="requeue" if tot["failed"] else ""), rows
 
 
-def ai_row() -> dict:
-    """درخواست‌های هوشِ مصنوعیِ متنی که «در صف تا روشن شدنِ سرورِ پردازش» مانده‌اند (ایده، پیش‌نویس، ترجمه، کپشن …)."""
+def ai_row(node=None) -> dict:
+    """درخواست‌های هوشِ مصنوعیِ متنی که «در صف تا روشن شدنِ سرورِ پردازش» مانده‌اند (ایده، پیش‌نویس، ترجمه، کپشن …).
+
+    «انجام شد» (سبز) فقط وقتی درست است که واقعاً چیزی اجرا شده یا مسیرِ هوش مصنوعی آماده است؛ گره خاموش و هیچ درخواستی هم اجرا نشده ⇒ «منتظر»."""
     title = "درخواست‌های هوشِ مصنوعی که در صف مانده‌اند"
     try:
         from . import deferred
 
         n = deferred.pending_count()
         done_n = deferred.recent_done_count()
+        ready, _how = deferred.ai_ready()
     except Exception as exc:  # noqa: BLE001
         return _row("ai_queue", title, "warn", "خوانده نشد (%s)." % exc.__class__.__name__)
     try:
@@ -376,8 +415,12 @@ def ai_row() -> dict:
     except Exception:  # noqa: BLE001
         order = ""
     if n:
-        return _row("ai_queue", title, "doing", "%s درخواست در صف است و با روشن شدنِ گره (یا برگشتنِ اعتبارِ متیس) خودکار اجرا می‌شود. ترتیب: %s." % (fa(n), order), pending=n, done=done_n)
-    return _row("ai_queue", title, "done", "درخواستی در صف نیست%s. ترتیب: %s." % ((" (%s درخواستِ صف‌شده تمام شد)" % fa(done_n)) if done_n else "", order), pending=0, done=done_n)
+        state = "doing" if ready else "waiting"
+        return _row("ai_queue", title, state, "%s درخواست در صف است و با روشن شدنِ گره (یا برگشتنِ اعتبارِ متیس) خودکار اجرا می‌شود. ترتیب: %s." % (fa(n), order), pending=n, done=done_n)
+    if done_n or ready:
+        return _row("ai_queue", title, "done", "درخواستی در صف نیست%s. ترتیب: %s." % ((" (%s درخواستِ صف‌شده تمام شد)" % fa(done_n)) if done_n else "", order), pending=0, done=done_n)
+    return _row("ai_queue", title, "waiting", "هنوز هیچ مسیری برای هوش مصنوعی آماده نیست (گرهٔ پردازش خاموش و متیس در دسترس نیست) و درخواستی هم در صف نیست؛ "
+                "هر درخواستی که بیاید «در صف تا روشن شدنِ سرورِ پردازش» می‌ماند و با روشن شدنِ گره خودکار اجرا می‌شود. ترتیب: %s." % order, pending=0, done=done_n)
 
 
 def before_checklist(planned: list[dict]) -> list[dict]:
@@ -447,7 +490,7 @@ def build(node_pk=None) -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.exception("tonight: queue failed")
         queue, queue_detail = _row("queue", "اجرای خودکارِ کارهای منتظر", "warn", "خوانده نشد (%s)." % exc.__class__.__name__), []
-    ai = _safe(ai_row, "ai_queue", "درخواست‌های هوشِ مصنوعی در صف")
+    ai = _safe(ai_row, "ai_queue", "درخواست‌های هوشِ مصنوعی در صف", node)
     steps = {"power": power, "update": update, "installs": installs, "models": models, "selftests": tests, "queue": queue, "ai_queue": ai}
     phase, phase_text = _phase(node, steps)
     try:

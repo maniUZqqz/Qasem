@@ -134,6 +134,18 @@ check("اپی که قفلِ سنگین پر بود رد شده است، نه ق�
   assert.equal(tile?.tone, "warn");
 });
 
+check("قرمزِ نسخهٔ قدیمی: لحنِ هشدار (نه قرمز) با توضیحِ «خودش دوباره می‌آزماید»", () => {
+  const v = testsView({ ...tests, state: "outdated", version: "3.53", current_version: "3.60", rerun: { apps: ["jobs"], started: false, at: "" } }, NOW);
+  assert.equal(v.tone, "warn");
+  assert.equal(v.badge, "قرمزِ کهنه");
+  assert.match(v.headline, /نسخهٔ ۳\.۵۳/);
+  assert.match(v.headline, /۳\.۶۰/);
+  assert.match(v.headline, /خودش همان اپ‌ها را دوباره می‌آزماید/);
+  assert.equal(v.red.length, 1, "فهرستِ آزمون‌های قرمز دیده می‌شود تا چیزی پنهان نشود");
+  const started = testsView({ ...tests, state: "outdated", rerun: { apps: ["jobs"], started: true, at: "x" } }, NOW);
+  assert.match(started.headline, /شروع شده/);
+});
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? "ok  " : "FAIL"} ${r.name}${r.err ? "\n     " + r.err : ""}`);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

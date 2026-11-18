@@ -8,7 +8,9 @@
 #
 #  آزمون‌ها داده را در پوشه‌های موقت می‌نویسند (NM_DATA_DIR/MEDIA_ROOT صادر می‌شوند)، نه در دادهٔ زندهٔ سایت.
 #  استفاده:  nm-nightly-tests                  ⇒ همهٔ اپ‌ها
-#            NM_NIGHTLY_APPS="jobs customers" nm-nightly-tests   ⇒ فقط این‌ها
+#            NM_NIGHTLY_APPS="jobs customers" nm-nightly-tests   ⇒ فقط این‌ها؛ نتیجه در گزارشِ قبلی «ادغام» می‌شود (اپ‌های دیگرِ گزارش
+#                                                                  دست‌نخورده می‌مانند؛ هر اپ نسخه و زمانِ آزمونِ خودش را دارد)
+#            (پنل خودش اپ‌های قرمزِ «نسخهٔ قدیمی» را همین‌طور دوباره می‌آزماید: apps.compute.ops_status.maybe_rerun_red)
 #            NM_NIGHTLY_SKIP="motion"          ⇒ این‌ها را رد کن
 #  متغیرها: NM_ROOT NM_TEST_PYTHON NM_TEST_REPORT NM_TEST_LOGDIR NM_HEAVY_LOCK NM_HEAVY_WAIT (ثانیه، پیش‌فرض ۳۶۰۰) NM_NIGHTLY_APP_TIMEOUT (ثانیه، پیش‌فرض ۳۰۰۰)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -77,15 +79,19 @@ for A in $LABELS; do
   RC=$?
   SECS=$(( $(date +%s) - T0 ))
   rm -rf "$T"
-  "$PY" - "$A" "$LOG" "$RC" "$SECS" >> "$JSONL" <<'PY'
-import json, re, sys
-app, log, rc, secs = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+  "$PY" - "$A" "$LOG" "$RC" "$SECS" "$ROOT" >> "$JSONL" <<'PY'
+import datetime, json, os, re, sys
+app, log, rc, secs, root = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+try:
+    app_version = open(os.path.join(root, "VERSION"), encoding="utf-8").read().strip()
+except OSError:
+    app_version = ""
 try:
     text = open(log, encoding="utf-8", errors="replace").read()
 except OSError:
     text = ""
 # rc 99 = «قفلِ سنگین یک ساعت پر بود و این اپ اجرا نشد» (flock -E 99): قرمز نیست، فقط «رد شد»؛ شبِ بعد دوباره امتحان می‌شود
-res = {"app": app, "seconds": secs, "tests": 0, "failures": 0, "errors": 0, "skipped": 0, "red": [], "crashed": False, "timeout": rc == 124, "lock_timeout": rc == 99}
+res = {"app": app, "version": app_version, "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "seconds": secs, "tests": 0, "failures": 0, "errors": 0, "skipped": 0, "red": [], "crashed": False, "timeout": rc == 124, "lock_timeout": rc == 99}
 m = re.search(r"^Ran (\d+) tests? in", text, re.M)
 if m:
     res["tests"] = int(m.group(1))
@@ -118,16 +124,33 @@ print(json.dumps(res, ensure_ascii=False))
 PY
 done
 
-"$PY" - "$JSONL" "$OUT" "$START_ISO" "$ROOT" <<'PY'
+"$PY" - "$JSONL" "$OUT" "$START_ISO" "$ROOT" "${NM_NIGHTLY_APPS:-}" <<'PY'
 import datetime, json, os, sys
-jl, out, start, root = sys.argv[1:5]
+jl, out, start, root, partial = sys.argv[1:6]
 apps = [json.loads(l) for l in open(jl, encoding="utf-8") if l.strip()]
 version = ""
 try:
     version = open(os.path.join(root, "VERSION"), encoding="utf-8").read().strip()
 except OSError:
     pass
+merged = False
+if partial.strip():
+    # اجرای جزئی (چند اپِ مشخص): اپ‌های دیگرِ گزارشِ قبلی را نگه دار؛ نتیجهٔ تازهٔ این اپ‌ها جایشان را می‌گیرد
+    try:
+        old = json.load(open(out, encoding="utf-8"))
+        keep = []
+        fresh = {a["app"] for a in apps}
+        for a in old.get("apps") or []:
+            if a.get("app") in fresh:
+                continue
+            a.setdefault("version", old.get("version", ""))
+            keep.append(a)
+        apps = keep + apps
+        merged = True
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 report = {
+    "partial": merged,
     "started_at": start,
     "finished_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "version": version,

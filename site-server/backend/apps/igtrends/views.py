@@ -274,6 +274,14 @@ class ClusterBriefView(StoreView):
         cluster = get_object_or_404(IgTrendCluster, pk=pk, store=store)
         body = request.data if isinstance(request.data, dict) else {}
         result = ideas.make_idea(store, cluster, use_ai=body.get("ai", True) not in (False, "false", 0, "0"))
+        if result.pop("llm_parkable", False):
+            # ایدهٔ قالبی همین الان آماده است؛ هوش مصنوعی خاموش است ولی «با صبر درست می‌شود» ⇒ نسخهٔ هوشمند در صفِ ماندگار
+            from apps.compute import deferred
+
+            queued = deferred.defer("igtrends.brief", store, {"cluster_id": cluster.pk}, user=request.user, reason=str(result.get("note") or ""))
+            if queued:
+                result["queued"] = queued
+                result["note"] = (str(result.get("note") or "") + " نسخهٔ هوش مصنوعی «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار جایش می‌نشیند.").strip()
         return Response(result, status=http.HTTP_201_CREATED)
 
 

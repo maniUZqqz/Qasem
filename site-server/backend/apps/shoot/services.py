@@ -200,16 +200,96 @@ def _finalize_photo(session, part: Path, shot: dict, mode: str, vision: bool) ->
     thumb.save(media.abs_path(base + "_t.jpg"), "JPEG", quality=82)
     metrics = checks.photo_metrics(img)
     result = checks.judge_photo(metrics, shot.get("check"))
-    vis = None
+    vis, outage = None, False
     if vision and result["ok"]:
-        vis = checks.vision_check(session.store, img, product_name=session.product.name, shot=shot)
+        vis, outage = checks.vision_probe(session.store, img, product_name=session.product.name, shot=shot)
         result = checks.merge_vision(result, vis)
-    return ShootTake.objects.create(
+    take = ShootTake.objects.create(
         session=session, shot=shot["key"], kind=ShootTake.Kind.PHOTO, file=base + ".jpg", thumb=base + "_t.jpg",
         mime="image/jpeg", size=out.stat().st_size, width=img.width, height=img.height, mode=mode[:12],
         checks={"problems": checks.clean_problems(result["problems"]), "metrics": metrics, "vision": vis,
                 "summary": checks.summary(result), "where": "سرورِ سایت" + (" + هوش مصنوعیِ بینایی" if vis else "")},
         ok=result["ok"], accepted=result["ok"], score=result["score"])
+    if vision and result["ok"] and vis is None and outage:
+        _queue_vision(session, take)
+    return take
+
+
+VISION_QUEUED_TEXT = "بررسیِ «محصول پیداست؟» با هوش مصنوعی «در صف تا روشن شدنِ سرورِ پردازش» ماند؛ نتیجه خودکار به همین برداشت اضافه می‌شود."
+
+
+def _queue_vision(session, take) -> None:
+    """مدلِ بینایی نیست ولی «با صبر درست می‌شود» ⇒ برداشت همین الان با وارسیِ اندازه‌ها ثبت شده؛ بررسیِ «محصول پیداست؟» در صفِ ماندگار."""
+    try:
+        from apps.compute import deferred
+
+        ticket = deferred.defer("shoot.vision", session.store, {"take_id": take.pk}, user=session.created_by, reason=VISION_QUEUED_TEXT)
+    except Exception as exc:  # noqa: BLE001 — صف نباید ثبتِ برداشت را بخواباند
+        logger.warning("shoot: could not queue the vision check of take %s: %s", take.pk, exc)
+        return
+    if not ticket:
+        return
+    c = dict(take.checks or {})
+    c.update(vision_pending=True, summary_base=c.get("summary", ""), queued={"uid": ticket["uid"], "message": ticket["message"]})
+    c["summary"] = (str(c.get("summary") or "") + " " + VISION_QUEUED_TEXT).strip()
+    c["where"] = "سرورِ سایت؛ بررسیِ هوش مصنوعی در صف تا روشن شدنِ سرورِ پردازش"
+    take.checks = c
+    take.save(update_fields=["checks", "updated_at"])
+
+
+def deferred_vision(store, *, take_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان «محصول پیداست؟» با مدلِ بینایی؛ نتیجه با وارسیِ اندازه‌ها یکی می‌شود. مدل هنوز نیست ⇒ در صف می‌ماند."""
+    take = ShootTake.objects.select_related("session", "session__product", "session__store").filter(pk=take_id).first()
+    if take is None or not (take.checks or {}).get("vision_pending"):
+        return {"done": True, "skipped": True}
+    session = take.session
+    shot = find_shot(session.plan, take.shot)
+    path = media.abs_path(take.file)
+    if shot is None or not path.is_file():
+        _end_vision(take, None)
+        return {"done": True, "skipped": True}
+    try:
+        img = Image.open(path)
+        img.load()
+        img = img.convert("RGB")
+    except Exception:  # noqa: BLE001
+        _end_vision(take, None)
+        return {"done": True, "skipped": True}
+    vis, outage = checks.vision_probe(session.store, img, product_name=session.product.name, shot=shot, use_flag=False)
+    if vis is None and outage:
+        from apps.compute import deferred
+
+        raise deferred.StillDown("مدلِ بینایی هنوز در دسترس نیست.")
+    _end_vision(take, vis)
+    return {"done": True, "vision": bool(vis), "ok": take.ok}
+
+
+def _end_vision(take: ShootTake, vis: dict | None, *, note: str = "") -> None:
+    """نتیجهٔ دیرهنگامِ مدلِ بینایی را روی برداشت می‌نشاند (یا فقط نشانهٔ «در صف» را برمی‌دارد)."""
+    c = dict(take.checks or {})
+    base_summary = c.pop("summary_base", None)
+    c.pop("queued", None)
+    c["vision_pending"] = False
+    result = {"ok": bool(take.ok), "score": float(take.score or 0),
+              "problems": [{"code": p.get("code", ""), "message": p.get("message", ""), "weight": 0} for p in (c.get("problems") or [])]}
+    merged = checks.merge_vision(result, vis)
+    c["problems"] = checks.clean_problems(merged["problems"])
+    c["vision"] = vis
+    c["summary"] = checks.summary(merged) if vis else (base_summary or c.get("summary", ""))
+    c["where"] = "سرورِ سایت" + (" + هوش مصنوعیِ بینایی (دیرهنگام، پس از روشن شدنِ سرور)" if vis else "") + (("؛ " + note) if note else "")
+    take.checks = c
+    take.ok, take.score = merged["ok"], merged["score"]
+    if take.saved_image_id is None:                      # عکسی که همین الان در محصول ذخیره نشده؛ ذخیره‌شده را دست نمی‌زنیم
+        take.accepted = bool(take.accepted and merged["ok"])
+    take.save(update_fields=["checks", "ok", "score", "accepted", "updated_at"])
+
+
+def on_vision_end(store, *, state: str = "", message: str = "", take_id=None, **_params) -> None:
+    """برگهٔ صف لغو/منقضی/ناموفق شد ⇒ برداشت با «در صف…» بی‌پایان نماند (وارسیِ اندازه‌ها سرجایش است)."""
+    take = ShootTake.objects.filter(pk=take_id).first() if take_id else None
+    if take is None or not (take.checks or {}).get("vision_pending"):
+        return
+    _end_vision(take, None, note="بررسیِ هوش مصنوعی انجام نشد")
 
 
 def _finalize_video(session, part: Path, shot: dict, mode: str, name: str) -> ShootTake:
@@ -389,6 +469,7 @@ def take_dict(t: ShootTake) -> dict:
         "duration": t.duration, "width": t.width, "height": t.height, "mode": t.mode, "size": t.size,
         "problems": (t.checks or {}).get("problems") or [], "summary": (t.checks or {}).get("summary") or "",
         "vision": (t.checks or {}).get("vision"), "where": (t.checks or {}).get("where") or "",
+        "vision_pending": bool((t.checks or {}).get("vision_pending")),
         "saved_image_id": t.saved_image_id, "created_at": t.created_at,
     }
 

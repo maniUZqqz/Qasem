@@ -20,7 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 class AsrUnavailable(Exception):
-    """No engine could transcribe; the message (Persian) is shown to the user."""
+    """No engine could transcribe; the message (Persian) is shown to the user.
+
+    ``parkable`` = waiting helps (the processing node is registered but off/busy, Metis is out of credit) ⇒ the call can be queued
+    («در صف تا روشن شدنِ سرورِ پردازش», compute.deferred); False = waiting cannot help (the audio file itself is unreadable, the store's
+    data policy forbids the cloud); None = unknown. ``file_problem`` marks the unreadable-audio case (no engine could read it either)."""
+
+    def __init__(self, *args, parkable: bool | None = None, file_problem: bool = False):
+        super().__init__(*args)
+        self.parkable = None if parkable is None else bool(parkable)
+        self.file_problem = bool(file_problem)
 
 
 def _ffmpeg() -> str:
@@ -32,11 +41,11 @@ def to_wav(src: Path, dst: Path) -> None:
         subprocess.run([_ffmpeg(), "-y", "-v", "error", "-i", str(src), "-ac", "1", "-ar", "16000", "-f", "wav", str(dst)],
                        check=True, timeout=300, capture_output=True)
     except FileNotFoundError as exc:
-        raise AsrUnavailable("ffmpeg روی سرور پیدا نشد.") from exc
+        raise AsrUnavailable("ffmpeg روی سرور پیدا نشد.", parkable=False, file_problem=True) from exc
     except subprocess.TimeoutExpired as exc:
-        raise AsrUnavailable("تبدیلِ قالبِ صدا زیادی طول کشید.") from exc
+        raise AsrUnavailable("تبدیلِ قالبِ صدا زیادی طول کشید.", parkable=False, file_problem=True) from exc
     except subprocess.CalledProcessError as exc:
-        raise AsrUnavailable("فایلِ صدا خوانده نشد (خراب یا ناشناخته).") from exc
+        raise AsrUnavailable("فایلِ صدا خوانده نشد (خراب یا ناشناخته).", parkable=False, file_problem=True) from exc
 
 
 def segments_from_words(words, per=10) -> list[dict]:
@@ -57,7 +66,8 @@ def _local(path: Path, store) -> dict:
         try:
             result = captions.transcribe_wav(wav, store=store, timeout_s=900)
         except captions.CaptionsUnavailable as exc:
-            raise AsrUnavailable(str(exc)) from exc
+            # `node_waiting` = گرهٔ پردازش ثبت است ولی خاموش/شلوغ ⇒ با صبر درست می‌شود
+            raise AsrUnavailable(str(exc), parkable=bool(getattr(exc, "node_waiting", ""))) from exc
     words = result.get("words") or []
     return {"text": result.get("text") or " ".join(w["w"] for w in words), "segments": segments_from_words(words),
             "engine": result.get("engine") or "node"}
@@ -96,7 +106,7 @@ def _metis(path: Path, store) -> dict:
         except requests.RequestException as exc:
             raise AsrUnavailable("اتصال به متیس برقرار نشد.") from exc
     if resp.status_code == 402:
-        raise AsrUnavailable("اعتبارِ متیس تمام شده است (۴۰۲).")
+        raise AsrUnavailable("اعتبارِ متیس تمام شده است (۴۰۲).", parkable=True)
     if resp.status_code in (401, 403):
         raise AsrUnavailable("کلیدِ متیس پذیرفته نشد.")
     if resp.status_code == 404:
@@ -128,9 +138,13 @@ def transcribe(path, store=None) -> dict:
 
     path = Path(path)
     errors = []
+    failures = []
     for provider in order():
         try:
             return _metis(path, store) if provider == priority.METIS else _local(path, store)
         except AsrUnavailable as exc:
+            failures.append(exc)
             errors.append(f"{priority.PROVIDER_LABEL.get(provider, provider)}: {exc}")
-    raise AsrUnavailable("؛ ".join(errors) or "هیچ موتورِ تبدیلِ گفتار در دسترس نیست.")
+    # با صبر درست می‌شود فقط اگر فایل خودش سالم باشد و دست‌کم یک مسیر (گرهٔ خاموش، متیسِ بی‌اعتبار) برگردد
+    parkable = (not any(f.file_problem for f in failures)) and any(f.parkable is True for f in failures)
+    raise AsrUnavailable("؛ ".join(errors) or "هیچ موتورِ تبدیلِ گفتار در دسترس نیست.", parkable=parkable)

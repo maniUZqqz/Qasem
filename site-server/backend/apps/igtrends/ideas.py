@@ -148,13 +148,17 @@ def ai_brief(store, cluster: IgTrendCluster, products, product) -> dict:
             "needs_edit": False}
 
 
-def make_idea(store, cluster: IgTrendCluster, *, use_ai: bool = True) -> dict:
-    """Build the brief (AI -> template), mirror the topic as a `Trend`, and save a `TrendIdea` the content page can run."""
+def make_idea(store, cluster: IgTrendCluster, *, use_ai: bool = True, strict: bool = False) -> dict:
+    """Build the brief (AI -> template), mirror the topic as a `Trend`, and save a `TrendIdea` the content page can run.
+
+    ``strict`` (the queued run, compute.deferred): the model or nothing - raises when no model is reachable (so the request stays queued).
+    A template result of the normal call carries ``llm_parkable`` = "the model will be back" so the view can queue the real run."""
     from apps.products.models import Product
     products = list(Product.objects.filter(store=store, is_available=True).order_by("pk")[:25])
     product, matched = pick_product(store, cluster, products)
     note = ""
     brief = None
+    parkable = False
     if use_ai:
         ok, why = research_llm.status(store)
         if ok:
@@ -162,8 +166,16 @@ def make_idea(store, cluster: IgTrendCluster, *, use_ai: bool = True) -> dict:
                 brief = ai_brief(store, cluster, products, product)
             except Exception as exc:  # noqa: BLE001 - any model/HTTP failure (e.g. 402 out of credit) falls back to the template
                 logger.info("igtrends: AI brief failed (%s); template", exc)
+                from apps.compute import deferred
+
+                parkable = deferred.is_outage(exc)
+                if strict and parkable:
+                    raise
                 note = "هوش مصنوعی جواب نداد؛ قالبِ ساده ساخته شد."
         else:
+            parkable = research_llm.outage(store)
+            if strict:
+                raise research_llm.LLMUnavailable(why, parkable=parkable)
             note = "هوش مصنوعی الان در دسترس نیست؛ قالبِ ساده ساخته شد."
     if brief is None:
         brief = template_brief(store, cluster, product, matched)
@@ -183,4 +195,17 @@ def make_idea(store, cluster: IgTrendCluster, *, use_ai: bool = True) -> dict:
                                     why=brief["why"][:1000], hook=brief["hook"][:300])
     cluster.idea_trend, cluster.brief = trend, brief
     cluster.save(update_fields=["idea_trend", "brief", "updated_at"])
-    return {"brief": brief, "idea_id": idea.pk, "trend_id": trend.pk, "source": brief["source"], "note": brief.get("note", "")}
+    out = {"brief": brief, "idea_id": idea.pk, "trend_id": trend.pk, "source": brief["source"], "note": brief.get("note", "")}
+    if parkable and brief["source"] != "ai":
+        out["llm_parkable"] = True
+    return out
+
+
+def deferred_make_idea(store, *, cluster_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان ایدهٔ ترند با هوش مصنوعیِ واقعی؛ جایگزینِ ایدهٔ قالبیِ همین خوشه می‌شود."""
+    cluster = IgTrendCluster.objects.filter(pk=cluster_id, store=store).first()
+    if cluster is None:
+        return {"skipped": True, "note": "این ترند دیگر نیست."}
+    out = make_idea(store, cluster, use_ai=True, strict=True)
+    out.pop("llm_parkable", None)
+    return out

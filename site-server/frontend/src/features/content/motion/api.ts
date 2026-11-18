@@ -385,7 +385,7 @@ export const customApi = {
   validate: (id: string | number, style: StyleDoc) =>
     api.post<{ style: StyleDoc; notes: string[]; contrast: ContrastReport; hash: string; fixed_palette?: Record<string, string> }>(`${base(id)}/custom-styles/validate/`, { style }).then((r) => r.data),
   describe: (id: string | number, text: string, baseStyle?: string) =>
-    api.post<{ style: StyleDoc; source: "ai" | "rules"; message: string; contrast: ContrastReport }>(`${base(id)}/custom-styles/describe/`, { text, base_style: baseStyle }).then((r) => r.data),
+    api.post<{ style: StyleDoc; source: "ai" | "rules"; message: string; contrast: ContrastReport; queued?: Queued }>(`${base(id)}/custom-styles/describe/`, { text, base_style: baseStyle }).then((r) => r.data),
   palette: (id: string | number, colors?: string[], dark?: boolean) =>
     api.post<{ palette: Record<string, string>; from: string[] }>(`${base(id)}/custom-styles/palette/`, { colors, dark }).then((r) => r.data),
   preview: (id: string | number, style: StyleDoc, aspect: string, scenes = 2) =>

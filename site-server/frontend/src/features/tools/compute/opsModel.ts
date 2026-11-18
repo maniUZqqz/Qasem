@@ -48,7 +48,10 @@ export type TestApp = {
 };
 export type SiteTests = {
   present: boolean;
-  state: "green" | "red" | "missing" | "stale";
+  state: "green" | "red" | "missing" | "stale" | "outdated";
+  current_version?: string;
+  partial?: boolean;
+  rerun?: { apps: string[]; started: boolean; at: string };
   running: { app: string; since: string } | null;
   started_at?: string;
   finished_at?: string;
@@ -71,6 +74,7 @@ export const OPS_TEXT = {
   testsGreen: "همهٔ آزمون‌ها سبزند.",
   testsRed: "آزمون‌های قرمز",
   testsStale: "آخرین اجرا بیش از دو روز پیش بوده؛ اجرای شبانه گیر کرده یا سرور خاموش بوده است.",
+  testsOutdated: "قرمزِ نسخهٔ قدیمی: این آزمون‌ها با نسخه‌ای قدیمی‌تر از نسخهٔ فعلیِ سایت اجرا شده‌اند؛ سایت خودش همان اپ‌ها را دوباره می‌آزماید و این نشانه پاک می‌شود (کاری از شما لازم نیست).",
   testsLockSkipped: "اپ در آن شب رد شد، چون سرور یک ساعت پر از کارهای سنگینِ دیگر بود (شبِ بعد دوباره امتحان می‌شود)",
   testsRunning: "در حالِ اجراست",
   offsite: "نسخهٔ بیرونی (کپی روی کامپیوترِ دفتر) هنوز تنظیم نشده؛ این بکاپ‌ها روی همان دیسکِ سرورند.",
@@ -152,6 +156,13 @@ export function testsView(t: SiteTests | null | undefined, nowMs: number = Date.
   const stale = t.state === "stale" || (typeof t.age_hours === "number" && t.age_hours > TESTS_STALE_HOURS);
   if (stale) {
     return { tone: "warn", headline: `${OPS_TEXT.testsStale} (${when})`, badge: "قدیمی", tiles, red };
+  }
+  if (t.state === "outdated") {
+    const apps = (t.rerun?.apps ?? red.map((r) => r.app)).join("، ");
+    const cur = t.current_version ? `؛ نسخهٔ فعلی ${toFa(t.current_version)}` : "";
+    const where = t.version ? `گزارش از نسخهٔ ${toFa(t.version)}` : "گزارشِ قدیمی";
+    const state = t.rerun?.started ? "دوباره‌آزمایی شروع شده" : "دوباره‌آزمایی در دقیقه‌های آینده شروع می‌شود";
+    return { tone: "warn", headline: `${where}${cur} — ${apps}: ${state}. ${OPS_TEXT.testsOutdated}`, badge: "قرمزِ کهنه", tiles, red };
   }
   if (tot.red_apps > 0 || redCount > 0) {
     return { tone: "bad", headline: `${toFa(redCount)} آزمون قرمز در ${toFa(tot.red_apps)} اپ — ${when}`, badge: "قرمز", tiles, red };

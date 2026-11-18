@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 
 import { api, errorMessage } from "../../api/client";
 import { faDateTime } from "../../components/fmt";
+import { useQueuedAi } from "../../components/QueuedAi";
 import {
   Alert,
   Badge,
@@ -255,6 +256,14 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const qaIdeas = useQueuedAi<{ count: number; note?: string }>("trend-ideas", id ?? "", (res) => {
+    setNotice(res.note || `${fa(res.count)} ایده با هوش مصنوعی رسید.`);
+    void load();
+  });
+  const qaRank = useQueuedAi<{ ranked: number }>("trend-rank", id ?? "", (res) => {
+    setNotice(`مدلِ زبانی ${fa(res.ranked)} ترند را سنجید.`);
+    void load();
+  });
 
   const load = useCallback(async () => {
     try {
@@ -343,6 +352,7 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
         ...(trendId ? { trend_id: trendId } : {}),
       });
       setIdeas(data.ideas);
+      if (data.queued) qaIdeas.setQueued(data.queued);        // «در صف تا روشن شدنِ سرورِ پردازش»: نسخهٔ هوش مصنوعی خودکار می‌رسد
       setNotice(data.note || `${fa(data.ideas.length)} ایده آماده شد.`);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -358,7 +368,12 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
     setNotice(null);
     try {
       const { data } = await api.post(`/stores/${id}/trends/relevance/`, { regions: picked });
-      setNotice(`مدلِ زبانی ${fa(data.ranked)} ترند را سنجید.`);
+      if (data.queued) {
+        qaRank.setQueued(data.queued);
+        setNotice(data.note || "رتبه‌بندی «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار انجام می‌شود.");
+      } else {
+        setNotice(`مدلِ زبانی ${fa(data.ranked)} ترند را سنجید.`);
+      }
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -437,6 +452,8 @@ function MarketTrends({ tabs }: { tabs: ReactNode }) {
       {tabs}
 
       <ErrorBox message={error} />
+      {qaIdeas.banner}
+      {qaRank.banner}
       {notice && (
         <div className="mb-4">
           <Alert tone="ok">{notice}</Alert>

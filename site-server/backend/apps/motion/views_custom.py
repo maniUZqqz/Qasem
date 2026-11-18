@@ -231,11 +231,20 @@ class DescribeView(APIView):
 
     def post(self, request, store_id):
         store = _store(request, store_id, write=False)
+        text = str(request.data.get("text") or "")
+        base_style = str(request.data.get("base_style") or "")
         try:
-            res = custom_ai.describe(store, str(request.data.get("text") or ""), base_id=str(request.data.get("base_style") or "") or None)
+            res = custom_ai.describe(store, text, base_id=base_style or None)
         except custom.StyleError as exc:
             return _err(str(exc), "invalid")
         res["contrast"] = custom.contrast_report(res["style"])
+        if res.get("source") == "rules" and res.get("parkable"):
+            # هر دو مسیرِ هوش مصنوعی خاموش‌اند ولی «با صبر درست می‌شود» ⇒ پیش‌نویسِ قاعده‌ای همین الان + «در صف تا روشن شدنِ سرورِ پردازش»
+            from apps.compute import deferred
+
+            queued = deferred.defer("motion.style", store, {"text": text.strip()[:600], "base_id": base_style}, user=request.user, reason=str(res.get("message") or ""))
+            if queued:
+                res["queued"] = queued
         return Response(res)
 
 

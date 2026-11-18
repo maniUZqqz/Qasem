@@ -74,6 +74,8 @@ export type Take = {
   summary: string;
   vision: { product_visible: boolean; angle_ok: boolean; problems: string[] } | null;
   where: string;
+  /** بررسیِ «محصول پیداست؟» با هوش مصنوعی «در صف تا روشن شدنِ سرورِ پردازش» مانده است */
+  vision_pending?: boolean;
   saved_image_id: number | null;
   created_at: string;
 };

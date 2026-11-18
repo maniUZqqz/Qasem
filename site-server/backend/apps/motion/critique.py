@@ -109,13 +109,9 @@ def run(plan: MotionPlan, *, provider=None, measure=None, max_rounds: int = MAX_
         return _finish(plan, state, "unavailable", "نقدِ تصویری به ابزارِ رندرِ سایت (برای گرفتنِ فریم) نیاز دارد: " + why)
     try:
         prov = provider if provider is not None else ai.get_provider(store, kind="vision")
-        avail = getattr(prov, "availability", None)
-        if callable(avail):
-            good, reason = avail()
-            if not good:
-                raise ai.AIUnavailable(reason or ai.MSG_UNAVAILABLE)
+        ai.ensure_available(prov)
     except Exception as exc:  # noqa: BLE001
-        return _wait(plan, state, ai.explain(exc))
+        return _wait(plan, state, ai.explain(exc), exc)
     tmp = Path(tempfile.mkdtemp(prefix="nm-motion-crit-"))
     try:
         from . import runner
@@ -135,7 +131,7 @@ def run(plan: MotionPlan, *, provider=None, measure=None, max_rounds: int = MAX_
                 except Exception as exc:  # noqa: BLE001 — مدل میانهٔ کار از دسترس رفت
                     if rounds:
                         return _finish(plan, state | {"rounds": rounds}, "done", "مدل در دورِ بعد جواب نداد؛ نتیجهٔ دورهای قبل نگه داشته شد.")
-                    return _wait(plan, state, ai.explain(exc))
+                    return _wait(plan, state, ai.explain(exc), exc)
                 rec = {"n": n, "verdict": res["verdict"], "issues": res["issues"], "ops": res["ops"], "applied": [], "rejected": [], "before": _meta(shots), "after": []}
                 if res["verdict"] == "ok":
                     rounds.append(rec)
@@ -178,8 +174,23 @@ def _finish(plan, state, name: str, message: str) -> dict:
     return state
 
 
-def _wait(plan, state, reason: str) -> dict:
-    """مدل نیست ⇒ «منتظر»؛ تسکِ Celery هر ۶۰ ثانیه دوباره می‌آید (tasks.critique_task)."""
+def _ticket(plan, reason: str, exc=None) -> dict | None:
+    """«در صف تا روشن شدنِ سرورِ پردازش» (compute.deferred): صفِ ماندگار که با ری‌استارتِ سایت از بین نمی‌رود؛ ⇒ برگهٔ صف یا None
+    (خطا «با صبر درست نمی‌شود» مثلِ کلیدِ نادرست، یا هیچ سرور/متیسی ثبت نیست ⇒ همان حلقهٔ ۶۰ثانیه‌ایِ Celery می‌ماند)."""
+    if exc is not None and not ai._outage(exc):
+        return None
+    try:
+        from apps.compute import deferred
+
+        return deferred.defer("motion.critique", plan.store, {"plan_id": plan.pk}, reason=reason[:300])
+    except Exception as err:  # noqa: BLE001 — صف نباید نقد را بخواباند
+        logger.warning("motion critique: could not queue plan %s: %s", plan.pk, err)
+        return None
+
+
+def _wait(plan, state, reason: str, exc=None) -> dict:
+    """مدل نیست ⇒ «منتظر». اول صفِ ماندگار (deferred: «در صف تا روشن شدنِ سرورِ پردازش»، تا ۷۲ ساعت)؛ نشد ⇒ تسکِ Celery هر ۶۰ ثانیه
+    دوباره می‌آید (tasks.critique_task، تا ۴۸ ساعت)."""
     started = state.get("started_at")
     try:
         age = (timezone.now() - datetime.fromisoformat(started)).total_seconds() / 3600 if started else 0
@@ -189,10 +200,42 @@ def _wait(plan, state, reason: str) -> dict:
         return _finish(plan, state, "unavailable", "مدلِ بینایی تا ۴۸ ساعت در دسترس نبود؛ دوباره درخواست بدهید.")
     from .ai import tidy
 
-    state.update(state="waiting", message=tidy("منتظرِ مدلِ بینایی (سرورِ پردازش خاموش است یا هوش مصنوعیِ ابری در دسترس نیست)؛ با آماده‌شدنش خودکار اجرا می‌شود. " + reason[:160]))
+    ticket = _ticket(plan, reason, exc)
+    if ticket:
+        state["queued"] = {"uid": ticket["uid"], "message": ticket["message"]}
+        state.update(state="waiting", message=tidy("در صف تا روشن شدنِ سرورِ پردازش؛ نقدِ تصویری با آماده‌شدنِ مدلِ بینایی (گرهٔ پردازش یا هوش مصنوعیِ ابری) خودکار اجرا می‌شود و "
+                                                    "نتیجه همین‌جا می‌آید؛ لازم نیست صفحه باز بماند. " + reason[:160]))
+    else:
+        state.pop("queued", None)
+        state.update(state="waiting", message=tidy("منتظرِ مدلِ بینایی (سرورِ پردازش خاموش است یا هوش مصنوعیِ ابری در دسترس نیست)؛ با آماده‌شدنش خودکار اجرا می‌شود. " + reason[:160]))
     state["attempts"] = int(state.get("attempts") or 0) + 1
     _save(plan, state)
     return state
+
+
+def deferred_run(store, *, plan_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان نقدِ تصویری با هوش مصنوعیِ واقعی. هنوز مدل نیست ⇒ AIUnavailable ⇒ در صف می‌ماند."""
+    plan = MotionPlan.objects.filter(pk=plan_id, store=store).select_related("store").first()
+    if plan is None or (plan.critique or {}).get("state") not in ("waiting", "running"):
+        return {"state": "skipped", "message": "طرح پاک شده یا نقدش پیش‌تر انجام شده است."}
+    state = run(plan)
+    if state.get("state") == "waiting":
+        raise ai.AIUnavailable(str(state.get("message") or ai.MSG_UNAVAILABLE), parkable=True)
+    return {"state": state.get("state"), "message": state.get("message")}
+
+
+def on_deferred_end(store, *, state: str = "", message: str = "", plan_id=None, **_params) -> None:
+    """برگهٔ صف لغو/منقضی/ناموفق شد ⇒ نقدِ «در صف» بی‌پایان نماند."""
+    plan = MotionPlan.objects.filter(pk=plan_id).first() if plan_id else None
+    if plan is None:
+        return
+    cur = dict(plan.critique or {})
+    if cur.get("state") != "waiting" or not cur.get("queued"):
+        return
+    cur.pop("queued", None)
+    cur.update(state="unavailable", finished_at=timezone.now().isoformat(),
+               message="نقدِ تصویری لغو شد." if state == "cancelled" else "مدلِ بینایی تا مهلتِ انتظار برنگشت؛ هر وقت خواستید دوباره درخواست بدهید.")
+    _save(plan, cur)
 
 
 def request(plan: MotionPlan) -> dict:

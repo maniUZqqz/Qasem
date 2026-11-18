@@ -66,6 +66,7 @@ export default function GuidedShootPage() {
     !!session &&
     (session.state === "ANALYZING" ||
       session.voice?.state === "RUNNING" ||
+      session.takes.some((t) => t.vision_pending) ||
       session.outputs.some((o) => o.state === "QUEUED" || o.state === "RUNNING"));
   useEffect(() => {
     if (!busyServer || !session) return;

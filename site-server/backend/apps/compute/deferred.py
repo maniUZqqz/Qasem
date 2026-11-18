@@ -53,6 +53,12 @@ def in_deferred_run() -> bool:
     return bool(_IN_RUN.get())
 
 
+class StillDown(Exception):
+    """ویژگی در اجرای صف‌دار می‌گوید «هنوز هیچ مسیرِ هوش مصنوعی جواب نمی‌دهد» ⇒ درخواست در صف می‌ماند (is_outage ⇒ True)."""
+
+    parkable = True
+
+
 # ───────────────────────────── ویژگی‌ها (فهرستِ سفید)
 
 def _used_ai_flag(result) -> bool:
@@ -86,6 +92,19 @@ FEATURES: dict[str, dict] = {
     # سطحِ پلتفرم (بی‌فروشگاه): نویسندهٔ پیامِ مشتری‌یاب/کمپین
     "growth.writer": {"fn": "apps.growth_engine.knowledge.services.writer:deferred_run", "label": "پیش‌نویسِ پیامِ مشتری‌یاب با هوش مصنوعی",
                       "used": lambda r: bool(isinstance(r, dict) and r.get("status") == "proposed"), "platform": True},
+    # ── دورِ «E*» (۱۴۰۵/۰۸/۲۸، شب): نتیجه روی خودِ رکوردِ ویژگی ذخیره می‌شود؛ صفحه فقط نوارِ «در صف…» را نشان می‌دهد و پس از رسیدن دوباره می‌خواند.
+    #     on_end(store, state=failed|cancelled|expired, message=…, **params): نشانهٔ «در صف» روی رکورد را پاک می‌کند اگر درخواست بی‌نتیجه تمام شد.
+    "motion.style": {"fn": "apps.motion.custom_ai:deferred_describe", "label": "پیش‌نویسِ سبکِ سفارشیِ موشن از توصیف", "used": _used_source_ai},
+    "motion.critique": {"fn": "apps.motion.critique:deferred_run", "label": "نقدِ تصویریِ طرحِ موشن", "used": _always, "on_end": "apps.motion.critique:on_deferred_end"},
+    "trends.rank": {"fn": "apps.ai.trends:deferred_rank", "label": "رتبه‌بندیِ ترندها برای فروشگاه با هوش مصنوعی", "used": _always},
+    "trends.ideas": {"fn": "apps.ai.trends:deferred_suggest", "label": "ایده‌های محتوا از ترندها", "used": _always},
+    "igtrends.brief": {"fn": "apps.igtrends.ideas:deferred_make_idea", "label": "ایدهٔ محتوا از ترندِ اینستاگرام", "used": _always},
+    "competitor.confirm": {"fn": "apps.ai.competitor_research:deferred_confirm", "label": "تأییدِ همانندیِ محصولاتِ رقیب با هوش مصنوعی", "used": _always},
+    # سطحِ پلتفرم: اپِ موبایل فروشگاهِ تماس را از تنظیماتِ دستگاه برمی‌دارد (notes.resolve_store)
+    "mobile.call": {"fn": "apps.mobile.tasks:deferred_process_call", "label": "تبدیل به متن و یادداشتِ تماسِ موبایل", "used": _always, "platform": True,
+                    "on_end": "apps.mobile.tasks:on_deferred_end"},
+    "shoot.vision": {"fn": "apps.shoot.services:deferred_vision", "label": "بررسیِ «محصول پیداست؟» با هوش مصنوعیِ بینایی", "used": _always,
+                     "on_end": "apps.shoot.services:on_vision_end"},
 }
 
 
@@ -316,6 +335,23 @@ def owner_of(uid) -> tuple[bool, int | None]:
     return True, ph.store_id
 
 
+def _on_end(ph, state: str, message: str = "") -> None:
+    """ویژگی‌ای که نشانهٔ «در صف…» را روی رکوردِ خودش گذاشته (نقدِ موشن، تماسِ موبایل، برداشتِ فیلم‌برداری) وقتی درخواست بی‌نتیجه تمام شد
+    (لغو / منقضی / ناموفق) آن را پاک می‌کند. خطای این قلاب هیچ‌وقت صف را نمی‌اندازد."""
+    d = (ph.payload or {}).get("deferred") or {}
+    spec = FEATURES.get(d.get("feature")) or {}
+    path = spec.get("on_end")
+    if not path:
+        return
+    try:
+        from apps.stores.models import Store
+
+        store = Store.objects.filter(pk=ph.store_id).first() if ph.store_id else None
+        _resolve(path)(store, state=state, message=message, **(d.get("params") or {}))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("deferred: on_end of %s failed: %s", d.get("feature"), exc)
+
+
 def cancel(uid) -> bool:
     ph = _row(uid)
     if ph is None or ph.state != ComputeJob.State.QUEUED or not (ph.payload or {}).get("deferred"):
@@ -335,6 +371,7 @@ def on_cancelled(ph) -> None:
         return
     _write(ph.uid, {"uid": str(ph.uid), "feature": d.get("feature"), "state": "cancelled", "message": "لغو شد.", "store_id": ph.store_id,
                     "finished_at": timezone.now().isoformat()})
+    _on_end(ph, "cancelled", "لغو شد.")
 
 
 # ───────────────────────────── اجرا
@@ -344,6 +381,8 @@ def _finish(ph, feature, state, **extra) -> None:
     doc = {"uid": str(ph.uid), "feature": feature, "state": state, "store_id": ph.store_id, "attempts": int(d.get("attempts") or 0),
            "created": d.get("created"), "finished_at": timezone.now().isoformat(), **extra}
     _write(ph.uid, doc)
+    if state == "failed":
+        _on_end(ph, "failed", str(extra.get("error") or extra.get("message") or ""))
     call_with_retry(ph.delete)
 
 
@@ -459,3 +498,4 @@ def on_expired(ph) -> None:
         return
     _write(ph.uid, {"uid": str(ph.uid), "feature": d.get("feature"), "state": "failed", "store_id": ph.store_id, "message": "منقضی شد",
                     "error": "مهلتِ انتظار برای هوش مصنوعی تمام شد؛ هر وقت برگشت دوباره بفرستید.", "finished_at": timezone.now().isoformat()})
+    _on_end(ph, "expired", "مهلتِ انتظار برای هوش مصنوعی تمام شد.")

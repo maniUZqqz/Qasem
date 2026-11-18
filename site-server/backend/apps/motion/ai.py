@@ -37,6 +37,23 @@ def _outage(exc) -> bool:
         return False
 
 
+def ensure_available(prov) -> None:
+    """هیچ مسیری (گرهٔ پردازش / متیس) الان قابل‌امتحان نیست ⇒ `AIUnavailable` با «با صبر درست می‌شود؟» از علتِ واقعی.
+
+    پیش‌تر این‌جا `AIUnavailable(why)` بی‌علت (parkable=None) می‌افتاد و «فقط لوکالِ + گره خاموش» (مثلِ فروشگاهِ چغر) قابلِ صف حساب نمی‌شد
+    (is_outage روی خطای بی‌زنجیره False می‌داد). حالا همان خطای مسیریاب (`unavailable_error`) علتِ این استثنا می‌شود: گرهٔ خاموش/شلوغ،
+    اعتبارِ تمام‌شده، مهلت ⇒ parkable=True؛ کلیدِ نادرست / «مدل نصب نیست» ⇒ False. ارائه‌دهنده‌ای که فقط availability دارد مثلِ قبل (None) می‌ماند."""
+    avail = getattr(prov, "availability", None)
+    if not callable(avail):
+        return
+    ok, why = avail()
+    if ok:
+        return
+    make = getattr(prov, "unavailable_error", None)
+    cause = make() if callable(make) else None
+    raise AIUnavailable(why or MSG_UNAVAILABLE, parkable=(_outage(cause) if cause is not None else None)) from cause
+
+
 def get_provider(store, kind: str | None = None):
     from django.conf import settings
 
@@ -158,11 +175,7 @@ def script_from_idea(store, idea: str, *, style: str, aspect: str = "9:16", lang
     kit = None
     try:
         prov = provider if provider is not None else get_provider(store)
-        avail = getattr(prov, "availability", None)
-        if callable(avail):
-            ok, why = avail()
-            if not ok:
-                raise AIUnavailable(why or MSG_UNAVAILABLE)
+        ensure_available(prov)
         kit = promptkit.build_prompt(idea, style=style, aspect=aspect, lang=lang, seconds=seconds, brand_name=getattr(store, "name", ""),
                                      about=about or (getattr(store, "description", "") or ""), platform=platform)
         data = _call_json(prov, kit["user"], with_persona(store, kit["system"], "motion"), kit["schema"], temperature=0.4, num_predict=2400)
@@ -190,11 +203,7 @@ def patch_from_chat(store, plan: dict, text: str, *, provider=None) -> dict:
     note = ""
     try:
         prov = provider if provider is not None else get_provider(store)
-        avail = getattr(prov, "availability", None)
-        if callable(avail):
-            ok, why = avail()
-            if not ok:
-                raise AIUnavailable(why or MSG_UNAVAILABLE)
+        ensure_available(prov)
         kit = promptkit.build_patch_prompt(plan, text)
         data = _call_json(prov, kit["user"], kit["system"], kit["schema"], temperature=0.2, num_predict=900)
         ops = data.get("ops") if isinstance(data, dict) else None

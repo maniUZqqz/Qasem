@@ -15,7 +15,7 @@ import "./tonight.css";
  * هیچ‌چیز کلیک نمی‌خواهد؛ دکمه‌ها فقط برای وقتی است که چیزی قرمز شد. داده از GET /compute/tonight/ می‌آید (backend/apps/compute/tonight.py).
  */
 
-type StepState = "todo" | "doing" | "done" | "warn" | "fail" | "skip";
+type StepState = "todo" | "waiting" | "doing" | "done" | "warn" | "fail" | "skip";
 type Row = {
   key: string;
   title: string;
@@ -52,8 +52,8 @@ type Report = {
   counts: Record<string, number>;
 };
 
-const TONE: Record<StepState, "ok" | "bad" | "warn" | "neutral" | "info" | "brand"> = { done: "ok", fail: "bad", warn: "warn", doing: "brand", todo: "neutral", skip: "neutral" };
-const TEXT: Record<StepState, string> = { done: "انجام شد", fail: "قرمز", warn: "نیازِ توجه", doing: "در جریان", todo: "هنوز نه", skip: "برای این سیستم نیست" };
+const TONE: Record<StepState, "ok" | "bad" | "warn" | "neutral" | "info" | "brand"> = { done: "ok", fail: "bad", warn: "warn", doing: "brand", waiting: "info", todo: "neutral", skip: "neutral" };
+const TEXT: Record<StepState, string> = { done: "انجام شد", fail: "قرمز", warn: "نیازِ توجه", doing: "در جریان", waiting: "منتظرِ روشن شدنِ سرور", todo: "هنوز نه", skip: "برای این سیستم نیست" };
 const ACTION_TEXT: Record<string, string> = { update: "به‌روزرسانیِ دوباره", bootstrap: "نصبِ دوباره", selftest: "آزمونِ دوباره", requeue: "کارهای ناموفق را دوباره بفرست" };
 const PHASE_TONE: Record<Report["phase"], "ok" | "bad" | "warn" | "neutral" | "info" | "brand"> = { off: "warn", update: "brand", installs: "brand", tests: "brand", jobs: "brand", attention: "bad", done: "ok" };
 const POLL_FAST = 5000;

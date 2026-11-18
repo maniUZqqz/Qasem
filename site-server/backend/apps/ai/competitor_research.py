@@ -51,11 +51,14 @@ def is_marketplace_url(url: str) -> bool:
 # ---------------------------------------------------------------- matching
 
 
-def match_competitor(competitor: Competitor, *, use_llm: bool = False, job=None) -> dict:
+def match_competitor(competitor: Competitor, *, use_llm: bool = False, job=None, strict: bool = False) -> dict:
     """Re-run «رقیب کالایی» for every product of this competitor.
 
     A ``matches`` the owner set by hand (``raw["matches_manual"]``) is never
     overwritten. Returns the per-competitor verdict plus what the model did.
+
+    ``strict`` (the queued run, compute.deferred): when the model is unreachable the error is raised (so the request stays queued)
+    instead of being reduced to a note.
     """
     ours = _store_products(competitor.store)
     rows = list(competitor.products.all())
@@ -82,7 +85,7 @@ def match_competitor(competitor: Competitor, *, use_llm: bool = False, job=None)
 
     llm_note = ""
     if use_llm and borderline:
-        llm_note = confirm_with_llm(competitor, borderline, ours, job=job)
+        llm_note = confirm_with_llm(competitor, borderline, ours, job=job, strict=strict)
     verdict = product_match.classify_competitor(
         [(r.raw or {}).get("match") for r in competitor.products.all()]
     )
@@ -117,7 +120,28 @@ def _llm_prompt(pairs: list[dict]) -> str:
     )
 
 
-def confirm_with_llm(competitor, rows, ours, *, job=None) -> str:
+def _queued_note(competitor, exc, text: str) -> str:
+    """مدل الان نیست ولی «با صبر درست می‌شود» ⇒ «در صف تا روشن شدنِ سرورِ پردازش» (compute.deferred)؛ وگرنه همان متن."""
+    try:
+        from apps.compute import deferred
+
+        if deferred.is_outage(exc) and deferred.defer("competitor.confirm", competitor.store, {"competitor_id": competitor.pk}, reason=str(exc)):
+            return text + " این بررسی «در صف تا روشن شدنِ سرورِ پردازش» ماند و خودکار انجام می‌شود."
+    except Exception as err:  # noqa: BLE001 — صف نباید سنجشِ رقیب را بخواباند
+        logger.info("competitor %s: could not queue the model check: %s", competitor.pk, err)
+    return text
+
+
+def deferred_confirm(store, *, competitor_id: int, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان سنجشِ «رقیب کالایی» با مدلِ واقعی؛ مدل هنوز نیست ⇒ خطا ⇒ در صف می‌ماند."""
+    competitor = Competitor.objects.select_related("store").filter(pk=competitor_id, store=store).first()
+    if competitor is None:
+        return {"skipped": True, "note": "رقیب دیگر نیست."}
+    verdict = match_competitor(competitor, use_llm=True, strict=True)
+    return {"verdict": verdict, "note": verdict.get("llm", "")}
+
+
+def confirm_with_llm(competitor, rows, ours, *, job=None, strict: bool = False) -> str:
     """Ask the model about borderline pairs; store its answer per row."""
     by_id = {p.pk: p for p in ours}
     pairs, index = [], {}
@@ -141,10 +165,17 @@ def confirm_with_llm(competitor, rows, ours, *, job=None) -> str:
             validate=lambda p: (isinstance((p or {}).get("answers"), list), ["answers باید فهرست باشد"]),
         )
     except research_llm.LLMUnavailable as exc:
-        return f"مدلِ زبانی در دسترس نبود؛ {len(pairs)} موردِ مرزی فقط با قاعده سنجیده شد. ({exc})"
+        if strict:
+            raise
+        return _queued_note(competitor, exc, f"مدلِ زبانی در دسترس نبود؛ {len(pairs)} موردِ مرزی فقط با قاعده سنجیده شد. ({exc})")
     except Exception as exc:  # noqa: BLE001
         logger.info("LLM confirm failed for competitor %s: %s", competitor.pk, exc)
-        return f"پرسش از مدل ناموفق بود: {str(exc)[:160]}"
+        if strict:
+            from apps.compute import deferred
+
+            if deferred.is_outage(exc):
+                raise
+        return _queued_note(competitor, exc, f"پرسش از مدل ناموفق بود: {str(exc)[:160]}")
 
     answered = 0
     now = timezone.now().isoformat()

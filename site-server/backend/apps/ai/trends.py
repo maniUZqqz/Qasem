@@ -397,6 +397,27 @@ def rank_with_llm(store, trends, *, job=None) -> dict:
     return {int(k): v for k, v in by_trend.items()}
 
 
+def rank_for_store(store, regions=None) -> dict:
+    """«رتبه‌بندی با مدل»: ترندهای فعلی (اول آن‌ها که واژهٔ مشترک با فروشگاه دارند) ⇒ rank_with_llm. LLMUnavailable می‌افتد اگر مدل نیست."""
+    trends = current(regions, limit=200)
+    if not trends:
+        return {"ranked": 0, "note": "ترندِ تازه‌ای نیست."}
+    vocabulary = vocabulary_for_store(store)
+    trends.sort(key=lambda t: -relevance(t, vocabulary)["score"])          # the model sees the keyword-relevant ones first, then the rest
+    return {"ranked": len(rank_with_llm(store, trends[:30]))}
+
+
+def deferred_rank(store, *, regions=None, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان رتبه‌بندی با هوش مصنوعیِ واقعی؛ نتیجه در Job ِ «trend_relevance» می‌ماند و صفحه دوباره می‌خواند."""
+    return rank_for_store(store, regions)
+
+
+def deferred_suggest(store, *, regions=None, trend_ids=None, _user_id=None) -> dict:
+    """اجرای صف‌دار (compute.deferred): همان suggest با مدلِ واقعی (strict ⇒ بدونِ قالبِ ساده)؛ ایده‌ها در TrendIdea ذخیره می‌شوند."""
+    res = suggest(store, regions=regions, trend_ids=trend_ids, strict=True)
+    return {"count": len(res["ideas"]), "dropped": res["dropped"], "note": res["note"]}
+
+
 def heuristic_idea(store, trend, vocabulary: dict, products) -> TrendIdea | None:
     """A plain template idea when no model is reachable — only for a trend that
     shares real words with the shop, and labelled as a template."""
@@ -466,13 +487,16 @@ def _usable(reason: str) -> bool:
     return not any(empty in reason for empty in EMPTY_REASONS)
 
 
-def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
+def suggest(store, *, regions=None, job=None, trend_ids=None, strict: bool = False) -> dict:
     """Ideas for this shop, from the trends that are live right now.
 
     ``trend_ids`` narrows it to the trends the owner picked («ایده‌ی محتوا» on
     one card); then only that trend's open ideas are replaced. With no model
     reachable, a picked trend that shares words with the shop gets a labelled
     template idea instead of an error.
+
+    ``strict`` (the queued run, compute.deferred): the model or nothing - no template idea; raises ``LLMUnavailable`` when no model is reachable.
+    In the normal call the template result carries ``llm_down`` (+ ``llm_parkable``) so the view can queue the real run.
     """
     from apps.ai.models import AIRequest
     from apps.ai.services import recorded_json_call
@@ -502,7 +526,9 @@ def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
 
     from . import research_llm
 
-    llm_ok, llm_note = research_llm.status(store) if trend_ids else (True, "")
+    llm_ok, llm_note = research_llm.status(store) if (trend_ids or strict) else (True, "")
+    if not llm_ok and strict:
+        raise research_llm.LLMUnavailable(llm_note, parkable=research_llm.outage(store))
     if not llm_ok and trend_ids:
         vocabulary = vocabulary_for_store(store, products)
         made = [i for i in (heuristic_idea(store, t, vocabulary, products) for t in trends) if i]
@@ -514,6 +540,8 @@ def suggest(store, *, regions=None, job=None, trend_ids=None) -> dict:
                 .select_related("trend", "product")
             ),
             "dropped": len(trends) - len(made),
+            "llm_down": True,
+            "llm_parkable": research_llm.outage(store),
             "note": (
                 "مدلِ زبانی الان در دسترس نیست؛ "
                 + ("یک ایده‌ی سادهٔ قالبی ساخته شد." if made else

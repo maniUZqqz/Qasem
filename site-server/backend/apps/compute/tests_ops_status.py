@@ -36,6 +36,9 @@ class OpsStatusTests(TestCase):
         ov = override_settings(NM_DATA_DIR=self.data)
         ov.enable()
         self.addCleanup(ov.disable)
+        ver = mock.patch.object(ops_status, "current_version", return_value="2.95")      # نسخهٔ گزارش‌های این آزمون‌ها؛ «قرمزِ کهنه» در tests_deferred_e
+        ver.start()
+        self.addCleanup(ver.stop)
 
     # ---- بکاپ
     def test_no_backup_yet(self):

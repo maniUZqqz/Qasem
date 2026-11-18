@@ -139,13 +139,18 @@ def judge_photo(metrics: dict, check: dict | None = None) -> dict:
 VISION_TIMEOUT = 30
 
 
-def vision_check(store, img: Image.Image, *, product_name: str, shot: dict) -> dict | None:
-    """«محصول پیداست؟ زاویه درست است؟» از مدلِ بینایی؛ None اگر در دسترس نبود (هیچ خطایی بیرون نمی‌زند)."""
+def vision_probe(store, img: Image.Image, *, product_name: str, shot: dict, use_flag: bool = True) -> tuple[dict | None, bool]:
+    """«محصول پیداست؟ زاویه درست است؟» از مدلِ بینایی ⇒ (نتیجه یا None، «مدل الان نیست ولی با صبر درست می‌شود؟»).
+
+    هیچ خطایی بیرون نمی‌زند. دومی True یعنی گرهٔ پردازش خاموش/شلوغ یا اعتبارِ متیس تمام است ⇒ فراخوان می‌تواند بررسی را
+    «در صف تا روشن شدنِ سرورِ پردازش» بگذارد (compute.deferred). ``use_flag=False`` (اجرای صف‌دار) نشانهٔ «۵ دقیقه کنار» را نادیده می‌گیرد."""
     from django.core.cache import cache
 
     flag = f"shoot:vision-down:{getattr(store, 'pk', 0)}"
-    if cache.get(flag):
-        return None
+    if use_flag:
+        down = cache.get(flag)
+        if down:
+            return None, down == "outage"
     try:
         from apps.ai.services import _models_for_provider
         from services.ai import gateway
@@ -168,10 +173,16 @@ def vision_check(store, img: Image.Image, *, product_name: str, shot: dict) -> d
         parsed, _raw = provider.generate_json(model, prompt, images=[b64], timeout=VISION_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         logger.info("shoot: vision check unavailable: %s", exc)
-        cache.set(flag, 1, 300)
-        return None
+        try:
+            from apps.compute.deferred import is_outage
+
+            outage = is_outage(exc)
+        except Exception:  # noqa: BLE001
+            outage = False
+        cache.set(flag, "outage" if outage else "down", 300)
+        return None, outage
     if not isinstance(parsed, dict):
-        return None
+        return None, False
     probs = [str(p)[:140] for p in (parsed.get("problems") or []) if str(p).strip()][:2]
     return {
         "product_visible": bool(parsed.get("product_visible", True)),
@@ -179,7 +190,12 @@ def vision_check(store, img: Image.Image, *, product_name: str, shot: dict) -> d
         "angle_ok": bool(parsed.get("angle_ok", True)),
         "verdict": "retake" if str(parsed.get("verdict", "ok")).lower().startswith("re") else "ok",
         "problems": probs,
-    }
+    }, False
+
+
+def vision_check(store, img: Image.Image, *, product_name: str, shot: dict) -> dict | None:
+    """همان vision_probe فقط با نتیجه؛ None اگر در دسترس نبود (هیچ خطایی بیرون نمی‌زند)."""
+    return vision_probe(store, img, product_name=product_name, shot=shot)[0]
 
 
 def merge_vision(result: dict, vision: dict | None) -> dict:

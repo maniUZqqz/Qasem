@@ -22,15 +22,22 @@ STATUS_TTL = 60
 
 
 class LLMUnavailable(Exception):
-    pass
+    """هیچ مسیری برای مدل نیست. ``parkable`` = با صبر درست می‌شود (گرهٔ پردازش خاموش/شلوغ، اعتبارِ متیس، مهلت) ⇒ می‌شود «در صف تا روشن
+    شدنِ سرورِ پردازش» گذاشت (compute.deferred)؛ کلیدِ نادرست / «مدل نصب نیست» ⇒ False؛ نامعلوم ⇒ None."""
+
+    def __init__(self, *args, parkable: bool | None = None):
+        super().__init__(*args)
+        self.parkable = None if parkable is None else bool(parkable)
 
 
-def status(store) -> tuple[bool, str]:
-    """(reachable, why) for this store's text provider. Cached briefly."""
+def _probe(store) -> tuple[bool, str, bool]:
+    """(reachable, why, parkable). Cached briefly. parkable = «با صبر درست می‌شود» (فقط وقتی reachable نیست معنا دارد)."""
     key = f"research-llm-status:{getattr(store, 'pk', 0)}"
     cached = cache.get(key)
     if cached is not None:
-        return tuple(cached)
+        c = list(cached)
+        return bool(c[0]), str(c[1]), (bool(c[2]) if len(c) > 2 else False)
+    parkable = False
     try:
         from services.ai import factory, gateway, providers, routing
 
@@ -38,21 +45,37 @@ def status(store) -> tuple[bool, str]:
         if isinstance(provider, routing.RoutedTextProvider):
             # دو مسیر (لوکال/متیس): کافی است یکی قابل‌استفاده باشد؛ بی‌هیچ درخواستی به متیس یا گره
             ok, note = provider.availability()
+            if not ok:
+                from apps.compute.deferred import is_outage
+
+                parkable = is_outage(provider.unavailable_error())
         else:
             resolved = gateway.resolve(providers.TEXT, store)
             ok, note = factory.health(resolved)
     except Exception as exc:  # noqa: BLE001 — "not available" is the answer
         ok, note = False, f"{type(exc).__name__}: {exc}"
-    result = (bool(ok), str(note)[:300])
+    result = (bool(ok), str(note)[:300], bool(parkable) and not ok)
     cache.set(key, list(result), STATUS_TTL)
     return result
+
+
+def status(store) -> tuple[bool, str]:
+    """(reachable, why) for this store's text provider. Cached briefly."""
+    ok, note, _parkable = _probe(store)
+    return ok, note
+
+
+def outage(store) -> bool:
+    """مدل الان نیست ولی «با صبر درست می‌شود» (⇒ ارزشِ «در صف تا روشن شدنِ سرورِ پردازش» دارد)؟"""
+    ok, _note, parkable = _probe(store)
+    return (not ok) and parkable
 
 
 def ask_json(store, *, prompt_id: str, prompt: str, system: str, validate, job=None) -> dict:
     """One audited JSON call, or LLMUnavailable without waiting on a dead node."""
     ok, note = status(store)
     if not ok:
-        raise LLMUnavailable(note)
+        raise LLMUnavailable(note, parkable=outage(store))
     from apps.ai.models import AIRequest
     from apps.ai.services import recorded_json_call
     from services.ai.gateway import text_provider

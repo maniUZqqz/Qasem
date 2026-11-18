@@ -105,7 +105,8 @@ def critique_task(plan_id: int) -> None:
     if plan is None or (plan.critique or {}).get("state") not in ("waiting", "running"):
         return
     state = critique.run(plan)
-    if state.get("state") == "waiting" and not _eager():
+    # «در صف تا روشن شدنِ سرورِ پردازش» (deferred) خودش بیدار می‌شود؛ حلقهٔ ۶۰ثانیه‌ای فقط وقتی لازم است که برگهٔ صف ساخته نشد
+    if state.get("state") == "waiting" and not state.get("queued") and not _eager():
         critique_task.apply_async((plan_id,), countdown=critique.RETRY_S)
 
 

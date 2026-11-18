@@ -426,8 +426,31 @@ class Up3dRenderTests(TestCase):
         self.assertEqual(len(jobs), 1)
         job = Job.objects.get(pk=jobs[0]["id"])
         self.assertEqual((job.kind, job.profile), ("render", producers.RENDER_PROFILE))
+        self.assertTrue(job.params.get("silent_fallback"), "بدونِ اعتبارِ سرویسِ صدا رندر نباید از همان اول بشکند")
         runner.sync_item(self.item)
         self.assertEqual(self.item.status, S.WAITING_NODE)
         self._run()
         self.assertEqual(Job.objects.filter(project_id=proj_ref["id"], kind="render").count(), 1, "اجرای دوباره رندرِ دوم نمی‌سازد")
         self.assertTrue(self.item.needs_node)
+
+    def test_a_failed_render_is_requested_again_but_only_a_few_times(self):
+        from apps.up3d import services as U
+        from apps.up3d.models import Job
+
+        self._run()
+        proj_id = refs.of_type(self.item, "up3d_project")[0]["id"]
+        U.process_plan(Job.objects.get(project_id=proj_id, kind="plan"))
+        self._run()
+        for n in range(1, producers.MAX_RENDER_FAILS + 1):
+            job = Job.objects.filter(project_id=proj_id, kind="render").exclude(state="FAILED").get()
+            Job.objects.filter(pk=job.pk).update(state="FAILED", message="سرویسِ صدا خطا داد")
+            res = self._run()
+            if n < producers.MAX_RENDER_FAILS:
+                self.assertTrue(res["ok"], res)
+                ids = [r["id"] for r in refs.of_type(self.item, "up3d_job")]
+                self.assertEqual(len(ids), 1, "پیوندِ رندرِ ناموفق باید کنار برود")
+                self.assertNotEqual(ids[0], job.pk)
+                self.assertTrue(Job.objects.get(pk=ids[0]).params.get("silent_fallback"))
+        self.assertFalse(res["ok"])                                   # بعد از سه بار ناموفق: خطا به کارت می‌رسد و رندرِ تازه ساخته نمی‌شود
+        self.assertIn("ناموفق", self.item.last_error)
+        self.assertEqual(Job.objects.filter(project_id=proj_id, kind="render").count(), producers.MAX_RENDER_FAILS)

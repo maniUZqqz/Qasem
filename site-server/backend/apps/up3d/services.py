@@ -14,6 +14,7 @@ from django.utils import timezone
 from up3d import compiler, director, pipeline, templates
 from up3d import scene as S
 from up3d.assets import registry
+from up3d.tts import TTSError
 from up3d.validate import needs_v13, repair, validate
 
 from .models import FINAL, AiSettings, Job, Project, SceneVersion, Worker
@@ -437,8 +438,18 @@ def process_prepare(job):
     job.set_state('SCENE_BUILDING', 'آماده‌سازی: برچسب، صدا، هماهنگیِ لب')
     ai = AiSettings.get()
     doc = job.params.get('document') or job.version.document
-    info = pipeline.prepare(doc, job_dir(job), job.profile, ai.tts(), log=job.add_log, reg=reg(),
-                            profile_overrides=job.params.get('quality') or None)
+    overrides = job.params.get('quality') or None
+    try:
+        info = pipeline.prepare(doc, job_dir(job), job.profile, ai.tts(), log=job.add_log, reg=reg(), profile_overrides=overrides)
+    except TTSError as exc:
+        if not job.params.get('silent_fallback'):
+            raise
+        # کارِ خودکار (برنامهٔ بازاریابی): سرویسِ صدای آنلاین جواب نداد (مثلاً اعتبارِ متیس تمام شده، ۴۰۲)؛ به‌جای شکستنِ کار بی‌صدا ادامه می‌دهیم و
+        # در لاگ می‌گوییم. وقتی سرویس برگشت، همان پروژه را از صفحهٔ «ویدیوی سه‌بعدی» دوباره رندر کنید تا صدادار شود.
+        job.add_log('صدای آنلاین در دسترس نیست (%s)؛ این رندر بی‌صدا ادامه می‌یابد. وقتی سرویسِ صدا برگشت دوباره رندر بگیرید تا صدادار شود.' % str(exc)[:200])
+        job.report = {**(job.report or {}), 'silent_fallback': str(exc)[:300]}
+        job.save(update_fields=['report'])
+        info = pipeline.prepare(doc, job_dir(job), job.profile, {'api_key': ''}, log=job.add_log, reg=reg(), profile_overrides=overrides)
     if job.kind == 'render':
         job.frames_total = len(range(1, info['frames'] + 1, info['frame_step']))
     job.owner = 'worker'

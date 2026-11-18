@@ -846,6 +846,7 @@ def p_character(ctx: Ctx, item: PlanItem):
 
 #: پروفایلِ رندرِ ویدیوی سه‌بعدیِ برنامه: «standard» (۱۲۸۰ پیکسل، کلاسِ GPU)؛ کارِ GPU در صفِ پردازش کمترین اولویت را دارد (۱۵۰) و بعد از کارهای دیگرِ برنامه اجرا می‌شود
 RENDER_PROFILE = "standard"
+MAX_RENDER_FAILS = 3
 
 
 @producer("up3d")
@@ -871,12 +872,18 @@ def p_up3d(ctx: Ctx, item: PlanItem):
     # رندرِ نهایی هم همین‌جا در صفِ ماندگار گذاشته می‌شود (پیش‌تر فقط پیش‌نویسِ پروژه بود و رندر یک کلیکِ دستی می‌خواست)
     if _alive(item, "up3d_job"):
         return
+    for r in refs.of_type(item, "up3d_job"):                          # رندرِ ناموفق: خودش در صفحهٔ سه‌بعدی می‌ماند؛ این کار از نو صف می‌شود
+        refs.remove(item, "up3d_job", r["id"])
     existing = proj.jobs.filter(kind="render").exclude(state__in=("FAILED", "CANCELLED")).order_by("-created").first()
     if existing is not None:
         job = existing
     else:
+        failed = list(proj.jobs.filter(kind="render", state="FAILED").order_by("-created")[:MAX_RENDER_FAILS])
+        if len(failed) >= MAX_RENDER_FAILS:           # بارها ناموفق بوده؛ هر ده دقیقه یک رندرِ ناموفقِ تازه نمی‌سازیم (خطا به کارت می‌رسد و تلاش‌ها بعد از چند بار متوقف می‌شود)
+            raise RuntimeError(f"رندرِ سه‌بعدی {fa_digits(str(len(failed)))} بار ناموفق بود: {(failed[0].message or failed[0].error or '')[:160]}")
         try:
-            job = U.request_job(proj, "render", RENDER_PROFILE, {})
+            # silent_fallback: اگر سرویسِ صدای آنلاین (اعتبارِ متیس) جواب نداد رندر بی‌صدا ادامه می‌دهد، نه این‌که از همان اول بشکند
+            job = U.request_job(proj, "render", RENDER_PROFILE, {"silent_fallback": True})
         except ValueError as exc:                    # پروژه هنوز صحنه ندارد (برنامه‌ریزیِ قالب چند ثانیه می‌گیرد) ⇒ تیکِ بعد دوباره
             item.meta = {**(item.meta or {}), "retry_soon": True}
             item.message = f"پروژهٔ سه‌بعدی ساخته شد؛ رندرش چند لحظهٔ دیگر در صف می‌رود ({str(exc)[:80]})."

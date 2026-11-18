@@ -827,6 +827,37 @@ class RealConversionTests(APITestCase):
         self.assertIn("Welcome to the shop", json.dumps(d.draft, ensure_ascii=False))
 
 
+    def gradient_hero_png(self) -> bytes:
+        """همان صفحهٔ آزمونِ خودکارِ سرور (selftest): هیرویِ گرادیانِ تمام‌عرض که رنگِ آخرش با پس‌زمینه یکی است."""
+        from . import selftest
+        f = self.tmp / "gradient.png"
+        selftest._page_gradient(f)
+        return f.read_bytes()
+
+    def test_a_full_bleed_gradient_hero_is_real_html_not_one_picture(self):
+        """موتورِ ۲٫۳: هیرویِ گرادیان CSS است و متن و دکمه‌اش HTMLِ واقعی؛ نه یک تصویر و نه هشدارِ «عملاً یک تصویر»."""
+        import mv2code
+        if tuple(int(x) for x in mv2code.__version__.split(".")[:2]) < (2, 3):
+            self.skipTest("موتورِ mv2code قدیمی است (%s)؛ گرادیان از ۲٫۳ است" % mv2code.__version__)
+        if not self.eng.get("ready") or not self.eng.get("ocr"):
+            self.skipTest("mv2code/Tesseract روی این ماشین نیست: %s" % self.eng.get("messages"))
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post("/api/v1/stores/%d/image-to-code/" % self.store.pk, {"image": upload(self.gradient_hero_png()), "mode": "responsive", "lang": "en"}, format="multipart")
+        self.assertEqual(r.status_code, 201, r.content)
+        conv = Conversion.objects.get(pk=r.json()["item"]["id"])
+        self.assertEqual(conv.state, "READY", conv.error)
+        html = (conv.out_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn("linear-gradient(", html)
+        self.assertNotIn("<img", html)                                   # هیچ‌چیز تصویرِ چسبانده نشد
+        self.assertIn("Welcome", html)
+        self.assertLess(conv.report["image_share"], 0.05)
+        self.assertGreaterEqual(conv.report["regions"], 5)
+        item = self.client.get("/api/v1/stores/%d/image-to-code/%d/" % (self.store.pk, conv.pk)).json()["item"]
+        self.assertIsNone(item["alert"])
+        if self.eng.get("compare_ok"):
+            self.assertGreater(conv.raw_scores["editable_share"], 0.9)
+
+
 
 SLEEPER = """import time
 time.sleep(60)
@@ -931,6 +962,113 @@ class ReviewLinesTests(Base):
         self.assertIn("نوبتِ ۲", newer.message)
         self.assertNotRegex(newer.message, r"[0-9]")
         older.delete()
+
+
+class PastedPictureAlertTests(Base):
+    """موتورِ ۲٫۲ صفحهٔ دارای هیرویِ گرادیان را یک تصویر می‌کرد و نتیجه «موفق» به نظر می‌آمد. حالا اگر بیش از ~۳۰٪ صفحه تصویر شود (یا سهمِ
+    کدِ قابل‌ویرایش کم باشد یا جزءها اندک) هشدارِ قرمزِ فارسی می‌آید، در نتیجه و در پنجرهٔ ساختِ پیش‌نویس؛ تا ۳۰٪ زرد؛ صفحهٔ سالم بی‌هشدار."""
+
+    def img_node(self, w=1280, h=1400, x=0, y=0):
+        return {"id": 99, "role": "image", "box": [x, y, w, h], "embedded_raster": True}
+
+    def runner_with(self, tree_children=None, editable=None, nodes=None):
+        base = fake_runner()
+
+        def fn(args, timeout, mem=0, tick=None):
+            res = base(args, timeout, mem, tick)
+            cmd = str(args[0])
+            if cmd == "convert":
+                out = Path(args[args.index("--outdir") + 1])
+                if tree_children is not None:
+                    t = json.loads((out / "tree.json").read_text(encoding="utf-8"))
+                    t["children"] = tree_children
+                    (out / "tree.json").write_text(json.dumps(t, ensure_ascii=False), encoding="utf-8")
+                if nodes is not None:
+                    res["report"] = dict(res["report"], nodes=nodes)
+            if cmd == "render" and editable is not None:
+                res["scores"] = dict(res["scores"], editable_share=editable)
+            return res
+        return fn
+
+    def fetch(self, item):
+        self.client.force_authenticate(self.owner)
+        return self.client.get(self.url(self.store, "%d/" % item["id"])).json()["item"]
+
+    def test_a_page_that_is_one_big_picture_gets_a_red_persian_alert_and_a_weak_card(self):
+        self.runner.side_effect = self.runner_with([self.img_node()])
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["state"], "READY")
+        a = item["alert"]
+        self.assertEqual(a["level"], "bad")
+        self.assertIn("عملاً یک تصویر", a["title"])
+        self.assertIn("۱۰۰٪", a["text"])
+        self.assertIn("نشانیِ آن را بدهید", a["text"])                  # بارگذاری ⇒ پیشنهادِ نشانی
+        card = {s["key"]: s for s in item["scores"]}["image_share"]
+        self.assertEqual((card["verdict"], card["display"]), ("weak", "۱۰۰٪"))
+        self.assertEqual(Conversion.objects.get(pk=item["id"]).report["image_share"], 1.0)
+
+    def test_the_alert_for_a_url_conversion_does_not_ask_for_the_url_again(self):
+        self.runner.side_effect = self.runner_with([self.img_node()])
+        self.client.force_authenticate(self.owner)
+        with mock.patch("apps.img2code.netguard.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
+            with self.captureOnCommitCallbacks(execute=True):
+                r = self.client.post(self.url(self.store), {"url": "example.com/", "mode": "responsive"}, format="json")
+        item = self.fetch(r.json()["item"])
+        self.assertEqual(item["alert"]["level"], "bad")
+        self.assertNotIn("نشانیِ آن را بدهید", item["alert"]["text"])
+        self.assertIn("حالتِ دیگر", item["alert"]["text"])
+
+    def test_a_healthy_page_has_no_alert_and_a_good_card(self):
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertIsNone(item["alert"])
+        card = {s["key"]: s for s in item["scores"]}["image_share"]
+        self.assertEqual((card["verdict"], card["value"]), ("good", 0.0))
+
+    def test_between_fifteen_and_thirty_percent_is_a_yellow_note(self):
+        self.runner.side_effect = self.runner_with([self.img_node(w=1280, h=400)])        # 1280x400 از 1280x1400 ≈ ۲۹٪
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["alert"]["level"], "warn")
+        self.assertIn("۲۹٪", item["alert"]["text"])
+
+    def test_low_editable_share_or_very_few_parts_are_red_too(self):
+        self.runner.side_effect = self.runner_with(editable=0.12)
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["alert"]["level"], "bad")
+        self.assertIn("۱۲٪", item["alert"]["text"])
+        self.runner.side_effect = self.runner_with(nodes=3)
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["alert"]["level"], "bad")
+        self.assertIn("فقط ۳ جزء", item["alert"]["text"])
+
+    def test_measure_is_the_union_of_picture_boxes_and_ignores_garbage(self):
+        d = Path(tempfile.mkdtemp(prefix="nm-img2code-share-"))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        tree = {"role": "page", "box": [0, 0, 1000, 1000], "width": 1000, "height": 1000, "children": [
+            self.img_node(500, 500, 0, 0), self.img_node(500, 500, 250, 250),                 # دو تصویرِ همپوشان: اجتماع = ۲۵۰k + ۲۵۰k − ۶۲٫۵k
+            {"role": "icon", "vector": True, "box": [900, 900, 50, 50]},                       # آیکنِ برداری تصویر حساب نمی‌شود
+            {"role": "icon", "vector": False, "box": [900, 0, 100, 100]}]}
+        f = d / "tree.json"
+        f.write_text(json.dumps(tree), encoding="utf-8")
+        self.assertAlmostEqual(services.measure_image_share(f), (250000 + 250000 - 62500 + 10000) / 1e6, places=2)
+        self.assertIsNone(services.measure_image_share(d / "missing.json"))
+        f.write_text("not json", encoding="utf-8")
+        self.assertIsNone(services.measure_image_share(f))
+        f.write_text(json.dumps({"role": "page", "children": []}), encoding="utf-8")       # بدونِ اندازه
+        self.assertIsNone(services.measure_image_share(f))
+
+    def test_the_alert_belongs_to_members_only(self):
+        self.runner.side_effect = self.runner_with([self.img_node()])
+        item = self.make(self.store, self.owner)
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.get(self.url(self.store, "%d/" % item["id"])).json()["item"]["alert"]["level"], "bad")
+        self.client.force_authenticate(self.stranger)
+        self.assertEqual(self.client.get(self.url(self.store, "%d/" % item["id"])).status_code, 404)
+
+    def test_an_older_conversion_without_the_measure_has_no_alert(self):
+        conv = Conversion.objects.create(store=self.store, created_by=self.owner, state=Conversion.State.READY, report={"nodes": 30, "size": [1280, 1400]}, raw_scores={"editable_share": 0.99})
+        self.client.force_authenticate(self.owner)
+        item = self.client.get(self.url(self.store, "%d/" % conv.pk)).json()["item"]
+        self.assertIsNone(item["alert"])
 
 
 class ProcessCapTests(APITestCase):

@@ -28,6 +28,33 @@ def _page(path: Path) -> None:
     im.save(path)
 
 
+def _page_gradient(path: Path) -> None:
+    """سربرگ + هیرویِ گرادیانِ تمام‌عرض که رنگِ آخرش با پس‌زمینهٔ صفحه یکی است (الگویی که موتورِ ۲٫۲ و قبل‌تر را یک تصویر می‌کرد) + سه کارت + نوارِ دعوتِ گرادیان."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+    W, H = 960, 640
+    a = np.zeros((H, W, 3), np.float64)
+    a[:] = (11, 18, 32)
+    a[0:56] = (16, 26, 48)
+    yy, xx = np.mgrid[0:290, 0:W].astype(np.float64)
+    t = np.clip(((xx - W / 2) * 0.7071 + (yy - 145) * 0.7071) / (W * 0.7071 + 290 * 0.7071) + 0.5, 0, 1)[..., None]
+    a[56:346] = np.array((20, 38, 77)) * (1 - t) + np.array((11, 18, 32)) * t
+    for k in range(3):
+        a[400:500, 40 + k * 300:320 + k * 300] = (22, 33, 58)
+    yy, xx = np.mgrid[0:100, 0:W - 80].astype(np.float64)
+    t = np.clip(((xx - (W - 80) / 2) * 0.7071 + (yy - 50) * 0.7071) / ((W - 80) * 0.7071 + 100 * 0.7071) + 0.5, 0, 1)[..., None]
+    a[520:620, 40:W - 40] = np.array((109, 40, 217)) * (1 - t) + np.array((37, 99, 235)) * t
+    im = Image.fromarray(np.round(a).astype(np.uint8))
+    d = ImageDraw.Draw(im)
+    big, small = ImageFont.load_default(size=44), ImageFont.load_default(size=22)
+    d.text((60, 14), "ShopName", font=small, fill=(200, 211, 238))
+    d.text((60, 140), "Welcome to the shop", font=big, fill=(255, 255, 255))
+    d.text((60, 215), "Everything you need to get started", font=small, fill=(220, 228, 245))
+    d.rounded_rectangle([60, 270, 260, 320], radius=12, fill=(34, 197, 94))
+    d.text((100, 284), "Get started", font=small, fill=(6, 33, 15))
+    im.save(path)
+
+
 FA_LINES = [("برنامه تمرینی و غذایی اختصاصی", 26, 70), ("پشتیبانی مربیان و بدنسازی برای همه", 18, 140), ("همهٔ حقوق محفوظ است", 14, 200), ("تماس با ما و ثبت نام", 14, 240)]
 FA_WORDS = ["برنامه", "تمرینی", "غذایی", "اختصاصی", "پشتیبانی", "مربیان", "بدنسازی", "حقوق", "محفوظ", "تماس"]
 
@@ -92,6 +119,15 @@ def run_engine(url: str = "", wait_s: int = 150) -> dict:
             return done()
         html = (out / "index.html").read_text(encoding="utf-8")
         step("متنِ واقعی در HTML", "Welcome" in html, "text_lines=%s" % (res.get("report") or {}).get("text_lines"))
+        # هیرویِ گرادیانِ تمام‌عرض باید CSS شود، نه یک تصویر (موتورِ ۲٫۳)
+        grad_png = tmp / "gradient.png"
+        _page_gradient(grad_png)
+        res_g = services.run_process(["convert", "--image", grad_png, "--outdir", tmp / "out_grad", "--mode", "responsive", "--lang", "en"], services.CONVERT_TIMEOUT, mem=services.CONVERT_MEM)
+        if step("تبدیلِ صفحهٔ دارای هیرویِ گرادیان", res_g.get("ok"), res_g.get("message") or ""):
+            html_g = (tmp / "out_grad" / "index.html").read_text(encoding="utf-8")
+            share = services.measure_image_share(tmp / "out_grad" / "tree.json")
+            step("هیرویِ گرادیان = CSS و متنِ واقعی (نه یک تصویر)", "linear-gradient(" in html_g and "<img" not in html_g and "Welcome" in html_g and share is not None and share < 0.05,
+                 "سهمِ تصویر %s، %s ناحیه" % (share, (res_g.get("report") or {}).get("regions")))
         fa_png = tmp / "fa.png"
         if eng["ocr"] and _page_fa(fa_png):
             res_fa = services.run_process(["convert", "--image", fa_png, "--outdir", tmp / "out_fa", "--mode", "responsive", "--lang", "fa", "--glossary", "چغر"], services.CONVERT_TIMEOUT, mem=services.CONVERT_MEM)

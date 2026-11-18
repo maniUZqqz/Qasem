@@ -5,7 +5,7 @@
 #
 # چه چیزی نصب می‌شود (هیچ torch و هیچ مدلِ سنگینی نیست):
 #   1) apt:  tesseract-ocr + tesseract-ocr-fas + tesseract-ocr-eng   (خواندنِ متنِ فارسی/انگلیسیِ تصویرِ بارگذاری‌شده؛ ~۴۰ مگ)
-#   2) pip (در venv ِ خودِ NM):  mv2code (پین‌شده به commit ِ 254b17e = برچسبِ v2.2.1 از مخزنِ Machine-vision-TO-code)، pytesseract، playwright (فقط پایتونش؛ مرورگر دانلود نمی‌شود)
+#   2) pip (در venv ِ خودِ NM):  mv2code (پین‌شده به commit ِ ad31722 = برچسبِ v2.3.0 از مخزنِ Machine-vision-TO-code)، pytesseract، playwright (فقط پایتونش؛ مرورگر دانلود نمی‌شود)
 #      mv2code اول از چرخِ همراهِ همین مخزن (deploy/nm/wheels/، بدونِ اینترنت) نصب می‌شود؛ نشد از GitHub با همان commit.
 #   3) مرورگرِ بی‌سر: همان chrome-headless-shell ِ موجود (/opt/up3d-uitest/browsers/…، یا $MV2CODE_CHROME) — دانلودِ تازه‌ای لازم نیست.
 # در پایان یک «probe» می‌زند و می‌گوید چه چیزی آماده است؛ کدِ خروج ۰ یعنی همه‌چیز آماده است.
@@ -43,12 +43,12 @@ try:
     import mv2code
 except Exception:
     sys.exit(1)
-sys.exit(0 if mv2code.__version__ == "2.2.1" else 1)
+sys.exit(0 if mv2code.__version__ == "2.3.0" else 1)
 PYEOF
 }
 "$PY" -m pip install -q --disable-pip-version-check "pytesseract==0.3.13" "playwright==1.63.0" >/dev/null 2>&1 || { warn "نصبِ pytesseract/playwright نشد"; rc=1; }
 if have_mv2code; then
-  echo "mv2code 2.2.1 از قبل هست"
+  echo "mv2code 2.3.0 از قبل هست"
 else
   if [ -n "$WHEEL" ] && "$PY" -m pip install -q --disable-pip-version-check --no-deps "$WHEEL" >/dev/null 2>&1; then
     echo "mv2code از چرخِ همراه نصب شد: $(basename "$WHEEL")"
@@ -65,7 +65,7 @@ step "وارسی (probe)"
 cd "$ROOT/backend" 2>/dev/null || cd "$HERE/../../backend" || exit 2
 OUT="$("$PY" -m apps.img2code.runner probe 2>&1 | grep '^RESULT ' | tail -1)"
 echo "${OUT:-بدونِ خروجی}"
-for want in '"mv2code": "2.2.1"' '"pytesseract": true' '"fas": true' '"playwright": true'; do
+for want in '"mv2code": "2.3.0"' '"pytesseract": true' '"fas": true' '"playwright": true'; do
   echo "$OUT" | grep -q "$want" || { warn "آماده نیست: $want"; rc=1; }
 done
 echo "$OUT" | grep -qE '"lexicon": [1-9]' || { warn "واژه‌نامهٔ فارسیِ موتور (اصلاحِ غلط‌های OCR) بارگذاری نشد"; rc=1; }

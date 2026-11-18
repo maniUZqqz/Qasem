@@ -19,6 +19,9 @@ export type Score = {
 /** خطی از متن که OCR دربارهٔ آن مطمئن نبود («این خط را بررسی کن»)؛ ``box`` به پیکسلِ همان تصویرِ پردازش‌شده است. */
 export type ReviewLine = { box: [number, number, number, number]; text: string; conf: number; why: string[] };
 
+/** هشدارِ پررنگ وقتی نتیجه عملاً یک تصویرِ چسبانده است (نه صفحهٔ قابل‌ویرایش)؛ ``bad`` = قرمز، ``warn`` = زرد */
+export type Quality = { level: "bad" | "warn"; title: string; text: string };
+
 export type Draft = { project_slug: string; page_id: number; url: string; at: string | null };
 
 export type Item = {
@@ -50,6 +53,7 @@ export type Item = {
   ocr: string | null;
   /** فقط وقتی متن با OCR خوانده شده (نه از خودِ صفحه): خط‌هایی که باید بازبینی شوند */
   review?: { count: number; lines: ReviewLine[] } | null;
+  alert?: Quality | null;
   queue_position?: number;
   /** «باز کردن در طراحیِ UI»؛ ``path`` وقتی هست که سندِ UI قبلاً ساخته شده (null ⇒ دکمه اول می‌سازد) */
   ui_design?: { path: string | null; label: string } | null;

@@ -392,6 +392,58 @@ class BrowserTests(TransactionTestCase):
             finally:
                 b.close()
 
+    def with_picture(self, share=0.82):
+        """تبدیلِ واقعی؛ فقط «سهمِ تصویرِ چسبانده» ۸۲٪ اعلام می‌شود تا هشدارِ قرمز بدونِ تکیه بر نتیجهٔ موتور آزموده شود."""
+        return mock.patch.object(services, "measure_image_share", return_value=share)
+
+    def test_a_page_that_became_one_picture_shows_a_red_alert_in_the_result_and_in_the_draft_dialog(self):
+        from playwright.sync_api import sync_playwright
+        with self.with_picture(), sync_playwright() as pw:
+            b, page, errors, _seen = self.open_page(pw, self.staff, self.store, 1280, 900, theme="dark")
+            try:
+                self.convert_through_ui(page)
+                alert = page.locator("[data-testid=i2c-alert]")
+                alert.wait_for(timeout=20000)
+                self.assertEqual(alert.get_attribute("data-level"), "bad")
+                self.assertIn("عملاً یک تصویر", alert.inner_text())
+                self.assertIn("۸۲٪", alert.inner_text())
+                self.shot(page, "desktop-picture-alert.png")
+                page.click("[data-testid=i2c-tab-scores]")
+                page.wait_for_selector("[data-testid=i2c-score][data-key=image_share]")
+                self.assertEqual(page.locator("[data-testid=i2c-score][data-key=image_share] .i2c-score-value").inner_text(), "۸۲٪")
+                page.click("[data-testid=i2c-draft-btn]")
+                page.wait_for_selector("[data-testid=i2c-draft-modal]")
+                self.assertEqual(page.locator("[data-testid=i2c-draft-alert]").get_attribute("data-level"), "bad")
+                self.assertIn("عملاً یک تصویر", page.inner_text("[data-testid=i2c-draft-alert]"))
+                self.assert_opaque(page, "[data-testid=i2c-draft-modal]", "هشدار + پنجره")
+                self.shot(page, "desktop-picture-alert-dialog.png")
+                self.assertEqual(errors, [])
+            finally:
+                b.close()
+
+    def test_phone_picture_alert_fits_the_screen_and_a_healthy_page_has_none(self):
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            with self.with_picture():
+                b, page, errors, _seen = self.open_page(pw, self.staff, self.store, 390, 844, theme="dark")
+                try:
+                    self.convert_through_ui(page)
+                    page.wait_for_selector("[data-testid=i2c-alert]", timeout=20000)
+                    self.no_overflow(page, "phone alert")
+                    box = page.locator("[data-testid=i2c-alert]").bounding_box()
+                    self.assertLessEqual(box["x"] + box["width"], 391)
+                    self.shot(page, "phone-picture-alert.png")
+                    self.assertEqual(errors, [])
+                finally:
+                    b.close()
+            b, page, errors, _seen = self.open_page(pw, self.plain, self.plain_store, 390, 844, theme="light")
+            try:
+                self.convert_through_ui(page)
+                self.assertEqual(page.locator("[data-testid=i2c-alert]").count(), 0)          # صفحهٔ سالم: بدونِ هشدار
+                self.assertEqual(errors, [])
+            finally:
+                b.close()
+
     def test_url_form_refuses_internal_addresses_in_persian(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:

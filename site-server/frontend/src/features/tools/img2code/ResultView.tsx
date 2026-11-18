@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { errorMessage } from "../../../api/client";
 import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Spinner, fa } from "../../../components/ui";
-import { Code, DraftResult, Item, Mode, ReviewLine, Score, Target, downloadFile, i2cApi } from "./api";
+import { Code, DraftResult, Item, Mode, Quality, ReviewLine, Score, Target, downloadFile, i2cApi } from "./api";
 
 type Tab = "compare" | "scores" | "code";
 type CodeTab = "html" | "css" | "tree";
@@ -255,6 +255,15 @@ function CodePane({ storeId, item }: { storeId: string; item: Item }) {
   );
 }
 
+/** «این نتیجه عملاً یک تصویر است»: قرمز وقتی بیشترِ صفحه عکس شده و قابل‌ویرایش نیست، زرد وقتی بخشی از آن؛ هم بالای نتیجه هم در پنجرهٔ ساختِ پیش‌نویس. */
+function QualityBanner({ q, testId }: { q: Quality; testId: string }) {
+  return (
+    <div data-testid={testId} data-level={q.level}>
+      <Alert tone={q.level === "bad" ? "bad" : "warn"} title={q.title}>{q.text}</Alert>
+    </div>
+  );
+}
+
 function DraftDialog({ storeId, item, onClose, onDone }: { storeId: string; item: Item; onClose: () => void; onDone: (r: DraftResult) => void }) {
   const [targets, setTargets] = useState<Target[] | null>(null);
   const [project, setProject] = useState("");
@@ -278,6 +287,7 @@ function DraftDialog({ storeId, item, onClose, onDone }: { storeId: string; item
       <div className="i2c-modal" role="dialog" aria-modal="true" aria-label="ساختِ صفحه در سایت‌ساز" data-testid="i2c-draft-modal">
         <h3>ساختِ صفحه در سایت‌ساز</h3>
         <p className="i2c-note">از درختِ اجزا یک <b>پیش‌نویس</b> ساخته می‌شود (بخش‌ها و بلوک‌هایی با متن‌ها، رنگ‌ها و تصویرهای واقعیِ همین تصویر). چیزی منتشر نمی‌شود.</p>
+        {item.alert && <QualityBanner q={item.alert} testId="i2c-draft-alert" />}
         {!targets && !error && <Spinner />}
         {targets && (
           <div className="i2c-targets">
@@ -435,6 +445,7 @@ export default function ResultView({
         <ErrorBox message={error} />
         {item.state === "FAILED" && <Alert tone="bad" title="تبدیل ناموفق بود">{item.error || "دوباره امتحان کنید."}</Alert>}
         {item.state === "CANCELLED" && <Alert tone="neutral">این تبدیل لغو شد.</Alert>}
+        {item.state === "READY" && item.alert && <QualityBanner q={item.alert} testId="i2c-alert" />}
         {draft && (
           <Alert tone="ok" title="پیش‌نویسِ صفحه در سایت‌ساز هست (منتشر نشده)" action={<Link to={draft.url} className="u-btn u-btn-secondary u-btn-sm" data-testid="i2c-open-builder">باز کردن در سایت‌ساز</Link>}>
             {done ? (

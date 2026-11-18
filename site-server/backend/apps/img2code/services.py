@@ -455,7 +455,11 @@ def run(conv: Conversion) -> Conversion:
                 warnings.append((res2.get("message") or "نمایشِ نتیجه در مرورگر شکست خورد.") + " کد ساخته شد ولی تصویرِ مقایسه و امتیازها نیست.")
         else:
             warnings.append("مرورگرِ بی‌سرِ سرور آماده نیست؛ کد ساخته شد ولی تصویرِ مقایسه و امتیازها نیست.")
-        scores, extra = build_scores(raw, report, text_source, conv.lang)
+        share = measure_image_share(out / "tree.json")
+        if share is not None:
+            slim["image_share"] = share
+            _set(conv, report=slim)
+        scores, extra = build_scores(raw, slim, text_source, conv.lang)
         warnings.extend(extra)
         for which in ("original", "rendered"):
             preview_path(conv, which)                 # از همین حالا آماده باشد تا اولین باز کردنِ نتیجه سریع شود
@@ -483,11 +487,80 @@ def brand_words(conv: Conversion) -> list[str]:
     return words[:12]
 
 
+# ───────────────────────────────────────────────────────────────── «این نتیجه عملاً یک تصویر است»
+IMAGE_SHARE_WARN = 0.15           # از این بیشتر ⇒ نکته (زرد)
+IMAGE_SHARE_BAD = 0.30            # از این بیشتر ⇒ هشدارِ قرمز: به‌جای موفقیتِ ساده
+EDITABLE_BAD = 0.40               # سهمِ کدِ قابل‌ویرایش زیرِ این ⇒ قرمز
+FEW_NODES = 8                     # صفحه‌ای بلندتر از ۵۰۰ پیکسل با کمتر از این جزء ⇒ قرمز
+
+
+def measure_image_share(tree_path: Path) -> Optional[float]:
+    """چند درصدِ مساحتِ صفحه در درختِ اجزا «تصویرِ چسبانده‌شده» است (اجتماعِ جعبهٔ گره‌های تصویر و آیکن‌های بدونِ برداری).
+    موتورِ ۲٫۲ و قبل‌تر یک صفحهٔ گرادیان‌دار را یک تصویر می‌کرد و نتیجه «موفق» به نظر می‌آمد؛ این عدد جلوی آن را می‌گیرد."""
+    try:
+        tree = json.loads(Path(tree_path).read_text(encoding="utf-8"))
+        W, H = int(tree.get("width") or 0), int(tree.get("height") or 0)
+        if W <= 0 or H <= 0:
+            return None
+        k = 4                                                      # شبکهٔ درشت: کافی و سبک (صفحهٔ ۹۰۰۰ پیکسلی ⇒ ~۲ میلیون خانه)
+        gw, gh = (W + k - 1) // k, (H + k - 1) // k
+        grid = bytearray(gw * gh)
+
+        def mark(box):
+            x, y, w, h = [float(v) for v in box]
+            x0, y0 = max(0, int(x // k)), max(0, int(y // k))
+            x1, y1 = min(gw, int(-(-(x + w) // k))), min(gh, int(-(-(y + h) // k)))
+            for yy in range(y0, y1):
+                grid[yy * gw + x0:yy * gw + x1] = b"" * max(0, x1 - x0)
+
+        def walk(n):
+            role = n.get("role")
+            if role == "image" or (role == "icon" and not n.get("vector", True)):
+                if isinstance(n.get("box"), (list, tuple)) and len(n["box"]) == 4:
+                    mark(n["box"])
+            for c in n.get("children") or []:
+                walk(c)
+        walk(tree)
+        return round(sum(grid) / float(gw * gh), 3)
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def quality_alert(report: dict, raw: dict, source_kind: str = "upload") -> Optional[dict]:
+    """هشدارِ پررنگ وقتی نتیجه عملاً یک تصویرِ چسبانده است (نه HTML قابل‌ویرایش)؛ ``None`` یعنی همه‌چیز عادی.
+    level: «bad» (قرمز) یا «warn» (زرد). برای پنجرهٔ «ساختِ صفحه» هم همین می‌آید تا کاربر پیش از ساختنِ پیش‌نویس بداند."""
+    share = report.get("image_share")
+    ed = (raw or {}).get("editable_share")
+    nodes = report.get("nodes")
+    height = (report.get("size") or [0, 0])[1] if isinstance(report.get("size"), (list, tuple)) and len(report.get("size")) == 2 else 0
+    bad = False
+    reasons: list[str] = []
+    if share is not None and share > IMAGE_SHARE_BAD:
+        bad = True
+        reasons.append("%s از مساحتِ صفحه به‌جای HTML/CSS با تصویرِ چسبانده‌شده پر شده" % _pct(share))
+    if ed is not None and ed < EDITABLE_BAD:
+        bad = True
+        reasons.append("فقط %s از صفحه کدِ قابل‌ویرایش است" % _pct(ed))
+    if nodes is not None and nodes < FEW_NODES and height >= 500:
+        bad = True
+        reasons.append("در صفحه فقط %s جزء شناخته شد" % _fa_digits(str(nodes)))
+    if not bad:
+        if share is not None and share > IMAGE_SHARE_WARN:
+            return {"level": "warn", "title": "بخشی از صفحه تصویر مانده است",
+                    "text": "%s از مساحتِ صفحه با تصویر پر شده (عکس‌های خودِ صفحه و هر چیزی که موتور نتوانست به کد تبدیل کند). اگر عکسِ واقعی نیست، آن بخش را در سایت‌ساز دستی بسازید." % _pct(share)}
+        return None
+    how = ("همین تصویر را با حالتِ دیگر (دکمهٔ «همین تصویر با حالتِ دیگر») دوباره بسازید؛ اگر باز هم تصویر شد، آن بخش را در سایت‌ساز دستی بسازید."
+           if source_kind == "url" else
+           "اگر صفحه آنلاین است نشانیِ آن را بدهید (تبِ «از نشانی») تا متن‌ها و رنگ‌ها از خودِ صفحه گرفته شود؛ وگرنه همین تصویر را با حالتِ دیگر (دکمهٔ «همین تصویر با حالتِ دیگر») دوباره بسازید.")
+    return {"level": "bad", "title": "این نتیجه عملاً یک تصویر است، نه صفحهٔ قابل‌ویرایش",
+            "text": "%s. پس متن‌ها و دکمه‌ها قابل‌ویرایش نیستند و پیش‌نویسِ سایت‌ساز بیشترش یک عکس می‌شود؛ این را «موفق» حساب نکنید. %s" % ("؛ ".join(reasons), how)}
+
+
 REVIEW_KEEP = 40          # خط‌های نیازمندِ بررسی که در ردیف می‌ماند (کم‌اطمینان‌ترین‌ها)
 
 
 def _slim_report(rep: dict) -> dict:
-    keep = ("version", "mode", "lang", "page_direction", "ocr", "ocr_stats", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds", "review_lines")
+    keep = ("version", "mode", "lang", "page_direction", "ocr", "ocr_stats", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds", "review_lines", "image_share")
     out = {k: rep.get(k) for k in keep if k in rep}
     rows = []
     for r in (rep.get("review") or [])[:REVIEW_KEEP]:
@@ -542,6 +615,11 @@ def build_scores(raw: dict, report: dict, text_source: str, lang: str = "auto") 
     if chars is not None:
         out.append({"key": "text", "label": "متنِ واقعی در نتیجه", "value": chars, "display": "%s نویسه" % _fa_digits(str(chars)), "verdict": "good" if chars else "weak",
                     "verdict_fa": VERDICT_FA["good" if chars else "weak"], "hint": "نوشته‌ها متنِ واقعی‌اند (قابل‌انتخاب و جست‌وجو و ویرایش)، نه عکسِ نوشته. %s خط متن پیدا شد." % _fa_digits(str(n_lines or 0))})
+    share = report.get("image_share")
+    if share is not None:
+        v = "good" if share <= IMAGE_SHARE_WARN else ("ok" if share <= IMAGE_SHARE_BAD else "weak")
+        out.append({"key": "image_share", "label": "بخشِ صفحه که تصویرِ چسبانده شد", "value": share, "display": _pct(share), "verdict": v, "verdict_fa": VERDICT_FA[v],
+                    "hint": "چند درصدِ مساحتِ صفحه به‌جای HTML/CSS با یک تصویر پر شده (عکس‌های خودِ صفحه و هر چیزی که موتور نتوانست بسازد). هرچه کمتر بهتر؛ بالای ۳۰٪ یعنی نتیجه بیشترش عکس است و آن را موفق حساب نکنید."})
     nodes = report.get("nodes")
     if nodes is not None:
         out.append({"key": "nodes", "label": "اجزای شناسایی‌شده", "value": nodes, "display": "%s جزء" % _fa_digits(str(nodes)), "verdict": "good" if nodes else "weak",
@@ -675,6 +753,8 @@ def item_dict(conv: Conversion, detail: bool = False) -> dict:
         "seconds": ((conv.report or {}).get("seconds") or {}).get("total"), "ocr": (conv.report or {}).get("ocr"),
     }
     rep = conv.report or {}
+    if conv.state == Conversion.State.READY:
+        d["alert"] = quality_alert(dict(rep, size=rep.get("size") or [conv.size_w, conv.size_h]), conv.raw_scores or {}, conv.source_kind)
     if conv.state == Conversion.State.READY and rep.get("text_source", "ocr") == "ocr" and rep.get("review_lines"):
         d["review"] = {"count": int(rep.get("review_lines") or 0), "lines": list(rep.get("review") or [])[:REVIEW_KEEP]}
     if conv.state == Conversion.State.QUEUED:

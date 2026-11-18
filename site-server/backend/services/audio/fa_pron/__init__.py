@@ -9,7 +9,7 @@ See ``docs/pronunciation/README-fa.md``.
 from __future__ import annotations
 
 #: Bump whenever a rule or the lexicon changes what a text turns into: caches of finished audio include it.
-VERSION = "2026.11.18.1"
+VERSION = "2026.11.18.2"
 
 from . import dictionary, eval_set, quality
 from .dictionary import Dictionary, canon

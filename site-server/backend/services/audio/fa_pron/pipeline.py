@@ -191,6 +191,10 @@ _SUFFIXES = [
 ]
 #: «خانه‌ای»: the written suffix after a half-space; the word «ای» (vocative) is never meant there
 _ZWNJ_SUFFIXES = {"ای": "yi"}
+#: Stems that never take a written-together suffix. «به» is the preposition (be): «بهتر» / «بهترین» / «بهتری» / «بهین» / «بهان» are
+#: words of their own (behtar, behtarin ...), read «betar» when taken for «به» + «تر» (the h was lost for Piper, Edge and MOSS).
+#: The same holds for «به‌تر» spelled with a half-space (see the half-space branch of ``_morph``); «به‌کار» is a real compound.
+_NO_SUFFIX_STEMS = {"به"}
 
 
 def _final_is_vowel(pn: str) -> bool:
@@ -208,6 +212,8 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
         parts = [p for p in w.split(ZWNJ) if p]
         if len(parts) > 1 and parts[0] in ("می", "نمی"):
             return None          # «می‌بینی» is a verb, not «می» + «بین» + «ی» (= mibeyni): the voice reads it by itself
+        if len(parts) > 1 and parts[0] in _NO_SUFFIX_STEMS and _suffix_only(parts[1]) is not None:
+            return None          # «به‌تر» / «به‌ترین» are «بهتر» / «بهترین», not «به» + a suffix (the lexicon has them; no guess here)
         if len(parts) > 1:
             out = []
             for k, p in enumerate(parts):
@@ -233,6 +239,8 @@ def _morph(word: str, dic: D.Dictionary, depth: int = 0) -> str | None:
             stem = w[: -len(s)].rstrip(ZWNJ)
             if s == "ی" and stem.endswith("ی"):
                 continue                  # «رضای» is not a stem: its ی is the glide of the suffix itself («رضایی»)
+            if stem in _NO_SUFFIX_STEMS:
+                continue                  # «بهتر» is not «به» + «تر» (betar): the preposition never takes a suffix
             e = dic.lookup(stem)
             stem_pn = e.pn if e else _morph(stem, dic, depth + 1)
             if stem_pn:

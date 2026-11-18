@@ -44,6 +44,7 @@ from django.conf import settings
 
 from . import engines as engine_registry
 from . import fa_pron, pronounce
+from .fa_pron.normalize import strip_controls
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,8 @@ class BaseTTSProvider:
 
         @functools.wraps(inner)
         def guarded(self, text, out_path, *args, **kw):
+            if isinstance(text, str):
+                text = strip_controls(text)          # a NUL / control character is never speech and breaks Piper's phonemiser and SSML
             require_speakable(text, getattr(self, "language", "fa"))
             return inner(self, text, out_path, *args, **kw)
 

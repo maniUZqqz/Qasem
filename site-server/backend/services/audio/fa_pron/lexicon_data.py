@@ -1317,6 +1317,28 @@ SHARED_TEXT = r"""
 جلسه jalase N
 بزرگ bozorg N
 سنگین sangin N
+## «به» در آغازِ واژه (نه حرفِ اضافهٔ «به»)
+بهتر behtar N
+بهترین behtarin N
+بهتری behtari N
+بهتره behtare N
+بهترها behtarhA N
+بهترین_ها behtarinhA N
+بهترم behtaram V
+بهتریم behtarim V
+بهترید behtarid V
+بهترند behtarand V
+بهداشت behdASt
+بهداشتی behdASti
+بهشت beheSt
+بهشتی beheSti
+بهینه behine
+بهبود behbud
+بهبودی behbudi
+بهزیستی behzisti
+بهسازی behsAzi
+بهنام behnAm
+بهروز behruz
 ## واژه‌های آمیخته‌ی حرف و واژه
 چت_جی_پی_تی Catjipiti
 اوپن_ای_آی owpeneyAy

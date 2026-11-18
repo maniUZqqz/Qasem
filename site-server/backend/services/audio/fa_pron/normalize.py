@@ -42,6 +42,18 @@ _EMOJI = re.compile(
 )
 
 
+#: Control characters are never speech: the C0 block (NUL ... US) except the tab and the line break, DEL and the C1 block. A NUL made Piper's
+#: phonemiser fail with an English «embedded null character» (the test box answered 502 with it); in SSML they are not valid XML at all.
+_CONTROLS = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f]")
+_LINE_CONTROLS = {ord("\x0b"): "\n", ord("\x0c"): "\n", ord("\x85"): "\n"}
+
+
+def strip_controls(text: str) -> str:
+    """Remove NUL and the other control characters; a carriage return, a vertical tab, a form feed and NEL are line breaks, a tab stays."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_LINE_CONTROLS)
+    return _CONTROLS.sub("", text)
+
+
 def unify_letters(text: str) -> str:
     """Arabic letter forms -> Persian, invisible controls out, NFKC for presentation forms."""
     text = unicodedata.normalize("NFKC", text)
@@ -557,7 +569,7 @@ class NormResult:
 def normalize(text: str, *, collect: bool = True) -> NormResult:
     """Run the whole normaliser. Idempotent: normalising twice changes nothing."""
     notes = NormNotes()
-    text = text or ""
+    text = strip_controls(text or "")
     text = unify_letters(text)
     text = strip_markup(text)
     text = strip_emoji(text)

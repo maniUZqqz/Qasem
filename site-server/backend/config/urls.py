@@ -44,6 +44,7 @@ urlpatterns = [
     path("api/v1/", include("apps.pronunciation.urls")),    # تلفظِ صداها (واژه‌نامه، پیش/پس، سنجش)
     path("api/v1/", include("apps.multiangle.urls")),       # چندزاویه
     path("api/v1/", include("apps.igtrends.urls")),         # ترندهای اینستاگرام (خواندن با آباگرام روی سرورِ پردازش)
+    path("api/v1/", include("apps.mktplan.urls")),          # برنامهٔ بازاریابی، راهنمای آزمون، گزارشِ ایراد
     path("api/v1/", include("apps.inbox.urls")),            # صندوقِ یکپارچه: کانال‌ها، تیم، ربات، ارسال گروهی، CRM، API
     path("api/v1/egress/", include("apps.egress.urls")),    # پراکسی و VPN برای هر سرویس (فقط کارکنان) + نشانیِ سرورِ پردازش
     # NMarketing: ابزارهای ادغام‌شده

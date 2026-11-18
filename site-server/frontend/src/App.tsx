@@ -27,6 +27,9 @@ import VideoEditorPage from "./features/content/VideoEditorPage";
 import MotionStudioPage from "./features/content/motion/MotionStudioPage";
 import ThumbnailMakerPage from "./features/content/thumbs/ThumbnailMakerPage";
 import IdeasPage from "./features/content/ideas/IdeasPage";
+import BugReportButton from "./features/marketing/BugReportButton";
+import MarketingPlanPage from "./features/marketing/MarketingPlanPage";
+import TestGuidePage from "./features/marketing/TestGuidePage";
 import MascotPage from "./features/content/mascot/MascotPage";
 import BrandCharLayout from "./features/brandchar/BrandCharLayout";
 import BrandCharOverview from "./features/brandchar/OverviewPage";
@@ -207,6 +210,9 @@ export default function App() {
               <Route path="/stores/:id/thumbnails" element={<PageGate k="thumbnail_maker"><ThumbnailMakerPage /></PageGate>} />
               {/* بانکِ ایده: «این هفته چه پستی بگذارم؟» — ایده‌های آمادهٔ فارسی، ایده بساز، شروع از ایده */}
               <Route path="/stores/:id/ideas" element={<PageGate k="ideas"><IdeasPage /></PageGate>} />
+              {/* برنامهٔ بازاریابیِ دو‌هفته‌ای + راهنمای آزمونِ بخش‌ها (گزارشِ ایراد دکمهٔ سراسریِ کنارِ نسخه است) */}
+              <Route path="/stores/:id/marketing-plan" element={<PageGate k="marketing_plan"><MarketingPlanPage /></PageGate>} />
+              <Route path="/stores/:id/test-guide" element={<PageGate k="test_guide"><TestGuidePage /></PageGate>} />
               <Route path="/stores/:id/mascot" element={<PageGate k="mascot"><MascotPage /></PageGate>} />
               {/* تصویر به کد: بخشی از استودیوی طراحی؛ مسیرِ قدیمیِ ابزارها هم می‌ماند */}
               <Route path="/stores/:id/design/image-to-code" element={<PageGate k="img2code"><ImageToCodePage /></PageGate>} />
@@ -260,6 +266,8 @@ export default function App() {
             <Route path="*" element={<NotFoundRoute />} />
           </Routes>
         </FlagsProvider>
+        {/* «گزارشِ ایراد»: دکمهٔ کوچکِ کنارِ قرصِ نسخه در هر صفحه (فقط واردشده‌ها) */}
+        <BugReportButton />
       </AuthProvider>
       {/* نشانِ نسخه: یک بار، بیرون از Routes، تا روی همهٔ صفحه‌ها (ورود، ویرایشگرهای تمام‌صفحه و …) باشد */}
       <VersionBadge />

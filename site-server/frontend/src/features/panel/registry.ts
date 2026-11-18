@@ -114,6 +114,8 @@ export const PAGES: PanelPage[] = [
   { key: "outreach", section: "sales", label: "بازاریابی تلفنی", icon: "mic", to: (id) => `/stores/${id}/outreach` },
 
   // --------------------------------------------------------------- محتوا
+  { key: "marketing_plan", section: "content", label: "برنامهٔ بازاریابی", icon: "rocket", to: (id) => `/stores/${id}/marketing-plan` },
+  { key: "test_guide", section: "content", label: "راهنمای آزمونِ بخش‌ها", icon: "bulb", to: (id) => `/stores/${id}/test-guide` },
   { key: "studio", section: "content", label: "تولید محتوا", icon: "sparkle", to: (id) => `/stores/${id}/studio` },
   { key: "ideas", section: "content", label: "بانکِ ایده", icon: "bulb", to: (id) => `/stores/${id}/ideas` },
   { key: "campaigns", section: "content", label: "کمپین‌ها", icon: "rocket", to: (id) => `/stores/${id}/campaigns`, end: true },

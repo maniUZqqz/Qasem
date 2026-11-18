@@ -18,6 +18,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/** آخرین خطاهای API (برای «گزارشِ ایراد»؛ بدونِ بدنهٔ درخواست و بدونِ توکن). */
+type ApiFailure = { at: string; method: string; url: string; status: number | null; message: string };
+const failures: ApiFailure[] = [];
+export function recentApiFailures(): ApiFailure[] {
+  return failures.slice();
+}
+function rememberFailure(error: AxiosError) {
+  const data = error.response?.data as { detail?: unknown } | undefined;
+  failures.push({
+    at: new Date().toISOString(),
+    method: String(error.config?.method ?? "").toUpperCase(),
+    url: String(error.config?.url ?? "").split("?")[0],
+    status: error.response?.status ?? null,
+    message: String(data?.detail ?? error.message ?? "").slice(0, 200),
+  });
+  if (failures.length > 20) failures.shift();
+}
+
 let refreshing: Promise<string | null> | null = null;
 
 async function refreshAccess(): Promise<string | null> {
@@ -40,6 +58,7 @@ async function refreshAccess(): Promise<string | null> {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
+    if (error.response?.status !== 401) rememberFailure(error);
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
     if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;

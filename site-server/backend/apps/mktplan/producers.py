@@ -1,0 +1,717 @@
+"""تولیدکننده‌ها: برای هر نوعِ کارِ برنامه یک تابع که «کارِ واقعیِ آن بخش» را با همان سرویسِ آن بخش می‌سازد.
+
+قاعده‌ها (برای همهٔ تولیدکننده‌ها):
+
+* **اول می‌پذیرد، بعد می‌سازد.** اگر فروشگاه از دورهای قبل چیزی دارد که به این کار می‌خورد (کارِ کمپین، رندرِ موشن، تامنیلِ منتظر، سندِ طراحی،
+  مأموریتِ مشتری‌یاب…) همان به کار وصل می‌شود (و در صورتِ لزوم زمانش تازه می‌شود)؛ چیزِ تکراری ساخته نمی‌شود.
+* **هر اجرا همان نتیجه را می‌دهد.** تولیدکننده اول ``item.refs`` را می‌بیند؛ ردیفی که زنده است دوباره ساخته نمی‌شود، ردیفِ لغوشده/پاک‌شده دوباره ساخته می‌شود.
+* **هیچ‌چیز منتشر یا فرستاده نمی‌شود.** همه پیش‌نویس‌اند؛ پیامک فقط یک «ارسالِ گروهیِ پیش‌نویس» است که بدونِ تأیید نمی‌رود.
+* **کارِ GPU همیشه در صفِ ماندگار می‌ماند.** گرهٔ خاموش خطا نیست: کار «منتظرِ سرورِ پردازش» می‌شود و با روشن‌شدنِ گره خودش اجرا می‌گردد.
+* خطای یک تولیدکننده فقط همان کار را ``FAILED`` می‌کند و می‌ماند تا تیکِ بعدی دوباره امتحان کند؛ بقیهٔ برنامه ادامه می‌دهد.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass, field
+from typing import Callable
+
+from django.utils import timezone
+
+from apps.common.fatext import fa_digits
+
+from . import ai as plan_ai
+from . import clock, drafts, kinds, refs
+from .models import PlanItem
+
+logger = logging.getLogger(__name__)
+
+PRODUCERS: dict[str, Callable] = {}
+
+
+class NeedsYou(Exception):
+    """کار فقط با دادهٔ خودِ مالک ادامه می‌یابد؛ متن برای مالک است."""
+
+
+class NodeNotReady(Exception):
+    """سرورِ پردازش (یا مدلِ لازم) هنوز آماده نیست؛ کار منتظر می‌ماند و تیکِ بعدی دوباره امتحان می‌کند."""
+
+
+def producer(*names: str):
+    def deco(fn):
+        for n in names:
+            PRODUCERS[n] = fn
+        return fn
+
+    return deco
+
+
+@dataclass
+class Ctx:
+    plan: object
+    store: object
+    user: object
+    f: dict
+    log: Callable = lambda msg: None
+    _items: dict = field(default_factory=dict)
+
+    @property
+    def owner(self):
+        return self.user if getattr(self.user, "is_authenticated", False) else (self.plan.created_by or self.store.owner)
+
+    def sibling(self, key: str):
+        if not key:
+            return None
+        if not self._items:
+            self._items = {i.key: i for i in self.plan.items.all()}
+        return self._items.get(key)
+
+    def url(self, page_key: str) -> str:
+        return kinds.url_for(page_key, self.store.pk)
+
+
+# ----------------------------------------------------------------------------- ابزارها
+
+def _alive(item, type_: str) -> list[dict]:
+    """پیوندهای این نوع که هنوز زنده‌اند (لغوشده/پاک‌شده/ناموفق حساب نمی‌شود)."""
+    out = []
+    for r in refs.of_type(item, type_):
+        st, _note = refs.state_of(r)
+        if st not in (refs.MISSING, refs.CANCELLED, refs.FAILED):
+            out.append(r)
+    return out
+
+
+def _drop_dead(item, type_: str) -> None:
+    for r in refs.of_type(item, type_):
+        if refs.state_of(r)[0] in (refs.MISSING, refs.CANCELLED):
+            refs.remove(item, type_, r["id"])
+
+
+def _checks(item, text: str, f: dict) -> None:
+    item.meta = {**(item.meta or {}), "checks": drafts.check(text, f)}
+
+
+def _set_draft(ctx: Ctx, item: PlanItem, text: str) -> None:
+    """پیش‌نویسِ قاعده‌محور را می‌نویسد، فقط اگر هنوز خالی است (متنِ پولیش‌شده یا ویرایش‌شده را پاک نمی‌کند)."""
+    if not item.draft:
+        item.draft = text
+        item.ai_wait = True          # تا وقتی هوش مصنوعی برگردد و پولیشش کند
+    _checks(item, item.draft, ctx.f)
+
+
+def _owner_product(ctx: Ctx):
+    from apps.products.models import Product
+
+    prod = None
+    if ctx.f.get("flagship"):
+        prod = Product.objects.filter(store=ctx.store, name=ctx.f["flagship"]).first()
+    return prod or Product.objects.filter(store=ctx.store).order_by("pk").first()
+
+
+def _plan_campaign(ctx: Ctx, suffix: str):
+    from apps.campaigns.models import Campaign
+
+    name = f"{ctx.store.name} — برنامهٔ بازاریابی — {suffix}"[:200]
+    c = Campaign.objects.filter(store=ctx.store, name=name).first()
+    if c is not None:
+        return c
+    prod = _owner_product(ctx)
+    if prod is None:
+        raise NeedsYou("برای ساختنِ کمپین دست‌کم یک محصول ثبت کنید (فروشگاه ⇐ محصولات).")
+    return Campaign.objects.create(store=ctx.store, product=prod, name=name, goal=(ctx.plan.goal or "")[:200], audience=ctx.f["audience"][:200],
+                                   notes="ساخته‌شده توسط «برنامهٔ بازاریابی»؛ فقط پیش‌نویس است و چیزی خودکار منتشر نمی‌شود.")
+
+
+def _retime_task(task, when) -> None:
+    from apps.campaigns.tasks_board import CampaignTask
+
+    if task.state in (CampaignTask.State.DONE, CampaignTask.State.DROPPED):
+        return
+    detail = clock.retime_detail(task.detail, when)
+    if task.due_at != when or detail != task.detail:
+        task.due_at, task.detail = when, detail
+        task.save(update_fields=["due_at", "detail", "updated_at"])
+
+
+def _retime_now(item: PlanItem) -> bool:
+    """موعدِ کارِ کمپینِ وصل‌شده فقط وقتی تازه می‌شود که تازه وصل شده یا تاریخِ برنامه عوض شده؛ موعدی که مالک دستی گذاشته هر اجرا پاک نمی‌شود."""
+    flag = bool((item.meta or {}).get("retime"))
+    if flag:
+        item.meta = {k: v for k, v in (item.meta or {}).items() if k != "retime"}
+    return flag
+
+
+def _task_ref(ctx: Ctx, task) -> dict:
+    return refs.make("campaign_task", task.pk, task.title, ctx.url("campaigns"))
+
+
+def _candidate_tasks(ctx: Ctx, item: PlanItem, prefixes: tuple[str, ...], *, skip_words: tuple[str, ...] = ()) -> list:
+    from apps.campaigns.tasks_board import CampaignTask
+
+    linked = refs.linked_ids(ctx.plan, "campaign_task", exclude_item=item)
+    qs = (CampaignTask.objects.filter(store=ctx.store, kind=CampaignTask.Kind.CONTENT).exclude(state__in=(CampaignTask.State.DONE, CampaignTask.State.DROPPED))
+          .select_related("campaign").order_by("campaign_id", "order", "id"))
+    out = []
+    for t in qs:
+        if str(t.pk) in linked or "پروفایل" in t.campaign.name or "تصمیم" in t.campaign.name:
+            continue
+        if not any(t.title.startswith(p) for p in prefixes) or any(w in t.title for w in skip_words):
+            continue
+        out.append(t)
+    return out
+
+
+# ----------------------------------------------------------------------------- محتوا: پروفایل، پست، کاروسل، استوری، ریلز
+
+@producer("profile")
+def p_profile(ctx: Ctx, item: PlanItem):
+    from apps.campaigns.tasks_board import CampaignTask
+
+    existing = list(CampaignTask.objects.filter(store=ctx.store, campaign__name__icontains="پروفایل").order_by("campaign_id", "order", "id")[:12])
+    when = item.scheduled_for or clock.when_for("post", clock.today_tehran())
+    if existing:
+        fresh = not refs.of_type(item, "campaign_task") or _retime_now(item)
+        for t in existing:
+            refs.add(item, _task_ref(ctx, t))
+            if fresh:
+                _retime_task(t, clock.at(when.astimezone(clock.TEHRAN).date(), 10, 0))
+        item.draft = existing[0].detail
+        item.title = f"پروفایل: بایو، هایلایت و پستِ سنجاق‌شده ({len(existing)} کارِ آماده)"
+        item.ai_wait = False
+        item.message = "پیش‌نویس‌های پروفایل از قبل ساخته شده بود؛ همان‌ها به برنامه وصل و زمان‌شان تازه شد."
+        return
+    if _alive(item, "campaign_task"):
+        return
+    from apps.campaigns.tasks_board import CampaignTask as CT
+
+    camp = _plan_campaign(ctx, "راه‌اندازی پروفایل")
+    text = item.draft or drafts.profile_draft(ctx.f)
+    task = CT.objects.create(campaign=camp, store=ctx.store, kind=CT.Kind.CONTENT, title="بایو و هایلایت‌ها — پیش‌نویس", detail=text, due_at=item.scheduled_for,
+                             because="برنامهٔ بازاریابی: پروفایل پیش از اولین پست آماده باشد", order=0)
+    refs.add(item, _task_ref(ctx, task))
+    _set_draft(ctx, item, text)
+
+
+_PREFIX = {"carousel": ("کاروسل",), "reel": ("ریلز",), "story": ("استوری",), "post": ("پست",)}
+_RESERVED = ("نظرِ واقعی", "ویدیوی واقعی")
+
+
+@producer("post", "carousel", "story", "reel")
+def p_content(ctx: Ctx, item: PlanItem):
+    from apps.campaigns.tasks_board import CampaignTask as CT
+
+    _drop_dead(item, "campaign_task")
+    live = _alive(item, "campaign_task")
+    when = item.scheduled_for
+    if live:
+        t = CT.objects.filter(pk=live[0]["id"]).first()
+        if t is not None:
+            if _retime_now(item):
+                _retime_task(t, when)
+            item.draft = item.draft or t.detail
+        return
+    cands = _candidate_tasks(ctx, item, _PREFIX[item.kind], skip_words=_RESERVED)
+    if cands:
+        t = cands[0]
+        refs.add(item, _task_ref(ctx, t))
+        _retime_task(t, when)
+        item.title, item.draft, item.ai_wait = t.title[:240], t.detail, False
+        item.meta = {**(item.meta or {}), "adopted": True, "checks": []}
+        item.message = "پیش‌نویسِ آماده از کمپین‌های قبلیِ این فروشگاه به برنامه وصل شد."
+        return
+    pillar = (item.meta or {}).get("pillar") or "intro"
+    camp = _plan_campaign(ctx, f"هفتهٔ {clock.fa_digits(str((item.meta or {}).get('week') or 1))}")
+    text = item.draft or drafts.content_draft(item.kind, pillar, ctx.f)
+    task = CT.objects.create(campaign=camp, store=ctx.store, kind=CT.Kind.CONTENT, title=item.title[:200],
+                             detail=f"{text}\n\nموعدِ پیشنهادیِ انتشار: {clock.fa_when(when)} — فقط پیشنهاد؛ چیزی خودکار منتشر نمی‌شود.",
+                             due_at=when, because="برنامهٔ بازاریابی", order=item.day * 10 + item.order)
+    refs.add(item, _task_ref(ctx, task))
+    _set_draft(ctx, item, text)
+
+
+@producer("testimonial")
+def p_testimonial(ctx: Ctx, item: PlanItem):
+    from apps.campaigns.tasks_board import CampaignTask as CT
+
+    live = _alive(item, "campaign_task")
+    if not live:
+        for t in _candidate_tasks(ctx, item, ("ریلز", "پست", "استوری", "کاروسل")):
+            if any(w in t.title for w in _RESERVED):
+                refs.add(item, _task_ref(ctx, t))
+                _retime_task(t, item.scheduled_for)
+                item.title = t.title[:240]
+                break
+    item.draft = item.draft or drafts.testimonial_request(ctx.f)
+    item.meta = {**(item.meta or {}), "needs_you": "نظرِ واقعیِ یک مشتری لازم است؛ هیچ نظری ساخته نمی‌شود. متنِ درخواستِ اجازه آماده است."}
+    item.message = item.meta["needs_you"]
+
+
+# ----------------------------------------------------------------------------- راه‌اندازی: ایده، ترند، مأموریت، صندوق
+
+@producer("ideas")
+def p_ideas(ctx: Ctx, item: PlanItem):
+    from apps.ideabank import bank, fill, generator
+    from apps.ideabank.models import StoreIdea
+
+    if _alive(item, "idea"):
+        return
+    ok_ai, _why = plan_ai.available(ctx.store)
+    count = 8 if item.key.endswith(".bank") else 6
+    # موضوع = محصولِ اصلی؛ واقعیت‌ها = جملهٔ معرفیِ خودِ فروشگاه (ایده‌ها فقط از همین‌ها می‌آیند، نه از نامِ بسته‌ها و قیمت‌ها)
+    facts = [x for x in (ctx.f.get("one_liner"), ctx.f.get("tagline")) if x]
+    res = generator.generate_and_save(ctx.store, count=count, use_ai=bool(ok_ai), ctx=fill.context(ctx.store), topic=ctx.f.get("flagship", ""),
+                                      facts=facts, variation=0 if item.key.endswith(".bank") else 1)
+    keys = [i.get("key") for i in res["ideas"] if i.get("key")]
+    for row in StoreIdea.objects.filter(store=ctx.store, key__in=keys):
+        refs.add(item, refs.make("idea", row.pk, (row.data or {}).get("title", row.key), ctx.url("ideas")))
+    item.draft = "\n".join(f"• {(i.get('filled') or i).get('title', i.get('title', ''))}" for i in res["ideas"])
+    item.ai_wait = res["via"] == "formula"
+    item.message = res["message"][:280]
+    if not keys:
+        item.message = "ایده‌های تازه‌ای نماند (همه از قبل در بانکِ ایده هست)؛ بانکِ ایده را ببینید."
+
+
+@producer("trends")
+def p_trends(ctx: Ctx, item: PlanItem):
+    from apps.igtrends import dispatch, seeds
+    from apps.igtrends.models import IgScanRun, IgSeed
+
+    seeds.apply_defaults(ctx.store)
+    n_seeds = IgSeed.objects.filter(store=ctx.store).count()
+    if not n_seeds:
+        raise NeedsYou("هیچ صفحه یا هشتگی برای خواندنِ ترند ثبت نشده؛ در «بازار ⇐ ترندها» چند پیجِ هم‌حوزه اضافه کنید.")
+    last = IgScanRun.objects.filter(store=ctx.store).order_by("-id").first()
+    if last is not None and last.state in (IgScanRun.State.OK, IgScanRun.State.QUEUED, IgScanRun.State.RUNNING):
+        refs.add(item, refs.make("scan", last.pk, "خواندنِ ترندهای اینستاگرام", ctx.url("trends")))
+        item.message = f"{n_seeds} صفحه/هشتگ برای خواندن ثبت است."
+        return
+    try:
+        run = dispatch.request_scan(ctx.store, auto=False)
+    except dispatch.ScanRefused as exc:
+        raise NodeNotReady(str(exc)) from exc
+    refs.add(item, refs.make("scan", run.pk, "خواندنِ ترندهای اینستاگرام", ctx.url("trends")))
+    item.message = "خواندنِ ترندها در صفِ سرورِ پردازش (آباگرام) گذاشته شد؛ با روشن‌شدنِ گره خودش اجرا می‌شود."
+
+
+@producer("finder")
+def p_finder(ctx: Ctx, item: PlanItem):
+    from apps.growth_engine.crawler.models import CrawlMission
+
+    linked = refs.linked_ids(ctx.plan, "mission", exclude_item=item)
+    if not refs.of_type(item, "mission"):
+        missions = [m for m in CrawlMission.objects.filter(store=ctx.store, is_archived=False).order_by("id") if str(m.pk) not in linked]
+        if not missions:
+            missions = list(CrawlMission.objects.filter(store=ctx.store, is_archived=False).order_by("id")[:2])
+        for m in missions[:2] if item.key.endswith(".m2") else missions[:1]:
+            refs.add(item, refs.make("mission", m.pk, m.name, "/growth/finder"))
+    if not refs.of_type(item, "mission"):
+        item.draft = (f"پیشنهادِ مأموریت: پیدا کردنِ «{ctx.f['audience_short']}» در شهرِ هدفِ شما.\n"
+                      "در «جذب مشتری ⇐ مشتری‌یاب» نوعِ کسب‌وکار، کلیدواژه و شهر را بدهید و «بساز و اجرا کن» را بزنید؛ خودکار چیزی فرستاده نمی‌شود.")
+        raise NeedsYou("برای این فروشگاه هنوز مأموریتِ مشتری‌یاب ساخته نشده؛ نوعِ کسب‌وکار و شهر را شما می‌دانید.")
+    names = [r["label"] for r in refs.of_type(item, "mission")]
+    item.draft = "مأموریت‌ها:\n" + "\n".join(f"• {n}" for n in names) + "\n\nنتیجه در «مشتری‌یاب ⇐ نتایج»؛ هیچ پیامی خودکار نمی‌رود."
+    item.message = "مأموریت از قبل ساخته و اجرا شده؛ به برنامه وصل شد."
+
+
+@producer("leads_review")
+def p_leads_review(ctx: Ctx, item: PlanItem):
+    from apps.growth_engine.crawler.models import CrawlMission
+
+    ms = list(CrawlMission.objects.filter(store=ctx.store, is_archived=False).order_by("id")[:3])
+    for m in ms:
+        refs.add(item, refs.make("mission", m.pk, m.name, "/growth/finder/results"))
+    if not ms:
+        raise NeedsYou("اول در «مشتری‌یاب» یک مأموریت بسازید و اجرا کنید؛ بعد لیدها اینجا بازبینی می‌شود.")
+    item.draft = ("بازبینیِ لیدها: در «نتایج مشتری‌یاب» لیدهای با امتیازِ تناسبِ بالا را ببینید، برچسب بزنید و برای مهم‌ترین‌ها «یادآوریِ پیگیری» بگذارید. "
+                  "دلیلِ هر امتیاز کنارش نوشته شده است.")
+
+
+@producer("dm")
+def p_dm(ctx: Ctx, item: PlanItem):
+    from apps.growth_engine.crawler.models import CrawlMission, OutreachDraft
+
+    mids = list(CrawlMission.objects.filter(store=ctx.store).values_list("pk", flat=True))
+    rows = []
+    if mids:
+        try:
+            rows = list(OutreachDraft.objects.filter(mission_id__in=mids).order_by("-id")[:3])
+        except Exception:  # noqa: BLE001 — اگر ساختارِ جدول فرق کرد، فقط متنِ آماده می‌ماند
+            rows = []
+    for r in rows:
+        refs.add(item, refs.make("outreach_draft", r.pk, "پیش‌نویسِ پیامِ مشتری‌یاب", "/growth/finder/drafts"))
+    _set_draft(ctx, item, drafts.dm_text(ctx.f))
+    item.message = ("پیش‌نویس‌های مشتری‌یاب از قبل هست؛ متنِ نمونه هم آماده است." if rows else
+                    "متنِ نمونه آماده است؛ بعد از پیدا شدنِ لیدها در «پیش‌نویسِ پیام‌ها» برای هر لید ساخته می‌شود.")
+
+
+@producer("inbox")
+def p_inbox(ctx: Ctx, item: PlanItem):
+    from apps.inbox.models import CannedReply, ChannelConnection, InboxSettings
+
+    st, _ = InboxSettings.objects.get_or_create(store=ctx.store)
+    base = {
+        "معرفی": ctx.f["tagline"] and f"{ctx.f['name']}: {ctx.f['tagline']}" or f"{ctx.f['name']}: {drafts._one_liner(ctx.f) or '[یک جمله دربارهٔ کارتان]'}",
+        "شروع": f"برای شروع از این نشانی استفاده کنید: {drafts._site(ctx.f)}",
+        "پشتیبانی": "پیامتان را دریافت کردیم؛ همکارانمان در اولین فرصت پاسخ می‌دهند.",
+    }
+    for short, text in base.items():
+        row = CannedReply.objects.filter(store=ctx.store, shortcut=short).first()
+        if row is None:
+            row = CannedReply.objects.create(store=ctx.store, title=f"[برنامه] {short}", shortcut=short, text=text)
+        refs.add(item, refs.make("canned", row.pk, row.title, ctx.url("inbox")))
+    conns = ChannelConnection.objects.filter(store=ctx.store, enabled=True).count()
+    n_canned = CannedReply.objects.filter(store=ctx.store).count()
+    steps = [
+        (conns > 0, f"کانال: {fa_digits(conns)} کانالِ فعال" if conns else "کانال: هیچ کانالی وصل نیست — در «کانال‌های صندوق» توکنِ ربات یا ویجتِ سایت را وصل کنید"),
+        (bool(st.bot_enabled), "ربات: روشن است" if st.bot_enabled else "ربات: خاموش است — در «ربات و تنظیمات» روشنش کنید"),
+        (bool(st.working_hours), "ساعتِ کاری: ثبت شده" if st.working_hours else "ساعتِ کاری: ثبت نشده — در «تیم و SLA» بنویسید"),
+        (bool((st.greeting_message or "").strip()), "پیامِ خوش‌آمد: ثبت شده" if (st.greeting_message or "").strip() else "پیامِ خوش‌آمد: ثبت نشده"),
+        (n_canned >= 3, f"پاسخ‌های آماده: {fa_digits(n_canned)} مورد"),
+    ]
+    item.draft = "\n".join(("✓ " if ok else "✗ ") + line for ok, line in steps)
+    missing = [line for ok, line in steps if not ok]
+    if conns == 0:
+        item.meta = {**(item.meta or {}), "needs_you": "هیچ کانالی وصل نیست؛ وصل‌کردنِ ربات و کانال به توکنِ خودتان نیاز دارد."}
+        item.message = item.meta["needs_you"]
+    else:
+        item.meta = {k: v for k, v in (item.meta or {}).items() if k != "needs_you"}
+        item.message = ("همه‌چیز آماده است." if not missing else f"{fa_digits(len(missing))} مورد مانده: " + "؛ ".join(missing)[:200])
+
+
+# ----------------------------------------------------------------------------- طراحی: کاتالوگ، ارائه، صفحهٔ فرود، ویدیو از ارائه
+
+def _design(ctx: Ctx, item: PlanItem, kind: str, title: str, options: dict):
+    from apps.design_studio import services as S
+    from apps.design_studio.models import DesignDoc
+
+    live = _alive(item, "design_doc")
+    if live:
+        return DesignDoc.objects.filter(pk=live[0]["id"]).first()
+    taken = refs.linked_ids(ctx.plan, "design_doc", exclude_item=item)
+    docs = [d for d in DesignDoc.objects.filter(store=ctx.store, kind=kind).order_by("id") if str(d.pk) not in taken]
+    doc = docs[0] if docs else None
+    adopted = doc is not None
+    if doc is None:
+        try:
+            doc = S.create_doc(ctx.store, ctx.owner, kind, title=title, options=options)
+        except S.DesignError as exc:
+            raise NeedsYou(str(exc)) from exc
+    refs.add(item, refs.make("design_doc", doc.pk, doc.title, ctx.url({"catalog": "design_catalog", "deck": "design_deck", "ui": "design_ui"}[kind])))
+    item.message = "پیش‌نویسِ آماده از استودیوی طراحی به برنامه وصل شد." if adopted else "پیش‌نویس در استودیوی طراحی ساخته شد."
+    return doc
+
+
+@producer("catalog")
+def p_catalog(ctx: Ctx, item: PlanItem):
+    _design(ctx, item, "catalog", f"کاتالوگِ {ctx.f['name']} (پیش‌نویس)", {})
+    item.draft = item.draft or "خروجی‌ها: PDF چاپی، PDF نمایشی، PNG/JPG و PPTX از «استودیوی طراحی ⇐ کاتالوگ محصولات»."
+
+
+@producer("deck")
+def p_deck(ctx: Ctx, item: PlanItem):
+    _design(ctx, item, "deck", f"ارائهٔ کوتاهِ {ctx.f['name']} (پیش‌نویس)",
+            {"brief": f"معرفیِ {ctx.f['name']} به {ctx.f['audience_short']}: چه کاری می‌کند و چطور شروع کنیم.", "use_ai": False})
+    item.draft = item.draft or "خروجی‌ها: PPTX، PDF، PNG و ویدیو (همین برنامه، روزِ ۶) از «استودیوی طراحی ⇐ ارائه»."
+
+
+@producer("landing")
+def p_landing(ctx: Ctx, item: PlanItem):
+    from apps.design_studio import bridges
+
+    doc = _design(ctx, item, "ui", f"طرحِ صفحهٔ فرودِ {ctx.f['name']} (UI/UX)", {"template": "landing"})
+    if doc is None:
+        return
+    site = (doc.meta or {}).get("site") or {}
+    if not site.get("project_id"):
+        try:
+            made = bridges.create_site(doc, ctx.owner, {"name": f"{ctx.f['name']} — پیش‌نویسِ صفحهٔ فرود"})
+            site = made if isinstance(made, dict) else {}
+            doc.refresh_from_db()
+            site = (doc.meta or {}).get("site") or site
+        except Exception as exc:  # noqa: BLE001 — بدونِ سایت‌ساز هم طرحِ UI پیش‌نویس است
+            item.message = f"طرحِ UI آماده است؛ پیش‌نویسِ سایت ساخته نشد: {str(exc)[:120]}"
+    pid = site.get("project_id") or site.get("id")
+    if pid:
+        refs.add(item, refs.make("site_project", pid, "پیش‌نویسِ صفحهٔ فرود (سایت‌ساز)", "/tools/studio"))
+        item.message = "طرحِ UI و پیش‌نویسِ سایت آماده است؛ هیچ‌چیز منتشر نشده."
+    item.draft = item.draft or "طرحِ دسکتاپ، تبلت و گوشی با قطعه‌های سایت‌ساز؛ از «ساختِ سایت از این طرح» پیش‌نویسِ سایت ساخته می‌شود (منتشر نمی‌شود)."
+
+
+@producer("video_edit")
+def p_video_edit(ctx: Ctx, item: PlanItem):
+    from apps.design_studio import bridges, services as S
+    from apps.design_studio.models import DesignDoc, DesignExport
+
+    _drop_dead(item, "design_export")
+    if _alive(item, "design_export"):
+        return
+    deck_item = ctx.sibling((item.meta or {}).get("for"))
+    deck_ref = refs.of_type(deck_item, "design_doc") if deck_item else []
+    doc = DesignDoc.objects.filter(pk=deck_ref[0]["id"]).first() if deck_ref else DesignDoc.objects.filter(store=ctx.store, kind="deck").order_by("id").first()
+    if doc is None:
+        raise NeedsYou("اول «ارائه» ساخته شود (روزِ ۶)؛ ویدیو از اسلایدهای آن ساخته می‌شود.")
+    old = DesignExport.objects.filter(doc=doc, kind="mp4").exclude(state=DesignExport.State.FAILED).order_by("-id").first()
+    try:
+        exp = old or bridges.deck_to_video(doc, ctx.owner, {"seconds": 5})
+    except S.DesignError as exc:
+        raise NodeNotReady(str(exc)) from exc
+    refs.add(item, refs.make("design_export", exp.pk, "ویدیو از ارائه", ctx.url("design_deck")))
+    item.draft = item.draft or "اسلایدها با گذارِ ملایم به MP4 تبدیل می‌شود؛ ساختنش روی سرورِ پردازش است."
+    item.message = "ویدیو در صفِ ماندگارِ سرورِ پردازش است و با روشن‌شدنِ گره خودش ساخته می‌شود."
+
+
+# ----------------------------------------------------------------------------- رسانه (GPU): موشن، گوینده، موسیقی، تامنیل، تصویر، شخصیت، سه‌بعدی
+
+def _script_for(ctx: Ctx, item: PlanItem) -> str:
+    comp = ctx.sibling((item.meta or {}).get("for"))
+    if comp is not None and comp.draft:
+        m = re.search(r"متنِ گویندگی[^:\n]*:\s*(.+)", comp.draft)
+        if m and len(m.group(1).strip()) > 20:
+            return m.group(1).strip()
+    return drafts.reel_script(ctx.f, (item.meta or {}).get("pillar") or "intro")
+
+
+@producer("motion")
+def p_motion(ctx: Ctx, item: PlanItem):
+    from apps.motion import services as M
+    from apps.motion.models import MotionRender as R
+
+    _drop_dead(item, "motion_render")
+    if _alive(item, "motion_render"):
+        return
+    taken = refs.linked_ids(ctx.plan, "motion_render", exclude_item=item)
+    spare = [r for r in R.objects.filter(store=ctx.store, target=R.Target.NODE).exclude(state__in=(R.State.FAILED, R.State.CANCELLED)).order_by("id")
+             if str(r.pk) not in taken]
+    if spare:
+        render = spare[0]
+        item.message = "رندرِ موشنِ آماده از قبل به برنامه وصل شد."
+    else:
+        spec = drafts.motion_spec(ctx.f, (item.meta or {}).get("pillar") or "intro")
+        try:
+            render = M.create(ctx.store, ctx.owner, mode=R.Mode.TEMPLATE, title=item.title[:120], spec=spec, quality="720", target="node")
+            render = M.start(render)
+        except M.MotionError as exc:
+            raise NodeNotReady(str(exc)) from exc
+        item.message = "رندرِ موشن در صفِ سرورِ پردازش گذاشته شد؛ با روشن‌شدنِ گره خودش رندر می‌شود."
+    refs.add(item, refs.make("motion_render", render.pk, render.title, ctx.url("motion")))
+    item.draft = item.draft or f"سبک: {render.style} · قاب: {render.aspect}"
+
+
+@producer("voiceover")
+def p_voiceover(ctx: Ctx, item: PlanItem):
+    from apps.ai.models import AudioAsset
+    from services.audio import studio
+
+    _drop_dead(item, "audio_asset")
+    if _alive(item, "audio_asset"):
+        return
+    script = item.draft or _script_for(ctx, item)
+    item.draft = script
+    _checks(item, script, ctx.f)
+    voices = [v for v in studio.voices(ctx.store) if v.get("engine") == "moss-fa"]
+    if not voices:
+        raise NodeNotReady("صداهای MOSS هنوز از سرورِ پردازش گزارش نشده؛ با روشن‌شدنِ گره ساخته می‌شود.")
+    try:
+        asset = studio.create_speech(ctx.store, ctx.owner, text=script, voice_id=voices[0]["id"], title=item.title[:100])
+    except studio.StudioError as exc:
+        raise NodeNotReady(str(exc)) from exc
+    if isinstance(asset, AudioAsset):
+        refs.add(item, refs.make("audio_asset", asset.pk, asset.title or "گوینده", ctx.url("audio_speech")))
+    item.message = "صدا با لایهٔ تلفظِ فارسی در صفِ سرورِ پردازش گذاشته شد؛ با روشن‌شدنِ گره ساخته می‌شود."
+
+
+@producer("music")
+def p_music(ctx: Ctx, item: PlanItem):
+    from apps.ai.models import AudioAsset
+    from services.audio import studio
+
+    _drop_dead(item, "audio_asset")
+    if _alive(item, "audio_asset"):
+        return
+    taken = refs.linked_ids(ctx.plan, "audio_asset", exclude_item=item)
+    spare = [a for a in AudioAsset.objects.filter(store=ctx.store, kind=AudioAsset.Kind.MUSIC).exclude(status=AudioAsset.Status.FAILED).order_by("id")
+             if str(a.pk) not in taken]
+    if spare:
+        asset = spare[0]
+    else:
+        tone = ctx.f.get("tone", "")
+        style = "calm" if "آرام" in tone else "corporate" if "رسمی" in tone else "upbeat"
+        try:
+            asset = studio.create_music(ctx.store, ctx.owner, style=style, seconds=30, title=f"موسیقیِ زمینهٔ {ctx.f['name']}"[:100])
+        except studio.StudioError as exc:
+            raise NodeNotReady(str(exc)) from exc
+    refs.add(item, refs.make("audio_asset", asset.pk, asset.title or "موسیقی", ctx.url("audio_music")))
+    item.draft = item.draft or "موسیقیِ بی‌کلام (ACE-Step) برای زیرِ ریلز و ویدیو."
+    item.message = "موسیقی در صفِ سرورِ پردازش است و با روشن‌شدنِ گره ساخته می‌شود."
+
+
+_THUMB_STYLE = {"intro": "magazine_cover", "how": "number_list", "objection": "question_hook", "faq": "question_hook", "offer": "product_hero",
+                "process": "split_ba", "behind": "minimal_luxury", "series": "quote_card"}
+
+
+def _thumb(ctx: Ctx, item: PlanItem, fmt: str, label: str):
+    from apps.thumbs import aibg, services as T
+    from apps.thumbs.models import Thumbnail
+
+    _drop_dead(item, "thumbnail")
+    if _alive(item, "thumbnail"):
+        return
+    taken = refs.linked_ids(ctx.plan, "thumbnail", exclude_item=item)
+    waiting = [t for t in Thumbnail.objects.filter(store=ctx.store, state=Thumbnail.State.WAITING_BG).order_by("id") if str(t.pk) not in taken]
+    if waiting and item.kind == "thumbnail":
+        made = [waiting[0]]
+        item.message = "تامنیلِ منتظرِ پس‌زمینهٔ هوش مصنوعی از قبل به برنامه وصل شد."
+    else:
+        if aibg._active_count(ctx.store) >= aibg.MAX_ACTIVE:
+            raise NodeNotReady("چند پس‌زمینهٔ هوش مصنوعی در صف است؛ بعد از اجرای آن‌ها این یکی ساخته می‌شود.")
+        pillar = (item.meta or {}).get("pillar") or "intro"
+        spec = {"format": fmt, "style": _THUMB_STYLE.get(pillar, "question_hook"), "content": drafts.thumb_content(ctx.f, pillar),
+                "background": {"kind": "ai", "job": ""}}
+        try:
+            made = T.create(ctx.store, ctx.owner, spec, variants=1, title=f"{ctx.f['name']} — {label}"[:150],
+                            ai={"text": "", "preset": drafts.bg_preset(ctx.f, pillar), "prompt_en": ""})
+        except T.ThumbError as exc:
+            raise NodeNotReady(str(exc)) from exc
+        item.message = "نسخهٔ خودکار همین حالا آماده است؛ پس‌زمینهٔ هوش مصنوعی (FLUX) با روشن‌شدنِ گره جایگزین می‌شود."
+    for t in made:
+        refs.add(item, refs.make("thumbnail", t.pk, t.title, ctx.url("thumbnail_maker")))
+
+
+@producer("thumbnail")
+def p_thumbnail(ctx: Ctx, item: PlanItem):
+    _thumb(ctx, item, "story", "کاورِ ریلز")
+    item.draft = item.draft or "کاورِ ۹:۱۶ با تیترِ قلاب‌دار؛ بعد از آماده شدن در ادیتورِ عکس هم قابل‌ویرایش است."
+
+
+@producer("image")
+def p_image(ctx: Ctx, item: PlanItem):
+    from apps.campaigns.tasks_board import CampaignTask as CT
+
+    # کارِ «تصویرِ زمینهٔ هوش مصنوعی» که کمپین‌های قبلی نوشته‌اند به همین کار وصل می‌شود
+    if not _alive(item, "campaign_task"):
+        for t in _candidate_tasks(ctx, item, ("تصویرِ زمینهٔ هوش مصنوعی",)):
+            refs.add(item, _task_ref(ctx, t))
+            _retime_task(t, item.scheduled_for)
+            item.draft = item.draft or t.detail
+            break
+    _thumb(ctx, item, "ig_portrait", "تصویرِ هوش مصنوعیِ پست")
+    item.draft = item.draft or "پس‌زمینهٔ FLUX بی‌متن؛ در «ادیتور عکس ⇐ طراحِ خودکار» لوگو و متنِ فارسی رویش می‌نشیند."
+
+
+@producer("character")
+def p_character(ctx: Ctx, item: PlanItem):
+    from apps.brandchar import ai_render, services as S
+    from apps.brandchar.models import BrandCharacter, CharacterAIJob
+
+    _drop_dead(item, "character_job")
+    char = S.primary(ctx.store) or BrandCharacter.objects.filter(store=ctx.store).order_by("id").first()
+    if char is None:
+        char = S.create(ctx.store, ctx.owner)
+    try:
+        S.ensure_cover(char, ctx.owner)               # تصویرِ برداریِ فوری (بدونِ GPU) تا گالری خالی نماند
+    except Exception as exc:  # noqa: BLE001
+        logger.info("mktplan: cover render skipped: %s", exc)
+    refs.add(item, refs.make("character", char.pk, char.name, ctx.url("brandchar_gallery")))
+    want = 1 if item.key.endswith(".cover") else 3
+    have = len(_alive(item, "character_job"))
+    if have >= want:
+        return
+    taken = refs.linked_ids(ctx.plan, "character_job", exclude_item=item)
+    spare = [j for j in CharacterAIJob.objects.filter(store=ctx.store).exclude(state=CharacterAIJob.State.FAILED).order_by("id") if str(j.pk) not in taken]
+    poses = ["stand", "wave", "think", "cheer"] if item.key.endswith(".poses") else ["stand"]
+    for pose in poses[have:want]:
+        if spare:
+            job = spare.pop(0)
+        else:
+            try:
+                job = ai_render.start(char, ctx.owner, mode="illustrated", pose=pose, expression="happy")
+            except ai_render.AIRenderError as exc:
+                raise NodeNotReady(str(exc)) from exc
+        refs.add(item, refs.make("character_job", job.pk, f"تصویرِ هوش مصنوعیِ شخصیت ({pose})", ctx.url("brandchar_gallery")))
+    item.draft = item.draft or "تصویرهای FLUX از شخصیتِ برند (ژست‌های مختلف)؛ در «شخصیتِ برند ⇐ گالری» دیده و در موشن و تامنیل استفاده می‌شود."
+    item.message = "کارِ ساختِ تصویر در صفِ ماندگارِ سرورِ پردازش است."
+
+
+@producer("up3d")
+def p_up3d(ctx: Ctx, item: PlanItem):
+    from apps.up3d import services as U
+    from apps.up3d.models import Project
+
+    if _alive(item, "up3d_project"):
+        return
+    taken = refs.linked_ids(ctx.plan, "up3d_project", exclude_item=item)
+    title = f"{ctx.f['name']} — ویدیوی سه‌بعدیِ کوتاه"
+    proj = Project.objects.filter(owner=ctx.owner, title=title).first()
+    if proj is None:
+        brief = {"product_name": ctx.f["flagship"] or ctx.f["name"], "description": drafts._one_liner(ctx.f)[:300], "brand": ctx.f["name"],
+                 "audience": ctx.f["audience"][:160]}
+        proj, _job = U.create_project(ctx.owner, brief, mode="template", template="showcase", title=title)
+    if str(proj.pk) in taken:
+        return
+    refs.add(item, refs.make("up3d_project", proj.pk, proj.title, "/tools/3d"))
+    item.draft = item.draft or "پیش‌نویسِ پروژه ساخته شد؛ رندرِ نهایی روی کارتِ گرافیکِ سرورِ پردازش و از «ویدیوی سه‌بعدی» با یک کلیک."
+    item.message = "پروژهٔ سه‌بعدی ساخته شد؛ رندر با روشن‌شدنِ سرورِ پردازش از همان صفحه ممکن است."
+
+
+# ----------------------------------------------------------------------------- پیام‌ها: ایمیل، پیامک، بازبینی
+
+@producer("email")
+def p_email(ctx: Ctx, item: PlanItem):
+    _set_draft(ctx, item, drafts.email_draft(ctx.f, (item.meta or {}).get("pillar") or "intro"))
+    item.message = "متنِ ایمیل آماده است؛ چیزی نرفته است. موضوع و متن را بخوانید و از همین‌جا کپی کنید."
+
+
+@producer("sms")
+def p_sms(ctx: Ctx, item: PlanItem):
+    from apps.inbox.models import Broadcast
+
+    text = item.draft or drafts.sms_text(ctx.f)
+    _set_draft(ctx, item, text)
+    name = f"[برنامه] {item.title}"[:120]
+    b = Broadcast.objects.filter(store=ctx.store, name=name).first()
+    if b is None:
+        b = Broadcast.objects.create(store=ctx.store, name=name, text=item.draft, channels=["SMS"], status=Broadcast.Status.DRAFT, created_by=ctx.owner)
+    refs.add(item, refs.make("broadcast", b.pk, b.name, ctx.url("inbox_broadcasts")))
+    item.message = "پیش‌نویسِ ارسالِ گروهی ساخته شد؛ تا «پیش‌نمایش ← ارسال برای تأیید ← تأییدِ مالک» چیزی نمی‌رود."
+
+
+@producer("review")
+def p_review(ctx: Ctx, item: PlanItem):
+    wk = (item.meta or {}).get("week") or 1
+    lo, hi = (1, 7) if wk == 1 else (8, 14)
+    items = [i for i in ctx.plan.items.all() if lo <= i.day <= hi and i.kind != "review"]
+    done = sum(1 for i in items if i.decision in ("approved", "done"))
+    item.draft = (f"هفتهٔ {clock.fa_digits(str(wk))}: {clock.fa_digits(str(len(items)))} کار در برنامه بود، {clock.fa_digits(str(done))} کار تأیید یا منتشر شد.\n"
+                  "برای بازبینی: «کمپین‌ها ⇐ چه چیزی جواب داد» را ببینید؛ هر پستی که منتشر شد را آنجا ثبت کنید تا NM یاد بگیرد چه چیزی جواب می‌دهد. "
+                  "بعد تصمیم بگیرید: کدام زاویه را تکرار کنیم و کدام را کنار بگذاریم؟")
+    item.meta = {**(item.meta or {}), "needs_you": "این بازبینی با نتیجهٔ واقعیِ پست‌ها انجام می‌شود؛ فقط شما می‌توانید ثبتش کنید."}
+    item.message = item.meta["needs_you"]
+
+
+def run_one(ctx: Ctx, item: PlanItem) -> dict:
+    """یک کار را می‌سازد. ⇒ {"ok": bool, "error": str, "waiting": bool}؛ هیچ‌وقت استثنا نمی‌دهد."""
+    fn = PRODUCERS.get(item.kind)
+    meta = dict(item.meta or {})
+    for k in ("waiting_node", "needs_you"):          # هر تولیدکننده اگر هنوز لازم باشد دوباره می‌گذاردشان
+        meta.pop(k, None)
+    item.meta = meta
+    if fn is None:
+        return {"ok": False, "error": "تولیدکنندهٔ این نوع کار ثبت نشده", "waiting": False}
+    try:
+        fn(ctx, item)
+        item.last_error = ""
+        return {"ok": True, "error": "", "waiting": False}
+    except NeedsYou as exc:
+        item.meta = {**(item.meta or {}), "needs_you": str(exc)}
+        item.message, item.last_error = str(exc)[:290], ""
+        return {"ok": True, "error": "", "waiting": False}
+    except NodeNotReady as exc:
+        item.meta = {**(item.meta or {}), "waiting_node": str(exc)}
+        item.message, item.last_error = str(exc)[:290], ""
+        return {"ok": True, "error": "", "waiting": True}
+    except Exception as exc:  # noqa: BLE001 — خرابیِ یک کار نباید برنامه را متوقف کند
+        logger.exception("mktplan: producer %s failed for %s", item.kind, item.key)
+        item.last_error = f"{exc.__class__.__name__}: {exc}"[:500]
+        item.message = "ساخته نشد؛ در اجرای بعدی دوباره امتحان می‌شود."
+        return {"ok": False, "error": item.last_error, "waiting": False}

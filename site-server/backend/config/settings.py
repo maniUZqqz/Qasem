@@ -151,6 +151,8 @@ INSTALLED_APPS += ["apps.pronunciation"]
 INSTALLED_APPS += ["apps.motion"]
 # استودیوی طراحی: کاتالوگ، ارائه و طراحیِ UI/UX
 INSTALLED_APPS += ["apps.design_studio"]
+# برنامهٔ بازاریابیِ دو‌هفته‌ای، راهنمای آزمونِ بخش‌ها و «گزارشِ ایراد» (پنل › محتوا)
+INSTALLED_APPS += ["apps.mktplan"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -1005,6 +1007,14 @@ CELERY_BEAT_SCHEDULE["multiangle-autocheck"] = {
     "task": "apps.multiangle.tasks.autocheck",
     "schedule": 120.0,
     "options": {"expires": 100},
+}
+
+
+# برنامهٔ بازاریابی: هر ۱۰ دقیقه وضعیتِ کارها را از چیزهای ساخته‌شده تازه می‌کند و کارهای منتظرِ هوش مصنوعی/سرورِ پردازش را پیش می‌برد
+CELERY_BEAT_SCHEDULE["mktplan-tick"] = {
+    "task": "apps.mktplan.tasks.tick",
+    "schedule": 600.0,
+    "options": {"expires": 500},
 }
 
 

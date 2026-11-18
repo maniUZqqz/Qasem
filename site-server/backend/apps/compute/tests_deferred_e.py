@@ -569,6 +569,11 @@ class TonightStatusTests(Base):
         with mock.patch.object(deferred, "ai_ready", return_value=(True, "local")), mock.patch.object(deferred, "recent_done_count", return_value=0):
             steps, _ = self.rows()
         self.assertEqual(steps["ai_queue"]["state"], "done")
+        # «متیسِ تنظیم‌شده» (اعتبارش نامعلوم/تمام‌شده) و گره خاموش و هیچ اجرایی ⇒ هنوز سبز نیست (این همان بدفهمیِ بازبینی بود)
+        with mock.patch.object(deferred, "ai_ready", return_value=(True, "metis")), mock.patch.object(deferred, "recent_done_count", return_value=0):
+            steps, _ = self.rows()
+        self.assertEqual(steps["ai_queue"]["state"], "waiting")
+        self.assertIn("هنوز چیزی اجرا نشده", steps["ai_queue"]["detail"])
 
     def test_queued_requests_while_nothing_can_answer_are_waiting(self):
         node(online=False)

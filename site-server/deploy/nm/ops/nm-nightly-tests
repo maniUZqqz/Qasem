@@ -70,7 +70,8 @@ for A in $LABELS; do
   case "$SKIP" in *" $A "*) continue ;; esac
   LABEL="apps.$A"; [ "$A" = "services" ] && LABEL="services"
   LOG="$LOGDIR/$A.log"
-  T=$(mktemp -d /tmp/nm-nightly-XXXXXX)
+  # پوشهٔ موقتِ کوتاه: مسیرهای بلندِ TMPDIR ارجاعِ عکسِ «file:<مسیر>» در آزمون‌های design_studio را از ۸۰ نویسه می‌گذراندند (۳ قرمزِ همیشگیِ شبانه)
+T=$(mktemp -d /tmp/nm-nt-XXXXXX)
   echo "{\"app\":\"$A\",\"since\":\"$START_ISO\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$RUNNING"
   T0=$(date +%s)
   NM_DATA_DIR="$T/data" MEDIA_ROOT="$T/media" TMPDIR="$T" \

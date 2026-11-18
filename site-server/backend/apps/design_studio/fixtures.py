@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import random
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -12,10 +13,14 @@ from . import brand, catalog_doc, images
 
 CHAGHER_COLORS = ["#126f85", "#163f75", "#dbe6ff", "#f7faff", "#1b2b45"]
 
+#: scene.py نگه‌داریِ ارجاعِ عکس («file:<مسیر>») را به ۸۰ نویسه می‌برد؛ بلندتر از این ⇒ عکس «گم‌شده»
+MAX_REF_CHARS = 78
+SHORT_BASE = "/tmp"
+
 
 def make_images(n: int = 6, size=(1400, 1000), folder: str | None = None) -> list[str]:
     """n عکسِ رنگیِ ساختگی ⇒ مرجع‌های «file:<مسیر>»."""
-    d = Path(folder or tempfile.mkdtemp(prefix="nm-design-img-"))
+    d = Path(folder or tempfile.mkdtemp(prefix="nm-di-"))
     d.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(7)
     refs = []
@@ -28,6 +33,14 @@ def make_images(n: int = 6, size=(1400, 1000), folder: str | None = None) -> lis
         p = d / f"img{i}.jpg"
         im.save(p, quality=86)
         refs.append(f"file:{p}")
+    if not folder and refs and max(len(r) for r in refs) > MAX_REF_CHARS:
+        # scene.py نگه‌داریِ «src» را به ۸۰ نویسه می‌برد؛ مسیرِ موقتِ بلند (TMPDIR ِ اجرای شبانه + پوشهٔ اجرای آزمون) ارجاع را می‌برید، عکس «گم‌شده» حساب می‌شد
+        # و سه آزمونِ خروجی (PDF/PPTX/بستهٔ منبع) هر شب قرمز می‌شدند ⇒ عکس‌ها زیرِ یک مسیرِ کوتاه (پیشوندِ nm-، پس nm-tmp-sweep پاکش می‌کند)
+        short = Path(tempfile.mkdtemp(prefix="nm-di-", dir=SHORT_BASE if os.path.isdir(SHORT_BASE) else None))
+        for i in range(len(refs)):
+            os.replace(d / f"img{i}.jpg", short / f"img{i}.jpg")
+        shutil.rmtree(d, ignore_errors=True)
+        refs = [f"file:{short / f'img{i}.jpg'}" for i in range(len(refs))]
     return refs
 
 

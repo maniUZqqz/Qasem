@@ -405,7 +405,7 @@ def ai_row(node=None) -> dict:
 
         n = deferred.pending_count()
         done_n = deferred.recent_done_count()
-        ready, _how = deferred.ai_ready()
+        ready, how = deferred.ai_ready()
     except Exception as exc:  # noqa: BLE001
         return _row("ai_queue", title, "warn", "خوانده نشد (%s)." % exc.__class__.__name__)
     try:
@@ -417,10 +417,12 @@ def ai_row(node=None) -> dict:
     if n:
         state = "doing" if ready else "waiting"
         return _row("ai_queue", title, state, "%s درخواست در صف است و با روشن شدنِ گره (یا برگشتنِ اعتبارِ متیس) خودکار اجرا می‌شود. ترتیب: %s." % (fa(n), order), pending=n, done=done_n)
-    if done_n or ready:
+    if done_n or how == "local":
+        # سبز: یا همین حالا گرهٔ پردازش (لوکال) جواب می‌دهد، یا درخواست‌هایی واقعاً از صف اجرا شده‌اند. «متیسِ تنظیم‌شده» به‌تنهایی سبز نیست: اعتبارش
+        # تا اولین درخواست نامعلوم است (الان تمام شده؛ ۴۰۲) و گرهٔ پردازش هم خاموش است ⇒ هنوز چیزی اجرا نشده.
         return _row("ai_queue", title, "done", "درخواستی در صف نیست%s. ترتیب: %s." % ((" (%s درخواستِ صف‌شده تمام شد)" % fa(done_n)) if done_n else "", order), pending=0, done=done_n)
-    return _row("ai_queue", title, "waiting", "هنوز هیچ مسیری برای هوش مصنوعی آماده نیست (گرهٔ پردازش خاموش و متیس در دسترس نیست) و درخواستی هم در صف نیست؛ "
-                "هر درخواستی که بیاید «در صف تا روشن شدنِ سرورِ پردازش» می‌ماند و با روشن شدنِ گره خودکار اجرا می‌شود. ترتیب: %s." % order, pending=0, done=done_n)
+    return _row("ai_queue", title, "waiting", "درخواستی در صف نیست و هنوز چیزی اجرا نشده؛ گرهٔ پردازش خاموش است (و متیس هم اعتبارِ تازه نداشته است). "
+                "هر درخواستی که بیاید و هیچ مسیری جواب ندهد «در صف تا روشن شدنِ سرورِ پردازش» می‌ماند و با روشن شدنِ گره خودکار اجرا می‌شود. ترتیب: %s." % order, pending=0, done=done_n)
 
 
 def before_checklist(planned: list[dict]) -> list[dict]:

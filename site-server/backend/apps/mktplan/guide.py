@@ -1,8 +1,9 @@
 """«راهنمای آزمونِ بخش‌ها» — برای هر بخشِ پنل، به بهترین ترتیب: کجاست، چه چیزی را بزنید، چه باید ببینید، چه چیزی منتظرِ سرورِ پردازش است.
 
 منبعِ حقیقت همین فایل است: صفحهٔ «راهنمای آزمون» در پنل و سندِ ``docs/chagher/test-guide-fa.md`` هر دو از این‌جا ساخته می‌شوند
-(``manage.py mktplan_guide_md``). آزمونِ ``tests_guide`` تضمین می‌کند هر صفحهٔ ثبت‌شده در دفترِ پنل در یکی از این بخش‌ها «پوشش» داده شده؛ پس
-بخشی که بعداً اضافه شود بی‌راهنما نمی‌ماند.
+(``manage.py mktplan_guide_md``). بخش‌های دست‌نویس در ``GUIDE`` هستند؛ صفحه‌ای که لِینِ دیگری بعداً به دفترِ پنل اضافه کند و هنوز در هیچ بخشِ
+دست‌نویس نباشد، هنگامِ خواندن خودکار یک بخشِ عمومی در مرحلهٔ «بخش‌های تازه» می‌گیرد (``generic_sections``)؛ پس راهنما هرگز از دفترِ پنل عقب نمی‌ماند
+و آزمونِ پوشش هم با افزودنِ صفحه‌ای توسطِ لِینِ دیگر نمی‌شکند. (بخشِ دست‌نویس بهتر است؛ بخشِ عمومی فقط تا آن موقع جای خالی را پر می‌کند.)
 
 هر بخش: key، phase (مرحله)، title، covers (کلیدِ صفحه‌های پنل که پوشش می‌دهد؛ اولی نشانیِ بخش را می‌دهد)، steps، expect، node (آنچه منتظرِ سرورِ پردازش
 است؛ خالی = چیزی منتظر نیست)، kinds (نوعِ کارهای برنامهٔ بازاریابی که این بخش می‌سازد)، minutes (زمانِ تقریبیِ آزمون).
@@ -25,6 +26,7 @@ PHASES = {
     8: "۸ · جذبِ مشتری",
     9: "۹ · صندوقِ پیام و فروش",
     10: "۱۰ · تنظیمات و ادمین",
+    11: "۱۱ · بخش‌های تازه (خودکار از دفترِ پنل)",
 }
 
 
@@ -269,9 +271,20 @@ GUIDE: list[dict] = [
        ["گوشی‌های جفت‌شده با وضعیت؛ ادمینِ جنگو با فارسی."],
        minutes=3, staff=True),
     _g("page_egress", 10, "پراکسی و VPN", ["egress"],
-       ["صفحهٔ «پراکسی و VPN» را باز کنید (/tools/egress)."],
-       ["صفحه بدونِ خطا باز می‌شود و کنترل‌های اصلیِ آن کار می‌کنند."],
-       minutes=3, staff=True),
+       ["ابزارها ⇐ پراکسی و VPN را باز کنید (/tools/egress).",
+        "کلیدِ کلیِ پراکسی و فهرستِ سرویس‌ها را ببینید؛ فقط سرویس‌هایی که از ایران فیلتر یا بسته‌اند (تلگرام، اینستاگرام، واتساپ، موتورهای جست‌وجو…) از پراکسی می‌روند.",
+        "یک پراکسی را با «نام» و «نشانیِ پراکسی» اضافه کنید (یا همان را «ویرایش» کنید) و نتیجهٔ «آزمایش» را بخوانید؛ «همه مستقیم» همه را به حالتِ مستقیم برمی‌گرداند."],
+       ["همهٔ سرویس‌های دیگر همیشه مستقیم می‌روند؛ خاموش‌بودنِ کلید با عنوانِ «الان همهٔ سرویس‌ها مستقیم می‌روند» دیده می‌شود.",
+        "اگر پراکسی وصل نشد، پیامِ «پراکسی وصل نشد» دلیلِ فارسی دارد و سرویس به حالتِ مستقیم برمی‌گردد."],
+       minutes=4, staff=True),
+    _g("domain", 10, "دامنه و SSL", ["domain_ssl"],
+       ["ابزارها ⇐ دامنه و SSL را باز کنید (/tools/domain).",
+        "کارتِ وضعیت را بخوانید: NM الان روی نشانیِ IP است یا روی دامنهٔ شما، و گواهیِ https تا چه روزی معتبر است.",
+        "نامِ یک دامنه (مثل example.ir، بدونِ http و www) را بنویسید و «بررسیِ DNS» را بزنید؛ این کار فقط DNS را می‌خواند و چیزی را عوض نمی‌کند.",
+        "راهنمای قدم‌به‌قدمِ ثبت‌کننده و دستورِ نصب (روی سرور) را در کارتِ پایین بخوانید."],
+       ["نشان می‌دهد دامنه به این سرور اشاره می‌کند یا نه، و اگر نه، دقیقاً چه رکوردی (A / CNAME) باید ساخت.",
+        "خودِ نصبِ دامنه از پنل انجام نمی‌شود (دسترسیِ root لازم دارد)؛ فقط یک دستور نشان داده می‌شود که روی سرور اجرا کنید."],
+       minutes=4, staff=True),
     _g("guide", 10, "همین راهنما و «گزارشِ ایراد»", ["test_guide"],
        ["هر جای پنل دکمهٔ «گزارشِ ایراد» (گوشهٔ صفحه) را بزنید.", "بخش را انتخاب کنید، یادداشت بنویسید و اگر خواستید عکسِ صفحه را بچسبانید یا بگیرید؛ بفرستید."],
        ["گزارش با بخش، نشانیِ صفحه، نسخه و آخرین خطاهای صفحه روی سرور ذخیره می‌شود و برای رفعِ ایراد خوانده می‌شود."],
@@ -279,31 +292,81 @@ GUIDE: list[dict] = [
 ]
 
 
+def generic_sections() -> list[dict]:
+    """برای هر صفحهٔ دفترِ پنل که هیچ بخشِ دست‌نویسی ندارد یک بخشِ کوتاهِ عمومی (مرحلهٔ «بخش‌های تازه»)؛ هنگامِ خواندن ساخته می‌شود، پس صفحه‌ای که
+    لِین‌های دیگر اضافه کنند هرگز بی‌راهنما نمی‌ماند. ترتیب همان ترتیبِ دفترِ پنل است."""
+    from apps.panel import registry as panel_registry
+
+    covered = covered_pages()
+    out: list[dict] = []
+    for _sk, _st, staff, _sdesc, pages in panel_registry.SECTIONS:
+        for key, title, path, desc, _features in pages:
+            if key in covered or not path:
+                continue
+            steps = [f"صفحهٔ «{title}» را از منوی پنل باز کنید ({path})."]
+            if desc:
+                steps.append("آنچه این صفحه می‌گوید انجام می‌دهد را یک بار امتحان کنید: " + desc.rstrip("."))
+            out.append(_g(f"page_{key}", 11, title, [key], steps,
+                          ["صفحه بدونِ خطا باز می‌شود، کنترل‌های اصلیِ آن کار می‌کنند و پیام‌ها فارسی و روشن‌اند.",
+                           "اگر چیزی درست کار نکرد، دکمهٔ «ایراد؟» را بزنید؛ بخش از روی صفحه پیش‌انتخاب می‌شود."],
+                          minutes=3, staff=bool(staff),
+                          note="بخشِ عمومی: این صفحه تازه به پنل اضافه شده و هنوز راهنمای دست‌نویس ندارد."))
+    return out
+
+
+def all_sections() -> list[dict]:
+    """بخش‌های دست‌نویس + بخش‌های عمومیِ صفحه‌های تازه."""
+    return GUIDE + generic_sections()
+
+
 def by_key() -> dict[str, dict]:
-    return {g["key"]: g for g in GUIDE}
+    return {g["key"]: g for g in all_sections()}
 
 
 def section_for_page(page_key: str) -> dict | None:
-    for g in GUIDE:
+    for g in all_sections():
         if page_key in g["covers"]:
             return g
     return None
 
 
 def covered_pages() -> set[str]:
+    """صفحه‌هایی که یک بخشِ **دست‌نویس** دارند."""
     return {k for g in GUIDE for k in g["covers"]}
 
 
-def public(store_id: int | None = None) -> list[dict]:
-    """بخش‌ها با نشانیِ فروشگاه (اگر داده شد)."""
+def _page_url(page_key: str, store_id: int | None, product_id: int | None) -> str:
+    path = kinds_mod.page_paths().get(page_key, "")
+    if not path or not store_id:
+        return path
+    if path.startswith("/products/:id"):
+        # صفحهٔ محصول با شناسهٔ **محصول** باز می‌شود، نه شناسهٔ فروشگاه (پیش‌تر «موردِ خواسته‌شده پیدا نشد» می‌داد)؛ محصولی نبود ⇒ فهرستِ محصولات
+        return path.replace(":id", str(product_id)) if product_id else kinds_mod.url_for("products", store_id)
+    return path.replace(":id", str(store_id))
+
+
+def public(store_id: int | None = None, *, live: bool = True, generic: bool = True) -> list[dict]:
+    """بخش‌ها با نشانیِ فروشگاه (اگر داده شد). ``live=False``: بی‌پرس‌وجو از پایگاه‌داده (برای سندِ Markdown که باید برای همهٔ فروشگاه‌ها یکی باشد)."""
+    product_id = None
+    if store_id and live:
+        try:
+            from apps.stores.models import Store
+
+            from . import facts
+
+            store = Store.objects.filter(pk=store_id).first()
+            product_id = facts.sample_product_id(store) if store is not None else None
+        except Exception:  # noqa: BLE001 — راهنما بدونِ محصول هم کار می‌کند (می‌رود به فهرستِ محصولات)
+            product_id = None
+    titles = kinds_mod.page_titles()
     out = []
-    for g in GUIDE:
-        url = kinds_mod.url_for(g["covers"][0], store_id) if store_id else kinds_mod.page_paths().get(g["covers"][0], "")
-        out.append({**g, "url": url, "pages": [{"key": k, "title": kinds_mod.page_titles().get(k, k)} for k in g["covers"]]})
+    for g in (all_sections() if generic else GUIDE):
+        url = _page_url(g["covers"][0], store_id, product_id)
+        out.append({**g, "url": url, "pages": [{"key": k, "title": titles.get(k, k)} for k in g["covers"]]})
     return out
 
 
-def render_markdown(store_name: str = "فروشگاه", store_id: int | None = None) -> str:
+def render_markdown(store_name: str = "فروشگاه", store_id: int | None = None, *, generic: bool = True) -> str:
     lines = [f"# راهنمای آزمونِ بخش‌ها — {store_name}", "",
              "این راهنما برای آزمونِ همهٔ بخش‌های NMarketing با یک فروشگاهِ واقعی است؛ **به همین ترتیب** پیش بروید. "
              "هر جا ایرادی دیدید دکمهٔ «گزارشِ ایراد» (گوشهٔ پایینِ هر صفحه) را بزنید تا بخش، نشانی، یادداشت و عکس روی سرور ذخیره شود. "
@@ -311,7 +374,7 @@ def render_markdown(store_name: str = "فروشگاه", store_id: int | None = N
              "**قاعدهٔ کلی:** همه‌چیز پیش‌نویس است؛ هیچ پست، پیام یا ایمیلی خودکار منتشر یا فرستاده نمی‌شود. کارهای «منتظرِ سرورِ پردازش» وقتی سرور روشن شد "
              "خودشان اجرا می‌شوند و وضعیتشان در «برنامهٔ بازاریابی» تازه می‌شود.", ""]
     phase = None
-    for g in public(store_id):
+    for g in public(store_id, live=False, generic=generic):
         if g["phase"] != phase:
             phase = g["phase"]
             lines += [f"## {g['phase_title']}", ""]
@@ -325,5 +388,7 @@ def render_markdown(store_name: str = "فروشگاه", store_id: int | None = N
             lines += ["", f"**منتظرِ سرورِ پردازش:** {g['node']}"]
         if g["kinds"] and len(g["kinds"]) < 8:
             lines += ["", "**کارهای برنامهٔ بازاریابی از این بخش:** " + "، ".join(kinds_mod.label(k) for k in g["kinds"])]
+        if g.get("note"):
+            lines += ["", f"_{g['note']}_"]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

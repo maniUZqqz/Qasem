@@ -17,6 +17,9 @@ from django.utils import timezone
 from . import SelfTest, Verdict, register
 
 WAIT_S = 45 * 60
+#: رندرِ ویدیوی سه‌بعدی کمترین اولویتِ صف را دارد (۱۵۰) و خودش ساعت‌ها طول می‌کشد؛ پس منتظرماندنش زودتر از این «رد» حساب نمی‌شود
+SLOW_KINDS = {"up3d"}
+SLOW_WAIT_S = 8 * 3600
 
 
 def virtual(ctx):
@@ -41,9 +44,11 @@ def virtual(ctx):
     if waiting:
         started = ctx.result.started_at if ctx.result is not None and ctx.result.started_at else timezone.now()
         why = "%d کارِ GPUِ برنامه هنوز منتظرِ سرور است (با روشن‌شدنِ گره یکی‌یکی اجرا می‌شوند)" % len(waiting)
-        if (timezone.now() - started).total_seconds() < WAIT_S:
+        age = (timezone.now() - started).total_seconds()
+        fast = [i for i in waiting if i.kind not in SLOW_KINDS]
+        if age < (WAIT_S if fast else SLOW_WAIT_S):
             return Verdict.waiting(why, extra=extra)
-        return Verdict.failed(why + " — بیش از %d دقیقه پس از شروعِ اجرا" % (WAIT_S // 60), extra=extra)
+        return Verdict.failed(why + " — بیش از %d دقیقه پس از شروعِ اجرا" % ((WAIT_S if fast else SLOW_WAIT_S) // 60), extra=extra)
     return Verdict.passed("همهٔ %d کارِ برنامهٔ بازاریابی یا آماده‌اند یا پیش‌نویس (کارِ GPUِ منتظر نیست)" % len(items), extra=extra)
 
 

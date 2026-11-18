@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from dataclasses import dataclass, field
@@ -60,11 +61,11 @@ class Ctx:
         return self.user if getattr(self.user, "is_authenticated", False) else (self.plan.created_by or self.store.owner)
 
     def sibling(self, key: str):
+        """کارِ هم‌پلنِ دیگر، **تازه از پایگاه‌داده**. (پیش‌تر یک بار خوانده و نگه داشته می‌شد؛ گوینده‌ای که زودتر از ریلزِ همراهش اجرا می‌شد پیش‌نویسِ
+        خالیِ آن را می‌دید و به‌جای «متنِ گویندگی»ِ همان ریلز، متنِ ساختگیِ خودش را می‌خواند.)"""
         if not key:
             return None
-        if not self._items:
-            self._items = {i.key: i for i in self.plan.items.all()}
-        return self._items.get(key)
+        return self.plan.items.filter(key=key).first()
 
     def url(self, page_key: str) -> str:
         return kinds.url_for(page_key, self.store.pk)
@@ -177,7 +178,7 @@ def p_profile(ctx: Ctx, item: PlanItem):
             if fresh:
                 _retime_task(t, clock.at(when.astimezone(clock.TEHRAN).date(), 10, 0))
         item.draft = existing[0].detail
-        item.title = f"پروفایل: بایو، هایلایت و پستِ سنجاق‌شده ({len(existing)} کارِ آماده)"
+        item.title = f"پروفایل: بایو، هایلایت و پستِ سنجاق‌شده ({fa_digits(str(len(existing)))} کارِ آماده)"
         item.ai_wait = False
         item.message = "پیش‌نویس‌های پروفایل از قبل ساخته شده بود؛ همان‌ها به برنامه وصل و زمان‌شان تازه شد."
         return
@@ -381,13 +382,102 @@ def p_inbox(ctx: Ctx, item: PlanItem):
 
 # ----------------------------------------------------------------------------- طراحی: کاتالوگ، ارائه، صفحهٔ فرود، ویدیو از ارائه
 
+def _scrub_price_text(value, ids: set[int]):
+    """قیمتِ «محاسبه‌شده / منتشرنشده» را از اسلایدها برمی‌دارد: بندهای «points» (جدولِ مقایسه) که نوشتهٔ «منتشر نشده» دارند، و خطِ «قیمتِ ثبت‌شده»
+    در یادداشتِ گویندهٔ اسلایدِ همان محصول. ⇒ (مقدارِ تازه، آیا چیزی عوض شد)."""
+    from .facts import UNCONFIRMED_PRICE
+
+    if isinstance(value, list):
+        out, changed = [], False
+        for x in value:
+            nx, ch = _scrub_price_text(x, ids)
+            out.append(nx)
+            changed = changed or ch
+        return out, changed
+    if isinstance(value, dict):
+        out, changed = {}, False
+        for k, x in value.items():
+            if k == "points" and isinstance(x, list):
+                nx = [pt for pt in x if not (isinstance(pt, str) and UNCONFIRMED_PRICE.search(pt))]
+                ch = len(nx) != len(x)
+            elif k == "notes" and isinstance(x, str) and ids and int(value.get("product") or 0) in ids:
+                lines = x.splitlines()
+                kept = [ln for ln in lines if not ln.strip().startswith("قیمتِ ثبت‌شده")]
+                nx, ch = "\n".join(kept), len(kept) != len(lines)
+            else:
+                nx, ch = _scrub_price_text(x, ids)
+            out[k] = nx
+            changed = changed or ch
+        return out, changed
+    return value, False
+
+
+def _hold_prices(ctx: Ctx, item: PlanItem, doc) -> list[str]:
+    """قیمتِ «محاسبه‌شده / منتشرنشده»ی محصول‌ها را از ارائه و کاتالوگ برمی‌دارد و در کارت هشدار می‌دهد.
+
+    مالک هنوز این قیمت‌ها را تأیید نکرده (در سندِ واقعیت‌های چغر: قیمتِ تومانیِ هر برنامه جداگانه منتشر نشده و واحدش تأیید نشده)؛ پس نباید در اسلایدِ
+    ارائه، PDFِ کاتالوگ یا ویدیویی که از اسلایدها ساخته می‌شود چاپ شود. فقط **نسخهٔ داخلِ سندِ طراحی** عوض می‌شود (قیمت و ویژگی‌های «معادلِ تومانی» خالی
+    می‌شود)؛ خودِ محصول در فروشگاه دست نمی‌خورد. هر اجرا همین را تکرار می‌کند، پس اگر سند دوباره از محصولات همگام شد باز کنار می‌رود؛ وقتی مالک
+    نوشتهٔ «منتشر نشده» را از محصول بردارد، دیگر کنار گذاشته نمی‌شود. ⇒ نامِ محصول‌های کنارگذاشته‌شده."""
+    meta = dict(item.meta or {})
+    names = apply_price_hold(ctx, doc)
+    if doc is None or doc.kind not in ("deck", "catalog"):
+        return []
+    if not names:                                  # مالک قیمت را تأیید کرده؛ هشدارِ قبلی برداشته می‌شود
+        if meta.pop("price_hold", None) is not None:
+            meta["checks"] = [c for c in (meta.get("checks") or []) if "تأیید نشده" not in c]
+            item.meta = meta
+        return []
+    note = ("قیمتِ «" + "»، «".join(n[:40] for n in names[:3]) + "» هنوز تأیید نشده (فقط از روی قیمتِ بستهٔ توکن محاسبه شده و جداگانه منتشر نشده)؛ "
+            "تا تأییدِ شما در این سند و خروجی‌هایش (اسلاید، کاتالوگ، ویدیو) نشان داده نمی‌شود. بعد از تأییدِ قیمت، نوشتهٔ «منتشر نشده» را از محصول بردارید.")
+    meta["checks"] = [note] + [c for c in (meta.get("checks") or []) if "تأیید نشده" not in c]
+    meta["price_hold"] = names
+    item.meta = meta
+    return names
+
+
+def apply_price_hold(ctx: Ctx, doc) -> list[str]:
+    """نیمهٔ دادهٔ ``_hold_prices``: قیمتِ تأییدنشده را از خودِ سند برمی‌دارد (اگر لازم بود ``rev`` بالا می‌رود). ⇒ نامِ محصول‌های کنارگذاشته‌شده."""
+    from .facts import UNCONFIRMED_PRICE
+
+    held = ctx.f.get("price_review") or []
+    if doc is None or doc.kind not in ("deck", "catalog") or not held:
+        return []
+    ids = {int(h["id"]) for h in held}
+    data = copy.deepcopy(doc.data or {})
+    changed = False
+    for p in data.get("products") or []:
+        if int(p.get("id") or 0) not in ids:
+            continue
+        if p.get("price") is not None or p.get("compare_at") is not None:
+            p["price"], p["compare_at"], changed = None, None, True
+        attrs = [a for a in (p.get("attrs") or []) if not UNCONFIRMED_PRICE.search(" ".join(str(x) for x in a))]
+        if len(attrs) != len(p.get("attrs") or []):
+            p["attrs"], changed = attrs, True
+    slides, ch = _scrub_price_text(data.get("slides") or [], ids)
+    if ch:
+        data["slides"], changed = slides, True
+    names = [h["name"] for h in held]
+    if changed:
+        doc.data = data
+        doc.rev += 1
+        doc.meta = {**(doc.meta or {}), "price_hold": names}
+        doc.save(update_fields=["data", "rev", "meta", "updated_at"])
+    elif (doc.meta or {}).get("price_hold") != names:
+        doc.meta = {**(doc.meta or {}), "price_hold": names}
+        doc.save(update_fields=["meta", "updated_at"])
+    return names
+
+
 def _design(ctx: Ctx, item: PlanItem, kind: str, title: str, options: dict):
     from apps.design_studio import services as S
     from apps.design_studio.models import DesignDoc
 
     live = _alive(item, "design_doc")
     if live:
-        return DesignDoc.objects.filter(pk=live[0]["id"]).first()
+        doc = DesignDoc.objects.filter(pk=live[0]["id"]).first()
+        _hold_prices(ctx, item, doc)
+        return doc
     taken = refs.linked_ids(ctx.plan, "design_doc", exclude_item=item)
     docs = [d for d in DesignDoc.objects.filter(store=ctx.store, kind=kind).order_by("id") if str(d.pk) not in taken]
     doc = docs[0] if docs else None
@@ -398,6 +488,7 @@ def _design(ctx: Ctx, item: PlanItem, kind: str, title: str, options: dict):
         except S.DesignError as exc:
             raise NeedsYou(str(exc)) from exc
     refs.add(item, refs.make("design_doc", doc.pk, doc.title, ctx.url({"catalog": "design_catalog", "deck": "design_deck", "ui": "design_ui"}[kind])))
+    _hold_prices(ctx, item, doc)
     item.message = "پیش‌نویسِ آماده از استودیوی طراحی به برنامه وصل شد." if adopted else "پیش‌نویس در استودیوی طراحی ساخته شد."
     return doc
 
@@ -444,11 +535,25 @@ def p_video_edit(ctx: Ctx, item: PlanItem):
     from apps.design_studio.models import DesignDoc, DesignExport
 
     _drop_dead(item, "design_export")
-    if _alive(item, "design_export"):
-        return
     deck_item = ctx.sibling((item.meta or {}).get("for"))
     deck_ref = refs.of_type(deck_item, "design_doc") if deck_item else []
     doc = DesignDoc.objects.filter(pk=deck_ref[0]["id"]).first() if deck_ref else DesignDoc.objects.filter(store=ctx.store, kind="deck").order_by("id").first()
+    held = apply_price_hold(ctx, doc) if doc is not None else []                 # قیمتِ تأییدنشده پیش از ساختنِ اسلایدهای ویدیو برداشته شود
+    meta = dict(item.meta or {})
+    if held:
+        meta["checks"] = ["اسلایدهای این ویدیو بدونِ قیمتِ تأییدنشده ساخته شد (قیمتِ «" + "»، «".join(n[:40] for n in held[:3]) + "» هنوز تأیید نشده)."]
+    else:
+        meta.pop("checks", None)
+    item.meta = meta
+    live = _alive(item, "design_export")
+    if live and doc is not None:
+        e = DesignExport.objects.filter(pk=live[0]["id"]).first()
+        old_id = e.pk if e is not None else None
+        if e is not None and e.doc_rev != doc.rev and _cancel_queued_export(e):
+            refs.remove(item, "design_export", old_id)           # ویدیوی منتظر با اسلایدهای قدیمی (مثلاً با قیمتِ تأییدنشده) ⇒ دوباره با اسلایدهای فعلی
+            live = []
+    if live:
+        return
     if doc is None:
         raise NeedsYou("اول «ارائه» ساخته شود (روزِ ۶)؛ ویدیو از اسلایدهای آن ساخته می‌شود.")
     old = DesignExport.objects.filter(doc=doc, kind="mp4").exclude(state=DesignExport.State.FAILED).order_by("-id").first()
@@ -461,15 +566,62 @@ def p_video_edit(ctx: Ctx, item: PlanItem):
     item.message = "ویدیو در صفِ ماندگارِ سرورِ پردازش است و با روشن‌شدنِ گره خودش ساخته می‌شود."
 
 
+def _cancel_queued_export(e) -> bool:
+    """ویدیوی ارائه‌ای که هنوز در صف است (کار شروع نشده) را لغو و پاک می‌کند تا با اسلایدهای فعلی دوباره ساخته شود. ⇒ True اگر پاک شد."""
+    from apps.compute import services as CS
+    from apps.compute.models import ComputeJob
+    from apps.design_studio.models import DesignExport
+
+    if e.kind != "mp4" or e.state not in (DesignExport.State.QUEUED, DesignExport.State.RUNNING):
+        return False
+    job = ComputeJob.objects.filter(uid=(e.info or {}).get("job")).first() if (e.info or {}).get("job") else None
+    if job is not None and job.state != ComputeJob.State.QUEUED:
+        return False                                               # کار شروع شده؛ دست نمی‌زنیم
+    if job is not None:
+        CS.cancel(job, "اسلایدهای ارائه عوض شد؛ ویدیو با اسلایدهای تازه دوباره ساخته می‌شود")
+    e.delete()
+    return True
+
+
 # ----------------------------------------------------------------------------- رسانه (GPU): موشن، گوینده، موسیقی، تامنیل، تصویر، شخصیت، سه‌بعدی
 
 def _script_for(ctx: Ctx, item: PlanItem) -> str:
+    """متنِ گوینده: اول همان چیزی که ریلزِ همراه برای گفتن نوشته («متنِ گویندگی (پیشنهادی)» یا خط‌های «نریشن:»)، وگرنه متنِ ساختهٔ زاویه
+    (که فقط جمله‌های خواندنی دارد، نه دستورِ نویسنده)."""
     comp = ctx.sibling((item.meta or {}).get("for"))
     if comp is not None and comp.draft:
-        m = re.search(r"متنِ گویندگی[^:\n]*:\s*(.+)", comp.draft)
-        if m and len(m.group(1).strip()) > 20:
-            return m.group(1).strip()
+        said = drafts.narration_from_draft(comp.draft)
+        if said:
+            return said
     return drafts.reel_script(ctx.f, (item.meta or {}).get("pillar") or "intro")
+
+
+ZWNJ = chr(0x200C)                                   # نیم‌فاصله
+_WORD = re.compile(r"[\w" + ZWNJ + r"]+")
+_DIAC = re.compile("[" + chr(0x64B) + "-" + chr(0x65F) + chr(0x670) + "]")      # اعراب (کسره، فتحه، …)؛ «نگرانیِ» با «نگرانی» یکی است
+_STOP = {"موشن", "ویدیو", "ویدیوی", "ریلز", "ریلزِ", "پیش‌نویس", "چیست", "برای", "این", "همین", "یک", "با", "از", "در", "به", "که", "را", "کاورِ", "کاور",
+         "صدای", "گوینده", "لایهٔ", "تلفظ", "تصویر", "هوش", "مصنوعی", "مصنوعیِ", "پست"}
+_STOP = {_DIAC.sub("", w) for w in _STOP}
+
+
+def _topic_words(text: str, f: dict) -> set[str]:
+    """واژه‌های معنادارِ یک متنِ فارسی (بدونِ نامِ فروشگاه و واژه‌های عمومیِ «موشن/ریلز/…»)، برای سنجیدنِ این‌که دو چیز دربارهٔ یک موضوع‌اند."""
+    brand = {_DIAC.sub("", w) for w in _WORD.findall(str(f.get("name") or ""))}
+    out = set()
+    for w in _WORD.findall(str(text or "")):
+        w = _DIAC.sub("", w).strip(ZWNJ)
+        if len(w) >= 3 and w not in _STOP and w not in brand and not w.isdigit():
+            out.add(w)
+    return out
+
+
+def _motion_fits(render, item: PlanItem, ctx: Ctx) -> bool:
+    """رندرِ موشنِ دورهای قبل فقط وقتی به این کار وصل می‌شود که هم‌قاب (۹:۱۶) و هم‌موضوع باشد؛ وگرنه عنوانِ کار یک چیز می‌گوید و ویدیو چیزِ دیگر."""
+    if render.aspect != "9:16":
+        return False
+    want = _topic_words(item.title, ctx.f)
+    have = _topic_words(f"{render.title} {render.spec}", ctx.f)
+    return bool(want & have)
 
 
 @producer("motion")
@@ -477,15 +629,21 @@ def p_motion(ctx: Ctx, item: PlanItem):
     from apps.motion import services as M
     from apps.motion.models import MotionRender as R
 
+    for r in refs.of_type(item, "motion_render"):                     # رندرِ قدیمیِ ناهم‌موضوع/ناهم‌قاب که پیش‌تر وصل شده بود جدا می‌شود (خودِ رندر دست‌نخورده می‌ماند)
+        old = R.objects.filter(pk=r["id"]).first()
+        if old is not None and old.created_at < ctx.plan.created_at and not _motion_fits(old, item, ctx):
+            refs.remove(item, "motion_render", old.pk)
     _drop_dead(item, "motion_render")
     if _alive(item, "motion_render"):
         return
+    for r in refs.of_type(item, "motion_render"):                     # رندرِ ناموفق: خودش در بخش «موشن» می‌ماند، ولی این کار دوباره می‌سازد و پیوندِ کهنه نمی‌ماند
+        refs.remove(item, "motion_render", r["id"])
     taken = refs.linked_ids(ctx.plan, "motion_render", exclude_item=item)
     spare = [r for r in R.objects.filter(store=ctx.store, target=R.Target.NODE).exclude(state__in=(R.State.FAILED, R.State.CANCELLED)).order_by("id")
-             if str(r.pk) not in taken]
+             if str(r.pk) not in taken and _motion_fits(r, item, ctx)]
     if spare:
         render = spare[0]
-        item.message = "رندرِ موشنِ آماده از قبل به برنامه وصل شد."
+        item.message = "رندرِ موشنِ آماده از قبل (هم‌موضوع و هم‌قاب) به برنامه وصل شد."
     else:
         spec = drafts.motion_spec(ctx.f, (item.meta or {}).get("pillar") or "intro")
         try:
@@ -493,6 +651,8 @@ def p_motion(ctx: Ctx, item: PlanItem):
             render = M.start(render)
         except M.MotionError as exc:
             raise NodeNotReady(str(exc)) from exc
+        if render.state == R.State.FAILED:           # مثلاً «فروشگاه لوگو ندارد»: خطای کار می‌شود و بعد از چند بار تلاش متوقف می‌شود (نه هر ده دقیقه یک رندرِ ناموفقِ تازه)
+            raise RuntimeError((render.error or render.message or "رندرِ موشن شروع نشد")[:200])
         item.message = "رندرِ موشن در صفِ سرورِ پردازش گذاشته شد؛ با روشن‌شدنِ گره خودش رندر می‌شود."
     refs.add(item, refs.make("motion_render", render.pk, render.title, ctx.url("motion")))
     item.draft = item.draft or f"سبک: {render.style} · قاب: {render.aspect}"
@@ -504,11 +664,22 @@ def p_voiceover(ctx: Ctx, item: PlanItem):
     from services.audio import studio
 
     _drop_dead(item, "audio_asset")
-    if _alive(item, "audio_asset"):
-        return
-    script = item.draft or _script_for(ctx, item)
+    meta = dict(item.meta or {})
+    auto = _script_for(ctx, item)
+    # متنی که مالک خودش در کارت عوض کرده (با آخرین متنِ خودکار فرق دارد) همان می‌ماند؛ وگرنه هر اجرا متنِ درستِ روز را از ریلزِ همراه می‌گیرد
+    edited = bool(item.draft) and meta.get("auto_script") is not None and item.draft != meta["auto_script"]
+    script = item.draft if edited else auto
     item.draft = script
+    item.meta = {**meta, "auto_script": auto}
     _checks(item, script, ctx.f)
+    live = _alive(item, "audio_asset")
+    if live:
+        asset = AudioAsset.objects.filter(pk=live[0]["id"]).first()
+        if asset is None or asset.status != AudioAsset.Status.PENDING or " ".join(str(asset.text).split()) == " ".join(script.split()):
+            return
+        old_id = asset.pk
+        _retire_pending_voice(asset)              # صدایی که هنوز ساخته نشده و متنش با متنِ درست فرق دارد (مثلاً دستورِ نویسنده یا نشانیِ خراب) ⇒ با متنِ درست دوباره
+        refs.remove(item, "audio_asset", old_id)
     voices = [v for v in studio.voices(ctx.store) if v.get("engine") == "moss-fa"]
     if not voices:
         raise NodeNotReady("صداهای MOSS هنوز از سرورِ پردازش گزارش نشده؛ با روشن‌شدنِ گره ساخته می‌شود.")
@@ -521,29 +692,44 @@ def p_voiceover(ctx: Ctx, item: PlanItem):
     item.message = "صدا با لایهٔ تلفظِ فارسی در صفِ سرورِ پردازش گذاشته شد؛ با روشن‌شدنِ گره ساخته می‌شود."
 
 
+def _retire_pending_voice(asset) -> None:
+    """صدای ساخته‌نشده را با کارِ صفش کنار می‌گذارد: کارِ منتظر لغو می‌شود و ردیفِ صدا پاک (جایش را صدای تازه با متنِ درست می‌گیرد)."""
+    from apps.compute import services as CS
+    from apps.compute.models import ComputeJob
+
+    job = ComputeJob.objects.filter(uid=asset.job_uid).first() if asset.job_uid else None
+    if job is not None and not job.final:
+        CS.cancel(job, "متنِ گوینده اصلاح شد؛ صدا با متنِ درست دوباره ساخته می‌شود")
+    asset.delete()
+
+
 @producer("music")
 def p_music(ctx: Ctx, item: PlanItem):
     from apps.ai.models import AudioAsset
     from services.audio import studio
 
     _drop_dead(item, "audio_asset")
-    if _alive(item, "audio_asset"):
+    #: «موسیقیِ آغازین» (starter) نمونهٔ CC0 ِ خودِ سامانه است، نه موسیقیِ ساخته‌شده با ACE-Step که این کار می‌خواهد؛ فقط برای شنیدنِ فوری کنارش می‌ماند
+    music_rows = {a.pk: a for a in AudioAsset.objects.filter(pk__in=[r["id"] for r in _alive(item, "audio_asset")])}
+    if any(a.kind == AudioAsset.Kind.MUSIC and a.engine != "starter" for a in music_rows.values()):
         return
     taken = refs.linked_ids(ctx.plan, "audio_asset", exclude_item=item)
-    spare = [a for a in AudioAsset.objects.filter(store=ctx.store, kind=AudioAsset.Kind.MUSIC).exclude(status=AudioAsset.Status.FAILED).order_by("id")
+    spare = [a for a in AudioAsset.objects.filter(store=ctx.store, kind=AudioAsset.Kind.MUSIC).exclude(status=AudioAsset.Status.FAILED).exclude(engine="starter").order_by("id")
              if str(a.pk) not in taken]
+    tone = ctx.f.get("tone", "")
+    style, word = ("calm", "آرام") if "آرام" in tone else ("corporate", "رسمی") if "رسمی" in tone else ("upbeat", "شاد")
     if spare:
-        asset = spare[0]
+        asset = next((a for a in spare if word in (a.title or "")), spare[0])
     else:
-        tone = ctx.f.get("tone", "")
-        style = "calm" if "آرام" in tone else "corporate" if "رسمی" in tone else "upbeat"
         try:
             asset = studio.create_music(ctx.store, ctx.owner, style=style, seconds=30, title=f"موسیقیِ زمینهٔ {ctx.f['name']}"[:100])
         except studio.StudioError as exc:
             raise NodeNotReady(str(exc)) from exc
     refs.add(item, refs.make("audio_asset", asset.pk, asset.title or "موسیقی", ctx.url("audio_music")))
-    item.draft = item.draft or "موسیقیِ بی‌کلام (ACE-Step) برای زیرِ ریلز و ویدیو."
-    item.message = "موسیقی در صفِ سرورِ پردازش است و با روشن‌شدنِ گره ساخته می‌شود."
+    starter = next((a for a in music_rows.values() if a.engine == "starter"), None)
+    item.draft = item.draft or ("موسیقیِ بی‌کلام (ACE-Step) برای زیرِ ریلز و ویدیو" + (
+        f"؛ تا ساخته‌شدنش «{(starter.title or 'موسیقیِ آغازین')[:50]}» (نمونهٔ بی‌حق‌نشرِ سامانه) را می‌شود شنید." if starter else "."))
+    item.message = "موسیقیِ ACE-Step در صفِ سرورِ پردازش است و با روشن‌شدنِ گره ساخته می‌شود."
 
 
 _THUMB_STYLE = {"intro": "magazine_cover", "how": "number_list", "objection": "question_hook", "faq": "question_hook", "offer": "product_hero",
@@ -554,14 +740,18 @@ def _thumb(ctx: Ctx, item: PlanItem, fmt: str, label: str):
     from apps.thumbs import aibg, services as T
     from apps.thumbs.models import Thumbnail
 
+    for r in refs.of_type(item, "thumbnail"):                          # تامنیلِ دورهای قبل که قابش با این کار نمی‌خواند (مثلاً ۴:۵ برای «کاورِ ۹:۱۶») جدا می‌شود
+        old = Thumbnail.objects.filter(pk=r["id"]).first()
+        if old is not None and old.created_at < ctx.plan.created_at and old.format != fmt:
+            refs.remove(item, "thumbnail", old.pk)
     _drop_dead(item, "thumbnail")
     if _alive(item, "thumbnail"):
         return
     taken = refs.linked_ids(ctx.plan, "thumbnail", exclude_item=item)
-    waiting = [t for t in Thumbnail.objects.filter(store=ctx.store, state=Thumbnail.State.WAITING_BG).order_by("id") if str(t.pk) not in taken]
+    waiting = [t for t in Thumbnail.objects.filter(store=ctx.store, state=Thumbnail.State.WAITING_BG, format=fmt).order_by("id") if str(t.pk) not in taken]
     if waiting and item.kind == "thumbnail":
         made = [waiting[0]]
-        item.message = "تامنیلِ منتظرِ پس‌زمینهٔ هوش مصنوعی از قبل به برنامه وصل شد."
+        item.message = "تامنیلِ هم‌قابِ منتظرِ پس‌زمینهٔ هوش مصنوعی از قبل به برنامه وصل شد."
     else:
         if aibg._active_count(ctx.store) >= aibg.MAX_ACTIVE:
             raise NodeNotReady("چند پس‌زمینهٔ هوش مصنوعی در صف است؛ بعد از اجرای آن‌ها این یکی ساخته می‌شود.")
@@ -599,6 +789,19 @@ def p_image(ctx: Ctx, item: PlanItem):
     item.draft = item.draft or "پس‌زمینهٔ FLUX بی‌متن؛ در «ادیتور عکس ⇐ طراحِ خودکار» لوگو و متنِ فارسی رویش می‌نشیند."
 
 
+def _cancel_char_job(row) -> None:
+    """کارِ ساختِ تصویرِ شخصیتِ تکراری (هنوز در صف) را لغو می‌کند."""
+    from apps.brandchar import ai_render
+    from apps.brandchar.models import CharacterAIJob
+    from apps.compute import services as CS
+
+    job = ai_render._job_of(row)
+    if job is not None and not job.final:
+        CS.cancel(job, "ژستِ تکراریِ برنامه؛ لغو شد")
+    row.state, row.message = CharacterAIJob.State.FAILED, "لغو شد (ژستِ تکراریِ برنامه)"
+    row.save(update_fields=["state", "message", "updated_at"])
+
+
 @producer("character")
 def p_character(ctx: Ctx, item: PlanItem):
     from apps.brandchar import ai_render, services as S
@@ -613,24 +816,36 @@ def p_character(ctx: Ctx, item: PlanItem):
     except Exception as exc:  # noqa: BLE001
         logger.info("mktplan: cover render skipped: %s", exc)
     refs.add(item, refs.make("character", char.pk, char.name, ctx.url("brandchar_gallery")))
-    want = 1 if item.key.endswith(".cover") else 3
-    have = len(_alive(item, "character_job"))
-    if have >= want:
-        return
+    # «کاور» همان ژستِ ایستاده است؛ «ژست‌های بیشتر» فقط ژست‌های دیگر (ایستاده را دوباره با seedِ دیگر نمی‌سازد)
+    poses = ["wave", "think", "cheer"] if item.key.endswith(".poses") else ["stand"]
+    have_poses = set()
+    for r in _alive(item, "character_job"):
+        j = CharacterAIJob.objects.filter(pk=r["id"]).first()
+        if j is not None and j.pose not in poses and j.created_at >= ctx.plan.created_at and j.state == CharacterAIJob.State.QUEUED:
+            refs.remove(item, "character_job", j.pk)       # تکرارِ «ایستاده»ی همین برنامه (هنوز شروع نشده) لغو می‌شود
+            _cancel_char_job(j)
+        elif j is not None and j.pose in poses:
+            have_poses.add(j.pose)
     taken = refs.linked_ids(ctx.plan, "character_job", exclude_item=item)
     spare = [j for j in CharacterAIJob.objects.filter(store=ctx.store).exclude(state=CharacterAIJob.State.FAILED).order_by("id") if str(j.pk) not in taken]
-    poses = ["stand", "wave", "think", "cheer"] if item.key.endswith(".poses") else ["stand"]
-    for pose in poses[have:want]:
-        if spare:
-            job = spare.pop(0)
+    for pose in poses:
+        if pose in have_poses:
+            continue
+        job = next((j for j in spare if j.pose == pose and j.mode == "illustrated"), None)
+        if job is not None:
+            spare.remove(job)
         else:
             try:
                 job = ai_render.start(char, ctx.owner, mode="illustrated", pose=pose, expression="happy")
             except ai_render.AIRenderError as exc:
                 raise NodeNotReady(str(exc)) from exc
-        refs.add(item, refs.make("character_job", job.pk, f"تصویرِ هوش مصنوعیِ شخصیت ({pose})", ctx.url("brandchar_gallery")))
+        refs.add(item, refs.make("character_job", job.pk, f"تصویرِ هوش مصنوعیِ شخصیت ({job.pose or pose})", ctx.url("brandchar_gallery")))
     item.draft = item.draft or "تصویرهای FLUX از شخصیتِ برند (ژست‌های مختلف)؛ در «شخصیتِ برند ⇐ گالری» دیده و در موشن و تامنیل استفاده می‌شود."
     item.message = "کارِ ساختِ تصویر در صفِ ماندگارِ سرورِ پردازش است."
+
+
+#: پروفایلِ رندرِ ویدیوی سه‌بعدیِ برنامه: «standard» (۱۲۸۰ پیکسل، کلاسِ GPU)؛ کارِ GPU در صفِ پردازش کمترین اولویت را دارد (۱۵۰) و بعد از کارهای دیگرِ برنامه اجرا می‌شود
+RENDER_PROFILE = "standard"
 
 
 @producer("up3d")
@@ -638,20 +853,37 @@ def p_up3d(ctx: Ctx, item: PlanItem):
     from apps.up3d import services as U
     from apps.up3d.models import Project
 
-    if _alive(item, "up3d_project"):
-        return
-    taken = refs.linked_ids(ctx.plan, "up3d_project", exclude_item=item)
-    title = f"{ctx.f['name']} — ویدیوی سه‌بعدیِ کوتاه"
-    proj = Project.objects.filter(owner=ctx.owner, title=title).first()
+    _drop_dead(item, "up3d_job")
+    live = _alive(item, "up3d_project")
+    proj = Project.objects.filter(pk=live[0]["id"]).first() if live else None
     if proj is None:
-        brief = {"product_name": ctx.f["flagship"] or ctx.f["name"], "description": drafts._one_liner(ctx.f)[:300], "brand": ctx.f["name"],
-                 "audience": ctx.f["audience"][:160]}
-        proj, _job = U.create_project(ctx.owner, brief, mode="template", template="showcase", title=title)
-    if str(proj.pk) in taken:
+        taken = refs.linked_ids(ctx.plan, "up3d_project", exclude_item=item)
+        title = f"{ctx.f['name']} — ویدیوی سه‌بعدیِ کوتاه"
+        proj = Project.objects.filter(owner=ctx.owner, title=title).first()
+        if proj is None:
+            brief = {"product_name": ctx.f["flagship"] or ctx.f["name"], "description": drafts._one_liner(ctx.f)[:300], "brand": ctx.f["name"],
+                     "audience": ctx.f["audience"][:160]}
+            proj, _job = U.create_project(ctx.owner, brief, mode="template", template="showcase", title=title)
+        if str(proj.pk) in taken:
+            return
+        refs.add(item, refs.make("up3d_project", proj.pk, proj.title, "/tools/3d"))
+    item.draft = item.draft or "پیش‌نویسِ پروژه ساخته شد؛ رندرِ نهایی همین حالا در صفِ سرورِ پردازش است و با روشن‌شدنِ کارتِ گرافیک خودش ساخته می‌شود."
+    # رندرِ نهایی هم همین‌جا در صفِ ماندگار گذاشته می‌شود (پیش‌تر فقط پیش‌نویسِ پروژه بود و رندر یک کلیکِ دستی می‌خواست)
+    if _alive(item, "up3d_job"):
         return
-    refs.add(item, refs.make("up3d_project", proj.pk, proj.title, "/tools/3d"))
-    item.draft = item.draft or "پیش‌نویسِ پروژه ساخته شد؛ رندرِ نهایی روی کارتِ گرافیکِ سرورِ پردازش و از «ویدیوی سه‌بعدی» با یک کلیک."
-    item.message = "پروژهٔ سه‌بعدی ساخته شد؛ رندر با روشن‌شدنِ سرورِ پردازش از همان صفحه ممکن است."
+    existing = proj.jobs.filter(kind="render").exclude(state__in=("FAILED", "CANCELLED")).order_by("-created").first()
+    if existing is not None:
+        job = existing
+    else:
+        try:
+            job = U.request_job(proj, "render", RENDER_PROFILE, {})
+        except ValueError as exc:                    # پروژه هنوز صحنه ندارد (برنامه‌ریزیِ قالب چند ثانیه می‌گیرد) ⇒ تیکِ بعد دوباره
+            item.meta = {**(item.meta or {}), "retry_soon": True}
+            item.message = f"پروژهٔ سه‌بعدی ساخته شد؛ رندرش چند لحظهٔ دیگر در صف می‌رود ({str(exc)[:80]})."
+            return
+    item.meta = {k: v for k, v in (item.meta or {}).items() if k != "retry_soon"}
+    refs.add(item, refs.make("up3d_job", job.pk, "رندرِ ویدیوی سه‌بعدی", "/tools/3d"))
+    item.message = "رندرِ ویدیوی سه‌بعدی در صفِ ماندگارِ سرورِ پردازش است و با روشن‌شدنِ گره خودش ساخته می‌شود."
 
 
 # ----------------------------------------------------------------------------- پیام‌ها: ایمیل، پیامک، بازبینی

@@ -147,26 +147,84 @@ def content_draft(kind: str, pillar: str, f: dict) -> str:
     return "\n".join(lines)
 
 
+def strip_markup(text: str) -> str:
+    """متنی که به گوینده می‌رسد: بدونِ «https://» (نشانیِ سایت همان‌طور که مردم می‌گویند)، بدونِ جای‌گیرِ [ ] و فاصله‌های اضافه."""
+    t = re.sub(r"https?://", "", str(text or ""), flags=re.I)
+    t = re.sub(r"([A-Za-z0-9])/(?=\s|$)", r"\1", t)             # «panel.example.ir/» ⇒ «panel.example.ir»
+    t = re.sub(r"\[[^\]]*\]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def spoken(text: str) -> str:
+    """مثلِ ``strip_markup``؛ «برچسب: متن» هم برای گوینده «برچسب، متن» می‌شود (دونقطه را گوینده نمی‌خواند)."""
+    return strip_markup(text).replace(": ", "، ").replace(" + ", " و ").strip(" ،")
+
+
+def _spoken_beats(pillar: str, f: dict) -> list[str]:
+    """جمله‌هایی از زاویه که **برای گفتن** نوشته شده‌اند.
+
+    بندهای ``_pillar_lines`` سه جور است: جملهٔ خواندنی (دربارهٔ برند، مخاطب، نشانی)، جای‌گیرِ [ ] برای مالک، و **دستورِ نویسنده** («بدونِ مقایسه با
+    رقیب…»، «عددِ ساعت یا درصد ننویسید»، «از مخاطب بپرسید…»، «نظرسنجی (دو گزینه)»، یا پاسخی که از «ارزش‌های شخصیتِ برند» می‌آید). فقط جورِ اول را می‌خوانیم؛
+    دو جورِ دیگر هرگز به صدا نمی‌رسد (پیش‌تر «پیش‌نویس را پیش‌نویس بگو» و «//panel…» روی صدا رفته بود)."""
+    n, p, aud, one = _name(f), _product(f), f["audience_short"], _one_liner(f)
+    site = f.get("site") or ""
+    if pillar == "intro":
+        out = [f"{n} چیست؟ {one}"] if one else []
+        out.append(f"برای چه کسی؟ {aud}")
+        if site:
+            out.append(f"از کجا شروع کنم؟ {site}")
+        return out
+    if pillar == "offer":
+        out = [f"برای چه کسی؟ {aud}"]
+        if site:
+            out.append(f"چطور شروع کنم؟ {site}")
+        return out
+    if pillar == "process":
+        return [f"همان کار با {p}"]
+    return []                                 # how / objection / faq / behind / series: بندها جای‌گیر یا دستورِ نویسنده است؛ چیزی برای خواندن نیست
+
+
 def reel_script(f: dict, pillar: str) -> str:
-    """متنِ گویندهٔ یک ریلزِ ۱۵ تا ۲۵ ثانیه‌ای (چند جملهٔ کوتاه، بدونِ عدد و ادعا)."""
-    hook, beats, cta = _pillar_lines(pillar, f)
-    parts = [hook.rstrip("؟?.") + ("؟" if hook.rstrip().endswith(("؟", "?")) else ".")]
-    for b in beats:
-        text = re.sub(r"^[^:]*:\s*", "", b) if "[" not in b else ""
-        if text and len(text) < 120:
+    """متنِ گویندهٔ یک ریلزِ ۱۵ تا ۲۵ ثانیه‌ای (چند جملهٔ کوتاه، بدونِ عدد و ادعا و بدونِ دستورِ نویسنده)."""
+    hook, _beats, cta = _pillar_lines(pillar, f)
+    h = spoken(hook)
+    parts = [h.rstrip("؟?.") + ("؟" if hook.rstrip().endswith(("؟", "?")) else ".")]
+    for b in _spoken_beats(pillar, f):
+        text = spoken(b)
+        if text and len(text) < 160:
             parts.append(text.rstrip(".") + ".")
-    parts.append(cta.rstrip(".") + ".")
+    parts.append(spoken(cta).rstrip(".") + ".")
     text = " ".join(x for x in parts if x)
     return re.sub(r"\s+", " ", text)[:600]
 
 
+_NARR_LINE = re.compile(r"^[ \t•\-–]*متنِ گویندگی[^:\n]*:\s*(.+)$", re.M)
+_NARR_BEAT = re.compile(r"^[ \t•\-–]*نریشن\s*:\s*(.+)$", re.M)
+
+
+def narration_from_draft(draft: str) -> str:
+    """متنِ گویندهٔ یک ریلز از پیش‌نویسِ خودش: خطِ «متنِ گویندگی (پیشنهادی): …» یا خط‌های «نریشن: …». نبود ⇒ ""."""
+    text = str(draft or "")
+    m = _NARR_LINE.search(text)
+    if m:
+        cand = m.group(1)
+    else:
+        beats = [b.strip() for b in _NARR_BEAT.findall(text) if b.strip()]
+        cand = " ".join(b.rstrip(".") + "." for b in beats)
+    cand = strip_markup(cand)
+    return cand[:600] if len(cand) > 20 else ""
+
+
 def motion_spec(f: dict, pillar: str) -> dict:
     """سندِ قالبیِ موشن (سه صحنه: عنوان، فهرست، دعوت)."""
-    hook, beats, cta = _pillar_lines(pillar, f)
-    items = [re.sub(r"^[^:]*:\s*", "", b)[:70] for b in beats if "[" not in b][:4] or [f["audience_short"]]
+    hook, _beats, cta = _pillar_lines(pillar, f)
+    # روی صفحهٔ ویدیو فقط جمله‌های خواندنی می‌آید (نه دستورِ نویسنده مثل «بدونِ مقایسه با رقیب…» یا «پیش‌نویس را پیش‌نویس بگو»)
+    items = [spoken(b)[:70] for b in _spoken_beats(pillar, f)][:4] or [x for x in (_clip(_one_liner(f), 70), f["audience_short"]) if x][:3]
+    cta = strip_markup(cta)
+    has_logo = bool(f.get("has_logo"))                      # فروشگاهِ بی‌لوگو: «show_logo» خاموش (وگرنه رندر «فروشگاه لوگو ندارد» می‌دهد)
     return {
         "style": "glassmorphism", "aspect": "9:16", "fps": 30, "lang": "fa",
-        "brand": {"use_brand_colors": True, "show_logo": True, "name": f["name"], "logo": "store-logo"},
+        "brand": {"use_brand_colors": True, "show_logo": has_logo, "name": f["name"], **({"logo": "store-logo"} if has_logo else {})},
         "scenes": [
             {"type": "title", "duration": 4.0, "kicker": _name(f)[:40], "title": hook[:80], "subtitle": (f["tagline"] or _one_liner(f))[:90]},
             {"type": "list", "duration": 7.0, "title": "در یک نگاه", "items": items, "numbered": True},

@@ -249,7 +249,7 @@ class BugSectionsView(APIView):
 
     def get(self, request):
         staff = bool(request.user.is_staff)
-        rows = [{"key": g["key"], "title": g["title"], "phase_title": g["phase_title"], "covers": g["covers"]} for g in guide.GUIDE if staff or not g["staff"]]
+        rows = [{"key": g["key"], "title": g["title"], "phase_title": g["phase_title"], "covers": g["covers"]} for g in guide.all_sections() if staff or not g["staff"]]
         return Response({"sections": rows + [{"key": "other", "title": "جای دیگر / نامشخص", "phase_title": "", "covers": []}]})
 
 

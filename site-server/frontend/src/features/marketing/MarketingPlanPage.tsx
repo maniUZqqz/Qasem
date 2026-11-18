@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../api/client";
 import Icon from "../../components/Icon";
+import { faDateTime } from "../../components/fmt";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, PageHeader, SectionTitle, Spinner, Stat, TextArea, fa } from "../../components/ui";
 import {
   type Decision,
@@ -402,7 +403,7 @@ export default function MarketingPlanPage() {
             <p className="mp-muted">{plan.goal}</p>
             <p className="mp-muted">
               شروع: {plan.start_fa} · {fa(plan.days)} روز
-              {plan.last_run_at ? ` · آخرین اجرا: ${new Date(plan.last_run_at).toLocaleString("fa-IR")}` : ""}
+              {plan.last_run_at ? ` · آخرین اجرا: ${faDateTime(plan.last_run_at)}` : ""}
               {plan.running ? " · در حالِ اجرا…" : ""}
             </p>
             <Counters plan={plan} />

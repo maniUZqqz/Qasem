@@ -236,8 +236,10 @@ def _up3d_job(ref) -> tuple[str, str]:
         return FAILED, (j.error or j.message or "ناموفق")[:200]
     if j.state == "CANCELLED":
         return CANCELLED, "لغو شد"
-    if j.state == "PENDING":
-        return WAITING, j.message or "منتظرِ سرورِ پردازش"
+    if j.state in ("PENDING", "PLANNED"):
+        return WAITING, j.message or "منتظرِ آماده‌سازی و سرورِ پردازش"
+    if j.state == "SCENE_BUILDING" and j.owner == "worker" and j.worker_id is None:
+        return WAITING, "منتظرِ سرورِ پردازش (کارتِ گرافیک)"            # آماده‌سازی تمام شده؛ کارِ رندر در صفِ ماندگار است و هنوز کسی برنداشته
     return RUNNING, j.message or "در حالِ ساخت"
 
 

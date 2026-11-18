@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { errorMessage } from "../../api/client";
+import { faDateTime } from "../../components/fmt";
 import { Alert, Badge, Button, Card, EmptyState, ErrorBox, PageHeader, SectionTitle, Spinner, fa } from "../../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { type BugReport, type GuideResponse, type GuideSection, loadBugs, loadGuide, openBugReport, setBugState } from "./api";
@@ -237,7 +238,7 @@ export default function TestGuidePage() {
                         #{fa(b.id)} · {b.section_title || b.section}
                       </strong>
                       <Badge tone={b.state === "fixed" ? "ok" : b.state === "wontfix" ? "neutral" : "warn"}>{b.state_label}</Badge>
-                      <span className="mp-muted">{new Date(b.created_at).toLocaleString("fa-IR")}</span>
+                      <span className="mp-muted">{faDateTime(b.created_at)}</span>
                       {user?.is_staff && (
                         <select
                           className="u-input"

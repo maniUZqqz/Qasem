@@ -65,14 +65,31 @@
 .tg-bug { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--surface-2); font-size: 13px; line-height: 1.8; }
 .tg-bug img { max-width: 220px; max-height: 140px; border-radius: 8px; border: 1px solid var(--line); display: block; margin-top: 6px; }
 
-/* دکمه و پنجرهٔ «گزارشِ ایراد» — کنارِ قرصِ نسخه؛ همان گوشه‌های جایگزینِ version-badge.css را دنبال می‌کند */
-.nm-ver.nm-bug { inset-inline-end: 64px; cursor: pointer; font-family: var(--font-sans, Vazirmatn, Tahoma, sans-serif); opacity: .85; }
-.nm-ver.nm-bug:hover { opacity: 1; color: var(--warn); }
+/* دکمه و پنجرهٔ «گزارشِ ایراد» — دکمهٔ اصلیِ بازخوردِ مالک: بزرگ‌تر و پررنگ، **بالای** قرصِ نسخه (نه کنارش، تا روی نشانِ وضعیتِ آخرین کارت
+   نیفتد)؛ همان گوشه‌های جایگزینِ version-badge.css را دنبال می‌کند و هر جا قرصِ نسخه بالا رفت این هم یک ردیف بالاتر می‌رود. */
+.nm-ver.nm-bug {
+  inset-inline-end: 8px;
+  inset-block-end: calc(34px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 16px;
+  font-size: 14px; font-weight: 800; line-height: 1.5; letter-spacing: 0;
+  color: var(--text, #e8edf9); background: var(--warn-soft, rgb(245 166 35 / .22)); border: 1.5px solid var(--warn, #f5a623);
+  box-shadow: 0 4px 14px rgb(0 0 0 / .28);
+  cursor: pointer; font-family: var(--font-sans, Vazirmatn, Tahoma, sans-serif); opacity: 1;
+}
+.nm-ver.nm-bug::before { content: "⚑"; margin-inline-end: 6px; color: var(--warn, #f5a623); }
+.nm-ver.nm-bug:hover, .nm-ver.nm-bug:focus-visible { background: var(--warn, #f5a623); color: #1a1205; }
+.nm-ver.nm-bug:hover::before, .nm-ver.nm-bug:focus-visible::before { color: inherit; }
 @media (min-width: 1001px) {
   body:has(.ws-root.is-full .vw-grid) .nm-ver.nm-bug,
-  body:has(.u3e-root) .nm-ver.nm-bug { inset-inline-end: auto; inset-inline-start: 72px; }
+  body:has(.u3e-root) .nm-ver.nm-bug { inset-inline-end: auto; inset-inline-start: 20px; }
 }
-.nm-ver--lift.nm-bug { inset-block-end: calc(76px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 901px) {
+  body:has(.ws-root.is-full .pw-grid) .nm-ver.nm-bug { inset-block-end: 62px; }
+}
+@media (max-width: 900px) {
+  body:has(.nbe-bottom) .nm-ver.nm-bug { inset-block-end: calc(92px + env(safe-area-inset-bottom, 0px)); }
+}
+.nm-ver--lift.nm-bug { inset-block-end: calc(104px + env(safe-area-inset-bottom, 0px)); }
 .bug-overlay { position: fixed; inset: 0; z-index: 130; background: rgb(5 7 15 / .55); display: grid; place-items: center; padding: 16px; }
 .bug-dialog { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--s-50, var(--surface)); color: var(--text); border: 1px solid var(--line-strong); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px; }
 .bug-dialog h2 { margin: 0; font-size: 16px; font-weight: 800; }

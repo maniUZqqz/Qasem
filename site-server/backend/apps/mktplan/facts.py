@@ -12,6 +12,8 @@ from apps.ideabank import fill as idea_fill
 
 _SENT = re.compile(r"(?<=[.!؟?])\s+|\n+")
 _URL = re.compile(r"^https?://", re.I)
+#: نوشته‌ای که خودِ فروشگاه کنارِ یک قیمت گذاشته و می‌گوید «این قیمت تأیید/منتشر نشده» (مثلاً «محاسبه‌شده از قیمتِ بستهٔ توکن؛ جداگانه منتشر نشده»)
+UNCONFIRMED_PRICE = re.compile(r"منتشر[\s\u200c]*نشده|تأیید[\s\u200c]*نشده|تایید[\s\u200c]*نشده|محاسبه[\s\u200c]*شده|برآورد")
 
 
 def _first_sentences(text: str, n: int = 2, limit: int = 220) -> str:
@@ -44,6 +46,30 @@ def _products(store, limit: int = 8) -> list[dict]:
             "free": (p.price is not None and float(p.price) == 0.0),
         })
     return out
+
+
+def price_review(store) -> list[dict]:
+    """محصول‌هایی که قیمتشان را خودِ فروشگاه «تأییدنشده / منتشرنشده / محاسبه‌شده» نوشته (در توضیح یا در ویژگی‌های محصول).
+
+    این قیمت‌ها نباید بی‌تأییدِ مالک در اسلاید، کاتالوگ یا ویدیو بیایند؛ سازندهٔ برنامه آن‌ها را از سندهای طراحی کنار می‌گذارد و در کارت هشدار می‌دهد.
+    ⇒ [{id, name, price}]؛ نبودنِ چنین نشانه‌ای ⇒ []."""
+    from apps.products.models import Product
+
+    out = []
+    for p in Product.objects.filter(store=store).prefetch_related("attributes").order_by("pk"):
+        if p.price is None or float(p.price) <= 0:
+            continue
+        bits = [p.short_description or "", p.description or ""] + [f"{a.key} {a.value}" for a in p.attributes.all()]
+        if any(UNCONFIRMED_PRICE.search(b) for b in bits):
+            out.append({"id": p.pk, "name": str(p.name or "").strip(), "price": float(p.price)})
+    return out
+
+
+def sample_product_id(store) -> int | None:
+    """محصولی که راهنمای آزمون برای نشان‌دادنِ «صفحهٔ محصول» باز می‌کند: همان محصولِ اصلیِ برنامه (نه شناسهٔ فروشگاه)."""
+    prods = _products(store)
+    flagship = next((p for p in prods if p["name"] and not any(ch.isdigit() for ch in p["name"])), prods[0] if prods else None)
+    return flagship["id"] if flagship else None
 
 
 def store_facts(store) -> dict[str, Any]:
@@ -82,8 +108,10 @@ def store_facts(store) -> dict[str, Any]:
         "site": site,
         "instagram": instagram,
         "colors": dict(getattr(store, "colors", None) or {}),
+        "has_logo": bool(getattr(getattr(store, "logo", None), "name", "")),
         "known": ctx["known"],
         "placeholders": ctx["values"],
+        "price_review": price_review(store),
     }
 
 

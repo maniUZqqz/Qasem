@@ -301,6 +301,8 @@ def _needs_rerun(item: PlanItem, node_on: bool) -> bool:
     if item.decision:
         return False
     tries = int((item.meta or {}).get("tries") or 0)
+    if (item.meta or {}).get("retry_soon") and tries < MAX_TRIES:        # مثلاً پروژهٔ سه‌بعدی هنوز صحنه ندارد؛ رندرش را همین تیک صف کن (گره روشن نباشد هم)
+        return True
     if item.status == S.FAILED and tries < MAX_TRIES:
         return True
     if item.status == S.PLANNED:

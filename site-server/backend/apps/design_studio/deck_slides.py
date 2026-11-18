@@ -5,8 +5,19 @@
 """
 from __future__ import annotations
 
+import re
+
 from . import colors, scene, typeset
 from .scene import gradient
+
+#: «منبع»ی که مسیرِ فایلِ داخلی است («docs/…/brand-facts-fa.md — بخش ۲») برای تماشاگر معنا ندارد؛ فقط در دادهٔ سند و بازبینی می‌ماند
+_INTERNAL_SOURCE = re.compile(r"(?:^|[\s/(])docs/|[\w.-]+\.(?:md|py|txt|json|csv)\b", re.I)
+
+
+def public_source(src: str) -> str:
+    """نوشتهٔ «منبع» که روی اسلاید چاپ می‌شود؛ مسیرِ فایلِ داخلی ⇒ "" (چاپ نمی‌شود)."""
+    src = str(src or "").strip()
+    return "" if _INTERNAL_SOURCE.search(src) else src
 
 SLIDE_TYPES = ("title", "agenda", "text", "product", "comparison", "stats", "timeline", "team", "cta", "section", "image")
 SLIDE_TYPE_FA = {"title": "عنوان", "agenda": "فهرست مطالب", "text": "متن و نکته‌ها", "product": "معرفیِ محصول", "comparison": "مقایسه", "stats": "آمار (از دادهٔ واقعی)",
@@ -281,8 +292,11 @@ def s_stats(spec, ctx):
                               max_lines=1 if len(val) <= 8 else 2, shrink=0.45, lh=1.2))
         els.append(scene.text(sid + "-label", x + 24, y + 230, cw - 48, 110, it.get("label", ""), font=ctx.bf, weight=600, size=34, color=th["fg"], lh=1.4, max_lines=3, shrink=0.25, align="right"))
         src = str(it.get("source") or "").strip()
-        if src:
-            els.append(scene.text(sid + "-src", x + 24, y + 20 + ch - 90, cw - 48, 70, "منبع: " + src, font=ctx.bf, size=22, color=th["muted"], lh=1.4, max_lines=2, align="right", valign="bottom"))
+        shown = public_source(src)
+        if shown:
+            els.append(scene.text(sid + "-src", x + 24, y + 20 + ch - 90, cw - 48, 70, "منبع: " + shown, font=ctx.bf, size=22, color=th["muted"], lh=1.4, max_lines=2, align="right", valign="bottom"))
+        elif src:
+            pass                                    # منبعِ داخلی (مسیرِ فایل): در سند و بازبینی می‌ماند ولی روی اسلاید و ویدیو چاپ نمی‌شود
         else:
             els.append(scene.text(sid + "-src", x + 24, y + 20 + ch - 90, cw - 48, 70, "منبع را بنویس", font=ctx.bf, size=22, color=th["muted"], ph=True, align="right", valign="bottom"))
     _chrome(ctx, els, th)

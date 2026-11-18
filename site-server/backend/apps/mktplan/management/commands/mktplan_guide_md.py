@@ -25,4 +25,4 @@ class Command(BaseCommand):
         out = Path(o["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8", newline="\n")
-        self.stdout.write(f"{out} ({len(text)} نویسه، {len(guide.GUIDE)} بخش)")
+        self.stdout.write(f"{out} ({len(text)} نویسه، {len(guide.all_sections())} بخش)")

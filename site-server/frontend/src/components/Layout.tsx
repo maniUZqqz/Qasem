@@ -393,7 +393,7 @@ export default function Layout({ children }: { children?: ReactNode } = {}) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-6 pb-24">
           {children ?? <Outlet />}
         </main>
       </div>

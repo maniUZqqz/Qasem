@@ -96,6 +96,7 @@ import ComputeReportPage from "./features/tools/compute/report";
 import ComputeSelfTestPage from "./features/tools/compute/selftest";
 import ComputeTonightPage from "./features/tools/compute/tonight";
 import MobilePage from "./features/mobile/MobilePage";
+import DomainPage from "./features/tools/domain";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
 
@@ -153,6 +154,8 @@ export default function App() {
               <Route path="/tools/models" element={<PageGate k="compute_models"><ModelsPage /></PageGate>} />
               <Route path="/tools/egress" element={<PageGate k="egress"><EgressPage /></PageGate>} />
               <Route path="/tools/mobile" element={<PageGate k="mobile"><MobilePage /></PageGate>} />
+              {/* دامنه و SSL (کارتِ ادمین): وضعیتِ IP/دامنه، انقضای گواهی، سنجشِ DNS */}
+              <Route path="/tools/domain" element={<PageGate k="domain_ssl"><DomainPage /></PageGate>} />
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<PageGate k="crm"><CrmPage /></PageGate>} />
                 <Route path="marketing" element={<PageGate k="marketing_report"><MarketingReportPage /></PageGate>} />

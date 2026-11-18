@@ -13,5 +13,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # پاک‌سازیِ پس‌ماندهٔ آزمون‌ها در /tmp (فقط nm-* و acestep-fake* و pip-unpack* بیش از یک روز)
 20 4 * * * root /usr/local/bin/nm-tmp-sweep >/dev/null 2>&1
 
+# دامنه و SSL: نگهبانِ روزانه ۰۵:۴۰ UTC - گواهیِ کم‌مانده را دوباره تمدید می‌کند و یک خط می‌نویسد؛ تا دامنه‌ای وصل نشده بی‌صداست
+40 5 * * * root [ -f /var/www/NM/upmarket/deploy/nm/nm-domain.sh ] && bash /var/www/NM/upmarket/deploy/nm/nm-domain.sh --watch >> /var/log/nm-domain.log 2>&1
+
 # آزمون‌های شبانه ۲۳:۳۰ UTC (۰۳:۰۰ تهران): هر اپ جدا، nice 10، زیرِ قفلِ سنگین؛ نتیجه در صفحهٔ «خودآزمایی» ِ پنل
 30 23 * * * root /usr/local/bin/nm-nightly-tests >/dev/null 2>&1

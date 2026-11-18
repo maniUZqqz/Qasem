@@ -202,6 +202,7 @@ export const PAGES: PanelPage[] = [
   { key: "compute_models", section: "tools", label: "دانلودِ مدل‌ها", icon: "download", to: "/tools/models", end: true, staffOnly: true },
   { key: "egress", section: "tools", label: "پراکسی و VPN", icon: "shield", to: "/tools/egress", end: true, staffOnly: true },
   { key: "mobile", section: "tools", label: "دستگاه‌های موبایل", icon: "link", to: "/tools/mobile", end: true, staffOnly: true },
+  { key: "domain_ssl", section: "tools", label: "دامنه و SSL", icon: "shield", to: "/tools/domain", end: true, staffOnly: true },
   { key: "django_admin", section: "tools", label: "ادمینِ جنگو", icon: "settings", to: "/admin/", staffOnly: true, external: true },
 ];
 

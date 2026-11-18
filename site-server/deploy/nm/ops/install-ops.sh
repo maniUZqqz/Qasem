@@ -36,6 +36,14 @@ for s in nm-tmp-sweep nm-reload nm-backup nm-watchdog nm-nightly-tests; do
   put "$HERE/$s" "$BIN/$s" 755 || true
 done
 
+# «دامنه + SSL»: /root/nm-domain.sh ⇒ deploy/nm/nm-domain.sh (symlink؛ خودِ اسکریپت کنارِ nm_domain.py می‌ماند)
+if [ -f "$NMDIR/nm-domain.sh" ]; then
+  link="${NM_DOMAIN_LINK:-/root/nm-domain.sh}"
+  if [ "$(readlink "$link" 2>/dev/null)" != "$NMDIR/nm-domain.sh" ]; then
+    if [ "$CHECK" = "1" ]; then changed+=("$link (would link)"); else ln -sfn "$NMDIR/nm-domain.sh" "$link"; chmod +x "$NMDIR/nm-domain.sh"; changed+=("$link"); fi
+  fi
+fi
+
 # logrotate: اول اعتبارسنجی
 if [ -f "$HERE/nm-logrotate.conf" ]; then
   if command -v logrotate >/dev/null 2>&1 && ! logrotate -d -s /tmp/nm-logrotate-check.state "$HERE/nm-logrotate.conf" >/dev/null 2>&1; then

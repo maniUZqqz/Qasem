@@ -156,13 +156,19 @@ npm run build 2>&1 | tail -5
 
 step "سایتِ عمومی (Next.js) — build standalone"
 cd "$ROOT/website"
+# اگر دامنه وصل شده (deploy/nm/nm-domain.sh)، نشانیِ سایت همان دامنه می‌ماند، نه IP
+SITE_BASE="http://$HOST_IP:$PORT"
+if [ -f "$DATA/domain/domain.json" ]; then
+  DOMAIN_BASE=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1])).get('canonical',''))" "$DATA/domain/domain.json" 2>/dev/null || true)
+  [ -n "$DOMAIN_BASE" ] && SITE_BASE="$DOMAIN_BASE"
+fi
 cat > .env.production.local <<EOF
 # سمتِ سرورِ Next به جنگو (قیمت، وبلاگ، نسخه، /api). NEXT_PUBLIC_API_BASE عمداً خالی است: به جاوااسکریپتِ مرورگرِ بازدیدکننده می‌رود و
 # آدرسِ 127.0.0.1 آنجا یعنی «کامپیوترِ خودِ بازدیدکننده» (فرمِ تماس هیچ پیامی را نمی‌فرستاد). مرورگر آدرسِ نسبی (/api/v1/…) می‌زند.
 INTERNAL_API_BASE=http://127.0.0.1:$PORT
 NEXT_PUBLIC_API_BASE=
-NEXT_PUBLIC_PANEL_URL=http://$HOST_IP:$PORT/panel
-NEXT_PUBLIC_SITE_URL=http://$HOST_IP:$PORT
+NEXT_PUBLIC_PANEL_URL=$SITE_BASE/panel
+NEXT_PUBLIC_SITE_URL=$SITE_BASE
 REVALIDATE_SECRET=$(grep '^WEBSITE_REVALIDATE_SECRET=' "$BE/.env" | cut -d= -f2-)
 EOF
 npm ci --no-audit --no-fund --loglevel=error 2>/dev/null || npm install --no-audit --no-fund --loglevel=error || die "npm install website"

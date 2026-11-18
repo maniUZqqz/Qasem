@@ -3,7 +3,12 @@
 Read from ``settings.GROWTH_ENGINE`` (a dict) so every limit can be tuned from the
 environment without touching code; a missing key falls back to the default here.
 """
+import os
+
 from django.conf import settings
+
+# تماسِ ربات = نشانیِ عمومیِ خودِ سایت (با وصل‌شدنِ دامنه توسطِ nm-domain.sh خودکار عوض می‌شود)
+_BOT_CONTACT = (os.getenv("NM_BOT_CONTACT") or os.getenv("PUBLIC_BASE_URL") or "http://87.107.160.17:8040").rstrip("/")
 
 DEFAULTS = {
     # --- CSV import ---------------------------------------------------------------------------
@@ -17,7 +22,7 @@ DEFAULTS = {
     "BULK_MAX_IDS": 500,
     "EXPORT_MAX_ROWS": 50_000,
     # --- outbound HTTP (integrations/safe_http.py) -----------------------------------------------
-    "HTTP_USER_AGENT": "NMarketingBot/1.0 (+http://87.107.160.17:8040/; business contact lookup)",
+    "HTTP_USER_AGENT": "NMarketingBot/1.0 (+%s/; business contact lookup)" % _BOT_CONTACT,
     "HTTP_ROBOTS_TOKEN": "NMarketingBot",
     "HTTP_CONNECT_TIMEOUT": 5.0,
     "HTTP_READ_TIMEOUT": 12.0,

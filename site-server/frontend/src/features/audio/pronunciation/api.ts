@@ -74,7 +74,7 @@ export type Preview = {
   engines: Partial<Record<EngineKey, { depth: Depth; text: string; ipa?: string; engine_words?: number; letter_words?: number }>>;
 };
 
-export type Convert = { pn: string; respelling: string; ipa: string; syllables: number };
+export type Convert = { pn: string; respelling: string; ipa: string; ipa_ssml?: string; syllables: number };
 
 export type Entry = {
   id: number;
@@ -89,7 +89,7 @@ export type Entry = {
   updated_at: string;
 };
 
-export type SharedRow = { word: string; pn: string; respelling: string; ipa: string; category: string; tag: string };
+export type SharedRow = { word: string; pn: string; respelling: string; ipa: string; ipa_ssml?: string; category: string; tag: string };
 export type Shared = { total: number; rows: SharedRow[]; categories: { name: string; count: number }[] };
 
 export type Problem = {
@@ -153,9 +153,9 @@ export const startRun = async (id: string, engine: EngineKey, sample: "quick" | 
 export const loadSamples = async (id: string) => (await api.get<{ sets: SampleSet[] }>(`${P(id)}/samples/`)).data.sets;
 
 export type EzafeRow = {
-  set: "main" | "heldout";
+  set: "main" | "heldout" | "det" | "det_heldout";
   set_label: string;
-  which: "before" | "after";
+  which: "before" | "previous" | "after";
   sentences: number;
   gold: number;
   said: number;

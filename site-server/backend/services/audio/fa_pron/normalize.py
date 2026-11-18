@@ -149,6 +149,25 @@ def _say_date(y: int, m: int, d: int, kind: str) -> str:
     return f"{ordinal(d, first_as_aval=False)} {months[m - 1]}{KASRA} {cardinal(y)}"
 
 
+#: English month names (a capital first letter, so «may» / «mar» the words stay words) -> the Persian month name
+_EN_MONTH_FA = {
+    "jan": "ژانویه", "feb": "فوریه", "mar": "مارس", "apr": "آوریل", "may": "مه", "jun": "ژوئن", "jul": "ژوئیه", "aug": "اوت",
+    "sep": "سپتامبر", "oct": "اکتبر", "nov": "نوامبر", "dec": "دسامبر",
+}
+_EN_MONTH = (r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|"
+             r"Nov(?:ember)?|Dec(?:ember)?)")
+_EN_DATE_MD = re.compile(rf"(?<![A-Za-z]){_EN_MONTH}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}))?(?![\d])")
+_EN_DATE_DM = re.compile(rf"(?<![\d.])(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?{_EN_MONTH}\.?(?:,?\s+(\d{{4}}))?(?![\dA-Za-z])")
+
+
+def _en_date(month: str, day: str, year: str | None) -> str:
+    """«Nov», «18», «2026» -> «18 نوامبر 2026» (digits stay: the textual date pass above reads them next)."""
+    if not 1 <= int(day) <= 31:
+        return f"{month} {day}" + (f" {year}" if year else "")
+    out = f"{int(day)} {_EN_MONTH_FA[month[:3].lower()]}"
+    return out + (f" {year}" if year else "")
+
+
 _DATE_YMD = re.compile(r"(?<![\d./])(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?![\d/]|\.\d)")
 _DATE_DMY = re.compile(r"(?<![\d./])(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})(?![\d/]|\.\d)")
 
@@ -166,6 +185,10 @@ def spell_dates(text: str) -> str:
 
     text = _DATE_YMD.sub(ymd, text)
     text = _DATE_DMY.sub(dmy, text)
+    # «Nov 18», «November 18th, 2026», «18 Nov 2026»: English month names become «۱۸ نوامبر [۲۰۲۶]», read below like any dated line
+    text = _EN_DATE_MD.sub(lambda m: _en_date(m.group(1), m.group(2), m.group(3)), text)
+    text = _EN_DATE_DM.sub(lambda m: _en_date(m.group(2), m.group(1), m.group(3)), text)
+
     # «۲۶ آبان ۱۴۰۵» and «۲۶ آبان»
     def textual(m):
         d = int(m.group(1))
@@ -287,6 +310,7 @@ _ORD_EN = re.compile(r"(?<![\d.])(\d+)(?:st|nd|rd|th)\b", re.I)
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|٪)|(?:%|٪)\s*(\d+(?:\.\d+)?)")
 _RANGE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*[\-–—]\s*(\d+(?:\.\d+)?)(?![\d])")
 _TIMES = re.compile(r"(?<![\d.])(\d+)\s*[x×]\s*(\d+)(?![\d])", re.I)
+_TIMES_SPACED = re.compile(r"(?<=[A-Za-z؀-ۿ])\s+[x×]\s+(?=\d)")
 _PLUS_AFTER = re.compile(r"(?<![\d.])(\d+)\+(?![\d\w])")
 _FRACTION = re.compile(r"(?<![\d./])(\d{1,3})/(\d{1,3})(?![\d/])")
 _KMB = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s?([kKmM])(?![A-Za-z\d])")
@@ -344,6 +368,7 @@ def _half(n: str) -> str:
 
 def spell_numbers(text: str) -> str:
     """Prices, units, ordinals, percentages, ranges, fractions, decimals and plain numbers."""
+    text = _TIMES_SPACED.sub(" در ", text)       # «۴ ست × ۱۲ تکرار», «4 sets x 12 reps» (a word before the sign): said «در», like the unspaced «۴×۱۲»; first, before the units eat the digits
     text = _NETWORK_G.sub(lambda m: f"{cardinal(int(m.group(1)))} جی ", text)
     text = _PICTURE_K.sub(lambda m: f"{cardinal(int(m.group(1)))} کی ", text)
     text = _SLASH_THOUSANDS.sub(lambda m: f"{m.group(1)},{m.group(2)}", text)
@@ -376,6 +401,7 @@ def spell_numbers(text: str) -> str:
     text = _ORD_EN.sub(lambda m: ordinal(int(m.group(1))), text)
     text = _ORD_FA.sub(lambda m: ordinal(int(m.group(1))) + ("ین" if m.group(0).endswith("ین") else ""), text)
     text = _TIMES.sub(lambda m: f"{cardinal(int(m.group(1)))} در {cardinal(int(m.group(2)))}", text)
+    text = text.replace("×", " در ")
     text = _RANGE.sub(lambda m: f"{_num_to_words(m.group(1))} تا {_num_to_words(m.group(2))}", text)
     text = _PLUS_AFTER.sub(lambda m: f"{cardinal(int(m.group(1)))} به بالا", text)
     text = _FRACTION.sub(lambda m: numwords.fraction(int(m.group(1)), int(m.group(2))), text)

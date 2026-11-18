@@ -22,6 +22,16 @@ nowhere else. «Where in doubt, none.»
 A name, a title or a brand never takes an automatic ezafe («علی کتاب ...», «دکتر علی رضایی», «با چغر برنامه ...»), and neither does a word the
 lexicon and the lists do not know as a noun (it only takes one in front of a classifying adjective: «کفش ورزشی»).
 How many wrong and missing ezafes this leaves is measured on a hand-checked set (``ezafe_gold.py``, docs/pronunciation/ezafe-fa.md).
+
+Round 5 (the lead's guidance: «keep it small and safe, do not loosen any other rule») only BLOCKS more:
+
+  6. a TIME or COUNTING word after a quantifier, a demonstrative or a number is an adverb, not the head of a genitive: «هر روز آب بنوش»,
+     «هیچ وقت تمرین را رها نکن», «هر ساعت آب بنوش», «چند جلسه تمرین کن» get no ezafe on «روز / وقت / ساعت / جلسه» (``ezafe_data.TIME_WORDS``,
+     ``QUANTITY_WORDS``); a classifying adjective after them still links («دو جلسهٔ رایگان»). A head after a determiner is not linked either when
+     the next word is a time, counting or measure word («این دوره ماه آینده ...»).
+  7. a light verb after the word is not an adjective: «تا بدنت عادت کند» («کند» = does, not «slow»).
+  8. a third noun in a row is not linked when it opens a phrase of its own (an adjective or a verb follows it): «برای ساختِ عضله پروتئینِ کافی
+     بخور», «برای افزایشِ عضله پروتئین بخور» (the object of the verb is not a genitive of «عضله»).
 """
 from __future__ import annotations
 
@@ -88,6 +98,16 @@ _PERSON = _set(L.PERSON)
 _PLACE_HEADS = _set(L.PLACE_HEADS)
 _VERB_FORMS = _set(L.VERB_FORMS)
 _RESULT_VERBS = _set(L.RESULT_VERBS)
+_QUANTIFIERS = _set(L.QUANTIFIERS)
+_DEMONSTRATIVES = _set(L.DEMONSTRATIVES)
+_TIME_K = _set(L.TIME_WORDS)
+_ORDINALS = _set("""اول دوم سوم چهارم پنجم ششم هفتم هشتم نهم دهم یازدهم دوازدهم اولین دومین سومین چهارمین پنجمین آخرین آخر""".split())
+_ORDINAL_SUPERLATIVES = _set("اولین دومین سومین چهارمین پنجمین ششمین هفتمین هشتمین نهمین دهمین آخرین".split())
+_ROLES = _set(L.ROLES)
+_ROLE_FIELDS = _set(L.ROLE_FIELDS)
+_AMOUNT_K = _set(L.AMOUNT_WORDS)
+_PART_K = _set(L.PART_WORDS)
+_WHEN_OR_HOW_MANY = _TIME_K | _AMOUNT_K | _PART_K | _MEASURE_K
 
 #: May follow an ezafe although they are pronouns (کتابِ من). (Kept for the helpers below.)
 _PRONOUNS = {"من", "تو", "او", "ما", "شما", "ایشان", "آنها", "آن‌ها", "اینها", "این‌ها", "خود",
@@ -101,11 +121,39 @@ _PERSIAN = re.compile(r"[؀-ۿ]")
 
 #: «پیشنهاد کرد»، «کمک کنید»، «تمرین بده»: the noun before these is part of the verb (a light-verb construction), so the
 #: word in front of it must not be linked to it by an ezafe («مکملِ خوبی پیشنهاد کرد», not «خوبیِ پیشنهاد»).
-LIGHT_VERBS = {D.canon(w) for w in (
-    "کرد کردن کردند کردم کردیم کردید کنم کنی کند کنیم کنید کنند کن نکرد نکن نکنید می‌کند می‌کنم می‌کنی می‌کنیم می‌کنید می‌کنند "
-    "نمی‌کند نمی‌کنم نمی‌کنید داد دادن دادم دادند بده بدهید بدهم بدهد می‌دهد می‌دهم می‌دهید می‌دهند نمی‌دهد "
-    "شد شدن شدند می‌شود می‌شوند نمی‌شود زد زدن بزن بزنید گرفت گرفتن بگیر بگیرید می‌گیرد می‌گیرند".split())}
+def _light_verb_forms() -> set[str]:
+    """Every person of the present («می‌دهیم»), the past («کردند»), the subjunctive and the imperative («بزنید», «ببر», «نکن») of the verbs
+    that make light-verb constructions («نشان می‌دهیم», «آسیب می‌زند», «لذت ببر», «عادت کند», «کمک کردند»). Round 4 listed a few by hand
+    and missed «می‌دهیم» / «می‌زند» («با فیلمِ نشان می‌دهیم» was read with an ezafe). A bare form that is also a noun, a preposition or
+    colloquial speech («زن» woman, «ده» ten, «بر», «کش», «برد» victory, «بریم») is not listed on its own."""
+    verbs = (("کن", "کرد"), ("ده", "داد"), ("شو", "شد"), ("گیر", "گرفت"), ("زن", "زد"), ("بر", "برد"), ("آور", "آورد"),
+             ("خور", "خورد"), ("کش", "کشید"), ("گذار", "گذاشت"), ("رسان", "رساند"), ("انداز", "انداخت"))
+    persons = ("م", "ی", "د", "یم", "ید", "ند")
+    bare_ok = {"کن", "ده", "شو", "گیر", "زن", "آور", "خور", "رسان", "گذار"}      # the bare present («کنند», «دهد», «شود», «گیرید»)
+    out: set[str] = set()
+    for pres, past in verbs:
+        sub = {"آور": "بیاور"}.get(pres, "ب" + pres)               # subjunctive / imperative stem: بکن بده بیاور
+        neg = {"آور": "نیاور"}.get(pres, "ن" + pres)
+        out |= {sub, neg}                                         # the 2nd person singular imperative: بکن، نکن
+        for e in persons:
+            out |= {"می‌" + pres + e, "نمی‌" + pres + e, sub + e, neg + e}
+            if pres in bare_ok and e != "ی":
+                out.add(pres + e)
+            past_form = past if e == "د" else past + e            # the 3rd person singular of the past is the stem itself
+            out |= {past_form, "ن" + past_form, "می‌" + past_form, "نمی‌" + past_form}
+    out -= {"برد", "نبرد", "نزد"}                                 # victory, battle, «near» (نزدِ من)
+    # «نیاز دارند», «اهمیت می‌دهد»: «have» makes light verbs too («همه به برنامه نیاز دارند» is not «برنامهٔ نیاز»)
+    out |= {"دارم", "داری", "دارد", "داریم", "دارید", "دارند", "ندارم", "نداری", "ندارد", "نداریم", "ندارید", "ندارند",
+            "داشت", "داشتم", "داشتی", "داشتیم", "داشتید", "داشتند", "نداشت", "نداشتم", "نداشتند"}
+    out |= {"کردن", "دادن", "شدن", "گرفتن", "زدن", "بردن", "آوردن", "خوردن", "کشیدن", "گذاشتن", "داشتن", "رساندن", "انداختن",
+            "کرده", "داده", "گرفته", "زده", "برده", "آورده", "خورده", "داشته", "گذاشته", "رسانده", "انداخته"}
+    return {D.canon(w) for w in out}
+
+
+LIGHT_VERBS = _light_verb_forms()
 _LIGHT_K = _set(LIGHT_VERBS) | _set(L.RESULT_VERBS)
+#: the short hand-written list that round 4 used (the «previous» column of the ezafe check is computed with it)
+_LIGHT_R4 = _set("کرد کردن کردند کردم کردیم کردید کنم کنی کند کنیم کنید کنند کن نکرد نکن نکنید می‌کند می‌کنم می‌کنی می‌کنیم می‌کنید می‌کنند نمی‌کند نمی‌کنم نمی‌کنید داد دادن دادم دادند بده بدهید بدهم بدهد می‌دهد می‌دهم می‌دهید می‌دهند نمی‌دهد شد شدن شدند می‌شود می‌شوند نمی‌شود زد زدن بزن بزنید گرفت گرفتن بگیر بگیرید می‌گیرد می‌گیرند".split()) | _set(L.RESULT_VERBS)
 
 #: «برنامه عالی است», «غذا خوشمزه بود»: an adjective that ENDS the clause with a copula is the predicate, it is not linked to the noun
 #: before it. Without the mark in the text a wrong ezafe («برنامهٔ عالی است») sounds worse than a missing one.
@@ -162,10 +210,14 @@ def _is_adjective(k: str) -> bool:
     return k in _ADJ_ALL or _split_comparative(k) in _QUAL
 
 
-def _second_kind(nxt, dic: D.Dictionary) -> str | None:
+def _second_kind(nxt, dic: D.Dictionary, round5: bool = True) -> str | None:
     """What kind of follower is ``nxt``: 'attr' | 'qual' | 'ambig' | 'pron' | 'refl' | 'brand' | 'noun' | 'name' | 'unknown' | None."""
     raw = D.canon(nxt.text)
     k = _key(nxt.text)
+    if round5 and k in _LIGHT_K:
+        return None                             # «تا بدنت عادت کند»: «کند» is the verb, not the adjective «slow»; «تمرین کن», «کمک کنید»
+    if round5 and (k.endswith("ترین") and len(k) >= 5 or k in _ORDINAL_SUPERLATIVES):
+        return None                             # «لحظهٔ شروع سخت‌ترین لحظه است»: a superlative / «اولین» stands BEFORE its noun, never after one
     if k in _POSSESSOR:
         return "pron"
     if k in _REFLEXIVE:
@@ -287,27 +339,50 @@ def _after_ok(after, kind: str, dic: D.Dictionary) -> bool:
     return _is_noun(after, dic)
 
 
-def _decide(tokens, idx: int, dic: D.Dictionary, prev_linked: bool) -> bool:
+def _decide(tokens, idx: int, dic: D.Dictionary, prev_linked: bool, round5: bool = True) -> bool:
     t, nxt = tokens[idx], tokens[idx + 1]
     after = tokens[idx + 2] if idx + 2 < len(tokens) else None
     after_word = after is not None and after.kind == "word"
     k = _plain(t)
     after_k = _key(after.text) if after_word else ""
 
-    if k in _MEASURE_K and idx > 0 and tokens[idx - 1].kind == "word" and _key(tokens[idx - 1].text) in _NUMBER_K:
+    prev_k = _key(tokens[idx - 1].text) if idx > 0 and tokens[idx - 1].kind == "word" else ""
+    if k in _MEASURE_K and prev_k in _NUMBER_K:
         return False          # «دو لیتر آب»: a measure after a number
     if D.canon(t.text).endswith(ZWNJ + "ای") or _is_possessed(t, dic):
         return False          # «برنامه‌ای عالی»: no ezafe after the indefinite «ای»; «پدرش مرد»: none after a possessive ending
-    kind = _second_kind(nxt, dic)
+    light = _LIGHT_K if round5 else _LIGHT_R4
+    kind = _second_kind(nxt, dic, round5)
     if kind is None:
         return False
     nxt_k = _key(nxt.text)
+
+    if round5:
+        counted = prev_k in _QUANTIFIERS or prev_k in _NUMBER_K        # «هر», «چند», «همه», «سه»
+        pointed = prev_k in _DEMONSTRATIVES                            # «این», «آن», «همین»
+        # only a CURATED classifying adjective keeps the link (not «خسته‌ای» = «you are tired», which looks like «حرفه‌ای»)
+        sure_attr = kind == "attr" and nxt_k in _ATTR
+        if counted or pointed:
+            if k in _TIME_K:
+                return False      # «هر روز آب بنوش», «هیچ وقت تمرین را رها نکن», «آن روز تمرین را ...»: the time word is an adverb
+            if k in _AMOUNT_K:
+                return False      # «همین مقدار آب بنوش»: an amount measures what follows, it does not own it
+            if k in _PART_K and not sure_attr:
+                return False      # «چند جلسه تمرین کن», «هر مرحله تمرین را ...», «این بخش تمرین را توضیح می‌دهد»: the part is the subject / a count
+            if nxt_k in _WHEN_OR_HOW_MANY and not sure_attr:
+                return False      # «این دوره ماه آینده شروع می‌شود»: the next word says when / how many
+            if kind == "noun" and (k in _PRODUCT_HEADS or after_word and (_is_verbish(after.text, after.tag) or after_k in _VERB_FORMS)):
+                return False      # «این برنامه غذا پیشنهاد می‌کند»: «این برنامه» is the subject, the next noun is the object of the verb
+        if kind == "noun" and prev_k in _ROLES and k in _ROLE_FIELDS and not prev_linked:
+            return False          # «مربی تغذیه برنامه غذایی می‌نویسد»: «تغذیه» belongs to «مربی», it does not own «برنامه»
 
     # ---- the FIRST word
     if _is_adjective(k) or k in _NAMES or k in _BRANDS and kind != "brand" or t.tag in ("F", "V"):
         # an adjective is linked to what follows it only inside a chain «برنامهٔ ورزشیِ شما» / «رژیمِ غذاییِ سالم»
         if not (prev_linked and (k in _ATTR or k in _QUAL) and kind in ("pron", "refl", "attr", "qual", "brand")):
             return False
+        if round5 and nxt_k in _ORDINALS:
+            return False          # «خوابِ کافی اولین قدم است»: an ordinal opens a new phrase, it is not a second adjective of the noun
         first = "chain"
     elif _is_proper(t, dic) or _plain(t) in _NO_EZAFE_K and k not in _PREP_NOUNS:
         return False
@@ -331,7 +406,7 @@ def _decide(tokens, idx: int, dic: D.Dictionary, prev_linked: bool) -> bool:
             return False
         if after_word and after_k == _key("را"):
             return False      # «مربی شما را» = the coach ... you: no way to tell it from «برنامهٔ شما را» without a parser
-        if after_word and after_k in _LIGHT_K and first != "chain":
+        if after_word and after_k in light and first != "chain":
             return False      # «اسم شما بنویس»
         return True
     if first == "prep":
@@ -349,21 +424,27 @@ def _decide(tokens, idx: int, dic: D.Dictionary, prev_linked: bool) -> bool:
             return False      # «غذا آماده کرد», «خانه تمیز شد»: a result, not an attribute
         if kind == "attr" and nxt_k in _MEASURE_K:
             return False
+        if round5 and after_word and after_k == "از" and nxt_k.endswith("تر"):
+            return False      # «تمرین منظم بهتر از تمرین سنگین است», «مهم‌تر از مدت»: a comparative before «از» is the predicate
         return _after_ok(after, kind, dic)
     if kind in ("name", "unknown"):
         # «شهرِ تهران», «کشورِ ایران»: only a place word links to a name (or to a word nobody lists)
-        return first == "noun" and k in _PLACE_HEADS and not (after_word and after_k in _LIGHT_K | _COPULA_K)
+        return first == "noun" and k in _PLACE_HEADS and not (after_word and after_k in light | _COPULA_K)
     if kind == "noun":
         if first != "noun" or not (k in _HEADS or k in _PRODUCT_HEADS or k in _PLACE_HEADS):
             return False
-        if after_word and after_k in _LIGHT_K:
+        if after_word and after_k in light:
             return False      # «… خوبی پیشنهاد کرد»: the next word belongs to the verb
+        if round5 and prev_linked and after_word and (_is_adjective(after_k) or _is_verbish(after.text, after.tag)
+                                                       or after_k in _VERB_FORMS):
+            return False      # a third noun in a row that opens a phrase of its own: «ساختِ عضله پروتئینِ کافی بخور»
         return True
     return False
 
 
-def mark_ezafe(tokens, dic: D.Dictionary) -> None:
-    """Set ``token.ezafe`` in place (tokens are ``pipeline.Token``)."""
+def mark_ezafe(tokens, dic: D.Dictionary, *, round5: bool = True) -> None:
+    """Set ``token.ezafe`` in place (tokens are ``pipeline.Token``). ``round5=False`` is the algorithm as it ran until round 5, kept only
+    so the «previous» numbers of the ezafe check can be reproduced (``ezafe_gold``)."""
     prev_linked = False
     for idx, t in enumerate(tokens):
         if t.kind != "word":
@@ -376,7 +457,12 @@ def mark_ezafe(tokens, dic: D.Dictionary) -> None:
             continue
         decided = False
         if idx + 1 < len(tokens) and _is_persian(t) and tokens[idx + 1].kind == "word" and _is_persian(tokens[idx + 1]):
-            decided = _decide(tokens, idx, dic, prev_linked)
+            decided = _decide(tokens, idx, dic, prev_linked, round5)
         if decided:
             t.ezafe = True
         prev_linked = bool(t.ezafe)
+
+
+def mark_ezafe_round4(tokens, dic: D.Dictionary) -> None:
+    """The conservative rules of round 4 without the round-5 blocks (measurement only; nothing in the product calls this)."""
+    mark_ezafe(tokens, dic, round5=False)

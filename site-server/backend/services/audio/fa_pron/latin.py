@@ -76,6 +76,27 @@ LATIN_WORDS: dict[str, str] = {
     "bulk": "بالک", "cut": "کات", "lean": "لین", "fat": "فت", "body": "بادی",
     "health": "هلث", "healthy": "هلثی", "motivation": "موتیویشن", "challenge": "چالش",
     "goal": "گل", "run": "ران", "running": "رانینگ", "swim": "سویم", "bike": "بایک",
+    # fitness words (round 4: «Zumba» was guessed «زَمبَ», «Lunge» «لَنگ»; a guess is the designed last resort, these are the words the owner's
+    # own copy uses, spelled the way Iranian trainers say them)
+    "zumba": "زومبا", "lunge": "لانج", "lunges": "لانج‌ها", "burpee": "برپی", "burpees": "برپی‌ها",
+    "kettlebell": "کتل‌بل", "kettlebells": "کتل‌بل‌ها", "crunch": "کرانچ", "crunches": "کرانچ‌ها", "tabata": "تاباتا",
+    "spinning": "اسپینینگ", "aerobic": "ایروبیک", "aerobics": "ایروبیک", "stretch": "استرچ", "stretching": "استرچینگ",
+    "rowing": "راوینگ", "elliptical": "الپتیکال", "kickboxing": "کیک‌بوکسینگ", "boxing": "بوکس", "mma": "ام‌ام‌ای",
+    "sit-up": "سیت‌آپ", "situp": "سیت‌آپ", "sit-ups": "سیت‌آپ", "situps": "سیت‌آپ", "push-up": "شنا", "push-ups": "شنا", "pushups": "شنا",
+    "pull-ups": "بارفیکس", "pullups": "بارفیکس", "chin-up": "بارفیکس", "chinup": "بارفیکس", "leg": "لگ", "chest": "چست", "shoulder": "شولدر",
+    "curl": "کرل", "fly": "فلای", "dip": "دیپ", "dips": "دیپ", "lat": "لت", "pulldown": "پول‌داون", "superset": "سوپرست",
+    "dropset": "دراپ‌ست", "pump": "پامپ", "tempo": "تمپو", "interval": "اینتروال", "sprint": "اسپرینت", "jogging": "جاگینگ",
+    "marathon": "ماراتن", "warm-up": "وارم‌آپ", "cool-down": "کول‌داون", "foam": "فوم", "roller": "رولر", "band": "بند",
+    "cheat": "چیت", "meal": "میل", "prep": "پرپ", "macro": "ماکرو", "macros": "ماکروها", "carb": "کارب", "carbs": "کارب",
+    "whey": "وی", "creatine": "کراتین", "bcaa": "بی‌سی‌ای‌ای", "keto": "کتو", "vegan": "وگان", "detox": "دیتاکس",
+    "smoothie": "اسموتی", "shake": "شیک", "snack": "اسنک", "gluten": "گلوتن", "organic": "ارگانیک", "bar": "بار",
+    # months and days written in English («Nov 18»: the date pass turns the numeric forms into «هجدهم نوامبر»)
+    "january": "ژانویه", "february": "فوریه", "march": "مارس", "april": "آوریل", "june": "ژوئن", "july": "ژوئیه", "august": "اوت",
+    "september": "سپتامبر", "october": "اکتبر", "november": "نوامبر", "december": "دسامبر",
+    "jan": "ژانویه", "feb": "فوریه", "apr": "آوریل", "jun": "ژوئن", "jul": "ژوئیه", "aug": "اوت", "sep": "سپتامبر", "sept": "سپتامبر",
+    "oct": "اکتبر", "nov": "نوامبر", "dec": "دسامبر",
+    "monday": "دوشنبه", "tuesday": "سه‌شنبه", "wednesday": "چهارشنبه", "thursday": "پنجشنبه", "friday": "جمعه", "saturday": "شنبه",
+    "sunday": "یکشنبه",
     # titles / small words
     "dr": "دکتر", "mr": "آقای", "mrs": "خانم", "ms": "خانم", "vs": "در برابر",
     "etc": "و غیره", "and": "اند", "of": "آو", "the": "د", "for": "فور", "to": "تو",

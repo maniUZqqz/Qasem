@@ -182,7 +182,7 @@ def convert(respelling: str) -> dict:
         raise PronError("این بازنویسی را نتوانستم به آوا تبدیل کنم. حرف‌های فارسی (با ـَ ـِ ـُ برای کوتاه‌صداها) یا حروفِ لاتینِ ساده بنویسید.")
     toks = P.parse(pn)
     # «چغر» must come back as «چغر», not «چقر»: the letter the owner wrote for the one sound «q» is kept
-    return {"pn": pn, "respelling": P.to_respelling(toks, q_letter=P.q_letter_for(text)), "ipa": P.to_ssml_ipa(toks),
+    return {"pn": pn, "respelling": P.to_respelling(toks, q_letter=P.q_letter_for(text)), "ipa": D.piper_ipa(toks), "ipa_ssml": P.to_ssml_ipa(toks),
             "syllables": P.syllable_count(toks)}
 
 
@@ -229,7 +229,7 @@ def entry_dict(e: LexiconEntry) -> dict:
     return {"id": e.pk, "word": e.word, "respelling": e.respelling, "pn": e.pn, "note": e.note, "enabled": e.enabled,
             "scope": "store" if e.store_id else "global",
             "heard_as": P.to_respelling(toks, q_letter=P.q_letter_for(e.word, e.respelling)) if toks else "",
-            "ipa": P.to_ssml_ipa(toks) if toks else "", "updated_at": e.updated_at.isoformat()}
+            "ipa": D.piper_ipa(toks) if toks else "", "updated_at": e.updated_at.isoformat()}
 
 
 def shared_rows(query: str = "", category: str = "", limit: int = 400, offset: int = 0) -> dict:
@@ -275,18 +275,18 @@ _EZAFE_CHECK: dict[str, dict] = {}
 
 
 def ezafe_check() -> dict:
-    """The two kinds of automatic-ezafe mistake, counted on the hand-checked sentences (``fa_pron.ezafe_gold``): before (the round-3
-    algorithm) and after (the conservative one), on the main set and on the held-out set. Deterministic, so it is computed once per
-    layer version and kept."""
+    """The two kinds of automatic-ezafe mistake, counted on the hand-checked sentences (``fa_pron.ezafe_gold``): «before» (round 3, first
+    version), «previous» (the conservative rules as they ran until round 5) and «after» (round 5), on the four sets (main, held-out and the
+    two round-4 sets). Deterministic, so it is computed once per layer version and kept."""
     cached = _EZAFE_CHECK.get(fa_pron.VERSION)
     if cached is not None:
         return cached
-    from services.audio.fa_pron import ezafe_gold, ezafe_v1
+    from services.audio.fa_pron import ezafe_gold
 
     rows = []
-    for key, label, text in (("main", "مجموعهٔ اصلی", None), ("heldout", "مجموعهٔ کنارگذاشته", ezafe_gold.HELDOUT_TEXT)):
-        for which, fn in (("before", ezafe_v1.mark_ezafe), ("after", None)):
-            r = ezafe_gold.measure(fn, text=text)
+    for key, _name, label, text_name in ezafe_gold.SET_DEFS:
+        for which, _en, fn in ezafe_gold.mark_functions():
+            r = ezafe_gold.measure(fn, text=ezafe_gold.set_text(text_name))
             rows.append({"set": key, "set_label": label, "which": which, "sentences": r["sentences"], "gold": r["gold"],
                          "said": r["predicted"], "correct": r["correct"], "wrong": r["wrong"], "missing": r["missing"],
                          "precision": r["precision"], "recall": r["recall"]})

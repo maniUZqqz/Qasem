@@ -9,7 +9,7 @@ See ``docs/pronunciation/README-fa.md``.
 from __future__ import annotations
 
 #: Bump whenever a rule or the lexicon changes what a text turns into: caches of finished audio include it.
-VERSION = "2026.11.17.4"
+VERSION = "2026.11.18.1"
 
 from . import dictionary, eval_set, quality
 from .dictionary import Dictionary, canon
@@ -22,14 +22,15 @@ from .render import render as render_prepared
 #:   piper  «lexicon». The owner's complaint (ع، ه، و/او، ی، اضافه) is about exactly the words this depth fixes, and espeak, the voice's own
 #:          front end, gets them wrong: «و» is read as a stressed «vˈa» instead of the reduced «o», «هزار» as hezɑr, «چهار» as tʃɑhɑr, an
 #:          ezafe is never said, «مدرسه», «اشتراک», «ددلیفت» ... are respelled. On the voice the site really has (gyro, 296 sentences, small
-#:          Vosk) the word error rate is 13.5% raw, 7.7% with the normaliser alone and 8.2% with the lexicon (round 4): a recogniser that cannot hear
+#:          Vosk) the word error rate is 13.6% raw, 7.6% with the normaliser alone and 8.2% with the lexicon (round 5): a recogniser that cannot hear
 #:          a glottal stop, a short vowel or a reduced «و» (it drops «گوشت و ماهی» to «گوشت ماهی» although the voice says it right) cannot
 #:          rank the two, and the difference is under the one point the platform treats as noise. «normalize» stays one click away
 #:          (settings, or «try another depth» in the test box), and the node's Whisper run decides by itself
 #:          (``apps.pronunciation.services.measured_depths``): the better depth wins when it is better by a point.
-#:   edge   «normalize»: 9.6% -> 4.7%, but 6.0% with «lexicon» (round 4, re-measured on the same 296 sentences with the conservative ezafe: 42
-#:          sentences worse, 20 better): Edge already reads ع/ه/و right (ه پایانی 2.0% raw, 6.4% respelled) and a respelling with short-vowel
-#:          marks only disturbs it - numbers, dates, phone numbers and Latin words are what it needs
+#:   edge   «normalize»: 9.6% -> 5.0%, and 5.6% with «lexicon» (round 5, re-measured on the same 296 sentences: 33 sentences worse, 23 better;
+#:          round 4: 4.7% / 6.0%). The 0.6-point gap is under the one point the platform treats as noise, so the default stays at the safe
+#:          floor: Edge already reads ع/ه/و right (ه پایانی 2.0% raw, 4.9% respelled - 6.4% before «صبح» stopped being respelled «سُبه») and a respelling
+#:          with short-vowel marks only disturbs it - numbers, dates, phone numbers and Latin words are what it needs
 #:   moss   «normalize», not measured yet (the node is off): the safe floor. The node self-test measures both depths and
 #:          ``apps.pronunciation.services.measured_depths`` switches the platform default to the better one by itself.
 DEFAULT_DEPTH = {"piper": "lexicon", "edge": "normalize", "moss": "normalize", "plain": "normalize"}

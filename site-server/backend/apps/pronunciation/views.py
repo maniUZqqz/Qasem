@@ -109,7 +109,7 @@ class OverviewView(APIView):
             "site_voices": site_voices, "layer_version": fa_pron.VERSION,
             "counts": {"store": LexiconEntry.objects.filter(store=store).count(),
                        "global": LexiconEntry.objects.filter(store__isnull=True).count(),
-                       "shared": len(fa_pron.dictionary.shared()),
+                       "shared": len(fa_pron.dictionary.shared_entries()),
                        "problems": ProblemWord.objects.filter(store=store, status="open").count(),
                        "sentences": len(fa_pron.eval_set.SENTENCES), "quick": len(evalrun.sentences("quick"))},
             "tags": fa_pron.eval_set.TAGS, "latest": latest, "runs": [svc.run_dict(r) for r in runs],

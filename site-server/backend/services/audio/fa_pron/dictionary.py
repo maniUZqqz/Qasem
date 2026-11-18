@@ -105,6 +105,22 @@ def shared() -> dict[str, Entry]:
     return entries
 
 
+@lru_cache(maxsize=1)
+def shared_entries() -> tuple[Entry, ...]:
+    """The shared lexicon as the curated list reads, one entry per line. ``shared()`` is a LOOKUP table: a word written with a half-space
+    is stored twice (as written and without the half-space, «چربیسوزی» finds «چربی‌سوزی»), so its length and its values count some words
+    twice («سی‌ام», «علاقه‌مند» showed up twice in the panel and the count 1338 was too big)."""
+    seen: set[str] = set()
+    out: list[Entry] = []
+    for e in shared().values():
+        # a word written with a vowel mark («نُه» = nine) stays apart from its unmarked twin («نه» = no), like in the lookup
+        key = (_nfc(e.word) if any(c in MARKS for c in e.word) else canon(e.word)).replace(ZWNJ, "")
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    return tuple(out)
+
+
 def shared_errors() -> list[str]:
     return _parse_shared()[1]
 
@@ -183,19 +199,27 @@ class Dictionary:
         return None
 
     def __len__(self) -> int:
-        return len(shared()) + len(self._extra) + len(self._store)
+        return len(shared_entries()) + len(self._extra) + len(self._store)
+
+
+def piper_ipa(toks: list[str]) -> str:
+    """The phonemes of one word in the alphabet and with the options the Piper renderer hands the voice (espeak's IPA, no glottal stop
+    before a word-initial vowel, a geminate written twice): «چهار» -> «tʃahɑr». The panel shows THIS next to the lexicon words, not the
+    textbook IPA of an SSML ``<phoneme>`` (that is ``phones.to_ssml_ipa``: «tʃæhɒːɾ», kept as ``ipa_ssml``)."""
+    return P.to_ipa(P.strip_stress(toks), glottal="medial", geminate="double")
 
 
 def all_shared_rows() -> list[dict]:
-    """For the panel: the shared lexicon as plain rows (word, pn, respelling, category)."""
+    """For the panel: the shared lexicon as plain rows (word, pn, respelling, category), each word once."""
     rows = []
-    for e in shared().values():
+    for e in shared_entries():
         toks = P.parse(e.pn)
         rows.append({
             "word": e.word.replace(ZWNJ, "‌"),
             "pn": e.pn,
             "respelling": P.to_respelling(toks, q_letter=P.q_letter_for(e.word)),
-            "ipa": P.to_ssml_ipa(toks),
+            "ipa": piper_ipa(toks),
+            "ipa_ssml": P.to_ssml_ipa(toks),
             "category": e.category,
             "tag": e.tag,
         })

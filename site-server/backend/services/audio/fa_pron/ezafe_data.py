@@ -126,3 +126,37 @@ PERSON = """
 مربی ورزشکار مشتری کاربر مدیر معلم استاد دکتر پزشک پدر مادر دوست دوستان پسر دختر همسر برادر خواهر همکار همکاران شاگرد دانشجو
 بچه‌ها بچه فرزند رئیس رییس مسئول مشاور فروشنده خریدار پرستار آشپز راننده مرد زن آدم انسان کسی نفر
 """.split()
+
+# ---------------------------------------------------------------------------------------------------------------- round 4
+#: Quantifiers: «هر روز» (every day), «هیچ وقت» (never), «چند ساعت» (some hours), «همه روز», «تمام وقت». A time or counting word right after
+#: one of these says WHEN or HOW MANY («هر روز آب بنوش»); it is not the head of a genitive («روزِ آب» is nonsense), so it takes no automatic ezafe.
+QUANTIFIERS = """هر هیچ چند چندین همه بعضی برخی تمام کل هرگونه هریک""".split()
+
+#: Demonstratives: «این روزها», «آن وقت», «همین ساعت». A TIME word after one is an adverb as well («آن روز تمرین را سبک گرفتم»); a counting word after
+#: one is a normal head («این بخشِ برنامه») unless a time, counting or measure word follows it.
+DEMONSTRATIVES = """این آن همین همان""".split()
+
+#: Words that say WHEN: adverbials after a quantifier, a demonstrative or a number.
+TIME_WORDS = """
+روز وقت ساعت لحظه زمان مدت هفته ماه سال شب صبح ظهر عصر بامداد غروب دقیقه ثانیه دفعه بار نوبت فصل
+""".split()
+
+#: Words that say HOW MUCH / HOW MANY: after ANY determiner or number («همین مقدار آب بنوش», «این تعداد تکرار», «چند میزان») they measure what
+#: follows, they do not own it.
+AMOUNT_WORDS = """
+تعداد مقدار میزان سطح عدد
+""".split()
+
+#: Words for a PART of something («بخش», «جلسه», «مرحله»): after a quantifier or a number they count («چند جلسه تمرین کن», «هر مرحله تمرین را ...»);
+#: after a demonstrative they are ordinary heads («این بخشِ برنامه را بخوان»).
+#: (A classifying adjective after them still takes the ezafe: «دو جلسهٔ رایگان», «هر جلسهٔ تمرینی».)
+PART_WORDS = """
+بخش قسمت مرحله جلسه دوره رده نوبت
+""".split()
+
+QUANTITY_WORDS = AMOUNT_WORDS + PART_WORDS
+
+#: «مربی تغذیه», «مشاور ورزشی», «متخصص سلامت»: a role word + its field. The field belongs to the role; it is not the head of what follows it
+#: («مربی تغذیه برنامهٔ غذایی می‌نویسد», not «تغذیهٔ برنامه»).
+ROLES = """مربی مشاور متخصص کارشناس پزشک معلم استاد مدرس""".split()
+ROLE_FIELDS = """تغذیه ریکاوری مشاوره آموزش پشتیبانی سلامت بدنسازی مربی‌گری تناسب""".split()

@@ -95,16 +95,20 @@ class ObsoleteProblemRows(Base):
 
 
 class EzafeCheckEndpoint(Base):
-    def test_the_table_has_both_sets_before_and_after(self):
+    def test_the_table_has_every_set_before_previous_and_after(self):
+        """Round 5: four sets (main, held-out and the two sets of the determiner / light-verb round) x three algorithms (round 3 first version,
+        the rules as they ran until round 5, the rules of today)."""
         r = self.api.get(f"{self.base}/ezafe-check/")
         self.assertEqual(r.status_code, 200, r.content)
         rows = r.json()["rows"]
         self.assertEqual([(x["set"], x["which"]) for x in rows],
-                         [("main", "before"), ("main", "after"), ("heldout", "before"), ("heldout", "after")])
-        for key in ("main", "heldout"):
+                         [(s, w) for s in ("main", "heldout", "det", "det_heldout") for w in ("before", "previous", "after")])
+        for key in ("main", "heldout", "det", "det_heldout"):
             before = next(x for x in rows if x["set"] == key and x["which"] == "before")
+            previous = next(x for x in rows if x["set"] == key and x["which"] == "previous")
             after = next(x for x in rows if x["set"] == key and x["which"] == "after")
             self.assertLess(after["wrong"], before["wrong"])
+            self.assertLessEqual(after["wrong"], previous["wrong"])
             self.assertEqual(after["correct"] + after["missing"], after["gold"])
             self.assertEqual(after["correct"] + after["wrong"], after["said"])
         self.assertGreaterEqual(rows[0]["sentences"], 150)

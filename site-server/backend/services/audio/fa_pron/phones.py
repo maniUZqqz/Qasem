@@ -187,6 +187,8 @@ def to_respelling(tokens: list[str], *, sukun: bool = False, final_he: bool = Tr
         nxt = toks[i + 1] if i + 1 < n else None
         if t in CONSONANTS:
             letter = q_letter if t == "q" else _LETTER[t]
+            if t == "h" and nxt is None and prev_is_cons:
+                letter = "ح"      # «صبح» (sobh), «فتح», «شرح»: a word-final «ه» after a consonant is read as the vowel /e/ («سُبه»); «ح» is the /h/
             if nxt == t:  # geminate: one letter + shadda
                 out.append(letter + SHADDA)
                 i += 2

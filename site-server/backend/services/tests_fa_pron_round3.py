@@ -189,7 +189,7 @@ class SlashAsDecimal(unittest.TestCase):
         self.assertEqual(norm("۲/۵"), "دو پنجم", "no unit: the fraction")
 
     def test_dates_and_slash_thousands_are_not_touched(self):
-        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبان هزار و چهارصد و پنج")
+        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبانِ هزار و چهارصد و پنج")
         self.assertEqual(norm("۹۹۰/۰۰۰ تومان"), "نهصد و نود هزار تومان")
 
     def test_around_the_clock(self):
@@ -207,7 +207,7 @@ class SlashAsDecimal(unittest.TestCase):
 class UnitsAndAddresses(unittest.TestCase):
     def test_units_typed_without_a_number(self):
         self.assertEqual(norm("bpm"), "ضربه در دقیقه")
-        self.assertEqual(norm("وزن (kg)"), "وزن، کیلوگرم،")
+        self.assertEqual(norm("وزن (kg)"), "وزن، کیلوگرم")
         self.assertEqual(norm("۱۲۰ bpm"), "صد و بیست ضربه در دقیقه")
         self.assertEqual(norm("rpm"), "دور در دقیقه")
         for unit in ("kg", "cm", "ml", "km"):

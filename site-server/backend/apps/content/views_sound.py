@@ -271,6 +271,8 @@ class VoicePreviewView(APIView):
                 work = Path(folder)
                 try:
                     raw = Path(provider.synthesize(spoken, work / "raw.mp3"))
+                except tts.NothingToSpeakError as exc:
+                    return _error("nothing_to_say", str(exc), status.HTTP_422_UNPROCESSABLE_ENTITY)
                 except tts.TTSError as exc:
                     return _error("synthesis_failed", f"ساخت نمونه‌ی صدا نشد: {exc}",
                                   status.HTTP_502_BAD_GATEWAY)

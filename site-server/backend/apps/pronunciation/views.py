@@ -103,6 +103,7 @@ class OverviewView(APIView):
             engines.append({"key": key, **meta, "blocked": bool(local and not meta["local"]),
                             "depth": s["depth"].get(key) or svc.effective_default(key),
                             "default_depth": svc.effective_default(key), "static_default": fa_pron.DEFAULT_DEPTH[key]})
+        svc.refresh_problems(store)
         return Response({
             "settings": s, "engines": engines, "depths": svc.DEPTH_LABELS, "depth_help": svc.DEPTH_HELP, "local_only": local, "node": _node_state(),
             "site_voices": site_voices, "layer_version": fa_pron.VERSION,
@@ -174,6 +175,8 @@ class ListenView(APIView):
             return _err("عمقِ نامعتبر.")
         from services.audio import tts
 
+        if not tts.is_speakable(text):
+            return _err(tts.NOTHING_TO_SPEAK, "empty", status.HTTP_422_UNPROCESSABLE_ENTITY)
         if engine == "edge" and engine_registry.local_only(store):
             return _err("سیاستِ دادهٔ این فروشگاه «فقط لوکال» است و Edge متن را به مایکروسافت می‌فرستد.", "policy", status.HTTP_409_CONFLICT)
         if engine == "moss":
@@ -188,6 +191,8 @@ class ListenView(APIView):
             provider.store, provider.language, provider.use_pron = store, "fa", variant == "after"
             provider.depth_override = depth
             path = Path(provider.synthesize(text, out))
+        except tts.NothingToSpeakError as exc:
+            return _err(str(exc), "empty", status.HTTP_422_UNPROCESSABLE_ENTITY)
         except tts.TTSError as exc:
             return _err(str(exc), "tts", status.HTTP_502_BAD_GATEWAY)
         try:
@@ -350,6 +355,7 @@ class ProblemsView(APIView):
     def get(self, request, store_id):
         store = _store(request, store_id, write=False)
         st = request.query_params.get("status", "open")
+        svc.refresh_problems(store)
         qs = ProblemWord.objects.filter(store=store)
         if st != "all":
             qs = qs.filter(status=st)
@@ -392,6 +398,18 @@ class ProblemItemView(APIView):
         store = _store(request, store_id)
         ProblemWord.objects.filter(store=store, pk=pk).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ------------------------------------------------------------------ ezafe check
+
+class EzafeCheckView(APIView):
+    """GET: wrong / missing automatic ezafes on the hand-checked marketing sentences, before and after (the conservative rules)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        _store(request, store_id, write=False)
+        return Response(svc.ezafe_check())
 
 
 # ------------------------------------------------------------------ eval

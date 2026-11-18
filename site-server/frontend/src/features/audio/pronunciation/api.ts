@@ -151,3 +151,18 @@ export const loadRun = async (id: string, pk: number) => (await api.get<EvalRun>
 export const startRun = async (id: string, engine: EngineKey, sample: "quick" | "full") =>
   (await api.post<EvalRun>(`${P(id)}/eval/`, { engine, sample })).data;
 export const loadSamples = async (id: string) => (await api.get<{ sets: SampleSet[] }>(`${P(id)}/samples/`)).data.sets;
+
+export type EzafeRow = {
+  set: "main" | "heldout";
+  set_label: string;
+  which: "before" | "after";
+  sentences: number;
+  gold: number;
+  said: number;
+  correct: number;
+  wrong: number;
+  missing: number;
+  precision: number;
+  recall: number;
+};
+export const loadEzafeCheck = async (id: string) => (await api.get<{ version: string; rows: EzafeRow[] }>(`${P(id)}/ezafe-check/`)).data;

@@ -271,6 +271,54 @@ def record_problems(store, words, *, source: str, engine: str = "", context: str
     return n
 
 
+_EZAFE_CHECK: dict[str, dict] = {}
+
+
+def ezafe_check() -> dict:
+    """The two kinds of automatic-ezafe mistake, counted on the hand-checked sentences (``fa_pron.ezafe_gold``): before (the round-3
+    algorithm) and after (the conservative one), on the main set and on the held-out set. Deterministic, so it is computed once per
+    layer version and kept."""
+    cached = _EZAFE_CHECK.get(fa_pron.VERSION)
+    if cached is not None:
+        return cached
+    from services.audio.fa_pron import ezafe_gold, ezafe_v1
+
+    rows = []
+    for key, label, text in (("main", "مجموعهٔ اصلی", None), ("heldout", "مجموعهٔ کنارگذاشته", ezafe_gold.HELDOUT_TEXT)):
+        for which, fn in (("before", ezafe_v1.mark_ezafe), ("after", None)):
+            r = ezafe_gold.measure(fn, text=text)
+            rows.append({"set": key, "set_label": label, "which": which, "sentences": r["sentences"], "gold": r["gold"],
+                         "said": r["predicted"], "correct": r["correct"], "wrong": r["wrong"], "missing": r["missing"],
+                         "precision": r["precision"], "recall": r["recall"]})
+    out = {"version": fa_pron.VERSION, "rows": rows}
+    _EZAFE_CHECK.clear()
+    _EZAFE_CHECK[fa_pron.VERSION] = out
+    return out
+
+
+def refresh_problems(store) -> int:
+    """Close the open rows the layer itself raised that are obsolete.
+
+    A «واژهٔ لاتینِ ناشناخته» row comes from a sentence the normaliser had to guess a word of («gym.ir» once left «ir» to a guess). When the
+    layer is run over the row's own sentence again and no longer guesses that word (it learned the address, the abbreviation, the
+    brand), the row says something that is not true any more: it is closed as fixed instead of staying in the owner's list.
+    Never raises; returns how many rows it closed."""
+    closed = 0
+    try:
+        rows = ProblemWord.objects.filter(store=store, status=ProblemWord.Status.OPEN, source=ProblemWord.Source.LATIN).exclude(context="")
+        for row in rows[:200]:
+            guesses = {g.lower() for g in fa_pron.normalize_text(row.context).notes.latin_guesses}
+            if row.word.lower() in guesses:
+                continue
+            row.status = ProblemWord.Status.FIXED
+            row.detail = (row.detail + " | بسته شد: در جملهٔ اصلی دیگر حدسی نیست")[:300].lstrip(" |")
+            row.save(update_fields=["status", "detail", "updated_at"])
+            closed += 1
+    except Exception as exc:  # noqa: BLE001 - housekeeping must never break the page
+        logger.debug("refresh_problems failed: %s", exc)
+    return closed
+
+
 def problem_dict(p: ProblemWord) -> dict:
     return {"id": p.pk, "word": p.word, "source": p.source, "source_label": p.get_source_display(), "status": p.status,
             "context": p.context, "engine": p.engine, "detail": p.detail, "count": p.count,

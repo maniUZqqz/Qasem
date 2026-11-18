@@ -102,19 +102,19 @@ class Letters(unittest.TestCase):
 
 class Dates(unittest.TestCase):
     def test_jalali_numeric(self):
-        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبان هزار و چهارصد و پنج")
-        self.assertEqual(norm("1405-01-01"), "یکم فروردین هزار و چهارصد و پنج")
+        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبانِ هزار و چهارصد و پنج")
+        self.assertEqual(norm("1405-01-01"), "یکم فروردینِ هزار و چهارصد و پنج")
 
     def test_gregorian_numeric(self):
-        self.assertEqual(norm("2026/11/16"), "شانزدهم نوامبر دو هزار و بیست و شش")
-        self.assertEqual(norm("16.11.2026"), "شانزدهم نوامبر دو هزار و بیست و شش")
+        self.assertEqual(norm("2026/11/16"), "شانزدهم نوامبرِ دو هزار و بیست و شش")
+        self.assertEqual(norm("16.11.2026"), "شانزدهم نوامبرِ دو هزار و بیست و شش")
 
     def test_invalid_date_is_left_to_the_number_rules(self):
         out = norm("1405/13/45")
         self.assertNotIn("آبان", out)
 
     def test_textual(self):
-        self.assertEqual(norm("۲۶ آبان ۱۴۰۵"), "بیست و ششم آبان هزار و چهارصد و پنج")
+        self.assertEqual(norm("۲۶ آبان ۱۴۰۵"), "بیست و ششم آبانِ هزار و چهارصد و پنج")
         self.assertEqual(norm("۱ دی"), "یکم دی")
 
     def test_esfand_leap_day(self):
@@ -136,7 +136,9 @@ class Phones(unittest.TestCase):
         self.assertTrue(out.startswith("صفر نهصد و دوازده، سیصد و چهل و پنج، شصت و هفت، هشتاد و نُه"), out)
 
     def test_international_mobile(self):
-        self.assertTrue(norm("+98 912 345 6789").startswith("صفر نهصد و دوازده"))
+        # the country code is a number, not a leading zero
+        self.assertTrue(norm("+98 912 345 6789").startswith("نود و هشت، نهصد و دوازده"))
+        self.assertTrue(norm("0912 345 6789").startswith("صفر نهصد و دوازده"))
 
     def test_landline(self):
         out = norm("021-12345678")

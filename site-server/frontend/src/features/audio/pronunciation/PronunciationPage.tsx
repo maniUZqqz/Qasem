@@ -9,8 +9,8 @@ import {
 import { useAuthAudio } from "../useAuthAudio";
 import { useAudio } from "../AudioLayout";
 import {
-  Convert, Depth, Entry, EngineInfo, EngineKey, EvalRun, Overview, Preview, Problem, SampleSet, Shared, WordRow,
-  addProblem, convert, deleteEntry, deleteProblem, listen, listenResult, loadLexicon, loadOverview, loadProblems, loadRun,
+  Convert, Depth, Entry, EngineInfo, EngineKey, EvalRun, EzafeRow, Overview, Preview, Problem, SampleSet, Shared, WordRow,
+  addProblem, convert, deleteEntry, deleteProblem, listen, listenResult, loadEzafeCheck, loadLexicon, loadOverview, loadProblems, loadRun,
   loadSamples, loadShared, patchProblem, preview, saveEntry, saveSettings, startRun,
 } from "./api";
 
@@ -125,9 +125,10 @@ function Header({ storeId, ov, reload, setError }: Ctx) {
           <input type="checkbox" checked={s.enabled} onChange={(e) => void patch({ enabled: e.target.checked })} />
           لایهٔ تلفظ برای این فروشگاه روشن باشد
         </label>
-        <label className="flex items-center gap-2 text-sm" title="کتابِ من ← کتابِ‌ من (-ِ یا -یِ بین اسم و صفت یا مضاف‌الیه)">
+        <label className="flex items-center gap-2 text-sm"
+          title="فقط جایی که مطمئنیم: اسم + صفتِ شناخته‌شده (برنامهٔ ورزشی)، اسم + ضمیرِ ملکی (کتابِ من)، چند اسمِ مضاف‌پذیر (کاهشِ وزن)، اپِ چغر، و نشانه‌ای که خودتان نوشته‌اید. پس از نامِ برند و آدم هرگز؛ در شک هیچ.">
           <input type="checkbox" checked={s.ezafe} disabled={!s.enabled} onChange={(e) => void patch({ ezafe: e.target.checked })} />
-          اضافه (کسرهٔ ربط) را هم بگذار
+          اضافهٔ خودکار (کسرهٔ ربط) را هم بگذار؛ محتاطانه و فقط جای مطمئن
         </label>
         {ov.local_only && <Badge tone="warn">سیاستِ داده «فقط لوکال»: Edge در دسترس نیست</Badge>}
         <Badge tone={ov.node.online ? "ok" : "neutral"}>
@@ -654,6 +655,53 @@ function Delta({ d }: { d?: number }) {
   return <span style={{ color: better ? "var(--ok)" : d > 0 ? "var(--bad)" : "var(--text-3)" }}>{d > 0 ? "+" : ""}{fa((d * 100).toFixed(1))}٪</span>;
 }
 
+/** «اضافهٔ خودکار»: چند اضافهٔ غلط و چند اضافهٔ جاافتاده، روی جمله‌های دست‌بررسی‌شده، پیش و پس از قاعده‌های محتاط. */
+function EzafeCheck({ storeId, setError }: { storeId: string; setError: (m: string | null) => void }) {
+  const [rows, setRows] = useState<EzafeRow[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    loadEzafeCheck(storeId).then((d) => { if (alive) setRows(d.rows); }).catch((err) => { if (alive) setError(errorMessage(err)); });
+    return () => { alive = false; };
+  }, [storeId, setError]);
+  return (
+    <Card>
+      <SectionTitle>اضافهٔ خودکار: غلط و جاافتاده</SectionTitle>
+      <p className="mb-3 text-sm leading-7" style={{ color: "var(--text-2)" }}>
+        بدونِ تحلیلگرِ دستور، اضافه را همه‌جا نمی‌شود درست گذاشت؛ اضافهٔ <b>غلط</b> («چغرِ برنامه» در «با چغر برنامه بساز») بدتر از اضافهٔ جاافتاده است. پس لایه
+        فقط جایی اضافه می‌گذارد که قاعده مطمئن است (اسم + صفتِ شناخته‌شده، اسم + ضمیرِ ملکی، اسم + اسمِ مضاف‌پذیر، علامتِ نوشته‌شده)
+        و در شک چیزی نمی‌گذارد. این جدول دو شمارش را روی جمله‌های بازاریابیِ دست‌بررسی‌شده نشان می‌دهد؛ «غلط» = اضافه‌ای که نباید می‌بود،
+        «جاافتاده» = اضافه‌ای که یک خوانندهٔ دقیق می‌گذارد و لایه نگذاشت.
+      </p>
+      {rows === null ? <Spinner size={16} /> : (
+        <Table>
+          <thead>
+            <tr><th>مجموعه</th><th>قاعده</th><th>جمله</th><th>اضافه‌های درست در متن</th><th>گذاشته شد</th><th>درست</th><th>غلط</th><th>جاافتاده</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={`${r.set}-${r.which}`}>
+                <td>{r.set_label}</td>
+                <td>{r.which === "before" ? "پیش (دورِ ۳)" : <b>پس (محتاط)</b>}</td>
+                <td>{fa(r.sentences)}</td>
+                <td>{fa(r.gold)}</td>
+                <td>{fa(r.said)}</td>
+                <td>{fa(r.correct)}</td>
+                <td style={{ color: r.which === "after" ? "var(--ok)" : "var(--bad)" }}><b>{fa(r.wrong)}</b></td>
+                <td>{fa(r.missing)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+      <p className="mt-2 text-xs leading-6" style={{ color: "var(--text-3)" }}>
+        «مجموعهٔ کنارگذاشته» را بعد از ثابت شدنِ قاعده‌ها نوشتیم و فقط یک بار اندازه گرفتیم، تا مجموعهٔ اصلی (که قاعده‌ها روی آن تنظیم شد) عددها را قشنگ‌تر نشان ندهد.
+        اضافه‌ای که خودِ نگارش می‌رساند («برنامه‌های»، «غذای»، «هٔ») در هیچ‌کدام شمرده نمی‌شود. اگر اضافه‌ای جا افتاد، با نوشتنِ «هٔ» یا کسره یا
+        «ه‌ی» در متن، همان‌جا گذاشته می‌شود.
+      </p>
+    </Card>
+  );
+}
+
 function EvalTab({ storeId, ov, reload, setError }: Ctx) {
   const [open, setOpen] = useState<EvalRun | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
@@ -742,6 +790,8 @@ function EvalTab({ storeId, ov, reload, setError }: Ctx) {
           نتیجهٔ «اولیه» با تشخیصِ گفتارِ کوچکِ Vosk روی سایت اندازه‌گیری شده؛ جدولِ Whisper روی کارتِ گره، با روشن شدنش، جایش را می‌گیرد.
         </p>
       </Card>
+
+      <EzafeCheck storeId={storeId} setError={setError} />
 
       <Card>
         <SectionTitle>سابقهٔ سنجش‌ها</SectionTitle>

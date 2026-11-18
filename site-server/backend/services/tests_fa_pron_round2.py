@@ -231,7 +231,7 @@ class NumberFormats(unittest.TestCase):
         self.assertEqual(norm("۹۹۰/۰۰۰ تومان"), "نهصد و نود هزار تومان")
         self.assertEqual(norm("۱۲/۵۰۰ تومان"), "دوازده هزار و پانصد تومان")
         self.assertEqual(norm("۳/۴"), "سه چهارم")
-        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبان هزار و چهارصد و پنج")
+        self.assertEqual(norm("۱۴۰۵/۰۸/۲۶"), "بیست و ششم آبانِ هزار و چهارصد و پنج")
 
     def test_minus_sign(self):
         self.assertEqual(norm("-۵ کیلو"), "منفی پنج کیلو")

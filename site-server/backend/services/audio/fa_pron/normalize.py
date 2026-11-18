@@ -139,9 +139,14 @@ def _valid_date(y: int, m: int, d: int) -> str | None:
     return None
 
 
+KASRA = "ِ"
+
+
 def _say_date(y: int, m: int, d: int, kind: str) -> str:
+    """«۱۴۰۵/۰۸/۲۶» -> «بیست و ششم آبانِ هزار و چهارصد و پنج»: the month is linked to the year by an ezafe, written as the kasra the
+    pronunciation layer reads as one (a plain «آبان هزار» is two nouns side by side)."""
     months = JALALI_MONTHS if kind == "j" else GREGORIAN_MONTHS
-    return f"{ordinal(d, first_as_aval=False)} {months[m - 1]} {cardinal(y)}"
+    return f"{ordinal(d, first_as_aval=False)} {months[m - 1]}{KASRA} {cardinal(y)}"
 
 
 _DATE_YMD = re.compile(r"(?<![\d./])(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?![\d/]|\.\d)")
@@ -167,7 +172,7 @@ def spell_dates(text: str) -> str:
         year = m.group(3)
         out = f"{ordinal(d, first_as_aval=False)} {m.group(2)}"
         if year:
-            out += f" {cardinal(int(year))}"
+            out += f"{KASRA} {cardinal(int(year))}"
         return out
 
     text = re.sub(rf"(?<![\d])(\d{{1,2}})\s+({_MONTH_ALT})(?:\s+(\d{{4}}))?(?![\d])", textual, text)
@@ -211,7 +216,9 @@ def _three(s: str) -> str:
 def spell_phones(text: str) -> str:
     def mobile(m):
         a, b, c, d = m.group(1), m.group(2), m.group(3), m.group(4)
-        return f"صفر {_three(a)}، {_three(b)}، {cardinal(int(c)) if c[0] != '0' else numwords.digits_one_by_one(c)}، " \
+        # «+98 912 ...»: the country code is said as a number («نود و هشت»); only the national form starts with «صفر»
+        head = "نود و هشت،" if re.match(r"(?:\+98|0098|98)", m.group(0)) else "صفر"
+        return f"{head} {_three(a)}، {_three(b)}، {cardinal(int(c)) if c[0] != '0' else numwords.digits_one_by_one(c)}، " \
                f"{cardinal(int(d)) if d[0] != '0' else numwords.digits_one_by_one(d)}،"
 
     def landline(m):
@@ -469,12 +476,20 @@ def spell_latin(text: str, notes: NormNotes | None = None) -> str:
 
 _SHORT = "،,;؛:"
 _LONG = ".؟?!…"
+#: the marks of a bulleted list («• مورد»): not emoji, not words
+_BULLETS = "•‣⁃∙◦▪▫●○■□·"
 
 
 def fix_punctuation(text: str) -> str:
     """Collapse everything into «،» «.» «؟» «!» and newlines; drop markup characters."""
+    # list bullets: at the start of a line only decoration (the line break is the pause), inside a line a short pause
+    text = re.sub(r"(?m)^[ \t]*[" + _BULLETS + r"]+[ \t]*", "", text)
+    text = re.sub(r"[ \t]*[" + _BULLETS + r"]+[ \t]*", "، ", text)
+    # an equals sign is said («۲+۳=۵» -> «... مساوی پنج»); a run of three or more is a markdown underline
+    text = re.sub(r"={3,}", " ", text)
+    text = re.sub(r"\s*=\s*", " مساوی ", text).replace("÷", " تقسیم بر ")
     # markdown / decoration
-    text = re.sub(r"[*_~`^|<>\\{}\[\]=]+", " ", text)
+    text = re.sub(r"[*_~`^|<>\\{}\[\]]+", " ", text)
     text = text.replace("(", "،").replace(")", "،")
     text = re.sub(r"[«»“”\"'‘’„‹›]", " ", text)
     text = re.sub(r"\s*و\s*/\s*یا\s*", " و یا ", text)
@@ -500,6 +515,7 @@ def fix_punctuation(text: str) -> str:
 
     text = re.sub(r"[،.؟!][\s،.؟!]*[،.؟!]|[،.؟!]\s+(?=[،.؟!])", strongest, text)
     text = re.sub(r"^[\s،.]+", "", text)
+    text = re.sub(r"[،\s]+$", "", text)          # a short pause at the very end says nothing («+98 ...،»)
     return text.strip()
 
 

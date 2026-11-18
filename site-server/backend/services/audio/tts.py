@@ -33,20 +33,50 @@ female narrator and Mana is what speaks offline or under «فقط لوکال».
 """
 from __future__ import annotations
 
+import functools
+import itertools
 import logging
+import re
 import wave
 from pathlib import Path
 
 from django.conf import settings
 
 from . import engines as engine_registry
-from . import pronounce
+from . import fa_pron, pronounce
 
 logger = logging.getLogger(__name__)
 
 
 class TTSError(Exception):
     pass
+
+
+class NothingToSpeakError(TTSError):
+    """The text has nothing a voice could say: only punctuation, emoji or a markup tag («...», «؟؟؟», «🙂»).
+
+    Without this check each engine answered in its own way - Piper failed with a wave-module message in English («# channels not
+    specified»), another read a short unrelated sound - and the test box showed that to the owner.
+    """
+
+
+NOTHING_TO_SPEAK = "متنی برای خواندن نیست؛ فقط علامت یا شکلک است. چند کلمه بنویسید."
+
+
+def is_speakable(text: str, language: str = "fa") -> bool:
+    """Is there at least one letter or digit left once the text is normalised (emoji, markup and marks are not speech)?"""
+    value = text or ""
+    if language == "fa":
+        try:
+            value = fa_pron.normalize_text(value).text
+        except Exception:  # noqa: BLE001 - the check must never block a narration the layer cannot read
+            pass
+    return bool(re.search(r"\w", value))
+
+
+def require_speakable(text: str, language: str = "fa") -> None:
+    if not is_speakable(text, language):
+        raise NothingToSpeakError(NOTHING_TO_SPEAK)
 
 
 class BaseTTSProvider:
@@ -65,6 +95,21 @@ class BaseTTSProvider:
     use_pron = True
     #: Set only by the pronunciation test box («try another depth»): one depth for this one recording.
     depth_override = None
+
+    def __init_subclass__(cls, **kwargs):
+        """Every engine's ``synthesize`` refuses a text with nothing speakable in it, with one clear Persian message."""
+        super().__init_subclass__(**kwargs)
+        inner = cls.__dict__.get("synthesize")
+        if inner is None or getattr(inner, "_speakable_guard", False):
+            return
+
+        @functools.wraps(inner)
+        def guarded(self, text, out_path, *args, **kw):
+            require_speakable(text, getattr(self, "language", "fa"))
+            return inner(self, text, out_path, *args, **kw)
+
+        guarded._speakable_guard = True
+        cls.synthesize = guarded
 
     def _pron(self, text: str, engine: str, **opts):
         """What the layer hands ``engine`` for ``text``, or None to speak the text unchanged."""
@@ -217,7 +262,12 @@ class PiperProvider(BaseTTSProvider):
         try:
             voice = self._load()
             config = self._config(voice)
-            chunks = self._chunks(voice, config, text)
+            stream = iter(self._chunks(voice, config, text))
+            head = next(stream, None)
+            if head is None:
+                # raised BEFORE the file is opened: a wave file closed with no frames raises its own English error and hides this one
+                raise TTSError("Piper صدایی نساخت (متنی برای خواندن نبود)")
+            chunks = itertools.chain([head], stream)          # the rest is still streamed, a long narration is not held in memory
             with wave.open(str(wav), "wb") as handle:
                 first = True
                 last = None
@@ -236,8 +286,6 @@ class PiperProvider(BaseTTSProvider):
                         )
                     handle.writeframes(chunk.audio_int16_bytes)
                     last = chunk
-                if last is None:
-                    raise TTSError("Piper produced no audio")
                 # A breath after the last word. Piper stops dead on the final
                 # phoneme; a person does not, and without it the audio QC
                 # (rightly) hears a sentence that was cut off, and the next

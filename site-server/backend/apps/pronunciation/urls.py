@@ -19,6 +19,7 @@ urlpatterns = [
     path(P + "problems/<int:pk>/", views.ProblemItemView.as_view(), name="pron-problem"),
     path(P + "eval/", views.EvalListView.as_view(), name="pron-eval"),
     path(P + "eval/<int:pk>/", views.EvalItemView.as_view(), name="pron-eval-item"),
+    path(P + "ezafe-check/", views.EzafeCheckView.as_view(), name="pron-ezafe-check"),
     path(P + "samples/", views.SamplesView.as_view(), name="pron-samples"),
     path(P + "samples/<str:set_id>/<str:name>", views.SampleFileView.as_view(), name="pron-sample-file"),
 ]

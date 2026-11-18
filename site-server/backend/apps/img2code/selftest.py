@@ -99,6 +99,8 @@ def run_engine(url: str = "", wait_s: int = 150) -> dict:
                 html_fa = (tmp / "out_fa" / "index.html").read_text(encoding="utf-8").replace("‌", "")
                 got = [w for w in FA_WORDS if w in html_fa]
                 step("خواندنِ متنِ فارسی (OCR + واژه‌نامه)", len(got) >= 8, "%d از %d واژه: %s" % (len(got), len(FA_WORDS), "، ".join(w for w in FA_WORDS if w not in got) or "همه"))
+                rep_fa = res_fa.get("report") or {}
+                step("علامت‌گذاریِ خط‌های مشکوکِ OCR («این خط را بررسی کن»)", "review_lines" in rep_fa and isinstance(rep_fa.get("review"), list), "%s خط مشکوک از %s خط" % (rep_fa.get("review_lines"), rep_fa.get("text_lines")))
         elif eng["ocr"]:
             step("تبدیلِ صفحهٔ فارسی (متنِ ریز)", True, "ردشد (Pillow شکل‌دهیِ فارسی ندارد)")
         if eng["compare_ok"]:

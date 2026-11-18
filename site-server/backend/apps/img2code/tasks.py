@@ -21,7 +21,7 @@ def run_conversion(self, conv_id):
         pos = services.queue_position(conv)
         from django.utils import timezone
         Conversion.objects.filter(pk=conv_id, state=Conversion.State.QUEUED).update(
-            message="در صف؛ %s (نوبتِ %d)" % ("تبدیلِ قدیمی‌تری پیش از این است" if pos > 1 else "یک تبدیلِ دیگر در حال اجراست", pos), updated_at=timezone.now())
+            message="در صف؛ %s (نوبتِ %s)" % ("تبدیلِ قدیمی‌تری پیش از این است" if pos > 1 else "یک تبدیلِ دیگر در حال اجراست", services._fa_digits(str(pos))), updated_at=timezone.now())
         raise self.retry(countdown=5)
     try:
         conv = services.run(conv)

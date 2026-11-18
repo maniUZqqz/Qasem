@@ -101,6 +101,21 @@
 
 /* پنجرهٔ ساختِ پیش‌نویس */
 .i2c-modal-bg { position: fixed; inset: 0; z-index: 80; background: rgb(2 6 23 / .6); display: grid; place-items: center; padding: 16px; }
-.i2c-modal { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: var(--surface, #fff); color: var(--text); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: 0 24px 80px rgb(0 0 0 / .45); }
+.i2c-modal { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: var(--bg, #fff); color: var(--text); border: 1px solid var(--line-strong); border-radius: 18px; padding: 20px; box-shadow: 0 24px 80px rgb(0 0 0 / .45); } /* پس‌زمینهٔ تخت: --surface شیشه است و متنِ پشتِ پنجره را نشان می‌داد */
 .i2c-modal h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 800; }
 .i2c-targets { display: grid; gap: 8px; margin-top: 12px; }
+
+/* خط‌های مشکوکِ OCR («این خط را بررسی کن») */
+.i2c-imgwrap { position: relative; }
+.i2c-flag { position: absolute; border: 2px dashed var(--warn); border-radius: 4px; background: rgb(251 191 36 / .18); pointer-events: auto; box-sizing: content-box; margin: -2px 0 0 -2px; }
+.i2c-flag.is-focus { border-style: solid; background: rgb(251 191 36 / .38); box-shadow: 0 0 0 3px rgb(251 191 36 / .35); }
+.i2c-review { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 14px; padding: 12px 14px; background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.i2c-review h4 { margin: 0 0 4px; font-size: .92rem; font-weight: 800; color: var(--text); }
+.i2c-review-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.i2c-review-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); cursor: pointer; }
+.i2c-review-row:hover, .i2c-review-row:focus-visible, .i2c-review-row.is-focus { border-color: var(--warn); outline: none; }
+.i2c-review-text { font-size: .86rem; color: var(--text); overflow-wrap: anywhere; }
+.i2c-review-row small { grid-column: 1 / -1; font-size: .72rem; color: var(--text-3); }
+.i2c-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--text-2); cursor: pointer; }
+.i2c-hint-url { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--info) 40%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--info) 8%, transparent); font-size: .8rem; line-height: 1.9; color: var(--text-2); }
+.i2c-hint-url b { color: var(--text); }

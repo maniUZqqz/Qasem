@@ -16,6 +16,9 @@ export type Score = {
   hint: string;
 };
 
+/** خطی از متن که OCR دربارهٔ آن مطمئن نبود («این خط را بررسی کن»)؛ ``box`` به پیکسلِ همان تصویرِ پردازش‌شده است. */
+export type ReviewLine = { box: [number, number, number, number]; text: string; conf: number; why: string[] };
+
 export type Draft = { project_slug: string; page_id: number; url: string; at: string | null };
 
 export type Item = {
@@ -45,6 +48,8 @@ export type Item = {
   files: { original: boolean; rendered: boolean; html: boolean; tree: boolean };
   seconds: number | null;
   ocr: string | null;
+  /** فقط وقتی متن با OCR خوانده شده (نه از خودِ صفحه): خط‌هایی که باید بازبینی شوند */
+  review?: { count: number; lines: ReviewLine[] } | null;
   queue_position?: number;
   /** «باز کردن در طراحیِ UI»؛ ``path`` وقتی هست که سندِ UI قبلاً ساخته شده (null ⇒ دکمه اول می‌سازد) */
   ui_design?: { path: string | null; label: string } | null;

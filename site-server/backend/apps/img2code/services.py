@@ -44,7 +44,7 @@ MIN_SIDE = 64
 HISTORY_CAP = 60
 WIDTHS = [(1280, "رایانه (۱۲۸۰)"), (1440, "رایانهٔ بزرگ (۱۴۴۰)"), (768, "تبلت (۷۶۸)"), (390, "گوشی (۳۹۰)")]
 SHOT_TIMEOUT = 100
-CONVERT_TIMEOUT = 240
+CONVERT_TIMEOUT = 330     # نگاهِ دومِ OCR تا ۷۵ ثانیه به تبدیل اضافه می‌کند
 RENDER_TIMEOUT = 120
 CONVERT_MEM = 3 * 1024 ** 3
 STALE_MINUTES = 30
@@ -416,10 +416,10 @@ def run(conv: Conversion) -> Conversion:
             shutil.rmtree(out, ignore_errors=True)
         use_dom = lines.exists() and conv.dom_text
         text_source = "dom" if use_dom else "ocr"
-        _set(conv, step="convert", progress=15.0, message="در حال تشخیصِ بخش‌ها و خواندنِ متن‌ها…" if not use_dom else "در حال تشخیصِ بخش‌ها (متن‌ها از خودِ صفحه می‌آیند)…")
+        _set(conv, step="convert", progress=15.0, message="در حال تشخیصِ بخش‌ها و خواندنِ متن‌ها (خط‌های نامطمئن دوباره خوانده می‌شوند؛ تا یک دقیقه)…" if not use_dom else "در حال تشخیصِ بخش‌ها (متن‌ها از خودِ صفحه می‌آیند)…")
 
         def convert_tick(elapsed: float) -> bool:
-            _set(conv, progress=round(15 + 55 * (1 - math.exp(-elapsed / 10.0)), 1))
+            _set(conv, progress=round(15 + 55 * (1 - math.exp(-elapsed / 35.0)), 1))
             return _cancelled(conv.pk)
 
         args = ["convert", "--image", src, "--outdir", out, "--mode", conv.mode, "--lang", conv.lang, "--title", (conv.title or "Converted page")[:80]]
@@ -436,7 +436,9 @@ def run(conv: Conversion) -> Conversion:
             return _fail(conv, res.get("message") or "تبدیل شکست خورد.", "%s %s" % (res.get("error"), res.get("detail", "")))
         report = res.get("report") or {}
         size = res.get("size") or [conv.size_w, conv.size_h]
-        _set(conv, report=_slim_report(report), size_w=int(size[0]), size_h=int(size[1]), progress=72.0)
+        slim = _slim_report(report)
+        slim["text_source"] = text_source
+        _set(conv, report=slim, size_w=int(size[0]), size_h=int(size[1]), progress=72.0)
         if report.get("ocr") == "none" and not use_dom:
             warnings.append("خواندنِ متن (OCR) روی سرور آماده نبود؛ این نتیجه بدونِ متن ساخته شد.")
         raw: dict = {}
@@ -481,9 +483,22 @@ def brand_words(conv: Conversion) -> list[str]:
     return words[:12]
 
 
+REVIEW_KEEP = 40          # خط‌های نیازمندِ بررسی که در ردیف می‌ماند (کم‌اطمینان‌ترین‌ها)
+
+
 def _slim_report(rep: dict) -> dict:
-    keep = ("version", "mode", "lang", "page_direction", "ocr", "ocr_stats", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds")
-    return {k: rep.get(k) for k in keep if k in rep}
+    keep = ("version", "mode", "lang", "page_direction", "ocr", "ocr_stats", "digits", "size", "scale", "regions", "text_lines", "nodes", "seconds", "review_lines")
+    out = {k: rep.get(k) for k in keep if k in rep}
+    rows = []
+    for r in (rep.get("review") or [])[:REVIEW_KEEP]:
+        try:
+            x, y, w, h = [int(v) for v in r["box"]]
+            rows.append({"box": [x, y, w, h], "text": str(r.get("text") or "")[:200], "conf": round(float(r.get("conf") or 0), 2), "why": [str(k)[:12] for k in (r.get("why") or [])][:4]})
+        except (KeyError, TypeError, ValueError):
+            continue
+    if rows or "review_lines" in rep:
+        out["review"] = rows
+    return out
 
 
 def _verdict(v: float, good: float, ok: float) -> str:
@@ -535,6 +550,16 @@ def build_scores(raw: dict, report: dict, text_source: str, lang: str = "auto") 
     v = "good" if text_source == "dom" else "ok"
     out.append({"key": "text_source", "label": "روشِ خواندنِ متن", "value": text_source, "display": src_fa, "verdict": v, "verdict_fa": VERDICT_FA[v],
                 "hint": "وقتی نشانیِ صفحه داده شود نوشته‌ها از خودِ صفحه برداشته می‌شود و غلطِ املایی ندارد. در تصویرِ بارگذاری‌شده، متن با OCR خوانده می‌شود (غلط‌های نقطه‌ایِ فارسی با واژه‌نامه و نامِ فروشگاه اصلاح می‌شود) ولی در نوشته‌های ریزِ فارسی هنوز ممکن است چند حرف غلط باشد."})
+    rv = report.get("review_lines")
+    if text_source == "ocr" and rv is not None and report.get("ocr") not in (None, "none"):
+        total = int(report.get("text_lines") or 0)
+        share = (rv / total) if total else 0.0
+        v = "good" if rv == 0 else ("ok" if share <= 0.25 else "weak")
+        out.append({"key": "review", "label": "خط‌های نیازمندِ بررسی", "value": rv, "display": "%s از %s خط" % (_fa_digits(str(rv)), _fa_digits(str(total))), "verdict": v,
+                    "verdict_fa": VERDICT_FA[v],
+                    "hint": "خط‌هایی که OCR با اطمینانِ کم خوانده یا واژه‌ای دارند که در واژه‌نامه نیست. در تبِ «مقایسه» رویِ تصویر با کادرِ زرد و برچسبِ «این خط را بررسی کن» نشان داده می‌شوند؛ بقیهٔ خط‌ها را مطمئن‌تر خوانده‌ایم."})
+        if rv:
+            warns.append("%s خط از متن‌ها را با اطمینانِ کم خواندیم («این خط را بررسی کن»): در تبِ «مقایسه» با کادرِ زرد مشخص شده‌اند؛ یک بار بخوانیدشان." % _fa_digits(str(rv)))
     if text_source == "ocr" and report.get("page_direction") == "rtl":
         warns.append("متن‌ها با OCR خوانده شد؛ نوشته‌های ریزِ فارسی را یک بار بخوانید. اگر نشانیِ صفحه را دارید، با آن بسازید تا متن‌ها دقیق بیایند.")
     return out, warns
@@ -649,6 +674,9 @@ def item_dict(conv: Conversion, detail: bool = False) -> dict:
         "scores": conv.scores or [], "warnings": conv.warnings or [], "draft": draft, "files": files_available(conv),
         "seconds": ((conv.report or {}).get("seconds") or {}).get("total"), "ocr": (conv.report or {}).get("ocr"),
     }
+    rep = conv.report or {}
+    if conv.state == Conversion.State.READY and rep.get("text_source", "ocr") == "ocr" and rep.get("review_lines"):
+        d["review"] = {"count": int(rep.get("review_lines") or 0), "lines": list(rep.get("review") or [])[:REVIEW_KEEP]}
     if conv.state == Conversion.State.QUEUED:
         d["queue_position"] = queue_position(conv)
     if conv.state == Conversion.State.READY:

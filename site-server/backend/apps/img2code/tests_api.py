@@ -394,7 +394,7 @@ class QueueOrderAndCleanupTests(Base):
         with self.assertRaises(Retry):
             tasks.run_conversion.run(b.pk)
         b.refresh_from_db()
-        self.assertIn("نوبتِ 2", b.message)
+        self.assertIn("نوبتِ ۲", b.message)
         self.assertEqual(b.state, "QUEUED")
 
     def test_queue_position_follows_creation_order(self):
@@ -837,6 +837,100 @@ print('RESULT {"ok": true}')
 NOISY = """print('warning: something')
 print('RESULT {"ok": true, "n": 3}')
 """
+
+
+class ReviewLinesTests(Base):
+    """خط‌هایی که OCR دربارهٔ آن‌ها مطمئن نبود («این خط را بررسی کن»): در ردیف می‌ماند، در امتیازها و هشدارها هست، و فقط برای متنِ OCR."""
+
+    REVIEW = [
+        {"box": [100, 200, 300, 24], "text": "تمامی حقوق محقوظ است", "conf": 0.55, "why": ["conf", "unknown"]},
+        {"box": [10, 20, 60, 18], "text": "خانه", "conf": 0.7, "why": ["conf"]},
+    ]
+
+    def runner_with_review(self, review=None, lines=2, **extra):
+        base = fake_runner()
+
+        def fn(args, timeout, mem=0, tick=None):
+            res = base(args, timeout, mem, tick)
+            if str(args[0]) == "convert":
+                res["report"] = dict(res["report"], review_lines=lines, review=self.REVIEW if review is None else review, **extra)
+            return res
+        return fn
+
+    def fetch(self, item):
+        """POST ⇒ ردیفِ «در صف»؛ نتیجه (با review) را از GET بگیر."""
+        self.client.force_authenticate(self.owner)
+        return self.client.get(self.url(self.store, "%d/" % item["id"])).json()["item"]
+
+    def test_ocr_text_keeps_its_doubtful_lines_and_says_so_in_persian(self):
+        self.runner.side_effect = self.runner_with_review()
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["review"]["count"], 2)
+        self.assertEqual(item["review"]["lines"][0]["box"], [100, 200, 300, 24])
+        self.assertEqual(item["review"]["lines"][0]["why"], ["conf", "unknown"])
+        conv = Conversion.objects.get(pk=item["id"])
+        card = {s["key"]: s for s in conv.scores}["review"]
+        self.assertEqual(card["display"], "۲ از ۱۲ خط")
+        self.assertEqual(card["verdict"], "ok")                    # ۲ از ۱۲ خط (≤ ۲۵٪)
+        self.assertIn("خط‌های نیازمندِ بررسی", card["label"])
+        self.assertTrue(any("این خط را بررسی کن" in w for w in conv.warnings))
+        draft_warn = [w for w in conv.warnings if "بررسی کن" in w][0]
+        self.assertIn("۲", draft_warn)                          # عددِ فارسی
+
+    def test_no_review_for_text_read_from_the_page_itself(self):
+        self.runner.side_effect = self.runner_with_review()
+        self.client.force_authenticate(self.owner)
+        with mock.patch("apps.img2code.netguard.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
+            with self.captureOnCommitCallbacks(execute=True):
+                r = self.client.post(self.url(self.store), {"url": "example.com/", "mode": "responsive"}, format="json")
+        item = self.fetch(r.json()["item"])
+        self.assertEqual(item["state"], "READY")
+        self.assertNotIn("review", item)
+        conv = Conversion.objects.get(pk=item["id"])
+        self.assertNotIn("review", {s["key"] for s in conv.scores})
+
+    def test_an_older_engine_without_review_data_still_works(self):
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertEqual(item["state"], "READY")
+        self.assertNotIn("review", item)
+
+    def test_all_clear_gives_no_warning_and_a_good_card(self):
+        self.runner.side_effect = self.runner_with_review(review=[], lines=0)
+        item = self.fetch(self.make(self.store, self.owner))
+        self.assertNotIn("review", item)
+        conv = Conversion.objects.get(pk=item["id"])
+        card = {s["key"]: s for s in conv.scores}["review"]
+        self.assertEqual((card["verdict"], card["value"]), ("good", 0))
+        self.assertFalse(any("بررسی کن" in w for w in conv.warnings))
+
+    def test_the_report_is_slimmed_and_garbage_is_ignored(self):
+        rows = [{"box": [i, i, 10, 10], "text": "x" * 500, "conf": 0.5, "why": ["conf"] * 9} for i in range(60)] + [{"box": "bad"}, {"text": "no box"}]
+        rep = services._slim_report({"ocr": "tesseract", "review_lines": 62, "review": rows, "secret": "no"})
+        self.assertEqual(len(rep["review"]), services.REVIEW_KEEP)
+        self.assertEqual(len(rep["review"][0]["text"]), 200)
+        self.assertEqual(len(rep["review"][0]["why"]), 4)
+        self.assertNotIn("secret", rep)
+        self.assertEqual(rep["review_lines"], 62)
+
+    def test_review_lines_are_visible_to_members_of_the_store_only(self):
+        self.runner.side_effect = self.runner_with_review()
+        item = self.make(self.store, self.owner)
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.get(self.url(self.store, "%d/" % item["id"])).json()["item"]["review"]["count"], 2)
+        self.client.force_authenticate(self.stranger)
+        self.assertEqual(self.client.get(self.url(self.store, "%d/" % item["id"])).status_code, 404)
+
+    def test_the_queue_message_uses_persian_digits(self):
+        from .tasks import run_conversion
+        older = Conversion.objects.create(store=self.store, created_by=self.owner, state=Conversion.State.QUEUED)
+        newer = Conversion.objects.create(store=self.store, created_by=self.owner, state=Conversion.State.QUEUED)
+        with mock.patch.object(services, "is_my_turn", return_value=False), mock.patch.object(run_conversion, "retry", side_effect=RuntimeError("retry")):
+            with self.assertRaises(RuntimeError):
+                run_conversion.run(newer.pk)
+        newer.refresh_from_db()
+        self.assertIn("نوبتِ ۲", newer.message)
+        self.assertNotRegex(newer.message, r"[0-9]")
+        older.delete()
 
 
 class ProcessCapTests(APITestCase):

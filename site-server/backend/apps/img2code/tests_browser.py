@@ -34,6 +34,7 @@ from . import services, tasks
 from .models import Conversion
 
 os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")        # callbackهای Playwright داخلِ حلقهٔ رویداد ORM صدا می‌زنند
+os.environ.setdefault("MV2CODE_RESCAN_BUDGET", "15")              # نگاهِ دومِ OCR در آزمون کوتاه بماند (در تولید تا ۷۵ ثانیه است)؛ روی سرورِ پرکار تبدیل نباید از سقفِ انتظارِ مرورگر بگذرد
 FRONT = Path(__file__).resolve().parents[3] / "frontend"
 SHOTS = os.environ.get("IMG2CODE_SHOTS", "")
 
@@ -193,6 +194,21 @@ class BrowserTests(TransactionTestCase):
         over = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
         self.assertLessEqual(over, 2, "%s: اسکرولِ افقی %s" % (what, over))
 
+    def assert_opaque(self, page, selector, what):
+        """پنجره‌ها نباید شفاف باشند: توکنِ --surface شیشه است (۴٪ سفید در تیره) و متنِ پشتِ پنجره را نشان می‌داد."""
+        bg = page.evaluate("(s) => getComputedStyle(document.querySelector(s)).backgroundColor", selector)
+        self.assertTrue(bg.startswith("rgb(") or bg.endswith(", 1)"), "%s: پس‌زمینه شفاف است: %s" % (what, bg))
+
+    REVIEW = [
+        {"box": [60, 30, 220, 34], "text": "تمامی حقوق محقوظ است", "conf": 0.52, "why": ["conf", "unknown"]},
+        {"box": [300, 120, 260, 40], "text": "ابزارهایی که کار روزانه", "conf": 0.71, "why": ["conf"]},
+    ]
+
+    def with_review(self):
+        """تبدیلِ واقعی؛ فقط گزارشش «دو خطِ مشکوک» دارد تا نمایشِ کادرهای زرد و فهرست بدونِ تکیه بر نتیجهٔ OCR آزموده شود."""
+        orig = services._slim_report
+        return mock.patch.object(services, "_slim_report", side_effect=lambda rep: orig(dict(rep, review_lines=len(self.REVIEW), review=self.REVIEW)))
+
     def convert_through_ui(self, page):
         page.set_input_files("[data-testid=i2c-file]", {"name": "landing.png", "mimeType": "image/png", "buffer": self.page_png()})
         page.wait_for_selector("[data-testid=i2c-drop] img", timeout=10000)
@@ -201,7 +217,7 @@ class BrowserTests(TransactionTestCase):
         page.select_option("[data-testid=i2c-lang]", "fa")
         page.fill("[data-testid=i2c-title]", "صفحهٔ فرودِ آزمون")
         page.click("[data-testid=i2c-submit]")
-        page.wait_for_selector("[data-testid=i2c-result]", timeout=120000)
+        page.wait_for_selector("[data-testid=i2c-result]", timeout=300000)
 
     def test_desktop_full_flow(self):
         from playwright.sync_api import sync_playwright
@@ -210,6 +226,11 @@ class BrowserTests(TransactionTestCase):
             try:
                 self.assertIn("تصویر به کد", page.inner_text("h1"))
                 self.assertEqual(page.locator("[data-testid=i2c-store]").count(), 0)        # یک فروشگاه ⇒ انتخابگر لازم نیست
+                self.assertIn("نشانیِ صفحه را بدهید", page.inner_text("[data-testid=i2c-url-hint]"))        # برای متنِ دقیق، نشانی بدهید
+                page.click("[data-testid=i2c-hint-url-btn]")
+                page.wait_for_selector("[data-testid=i2c-url]")
+                self.assertEqual(page.locator("[data-testid=i2c-url-hint]").count(), 0)
+                page.click("[data-testid=i2c-tab-upload]")
                 self.shot(page, "desktop-1-empty.png")
                 self.convert_through_ui(page)
                 self.shot(page, "desktop-2-result.png")
@@ -267,6 +288,7 @@ class BrowserTests(TransactionTestCase):
                 # ساختِ پیش‌نویس در سایت‌ساز (کارمند)
                 page.click("[data-testid=i2c-draft-btn]")
                 page.wait_for_selector("[data-testid=i2c-draft-modal]")
+                self.assert_opaque(page, "[data-testid=i2c-draft-modal]", "desktop روشن")
                 self.shot(page, "desktop-6-draft-dialog.png")
                 page.click("[data-testid=i2c-draft-confirm]")
                 page.wait_for_selector("[data-testid=i2c-draft-done]", timeout=60000)
@@ -317,6 +339,59 @@ class BrowserTests(TransactionTestCase):
             finally:
                 b.close()
 
+    def test_doubtful_lines_are_marked_on_the_images_and_listed(self):
+        from playwright.sync_api import sync_playwright
+        with self.with_review(), sync_playwright() as pw:
+            b, page, errors, _seen = self.open_page(pw, self.staff, self.store, 1280, 900, theme="dark")
+            try:
+                self.convert_through_ui(page)
+                page.wait_for_selector("[data-testid=i2c-review]", timeout=20000)
+                self.assertEqual(page.locator("[data-testid=i2c-review-row]").count(), 2)
+                self.assertIn("این خط را بررسی کن", page.inner_text("[data-testid=i2c-review]"))
+                self.assertIn("تمامی حقوق محقوظ است", page.inner_text("[data-testid=i2c-review]"))
+                # روی هر دو تصویر (اصلی و نتیجه) کادرِ زرد هست
+                page.wait_for_function("document.querySelectorAll('[data-testid=i2c-compare-side] [data-testid=i2c-flag]').length === 4", timeout=20000)
+                flag = page.locator("[data-testid=i2c-compare-side] [data-testid=i2c-flag]").first
+                self.assertEqual(flag.get_attribute("title"), "این خط را بررسی کن")
+                img = page.locator("[data-testid=i2c-compare-side] .i2c-imgwrap").first.bounding_box()
+                fb = flag.bounding_box()
+                conv = Conversion.objects.get(store=self.store)
+                w, h = conv.size_w, conv.size_h
+                self.assertAlmostEqual((fb["x"] - img["x"]) / img["width"], 60 / w, delta=0.02)
+                self.assertAlmostEqual((fb["y"] - img["y"]) / img["height"], 30 / h, delta=0.02)
+                self.shot(page, "desktop-review.png")
+                # با کلیک روی یک ردیف همان کادر پررنگ می‌شود؛ خاموش‌کردنِ کادرها آن‌ها را برمی‌دارد
+                page.click("[data-testid=i2c-review-row][data-idx='1']")
+                page.wait_for_selector("[data-testid=i2c-flag][data-idx='1'].is-focus")
+                page.click("[data-testid=i2c-flags-toggle]")
+                page.wait_for_function("document.querySelectorAll('[data-testid=i2c-flag]').length === 0")
+                page.click("[data-testid=i2c-flags-toggle]")
+                page.click("[data-testid=i2c-view-slider]")
+                page.wait_for_function("document.querySelectorAll('[data-testid=i2c-compare-slider] [data-testid=i2c-flag]').length === 2")
+                # فهرستِ امتیازها هم از «خط‌های نیازمندِ بررسی» می‌گوید
+                page.click("[data-testid=i2c-tab-scores]")
+                page.wait_for_selector("[data-testid=i2c-score][data-key=review]")
+                self.assertRegex(page.locator("[data-testid=i2c-score][data-key=review] .i2c-score-value").inner_text(), r"^۲ از [۰-۹]+ خط$")
+                self.no_overflow(page, "desktop review")
+                self.assertEqual(errors, [])
+            finally:
+                b.close()
+
+    def test_phone_review_list_fits_the_screen(self):
+        from playwright.sync_api import sync_playwright
+        with self.with_review(), sync_playwright() as pw:
+            b, page, errors, _seen = self.open_page(pw, self.staff, self.store, 390, 844, theme="dark")
+            try:
+                self.convert_through_ui(page)
+                page.wait_for_selector("[data-testid=i2c-review]", timeout=20000)
+                self.no_overflow(page, "phone review")
+                box = page.locator("[data-testid=i2c-review]").bounding_box()
+                self.assertLessEqual(box["x"] + box["width"], 391)
+                self.shot(page, "phone-review.png")
+                self.assertEqual(errors, [])
+            finally:
+                b.close()
+
     def test_url_form_refuses_internal_addresses_in_persian(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
@@ -356,6 +431,7 @@ class BrowserTests(TransactionTestCase):
                 self.no_overflow(page, "phone code")
                 page.click("[data-testid=i2c-draft-btn]")
                 page.wait_for_selector("[data-testid=i2c-draft-modal]")
+                self.assert_opaque(page, "[data-testid=i2c-draft-modal]", "گوشی تیره")
                 box = page.locator("[data-testid=i2c-draft-modal]").bounding_box()
                 self.assertLessEqual(box["x"] + box["width"], 391)
                 self.assertGreaterEqual(box["x"], -1)

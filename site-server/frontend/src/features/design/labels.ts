@@ -2,13 +2,15 @@ import type { BlockCatalog, SiteInfo } from "./api";
 
 type Node = Record<string, any>;
 
+/** نوعِ بلوک‌های سایت‌ساز که در فهرستِ بلوک‌های «بخش» نیستند (فرزندِ ستون و …) ولی در لایه‌ها دیده می‌شوند؛ بدونِ این نگاشت نامِ انگلیسی بیرون می‌آمد. */
+const BLOCK_FA: Record<string, string> = { column: "ستون", columns: "ستون‌ها", section: "بخش", heading: "تیتر", text: "متن", image: "تصویر", button: "دکمه", spacer: "فاصله", site_header: "سربرگ", site_footer: "پابرگ", contact_form: "فرم تماس", custom_html: "HTML دلخواه", divider: "جداکننده", icon: "نماد" };
 const PRIM_FA: Record<string, string> = { frame: "قاب Auto Layout", text: "متن", button: "دکمه", image: "تصویر", rect: "مستطیل", input: "فیلد", spacer: "فاصله", icon: "نماد" };
 
 /** نامِ یک لایه در فهرست. فرزندِ یک «بخش» فقط «type» دارد و «t» ندارد؛ پس هر دو شکل پشتیبانی می‌شود و هرگز «undefined» نشان داده نمی‌شود. */
 export function nodeLabel(n: Node, catalog: BlockCatalog | null): string {
   const kind = n.type != null ? String(n.type) : "";
   if (kind === "c21") return "قطعهٔ 21st.dev";                                   // قطعهٔ آمادهٔ 21st.dev (منبعِ طراحی)
-  if (n.t === "block" || (n.t == null && kind)) return catalog?.blocks.find((b) => b.type === kind)?.label ?? PRIM_FA[kind] ?? (kind || "لایه");
+  if (n.t === "block" || (n.t == null && kind)) return catalog?.blocks.find((b) => b.type === kind)?.label ?? PRIM_FA[kind] ?? BLOCK_FA[kind] ?? (kind || "لایه");
   return n.name || PRIM_FA[String(n.t)] || "لایه";
 }
 

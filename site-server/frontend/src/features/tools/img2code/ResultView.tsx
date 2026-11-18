@@ -4,12 +4,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { errorMessage } from "../../../api/client";
 import Icon from "../../../components/Icon";
 import { Alert, Badge, Button, Card, ErrorBox, Spinner, fa } from "../../../components/ui";
-import { Code, DraftResult, Item, Mode, Score, Target, downloadFile, i2cApi } from "./api";
+import { Code, DraftResult, Item, Mode, ReviewLine, Score, Target, downloadFile, i2cApi } from "./api";
 
 type Tab = "compare" | "scores" | "code";
 type CodeTab = "html" | "css" | "tree";
 
 const VERDICT_TONE = { good: "ok", ok: "warn", weak: "bad" } as const;
+const NO_FLAGS: ReviewLine[] = [];
 
 /** تصویری که با ورودِ کاربر (توکن) گرفته می‌شود؛ <img src> ساده توکن نمی‌فرستد. ``name`` پیش‌نمایشِ سبک (WebP) است؛ اگر نشد PNGِ کامل می‌آید. */
 function useBlobUrl(storeId: string, id: number, name: string, fallback: string, enabled: boolean) {
@@ -60,10 +61,69 @@ function Meter({ score }: { score: Score }) {
   );
 }
 
-function SideBySide({ a, b, ratioA, ratioB }: { a: string; b: string | null; ratioA: number; ratioB: number }) {
+const WHY_FA: Record<string, string> = {
+  conf: "اطمینانِ خواندن کم بود",
+  unknown: "واژه‌ای که در واژه‌نامه نیست (شاید یک حرف غلط باشد)",
+  mixed: "حرفِ فارسی به عدد/لاتین چسبیده",
+  stray: "نویسهٔ تکیِ کنارِ خط (شاید آیکون بوده)",
+};
+
+/** کادرِ زردِ خط‌های مشکوک رویِ تصویر؛ مختصات درصدیِ ابعادِ تصویرِ پردازش‌شده است، پس با هر اندازهٔ نمایش درست می‌ماند. */
+function Flags({ lines, size, focus }: { lines: ReviewLine[]; size: [number, number]; focus: number | null }) {
+  const [w, h] = size;
+  if (w <= 0 || h <= 0) return null;
+  return (
+    <>
+      {lines.map((l, i) => (
+        <span
+          key={i}
+          className={`i2c-flag ${focus === i ? "is-focus" : ""}`}
+          data-testid="i2c-flag"
+          data-idx={i}
+          title="این خط را بررسی کن"
+          aria-label={`این خط را بررسی کن: ${l.text}`}
+          style={{ left: `${(l.box[0] / w) * 100}%`, top: `${(l.box[1] / h) * 100}%`, width: `${(l.box[2] / w) * 100}%`, height: `${(l.box[3] / h) * 100}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
+function ReviewList({ lines, count, focus, onFocus }: { lines: ReviewLine[]; count: number; focus: number | null; onFocus: (i: number) => void }) {
+  return (
+    <section className="i2c-review" data-testid="i2c-review" aria-label="خط‌های نیازمندِ بررسی">
+      <h4>{fa(count)} خط از متن‌ها را با اطمینانِ کم خواندیم</h4>
+      <p className="i2c-note">
+        خواندنِ نوشته‌های ریزِ فارسی از روی عکس همیشه کامل نیست. این خط‌ها روی تصویر با کادرِ زرد نشان داده شده‌اند؛ متنشان را یک بار بخوانید و در صورتِ لزوم در سایت‌ساز یا کد درست کنید.
+        برای متنِ دقیق، تبدیل را با «نشانیِ صفحه» انجام دهید.
+      </p>
+      <ul className="i2c-review-list">
+        {lines.map((l, i) => (
+          <li key={i}>
+            <button type="button" className={`i2c-review-row ${focus === i ? "is-focus" : ""}`} onClick={() => onFocus(i)} data-testid="i2c-review-row" data-idx={i}>
+              <Badge tone="warn">این خط را بررسی کن</Badge>
+              <span className="i2c-review-text" dir="auto">{l.text || "(خالی)"}</span>
+              <small>{l.why.map((k) => WHY_FA[k] ?? k).join(" · ")}{l.why.length ? " · " : ""}اطمینان {fa(Math.round(l.conf * 100))}٪</small>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {count > lines.length && <p className="i2c-note">{fa(count - lines.length)} خطِ دیگر هم مشکوک بود؛ فقط کم‌اطمینان‌ترین‌ها این‌جا آمده‌اند.</p>}
+    </section>
+  );
+}
+
+function SideBySide({ a, b, ratioA, ratioB, flags, size, focus }: { a: string; b: string | null; ratioA: number; ratioB: number; flags: ReviewLine[]; size: [number, number]; focus: number | null }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
   const lock = useRef(false);
+  useEffect(() => {
+    if (focus == null || !flags[focus] || size[1] <= 0) return;
+    const pane = left.current;
+    const img = pane?.querySelector("img");
+    if (!pane || !img) return;
+    pane.scrollTo({ top: Math.max(0, (flags[focus].box[1] / size[1]) * img.clientHeight - 80), behavior: "smooth" });
+  }, [focus, flags, size]);
   function sync(from: HTMLDivElement | null, to: HTMLDivElement | null) {
     if (!from || !to || lock.current) return;
     lock.current = true;
@@ -80,20 +140,30 @@ function SideBySide({ a, b, ratioA, ratioB }: { a: string; b: string | null; rat
       <figure>
         <figcaption>تصویرِ اصلی</figcaption>
         <div className="i2c-pane" ref={left} onScroll={() => sync(left.current, right.current)} tabIndex={0} aria-label="تصویرِ اصلی (اسکرول‌پذیر)">
-          <img src={a} alt="تصویرِ اصلی" style={{ aspectRatio: String(ratioA) }} />
+          <div className="i2c-imgwrap">
+            <img src={a} alt="تصویرِ اصلی" style={{ aspectRatio: String(ratioA) }} />
+            <Flags lines={flags} size={size} focus={focus} />
+          </div>
         </div>
       </figure>
       <figure>
         <figcaption>نتیجهٔ ساخته‌شده</figcaption>
         <div className="i2c-pane" ref={right} onScroll={() => sync(right.current, left.current)} tabIndex={0} aria-label="نتیجهٔ ساخته‌شده (اسکرول‌پذیر)">
-          {b ? <img src={b} alt="نتیجهٔ ساخته‌شده" style={{ aspectRatio: String(ratioB) }} /> : <Spinner />}
+          {b ? (
+            <div className="i2c-imgwrap">
+              <img src={b} alt="نتیجهٔ ساخته‌شده" style={{ aspectRatio: String(ratioB) }} />
+              <Flags lines={flags} size={size} focus={focus} />
+            </div>
+          ) : (
+            <Spinner />
+          )}
         </div>
       </figure>
     </div>
   );
 }
 
-function Slider({ a, b, ratio }: { a: string; b: string; ratio: number }) {
+function Slider({ a, b, ratio, flags, size, focus }: { a: string; b: string; ratio: number; flags: ReviewLine[]; size: [number, number]; focus: number | null }) {
   const [pos, setPos] = useState(50);
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef(false);
@@ -119,6 +189,7 @@ function Slider({ a, b, ratio }: { a: string; b: string; ratio: number }) {
       >
         <img src={a} alt="تصویرِ اصلی" draggable={false} className="i2c-slider-base" />
         <img src={b} alt="نتیجهٔ ساخته‌شده" draggable={false} className="i2c-slider-top" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }} />
+        <Flags lines={flags} size={size} focus={focus} />
         <span className="i2c-slider-handle" style={{ left: `${pos}%` }} aria-hidden="true" />
         <span className="i2c-slider-tag i2c-tag-l">نتیجه</span>
         <span className="i2c-slider-tag i2c-tag-r">اصلی</span>
@@ -263,7 +334,11 @@ export default function ResultView({
   const [dialog, setDialog] = useState(false);
   const [done, setDone] = useState<DraftResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showFlags, setShowFlags] = useState(true);
+  const [focus, setFocus] = useState<number | null>(null);
   const ready = item.state === "READY";
+  const review = item.review && item.review.count > 0 ? item.review : null;
+  const flags = showFlags && review ? review.lines : NO_FLAGS;
   const orig = useBlobUrl(storeId, item.id, "original.preview.webp", "original.png", ready && item.files.original);
   const rend = useBlobUrl(storeId, item.id, "rendered.preview.webp", "rendered.png", ready && item.files.rendered);
   const [w, h] = item.size;
@@ -397,18 +472,25 @@ export default function ResultView({
                     <div className="i2c-tabs">
                       <button type="button" className={`u-btn u-btn-sm ${view === "side" ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setView("side")} data-testid="i2c-view-side">کنارِ هم</button>
                       <button type="button" className={`u-btn u-btn-sm ${view === "slider" ? "u-btn-primary" : "u-btn-secondary"}`} onClick={() => setView("slider")} data-testid="i2c-view-slider">لغزنده (رویِ هم)</button>
+                      {review && (
+                        <label className="i2c-toggle">
+                          <input type="checkbox" checked={showFlags} onChange={(e) => setShowFlags(e.target.checked)} data-testid="i2c-flags-toggle" />
+                          <span>کادرِ زردِ «این خط را بررسی کن» ({fa(review.count)})</span>
+                        </label>
+                      )}
                     </div>
                     {orig.failed || rend.failed ? (
                       <ErrorBox message="تصویرها بارگذاری نشد؛ صفحه را تازه کنید." />
                     ) : view === "side" && orig.url ? (
-                      <SideBySide a={orig.url} b={rend.url} ratioA={ratioA} ratioB={ratioB} />
+                      <SideBySide a={orig.url} b={rend.url} ratioA={ratioA} ratioB={ratioB} flags={flags} size={item.size} focus={focus} />
                     ) : view === "slider" && orig.url && rend.url ? (
-                      <Slider a={orig.url} b={rend.url} ratio={ratioA} />
+                      <Slider a={orig.url} b={rend.url} ratio={ratioA} flags={flags} size={item.size} focus={focus} />
                     ) : (
                       <p className="i2c-note i2c-loading" data-testid="i2c-loading"><Spinner /> در حال بارگذاریِ تصویرها…</p>
                     )}
                   </>
                 )}
+                {review && <ReviewList lines={review.lines} count={review.count} focus={focus} onFocus={(i) => setFocus(i)} />}
                 {item.scores.length > 0 && (
                   <div className="i2c-brief" data-testid="i2c-brief">
                     {item.scores.filter((s) => ["ssim", "editable", "text"].includes(s.key)).map((s) => (

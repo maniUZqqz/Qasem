@@ -143,6 +143,18 @@ export default function NewForm({ storeId, options, engine, onCreated }: { store
           </div>
         )}
 
+        {tab === "upload" && (
+          <div className="i2c-hint-url" data-testid="i2c-url-hint">
+            <span>
+              <b>برای متنِ دقیق، نشانیِ صفحه را بدهید.</b> متنِ تصویرِ بارگذاری‌شده با OCR خوانده می‌شود و در نوشته‌های ریزِ فارسی گاهی یک حرف را اشتباه می‌خواند (خط‌های مشکوک را در نتیجه با کادرِ زرد نشان می‌دهیم).
+              با نشانی، نوشته‌ها مستقیم از خودِ صفحه برداشته می‌شود و غلطِ املایی ندارد.
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => setTab("url")} data-testid="i2c-hint-url-btn">
+              <Icon name="link" size={14} /> تبدیل با نشانیِ صفحه
+            </Button>
+          </div>
+        )}
+
         <div className="i2c-opts">
           <fieldset className="i2c-modes">
             <legend>حالت</legend>

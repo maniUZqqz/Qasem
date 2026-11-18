@@ -81,6 +81,40 @@ def _atomic(path: Path, text: str, mode: int | None = None) -> None:
     tmp.replace(path)
 
 
+#: نوشتارِ یکدستِ مجوز (کاتالوگ «mit» و «MIT» و «apache-2.0» و «Apache-2.0» را قاطی می‌نوشت)؛ کلیدِ پایین‌حروف ⇒ نامِ استاندارد
+_LIC_CANON = {"mit": "MIT", "mit-0": "MIT-0", "apache-2.0": "Apache-2.0", "apache-2": "Apache-2.0", "apache2": "Apache-2.0", "apache-license-2.0": "Apache-2.0",
+              "bsd-2-clause": "BSD-2-Clause", "bsd-3-clause": "BSD-3-Clause", "bsd": "BSD", "isc": "ISC", "0bsd": "0BSD", "unlicense": "Unlicense", "cc0": "CC0-1.0", "cc0-1.0": "CC0-1.0",
+              "agpl-3.0": "AGPL-3.0", "mpl-2.0": "MPL-2.0", "no-license": "no-license", "unknown": "unknown"}
+_MIT_WITH_NAME = re.compile(r"^mit(?:[\s-]license)?,?\s+copyright\b", re.I)          # «MIT License, Copyright (c) 2026 ozzy» = MIT (نه «MIT + Commons Clause»: آن محدودکننده است)
+
+
+def canon_license(lic) -> str:
+    """مجوز ⇒ نوشتارِ یکدست (MIT، Apache-2.0، MIT-0 …)؛ ناشناخته دست‌نخورده."""
+    s = str(lic or "").strip()
+    if not s:
+        return s
+    key = re.sub(r"[\s_]+", "-", s.lower())
+    if key in _LIC_CANON:
+        return _LIC_CANON[key]
+    if _MIT_WITH_NAME.match(s):
+        return "MIT"
+    return s
+
+
+def reconcile(rows: list[dict]) -> list[dict]:
+    """نوشتارِ مجوز یکدست می‌شود و ``usable`` با خودِ مجوز می‌خواند (۱۲ قطعهٔ MIT-0 «غیرقابلِ استفاده» مانده بود چون پرچم پیش از افزودنِ MIT-0 به PERMISSIVE نوشته شده بود).
+    فقط ردیفی که جزئیاتش خوانده شده (``detail``) روا می‌شود؛ مجوزِ غیرآزاد هرگز usable نمی‌ماند."""
+    for r in rows:
+        lic = canon_license(r.get("license"))
+        if lic and lic != r.get("license"):
+            r["license"] = lic
+        if r.get("detail") and lic:
+            ok = is_permissive(lic)
+            if ok != bool(r.get("usable")):
+                r["usable"] = ok
+    return rows
+
+
 def load() -> list[dict]:
     p = root() / "catalog.json"
     try:
@@ -89,7 +123,7 @@ def load() -> list[dict]:
         return []
     if _cache["mtime"] != m or _cache.get("path") != str(p):
         try:
-            _cache.update(mtime=m, rows=json.loads(p.read_text(encoding="utf-8")), path=str(p))
+            _cache.update(mtime=m, rows=reconcile(json.loads(p.read_text(encoding="utf-8"))), path=str(p))
         except (OSError, ValueError):
             return []
     return _cache["rows"]
@@ -147,7 +181,7 @@ def parse_component_md(md: str) -> dict:
     tags = [t.strip() for t in _field(md, "Tags").split(",") if t.strip()]
     deps = [t.strip() for t in _field(md, "npm dependencies").split(",") if t.strip()]
     return {"title": title.group(1).strip()[:120] if title else "", "description": desc.group(1).strip()[:260] if desc else "",
-            "author_name": link(_field(md, "Author"))[:80], "library": link_text(_field(md, "Library"))[:80], "license": lic[:40],
+            "author_name": link(_field(md, "Author"))[:80], "library": link_text(_field(md, "Library"))[:80], "license": canon_license(lic)[:40],
             "tags": tags[:10], "deps": deps[:8]}
 
 
@@ -336,18 +370,24 @@ def search(q: str = "", cat: str = "", usable_only: bool = False, page: int = 1,
             s = 3 * len(words & _words(r.get("title", ""))) + len(words & hay)
             if s == 0:
                 continue
-        scored.append((s, (4 if kind_of(r) == "section" else 0) + (2 if insertable(r) else 0) + (1 if r.get("preview") else 0), r))
-    scored.sort(key=lambda x: (-x[0], -x[1], x[2]["id"]))
+        ins = insertable(r)
+        # «ثابت (بدونِ حرکت)» بعد از قطعه‌هایی می‌آید که در سایت کار می‌کنند (تعاملی یا بی‌نیاز به تعامل)؛ فهرستِ بی‌جست‌وجو اول تعاملی‌ها، بعد ساده‌ها، بعد ثابت‌ها، بعد فقط-کاتالوگ
+        tier = 3 if not ins else {"works": 0, "static": 2}.get(interact_of_row(r), 1)
+        scored.append((s, (4 if kind_of(r) == "section" else 0) + (2 if ins else 0) + (1 if r.get("preview") else 0), tier, r))
+    scored.sort(key=(lambda x: (-x[0], x[2], -x[1], x[3]["id"])) if words else (lambda x: (x[2], -x[1], x[3]["id"])))
     size = max(1, min(60, size))
     page = max(1, page)
-    items = [public(r) for _s, _d, r in scored[(page - 1) * size: page * size]]
+    items = [public(r) for _s, _d, _t, r in scored[(page - 1) * size: page * size]]
     cats = [{"key": k, "label": v[0], "count": sum(1 for r in rows if k in r.get("cats", []))} for k, v in CATEGORIES.items()]
     ins = [r for r in rows if insertable(r)]
-    return {"total": len(scored), "page": page, "size": size, "items": items, "categories": [c for c in cats if c["count"]], "catalog_size": len(rows),
+    inter = {"works": 0, "plain": 0, "static": 0}
+    for r in ins:
+        inter[interact_of_row(r) if interact_of_row(r) in inter else "plain"] += 1
+    return {"total": len(scored), "page": page, "size": size, "items": items, "categories": [c for c in cats if c["count"]], "catalog_size": len(rows), "interact": inter,
             "insertable": len(ins), "insertable_sections": sum(1 for r in ins if kind_of(r) == "section"), "with_preview": sum(1 for r in rows if r.get("preview")), "query_en": " ".join(sorted(words)) if _FA_RE.search(q or "") else ""}
 
 
-_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}, "kind": {}, "license": {}}
+_rtl_cache: dict = {"mtime": (0, 0), "path": "", "map": {}, "kind": {}, "license": {}, "interact": {}}
 
 
 def _rtl_index() -> dict:
@@ -362,7 +402,7 @@ def _rtl_index() -> dict:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             _rtl_cache.update(mtime=m, path=str(p), map={k: (v or {}).get("rtl", "") for k, v in data.items()}, kind={k: (v or {}).get("kind", "") for k, v in data.items()},
-                               license={k: (v or {}).get("license", "") for k, v in data.items()})
+                               license={k: (v or {}).get("license", "") for k, v in data.items()}, interact={k: (v or {}).get("interact", "") for k, v in data.items()})
         except (OSError, ValueError):
             return {}
     return _rtl_cache["map"]
@@ -372,6 +412,12 @@ def kind_of(r: dict) -> str:
     """بخشِ صفحه (section) یا ابزارک (widget) ⇒ از سنجشِ مرورگر (c21_rtl.classify)؛ نسنجیده ⇒ ''."""
     _rtl_index()
     return _rtl_cache["kind"].get(r.get("id")) or (r.get("conv") or {}).get("kind", "")
+
+
+def interact_of_row(r: dict) -> str:
+    """works | static | plain برای یک ردیفِ تبدیل‌شده؛ نسنجیده/تبدیل‌نشده ⇒ ''. (از index.json؛ رکوردِ کامل خوانده نمی‌شود.)"""
+    _rtl_index()
+    return _rtl_cache["interact"].get(r.get("id")) or ""
 
 
 def shown_license(r: dict) -> str:
@@ -394,7 +440,8 @@ def public(r: dict) -> dict:
             "license": shown_license(r) or ("بررسی‌نشده" if not r.get("detail") else "بدونِ مجوز"), "usable": bool(r.get("usable")), "tags": r.get("tags", []),
             "deps": r.get("deps", []), "cats": r.get("cats", []), "url": r.get("url") or f"{BASE}/@{r['id'].split('/')[0]}/components/{'/'.join(r['id'].split('/')[1:])}",
             "has_code": code, "nearest": nearest_components(r), "preview": bool(r.get("preview")), "insertable": insertable(r), "conv_key": conv.get("key", "") if insertable(r) else "",
-            "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "kind": kind_of(r) if insertable(r) else "", "src": r.get("src", ""), "library_id": r.get("library_id", "")}
+            "conv_state": conv.get("state", ""), "conv_error": (conv.get("error") or "")[:120], "kind": kind_of(r) if insertable(r) else "", "src": r.get("src", ""), "library_id": r.get("library_id", ""),
+            "interact": interact_of_row(r) if insertable(r) else ""}
 
 
 def safe_name(cid: str) -> str:

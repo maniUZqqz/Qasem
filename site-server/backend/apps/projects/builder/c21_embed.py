@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from . import c21_contrast as CC, c21_convert as CV
+from . import c21_contrast as CC, c21_convert as CV, c21_runtime as RT
 from .clean import esc, safe_url
 
 TYPE = "c21"
@@ -20,6 +20,31 @@ _RE_NBT = re.compile(r' data-nbt="(\d+)"')
 _RE_NBL = re.compile(r' data-nbl="(\d+)"')
 _RE_NBI = re.compile(r'<img data-nbi="(\d+)"([^>]*)>')
 _RE_CLASS = re.compile(r'class="([^"]*)"')
+_RE_HIDDEN = re.compile(r'(?<=\s)hidden(?=[\s>])')               # صفتِ بولیِ hidden (نه data-hidden): پنلِ بسته
+
+
+_RE_STATE_CLOSED = re.compile(r'(?<=\s)data-state="closed"')
+_RE_ARIA_FALSE = re.compile(r'(?<=\s)aria-expanded="false"')
+
+
+def expand_panels(html: str) -> str:
+    """همهٔ پنل‌های بسته را باز می‌کند (روی بوم، پیش‌نمایش و در پرامپتِ AI): متنِ هر پاسخ/تب دیده و ویرایش می‌شود؛ در سایتِ منتشرشده رانتایم دوباره می‌بندد.
+    نشانه‌های «بسته» هم «باز» می‌شوند تا نشانک (فلشِ بالا/پایین) با پنلِ باز بخواند، نه دو فلش با هم."""
+    html = _RE_HIDDEN.sub("", html or "")
+    html = _RE_STATE_CLOSED.sub('data-state="open"', html)
+    return _RE_ARIA_FALSE.sub('aria-expanded="true"', html)
+
+
+def interact_note(rec: dict) -> str:
+    """جملهٔ فارسیِ «در سایتِ منتشرشده این قطعه چه می‌کند؟» برای کارت، پیش‌نمایش و بررسیِ پیش از انتشار؛ قطعهٔ بی‌تعامل ⇒ ''."""
+    state = CV.interact_state(rec)
+    if state == "works":
+        names = {"accordion": "باز و بسته‌شدنِ ردیف‌ها", "tabs": "تب‌ها", "toggle": "کلید", "dismiss": "بستنِ بنر"}
+        kinds = (rec.get("interact") or {}).get("kinds") or []
+        return "در سایت تعاملی است (%s)." % "، ".join(names.get(k, k) for k in kinds) if kinds else "در سایت تعاملی است."
+    if state == "static":
+        return "در سایتِ منتشرشده ثابت می‌ماند: حرکت و کلیک‌های اصلیِ این قطعه (باز و بسته‌شدن، تایپ، شمارنده، پنجره‌ها …) بازسازی نمی‌شود و فقط یک نمای ایستا دیده می‌شود."
+    return ""
 
 
 def attribution(rec: dict) -> str:
@@ -162,10 +187,16 @@ def render(r, b) -> str:
     html = _RE_NBL.sub(link, html)
     html = _RE_NBT.sub(tedit, html)
     html = _RE_T.sub(tval, html)
+    if r.ctx.canvas:
+        html = expand_panels(html)                              # روی بوم همهٔ پاسخ‌ها/تب‌ها دیده و ویرایش می‌شود
+    elif RT.needs_runtime(rec):
+        r.c21_runtime = True                                    # سایتِ منتشرشده: رانتایمِ باز/بسته (یک اسکریپت برای کلِ صفحه)
     if not r.ctx.canvas and any(not (row.get("src") if isinstance(row, dict) else "") for row in images) and rec.get("images"):
         r.warn(b, "تصویرهای این قطعه را انتخاب کنید (جای خالی در سایت نمی‌آید).", kind="media")
     for sentence in sample_warnings(rec, p):                 # بوم هم (فهرستِ «هنوز نمونه یا ناتمام است» ِ کنارِ ویرایشگر) مثلِ بلوک‌های خودمان
         r.warn(b, sentence, kind="sample")
+    if CV.interact_state(rec) == "static":                   # «ثابت (بدونِ حرکت)»: پیش از انتشار گفته می‌شود (بی‌بستنِ انتشار)
+        r.warn(b, "«%s»: %s" % (rec.get("title", "")[:40], interact_note(rec)), kind="static")
     return '<div %s>%s<div class="%s" dir="auto">%s</div></div>' % (r.attrs(b, "nbc21-host"), attribution(rec), rec["scope"], html)
 
 
@@ -177,7 +208,8 @@ HOST_CSS = ".nbc21-host{display:block;width:100%;max-width:100%;overflow-x:clip}
 #: کلاس‌های عمومیِ CSSِ پایهٔ سایت که با نامِ ابزارهای Tailwind یکی‌اند و درون قطعه نشت می‌کردند: ``.grid`` (gap + ستون‌های خودکار) ستون‌بندیِ ۷۹ قطعه را به‌هم می‌ریخت
 #: (مثلاً دایرهٔ تیکِ ۲۲ پیکسلی ۲۲۰ پیکسل ستون می‌گرفت و تیک کنارِ متن می‌افتاد)؛ th/td/h1..h6 هم ترازِ راست و ارتفاعِ سطرِ سایت را می‌بردند.
 #: بالاتر از CSSِ سایت و پایین‌تر از ابزارهای خودِ قطعه (هم‌وزن و دیرتر ⇒ قطعه برنده).
-LEAK_CSS = ('[class*="nbc21-x"] .grid{grid-template-columns:none;gap:normal}'
+LEAK_CSS = ('[class*="nbc21-x"] [hidden]{display:none!important}'                                  # پنلِ بسته (hidden) را کلاسِ display ِ Tailwind (flex، grid …) از نو نشان می‌داد
+            '[class*="nbc21-x"] .grid{grid-template-columns:none;gap:normal}'
             '[class*="nbc21-x"] th,[class*="nbc21-x"] td{text-align:inherit}'
             '[class*="nbc21-x"] th{background:transparent;color:inherit;font-size:inherit}'          # `th{background:#f9fafb;color:var(--ink-3)}` ِ پایهٔ سایت: سرستونِ روشن با متنِ روشن روی پوستهٔ تیره (۲٫۷:۱)
             '[class*="nbc21-x"] h1,[class*="nbc21-x"] h2,[class*="nbc21-x"] h3,[class*="nbc21-x"] h4,[class*="nbc21-x"] h5,[class*="nbc21-x"] h6{line-height:inherit}')
@@ -222,6 +254,7 @@ def skeleton(key: str, limit: int = 1100) -> str:
     html = _RE_NBL.sub(' href="#"', html)
     html = _RE_NBT.sub("", html)
     html = _RE_T.sub(lambda m: esc(rec["texts"][int(m.group(1))]) if int(m.group(1)) < len(rec["texts"]) else "", html)
+    html = expand_panels(html)                                  # AI بیرون از رانتایم می‌نویسد: پنل‌ها باز بیایند (بسته‌ها هرگز باز نمی‌شدند)
     html = re.sub(r"<svg\b.*?</svg>", "<svg/>", html, flags=re.S)
     html = '<div class="%s">%s</div>' % (rec["scope"], re.sub(r"\s+", " ", html))
     if len(html) > limit:
@@ -229,7 +262,7 @@ def skeleton(key: str, limit: int = 1100) -> str:
     return html
 
 
-def preview_page(key: str, base_css: str = "", dir_: str = "rtl", colors=None, mode: str = "") -> dict:
+def preview_page(key: str, base_css: str = "", dir_: str = "rtl", colors=None, mode: str = "", expand: bool = False) -> dict:
     """پیش‌نمایشِ مستقل (برای پنل و آزمونِ مرورگر): {html, css, title, license, …} یا None."""
     rec = CV.get_record(key)
     if not rec:
@@ -238,6 +271,8 @@ def preview_page(key: str, base_css: str = "", dir_: str = "rtl", colors=None, m
     html = _RE_NBL.sub(' href="#"', html)
     html = _RE_NBT.sub("", html)
     html = _RE_T.sub(lambda m: esc(rec["texts"][int(m.group(1))]) if int(m.group(1)) < len(rec["texts"]) else "", html)
+    if expand:                                                  # همهٔ پنل‌ها باز (سنجشِ خوانایی در بدترین حالت، پیش‌نمایشِ بی‌اسکریپت)
+        html = expand_panels(html)
     return {"key": key, "id": rec["id"], "title": rec.get("title", ""), "html": '<div class="nbc21-host"><div class="%s" dir="auto">%s</div></div>' % (rec["scope"], html),
             "css": css_for([key], colors, {key: mode} if mode else None), "license": rec.get("license", ""), "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""),
             "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", []))}

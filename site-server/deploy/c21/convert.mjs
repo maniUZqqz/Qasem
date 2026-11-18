@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { SHIM_SOURCES, UI_SOURCES } from './shims.mjs';
+import { NBC_WRAP } from './shims_interact.mjs';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -42,12 +43,30 @@ function tryFile(base) {
   return null;
 }
 
+// What the ORIGINAL component does besides painting (round 5): state hooks, effects/timers, event handlers, motion libraries, stateful primitives (dialog, popover, select, accordion ...).
+// The panel uses it to tell «works as a still» from «the interaction is lost here» (backend: c21_convert.interact_of, badge «ثابت (بدونِ حرکت)»).
+const SIG = { state: false, effect: false, events: false, motion: false, files: 0, names: [] };
+const scanSource = (text) => {
+  SIG.files++; SIG.names.push(text.length + ':' + text.slice(0, 40).replace(/\s+/g, ' '));
+  if (/\buse(State|Reducer)\b/.test(text)) SIG.state = true;
+  if (/\buse(Effect|LayoutEffect|InsertionEffect)\b|\bsetInterval\b|\bsetTimeout\b|\brequestAnimationFrame\b|\baddEventListener\b/.test(text)) SIG.effect = true;
+  if (/\bon(Click|Change|Submit|ValueChange|CheckedChange|OpenChange|PointerDown|PointerMove|MouseEnter|MouseMove|MouseDown|KeyDown|Drag\w*|Input|Select|Scroll|Focus|TouchStart)\b/.test(text)) SIG.events = true;
+  if (/from\s+['"](framer-motion|motion\/react|motion|gsap|@react-spring\/web|react-spring)['"]/.test(text)) SIG.motion = true;
+};
+const LOADER = { '.tsx': 'tsx', '.ts': 'ts', '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' };
+
 const plugin = {
   name: 'nm-c21',
   setup(b) {
     const virt = job.files || {};
+    // the real package behind a stand-in (shims_interact.mjs): "<specifier>?real"
+    b.onResolve({ filter: /\?real$/ }, async (args) => {
+      const r = await b.resolve(args.path.replace(/\?real$/, ''), { kind: 'import-statement', resolveDir: HERE, pluginData: { real: true } });
+      return r.errors.length ? { errors: r.errors } : { path: r.path, namespace: r.namespace };
+    });
     b.onResolve({ filter: /.*/ }, (args) => {
       const p = args.path;
+      if (NBC_WRAP[p] && !(args.pluginData && args.pluginData.real)) return { path: p, namespace: 'nbc' };
       if (args.namespace === 'virt' && (p.startsWith('./') || p.startsWith('../'))) {
         const joined = path.posix.normalize(path.posix.join(path.posix.dirname(args.importer), p));
         for (const e of ['', ...EXT]) if (virt[joined + e] !== undefined) return { path: joined + e, namespace: 'virt' };
@@ -66,7 +85,15 @@ const plugin = {
       }
       return undefined;
     });
-    b.onLoad({ filter: /.*/, namespace: 'virt' }, (args) => ({ contents: virt[args.path], loader: args.path.endsWith('.ts') ? 'ts' : args.path.endsWith('.jsx') ? 'jsx' : 'tsx', resolveDir: HERE }));
+    b.onLoad({ filter: /.*/, namespace: 'virt' }, (args) => { scanSource(String(virt[args.path] || '')); return { contents: virt[args.path], loader: args.path.endsWith('.ts') ? 'ts' : args.path.endsWith('.jsx') ? 'jsx' : 'tsx', resolveDir: HERE }; });
+    b.onLoad({ filter: /.*/, namespace: 'nbc' }, (args) => ({ contents: NBC_WRAP[args.path], loader: 'tsx', resolveDir: HERE }));
+    b.onLoad({ filter: /\.(tsx|ts|jsx|js|mjs)$/ }, (args) => {      // the repo's own files (not node_modules): scanned for state/effects/events, then bundled as usual
+      if (args.path.includes('/node_modules/')) return undefined;
+      let text = '';
+      try { text = fs.readFileSync(args.path, 'utf8'); } catch (e) { return undefined; }
+      scanSource(text);
+      return { contents: text, loader: LOADER[path.extname(args.path)] || 'tsx', resolveDir: path.dirname(args.path) };
+    });
     b.onLoad({ filter: /.*/, namespace: 'shim' }, (args) => ({ contents: args.path.startsWith('ui:') ? UI_SOURCES[args.path.slice(3)] : SHIM_SOURCES[args.path], loader: 'tsx', resolveDir: HERE }));
   },
 };
@@ -91,6 +118,8 @@ export const html = renderToStaticMarkup(React.createElement('div', { id: 'c21-r
 `;
 const entryPath = '/__entry__.tsx';
 let html = '';
+let built = null;
+let interactSrc = {};
 try {
   const files = { ...(job.files || {}) };
   files['virtual:entry'] = job.entry.code;
@@ -101,13 +130,23 @@ try {
     b.onLoad({ filter: /.*/, namespace: 'entry' }, () => ({ contents: entry, loader: 'tsx', resolveDir: HERE }));
   } };
   const out = path.join(tmp, 'bundle.cjs');
-  await build({
-    entryPoints: [entryPath], bundle: true, platform: 'node', format: 'cjs', outfile: out, write: true, logLevel: 'silent', jsx: 'automatic', jsxImportSource: 'react',
+  built = await build({
+    entryPoints: [entryPath], bundle: true, platform: 'node', format: 'cjs', outfile: out, write: true, logLevel: 'silent', jsx: 'automatic', jsxImportSource: 'react', metafile: true,
     nodePaths: [path.join(HERE, 'node_modules')], plugins: [virtualEntry, plugin], define: { 'process.env.NODE_ENV': '"production"' }, absWorkingDir: HERE, mainFields: ['module', 'main'],
     loader: { '.svg': 'dataurl', '.png': 'dataurl', '.jpg': 'dataurl', '.css': 'empty' }, banner: { js: 'globalThis.window=undefined;' },
   });
   const mod = require(out);
   html = mod.html;
+  // stateful primitives that actually ended up in the bundle (bytesInOutput > 0): @radix-ui/react-<x>, @base-ui/react/<x>, our stand-ins (nbc:<specifier>)
+  const prims = new Set();
+  for (const o of Object.values((built && built.metafile && built.metafile.outputs) || {})) {
+    for (const [inp, info] of Object.entries(o.inputs || {})) {
+      if (!info || !info.bytesInOutput) continue;
+      let m = inp.match(/node_modules\/@radix-ui\/react-([\w-]+)\//) || inp.match(/node_modules\/@base-ui\/react\/([\w-]+)\//) || inp.match(/^nbc:@radix-ui\/react-([\w-]+)$/) || inp.match(/^nbc:@base-ui\/react\/([\w-]+)$/);
+      if (m) prims.add(m[1]);
+    }
+  }
+  interactSrc = { state: SIG.state, effect: SIG.effect, events: SIG.events, motion: SIG.motion, files: SIG.files, names: SIG.names, prims: [...prims].sort() };
 } catch (e) {
   const msg = (e && e.errors && e.errors[0] && e.errors[0].text) || (e && e.message) || String(e);
   fail('bundle/render: ' + msg);
@@ -214,11 +253,12 @@ const reset = `
 .${SCOPE} img,.${SCOPE} video{height:auto}
 .${SCOPE} button,.${SCOPE} input,.${SCOPE} select,.${SCOPE} textarea{font:inherit;color:inherit;letter-spacing:inherit;background:transparent;border-radius:0}
 .${SCOPE} button{cursor:pointer}
+.${SCOPE} [hidden]{display:none!important}
 .${SCOPE} p,.${SCOPE} h1,.${SCOPE} h2,.${SCOPE} h3,.${SCOPE} h4{overflow-wrap:break-word}
 `;
 const outCss = hoisted.map((r) => r.toString()).join('\n') + '\n' + reset.trim() + '\n' + root.toString();
 if (/@import|expression\(|<\/style|javascript:/i.test(outCss)) fail('unsafe css');
 let finalCss = outCss.replace(/\n{2,}/g, '\n');
 try { finalCss = optimize(finalCss, { minify: true }).code; } catch (e) { warnings.push('minify skipped: ' + (e && e.message)); }
-fs.writeFileSync(outPath, JSON.stringify({ ok: true, html, css: finalCss, warnings, stats: { classes: classes.size, css_bytes: finalCss.length, html_bytes: html.length } }));
+fs.writeFileSync(outPath, JSON.stringify({ ok: true, html, css: finalCss, warnings, interact_src: interactSrc, stats: { classes: classes.size, css_bytes: finalCss.length, html_bytes: html.length } }));
 fs.rmSync(tmp, { recursive: true, force: true });

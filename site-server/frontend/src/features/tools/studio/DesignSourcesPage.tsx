@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, studioError } from "./api";
+import C21stBrowser from "./C21stBrowser";
 import { Loading, SectionHead } from "./common";
 import "./designsrc.css";
 
@@ -16,7 +17,7 @@ type Index = {
   kinds: Kind[];
   styles: { total: number; hand: number; generated: number; dataset_rows: number; groups: { label: string; count: number }[] };
   fonts: { bundled: number; pairings: number; latin_mapped: number };
-  c21st: { catalog: number; usable: number; previews: number };
+  c21st: { catalog: number; usable: number; previews: number; insertable?: number; sections?: number; interact?: { works: number; plain: number; static: number } };
   note: string;
 };
 type Listing = { kind: string; label: string; desc: string; total: number; page: number; size: number; items: Row[]; facets: Record<string, { value: string; count: number }[]> };
@@ -158,6 +159,8 @@ function C21Tab() {
         <div><dt>کتابخانه‌ها</dt><dd>{fa(Number(c.libraries ?? 0))}</dd></div>
         <div><dt>قطعهٔ قابلِ درج</dt><dd data-testid="ds-converted">{fa(Number(p.insertable ?? p.converted ?? 0))}</dd></div>
         <div><dt>تبدیل‌شده (همه)</dt><dd data-testid="ds-converted-all">{fa(Number(p.converted ?? 0))}</dd></div>
+        <div><dt>در سایتِ منتشرشده تعاملی</dt><dd data-testid="ds-interact-works" title="رانتایمِ کوچکِ سایت (باز و بسته‌شدنِ ردیف‌ها، تب‌ها، کلید، بستنِ بنر) در مرورگرِ واقعی امتحان شده و کار می‌کند">{fa(Number((p.interact as Record<string, number> | undefined)?.works ?? 0))}</dd></div>
+        <div><dt>ثابت (بدونِ حرکت)</dt><dd data-testid="ds-interact-static" title="کلیک و حرکتِ اصلیِ این قطعه‌ها در سایت بازسازی نمی‌شود؛ در جست‌وجو بعد از قطعه‌های کارا می‌آیند و نشانِ «ثابت» دارند">{fa(Number((p.interact as Record<string, number> | undefined)?.static ?? 0))}</dd></div>
         <div><dt>بسته‌شده پس از سنجش</dt><dd data-testid="ds-blocked" title="خالیِ ایستا، متنِ نخوانا (تباین زیرِ ۳:۱ روی هر دو پوستهٔ روشن و تیره)، سرریز، متنِ رویِ‌هم‌افتاده یا بی‌متن">{fa(Number(p.blocked ?? 0))}</dd></div>
         <div><dt>بدونِ کدِ عمومی</dt><dd>{fa(Number(p.no_source ?? 0))}</dd></div>
         <div><dt>در انتظارِ تبدیل</dt><dd>{fa(Number(p.waiting ?? 0))}</dd></div>
@@ -166,7 +169,8 @@ function C21Tab() {
         <div><dt>کارِ خزشِ سرورِ گرافیکی</dt><dd>{fa(Number(node?.pending ?? 0))} در انتظار · {fa(Number(node?.jobs ?? 0))} کلاً</dd></div>
         <div><dt>جعبه‌ابزارِ تبدیل</dt><dd>{p.toolchain ? "نصب است" : "نصب نیست (deploy/c21/install.sh)"}</dd></div>
       </dl>
-      <p className="ds-note">قطعه‌ها را از «سایت‌ساز ⇐ ویرایشگرِ دیداری ⇐ افزودن ⇐ قطعه‌های آماده ⇐ کاتالوگِ 21st.dev» ببینید، پیش‌نمایش بگیرید و در صفحه بگذارید.</p>
+      <p className="ds-note">درجِ قطعه در صفحه از «سایت‌ساز ⇐ ویرایشگرِ دیداری ⇐ افزودن ⇐ قطعه‌های آماده ⇐ کاتالوگِ 21st.dev» انجام می‌شود؛ این‌جا می‌توانید کلِ کاتالوگ را بگردید و پیش‌نمایش بگیرید (پیش‌نمایش همهٔ بخش‌های بازشو را باز نشان می‌دهد).</p>
+      <C21stBrowser mode="browse" />
     </div>
   );
 }

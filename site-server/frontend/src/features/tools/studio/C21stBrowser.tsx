@@ -31,6 +31,8 @@ export type C21Item = {
   conv_state: string;
   conv_error: string;
   kind?: string;
+  /** دورِ ۵: «در سایتِ منتشرشده چه می‌کند؟» works = تعاملی (رانتایمِ باز/بسته)، static = ثابت (بدونِ حرکت)، plain = اصلاً تعاملی نیست */
+  interact?: "works" | "static" | "plain" | "";
 };
 type KeyState = { has_key: boolean; limit: number; used_today: number; left_today: number; how: string };
 type Crawl = {
@@ -57,6 +59,7 @@ type Listing = {
   catalog_size: number;
   insertable?: number;
   insertable_sections?: number;
+  interact?: { works: number; plain: number; static: number };
   query_en?: string;
   with_preview?: number;
   crawl: Crawl;
@@ -65,7 +68,18 @@ type Listing = {
   max_ai_refs: number;
   note: string;
 };
-type Live = { html: string; base_css: string; page_css: string; license: string; author: string; library: string; url: string; source: { repo?: string; license?: string; path?: string }; texts: number; images: number };
+type Live = { html: string; base_css: string; page_css: string; license: string; author: string; library: string; url: string; source: { repo?: string; license?: string; path?: string }; texts: number; images: number; interact?: string; interact_note?: string };
+type FreeLive = { doc: string; interact?: string; interact_note?: string };
+
+export const STATIC_BADGE = "ثابت (بدونِ حرکت)";
+const WORKS_BADGE = "تعاملی";
+
+/** نشانِ «در سایتِ منتشرشده چه می‌کند؟» (تعاملی / ثابت)؛ قطعهٔ بی‌نیاز به تعامل نشانی ندارد. */
+export function InteractBadge({ state }: { state?: string }) {
+  if (state === "works") return <span className="c21-badge live" data-testid="c21-interact" data-state="works" title="در سایتِ منتشرشده کار می‌کند: ردیف‌ها باز و بسته می‌شوند، تب‌ها و کلیدها جابه‌جا می‌شوند، بنر بسته می‌شود.">{WORKS_BADGE}</span>;
+  if (state === "static") return <span className="c21-badge warn" data-testid="c21-interact" data-state="static" title="حرکت و کلیک‌های اصلیِ این قطعه در سایتِ منتشرشده بازسازی نمی‌شود؛ فقط یک نمای ایستا دیده می‌شود. اگر کارِ اصلیِ بخش حرکت است، قطعهٔ دیگری بردارید.">{STATIC_BADGE}</span>;
+  return null;
+}
 
 const fa = (n: number) => n.toLocaleString("fa-IR");
 
@@ -117,7 +131,7 @@ export default function C21stBrowser({
   slug,
   theme,
 }: {
-  mode: "ai" | "manual";
+  mode: "ai" | "manual" | "browse";
   picked?: string[];
   onPick?: (ids: string[]) => void;
   onAddNearest?: (type: string) => void;
@@ -128,7 +142,7 @@ export default function C21stBrowser({
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [usable, setUsable] = useState(mode === "ai");               // الهام برای AI فقط از قطعه‌های با مجوزِ آزاد؛ بقیه فقط کاتالوگ‌اند
-  const [insertable, setInsertable] = useState(mode === "manual");
+  const [insertable, setInsertable] = useState(mode !== "ai");          // «browse» (صفحهٔ منابع): فقط خواندن؛ پیش‌فرض قطعه‌های قابلِ درج، با فیلتر می‌شود همهٔ کاتالوگ را دید
   const [kind, setKind] = useState<"" | "section" | "widget">("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Listing | null>(null);
@@ -138,6 +152,7 @@ export default function C21stBrowser({
   const [keyText, setKeyText] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [live, setLive] = useState<Live | null>(null);
+  const [free, setFree] = useState<FreeLive | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
@@ -165,6 +180,22 @@ export default function C21stBrowser({
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [running, load]);
+
+  useEffect(() => {                                                // «browse»: پیش‌نمایشِ مستقل (بی‌پروژه، بی‌اسکریپت) با پوستهٔ خنثی
+    if (!open || slug || mode !== "browse") {
+      setFree(null);
+      return;
+    }
+    let ok = true;
+    setFree(null);
+    api
+      .get<FreeLive>(`/studio/c21st/preview/${open}/`)
+      .then((r) => ok && setFree(r.data))
+      .catch((e) => { if (ok) { setMsg(studioError(e)); setOpen(null); } });
+    return () => {
+      ok = false;
+    };
+  }, [open, slug, mode]);
 
   useEffect(() => {
     if (!open || !slug) {
@@ -209,14 +240,14 @@ export default function C21stBrowser({
   const conv = data.pipeline;
   return (
     <div className="c21" data-testid="c21st-browser">
-      <p className="c21-note">{data.note}</p>
+      {mode !== "browse" && <p className="c21-note">{data.note}</p>}
 
       <div className="c21-bar">
         <span className="c21-note" data-testid="c21st-stats">
-          {empty ? "کاتالوگ هنوز خالی است." : `${fa(data.catalog_size)} قطعه در کاتالوگ · ${fa(data.crawl.usable ?? 0)} با مجوزِ آزاد · ${fa(data.insertable ?? 0)} قابلِ درج (${fa(data.insertable_sections ?? 0)} بخشِ صفحه)`}
+          {empty ? "کاتالوگ هنوز خالی است." : `${fa(data.catalog_size)} قطعه در کاتالوگ · ${fa(data.crawl.usable ?? 0)} با مجوزِ آزاد · ${fa(data.insertable ?? 0)} قابلِ درج (${fa(data.insertable_sections ?? 0)} بخشِ صفحه)${data.interact ? ` · ${fa(data.interact.works)} تعاملی · ${fa(data.interact.static)} ${STATIC_BADGE}` : ""}`}
           {data.crawl.running ? " · در حالِ به‌روزرسانی…" : data.crawl.remaining ? ` · ${fa(data.crawl.remaining)} مورد مانده` : ""}
         </span>
-        <span className="c21-actions">
+        {mode !== "browse" && <span className="c21-actions">
           <button type="button" className="c21-btn" disabled={busy !== null || data.crawl.running} data-testid="c21st-crawl"
                   onClick={() => void act("crawl", async () => (await api.post<{ message: string }>("/studio/c21st/crawl/", {})).data.message)}>
             {data.crawl.running ? "در حالِ کار…" : empty ? "ساختنِ کاتالوگ" : "به‌روزرسانی"}
@@ -225,10 +256,10 @@ export default function C21stBrowser({
                   onClick={() => void act("convert", async () => (await api.post<{ message: string }>("/studio/c21st/convert/", {})).data.message)}>
             تبدیلِ قطعه‌ها
           </button>
-        </span>
+        </span>}
       </div>
       {data.crawl.blocked && <p className="c21-warn">سرور از 21st.dev ۴۰۳ گرفت؛ خزش به کارِ «crawl21.run» روی سرورِ گرافیکی سپرده می‌شود و با روشن‌شدنِ آن خودکار ادامه پیدا می‌کند.</p>}
-      {conv && (
+      {conv && mode !== "browse" && (
         <p className="c21-note" data-testid="c21st-pipeline">
           تبدیل: {fa(conv.insertable ?? conv.converted)} قطعهٔ قابلِ درج از {fa(conv.converted)} تبدیل‌شده{conv.blocked ? ` (${fa(conv.blocked)} بسته: خالی، نخوانا، سرریز یا رویِ‌هم‌افتاده)` : ""} · {fa(conv.no_source)} بدونِ کدِ عمومی{conv.waiting ? ` · ${fa(conv.waiting)} در انتظارِ تبدیل` : ""} · {fa(conv.license_blocked)} مجوزِ مخزن آزاد نبود · {fa(conv.failed)} ناموفق
           {conv.node.pending ? ` · ${fa(conv.node.pending)} کارِ خزشِ سرورِ گرافیکی در انتظار` : ""}
@@ -274,11 +305,11 @@ export default function C21stBrowser({
                   <small className="c21-note" dir="ltr">{it.author}{it.library ? ` · ${it.library}` : ""}</small>
                   {it.description && <p className="c21-desc" dir="ltr">{it.description}</p>}
                   {it.tags.length > 0 && <div className="c21-tags">{it.tags.slice(0, 5).map((t) => <span key={t} dir="ltr">{t}</span>)}</div>}
-                  {it.insertable && <span className="c21-badge ok" data-testid="c21-insertable">قابلِ درج{it.kind === "section" ? " · بخشِ صفحه" : it.kind === "widget" ? " · ابزارک" : ""}</span>}
+                  {it.insertable && <span className="c21-badges"><span className="c21-badge ok" data-testid="c21-insertable">قابلِ درج{it.kind === "section" ? " · بخشِ صفحه" : it.kind === "widget" ? " · ابزارک" : ""}</span><InteractBadge state={it.interact} /></span>}
                   {!it.insertable && it.conv_state === "failed" && <small className="c21-note" title={it.conv_error}>تبدیل نشد</small>}
                   <div className="c21-actions">
                     <a className="c21-link" href={it.url} target="_blank" rel="noopener noreferrer" dir="ltr">21st.dev</a>
-                    {mode === "manual" && it.insertable && slug && (
+                    {((mode === "manual" && slug) || mode === "browse") && it.insertable && (
                       <button type="button" className="c21-link" onClick={() => setOpen(open === it.conv_key ? null : it.conv_key)} data-testid="c21-preview">
                         {open === it.conv_key ? "بستنِ پیش‌نمایش" : "پیش‌نمایشِ زنده"}
                       </button>
@@ -306,7 +337,7 @@ export default function C21stBrowser({
                         افزودنِ «{n.label}»
                       </button>
                     ))}
-                    {it.usable && !it.has_code && !it.insertable && (
+                    {mode !== "browse" && it.usable && !it.has_code && !it.insertable && (
                       <button type="button" className="c21-link" disabled={busy !== null || !data.key.has_key || data.key.left_today <= 0}
                               title={data.key.has_key ? `سهمِ امروز: ${fa(data.key.left_today)} از ${fa(data.key.limit)}` : "کلیدِ API لازم است"}
                               onClick={() => void act(`code:${it.id}`, async () => { await api.post("/studio/c21st/code/", { id: it.id }); return `کدِ «${it.title}» گرفته شد؛ حالا برشِ کوتاهی از آن به‌عنوان الهام به AI می‌رسد.`; })}>
@@ -315,7 +346,18 @@ export default function C21stBrowser({
                     )}
                     {it.has_code && <span className="c21-badge ok">کد گرفته شده</span>}
                   </div>
-                  {open === it.conv_key && (
+                  {open === it.conv_key && mode === "browse" && (
+                    <div className="c21-live" data-testid="c21-live">
+                      {!free && <p className="c21-note">در حالِ ساختنِ پیش‌نمایش…</p>}
+                      {free && (
+                        <>
+                          <iframe title={`پیش‌نمایشِ ${it.title}`} sandbox="" className="c21-frame" srcDoc={free.doc} />
+                          <small className={`c21-note ${free.interact === "static" ? "c21-static-note" : ""}`} data-testid="c21-interact-note">{free.interact_note || "این قطعه حرکتی ندارد که از دست برود."} (پیش‌نمایش همهٔ بخش‌های بازشو را باز نشان می‌دهد.)</small>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {open === it.conv_key && mode !== "browse" && (
                     <div className="c21-live" data-testid="c21-live">
                       {!live && <p className="c21-note">در حالِ ساختنِ پیش‌نمایش…</p>}
                       {live && (
@@ -328,6 +370,7 @@ export default function C21stBrowser({
                           />
                           <small className="c21-note" dir="ltr">{live.author}{live.library ? ` · ${live.library}` : ""} · {live.license}{live.source?.repo ? ` · ${live.source.repo}` : ""}</small>
                           <small className="c21-note">{fa(live.texts)} متنِ قابلِ ویرایش · {fa(live.images)} تصویر</small>
+                          <small className={`c21-note ${live.interact === "static" ? "c21-static-note" : ""}`} data-testid="c21-interact-note">{live.interact_note || "این قطعه حرکتی ندارد که از دست برود."} (روی بوم همهٔ بخش‌های بازشو باز نشان داده می‌شوند.)</small>
                         </>
                       )}
                     </div>

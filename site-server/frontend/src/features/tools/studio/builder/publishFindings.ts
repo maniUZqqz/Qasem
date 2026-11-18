@@ -18,8 +18,9 @@ export const KIND_LABEL: Record<string, string> = {
   link: "پیوندِ خالی",
   media: "تصویر یا ویدیوی انتخاب‌نشده",
   alt: "تصویرِ بی‌توضیح",
+  static: "قطعهٔ ثابت (بدونِ حرکت)",
 };
-export const KIND_ORDER = ["sample", "contact", "link", "media", "alt"];
+export const KIND_ORDER = ["sample", "contact", "link", "media", "alt", "static"];
 
 export function isPlaceholderKind(kind?: string): boolean {
   return !!kind && kind in KIND_LABEL;

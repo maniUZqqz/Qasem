@@ -6,7 +6,7 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="${NM_C21_TOOLCHAIN:-/opt/nm-c21}"
 mkdir -p "$DEST"
-for f in convert.mjs shims.mjs extras.css rtl_check.py package.json; do
+for f in convert.mjs shims.mjs shims_interact.mjs extras.css rtl_check.py package.json; do
   install -m 0644 "$SRC/$f" "$DEST/$f"
 done
 cd "$DEST"

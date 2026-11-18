@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
 import { fa } from "./api";
+import { InteractBadge } from "../tools/studio/C21stBrowser";
 import "../tools/studio/c21st.css";
 
 /**
@@ -9,9 +10,9 @@ import "../tools/studio/c21st.css";
  * پیش‌نمایش در iframe ِ بی‌اسکریپت (srcdoc) با پوستهٔ خنثی؛ «افزودن» یک بلوکِ c21 در فریمِ فعلی می‌گذارد؛ «ساختِ سایت از طرح» همان را با
  * ظاهرِ کاملش در سایت‌ساز می‌آورد (مجوز و مبدأ همراهِ قطعه می‌ماند).
  */
-type Item = { id: string; title: string; library: string; author: string; license: string; cats: string[]; conv_key: string; description: string; preview: boolean; kind?: string };
+type Item = { id: string; title: string; library: string; author: string; license: string; cats: string[]; conv_key: string; description: string; preview: boolean; kind?: string; interact?: string };
 type Cat = { key: string; label: string; count: number };
-type Listing = { items: Item[]; total: number; categories: Cat[]; insertable: number };
+type Listing = { items: Item[]; total: number; categories: Cat[]; insertable: number; interact?: { works: number; plain: number; static: number } };
 
 export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>, title: string) => unknown }) {
   const [q, setQ] = useState("");
@@ -21,6 +22,7 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [doc, setDoc] = useState<string | null>(null);
+  const [docNote, setDocNote] = useState<{ state?: string; note?: string }>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -40,8 +42,9 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
     setOpen(key);
     setDoc(null);
     try {
-      const r = await api.get<{ doc: string }>(`/studio/c21st/preview/${key}/`);
+      const r = await api.get<{ doc: string; interact?: string; interact_note?: string }>(`/studio/c21st/preview/${key}/`);
       setDoc(r.data.doc);
+      setDocNote({ state: r.data.interact, note: r.data.interact_note });
     } catch {
       setDoc(null);
       setError("پیش‌نمایشِ این قطعه نیامد.");
@@ -52,9 +55,9 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
     setBusy(it.id);
     setNote(null);
     try {
-      const r = await api.get<{ block: { type: string; props: Record<string, any> } }>(`/studio/c21st/block/${it.conv_key}/`);
+      const r = await api.get<{ block: { type: string; props: Record<string, any> }; interact?: string; interact_note?: string }>(`/studio/c21st/block/${it.conv_key}/`);
       await onAdd({ t: "block", type: r.data.block.type, props: r.data.block.props, style: {} }, it.title);
-      setNote(`«${it.title}» به طرح اضافه شد؛ در سایتِ ساخته‌شده با ظاهرِ کاملش می‌آید.`);
+      setNote(`«${it.title}» به طرح اضافه شد؛ در سایتِ ساخته‌شده با ظاهرِ کاملش می‌آید.${r.data.interact === "static" && r.data.interact_note ? " " + r.data.interact_note : ""}`);
     } catch {
       setError("افزودنِ این قطعه نشد.");
     } finally {
@@ -73,7 +76,7 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
           {(data?.categories ?? []).map((c) => <option key={c.key} value={c.key}>{c.label} ({fa(c.count)})</option>)}
         </select>
       </div>
-      <p className="c21-note">{data ? `${fa(data.total)} قطعهٔ قابلِ درج (مجوزِ آزاد، تبدیل‌شده)` : "در حالِ خواندن…"}</p>
+      <p className="c21-note">{data ? `${fa(data.total)} قطعهٔ قابلِ درج (مجوزِ آزاد، تبدیل‌شده)${data.interact ? ` · ${fa(data.interact.works)} تعاملی · ${fa(data.interact.static)} ثابت (بدونِ حرکت)` : ""}` : "در حالِ خواندن…"}</p>
       {error ? <p className="c21-warn" role="alert">{error}</p> : null}
       {note ? <p className="c21-note" role="status">{note}</p> : null}
       {data && !data.items.length ? <p className="c21-note">قطعه‌ای با این جست‌وجو پیدا نشد.</p> : null}
@@ -85,13 +88,18 @@ export default function C21Panel({ onAdd }: { onAdd: (node: Record<string, any>,
           </div>
           <small className="c21-note" dir="ltr">{it.author}{it.library ? ` · ${it.library}` : ""}</small>
           {it.kind ? <small className="c21-note">{it.kind === "section" ? "بخشِ صفحه" : "ابزارک"}</small> : null}
+          <InteractBadge state={it.interact} />
           <div className="c21-actions">
             <button type="button" className="c21-link" onClick={() => void togglePreview(it.conv_key)} data-testid="ds-c21-preview">{open === it.conv_key ? "بستنِ پیش‌نمایش" : "پیش‌نمایش"}</button>
             <button type="button" className="c21-btn" disabled={busy !== null} onClick={() => void add(it)} data-testid="ds-c21-add">افزودن به طرح</button>
           </div>
           {open === it.conv_key ? (
-            doc ? <iframe title={`پیش‌نمایشِ ${it.title}`} sandbox="" srcDoc={doc} className="c21-frame" style={{ width: "100%", height: 260, border: "1px solid var(--line)", borderRadius: 8, background: "#fff" }} />
-                : <p className="c21-note">در حالِ خواندن…</p>
+            doc ? (
+              <>
+                <iframe title={`پیش‌نمایشِ ${it.title}`} sandbox="" srcDoc={doc} className="c21-frame" style={{ width: "100%", height: 260, border: "1px solid var(--line)", borderRadius: 8, background: "#fff" }} />
+                {docNote.note ? <small className={`c21-note ${docNote.state === "static" ? "c21-static-note" : ""}`} data-testid="ds-c21-note">{docNote.note}</small> : null}
+              </>
+            ) : <p className="c21-note">در حالِ خواندن…</p>
           ) : null}
         </div>
       ))}

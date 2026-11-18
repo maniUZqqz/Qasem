@@ -26,6 +26,7 @@ KIND_LABEL = {
     'link': 'پیوندِ خالی',
     'alt': 'تصویرِ بی‌توضیح',
     'media': 'تصویر یا ویدیوی انتخاب‌نشده',
+    'static': 'قطعهٔ ثابت (بدونِ حرکت)',
 }
 KINDS = frozenset(KIND_LABEL)
 

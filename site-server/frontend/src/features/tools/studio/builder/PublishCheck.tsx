@@ -26,7 +26,7 @@ export function PublishCheckDialog({ findings, labelOf, here, busy, onGo, onPubl
       <div className="nbe-check" data-testid="publish-check">
         <p>
           با «انتشار»، سایت همین حالا روی اینترنت می‌رود و بیننده‌ها همین‌ها را می‌بینند.{" "}
-          <b data-testid="publish-check-count">{nf.format(findings.length)}</b> جا هنوز نمونه یا ناتمام است.
+          <b data-testid="publish-check-count">{nf.format(findings.length)}</b> جا هنوز نمونه، ناتمام یا بدونِ حرکت است.
         </p>
         {groups.map((g) => (
           <section className="nbe-check-group" key={g.kind} data-kind={g.kind}>

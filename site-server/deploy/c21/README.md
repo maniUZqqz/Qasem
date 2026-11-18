@@ -7,8 +7,9 @@ Full description (Persian): `docs/c21-crawler.md`.
 |---|---|
 | `convert.mjs` | esbuild (bundle) + react-dom/server (render) + Tailwind v4 compile API (only the used utilities, shadcn colours mapped to the site theme) + postcss (scope under `.nbc21-<key>`, unwrap `@layer`, rename keyframes, drop anything that loads files, physical -> logical properties for RTL) |
 | `shims.mjs` | safe stand-ins for `next/*`, `framer-motion` (-> static elements), `cn`, and the shadcn/ui primitives (MIT) built on the Radix packages |
+| `shims_interact.mjs` | round 5: our own accordion / collapsible / tabs (Radix API; every panel is rendered, closed ones carry `hidden`, parts are marked `data-nbc-*`) and the Base UI parts forced to `keepMounted`; `convert.mjs` also reports what the ORIGINAL component does (`interact_src`: state hooks, effects, event handlers, motion, stateful primitives) |
 | `extras.css` | the animations library components usually add to `tailwind.config.js` (marquee, fade-up, accordion, ...) |
-| `rtl_check.py` | Chromium check at 390 and 1280 px with `dir=rtl` (sideways scroll, escaping elements); used by `apps/projects/builder/c21_rtl.py` |
+| `rtl_check.py` | Chromium check at 390 and 1280 px with `dir=rtl` (sideways scroll, escaping elements, covered / letter-by-letter wrapped / half-cut texts) + the interaction probe (the runtime `c21_runtime.py` is injected and every accordion / tab / switch / dismiss control is clicked; it only counts if the component LOOKS different afterwards); used by `apps/projects/builder/c21_rtl.py` |
 | `install.sh` | installs everything into `/opt/nm-c21` (idempotent, outside the panel's `node_modules`), then converts a one-line component as a smoke test |
 | `package.json` | pinned versions (Tailwind 4.1.14, esbuild 0.25.10, React 18.3.1, lucide-react, Radix, ...) |
 

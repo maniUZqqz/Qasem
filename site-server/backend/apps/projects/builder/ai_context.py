@@ -369,10 +369,11 @@ def c21_suggest(brief='', kind='home', pinned=(), limit=MAX_C21):
     chosen = [i for i in dict.fromkeys(pinned or ()) if i in idx and idx[i].get('rtl') != 'fail'][:limit]
     if len(chosen) < limit:
         words = _words(en_words(brief))
+        explicit = set(section_intents(brief, implied=False))
         asked = section_intents(brief)
-        asked_cats = []                                   # به ترتیبِ وقوعِ بخش در متن: [(intent, {دسته‌های 21st})]
+        asked_cats = []                                   # به ترتیبِ وقوعِ بخش در متن: [(intent, {دسته‌های 21st}, صریح؟)]
         for it in asked:
-            asked_cats.append((it, set(_CAT_OF_PLAN.get(it, ())) | set(_C21_OF_INTENT.get(it, ()))))
+            asked_cats.append((it, set(_CAT_OF_PLAN.get(it, ())) | set(_C21_OF_INTENT.get(it, ())), it in explicit))
         want = set()
         for cat in PAGE_PLANS.get(kind) or DEFAULT_PLAN:
             want.update(_CAT_OF_PLAN.get(cat, ()))
@@ -381,18 +382,22 @@ def c21_suggest(brief='', kind='home', pinned=(), limit=MAX_C21):
         for cid, e in idx.items():
             if cid in chosen or e.get('rtl') == 'fail':
                 continue
-            ecats = set(e.get('cats', []))
+            ecats = set((e.get('cats') or [])[:2])                   # دورِ ۵: فقط دو دستهٔ اصلیِ قطعه (جدولِ قیمت‌ها ‘table’ را هم دارد ولی برای «داشبورد» نیست)
             hay = _c21_hay(e, rows.get(cid))
-            ask_hit = sum(1 for _it, cs in asked_cats if cs & ecats)
-            s = 2 * len(words & hay) + 2 * len(want & ecats) + 8 * ask_hit
-            if s:
+            # بخشی که متن «صریح» خواسته همیشه؛ بخشی که فقط «حوزه» القا می‌کند (رستوران ⇒ کارت/گالری) فقط اگر قطعه «بخشِ صفحه» باشد، نه ابزارکِ ریز (دورِ ۵: folded-card برای رستوران)
+            ask_hit = sum(1 for _it, cs, ex in asked_cats if cs & ecats and (ex or e.get('kind') != 'widget'))
+            hit = len(words & hay)
+            s = 2 * hit + 2 * len(want & ecats) + 8 * ask_hit
+            if e.get('interact') == 'static' and not any(cs & ecats for _it, cs, ex in asked_cats if ex):     # «ثابت (بدونِ حرکت)» فقط وقتی پیشنهاد می‌شود که متن همان بخش را «صریح» خواسته باشد (نه بخشِ القاشده)
+                continue
+            if s and (ask_hit or (hit and (e.get('kind') != 'widget' or hit >= 2))):   # دورِ ۵: فقط «بخشِ خواسته‌شده»، یا واژهٔ مشترک (برای ابزارکِ ریز دست‌کم دو واژه)؛ تطابقِ صرفِ دسته با نقشهٔ صفحه (category-dropdown برای رستوران) پیشنهاد نمی‌شود
                 scored.append((s, ask_hit, e.get('bytes', 0), cid))
         scored.sort(key=lambda x: (-x[0], x[2], x[3]))             # امتیاز بالا، بعد کوچک‌تر (کم‌هزینه برای پرامپت)
         # هر بخشِ خواسته‌شده یک نمایندهٔ خودش را می‌گیرد (قیمت و پرسش با هم خواسته شدند ⇒ هر دو)
-        for it, cs in asked_cats:
+        for it, cs, ex in asked_cats:
             if len(chosen) >= limit:
                 break
-            best = next((cid for _s, _h, _b, cid in scored if cid not in chosen and cs & set(idx[cid].get('cats', []))), None)
+            best = next((cid for _s, _h, _b, cid in scored if cid not in chosen and cs & set((idx[cid].get('cats') or [])[:2]) and (ex or idx[cid].get('kind') != 'widget')), None)
             if best:
                 chosen.append(best)
         chosen += [cid for _s, _h, _b, cid in scored if cid not in chosen][:limit - len(chosen)]
@@ -444,20 +449,12 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
     # سقفِ سخت (با خودِ stats): اول برشِ کدِ الهام‌ها، بعد HTMLها را کوتاه کن، بعد الهام‌ها و قطعه‌های آخر را بینداز
     guard = 0
     trimmed = set()
-    while _size(payload) > max_chars and guard < 90:
+    # دورِ ۵ (بازبینیِ ۱۱/۱۷): پیش‌تر اولین چیزی که برای جا شدن کوتاه می‌شد «رهنمودِ ui-ux-pro-max» بود (با سبکِ انتخاب‌شده ردیفِ UX/الگو/محصول/پالت می‌افتاد و stats هنوز «۵» می‌گفت).
+    # حالا رهنمود سهمِ خودش را از سقف کنار می‌گذارد؛ اسکلتِ قطعه‌ها کوتاه می‌شود و فقط آخرین چاره به رهنمود می‌رسد.
+    guidance = payload.pop('guidance', None)
+    reserve = _size({'guidance': guidance}) if guidance else 0
+    while _size(payload) + reserve > max_chars and guard < 90:
         guard += 1
-        if payload.get('guidance'):                       # اول رهنمودها کوتاه می‌شوند (کم‌اهمیت‌تر از قطعه‌ها)
-            g = payload['guidance']
-            if len(g.get('ux', [])) > 1:
-                g['ux'].pop()
-            else:
-                for k in ('chart', 'stack', 'palette', 'rtl', 'product', 'ux', 'pattern'):
-                    if k in g:
-                        g.pop(k)
-                        break
-            if not g:
-                payload.pop('guidance')
-            continue
         if payload.get('c21'):                            # بعد قطعه‌های 21st: اول کوتاه، بعد از آخر حذف
             big = max((x for x in payload['c21'] if len(x['html']) > MIN_C21_HTML and id(x) not in trimmed), key=lambda x: len(x['html']), default=None)
             if big is not None:
@@ -469,6 +466,12 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
                     payload.pop('c21')
                     payload['howto'] = payload['howto'].replace(' ' + C21_HOWTO_FA, '')
             continue
+        longest = max((x for x in rows if id(x) not in trimmed), key=lambda x: len(x['html']), default=None)
+        if longest and len(longest['html']) > MIN_COMPONENT_HTML:      # دورِ ۵: اسکلتِ قطعه‌های آماده پیش از برشِ کدِ الهام‌ها کوتاه می‌شود (رهنمودِ طراحی سهمِ خودش را دارد)
+            cut = max(MIN_COMPONENT_HTML, int(len(longest['html']) * 0.75))
+            longest['html'] = longest['html'][:cut].rsplit('<', 1)[0] + '<!-- … -->'
+            trimmed.add(id(longest))                     # هر قطعه یک بار کوتاه می‌شود (وگرنه با نشانِ «…» دوباره بلندتر از کف می‌شد و حلقه هرگز به حذفِ قطعه نمی‌رسید)
+            continue
         longest_ex = max((x for x in insp if x.get('code_excerpt')), key=lambda x: len(x['code_excerpt']), default=None)
         if longest_ex is not None:
             if len(longest_ex['code_excerpt']) > 200:
@@ -476,12 +479,7 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
             else:
                 longest_ex.pop('code_excerpt')
             continue
-        longest = max((x for x in rows if id(x) not in trimmed), key=lambda x: len(x['html']), default=None)
-        if longest and len(longest['html']) > MIN_COMPONENT_HTML:
-            cut = max(MIN_COMPONENT_HTML, int(len(longest['html']) * 0.75))
-            longest['html'] = longest['html'][:cut].rsplit('<', 1)[0] + '<!-- … -->'
-            trimmed.add(id(longest))                     # هر قطعه یک بار کوتاه می‌شود (وگرنه با نشانِ «…» دوباره بلندتر از کف می‌شد و حلقه هرگز به حذفِ قطعه نمی‌رسید)
-        elif insp:                                       # الهام اختیاری است؛ پیش از قطعه‌های اصلی کنار می‌رود
+        if insp:                                         # الهام اختیاری است؛ پیش از قطعه‌های اصلی کنار می‌رود
             insp.pop()
             if not insp:
                 payload.pop('inspiration', None)
@@ -490,7 +488,24 @@ def build(style_key='', brief='', kind='home', pinned=(), limit=MAX_COMPONENTS, 
             rows.pop()
         else:
             break
+    if guidance:
+        payload['guidance'] = guidance
+        g_guard = 0
+        while _size(payload) > max_chars and payload.get('guidance') and g_guard < 20:      # آخرین چاره: باز هم از سقف گذشت ⇒ رهنمود کوتاه می‌شود
+            g_guard += 1
+            g = payload['guidance']
+            if len(g.get('ux', [])) > 1:
+                g['ux'].pop()
+            else:
+                for k in ('chart', 'stack', 'palette', 'rtl', 'product', 'ux', 'pattern'):
+                    if k in g:
+                        g.pop(k)
+                        break
+            if not g:
+                payload.pop('guidance')
+    payload['stats']['guidance'] = len(payload.get('guidance') or {})            # عددِ واقعیِ آنچه ماند (نه پیش از کوتاه‌شدن)
     payload['stats']['components'] = len(rows)
+    payload['stats']['c21'] = len(payload.get('c21') or [])                  # عددِ واقعیِ قطعه‌های 21st که در پرامپت ماند (نه پیش از کوتاه‌شدن)
     payload['stats']['inspiration'] = len(insp)
     for _ in range(3):                                   # عددِ chars خودش در اندازه حساب می‌شود؛ تا ثابت شدن
         payload['stats']['chars'] = _size(payload)

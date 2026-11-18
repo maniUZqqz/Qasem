@@ -214,7 +214,7 @@ class CrawlTurnTests(DataDirMixin, SimpleTestCase):
         self.assertEqual(st["total"], 3)
         self.assertEqual(st["libraries"], 1)
         rows = {r["id"]: r for r in c21st.load()}
-        self.assertEqual(rows["acme/hero-one"]["license"], "mit")
+        self.assertEqual(rows["acme/hero-one"]["license"], "MIT")                           # نوشتارِ یکدست (دورِ ۵: «mit» و «MIT» هر دو «MIT»)
         self.assertTrue(rows["acme/hero-one"]["usable"])
         self.assertEqual(rows["acme/hero-one"]["library_id"], "acme/acme-ui")
         self.assertIn("hero", rows["acme/hero-one"]["cats"])

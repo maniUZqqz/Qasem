@@ -61,9 +61,14 @@ def main():
     staff = U.objects.filter(is_staff=True).first() or U(username='panel-check', is_staff=True, is_superuser=True)
     client = APIClient()
     client.force_authenticate(staff)
+    from django.conf import settings
     from apps.projects.models import Project
-    project = Project.objects.first()
-    slug = project.slug if project else 'none'
+    # THROWAWAY project (round 5): this script clicks «apply style» and «insert» through the REAL views, so it must never run on an owner's project (a test once left an English
+    # 21st component in the real Chagher draft) and never against the live data directory. The project is created here and deleted in the finally block.
+    if os.path.realpath(str(settings.NM_DATA_DIR)) == os.path.realpath('/var/www/NM/upmarket/data'):
+        sys.exit('refusing to run against the LIVE data directory: run it on a staging copy (NM_DATA_DIR of /root/stage/<key>)')
+    project = Project.objects.create(name='throwaway panel check', slug='zz-throwaway-check-%d' % os.getpid())
+    slug = project.slug
     calls = []
 
     def mock_api(method, url, params, data):
@@ -83,7 +88,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix='nm-panel-check-')
     try:
         page_url = 'file://' + bundle(tmp).replace('\\', '/')
-        opts = client.get('/api/v1/studio/projects/%s/builder/catalog/' % slug).json().get('theme_options', {}) if project else {}
+        opts = client.get('/api/v1/studio/projects/%s/builder/catalog/' % slug).json().get('theme_options', {})
         with sync_playwright() as p:
             b = p.chromium.launch()
             try:
@@ -102,6 +107,14 @@ def main():
                 pg.wait_for_selector('[data-testid=design-sources]', timeout=20000)
                 tabs = pg.locator('[data-testid=ds-tabs] button')
                 check(tabs.count() == 18, 'design sources: 17 data kinds + the 21st tab (%d tabs)' % tabs.count())
+                # round 5: the Persian search works on every tab (the product-type tab answered 0 for «ورزش»)
+                pg.click('[data-kind=products]')
+                pg.fill('[data-testid=ds-search]', 'ورزش')
+                pg.wait_for_function("document.querySelector('[data-testid=ds-total]') && !document.querySelector('[data-testid=ds-total]').innerText.startsWith('۰')", timeout=10000)
+                check(True, 'product-type tab finds rows for the Persian query ورزش: ' + pg.inner_text('[data-testid=ds-total]'))
+                pg.fill('[data-testid=ds-search]', '')
+                pg.click('[data-kind=styles]')
+                pg.wait_for_selector('[data-testid=ds-total]')
                 check('MIT' in pg.inner_text('[data-testid=ds-note]') or 'ui-ux-pro-max' in pg.inner_text('body'), 'attribution is shown')
                 pg.wait_for_selector('[data-testid=ds-total]')
                 check('۸۹' in pg.inner_text('[data-testid=ds-total]'), 'styles tab lists 89 rows: ' + pg.inner_text('[data-testid=ds-total]'))
@@ -139,6 +152,23 @@ def main():
                 pg.click('[data-kind=c21st]')
                 pg.wait_for_selector('[data-testid=ds-c21]')
                 check('قطعهٔ قابلِ درج' in pg.inner_text('[data-testid=ds-c21]'), 'the 21st tab shows the pipeline numbers')
+                # round 5: the 21st tab is a browsable list now (search + preview, read-only), with the «what does it do on the site» badge
+                pg.wait_for_selector('[data-testid=ds-c21] [data-testid=c21st-browser] .c21-item', timeout=20000)
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-add]').count() == 0, 'the 21st tab only browses: no insert button')
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-interact]').count() >= 1, 'the 21st tab cards carry the interaction badge')
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-interact]').first.get_attribute('data-state') == 'works', 'working (interactive) components are listed first')
+                check('تعاملی' in pg.inner_text('[data-testid=ds-interact-works]') or pg.inner_text('[data-testid=ds-interact-works]').strip() != '۰', 'the 21st tab counts interactive components: ' + pg.inner_text('[data-testid=ds-interact-works]'))
+                pg.fill('[data-testid=ds-c21] [data-testid=c21st-search]', 'قیمت')
+                pg.wait_for_function("document.querySelectorAll('[data-testid=ds-c21] .c21-item').length > 0", timeout=10000)
+                check(pg.locator('[data-testid=ds-c21] .c21-item').count() >= 1, 'the 21st tab searches in Persian (قیمت)')
+                pg.locator('[data-testid=ds-c21] [data-testid=c21-preview]').first.click()
+                pg.wait_for_selector('[data-testid=ds-c21] [data-testid=c21-live] iframe', timeout=20000)
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-live] iframe').first.get_attribute('sandbox') == '', 'the browse preview is a sandboxed (script-free) frame')
+                try:
+                    pg.wait_for_selector('[data-testid=ds-c21] [data-testid=c21-interact-note]', timeout=8000)
+                except Exception:  # noqa: BLE001
+                    pass
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-interact-note]').count() == 1, 'the browse preview says what the component does on the site (%d notes, %d live panels)' % (pg.locator('[data-testid=ds-c21] [data-testid=c21-interact-note]').count(), pg.locator('[data-testid=ds-c21] [data-testid=c21-live]').count()))
                 if shots:
                     pg.screenshot(path=os.path.join(shots, 'design-sources.png'), full_page=True)
                 check(not errors, 'no javascript errors on the design sources page: %s' % errors[:2])
@@ -186,14 +216,44 @@ def main():
                     check('چیزی پیدا نشد' in pg.inner_text('.c21-list'), 'empty search says so')
                 else:
                     check(False, 'the catalogue has no insertable components (run the pipeline first)')
+                # round 5: badges + the note on a static component
+                pg.fill('.c21-filters input[aria-label]', 'tiers')
+                pg.wait_for_function("document.querySelectorAll('.c21-item').length > 0", timeout=10000)
+                statics = pg.locator('.c21-item [data-testid=c21-interact][data-state=static]')
+                if statics.count():
+                    check('ثابت (بدونِ حرکت)' in statics.first.inner_text(), 'a static component carries the badge «ثابت (بدونِ حرکت)»')
+                    statics.first.locator('xpath=ancestor::div[contains(@class,"c21-item")]').locator('[data-testid=c21-preview]').click()
+                    pg.wait_for_selector('[data-testid=c21-live] iframe', timeout=20000)
+                    check('ثابت' in pg.inner_text('[data-testid=c21-interact-note]'), 'its live preview says it stays static on the published site')
+                pg.fill('.c21-filters input[aria-label]', '')
+                pg.wait_for_function("document.querySelectorAll('.c21-item').length > 0", timeout=10000)
+                check('تعاملی' in pg.inner_text('[data-testid=c21st-stats]'), 'the stats line counts interactive components: ' + pg.inner_text('[data-testid=c21st-stats]')[:160])
                 if shots:
                     pg.screenshot(path=os.path.join(shots, 'c21-browser.png'), full_page=True)
                 check(not errors, 'no javascript errors in the 21st browser: %s' % errors[:2])
+                ctx.close()
+
+                # ── استودیوی طراحی: پنلِ قطعه‌ها
+                ctx, pg, errors = open_view('c21panel', 460)
+                pg.wait_for_selector('[data-testid=ds-c21] .c21-item', timeout=20000)
+                check(pg.locator('[data-testid=ds-c21] [data-testid=c21-interact]').count() >= 1, 'design studio panel: cards carry the interaction badge')
+                pg.locator('[data-testid=ds-c21-preview]').first.click()
+                pg.wait_for_selector('[data-testid=ds-c21] iframe', timeout=20000)
+                check(pg.locator('[data-testid=ds-c21-note]').count() == 1, 'design studio panel: the preview says what the component does on the site')
+                pg.locator('[data-testid=ds-c21-add]').first.click()
+                pg.wait_for_function('window.__added.length > 0', timeout=10000)
+                check(len(pg.evaluate('window.__added')) == 1, 'design studio panel: insert hands the component to the design')
+                check(not errors, 'no javascript errors in the design studio 21st panel: %s' % errors[:2])
                 ctx.close()
             finally:
                 b.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            project.delete()                                         # the throwaway project goes away (and its workspace folder, if one was made)
+            shutil.rmtree(os.path.join(str(settings.WORKSPACES_ROOT), slug), ignore_errors=True)
+        except Exception as exc:  # noqa: BLE001
+            print('could not delete the throwaway project %s: %s' % (slug, exc))
     print('calls to the real API:', len(calls))
     print('FAILURES: %d' % len(FAILS))
     sys.exit(1 if FAILS else 0)

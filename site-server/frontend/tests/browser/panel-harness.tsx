@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
 import { api } from "../../src/api/client";
+import C21Panel from "../../src/features/design/C21Panel";
 import C21stBrowser from "../../src/features/tools/studio/C21stBrowser";
 import DesignSourcesPage from "../../src/features/tools/studio/DesignSourcesPage";
 import { StylePicker } from "../../src/features/tools/studio/builder/designKit";
@@ -53,6 +54,7 @@ function App() {
   window.__applied = [];
   if (window.__view === "sources") return <MemoryRouter><DesignSourcesPage /></MemoryRouter>;
   if (window.__view === "picker") return <Picker />;
+  if (window.__view === "c21panel") return <div style={{ maxWidth: 420 }}><C21Panel onAdd={(n, title) => { window.__added.push(String(title)); }} /></div>;
   return (
     <div style={{ maxWidth: 520 }}>
       <C21stBrowser mode="manual" slug={window.__slug} theme={{ colors: {} } as ThemeT} onAddC21={(key) => { window.__added.push(key); }} onAddNearest={() => undefined} />

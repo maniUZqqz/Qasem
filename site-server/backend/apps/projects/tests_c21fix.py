@@ -640,7 +640,7 @@ class PipelineStatsTests(DataDirMixin, SimpleTestCase):
         from apps.projects import c21_api
 
         def row(cid, lib="", conv=None, usable=True):
-            r = {"id": cid, "title": cid, "author_name": "", "cats": [], "detail": True, "usable": usable, "license": "mit", "library_id": lib}
+            r = {"id": cid, "title": cid, "author_name": "", "cats": [], "detail": True, "usable": usable, "license": "mit" if usable else "unknown", "library_id": lib}
             if conv:
                 r["conv"] = {"state": conv}
             return r
@@ -659,7 +659,7 @@ class NodePickTests(DataDirMixin, SimpleTestCase):
         from apps.projects.builder import c21_node as ND
 
         def row(cid, lib="", conv=None, detail=True, usable=True):
-            r = {"id": cid, "title": cid, "author_name": "", "cats": [], "detail": detail, "usable": usable, "license": "mit", "library_id": lib}
+            r = {"id": cid, "title": cid, "author_name": "", "cats": [], "detail": detail, "usable": usable, "license": "mit" if usable else "unknown", "library_id": lib}
             if conv:
                 r["conv"] = {"state": conv}
             return r

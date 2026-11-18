@@ -133,6 +133,7 @@ class Renderer:
         self.used_variants = []       # [(نوعِ بلوک، کلیدِ چیدمان)] برای نوشتنِ CSSِ فقط همان‌ها
         self.used_components = []     # کلیدِ قطعه‌های آماده‌ای که در این سند هستند
         self.used_c21 = []            # کلیدِ قطعه‌های 21st (تبدیل‌شده) که در این سند هستند
+        self.c21_runtime = False      # قطعه‌ای که با رانتایمِ باز/بسته زنده می‌شود (c21_runtime) در سند هست ⇒ یک اسکریپتِ کوچک به صفحه می‌چسبد
 
     def use_variant(self, btype, key):
         if (btype, key) not in self.used_variants:
@@ -978,6 +979,9 @@ def render_doc(doc, ctx):
     if ctx.target == 'page':
         check_headings(r)
     html = '\n\n'.join(h for _, h in parts if h)
+    if r.c21_runtime and not ctx.canvas:
+        from . import c21_runtime
+        html += '\n\n' + c21_runtime.script_tag()           # آکاردئون/تب/کلیدِ قطعه‌های 21st در سایتِ منتشرشده کار کند (بدونِ وابستگی، ~۳ کیلوبایت)
     gen = r.css()
     return Rendered(html, gen, r.warnings, r.uses_form, parts)
 

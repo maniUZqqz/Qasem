@@ -58,7 +58,8 @@ def c21_preview(request, slug, key):
     data = canvas.render_canvas(p, "page", None, doc, theme, vb._clean_menu(menu, p))
     return Response({"key": key, "id": rec["id"], "html": "".join(x["html"] for x in data["parts"]), "base_css": data["base_css"], "page_css": data["page_css"],
                      "title": rec.get("title", ""), "license": rec.get("license", ""), "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""),
-                     "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", []))})
+                     "source": rec.get("source", {}), "rtl": rec.get("rtl", {}), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", [])),
+                     "interact": CV.interact_state(rec), "interact_note": EM.interact_note(rec)})
 
 
 def _blocked_message(rec: dict) -> str:
@@ -94,9 +95,10 @@ def c21_block(request, slug, key):
     rec = _rec(key)
     if (rec.get("rtl") or {}).get("status") == "fail":
         return bad(_blocked_message(rec), code=409)
+    extra = {"interact": CV.interact_state(rec), "interact_note": EM.interact_note(rec), "title": rec.get("title", "")}
     if request.method == "POST":
-        return Response(_block_for(rec, True, bool(request.data.get("ai"))))
-    return Response(_block_for(rec, request.query_params.get("fa") == "1", False))
+        return Response({**_block_for(rec, True, bool(request.data.get("ai"))), **extra})
+    return Response({**_block_for(rec, request.query_params.get("fa") == "1", False), **extra})
 
 
 @studio_api("GET")
@@ -107,12 +109,13 @@ def c21_preview_free(request, key):
     rec = _rec(key)
     if (rec.get("rtl") or {}).get("status") == "fail":
         return bad(_blocked_message(rec), code=409)
-    pv = EM.preview_page(key)
+    pv = EM.preview_page(key, expand=True)                # iframe ِ بی‌اسکریپت: همهٔ پنل‌ها باز (بسته‌ها هرگز باز نمی‌شدند)
     if not pv:
         raise Http404
     return Response({"key": key, "id": rec["id"], "doc": c21_rtl.PAGE % (pv["css"], pv["html"]), "title": rec.get("title", ""), "license": rec.get("license", ""),
                      "author": rec.get("author", ""), "library": rec.get("library", ""), "url": rec.get("url", ""), "cats": rec.get("cats", []),
-                     "source": {k: (rec.get("source") or {}).get(k, "") for k in ("repo", "license", "copyright")}})
+                     "source": {k: (rec.get("source") or {}).get(k, "") for k in ("repo", "license", "copyright")},
+                     "interact": CV.interact_state(rec), "interact_note": EM.interact_note(rec)})
 
 
 @studio_api("GET")
@@ -121,7 +124,7 @@ def c21_block_free(request, key):
     if (rec.get("rtl") or {}).get("status") == "fail":
         return bad(_blocked_message(rec), code=409)
     return Response({**_block_for(rec, request.query_params.get("fa") != "0", False), "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""),
-                     "library": rec.get("library", "")})
+                     "library": rec.get("library", ""), "interact": CV.interact_state(rec), "interact_note": EM.interact_note(rec)})
 
 
 @studio_api("POST")
@@ -154,10 +157,13 @@ def pipeline_json() -> dict:
     converted = sum(1 for r in rows if (r.get("conv") or {}).get("state") == "ok")
     insertable = sum(1 for r in rows if c21st.insertable(r))             # تبدیل‌شده ≠ قابلِ درج: «خالیِ ایستا»، سرریز، متنِ نخوانا، رویِ‌هم‌افتاده یا بی‌متن بسته می‌شود
     kinds = {"section": 0, "widget": 0}
+    inter = {"works": 0, "plain": 0, "static": 0}
     for e in CV.load_index().values():
         if e.get("rtl") != "fail" and e.get("kind") in kinds:
             kinds[e["kind"]] += 1
-    return {"toolchain": CV.toolchain_ready(), "converted": converted, "insertable": insertable, "blocked": max(0, converted - insertable), "kinds": kinds,
+        if e.get("rtl") != "fail":
+            inter[e.get("interact") if e.get("interact") in inter else "plain"] += 1
+    return {"toolchain": CV.toolchain_ready(), "converted": converted, "insertable": insertable, "blocked": max(0, converted - insertable), "kinds": kinds, "interact": inter,
             "failed": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "failed"), "no_source": no_source, "waiting": waiting,
             "license_blocked": sum(1 for r in rows if (r.get("conv") or {}).get("state") == "license"), "last": {k: st.get(k) for k in ("converted", "failed", "libs_done", "remaining_libs", "finished_at")},
             "errors": (st.get("errors") or [])[-3:], "node": {"pending": len(node.get("pending", [])), "jobs": node.get("jobs", 0), "ingested": node.get("ingested", 0)}}

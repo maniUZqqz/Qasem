@@ -589,8 +589,8 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       // متن‌های نمونهٔ قطعه انگلیسی‌اند: عبارت‌های رایج (دکمه، منو، قیمت …) همیشه با فرهنگ‌لغت فارسی می‌شوند؛ «با AI» بقیه را هم ترجمه می‌کند (متیس بی‌اعتبار ⇒ پیامِ فارسی، قطعه باز هم اضافه می‌شود)
       const url = `/studio/projects/${slug}/builder/c21/${key}/block/`;
       const { data } = withAi
-        ? await api.post<{ block: Block; ai?: { ok: boolean; message: string } }>(url, { ai: true })
-        : await api.get<{ block: Block; ai?: { ok: boolean; message: string } }>(url, { params: { fa: 1 } });
+        ? await api.post<{ block: Block; ai?: { ok: boolean; message: string }; interact?: string; interact_note?: string }>(url, { ai: true })
+        : await api.get<{ block: Block; ai?: { ok: boolean; message: string }; interact?: string; interact_note?: string }>(url, { params: { fa: 1 } });
       const b = D.refreshIds(JSON.parse(JSON.stringify(data.block)) as Block);
       const t = D.clickTarget(docRef.current, catalog, b.type, selectedRef.current);
       const r = D.insertBlock(docRef.current, catalog, b, t);
@@ -598,7 +598,8 @@ function Editor({ slug, boot }: { slug: string; boot: Bootstrap }) {
       setSelected(r.id);
       setSheet("none");
       window.setTimeout(() => ctlRef.current?.select(r.id, true), 450);
-      return data.ai?.message;
+      const still = data.interact === "static" && data.interact_note ? data.interact_note : "";            // «ثابت (بدونِ حرکت)»: همان لحظهٔ درج گفته می‌شود
+      return [data.ai?.message, still].filter(Boolean).join(" ") || undefined;
     },
     [slug, catalog, commit],
   );

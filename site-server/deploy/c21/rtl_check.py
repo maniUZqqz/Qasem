@@ -72,14 +72,22 @@ TEXT_JS = r"""
     const rg = document.createRange(); rg.selectNodeContents(n);
     let rects = Array.from(rg.getClientRects()).filter((r) => r.width > 1 && r.height > 1).map((r) => [r.left, r.top, r.right, r.bottom]);
     // text clipped away by an ancestor (marquees, carousels, scroll areas: overflow hidden/clip/auto/scroll) is not seen: keep only the visible part
+    const areaOf = (rs) => rs.reduce((s, r) => s + Math.max(0, r[2] - r[0]) * Math.max(0, r[3] - r[1]), 0);
+    const fullArea = areaOf(rects);
+    let animated = false, ellipsis = false, scrollable = false;
     for (let a = el; a && a !== document.body && rects.length; a = a.parentElement) {
       const o = getComputedStyle(a);
+      if (a.hasAttribute('data-nbc-anim') || (o.animationName && o.animationName !== 'none')) animated = true;              // marquees/tickers are clipped on purpose
+      if (o.textOverflow === 'ellipsis') ellipsis = true;
+      if (['auto', 'scroll'].includes(o.overflowX) || ['auto', 'scroll'].includes(o.overflowY)) scrollable = true;
       const cx = o.overflowX !== 'visible', cy = o.overflowY !== 'visible';
       if (!cx && !cy) continue;
       const b = a.getBoundingClientRect();
       rects = rects.map((r) => [cx ? Math.max(r[0], b.left) : r[0], cy ? Math.max(r[1], b.top) : r[1], cx ? Math.min(r[2], b.right) : r[2], cy ? Math.min(r[3], b.bottom) : r[3]])
         .filter((r) => r[2] - r[0] > 1 && r[3] - r[1] > 1);
     }
+    // a text that is only PARTLY cut by its card (the card is narrower than its content: «ystem Status», «ettings») is a layout break; fully hidden texts (slides, tickers) are not
+    const cut = fullArea > 0 && rects.length > 0 && areaOf(rects) / fullArea < 0.9 && !animated && !ellipsis && !scrollable ? 1 : 0;
     rects = rects.map((r) => ({ left: r[0], top: r[1], width: r[2] - r[0], height: r[3] - r[1] }));
     if (!rects.length) continue;
     const fill = cs.webkitTextFillColor || cs.color;          // transparent fill (bg-clip-text gradients) = not measurable, skipped below
@@ -101,7 +109,9 @@ TEXT_JS = r"""
         if (solid || own || ['IMG', 'CANVAS', 'VIDEO'].includes(top.tagName)) { occ++; }
       }
     }
-    out.push({ text: t.slice(0, 40), color: [p[0], p[1], p[2]], alpha: p[3] * chain(el), large: fs >= 24 || (fs >= 18.66 && fw >= 700), occ,
+    // one client rect per LINE: a short word that needs many lines is wrapping letter by letter (a card squeezed to a few pixels: round 5 review of uiable/card-tabs)
+    const nlines = new Set(Array.from(rg.getClientRects()).filter((r) => r.width > 1 && r.height > 1).map((r) => Math.round(r.top / 3))).size;
+    out.push({ text: t.slice(0, 40), color: [p[0], p[1], p[2]], alpha: p[3] * chain(el), large: fs >= 24 || (fs >= 18.66 && fw >= 700), occ, len: t.length, nlines, cut,
                rects: rects.slice(0, 3).map((r) => [r.left + sx, r.top + sy, r.width, r.height]) });
   }
   return out;
@@ -114,12 +124,16 @@ FREEZE = "*,*::before,*::after{animation:none!important;transition:none!importan
 def capture_contrast(b, d, ctx_files):
     """<key>~<ctx>.html (ctx = tl td il id) at 1280: <key>~<ctx>.json = text items, <key>~<ctx>.png = full page with all text transparent (c21_rtl.measure reads both)."""
     ctx = b.new_context(viewport={'width': 1280, 'height': 1400})
-    page = ctx.new_page()
+    mctx = b.new_context(viewport={'width': 390, 'height': 1400})       # <key>~m = the phone view (same measurements: covered / letter-by-letter wrapped texts)
+    page_desktop = ctx.new_page()
+    mpage = mctx.new_page()
     try:
         for name in ctx_files:
+            page = mpage if name.endswith('~m') else page_desktop
             try:
                 page.goto('file://%s/%s.html' % (os.path.abspath(d), name), wait_until='load', timeout=30000)
                 page.evaluate("document.querySelectorAll('.nbc21-host > div').forEach((e) => e.setAttribute('dir', 'rtl'))")
+                page.evaluate("document.querySelectorAll('*').forEach((e) => { const a = getComputedStyle(e).animationName; if (a && a !== 'none') e.setAttribute('data-nbc-anim', '1'); })")   # marquees/tickers are clipped on purpose (TEXT_JS: cut)
                 page.add_style_tag(content=FREEZE)
                 page.wait_for_timeout(250)
                 items = page.evaluate(TEXT_JS)
@@ -136,6 +150,75 @@ def capture_contrast(b, d, ctx_files):
                     json.dump({'error': str(exc)[:160]}, fh)
     finally:
         ctx.close()
+        mctx.close()
+
+
+# Interaction probe (round 5): the page is opened WITH the runtime (c21_runtime.py, injected by the caller) and every control it can drive is clicked once. A control "works" only if the
+# component LOOKS different afterwards (visible text, boxes, colours, opacity, transform of every visible element) - flipping an aria attribute that changes nothing visible is not enough.
+# `triggers` / `with_panel`: disclosure buttons (aria-expanded) and how many of them have a panel in the HTML (a FAQ with 5 questions and 1 answer is broken, not interactive).
+PROBE_JS = r"""
+async () => {
+  const host = document.querySelector('.nbc21-host') || document.body;
+  const snap = () => {
+    const out = [];
+    host.querySelectorAll('*').forEach((e) => {
+      const cs = getComputedStyle(e);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      const r = e.getBoundingClientRect();
+      out.push(e.tagName + ':' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + ',' + Math.round(r.height) + ':' + cs.opacity + ':' + cs.backgroundColor + ':' + cs.color + ':' + cs.transform
+        + (e.children.length ? '' : ':' + (e.textContent || '').trim().slice(0, 40)));
+    });
+    return out.join('|');
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const kinds = {};
+  const note = (k, changed) => { const o = kinds[k] || (kinds[k] = { n: 0, changed: 0 }); o.n++; if (changed) o.changed++; };
+  const rt = window.__nbc21;
+  const triggers = Array.from(host.querySelectorAll('[aria-expanded]'));
+  const withPanel = rt && rt.panelOf ? triggers.filter((t) => rt.panelOf(t)).length : 0;
+  const cap = (list, n) => list.slice(0, n);
+  const clickOne = async (el, kind) => {
+    const before = snap();
+    el.click();
+    await wait(60);
+    const after = snap();
+    note(kind, before !== after);
+    el.click();                                   // restore (accordion/switch); tabs: the next tab click restores the first
+    await wait(30);
+  };
+  for (const t of cap(triggers, 6)) await clickOne(t, 'accordion');
+  const tabs = Array.from(host.querySelectorAll('[role=tab]'));
+  for (const t of cap(tabs.slice(1), 4)) { const before = snap(); t.click(); await wait(60); note('tabs', before !== snap()); }
+  if (tabs.length) tabs[0].click();
+  for (const s of cap(Array.from(host.querySelectorAll('[role=switch],[role=checkbox],[aria-checked]')), 4)) await clickOne(s, 'toggle');
+  for (const b of cap(Array.from(host.querySelectorAll('button[aria-label]')).filter((x) => /^(close|dismiss|بستن)/i.test(x.getAttribute('aria-label') || '')), 2)) {
+    const before = snap(); b.click(); await wait(60); const changed = before !== snap(); note('dismiss', changed);
+  }
+  return { kinds, triggers: triggers.length, with_panel: withPanel, runtime: !!rt };
+}
+"""
+
+
+def probe(b, d, keys, runtime_js):
+    """<key>.html at 1280 with the runtime ⇒ {key: {kinds: {accordion|tabs|toggle|dismiss: {n, changed}}, triggers, with_panel}} (a script that fails leaves no entry)."""
+    out = {}
+    ctx = b.new_context(viewport={'width': 1280, 'height': 900})
+    page = ctx.new_page()
+    try:
+        for k in keys:
+            try:
+                page.goto('file://%s/%s.html' % (os.path.abspath(d), k), wait_until='load', timeout=30000)
+                page.evaluate("document.querySelectorAll('.nbc21-host > div').forEach((e) => e.setAttribute('dir', 'rtl'))")
+                page.add_style_tag(content=FREEZE)
+                if runtime_js:
+                    page.evaluate(runtime_js)
+                page.wait_for_timeout(120)
+                out[k] = page.evaluate(PROBE_JS)
+            except Exception as exc:  # noqa: BLE001
+                out[k] = {'error': str(exc)[:120]}
+    finally:
+        ctx.close()
+    return out
 
 
 def main():
@@ -174,6 +257,11 @@ def main():
                     except Exception as exc:  # noqa: BLE001
                         res.setdefault(k, {})['error'] = str(exc)[:160]
                 ctx.close()
+            rt_path = os.path.join(d, '__runtime.js')
+            runtime_js = open(rt_path, encoding='utf-8').read() if os.path.exists(rt_path) else ''
+            for k, pr in probe(b, d, keys, runtime_js).items():
+                if k in res:
+                    res[k]['probe'] = pr
         finally:
             b.close()
     for k, row in res.items():

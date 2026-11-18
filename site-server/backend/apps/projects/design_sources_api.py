@@ -93,6 +93,17 @@ def _facets(kind: str, where: dict, q: str, extra) -> dict:
     return out
 
 
+def _c21_summary(c21: list) -> dict:
+    """شمارشِ کاتالوگِ 21st.dev برای تبِ «قطعه‌ها»: کل، مجوزِ آزاد، پیش‌نمایش، قابلِ درج، و چند‌تا در سایت تعاملی/ساده/ثابت‌اند (دورِ ۵)."""
+    ins = [r for r in c21 if c21st.insertable(r)]
+    inter = {'works': 0, 'plain': 0, 'static': 0}
+    for r in ins:
+        s = c21st.interact_of_row(r)
+        inter[s if s in inter else 'plain'] += 1
+    return {'catalog': len(c21), 'usable': sum(1 for r in c21 if r.get('usable')), 'previews': sum(1 for r in c21 if r.get('preview')), 'insertable': len(ins),
+            'sections': sum(1 for r in ins if c21st.kind_of(r) == 'section'), 'interact': inter}
+
+
 @studio_api('GET')
 def sources_index(request):
     info = uiux.attribution()
@@ -104,7 +115,7 @@ def sources_index(request):
         'kinds': kinds,
         'styles': {'total': len(S.STYLES), 'hand': len(S.STYLES) - gen, 'generated': gen, 'dataset_rows': info['counts']['styles'], 'groups': S.groups()},
         'fonts': {'bundled': len(T.FONTS), 'pairings': info['counts']['fonts'], 'latin_mapped': len(fonts_fa.PERSIAN_OF)},
-        'c21st': {'catalog': len(c21), 'usable': sum(1 for r in c21 if r.get('usable')), 'previews': sum(1 for r in c21 if r.get('preview'))},
+        'c21st': _c21_summary(c21),
         'note': 'کلِ مخزنِ ui-ux-pro-max-skill (مجوز MIT، Next Level Builder) روی سرور آینه شده و همهٔ داده‌هایش این‌جاست؛ سبک‌ها، پالت‌ها و جفتِ قلم‌ها در سایت‌ساز به کار رفته‌اند.',
     })
 
@@ -121,13 +132,15 @@ def sources_kind(request, kind):
     if q.get('arabic') == '1':
         where['arabic'] = True
     extra = _styles_extra if kind == 'styles' else None
+    # دورِ ۵: جست‌وجوی فارسی در همهٔ نوع‌ها (پیش‌تر فقط سبک‌ها فارسی می‌فهمیدند: «ورزش» در «نوعِ محصول» صفر می‌داد): واژه‌های فارسی + معادلِ انگلیسیِ حوزه/بخش/ابزار (OR)
+    qtext = c21st.expand_query(text) if kind != 'styles' and re.search('[؀-ۿ]', text) else text
     if kind == 'google_fonts' and q.get('bundled') == '1':
         fams = {v['family'] for v in T.FONTS.values()}
-        rows = [r for r in uiux.search(kind, text, limit=0, where=where) if r.get('family') in fams]
+        rows = [r for r in uiux.search(kind, qtext, limit=0, where=where) if r.get('family') in fams]
         total, items = len(rows), rows[(page - 1) * size: page * size]
     else:
-        total = uiux.count(kind, text, where, extra)
-        items = uiux.search(kind, text, limit=size, offset=(page - 1) * size, where=where, extra=extra)
+        total = uiux.count(kind, qtext, where, extra)
+        items = uiux.search(kind, qtext, limit=size, offset=(page - 1) * size, where=where, extra=extra)
     return Response({'kind': kind, 'label': uiux.KIND_FA[kind][0], 'desc': uiux.KIND_FA[kind][1], 'total': total, 'page': page, 'size': size,
                      'items': [_decorate(kind, r) for r in items], 'facets': _facets(kind, where, text, extra), 'source': uiux.attribution()['source']})
 

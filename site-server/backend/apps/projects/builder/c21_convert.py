@@ -156,10 +156,11 @@ CSS_BAD = re.compile(r"@import|expression\(|</style|javascript:|(?<![\w-])behavi
 
 
 class _Node:
-    __slots__ = ("tag", "attrs", "kids", "svg")
+    __slots__ = ("tag", "attrs", "kids", "svg", "noslot")
 
     def __init__(self, tag, attrs, svg):
         self.tag, self.attrs, self.kids, self.svg = tag, attrs, [], svg
+        self.noslot = False
 
 
 class _Tree(HTMLParser):
@@ -192,6 +193,69 @@ class _Tree(HTMLParser):
 
 def esc(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+# ───────────────────────────── رولرِ رقم (دورِ ۵)
+#
+# «قیمتِ رولری» (Spectrum UI: ستونی از ۰ تا ۹ که translateY رقمِ درست را نشان می‌دهد) سه بلا داشت: (۱) ده رقمِ ۰ تا ۹ ده «متنِ قابلِ ویرایش» بودند و هشدارِ «هنوز نمونه است» هرگز پاک نمی‌شد،
+# (۲) ویرایشِ قیمت چیزی را عوض نمی‌کرد (رقمِ دیده‌شده را translateY می‌ساخت، نه متن)، (۳) در راست‌به‌چپ ستون‌ها آینه می‌شدند و «$24» به «42$» می‌رسید.
+# راه‌حل: کنارِ هر رولر معمولاً یک متنِ ``sr-only`` با کلِ مقدار («$24») هست؛ رولرِ ``aria-hidden`` برداشته و آن متن دیدنی می‌شود (قابلِ ویرایش و بی‌آینه‌شدن).
+# رولرِ بی‌همزاد: رقم‌ها شکاف نمی‌شوند (همان‌طور که هستند می‌مانند).
+
+def _plain_text(node) -> str:
+    if isinstance(node, str):
+        return node
+    return "".join(_plain_text(k) for k in node.kids)
+
+
+def _digit_cells(node) -> int:
+    """تعدادِ فرزندانِ عنصریِ این گره که هرکدام فقط یک رقم (۰–۹) باشند."""
+    n = 0
+    for k in node.kids:
+        if not isinstance(k, str) and re.fullmatch(r"\s*[0-9]\s*", _plain_text(k) or ""):
+            n += 1
+    return n
+
+
+def is_roller(node) -> bool:
+    """ستونی که دست‌کم ۶ سلولِ تک‌رقمی دارد (۰..۹ زیرِ هم)."""
+    return not isinstance(node, str) and _digit_cells(node) >= 6
+
+
+def _has_roller(node) -> bool:
+    if isinstance(node, str):
+        return False
+    return is_roller(node) or any(_has_roller(k) for k in node.kids)
+
+
+def _mark_noslot(node) -> None:
+    if isinstance(node, str):
+        return
+    node.noslot = True
+    for k in node.kids:
+        _mark_noslot(k)
+
+
+def unroll(node) -> int:
+    """درختِ HTML را درجا اصلاح می‌کند. ⇒ تعدادِ رولرِ برداشته‌شده. (رولرِ بی‌همزاد: فقط ``noslot``)"""
+    if isinstance(node, str):
+        return 0
+    n = 0
+    i = 0
+    while i < len(node.kids):
+        kid = node.kids[i]
+        if not isinstance(kid, str) and kid.attrs.get("aria-hidden") == "true" and _has_roller(kid):
+            twin = next((x for x in reversed(node.kids[:i]) if not isinstance(x, str) and "sr-only" in (x.attrs.get("class") or "").split() and _plain_text(x).strip()), None)
+            if twin is not None:
+                twin.attrs["class"] = " ".join(c for c in twin.attrs["class"].split() if c != "sr-only")
+                del node.kids[i]
+                n += 1
+                continue
+        if not isinstance(kid, str) and is_roller(kid):
+            _mark_noslot(kid)
+        n += unroll(kid) if not isinstance(kid, str) else 0
+        i += 1
+    return n
 
 
 def clean_style(value: str) -> str:
@@ -321,7 +385,7 @@ def _emit(node, slots: Slots, scope: str, ids: dict) -> str:
     sole = len(kids) == 1 and isinstance(kids[0], str) and kids[0].strip() and tag not in ("svg", "textarea", "select", "option") and not node.svg
     if sole:
         value = re.sub(r"\s+", " ", kids[0]).strip()
-        n = slots.text(value)
+        n = None if node.noslot else slots.text(value)
         if n is not None:
             extra += ' data-nbt="%d"' % n
             inner = "{{T%d}}" % n
@@ -336,7 +400,7 @@ def _emit(node, slots: Slots, scope: str, ids: dict) -> str:
                     continue
                 value = re.sub(r"\s+", " ", k).strip()
                 lead, trail = " " if k[:1].isspace() else "", " " if k[-1:].isspace() else ""
-                n = slots.text(value)
+                n = None if node.noslot else slots.text(value)
                 if n is None:
                     parts.append(lead + esc(value) + trail)
                 else:
@@ -359,6 +423,11 @@ def sanitize(markup: str, scope: str) -> dict:
     tree.close()
     slots = Slots()
     ids: dict = {}
+    for k in tree.root.kids:
+        if not isinstance(k, str):
+            slots_unrolled = unroll(k)
+            if slots_unrolled:
+                slots.warnings.append("rolled digits -> plain text")
     body = "".join(_emit(k, slots, scope, ids) for k in tree.root.kids)
     body = re.sub(r"\s{2,}", " ", body).strip()
     # دورِ ریشهٔ «c21-root» که خودِ ابزار گذاشته؛ محتوای داخلش کافی است
@@ -463,10 +532,52 @@ def load_index() -> dict:
         return {}
 
 
+# ───────────────────────────── «در سایت چه‌قدر زنده است؟» (دورِ ۵)
+
+STATIC_BADGE = "ثابت (بدونِ حرکت)"
+WORKS_BADGE = "تعاملی"
+#: پایه‌های «حالت‌دار»: اگر قطعه از این‌ها ساخته شده، اصلِ کارش حالت (باز/بسته، انتخاب، پنجره) است. زیرساختِ داخلیِ Base UI/Radix (internals، utils …) حساب نمی‌شود.
+STATEFUL_PRIMS = {"accordion", "collapsible", "tabs", "switch", "checkbox", "checkbox-group", "dialog", "alert-dialog", "popover", "select", "dropdown-menu", "menu", "menubar", "tooltip",
+                  "hover-card", "preview-card", "context-menu", "navigation-menu", "slider", "radio", "radio-group", "toggle", "toggle-group", "toast", "combobox", "autocomplete", "drawer",
+                  "number-field", "otp-field", "toolbar", "form"}
+#: پایه‌هایی که یک پنجره/منوی شناور باز می‌کنند: محتوایشان در HTMLِ ایستا هرگز دیده نمی‌شود (فقط دکمهٔ بازکننده می‌ماند)
+OVERLAY_PRIMS = {"dialog", "alert-dialog", "popover", "select", "dropdown-menu", "menu", "menubar", "context-menu", "hover-card", "preview-card", "combobox", "autocomplete", "drawer", "tooltip"}
+OVERLAY_TITLE = re.compile(r"\b(palette|command|dialog|modal|popover|dropdown|drawer|context menu|tooltip|select|combobox)\b", re.I)
+
+
+def interact_of(rec: dict) -> dict:
+    """رکورد (سیگنال‌های مبدّل ``interact_src`` + نتیجهٔ سنجشِ مرورگر ``rtl.probe``) ⇒ {state: works|static|plain, kinds, dead, prims}.
+
+    * ``works``  — رانتایم (c21_runtime) دست‌کم یک الگو (accordion/tabs/toggle/dismiss) را در مرورگر واقعاً زنده کرد و هیچ کنترلِ مرده‌ای نماند.
+    * ``static`` — قطعه در اصل حالت/رویداد/افکت دارد (یا کنترلی دارد که کلیکش چیزی عوض نمی‌کند) و ما بازسازی‌اش نمی‌کنیم ⇒ نشانِ «ثابت (بدونِ حرکت)».
+    * ``plain``  — اصلاً تعاملی نیست (کارت، نوارِ متحرکِ CSS، متن…): نشانی لازم ندارد."""
+    src = rec.get("interact_src") or {}
+    probe = (rec.get("rtl") or {}).get("probe") or {}
+    kinds = probe.get("kinds") or {}
+    works = sorted(k for k, v in kinds.items() if (v or {}).get("changed"))
+    dead = sum(max(0, int((v or {}).get("n", 0)) - int((v or {}).get("changed", 0))) for v in kinds.values())
+    prims = sorted(p for p in (src.get("prims") or []) if p in STATEFUL_PRIMS)
+    needs = bool(src.get("state") or src.get("events") or src.get("effect") or prims) if src else bool(dead)
+    if works and not dead:
+        state = "works"
+    elif needs or dead:
+        state = "static"
+    else:
+        state = "plain"
+    return {"state": state, "kinds": works, "dead": dead, "prims": prims[:6], "v": 1}
+
+
+def interact_state(rec: dict) -> str:
+    """رکوردِ بی‌فیلدِ ``interact`` (رکوردِ قدیمی) هم حالت می‌گیرد؛ هیچ‌وقت خطا نمی‌دهد."""
+    got = (rec.get("interact") or {}).get("state")
+    return got or interact_of(rec)["state"]
+
+
 def save_record(rec: dict) -> None:
     c21st._atomic(record_path(rec["key"]), json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
     idx = load_index()
     idx[rec["id"]] = {"key": rec["key"], "title": rec.get("title", ""), "cats": rec.get("cats", []), "license": rec.get("license", ""), "author": rec.get("author", ""),
+                      "interact": (rec.get("interact") or {}).get("state", ""),
                       "library": rec.get("library", ""), "texts": len(rec.get("texts", [])), "images": len(rec.get("images", [])), "rtl": (rec.get("rtl") or {}).get("status", ""), "kind": (rec.get("rtl") or {}).get("kind", ""),
                       "bytes": len(rec.get("css", "")) + len(rec.get("template", "")), "converted_at": rec.get("converted_at", "")}
     c21st._atomic(converted_dir() / "index.json", json.dumps(idx, ensure_ascii=False, separators=(",", ":")))
@@ -559,6 +670,6 @@ def convert_bundle(cid: str, bundle: dict, *, meta: dict | None = None, runner=s
     rec = {"id": cid, "key": key, "scope": scope, "title": meta.get("title", ""), "description": meta.get("description", ""), "cats": meta.get("cats", []),
            "license": c21st.effective_license(meta.get("license", ""), (bundle.get("source") or {}).get("license", "")), "author": c21st.link_text(meta.get("author", "")), "library": c21st.link_text(meta.get("library", "")), "url": meta.get("url", ""),
            "source": bundle.get("source") or {}, "template": sl["template"], "css": css, "texts": sl["texts"], "links": sl["links"], "images": sl["images"],
-           "warnings": (res.get("warnings") or []) + sl["warnings"], "stats": res.get("stats") or {}, "rtl": {"status": "unchecked"},
+           "warnings": (res.get("warnings") or []) + sl["warnings"], "stats": res.get("stats") or {}, "interact_src": res.get("interact_src") or {}, "rtl": {"status": "unchecked"},
            "converted_at": c21st._now() if hasattr(c21st, "_now") else time.strftime("%Y-%m-%dT%H:%M:%S")}
     return rec

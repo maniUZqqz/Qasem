@@ -17,13 +17,13 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import c21_contrast as CC, c21_convert as CV, c21_embed as EM, c21st
+from . import c21_contrast as CC, c21_convert as CV, c21_embed as EM, c21_runtime as RT, c21st
 
 DEFAULT_PY = "/opt/up3d-uitest/venv/bin/python"
 DEFAULT_BROWSERS = "/opt/up3d-uitest/browsers"
 _REPO_SCRIPT = Path(__file__).resolve().parents[4] / "deploy" / "c21" / "rtl_check.py"        # همیشه هم‌نسخهٔ کد (بی‌نصبِ دستی)
 SCRIPT = _REPO_SCRIPT if _REPO_SCRIPT.exists() else Path(CV.TOOLCHAIN) / "rtl_check.py"
-CHECK_VERSION = 5                    # ۲ = اسکرین‌شاتِ «blank» + سرریزِ گوشی ⇒ fail؛ ۳ = «فقط یک قابِ خالی» (بی‌متن و بی‌تصویر) هم blank است؛ ۴ = سنجشِ خوانایی روی پوستهٔ روشن/تیره/جزیره + «بسیار کوچک» + CSSِ ترمیم‌شده؛ ۵ = (بازبینیِ ۱۱/۱۷، دورِ ۴) خوانایی با رنگ‌های oklch()/color-mix() هم سنجیده می‌شود (پیش‌تر هر متنِ Tailwind مثل text-neutral-300 نادیده بود) و «بخشِ صفحه» با ارتفاعِ واقعیِ قطعه و نامِ آن تشخیص داده می‌شود؛ رکوردهای با نسخهٔ کمتر خودکار دوباره سنجیده می‌شوند (recheck_outdated)
+CHECK_VERSION = 6                    # ۶ = (دورِ ۵، ۱۱/۱۸) رانتایمِ تعامل را در مرورگر امتحان می‌کند (probe: کلیک روی آکاردئون/تب/کلید و دیدنِ تغییر)، قطعهٔ «پنل‌های بسته‌اش در HTML نیست»، «فقط دکمهٔ بازکنندهٔ پنجره»، «تصویرمحورِ بی‌تصویر» و «متنِ حرف‌به‌حرف‌شکسته/رویِ‌هم‌افتاده در گوشی» بسته می‌شوند؛ ۲ = اسکرین‌شاتِ «blank» + سرریزِ گوشی ⇒ fail؛ ۳ = «فقط یک قابِ خالی» (بی‌متن و بی‌تصویر) هم blank است؛ ۴ = سنجشِ خوانایی روی پوستهٔ روشن/تیره/جزیره + «بسیار کوچک» + CSSِ ترمیم‌شده؛ ۵ = (بازبینیِ ۱۱/۱۷، دورِ ۴) خوانایی با رنگ‌های oklch()/color-mix() هم سنجیده می‌شود (پیش‌تر هر متنِ Tailwind مثل text-neutral-300 نادیده بود) و «بخشِ صفحه» با ارتفاعِ واقعیِ قطعه و نامِ آن تشخیص داده می‌شود؛ رکوردهای با نسخهٔ کمتر خودکار دوباره سنجیده می‌شوند (recheck_outdated)
 INK_MIN = 150                        # کمتر از این تعداد پیکسلِ «پررنگ» (اختلافِ هر کانال با زمینه > ۴۰ از ۲۵۵؛ نقطه‌های محوِ شبکهٔ سوسوزن حساب نمی‌شوند) در هر دو عرض ⇒ قطعه خالی است
 PAGE_BG = (0xf7, 0xf8, 0xfa)
 TINY_CHARS = 5                       # کمتر از این تعداد نویسهٔ دیدنی (و بی‌تصویر، کوتاه) ⇒ «بسیار کوچک»: یک نشان/دکمهٔ بی‌متن به کارِ سایت‌ساز نمی‌آید
@@ -39,6 +39,10 @@ WIDGET_WORDS = re.compile(r"\b(badge|kbd|buttons?|btn|spinner|loader|switch|togg
 #: دسته‌هایی که داشبورد/گفت‌وگوی AI/نمودارند: ابزارکِ برنامه‌اند، بخشِ صفحهٔ بازاریابی نیستند
 APP_CATS = {"ai-chat", "chart", "dashboard", "form", "table", "tabs", "tooltip", "dialog", "notification", "search", "sidebar", "avatar", "badge", "button", "text-animation", "background", "animated"}
 OVERLAP_MAX = 1                      # این تعداد متنِ رویِ‌هم‌افتاده (یا بیشتر) ⇒ درج‌شدنی نیست
+CUT_MAX = 2                          # این تعداد متنِ نیمه‌بریده‌شده (یا بیشتر) ⇒ درج‌شدنی نیست
+VWRAP_MAX = 1                       # این تعداد متنِ «حرف‌به‌حرف شکسته» (واژهٔ ۷+ نویسه‌ای در ۴+ سطر) ⇒ درج‌شدنی نیست (uiable/card-tabs: «Active Members» ستونی می‌شد)
+OVERLAY_MAX_CHARS = 60               # قطعهٔ «بازکنندهٔ پنجره» که کمتر از این نویسه دیدنی دارد، بیرون از دکمه چیزی نیست
+IMAGE_ONLY_MIN = 8                   # بی‌متن و دست‌کم این‌قدر جای تصویر ⇒ تا تصویر نگذارند فقط یک منحنیِ خالی است (danielpetho/marquee-along-svg-path: ۱۳ تصویر)
 
 _PAGE_HEAD = ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
               '<style>:root{%s--r:16px}'
@@ -110,11 +114,14 @@ def check(keys: list[str], *, runner=subprocess.run, timeout: int = 900, contras
             if pv:
                 (tmp / (k + ".html")).write_text(PAGE % (pv["css"], pv["html"]), encoding="utf-8")
                 if contrast:
+                    pm = EM.preview_page(k, mode="theme", expand=True)
+                    (tmp / (_ctx_file(k, "m") + ".html")).write_text(PAGE % (pm["css"], pm["html"]), encoding="utf-8")       # نمای گوشی (۳۹۰): روی‌هم‌افتادگی و شکستنِ حرف‌به‌حرف
                     for name in CC.CTX_NAMES:
                         pol, mode = CC.CTX_SPEC[name]
                         colors = CC.PAGE_COLORS[pol]
-                        pc = EM.preview_page(k, colors=colors, mode=mode)
+                        pc = EM.preview_page(k, colors=colors, mode=mode, expand=True)           # همهٔ پنل‌ها باز: خوانایی در بدترین حالت
                         (tmp / (_ctx_file(k, name) + ".html")).write_text(page_for(pc["css"], pc["html"], colors), encoding="utf-8")
+        (tmp / "__runtime.js").write_text(RT.RUNTIME_JS, encoding="utf-8")       # سنجشِ تعامل: همین اسکریپتی که در سایتِ منتشرشده می‌آید
         env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or DEFAULT_BROWSERS)
         py = os.environ.get("NM_C21_PLAYWRIGHT_PY") or DEFAULT_PY
         r = runner([py, str(SCRIPT), str(tmp), str(tmp / "rtl.json")], capture_output=True, text=True, timeout=timeout, env=env)
@@ -156,12 +163,50 @@ def check(keys: list[str], *, runner=subprocess.run, timeout: int = 900, contras
                 if tl:
                     row["chars"], row["height"] = int(tl.get("chars") or 0), int(tl.get("height") or 0)
                     td = _read_ctx(tmp, k, "td") or {}
-                    row["overlap"] = max(sum(1 for it in (d_.get("items") or []) if it.get("occ")) for d_ in (tl, td))     # متنی که چیزِ دیگری رویش افتاده (نشان روی برچسب، دو متنِ روی‌هم، آیکون روی متن)
+                    ph = _read_ctx(tmp, k, "m") or {}                                                                      # نمای گوشی (۳۹۰ پیکسل)
+                    row["overlap"] = max(sum(1 for it in (d_.get("items") or []) if it.get("occ")) for d_ in (tl, td, ph))     # متنی که چیزِ دیگری رویش افتاده (نشان روی برچسب، دو متنِ روی‌هم، آیکون روی متن)
+                    row["vwrap"] = max(vwrap_count(d_.get("items") or []) for d_ in (tl, ph))                              # حرف‌به‌حرف شکسته (گوشی یا دسکتاپ)
+                    row["cut"] = max(cut_count(d_.get("items") or []) for d_ in (tl, ph))                                  # نیمه‌بریده از لبهٔ کارت (گوشی یا دسکتاپ)
         return res
     except subprocess.TimeoutExpired:
         return {k: {"status": "skipped", "why": "مهلتِ سنجش تمام شد"} for k in keys}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def vwrap_count(items) -> int:
+    """متن‌هایی که «حرف‌به‌حرف» شکسته‌اند: واژه/جمله‌ای با ۷+ نویسه که ۴+ سطر می‌گیرد و میانگینِ ≤ ۲٫۵ نویسه در هر سطر دارد (کارتی که به چند پیکسل فشرده شده)."""
+    n = 0
+    for it in items or []:
+        ln, ch = int(it.get("len") or 0), int(it.get("nlines") or 0)
+        if ln >= 7 and ch >= 4 and ln / max(1, ch) <= 2.5:
+            n += 1
+    return n
+
+
+def cut_count(items) -> int:
+    """متن‌هایی که فقط «بخشی»شان از لبهٔ کارت بریده شده (کارت از محتوایش باریک‌تر است)؛ متنِ کاملاً پنهان (اسلاید، نوار) و ellipsis/انیمیشن/اسکرول حساب نمی‌شود."""
+    return sum(1 for it in items or [] if it.get("cut") and int(it.get("len") or 0) >= 4)
+
+
+def layout_problem(row: dict, rec: dict, interact: dict) -> str:
+    """علتِ بسته‌شدنِ قطعه بر پایهٔ سنجشِ تعامل/چیدمان (دورِ ۵) یا ''. ⇒ جملهٔ فارسی."""
+    probe = row.get("probe") or {}
+    trig, panels = int(probe.get("triggers") or 0), int(probe.get("with_panel") or 0)
+    if trig >= 2 and panels < trig:
+        return "%d ردیفِ بازشو دارد ولی پاسخِ %d تایش در قطعه نیست (فقط ردیفِ باز ساخته شده)؛ در سایت بیشترِ ردیف‌ها بی‌پاسخ می‌ماند." % (trig, trig - panels)
+    if int(row.get("vwrap") or 0) >= VWRAP_MAX:
+        return "متن‌ها حرف‌به‌حرف می‌شکنند (قطعه در این عرض فشرده می‌شود)؛ چیدمانش خراب است."
+    if int(row.get("cut") or 0) >= CUT_MAX:
+        return "متن‌ها از لبهٔ کارت بریده می‌شوند (%d مورد)؛ چیدمانِ قطعه در این عرض به‌هم می‌ریزد." % int(row["cut"])
+    chars, images = int(row.get("chars") or 0), len(rec.get("images") or [])
+    if chars == 0 and images >= IMAGE_ONLY_MIN:
+        return "کاملاً تصویرمحور است (%d جای تصویر) و بی‌تصویر فقط یک خط/منحنیِ خالی می‌ماند." % images
+    prims = set((rec.get("interact_src") or {}).get("prims") or [])
+    overlay = bool(prims & CV.OVERLAY_PRIMS) or bool(CV.OVERLAY_TITLE.search(rec.get("title", "")))
+    if interact.get("state") == "static" and overlay and 0 < chars < OVERLAY_MAX_CHARS and not images:
+        return "فقط یک دکمهٔ بازکنندهٔ پنجره/منوست؛ محتوایش در سایتِ ایستا هرگز باز نمی‌شود."
+    return ""
 
 
 def classify(row: dict, rec: dict) -> tuple[str, str]:
@@ -199,9 +244,16 @@ def apply(keys: list[str], **kw) -> dict:
         if rec:
             kind, tiny_why = classify(row, rec)
             con = row.get("contrast")
+            pr = row.get("probe") or {}
+            slim = {"kinds": pr.get("kinds") or {}, "triggers": int(pr.get("triggers") or 0), "with_panel": int(pr.get("with_panel") or 0)} if pr and not pr.get("error") else {}
+            inter = CV.interact_of({**rec, "rtl": {"probe": slim}})
+            lay = layout_problem(row, rec, inter)
             if row.get("status") in ("ok", "warn"):
                 if tiny_why:
                     row["status"], row["why"] = "fail", tiny_why
+                elif lay:
+                    row["status"], row["layout_fail"] = "fail", True
+                    row["why"] = lay
                 elif int(row.get("overlap") or 0) >= OVERLAP_MAX:
                     row["status"], row["overlap_fail"] = "fail", True
                     row["why"] = "متن‌ها یا نشانه‌ها روی هم می‌افتند (%d مورد: برچسب زیرِ نشان/آیکون)؛ در صفحهٔ ایستا خوانده نمی‌شود." % int(row["overlap"])
@@ -212,6 +264,9 @@ def apply(keys: list[str], **kw) -> dict:
                           "rtl": bool(row.get("rtl", True)), "why": row.get("why", ""), "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                           "blank": bool(row.get("blank")), "ink": row.get("ink"), "kind": kind, "chars": row.get("chars"), "height": row.get("height"), "contrast_fail": bool(row.get("contrast_fail")), "overlap": int(row.get("overlap") or 0),
                           "v": CHECK_VERSION if row.get("status") not in ("skipped", "error") else 0}
+            if slim:
+                rec["rtl"]["probe"] = slim
+            rec["interact"] = CV.interact_of(rec)
             if con:
                 rec["contrast"] = con
             CV.save_record(rec)

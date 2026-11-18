@@ -234,5 +234,132 @@ def convert_from_api_code(cid: str, *, session=None, runner=subprocess.run) -> d
     return rec
 
 
+def _checkout_commit(dest: Path, commit: str, *, runner=subprocess.run) -> bool:
+    """مخزن را روی همان commit ِ ذخیره‌شده می‌برد (همان کدِ گذشته؛ فقط مبدّل عوض شده). نشد ⇒ False و روی HEAD می‌ماند."""
+    import re
+    if not re.fullmatch(r"[0-9a-f]{40}", commit or ""):
+        return False
+    r = _git(["fetch", "--depth", "1", "origin", commit], cwd=str(dest), runner=runner)
+    if r.returncode != 0:
+        return False
+    return _git(["checkout", "--quiet", "FETCH_HEAD"], cwd=str(dest), runner=runner).returncode == 0
+
+
+def reconvert(ids=None, *, runner=subprocess.run, clock=time.monotonic, max_seconds: float = 3300.0, rtl: bool = True, dry: bool = False, only_libs=None, rtl_batch: int = 30,
+              log=None) -> dict:
+    """قطعه‌های «از قبل تبدیل‌شده» را با مبدّلِ تازه دوباره می‌سازد (دورِ ۵: همهٔ پنل‌های بسته‌شو/تب‌ها در HTML می‌آیند، رولرِ رقم باز می‌شود، سیگنالِ «تعاملی؟» ثبت می‌شود).
+
+    هر قطعه از **همان commit** ِ ذخیره‌شده ساخته می‌شود (نه HEAD)؛ اگر تبدیلِ تازه شکست خورد رکوردِ قدیمی دست‌نخورده می‌ماند. نتیجهٔ سنجشِ قبلی (rtl) تا سنجشِ تازه می‌ماند.
+    ``dry`` ⇒ چیزی ذخیره نمی‌شود؛ رکوردهای تازه در ``st['records']`` می‌آیند (برای توسعه). ⇒ {converted, failed, kept_old, libs, errors, keys}."""
+    say = log or (lambda *_a: None)
+    started = clock()
+    if c21st.is_running():
+        return {"deferred": "crawl-running", "converted": 0, "failed": 0, "keys": []}
+    rows = {r["id"]: r for r in c21st.load()}
+    libs = c21_crawl.load_libs()
+    index = CV.load_index()
+    want = [cid for cid in (list(ids) if ids else list(index)) if cid in index]
+    st = {"converted": 0, "failed": 0, "kept_old": 0, "libs": 0, "errors": [], "keys": [], "records": []}
+    if not CV.toolchain_ready() and runner is subprocess.run:
+        st["errors"].append("جعبه‌ابزار نصب نیست (/opt/nm-c21)")
+        return st
+    from . import c21_node
+    new_keys: list[str] = []
+    for lid, lib in libs.items():
+        mine = [cid for cid in (lib.get("component_ids") or []) if cid in want]
+        if not mine or not lib.get("github") or (only_libs and lid not in only_libs):
+            continue
+        if clock() - started > max_seconds:
+            break
+        dest = repos_dir() / ("re__" + lid.replace("/", "__"))
+        try:
+            commit = clone_repo(lib["github"], dest, runner=runner)
+        except (CV.ConvertError, subprocess.TimeoutExpired) as exc:
+            st["errors"].append("%s: %s" % (lid, str(exc)[:120]))
+            st["kept_old"] += len(mine)
+            continue
+        try:
+            first = CV.load_record(index[mine[0]]["key"]) or {}
+            want_commit = ((first.get("source") or {}).get("commit") or "")
+            if want_commit and want_commit != commit and _checkout_commit(dest, want_commit, runner=runner):
+                commit = want_commit
+            lic = SRC.detect_license(dest)
+            if not SRC.is_permissive_spdx(lic["spdx"]):
+                st["kept_old"] += len(mine)
+                continue
+            idx = SRC.index_repo(dest)
+            st["libs"] += 1
+            for cid in mine:
+                if clock() - started > max_seconds:
+                    st["kept_old"] += 1
+                    continue
+                old = CV.load_record(index[cid]["key"])
+                row = rows.get(cid) or {}
+                parts = cid.split("/")
+                demo = c21_node.load_demo(cid) or {}
+                rel = ((old or {}).get("source") or {}).get("path") or ""
+                if not rel or not (dest / rel).is_file():
+                    rel = SRC.find_component(idx, parts[1], demo.get("imports")) or ""
+                if not old or not rel:
+                    st["kept_old"] += 1
+                    continue
+                bundle = SRC.bundle_from_repo(dest, rel, parts[1], demo, license_info=lic, repo_url=lib["github"], commit=commit, idx=idx)
+                meta = {"title": row.get("title") or old.get("title", ""), "description": row.get("description") or old.get("description", ""), "cats": row.get("cats") or old.get("cats", []),
+                        "license": row.get("license") or old.get("license", ""), "author": row.get("author_name") or old.get("author", ""),
+                        "library": row.get("library") or old.get("library", ""), "url": row.get("url") or old.get("url", "")}
+                try:
+                    rec = CV.convert_bundle(cid, bundle, meta=meta, runner=runner)
+                except (CV.ConvertError, subprocess.TimeoutExpired) as exc:
+                    st["failed"] += 1
+                    st["kept_old"] += 1
+                    st["errors"].append("%s: %s" % (cid, str(exc)[:100]))
+                    continue
+                rec["rtl"] = dict(old.get("rtl") or {"status": "unchecked"}, v=0)        # قدیمی تا سنجشِ تازه؛ v=0 ⇒ outdated ⇒ حتماً دوباره سنجیده می‌شود
+                if old.get("contrast"):
+                    rec["contrast"] = old["contrast"]
+                if dry:
+                    st["records"].append(rec)
+                else:
+                    CV.save_record(rec)
+                new_keys.append(rec["key"])
+                st["converted"] += 1
+                say("converted", cid, rec["key"])
+        finally:
+            shutil.rmtree(dest, ignore_errors=True)
+    st["keys"] = new_keys
+    if rtl and new_keys and not dry:
+        from . import c21_rtl
+        for i in range(0, len(new_keys), rtl_batch):
+            try:
+                c21_rtl.apply(new_keys[i:i + rtl_batch])
+                say("measured", min(len(new_keys), i + rtl_batch), len(new_keys))
+            except Exception as exc:                                       # noqa: BLE001 - مرورگر اختیاری است؛ رکوردها با سنجشِ قدیمی می‌مانند
+                st["errors"].append("rtl: %s" % str(exc)[:100])
+                break
+    return st
+
+
+def sync_catalog_conv() -> int:
+    """``catalog.json`` keeps a copy of each record's {rtl, kind} (``conv``); ``converted/index.json`` is the truth. Bring the copy in line (used after records were rebuilt
+    elsewhere, e.g. copied in from a staging reconvert run, without a browser pass on this machine). ⇒ number of catalogue rows changed."""
+    by_key = {e["key"]: e for e in CV.load_index().values() if e.get("key")}
+    rows = c21st.load()
+    n = 0
+    for r in rows:
+        conv = r.get("conv") or {}
+        e = by_key.get(conv.get("key"))
+        if not e:
+            continue
+        changed = False
+        for field in ("rtl", "kind"):
+            if e.get(field) and conv.get(field) != e[field]:
+                conv[field] = e[field]
+                changed = True
+        n += 1 if changed else 0
+    if n:
+        c21st.save(rows)
+    return n
+
+
 def _save(st: dict) -> None:
     c21st._atomic(state_path(), json.dumps(st, ensure_ascii=False))

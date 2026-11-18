@@ -18,6 +18,12 @@ redirect hop:
 
 It never logs in, never solves anything, never runs JavaScript. Redirects are followed only within
 the same site (same host ignoring ``www.``/scheme/port).
+
+**Proxy / VPN (``services.egress``).** A host that belongs to a filtered service of the owner's routing table (Brave, Google, Bing,
+DuckDuckGo, Instagram, Telegram ... - ``egress.catalog``) and whose route is «از راهِ پراکسی» leaves through that proxy; every other
+host goes direct exactly as before. Resolving such a name here would be useless (the local resolver lies about filtered sites) and
+the connection is not made from this server anyway, so the SSRF address check is replaced by «the name is one of the catalogue's»:
+the proxy resolves it and connects. A failure of the proxy itself is reported in Persian (``FetchResult.error``).
 """
 from __future__ import annotations
 
@@ -36,6 +42,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from apps.growth_engine.core import conf
+from services import egress
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +188,17 @@ class _Target:
     port: int
     ip: str
     path_query: str
+    #: the routing-table service this host belongs to when its route is «through a proxy» (else "" = direct, the checked ``ip`` is used)
+    service: str = ""
+
+    @property
+    def proxied(self) -> bool:
+        return bool(self.service)
 
     @property
     def request_url(self) -> str:
+        if self.proxied:                      # the proxy resolves the name and connects; there is no address of ours to pin
+            return f"{self.scheme}://{self.host}:{self.port}{self.path_query}"
         ip = f"[{self.ip}]" if ":" in self.ip else self.ip
         return f"{self.scheme}://{ip}:{self.port}{self.path_query}"
 
@@ -220,6 +235,7 @@ class SafeFetcher:
         self._respect_robots = respect_robots
         self._robots: dict[tuple, tuple[robotparser.RobotFileParser | None, str]] = {}
         self._client: httpx.Client | None = None
+        self._egress_clients: dict[tuple, httpx.Client] = {}
 
     # ------------------------------------------------------------------ plumbing
     def __enter__(self):
@@ -232,14 +248,38 @@ class SafeFetcher:
         if self._client is not None:
             self._client.close()
             self._client = None
+        for client in self._egress_clients.values():
+            client.close()
+        self._egress_clients = {}
+
+    def _timeout(self) -> httpx.Timeout:
+        return httpx.Timeout(conf.get("HTTP_READ_TIMEOUT"), connect=conf.get("HTTP_CONNECT_TIMEOUT"))
 
     def _http(self) -> httpx.Client:
         if self._client is None:
-            timeout = httpx.Timeout(conf.get("HTTP_READ_TIMEOUT"), connect=conf.get("HTTP_CONNECT_TIMEOUT"))
             self._client = httpx.Client(
-                transport=self._transport or httpx.HTTPTransport(retries=0), timeout=timeout, follow_redirects=False, verify=True
+                transport=self._transport or httpx.HTTPTransport(retries=0), timeout=self._timeout(), follow_redirects=False, verify=True
             )
         return self._client
+
+    def _egress_route(self, host: str):
+        """The proxy route this host must take, or None (direct). Only a host of the egress catalogue can have one; an injected test
+        transport always wins (nothing real is contacted in a test)."""
+        if self._transport is not None:
+            return None
+        service = egress.service_for_host(host)
+        if not service:
+            return None
+        route = egress.route_for(service)
+        return route if route.proxied else None
+
+    def _egress_client(self, target: "_Target") -> httpx.Client:
+        route = egress.route_for(target.service)
+        key = (route.service, route.proxy_id, route.public())
+        client = self._egress_clients.get(key)
+        if client is None:
+            client = self._egress_clients[key] = egress.httpx_client(route, timeout=self._timeout(), follow_redirects=False, verify=True)
+        return client
 
     def _prepare(self, url: str) -> _Target:
         try:
@@ -260,6 +300,10 @@ class SafeFetcher:
         allow_private = conf.get("HTTP_ALLOW_PRIVATE")
         if port not in conf.get("HTTP_ALLOWED_PORTS") and not allow_private:
             raise _Refused(BLOCKED_PORT)
+        route = self._egress_route(host)
+        if route is not None:
+            path_query = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+            return _Target(scheme=scheme, host=host, port=port, ip=host, path_query=path_query, service=route.service)
         try:
             ipaddress.ip_address(host.strip("[]"))
             addresses = [host.strip("[]")]
@@ -294,10 +338,10 @@ class SafeFetcher:
         """One request, no retries, no redirects. Never raises for network problems."""
         assert method in ("GET", "POST"), "the Growth Engine only ever issues GET and POST"
         result = FetchResult(url=target.request_url, final_url=f"{target.scheme}://{target.host_header}{target.path_query}")
-        extensions = {"sni_hostname": target.host} if target.scheme == "https" else {}
+        extensions = {"sni_hostname": target.host} if target.scheme == "https" and not target.proxied else {}
         started = time.monotonic()
         try:
-            with self._http().stream(
+            with (self._egress_client(target) if target.proxied else self._http()).stream(
                 method, target.request_url, headers=self._headers(target, referer=referer, extra=extra_headers), extensions=extensions, data=data, files=files
             ) as response:
                 result.status = response.status_code
@@ -322,16 +366,29 @@ class SafeFetcher:
                 result.bytes_read = total
                 result.text = _decode(body, result.content_type)
                 result.outcome = TOO_LARGE if truncated and html_only else (OK if 200 <= response.status_code < 300 else HTTP_ERROR)
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
             result.outcome = TIMEOUT
+            self._say_proxy_failure(result, target, exc)
         except httpx.ConnectError as exc:
             result.outcome = TLS_ERROR if re.search(r"CERTIFICATE|SSL", str(exc), re.I) else CONNECT_ERROR
+            self._say_proxy_failure(result, target, exc)
         except httpx.HTTPError as exc:
             result.outcome = TLS_ERROR if re.search(r"CERTIFICATE|SSL", str(exc), re.I) else CONNECT_ERROR
+            self._say_proxy_failure(result, target, exc)
             logger.info("growth http error %s on %s", type(exc).__name__, target.host)
         finally:
             result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
+
+    @staticmethod
+    def _say_proxy_failure(result: FetchResult, target: _Target, exc: BaseException) -> None:
+        """When the request went through a proxy and the PROXY is what failed (closed port, wrong password, wrong type ...), say so in
+        Persian instead of «اتصال به سایت برقرار نشد»; a slow or failing destination keeps its own outcome."""
+        if not target.proxied:
+            return
+        err = egress.httpx_failure(exc, egress.route_for(target.service), target.host)
+        if err is not None:
+            result.error = str(err)
 
     def _get_with_retries(
         self, target: _Target, *, html_only: bool, max_bytes: int, extra_headers: Mapping | None = None,

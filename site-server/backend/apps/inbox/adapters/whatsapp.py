@@ -23,6 +23,8 @@ import hmac
 
 import requests
 
+from services import egress
+
 from . import base
 from .base import Adapter, AdapterError, Health, Incoming, SendResult, TIMEOUT, scrub
 
@@ -34,6 +36,8 @@ class WhatsAppAdapter(Adapter):
     slug = "whatsapp"
     title = "واتساپ"
     host = "https://graph.facebook.com"
+    #: the routing-table service of apps.egress (graph.facebook.com is filtered from Iran: the owner may route it through a proxy)
+    egress_service = "whatsapp"
     can_receive_webhook = True
     can_poll = False
     max_chars = 4096
@@ -56,8 +60,8 @@ class WhatsAppAdapter(Adapter):
         if not (self.token and self.phone_id):
             return SendResult(False, "واتساپ تنظیم نشده: توکن و شناسهٔ شمارهٔ واتساپ بیزینس لازم است.")
         try:
-            response = requests.post(
-                f"{self._root()}/{GRAPH_VERSION}/{self.phone_id}/messages",
+            response = egress.post(
+                self.egress_service, f"{self._root()}/{GRAPH_VERSION}/{self.phone_id}/messages",
                 headers={"Authorization": f"Bearer {self.token}"},
                 json={
                     "messaging_product": "whatsapp", "to": to,
@@ -65,8 +69,8 @@ class WhatsAppAdapter(Adapter):
                 },
                 timeout=TIMEOUT,
             )
-        except requests.RequestException:
-            return SendResult(False, "واتساپ در دسترس نبود؛ کمی بعد دوباره امتحان کنید.")
+        except requests.RequestException as exc:
+            return SendResult(False, egress.reason(exc) or "واتساپ در دسترس نبود؛ کمی بعد دوباره امتحان کنید.")
         if response.status_code >= 400:
             try:
                 detail = scrub(str((response.json().get("error") or {}).get("message", "")))[:120]
@@ -83,14 +87,14 @@ class WhatsAppAdapter(Adapter):
         if not (self.token and self.phone_id):
             return Health(False, "توکن یا شناسهٔ شمارهٔ واتساپ بیزینس وارد نشده است.")
         try:
-            response = requests.get(
-                f"{self._root()}/{GRAPH_VERSION}/{self.phone_id}",
+            response = egress.get(
+                self.egress_service, f"{self._root()}/{GRAPH_VERSION}/{self.phone_id}",
                 headers={"Authorization": f"Bearer {self.token}"},
                 params={"fields": "display_phone_number,verified_name"},
                 timeout=10,
             )
-        except requests.RequestException:
-            return Health(False, "واتساپ در دسترس نبود.")
+        except requests.RequestException as exc:
+            return Health(False, egress.reason(exc) or "واتساپ در دسترس نبود.")
         if response.status_code >= 400:
             return Health(False, f"توکن یا شناسهٔ شماره پذیرفته نشد ({response.status_code}).")
         data = response.json()
@@ -111,7 +115,7 @@ class WhatsAppAdapter(Adapter):
             return None
         headers = {"Authorization": f"Bearer {self.token}"}
         try:
-            response = requests.get(f"{self._root()}/{GRAPH_VERSION}/{media_id}", headers=headers, timeout=10)
+            response = egress.get(self.egress_service, f"{self._root()}/{GRAPH_VERSION}/{media_id}", headers=headers, timeout=10)
             url = response.json().get("url") if response.status_code < 400 else None
         except (requests.RequestException, ValueError):
             return None

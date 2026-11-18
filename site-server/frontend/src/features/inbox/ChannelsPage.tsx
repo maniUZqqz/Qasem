@@ -97,7 +97,34 @@ function ChannelCard({ info, storeId, canEdit, isStaff, pub, onChanged }: { info
       </div>
       {info.network && !info.network.reachable && (
         <div className="mt-3">
-          <Alert tone="warn" title={`این سرور به ${info.title} دسترسی ندارد`}>{info.network.message}</Alert>
+          <Alert tone="warn" title={`این سرور به ${info.title} دسترسی ندارد`}>
+            {info.network.message}
+            {isStaff ? (
+              <div className="mt-2">
+                <Link
+                  to={info.network.settings_path || `/tools/egress?service=${info.egress?.service || "telegram"}`}
+                  className="u-btn u-btn-primary u-btn-sm"
+                  data-testid="egress-link-telegram"
+                >
+                  {info.network.via === "proxy" ? "بررسیِ پراکسی" : "با پراکسی وصل کن"}
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-2">برای وصل‌کردنِ پراکسی با مدیرِ سرویس صحبت کنید.</div>
+            )}
+          </Alert>
+        </div>
+      )}
+      {info.egress && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-3)" }} data-testid={`egress-line-${info.kind.toLowerCase()}`}>
+          <span>مسیرِ اتصال به {info.egress.title}:</span>
+          <Badge tone={info.egress.via === "proxy" ? "info" : "neutral"}>{info.egress.via === "proxy" ? `از راهِ پراکسیِ «${info.egress.proxy_name}»` : "مستقیم"}</Badge>
+          {info.egress.via === "proxy" && !info.egress.stale && info.egress.state !== "unknown" && (
+            <Badge tone={info.egress.state === "ok" ? "ok" : info.egress.state === "partial" ? "warn" : "bad"}>
+              {info.egress.state === "ok" ? "پراکسی سالم" : info.egress.state === "partial" ? "پراکسی نیمه‌کاره" : "پراکسی وصل نیست"}
+            </Badge>
+          )}
+          {isStaff && <Link to={info.egress.settings_path} style={{ color: "var(--brand-strong)" }}>تنظیمِ پراکسی ↗</Link>}
         </div>
       )}
 

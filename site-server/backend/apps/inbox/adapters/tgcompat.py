@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import requests
 
+from services import egress
+
 from . import base
 from .base import Adapter, AdapterError, Health, Incoming, PollResult, SendResult, TIMEOUT, scrub
 
@@ -33,6 +35,8 @@ class TelegramCompat(Adapter):
     #: Names the platform in an image descriptor, so the receipt flow asks the
     #: right platform for the file (a Bale file id sent to Telegram is nonsense).
     file_kind = "telegram_file"
+    #: the routing-table service of apps.egress that carries this platform's API ("" = Iranian, always direct)
+    egress_service = ""
 
     def _root(self) -> str:
         return base.api_base_override(self.key) or self.host
@@ -44,9 +48,11 @@ class TelegramCompat(Adapter):
         if not self.token:
             raise AdapterError(f"توکن ربات {self.title} وارد نشده است.")
         try:
-            response = requests.post(self._url(method), json=payload or {}, timeout=timeout)
-        except requests.RequestException:
-            raise AdapterError(f"{self.title} در دسترس نبود؛ کمی بعد دوباره امتحان کنید.{self.unreachable_hint}") from None
+            response = egress.post(self.egress_service, self._url(method), json=payload or {}, timeout=timeout)
+        except requests.RequestException as exc:
+            # a failure of the PROXY (wrong password, closed port ...) says so in Persian; any other failure is the old sentence.
+            # Never the exception text: it quotes the url, and the url is the bot token.
+            raise AdapterError(egress.reason(exc) or f"{self.title} در دسترس نبود؛ کمی بعد دوباره امتحان کنید.{self.unreachable_hint}") from None
         try:
             data = response.json()
         except ValueError:
@@ -192,9 +198,10 @@ class TelegramAdapter(TelegramCompat):
     title = "تلگرام"
     host = "https://api.telegram.org"
     blocked_from_iran = True
+    egress_service = "telegram"
     unreachable_hint = (
         " اگر این سرور در ایران است، تلگرام معمولاً از آن در دسترس نیست (نه وب‌هوک کار می‌کند نه پرسش دوره‌ای)؛"
-        " بله، ایتا یا روبیکا را وصل کنید."
+        " با پراکسی وصل کنید (تنظیمات › پراکسی و VPN) یا بله، ایتا یا روبیکا را وصل کنید."
     )
 
 

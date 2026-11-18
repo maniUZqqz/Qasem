@@ -334,17 +334,22 @@ def send(channel_key: str, store, *, to: str, text: str) -> dict:
 def _send_telegram(store, to: str, text: str) -> dict:
     import requests
 
+    from services import egress
+
     token = telegram_token(store)
     try:
-        response = requests.post(
+        # leaves direct, or through the proxy the owner chose for «telegram» (panel › پراکسی و VPN)
+        response = egress.post(
+            "telegram",
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": to, "text": text},
             timeout=15,
         )
-    except requests.RequestException:
+    except requests.RequestException as exc:
         # Not the exception text: a connection error quotes the request URL,
-        # and the URL of this call contains the bot's token.
-        return {"sent": False, "reason": "تلگرام در دسترس نبود؛ کمی بعد دوباره امتحان کنید."}
+        # and the URL of this call contains the bot's token. A failure of the
+        # PROXY has its own safe Persian sentence (egress.reason).
+        return {"sent": False, "reason": egress.reason(exc) or "تلگرام در دسترس نبود؛ کمی بعد دوباره امتحان کنید."}
     if response.status_code >= 400:
         return {"sent": False, "reason": f"تلگرام پیام را نپذیرفت ({response.status_code})"}
     return {"sent": True, "reason": ""}

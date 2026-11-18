@@ -42,6 +42,8 @@ from pathlib import Path
 
 from django.conf import settings
 
+from services import egress
+
 from . import engines as engine_registry
 from . import fa_pron, pronounce
 from .fa_pron.normalize import strip_controls
@@ -501,7 +503,7 @@ class OpenAITTSProvider(BaseTTSProvider):
             payload["speed"] = round(1 + self.rate / 100.0, 2)
         url = self.engine.base_url.rstrip("/") + "/audio/speech"
         try:
-            response = requests.post(
+            response = egress.post_for_url(
                 url, json=payload, timeout=self.engine.timeout_s,
                 headers={"Authorization": f"Bearer {self.engine.api_key}"},
             )
@@ -554,7 +556,7 @@ class ElevenLabsProvider(BaseTTSProvider):
             },
         }
         try:
-            response = requests.post(
+            response = egress.post_for_url(
                 f"{base}/v1/text-to-speech/{self.voice}?output_format=mp3_44100_128",
                 json=payload, timeout=self.engine.timeout_s,
                 headers={"xi-api-key": self.engine.api_key},

@@ -241,7 +241,9 @@ export type ChannelInfo = {
   hook_url: string;
   can_see_keys?: boolean;
   /** «این سرور به پلتفرم دسترسی ندارد» (فقط تلگرام): دسترس‌پذیریِ واقعی از همین سرور. */
-  network?: { reachable: boolean; checked_at: string; message: string };
+  network?: { reachable: boolean; checked_at: string; message: string; via?: "direct" | "proxy"; proxy?: string; service?: string; settings_path?: string };
+  /** مسیرِ تماس‌های این پلتفرم از سرور: مستقیم یا از راهِ پراکسیِ تنظیم‌شده (تنظیمات › پراکسی و VPN) + آخرین آزمایشِ سلامت. */
+  egress?: { service: string; title: string; via: "direct" | "proxy"; proxy_name: string; state: "ok" | "partial" | "down" | "unknown"; stale: boolean; detail: string; checked_at: string | null; settings_path: string; note: string };
   health: { ok: boolean | null; detail: string; checked_at: string | null; account: string };
   last_inbound_at: string | null;
   last_outbound_at: string | null;

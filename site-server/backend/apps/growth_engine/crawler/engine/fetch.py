@@ -103,13 +103,9 @@ class CrawlFetcher(sh.SafeFetcher):
         self.read_timeout = read_timeout
         self.domain_delay = domain_delay
 
-    def _http(self) -> httpx.Client:
-        if self._client is None:
-            timeout = httpx.Timeout(self.read_timeout or conf.get("HTTP_READ_TIMEOUT"), connect=conf.get("HTTP_CONNECT_TIMEOUT"))
-            self._client = httpx.Client(
-                transport=self._transport or httpx.HTTPTransport(retries=0), timeout=timeout, follow_redirects=False, verify=True
-            )
-        return self._client
+    def _timeout(self) -> httpx.Timeout:
+        # the direct client AND the clients bound to a proxy (egress) share this read timeout
+        return httpx.Timeout(self.read_timeout or conf.get("HTTP_READ_TIMEOUT"), connect=conf.get("HTTP_CONNECT_TIMEOUT"))
 
     def _get_with_retries(self, target, *, html_only, max_bytes, extra_headers=None, delay=None, retries=None, backoff=None):
         return super()._get_with_retries(

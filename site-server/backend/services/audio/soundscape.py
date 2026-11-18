@@ -539,12 +539,13 @@ def fetch_openverse(key: str, *, limit: int = 2, work: Path | None = None) -> li
 
 
 def _elevenlabs(engine, key: str, seconds: float, work: Path) -> Picked | None:
-    import requests
+    from services import egress
 
     kind = CATALOGUE[key]
     duration = min(22.0, max(0.5, seconds if kind.kind == BED else kind.max_seconds))
     try:
-        response = requests.post(
+        # api.elevenlabs.io is a filtered foreign API: it follows the owner's «ai_foreign» route (panel › پراکسی و VPN)
+        response = egress.post_for_url(
             (engine.base_url or "https://api.elevenlabs.io").rstrip("/") + "/v1/sound-generation",
             json={"text": kind.queries[0], "duration_seconds": duration,
                   "prompt_influence": float(engine.options.get("prompt_influence", 0.4))},

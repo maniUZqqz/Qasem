@@ -83,6 +83,12 @@ def _row(request, connection: ChannelConnection, *, reveal: bool | None = None) 
     if connection.kind == "INSTAGRAM":
         data["ready"] = legacy_channels.configured(legacy_channels.INSTAGRAM, connection.store)
         data["enabled"] = data["ready"]
+    cls = adapters.adapter_class(connection.kind)
+    if cls is not None and cls.egress_service:
+        # which way this platform's calls leave the server (direct / through the owner's proxy) + the last health check: no network call here
+        from apps.egress import state as egress_state
+
+        data["egress"] = egress_state.status_for(cls.egress_service)
     network = dispatch.reachability(connection.kind)
     if network is not None:
         # «this server cannot reach the platform» - said on the card instead of a bare «در دسترس نبود».

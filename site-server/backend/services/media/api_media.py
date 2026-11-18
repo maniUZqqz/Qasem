@@ -26,6 +26,8 @@ from pathlib import Path
 
 import requests
 
+from services import egress
+
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 3.0
@@ -73,7 +75,7 @@ def _save(content: bytes, dest_dir, suffix: str, filename=None) -> Path:
 
 def _fetch(url: str, dest_dir, suffix: str, filename=None) -> Path:
     try:
-        response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
+        response = egress.get_for_url(url, timeout=DOWNLOAD_TIMEOUT)
         response.raise_for_status()
     except requests.RequestException as exc:
         raise MediaAPIError(f"دانلود خروجی ممکن نشد: {exc}") from exc
@@ -104,7 +106,7 @@ def _result_to_file(payload, resolved, dest_dir, suffix, filename) -> Path:
 def _submit(resolved, body: dict) -> dict:
     url = resolved.base_url
     try:
-        response = requests.post(
+        response = egress.post_for_url(
             url, json=body, headers=_headers(resolved), timeout=resolved.timeout_s
         )
     except requests.Timeout as exc:
@@ -144,7 +146,7 @@ def _poll(resolved, payload: dict) -> dict:
     while time.monotonic() < deadline:
         time.sleep(POLL_INTERVAL)
         try:
-            response = requests.get(status_url, headers=_headers(resolved), timeout=60)
+            response = egress.get_for_url(status_url, headers=_headers(resolved), timeout=60)
             response.raise_for_status()
         except requests.RequestException as exc:
             logger.warning("poll failed (%s); retrying", exc)
@@ -215,7 +217,7 @@ def replicate_health(resolved) -> tuple[bool, str]:
     if not resolved.base_url:
         return False, "آدرس تنظیم نشده است."
     try:
-        response = requests.get(
+        response = egress.get_for_url(
             resolved.base_url, headers=_headers(resolved), timeout=20
         )
     except requests.RequestException as exc:

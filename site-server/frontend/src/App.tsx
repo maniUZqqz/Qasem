@@ -96,6 +96,7 @@ import MobilePage from "./features/mobile/MobilePage";
 import StudioRoutes from "./features/tools/studio";
 import Up3dRoutes from "./features/tools/up3d";
 
+const EgressPage = lazyPage(() => import("./features/tools/egress"), "در حالِ بارگیریِ پراکسی و VPN…");
 const ImageToCodePage = lazyPage(() => import("./features/tools/img2code/ImageToCodePage"), "در حالِ بارگیریِ «تصویر به کد»…");
 const DesignRoutes = lazyPage(() => import("./features/design/routes"), "در حالِ بارگیریِ استودیوی طراحی…");
 // ۱۴۰۵/۰۸/۲۳: ویرایشگرِ عکس (~۱ مگابایتِ کد) فقط وقتی صفحه‌اش باز شد بار می‌شود؛ ورودِ اولِ پنل و ویرایشگرِ ویدیو سبک‌تر می‌شود
@@ -147,6 +148,7 @@ export default function App() {
               <Route path="/tools/compute/selftest" element={<PageGate k="compute_selftest"><ComputeSelfTestPage /></PageGate>} />
               <Route path="/tools/compute/report" element={<PageGate k="compute_report"><ComputeReportPage /></PageGate>} />
               <Route path="/tools/models" element={<PageGate k="compute_models"><ModelsPage /></PageGate>} />
+              <Route path="/tools/egress" element={<PageGate k="egress"><EgressPage /></PageGate>} />
               <Route path="/tools/mobile" element={<PageGate k="mobile"><MobilePage /></PageGate>} />
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<PageGate k="crm"><CrmPage /></PageGate>} />

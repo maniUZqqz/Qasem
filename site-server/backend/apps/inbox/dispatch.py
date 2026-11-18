@@ -17,6 +17,8 @@ import logging
 import requests
 from django.utils import timezone
 
+from services import egress
+
 from . import adapters, shared
 from .adapters import base as adapter_base
 from .models import ChannelConnection
@@ -156,23 +158,46 @@ def check_health(connection: ChannelConnection) -> dict:
 UNREACHABLE_TEXT = (
     "این سرور به {title} دسترسی ندارد (از ایران معمولاً فیلتر است). برای همین هر دو راهِ دریافتِ پیام، "
     "یعنی وب‌هوک و پرسش دوره‌ای، کار نمی‌کنند و وضعیت سبز نمی‌شود؛ این از توکن شما نیست. "
-    "بله، ایتا یا روبیکا را وصل کنید. هر وقت سرور به {title} راه پیدا کرد، همین‌جا خودش سبز می‌شود."
+    "با پراکسی وصل کنید: در «تنظیمات › پراکسی و VPN» یک پراکسی یا VPN برای {title} بگذارید؛ "
+    "یا بله، ایتا یا روبیکا را وصل کنید. هر وقت سرور به {title} راه پیدا کرد، همین‌جا خودش سبز می‌شود."
+)
+#: the same, when the service already goes through a proxy and still cannot be reached: the proxy is what to look at
+UNREACHABLE_VIA_PROXY_TEXT = (
+    "این سرور از راهِ پراکسیِ «{proxy}» هم به {title} نرسید؛ این از توکن شما نیست. {reason} "
+    "پراکسی یا VPN را در «تنظیمات › پراکسی و VPN» بررسی و آزمایش کنید. هر وقت وصل شد، همین‌جا خودش سبز می‌شود."
 )
 _REACH_TTL_DOWN = 900
 _REACH_TTL_UP = 1800
 
 
 def probe_host(cls, timeout: float = 3.0) -> dict:
-    """One quick request to the platform's API root - any HTTP answer at all means «reachable»."""
+    """One quick request to the platform's API root - any HTTP answer at all means «reachable».
+
+    The request leaves the way the platform's real calls do (``egress``): direct, or through the proxy the owner chose for it. The
+    answer carries ``via`` / ``proxy`` / ``service`` / ``settings_path`` so the card can say «از راهِ پراکسیِ X» and link to the settings."""
+    from apps.egress import state as egress_state
+
     root = adapter_base.api_base_override(cls.key) or cls.host
+    service = getattr(cls, "egress_service", "") or ""
+    route = egress.route_for(service)
+    reason = ""
     try:
-        requests.get(root, timeout=timeout, allow_redirects=False)
+        egress.get(service, root, timeout=max(timeout, 8.0) if route.proxied else timeout, allow_redirects=False)
         ok = True
-    except requests.RequestException:
+    except requests.RequestException as exc:
         ok = False
+        reason = egress.reason(exc) or ""
+    if ok:
+        message = ""
+    elif route.proxied:
+        message = UNREACHABLE_VIA_PROXY_TEXT.format(
+            proxy=route.name, title=cls.title, reason=(reason or "پراکسی به این سرویس وصل نشد.")).replace("  ", " ")
+    else:
+        message = UNREACHABLE_TEXT.format(title=cls.title)
     return {
-        "reachable": ok, "checked_at": timezone.now().isoformat(),
-        "message": "" if ok else UNREACHABLE_TEXT.format(title=cls.title),
+        "reachable": ok, "checked_at": timezone.now().isoformat(), "message": message,
+        "service": service, "via": "proxy" if route.proxied else "direct", "proxy": route.name if route.proxied else "",
+        "settings_path": f"{egress_state.SETTINGS_PATH}?service={service}" if service else "",
     }
 
 

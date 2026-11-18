@@ -14,6 +14,8 @@ import logging
 import requests
 from django.utils import timezone
 
+from services import egress
+
 logger = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -164,7 +166,8 @@ def google_news(query: str, *, hl: str = "fa", gl: str = "IR", limit: int = 10) 
     from xml.etree import ElementTree
 
     lang = hl.split("-")[0]
-    response = requests.get(
+    response = egress.get(
+        "google",
         "https://news.google.com/rss/search",
         params={"q": query, "hl": hl, "gl": gl, "ceid": f"{gl}:{lang}"},
         headers=HEADERS,
@@ -237,7 +240,8 @@ def _search_brave(query: str, limit: int = 8) -> list[dict]:
     api_key = settings.UPMARKET_RESEARCH["BRAVE_API_KEY"]
     if not api_key:
         raise WebSearchNotConfigured("BRAVE_API_KEY is not set")
-    response = requests.get(
+    response = egress.get(
+        "brave",
         "https://api.search.brave.com/res/v1/web/search",
         params={"q": query, "count": limit},
         headers={**HEADERS, "X-Subscription-Token": api_key, "Accept": "application/json"},

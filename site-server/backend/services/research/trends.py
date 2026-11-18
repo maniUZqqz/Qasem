@@ -27,6 +27,8 @@ from xml.etree import ElementTree
 
 import requests
 
+from services import egress
+
 from .web import HEADERS, TIMEOUT, WebSearchNotConfigured, search_web
 
 logger = logging.getLogger(__name__)
@@ -106,8 +108,8 @@ def fetch_region(region: str = "IR", limit: int = 20) -> list[dict]:
         raise ValueError(f"Unknown region {region!r}")
 
     try:
-        response = requests.get(
-            RSS, params={"geo": region}, headers=HEADERS, timeout=TIMEOUT,
+        response = egress.get(
+            "google", RSS, params={"geo": region}, headers=HEADERS, timeout=TIMEOUT,
         )
         response.raise_for_status()
         root = ElementTree.fromstring(response.content)

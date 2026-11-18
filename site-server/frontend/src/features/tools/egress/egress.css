@@ -1,0 +1,35 @@
+/* «پراکسی و VPN» — همه‌چیز از توکن‌های index.css می‌آید (تیره/روشن خودکار) */
+.eg-page { max-width: 1100px; margin: 0 auto; padding-bottom: 32px; }
+.eg-stack { display: grid; gap: 12px; min-width: 0; }
+.eg-stack > * { min-width: 0; }
+.eg-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.eg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.eg-muted { font-size: .8125rem; line-height: 1.9; color: var(--text-3); margin: 2px 0 0; overflow-wrap: anywhere; }
+.eg-bad { font-size: .8125rem; line-height: 1.8; color: var(--bad); overflow-wrap: anywhere; }
+.eg-ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; text-align: left; overflow-wrap: anywhere; }
+.eg-group { font-size: .9375rem; font-weight: 700; color: var(--text-2); margin: 0 0 8px; }
+
+.eg-form { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.eg-form > * { min-width: 0; }
+.eg-check { display: inline-flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--text-2); cursor: pointer; }
+
+.eg-svc {
+  display: grid; gap: 14px; align-items: start; padding: 14px 16px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+}
+.eg-svc > * { min-width: 0; }
+.eg-focus { outline: 2px solid var(--brand); outline-offset: 2px; }
+.eg-details summary { cursor: pointer; font-size: .8125rem; color: var(--text-3); }
+
+.eg-test { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.eg-test-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.eg-kv { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.eg-kv > div { display: grid; gap: 2px; min-width: 0; }
+.eg-kv span { font-size: .75rem; color: var(--text-3); }
+.eg-kv b { font-size: .9375rem; color: var(--text); overflow-wrap: anywhere; font-weight: 600; }
+
+@media (max-width: 760px) {
+  .eg-svc { grid-template-columns: minmax(0, 1fr); }
+  .eg-form { grid-template-columns: minmax(0, 1fr); }
+}

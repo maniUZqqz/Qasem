@@ -12,6 +12,8 @@ from .explain import fa
 
 BLOCKING = {"no_node", "node_old"}          # nothing can even be queued
 PROXY_EXAMPLE = "http://127.0.0.1:10809"
+#: the one central place for a VPN / proxy (apps.egress): the node takes the «instagram» route from there when it has none of its own
+EGRESS_HINT = " یا بدونِ دست‌زدن به آباگرام: در «ابزارها ← پراکسی و VPN» برای اینستاگرام یک پراکسی بگذارید؛ سرورِ پردازش فقط وقتی پراکسیِ خودش ندارد از آن استفاده می‌کند."
 
 
 def _clock(epoch_s) -> str:
@@ -47,10 +49,10 @@ def instruction(problem: str, rep: dict | None, node_name: str = "") -> str:
                 "آباگرام در مرورگر باز می‌شود (نشانی: %s). در صفحهٔ «ورود» نامِ کاربری و رمزِ یک حسابِ اینستاگرام را بزنید و اگر اینستاگرام کد یا کپچا "
                 "خواست، همان‌جا انجام دهید. اینستاگرام در ایران فیلتر است: VPN یا پراکسیِ خودتان را روشن کنید و در آباگرام ← تنظیمات ← پراکسی "
                 "نشانیِ محلیِ آن را بگذارید (مثلاً %s برای v2rayN). تا این کار انجام نشود، ترندها با «واردکردنِ فایلِ آباگرام» هم کار می‌کنند."
-                % (where, url or "http://127.0.0.1:<پورت>/", PROXY_EXAMPLE))
+                % (where, url or "http://127.0.0.1:<پورت>/", PROXY_EXAMPLE) + EGRESS_HINT)
     if problem == "unreachable":
         return ("آباگرام روی %s وارد است ولی اینستاگرام را نمی‌بیند (فیلتر). VPN/پراکسی را روشن کنید و در آباگرام ← تنظیمات ← پراکسی نشانیِ محلیِ آن را "
-                "بگذارید (مثلاً %s). ساعتی یک بار خودش دوباره امتحان می‌کند." % (where, PROXY_EXAMPLE))
+                "بگذارید (مثلاً %s). ساعتی یک بار خودش دوباره امتحان می‌کند." % (where, PROXY_EXAMPLE) + EGRESS_HINT)
     if problem == "cooldown":
         until = _clock(rep.get("cooldown_until"))
         return "اینستاگرام گفته چند دقیقه صبر کن؛ آباگرام تا %s هیچ درخواستی نمی‌فرستد. لازم نیست کاری کنید." % (until or "چند دقیقهٔ دیگر")

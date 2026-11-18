@@ -42,8 +42,7 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 def fetch(store, descriptor: dict) -> tuple[bytes, str] | None:
     """Download the image the platform told us about. (bytes, content-type)."""
-    import requests
-
+    from services import egress
     from services.publishing import channels
 
     headers: dict = {}
@@ -53,7 +52,8 @@ def fetch(store, descriptor: dict) -> tuple[bytes, str] | None:
             if not token:
                 logger.warning("No Telegram token for store %s; cannot fetch file", store.id)
                 return None
-            meta = requests.get(
+            meta = egress.get(
+                "telegram",
                 f"https://api.telegram.org/bot{token}/getFile",
                 params={"file_id": descriptor["file_id"]},
                 timeout=20,
@@ -76,7 +76,8 @@ def fetch(store, descriptor: dict) -> tuple[bytes, str] | None:
                 return None
             url, headers = resolved
 
-        response = requests.get(url, timeout=30, stream=True, headers=headers)
+        # the host decides the route: api.telegram.org -> «telegram», lookaside.fbsbx.com -> «whatsapp», everything else direct
+        response = egress.get_for_url(url, timeout=30, stream=True, headers=headers)
         if response.status_code >= 400:
             logger.warning("Could not download the image: HTTP %s", response.status_code)
             return None

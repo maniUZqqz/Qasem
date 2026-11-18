@@ -20,6 +20,8 @@ from pathlib import Path
 
 import requests
 
+from services import egress
+
 from .ollama import (
     OllamaError,
     OllamaMalformedOutput,
@@ -164,7 +166,9 @@ class OpenAICompatProvider:
         for attempt in range(1, self.retries + 2):
             started = time.monotonic()
             try:
-                response = requests.post(
+                # direct for Metis and every local / Iranian provider; through the owner's proxy only when the provider's host is a
+                # filtered foreign one of the routing table (OpenAI, OpenRouter ...) and he routed «ai_foreign» through a proxy
+                response = egress.post_for_url(
                     self._url(), json=payload, headers=self._headers(), timeout=wait
                 )
             except requests.Timeout as exc:

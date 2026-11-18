@@ -749,6 +749,7 @@ class ServiceTests(unittest.TestCase):
                          clock=self.t.time)
         svc._installed = lambda: True
         svc.browser = {}
+        svc.site_proxy_fetch = lambda agent: None            # hermetic: the site's proxy page is not asked unless a test says so
         return svc
 
     def tick(self, svc):
@@ -830,6 +831,157 @@ class ServiceTests(unittest.TestCase):
             self.tick(svc)
         self.assertEqual(self.last_fake.proxy, "socks5://127.0.0.1:1080")
         self.assertEqual(self.last_fake.posted("/api/prefs"), [])
+
+    # ---- the site's «پراکسی و VPN» page as a fourth source (agent 2.35 / abagram_jobs 1.2)
+
+    def site_service(self, answers):
+        """A running service whose site answers come from ``answers`` (a list consumed one per ask; the last one repeats)."""
+        svc = self.service(popen=self.popen(signed_in=True))
+        asked = []
+
+        def fetch(agent):
+            asked.append(1)
+            return answers[min(len(asked) - 1, len(answers) - 1)]
+
+        svc.site_proxy_fetch = fetch
+        svc.asked = asked
+        return svc
+
+    def test_the_site_proxy_is_taken_only_when_the_node_has_none_of_its_own(self):
+        svc = self.site_service(["http://203.0.113.5:3128"])
+        self.tick(svc)
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "http://203.0.113.5:3128")
+        self.assertEqual(len(self.last_fake.posted("/api/prefs")), 1)
+        self.assertEqual(svc.report()["proxy_source"], "site")
+        marker = AJ.read_json(self.layout.site_proxy_file)
+        self.assertEqual(marker["masked"], "http://203.0.113.5:3128")
+        self.assertNotIn("secret", json.dumps(marker))
+
+    def test_a_login_in_the_site_proxy_reaches_abagram_but_never_the_report_or_the_marker(self):
+        svc = self.site_service(["http://ali:topsecret@203.0.113.5:3128"])
+        self.tick(svc)
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "http://ali:topsecret@203.0.113.5:3128")
+        self.assertEqual(svc.report()["proxy"], "http://203.0.113.5:3128")
+        self.assertNotIn("topsecret", json.dumps(svc.report()))
+        self.assertNotIn("topsecret", json.dumps(AJ.read_json(self.layout.site_proxy_file)))
+
+    def test_the_owners_own_proxy_wins_over_the_site(self):
+        svc = self.site_service(["http://203.0.113.5:3128"])
+        with mock.patch.object(AJ, "wanted_proxy", lambda layout, env=None: ("http://127.0.0.1:10809", "env")):
+            self.tick(svc)
+            self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "http://127.0.0.1:10809")
+        self.assertEqual(svc.asked, [], "the site is not even asked when the node already has a proxy of its own")
+        self.assertFalse(os.path.exists(self.layout.site_proxy_file))
+
+    def test_a_proxy_set_inside_abagram_is_never_replaced_or_removed_by_the_site(self):
+        svc = self.site_service(["http://203.0.113.5:3128", ""])
+        self.tick(svc)
+        self.last_fake.proxy = "socks5://127.0.0.1:1080"
+        self.tick(svc)
+        self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "socks5://127.0.0.1:1080")
+        self.assertEqual(len(self.last_fake.posted("/api/prefs")), 1, "only the first one (the site's, before the owner set his own) was ever written")
+        self.assertEqual(svc.report()["proxy_source"], "abagram")
+
+    def test_the_site_is_asked_at_most_every_five_minutes(self):
+        svc = self.site_service([""])
+        for _ in range(6):
+            self.tick(svc)
+        self.assertEqual(len(svc.asked), 1)
+        self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.tick(svc)
+        self.assertEqual(len(svc.asked), 2)
+
+    def test_when_the_owner_turns_the_route_off_the_proxy_we_took_is_removed(self):
+        svc = self.site_service(["http://203.0.113.5:3128", ""])
+        self.tick(svc)
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "http://203.0.113.5:3128")
+        self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "")
+        self.assertFalse(os.path.exists(self.layout.site_proxy_file))
+        self.assertEqual(svc.report()["proxy_source"], "")
+
+    def test_a_changed_site_proxy_is_followed(self):
+        svc = self.site_service(["http://203.0.113.5:3128", "socks5://203.0.113.9:1080"])
+        self.tick(svc)
+        self.tick(svc)
+        self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "socks5://203.0.113.9:1080")
+        self.assertEqual(AJ.read_json(self.layout.site_proxy_file)["masked"], "socks5://203.0.113.9:1080")
+
+    def test_a_silent_or_old_site_changes_nothing(self):
+        svc = self.site_service([None])
+        for _ in range(3):
+            self.tick(svc)
+            self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.assertEqual(self.last_fake.proxy, "")
+        self.assertEqual(self.last_fake.posted("/api/prefs"), [])
+
+    def test_a_site_that_goes_silent_after_giving_a_proxy_does_not_take_it_away(self):
+        svc = self.site_service(["http://203.0.113.5:3128", None])
+        self.tick(svc)
+        self.tick(svc)
+        self.t.now += AJ.SITE_PROXY_EVERY_S + 1
+        self.tick(svc)
+        self.assertEqual(self.last_fake.proxy, "http://203.0.113.5:3128")
+
+    def test_the_marker_survives_a_restart_of_the_node(self):
+        svc = self.site_service(["http://203.0.113.5:3128"])
+        self.tick(svc)
+        self.tick(svc)
+        fake = self.last_fake
+        again = self.service(popen=self.popen(signed_in=True))          # a fresh service object: nothing remembered in memory
+        again.site_proxy_fetch = lambda agent: ""
+        self.assertTrue(os.path.exists(self.layout.site_proxy_file))
+        AJ.write_json(self.layout.service_file, {"port": fake.port, "token": fake.token, "pid": os.getpid(), "code_stamp": AJ.code_stamp(self.layout)})
+        self.tick(again)
+        self.tick(again)
+        self.assertEqual(fake.proxy, "")                                 # the route is off on the site: the proxy WE had set is gone
+
+    def test_fetch_site_proxy_asks_the_nodes_endpoint_with_the_node_token(self):
+        seen = []
+        answers = {"body": {"services": {"instagram": {"routed": True, "proxy_url": "http://203.0.113.5:3128", "name": "x"}}}, "code": 200}
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                seen.append((self.path, self.headers.get("Authorization")))
+                raw = json.dumps(answers["body"]).encode()
+                self.send_response(answers["code"])
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.agent.CONFIG["site"] = "http://127.0.0.1:%d" % server.server_address[1]
+        self.assertEqual(AJ.fetch_site_proxy(self.agent), "http://203.0.113.5:3128")
+        self.assertEqual(seen, [("/api/v1/egress/node/", "Node tok")])
+        answers["body"] = {"services": {"instagram": {"routed": False, "reason": "proxy_is_local_to_server"}}}
+        self.assertEqual(AJ.fetch_site_proxy(self.agent), "")
+        answers["body"] = {"services": {"instagram": {"routed": True, "proxy_url": "ftp://x:1"}}}
+        self.assertEqual(AJ.fetch_site_proxy(self.agent), "", "a scheme Abagram does not accept is dropped")
+        answers["body"] = {"services": {}}
+        self.assertEqual(AJ.fetch_site_proxy(self.agent), "")
+        answers["code"] = 404                                            # an old site without the endpoint
+        self.assertIsNone(AJ.fetch_site_proxy(self.agent))
+        answers["code"] = 503
+        self.assertIsNone(AJ.fetch_site_proxy(self.agent))
+        self.agent.CONFIG["token"] = ""
+        self.assertIsNone(AJ.fetch_site_proxy(self.agent))
+        self.agent.CONFIG.update(token="tok", site="http://127.0.0.1:1")      # nothing listens there
+        self.assertIsNone(AJ.fetch_site_proxy(self.agent))
 
     def test_reach_is_tested_once_an_hour_and_an_unreachable_line_is_the_problem(self):
         svc = self.service(popen=self.popen(signed_in=True))

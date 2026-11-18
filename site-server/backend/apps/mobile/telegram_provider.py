@@ -90,7 +90,11 @@ class TelethonBackend:
     def _client(self):
         from telethon import TelegramClient
 
-        return TelegramClient(self.session, self.api_id, self.api_hash)
+        from services import egress
+
+        # Telegram's data centres are filtered from Iran like the bot API: when the owner routed «telegram» through a proxy
+        # (panel › ابزارها › پراکسی و VPN) the MTProto connection leaves through it too; direct = {} = exactly as before
+        return TelegramClient(self.session, self.api_id, self.api_hash, **egress.telethon_kwargs("telegram"))
 
     async def send_code(self, phone: str) -> str:
         c = self._client()
@@ -304,6 +308,11 @@ def unlink():
 
 
 def _nice(exc: Exception) -> str:
+    from services import egress
+
+    reason = egress.reason(exc)          # the proxy itself failed: say it in Persian (never the exception text)
+    if reason:
+        return reason
     name = type(exc).__name__
     table = {
         "PhoneCodeInvalidError": "کد اشتباه است.", "PhoneCodeExpiredError": "کد منقضی شده؛ دوباره شماره را بفرستید.",

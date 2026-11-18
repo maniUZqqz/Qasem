@@ -12,7 +12,12 @@ WHAT THE NODE DOES BY ITSELF (nothing to click, nothing to install by hand)
      Chromium build mirrored on the site (abagram-chromium-win64.zip);
   3. starts Abagram (abagram/app.py, the vendored copy next to this file) as a service bound to 127.0.0.1 on a free port with a random
      key in IGS_API_TOKEN (IGS_NODE_MODE=1: the key is the only door), keeps it alive, restarts it after an update;
-  4. reports its health in the node report (caps["abagram"]): installed / running / signed in / proxy / reach / budget / what to do.
+  4. reports its health in the node report (caps["abagram"]): installed / running / signed in / proxy / reach / budget / what to do;
+  5. proxy for Instagram (it is filtered in Iran): the owner's own choice always wins (NM_ABAGRAM_PROXY, <abagram folder>\\proxy.txt, the
+     local Windows system proxy, or a proxy set inside Abagram). ONLY when the node has none of those, it takes the one the owner set for the
+     «instagram» service on the site's «پراکسی و VPN» page (GET /api/v1/egress/node/, asked every 5 minutes, node-token authenticated; a
+     proxy that points at the site's own server or that needs a SOCKS login is never handed out) and follows the page: a change there is
+     applied here, «direct» there removes the proxy this node took from it (a marker file site-proxy.json remembers which one was ours).
 
 WHAT IT NEVER DOES: bypass Instagram's protections, log in by itself (the owner signs in once through Abagram's own page: run
 Open-Abagram.bat on this computer), copy a session from another computer, read followers/following lists, post anything.
@@ -43,7 +48,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-VERSION = "1.1"
+VERSION = "1.2"
 KINDS = ("ig.scrape", "ig.health")
 FEATURE = "abagram"                        # the feature name in requirements.d/abagram.json (the node's install list)
 IS_WIN = sys.platform.startswith("win")
@@ -57,6 +62,9 @@ CHROMIUM_PACK = "abagram-chromium-win64.zip"
 INDEX_URLS = ("https://pypi.org/simple", "https://mirrors.aliyun.com/pypi/simple")
 LOOP_S = 15.0                              # the supervisor looks at the service this often
 REACH_EVERY_S = 3600.0                     # one anonymous connection test per hour, no more
+SITE_PROXY_EVERY_S = 300.0                 # the site's proxy for Instagram is asked for at most this often
+SITE_PROXY_SERVICE = "instagram"           # the routing-table key on the site (apps.egress catalogue)
+SITE_PROXY_RE = re.compile(r"^(https?|socks5)://[^\s]{1,190}$")      # what Abagram accepts as a proxy
 RETRY_INSTALL_S = (300, 900, 3600)         # after a failed install: wait, then try again by itself
 MAX_RESTARTS_PER_HOUR = 6
 HUNG_S = 600                               # a service that is alive but silent for this long is ended and started again
@@ -109,6 +117,7 @@ class Layout:
         self.marker = os.path.join(self.venv, ".nm-abagram.json")
         self.lock = os.path.join(self.code, "requirements-node.lock.txt")
         self.proxy_file = os.path.join(self.root, "proxy.txt")
+        self.site_proxy_file = os.path.join(self.root, "site-proxy.json")     # which proxy of Abagram's came from the site (masked, no secret)
         self.pip_cache = os.path.join(data_dir, "pip-cache")
 
 
@@ -258,6 +267,26 @@ def wanted_proxy(layout, env=None):
         pass
     hint = system_proxy_hint()
     return (hint, "system") if hint else ("", "")
+
+
+def fetch_site_proxy(agent, opener=urllib.request.urlopen, timeout=15):
+    """What the site's «پراکسی و VPN» page gives Instagram work on this node: a proxy URL, "" (the owner chose «direct» there, or the proxy
+    is not usable from here), or None (the site could not be asked / answered badly: keep whatever was true before). Never raises."""
+    try:
+        site = agent.site_base()
+        token = (getattr(agent, "CONFIG", None) or {}).get("token", "")
+        if not site or not token:
+            return None
+        req = urllib.request.Request(site.rstrip("/") + "/api/v1/egress/node/", headers={"Authorization": "Node " + token, "Accept": "application/json"})
+        with opener(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+        entry = ((data or {}).get("services") or {}).get(SITE_PROXY_SERVICE)
+        if not isinstance(entry, dict):
+            return ""
+        url = str(entry.get("proxy_url") or "") if entry.get("routed") else ""
+        return url if SITE_PROXY_RE.match(url) else ""
+    except Exception:  # noqa: BLE001 - an old site without the endpoint (404), a locked database (503), no network ...
+        return None
 
 
 # ───────────────────────────────────────────── the browser
@@ -547,6 +576,9 @@ class Service:
         self.reach_at = 0.0
         self.proxy_applied = ""
         self.proxy_source = ""
+        self.site_proxy = ""           # the last answer of the site's proxy page for Instagram ("" = none)
+        self.site_proxy_at = None      # when it was asked (clock time); None = never
+        self.site_proxy_fetch = fetch_site_proxy
         self.started_stamp = ""
         self.down_since = 0.0
         self.announced = set()
@@ -799,24 +831,68 @@ class Service:
                 self.down_since = self.clock()
             self.state = "down"
 
-    def _apply_proxy(self):
-        """Set Abagram's proxy from the owner's choice / the local system proxy when it has none yet (Instagram is filtered in Iran)."""
-        if not self.last or self.last.get("has_proxy"):
-            self.proxy_source = "abagram" if self.last and self.last.get("has_proxy") else ""
-            return
-        url, where = wanted_proxy(self.layout)
-        if not url or url == self.proxy_applied:
-            return
+    def _site_proxy_now(self):
+        """The site's proxy for Instagram ("" = none), asked at most every SITE_PROXY_EVERY_S; the last answer is kept when the site is silent."""
+        now = self.clock()
+        if self.site_proxy_at is None or now - self.site_proxy_at >= SITE_PROXY_EVERY_S:
+            self.site_proxy_at = now
+            got = self.site_proxy_fetch(self.agent)
+            if got is not None:
+                self.site_proxy = got
+        return self.site_proxy
+
+    def _set_abagram_proxy(self, url):
+        """Write Abagram's own proxy preference ("" removes it). True when Abagram took it."""
         try:
             code, _d = Client(self.port, self.token).post("/api/prefs", {"values": {"proxy": url}})
         except ServiceDown:
+            return False
+        if code != 200:
+            self.say("Abagram refused the proxy %s (HTTP %s)" % (mask_proxy(url) or "(none)", code))
+        return code == 200
+
+    def _apply_proxy(self):
+        """Set Abagram's proxy from the owner's choice / the local system proxy when it has none yet (Instagram is filtered in Iran); when the
+        node has none of its own, take the one from the site's «پراکسی و VPN» page and follow that page (see the module header, point 5)."""
+        if not self.last:
+            self.proxy_source = ""
             return
-        if code == 200:
+        has = bool(self.last.get("has_proxy"))
+        marker = read_json(self.layout.site_proxy_file, {}) or {}
+        ours = has and bool(marker.get("masked")) and marker.get("masked") == self.last.get("proxy")
+        if has and not ours:
+            self.proxy_source = "abagram"                   # the owner's proxy (or one set inside Abagram) is never replaced
+            return
+        if ours:
+            self.proxy_source = "site"
+            site = self._site_proxy_now()
+            if site == "":                                  # the owner chose «direct» on the page: take our proxy away again
+                if self._set_abagram_proxy(""):
+                    try:
+                        os.remove(self.layout.site_proxy_file)
+                    except OSError:
+                        pass
+                    self.proxy_applied, self.proxy_source = "", ""
+                    self.say("Abagram's proxy removed: the site's proxy page no longer routes Instagram through one")
+                    self.reach_at = 0
+            elif site and mask_proxy(site) != marker.get("masked") and self._set_abagram_proxy(site):
+                write_json(self.layout.site_proxy_file, {"masked": mask_proxy(site), "at": int(self.clock())})
+                self.proxy_applied = site
+                self.say("Abagram's proxy changed to %s (from the site's proxy page)" % mask_proxy(site))
+                self.reach_at = 0
+            return
+        url, where = wanted_proxy(self.layout)
+        if not url:
+            url, where = self._site_proxy_now(), "site"      # the node has none of its own: the site's one, if the owner set it
+        if not url or url == self.proxy_applied:
+            return
+        if self._set_abagram_proxy(url):
             self.proxy_applied, self.proxy_source = url, where
+            if where == "site":
+                write_json(self.layout.site_proxy_file, {"masked": mask_proxy(url), "at": int(self.clock())})
             self.say("Abagram's proxy set to %s (from %s)" % (mask_proxy(url), where))
             self.reach_at = 0                               # test the line again with it
         else:
-            self.say("Abagram refused the proxy %s (HTTP %s)" % (mask_proxy(url), code))
             self.proxy_applied = url
 
     def _maybe_reach(self, force=False):

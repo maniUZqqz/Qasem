@@ -1126,3 +1126,22 @@ INSTALLED_APPS += ["apps.img2code"]
 IMG2CODE_UI_DESIGN = os.getenv("IMG2CODE_UI_DESIGN", "1") not in ("0", "false", "no", "off") and "apps.design_studio" in INSTALLED_APPS
 # تبدیل‌های گیرکرده را ناموفق و پوشه‌های بی‌ردیف را پاک می‌کند
 CELERY_BEAT_SCHEDULE["img2code-sweep"] = {"task": "apps.img2code.tasks.sweep", "schedule": 900.0, "options": {"expires": 600}}
+
+
+# ── پراکسی و VPN برای هر سرویس (پنل › ابزارها › «پراکسی و VPN») ─────────────────────────────────────────────────────────
+# فقط سرویس‌هایی که در services/egress/catalog.py هستند (تلگرام، اینستاگرام، واتساپ، موتورهای جست‌وجو …) و فقط وقتی ادمین در پنل
+# مسیرشان را «از راهِ پراکسی» بگذارد از آن می‌روند؛ پیش‌فرض همه مستقیم است. پراکسی هرگز متغیرِ محیطیِ فرایند نمی‌شود (HTTP_PROXY نداریم).
+INSTALLED_APPS += ["apps.egress"]
+#: جدولِ مسیرها در حافظهٔ هر فرایند این‌قدر ثانیه نگه داشته می‌شود (ذخیرهٔ تازه همان‌جا فوراً اعمال می‌شود)
+EGRESS_CACHE_SECONDS = float(os.getenv("EGRESS_CACHE_SECONDS", "5"))
+#: دکمهٔ «آزمایش»: سرویس‌های «آدرسِ من چیست» (ipinfo.io و دو جایگزین) و نشانیِ آزمایشِ هر سرویس را می‌شود با متغیرِ محیطی عوض کرد
+#: (EGRESS_IP_ECHO_URLS = نشانی‌ها با ویرگول؛ EGRESS_PROBE_URLS_JSON = {"telegram": [["برچسب", "https://…"]]}) - مثلاً اگر ipinfo.io هم بسته باشد.
+EGRESS_IP_ECHO_URLS = tuple(u.strip() for u in os.getenv("EGRESS_IP_ECHO_URLS", "").split(",") if u.strip()) or None
+try:
+    import json as _egress_json
+
+    EGRESS_PROBE_URLS = _egress_json.loads(os.getenv("EGRESS_PROBE_URLS_JSON", "") or "null") or None
+except ValueError:
+    EGRESS_PROBE_URLS = None
+# سرویس‌هایی که از پراکسی می‌روند هر ده دقیقه خودکار آزموده می‌شوند (کارتِ صندوق و صفحهٔ تنظیمات تازه بماند؛ اگر هیچ‌کدام پراکسی ندارند کاری نمی‌کند)
+CELERY_BEAT_SCHEDULE["egress-check-routed"] = {"task": "egress.check_routed", "schedule": 600.0, "options": {"expires": 500}}

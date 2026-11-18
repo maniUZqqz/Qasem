@@ -112,6 +112,9 @@ class Adapter:
     blocked_from_iran = False
     #: Appended to «not reachable» errors - what the owner can do about it.
     unreachable_hint = ""
+    #: The routing-table service of ``apps.egress`` that carries this platform's API calls: the owner can send exactly that service through
+    #: a proxy / VPN (panel › ابزارها › پراکسی و VPN). "" = an Iranian / local service: always direct, never routable.
+    egress_service = ""
 
     def __init__(self, connection=None):
         self.connection = connection

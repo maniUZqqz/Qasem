@@ -1,6 +1,7 @@
 """اصلاح‌های بازبینیِ «اجرای واقعی برای چغر»: متنِ گوینده، قیمتِ تأییدنشده در ارائه/کاتالوگ/ویدیو، پیوندِ هم‌موضوع/هم‌قابِ رسانه‌ها، رندرِ سه‌بعدیِ خودکار،
 موسیقیِ ACE-Step. همه با فروشگاهِ ساختگی؛ هیچ دادهٔ واقعی‌ای این‌جا نیست."""
 import datetime as dt
+import json
 import uuid
 from unittest import mock
 
@@ -411,7 +412,7 @@ class Up3dRenderTests(TestCase):
 
     def test_the_final_render_is_queued_by_itself_and_the_item_waits_for_the_node(self):
         from apps.up3d import services as U
-        from apps.up3d.models import Job
+        from apps.up3d.models import Job, Project
 
         res = self._run()                                        # پروژه ساخته می‌شود ولی هنوز صحنه ندارد
         self.assertTrue(res["ok"], res)
@@ -420,6 +421,8 @@ class Up3dRenderTests(TestCase):
         proj_ref = refs.of_type(self.item, "up3d_project")[0]
         plan_job = Job.objects.get(project_id=proj_ref["id"], kind="plan")
         U.process_plan(plan_job)                                 # کارِ هماهنگ‌کننده: برنامه‌ریزیِ قالبی
+        default = "آپ" + chr(0x200C) + "مارکت"
+        self.assertNotIn(default, json.dumps(Project.objects.get(pk=proj_ref["id"]).current.document, ensure_ascii=False), "پروژهٔ تازه باید دعوتِ خودِ برند را داشته باشد، نه «آپ‌مارکت»")
         self._run()
         self.assertFalse(self.item.meta.get("retry_soon"))
         jobs = refs.of_type(self.item, "up3d_job")
@@ -440,7 +443,11 @@ class Up3dRenderTests(TestCase):
         self._run()
         proj_id = refs.of_type(self.item, "up3d_project")[0]["id"]
         U.process_plan(Job.objects.get(project_id=proj_id, kind="plan"))
-        self._run()
+        for _ in range(4):          # رندرهای قدیمیِ بی‌پرچم که با خطای صدا همان لحظه شکسته بودند (پیش از اصلاح) شمرده نمی‌شوند
+            Job.objects.create(project_id=proj_id, kind="render", profile="standard", params={}, state="FAILED", message="سرویسِ صدا خطا داد")
+        res = self._run()
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(len(refs.of_type(self.item, "up3d_job")), 1, "با وجودِ چهار رندرِ قدیمیِ ناموفق باید رندرِ تازه صف شود")
         for n in range(1, producers.MAX_RENDER_FAILS + 1):
             job = Job.objects.filter(project_id=proj_id, kind="render").exclude(state="FAILED").get()
             Job.objects.filter(pk=job.pk).update(state="FAILED", message="سرویسِ صدا خطا داد")
@@ -453,4 +460,27 @@ class Up3dRenderTests(TestCase):
                 self.assertTrue(Job.objects.get(pk=ids[0]).params.get("silent_fallback"))
         self.assertFalse(res["ok"])                                   # بعد از سه بار ناموفق: خطا به کارت می‌رسد و رندرِ تازه ساخته نمی‌شود
         self.assertIn("ناموفق", self.item.last_error)
-        self.assertEqual(Job.objects.filter(project_id=proj_id, kind="render").count(), producers.MAX_RENDER_FAILS)
+        self.assertEqual(sum(1 for j in Job.objects.filter(project_id=proj_id, kind="render") if j.params.get("silent_fallback")), producers.MAX_RENDER_FAILS)
+
+    def test_a_scene_made_with_the_template_default_cta_is_rebuilt_with_the_brand_cta(self):
+        """پروژه‌ای که اجرای اول با قالبِ بی‌cta ساخته («همین حالا از آپ‌مارکت سفارش بدید!») نباید برای فروشگاهِ دیگر رندر شود."""
+        from apps.up3d import services as U
+        from apps.up3d.models import Job, Project
+
+        default = "آپ" + chr(0x200C) + "مارکت"
+        proj, plan_job = U.create_project(self.owner, {"product_name": "برنامه", "description": "یک جملهٔ کوتاه دربارهٔ برنامه.", "brand": self.store.name},
+                                          mode="template", template="showcase", title=f"{self.store.name} — ویدیوی سه‌بعدیِ کوتاه")
+        U.process_plan(plan_job)
+        self.assertIn(default, json.dumps(proj.current.document, ensure_ascii=False))          # شرطِ آزمون: صحنهٔ قدیمی همان ایراد را دارد
+        self.assertEqual(proj.current.number, 1)
+        res = self._run()
+        self.assertTrue(res["ok"], res)
+        proj = Project.objects.get(pk=proj.pk)
+        self.assertEqual(proj.current.number, 2)
+        flat = json.dumps(proj.current.document, ensure_ascii=False)
+        self.assertNotIn(default, flat)
+        self.assertIn(self.item.meta.get("cta") or _ctx(self.plan, self.store, self.owner).f["cta"], flat)
+        job = Job.objects.get(pk=refs.of_type(self.item, "up3d_job")[0]["id"])
+        self.assertEqual(job.version_id, proj.current_id, "رندر باید با صحنهٔ اصلاح‌شده خواسته شود")
+        self._run()
+        self.assertEqual(Project.objects.get(pk=proj.pk).current.number, 2, "اجرای دوباره نسخهٔ تازهٔ دیگری نمی‌سازد")

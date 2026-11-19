@@ -849,6 +849,36 @@ RENDER_PROFILE = "standard"
 MAX_RENDER_FAILS = 3
 
 
+def _up3d_brief(ctx: Ctx) -> dict:
+    """خلاصهٔ پروژهٔ سه‌بعدی از واقعیت‌های فروشگاه. «cta» و «cta_short» را عمداً می‌دهیم: قالبِ «showcase» بدونِ آن‌ها می‌گوید «همین حالا از آپ‌مارکت
+    سفارش بدید!» و روی صفحه می‌نویسد «سفارش در آپ‌مارکت»؛ یعنی ادعایی که دربارهٔ هیچ فروشگاهِ دیگری درست نیست."""
+    cta = (ctx.f.get("cta") or "همین حالا شروع کنید").strip()
+    return {"product_name": ctx.f["flagship"] or ctx.f["name"], "description": drafts._one_liner(ctx.f)[:300], "brand": ctx.f["name"],
+            "audience": ctx.f["audience"][:160], "cta": cta[:80], "cta_short": cta[:30]}
+
+
+def _fix_default_cta(ctx: Ctx, proj) -> bool:
+    """پروژه‌ای که صحنه‌اش هنوز دعوتِ پیش‌فرضِ قالب («آپ‌مارکت») را دارد دوباره از قالب با دعوتِ خودِ برند ساخته می‌شود (نسخهٔ تازه؛ نسخهٔ قبلی می‌ماند). ⇒ True اگر عوض شد."""
+    import json
+
+    from apps.up3d import services as U
+
+    default = "آپ" + ZWNJ + "مارکت"
+    v = proj.current
+    if v is None or default in str(ctx.f.get("name") or "") or default not in json.dumps(v.document, ensure_ascii=False):
+        return False
+    brief = {**(proj.brief or {}), **_up3d_brief(ctx)}
+    plan_job = proj.jobs.filter(kind="plan").order_by("created").first()
+    template = ((plan_job.params or {}).get("template") if plan_job is not None else None) or "showcase"
+    doc = U.templates.build(template, brief, U.reg())
+    proj.brief = brief
+    proj.save(update_fields=["brief"])
+    new = U.new_version(proj, doc, source="template", note="اصلاح: دعوتِ آخر از برندِ فروشگاه، نه قالبِ «آپ‌مارکت»")
+    for j in proj.jobs.exclude(state__in=("COMPLETED", "FAILED", "CANCELLED")).filter(kind="render").exclude(version=new):
+        U.cancel(j)                                                       # رندری که هنوز با صحنهٔ قدیمی در صف بود
+    return True
+
+
 @producer("up3d")
 def p_up3d(ctx: Ctx, item: PlanItem):
     from apps.up3d import services as U
@@ -862,12 +892,12 @@ def p_up3d(ctx: Ctx, item: PlanItem):
         title = f"{ctx.f['name']} — ویدیوی سه‌بعدیِ کوتاه"
         proj = Project.objects.filter(owner=ctx.owner, title=title).first()
         if proj is None:
-            brief = {"product_name": ctx.f["flagship"] or ctx.f["name"], "description": drafts._one_liner(ctx.f)[:300], "brand": ctx.f["name"],
-                     "audience": ctx.f["audience"][:160]}
-            proj, _job = U.create_project(ctx.owner, brief, mode="template", template="showcase", title=title)
+            proj, _job = U.create_project(ctx.owner, _up3d_brief(ctx), mode="template", template="showcase", title=title)
         if str(proj.pk) in taken:
             return
         refs.add(item, refs.make("up3d_project", proj.pk, proj.title, "/tools/3d"))
+    if _fix_default_cta(ctx, proj):                                   # صحنه‌ای که با دعوتِ آماده‌ٔ قالب («سفارش در آپ‌مارکت») ساخته شده بود از نو با دعوتِ خودِ برند ساخته می‌شود
+        item.message = "دعوتِ آخرِ ویدیوی سه‌بعدی (قالب «آپ‌مارکت» می‌گفت) با دعوتِ خودِ برند عوض شد."
     item.draft = item.draft or "پیش‌نویسِ پروژه ساخته شد؛ رندرِ نهایی همین حالا در صفِ سرورِ پردازش است و با روشن‌شدنِ کارتِ گرافیک خودش ساخته می‌شود."
     # رندرِ نهایی هم همین‌جا در صفِ ماندگار گذاشته می‌شود (پیش‌تر فقط پیش‌نویسِ پروژه بود و رندر یک کلیکِ دستی می‌خواست)
     if _alive(item, "up3d_job"):
@@ -878,7 +908,8 @@ def p_up3d(ctx: Ctx, item: PlanItem):
     if existing is not None:
         job = existing
     else:
-        failed = list(proj.jobs.filter(kind="render", state="FAILED").order_by("-created")[:MAX_RENDER_FAILS])
+        # فقط شکست‌های رندرهایی که با «silent_fallback» خواسته شده‌اند حساب می‌شوند؛ رندرهای قدیمیِ بی‌پرچم (که با خطای ۴۰۲ی صدا همان لحظه می‌شکستند) نه
+        failed = [j for j in proj.jobs.filter(kind="render", state="FAILED").order_by("-created")[:20] if (j.params or {}).get("silent_fallback")][:MAX_RENDER_FAILS]
         if len(failed) >= MAX_RENDER_FAILS:           # بارها ناموفق بوده؛ هر ده دقیقه یک رندرِ ناموفقِ تازه نمی‌سازیم (خطا به کارت می‌رسد و تلاش‌ها بعد از چند بار متوقف می‌شود)
             raise RuntimeError(f"رندرِ سه‌بعدی {fa_digits(str(len(failed)))} بار ناموفق بود: {(failed[0].message or failed[0].error or '')[:160]}")
         try:
